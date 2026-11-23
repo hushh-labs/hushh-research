@@ -117,6 +117,7 @@ export { AgentTranscriptRevealContext };
 
 export function AgentStructuredExperienceView({
   experience,
+  conversationId,
   allowPortfolioUpload,
   allowFinancePreviewStart,
   onConfirmFinanceAnalysis,
@@ -128,6 +129,7 @@ export function AgentStructuredExperienceView({
   onMailQuickAction,
 }: {
   experience: AgentStructuredExperience;
+  conversationId?: string | null;
   allowPortfolioUpload?: boolean;
   allowFinancePreviewStart?: boolean;
   onConfirmFinanceAnalysis?: (confirmation: string) => Promise<void>;
@@ -143,7 +145,7 @@ export function AgentStructuredExperienceView({
     case "one.finance_top_gainers.v1":
       return <FinanceTopGainersCard historical={experience.historical} />;
     case "one.finance_portfolio.v1":
-      return <FinancePortfolioCard section={experience.section} />;
+      return <FinancePortfolioCard section={experience.section} conversationId={conversationId} />;
     case "one.finance_portfolio_upload.v1":
       return <FinancePortfolioUploadCard offerId={experience.offerId} allowUpload={allowPortfolioUpload && !experience.historical} />;
     case "one.finance_stock_preview.v1":

@@ -531,7 +531,7 @@ export type AgentMessage = {
   status?: "streaming" | "done" | "error";
   ephemeral?: boolean;
   memoryCapture?: AgentPkmCaptureStatus;
-  receiptPrivate?: { ownerId: string; vaultEpoch: number; conversationId: string | null; expiresAt: number };
+  receiptPrivate?: { ownerId: string; vaultEpoch: number; conversationId: string | null; expiresAt: number; kind?: "portfolio" };
   receiptRedacted?: boolean;
   kind?: "selection";
   /** Sent while One was working and taken into that reply at its next step. */
@@ -1858,6 +1858,7 @@ export function GmailInformationRequestAttachment({
 
 export function AgentBubble({
   message,
+  conversationId,
   allowFinancePreviewStart,
   onConfirmFinanceAnalysis,
   onOpenConnections,
@@ -1890,6 +1891,7 @@ export function AgentBubble({
   businessProfileCard,
 }: {
   message: AgentMessage;
+  conversationId?: string | null;
   allowFinancePreviewStart?: boolean;
   onConfirmFinanceAnalysis?: (confirmation: string) => Promise<void>;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
@@ -2147,6 +2149,7 @@ export function AgentBubble({
             </>
           ) : shouldRenderStreamPanel ? (
             <AgentTurnStreamPanel
+              conversationId={conversationId}
               allowFinancePreviewStart={allowFinancePreviewStart && message.liveFinancePreview === true}
               onConfirmFinanceAnalysis={onConfirmFinanceAnalysis}
               streamEvents={streamEvents}
@@ -6669,11 +6672,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onContextUsage: (usage) => {
             void chatMemory.recordUsage({ requestId: usage.modelCallId, inputTokens: usage.inputTokens }).catch(() => undefined);
           },
-          onReceiptPrivate: () => {
+          onReceiptPrivate: (kind) => {
             if (streamAbortController.signal.aborted) return;
             updateMessage(assistantMessageId, message => ({ ...message, receiptPrivate: {
               ownerId: userId, vaultEpoch: snapshotVaultSessionEpoch(), conversationId: conversationIdRef.current,
-              expiresAt: Date.now() + 5 * 60 * 1000,
+              expiresAt: Date.now() + 5 * 60 * 1000, kind,
             } }));
           },
           onReceiptSetupNeeded: (state) => {
@@ -7270,11 +7273,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onContextUsage: (usage) => {
             void chatMemory.recordUsage({ requestId: usage.modelCallId, inputTokens: usage.inputTokens }).catch(() => undefined);
           },
-          onReceiptPrivate: () => {
+          onReceiptPrivate: (kind) => {
             if (streamAbortController.signal.aborted) return;
             updateMessage(assistantMessageId, current => ({ ...current, receiptPrivate: {
               ownerId: userId, vaultEpoch: snapshotVaultSessionEpoch(), conversationId: conversationIdRef.current,
-              expiresAt: Date.now() + 5 * 60 * 1000,
+              expiresAt: Date.now() + 5 * 60 * 1000, kind,
             } }));
           },
           onStreamHealth: (signal) => {
@@ -10011,6 +10014,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   ) : (
                     <AgentBubble
                       message={message}
+                      conversationId={conversationId}
                       allowFinancePreviewStart={message.id === latestTranscriptMessageId}
                       onConfirmFinanceAnalysis={async (confirmation) => {
                         if (!applicationOwnerId || !isVaultUnlocked || !vaultOwnerToken ||

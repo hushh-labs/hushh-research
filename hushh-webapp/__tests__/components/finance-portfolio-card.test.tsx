@@ -2,12 +2,13 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { FinancePortfolioCard } from "@/components/agent/finance-portfolio-card";
 
-const state = vi.hoisted(() => ({ unlocked: false, resource: vi.fn() }));
+const state = vi.hoisted(() => ({ unlocked: false, resource: vi.fn(), remember: vi.fn(async () => undefined) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ userId: "owner" }) }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ isVaultUnlocked: state.unlocked, vaultKey: "key", vaultOwnerToken: "token" }),
 }));
 vi.mock("@/lib/kai/kai-financial-resource", () => ({ useKaiFinancialResource: state.resource }));
+vi.mock("@/lib/kai/portfolio-chat-context", () => ({ rememberPortfolioCard: state.remember }));
 vi.mock("@/components/kai/charts/portfolio-allocation-bar", () => ({ PortfolioAllocationBar: () => null }));
 vi.mock("@/components/kai/charts/portfolio-history-chart", () => ({ PortfolioHistoryChart: () => null }));
 vi.mock("@/components/kai/performance/performance-strip", () => ({ PerformanceStrip: () => null }));
@@ -132,5 +133,26 @@ describe("Finance portfolio card", () => {
     fireEvent.error(images[0]!);
     expect(list.querySelector("img")).toBeNull();
     expect(within(list).getByText("Apple")).toBeVisible();
+  });
+
+  it("binds a card follow-up to its first opened snapshot until the card reopens", () => {
+    state.unlocked = true;
+    const before = { userId: "owner", activeSource: "statement", activePortfolio: { holdings: [] } };
+    const after = { ...before, activeSource: "plaid" };
+    state.resource.mockReturnValue({ data: before, loading: false });
+    const { rerender } = render(<FinancePortfolioCard section="holdings" conversationId="thread" />);
+    const details = screen.getByText("Holdings").closest("details")!;
+    const toggle = (open: boolean) => {
+      details.open = open;
+      fireEvent(details, new Event("toggle"));
+    };
+    toggle(true);
+    expect(state.remember).toHaveBeenLastCalledWith("thread", before);
+    state.resource.mockReturnValue({ data: after, loading: false });
+    rerender(<FinancePortfolioCard section="holdings" conversationId="thread" />);
+    expect(state.remember).toHaveBeenCalledTimes(1);
+    toggle(false);
+    toggle(true);
+    expect(state.remember).toHaveBeenLastCalledWith("thread", after);
   });
 });

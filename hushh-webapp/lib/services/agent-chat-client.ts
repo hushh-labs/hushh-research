@@ -69,6 +69,13 @@ import { ownerAiRunErrorMessage } from "@/lib/agent/owner-ai-turn-errors";
 import { managedChatRunErrorMessage, MODEL_CAPACITY_MESSAGE } from "@/lib/agent/managed-chat-run-errors";
 import { ownerPodTurnErrorMessage, refusalCode } from "@/lib/agent/owner-pod-turn-errors";
 import { wakingChatTransport } from "@/lib/agent/one-chat-transport";
+import {
+  parsePortfolioContextRequest,
+  PORTFOLIO_CONTEXT_CONTRACT,
+  PORTFOLIO_CONTEXT_TOOL,
+  readPortfolioContext,
+  type PortfolioContextRequest,
+} from "@/lib/kai/portfolio-chat-context";
 import type { ReceiptCanonicalIndex } from "@/lib/profile/gmail-receipt-memory-index";
 import { RECEIPT_FUNCTIONS, RECEIPT_TOOL_DECLARATIONS, type ReceiptAnalysisRequest, type ReceiptFunction } from "@/lib/mail/receipt-analysis";
 import { receiptCallRequest, receiptCallRunner, settleReceiptCalls, type ReceiptSetupState } from "./agent-chat-receipt-calls";
@@ -193,7 +200,7 @@ export type AgentChatStreamHandlers = {
   /** Invocation metadata triggers owner-pod rediscovery, never private browser content. */
   onBrowserTaskCreated?: () => void;
   /** Receipt detail/answer is current-turn only, excluded from replay and PKM. */
-  onReceiptPrivate?: () => void;
+  onReceiptPrivate?: (kind?: "portfolio") => void;
   /** At most once per turn: receipts need Gmail connected, or a sync on this device. */
   onReceiptSetupNeeded?: (state: ReceiptSetupState) => void;
   /** Ephemeral native review: never append its references or receipt to history/debug events. */
@@ -599,6 +606,11 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Portfolio",
     message: "Opening the portfolio card.",
     activity: "Opening portfolio",
+  },
+  [PORTFOLIO_CONTEXT_TOOL]: {
+    label: "Portfolio",
+    message: "Reading saved portfolio details.",
+    activity: "Reading portfolio",
   },
   show_portfolio_upload: {
     label: "Portfolio upload",
@@ -1543,10 +1555,17 @@ async function streamAgentChatAttempt(input: {
     agent.abortRun();
   };
   const toolNames = new Map<string, string>();
-  const receiptCalls = new Map<string, Promise<{ toolCallId: string; toolName: ReceiptFunction; request: ReceiptAnalysisRequest; result: unknown }>>();
+  const receiptCalls = new Map<string, Promise<{
+    toolCallId: string;
+    toolName: ReceiptFunction | typeof PORTFOLIO_CONTEXT_TOOL;
+    request: ReceiptAnalysisRequest | PortfolioContextRequest;
+    result: unknown;
+  }>>();
   let receiptPrivate = false;
   let receiptReset = false;
   const receiptSessionCurrent = () => !receiptReset && mcpSessionCurrent();
+  const portfolioContextEnabled = Boolean(input.vaultKey && input.vaultOwnerToken && input.message.trim() &&
+    !recovered && !input.consentContinuation && !input.financeShare && !input.feedAttention);
   const runReceiptCall = receiptCallRunner({ userId: input.userId, vaultKey: input.vaultKey, vaultOwnerToken: input.vaultOwnerToken,
     isCurrent: receiptSessionCurrent }, state => handlers.onReceiptSetupNeeded?.(state));
   let reactionShown = false;
@@ -1649,6 +1668,31 @@ async function streamAgentChatAttempt(input: {
     const { request } = admission;
     receiptCalls.set(toolCallId, runReceiptCall(operation, request).then(result => ({ toolCallId, toolName: operation, request, result })));
   };
+  const startPortfolioContextCall = (toolCallId: string) => {
+    if (receiptCalls.has(toolCallId)) return;
+    const streamed = receiptArgs.get(toolCallId);
+    receiptArgs.delete(toolCallId);
+    receiptPrivate = true;
+    handlers.onReceiptPrivate?.("portfolio");
+    let request: PortfolioContextRequest | null = null;
+    try {
+      request = parsePortfolioContextRequest(JSON.parse(streamed || "null"));
+    } catch {
+      // The server projects a closed request. Malformed arguments have no authority.
+    }
+    const { userId, vaultKey, vaultOwnerToken } = input;
+    if (!request || !portfolioContextEnabled || !vaultKey || !vaultOwnerToken ||
+        !receiptSessionCurrent() || receiptCalls.size) {
+      failure = new Error("The portfolio read could not be verified. Please ask again.");
+      handlers.onError?.(failure.message);
+      agent.abortRun();
+      finishTerminalRun();
+      return;
+    }
+    receiptCalls.set(toolCallId, readPortfolioContext({ userId, vaultKey, vaultOwnerToken, threadId }, request, receiptSessionCurrent)
+      .catch(() => ({ status: "unavailable", reason: "source_unavailable" }))
+      .then(result => ({ toolCallId, toolName: PORTFOLIO_CONTEXT_TOOL, request, result })));
+  };
   const subscriber: AgentSubscriber = {
     ...publicOutputSubscriber,
     onEvent: ({ event }) => {
@@ -1660,6 +1704,10 @@ async function streamAgentChatAttempt(input: {
       if (event.type === "TOOL_CALL_END") {
         const id = event.toolCallId;
         const name = typeof id === "string" ? toolNames.get(id) : undefined;
+        if (typeof id === "string" && name === PORTFOLIO_CONTEXT_TOOL) {
+          startPortfolioContextCall(id);
+          return { stopPropagation: true };
+        }
         if (typeof id === "string" && RECEIPT_FUNCTIONS.includes(name as ReceiptFunction)) {
           // Native snapshots redact arguments and may replace streamed IDs.
           // Consume the bounded streamed call before the SDK's message lookup.
@@ -1718,7 +1766,8 @@ async function streamAgentChatAttempt(input: {
       // Follow-ups are chips under the answer, not a step the person waits on.
       if (event.toolCallName === FOLLOW_UP_TOOL_NAME || event.toolCallName === REACTION_TOOL_NAME) return;
       if (event.toolCallName === "adk_request_confirmation") confirmationArgs.set(event.toolCallId, "");
-      if (RECEIPT_FUNCTIONS.includes(event.toolCallName as ReceiptFunction)) receiptArgs.set(event.toolCallId, "");
+      if (event.toolCallName === PORTFOLIO_CONTEXT_TOOL ||
+          RECEIPT_FUNCTIONS.includes(event.toolCallName as ReceiptFunction)) receiptArgs.set(event.toolCallId, "");
       handlers.onToolStart?.(toolPayload(event.toolCallId, event.toolCallName));
     },
     onToolCallArgsEvent: ({ event }) => {
@@ -1736,6 +1785,10 @@ async function streamAgentChatAttempt(input: {
       else confirmationArgs.set(event.toolCallId, next);
     },
     onToolCallEndEvent: ({ event, toolCallName, toolCallArgs }) => {
+      if (toolCallName === PORTFOLIO_CONTEXT_TOOL) {
+        startPortfolioContextCall(event.toolCallId);
+        return;
+      }
       if (RECEIPT_FUNCTIONS.includes(toolCallName as ReceiptFunction)) {
         startReceiptCall(event.toolCallId, toolCallName as ReceiptFunction, toolCallArgs);
         return;
@@ -1788,10 +1841,10 @@ async function streamAgentChatAttempt(input: {
         handlers.onToolResult?.({ ...toolPayload(event.toolCallId, toolName, {}), ...result.event });
         return;
       }
-      if (RECEIPT_FUNCTIONS.includes(toolName as ReceiptFunction)) {
+      if (toolName === PORTFOLIO_CONTEXT_TOOL || RECEIPT_FUNCTIONS.includes(toolName as ReceiptFunction)) {
         const payload = toolPayload(event.toolCallId, toolName);
         payload.raw = { protocol: "ag-ui", toolName };
-        payload.message = "Receipt function finished for this turn.";
+        payload.message = toolName === PORTFOLIO_CONTEXT_TOOL ? "Private portfolio read finished." : "Receipt function finished for this turn.";
         handlers.onToolResult?.(payload);
         return;
       }
@@ -2267,6 +2320,7 @@ async function streamAgentChatAttempt(input: {
         ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}),
         // The mail draft envelope version this client reads. The server reads it per request, so resumed runs send it too.
         emailDraftContract: 2, emailAgentContract: 1, calendarReviewContract: 1, emailReadReceiptContract: 2,
+        ...(portfolioContextEnabled ? { portfolioContextContract: PORTFOLIO_CONTEXT_CONTRACT } : {}),
         screenContext: input.screenContext,
         ...(input.consentContinuation ? { consentContinuation: input.consentContinuation } : {}),
         ...(input.financeShare ? { financeShare: input.financeShare } : {}),
@@ -2290,15 +2344,18 @@ async function streamAgentChatAttempt(input: {
     if (receiptCalls.size && !failure && !detached && !input.signal?.aborted) {
       const receiptToolResults = await settleReceiptCalls(receiptCalls.values(), input.signal, () => handlers.onStreamHealth?.({ kind: "activity" }));
       receiptCalls.clear();
-      if (mcpReviews.size) throw new Error("Receipt analysis must complete in its own authorized turn. Ask again.");
-      if (!receiptSessionCurrent()) throw new Error("Receipt authority changed. Unlock and ask again.");
+      const portfolioRead = receiptToolResults.some(item => item.toolName === PORTFOLIO_CONTEXT_TOOL);
+      const privateReadLabel = portfolioRead ? "Portfolio read" : "Receipt analysis";
+      if (mcpReviews.size) throw new Error(`${privateReadLabel} must complete in its own authorized turn. Ask again.`);
+      if (!receiptSessionCurrent()) throw new Error(`${privateReadLabel} authority changed. Unlock and ask again.`);
       // Only the receipt replies: replaying run A's question made the bridge start a second run beside the receipt call.
       agent.setMessages(receiptToolResults.map(item => ({ id: crypto.randomUUID(), role: "tool" as const, toolCallId: item.toolCallId,
         content: JSON.stringify({ schema: "receipt_result.v1", operation: item.toolName, ephemeral_result: true }) })));
       await runUntilTerminal({ tools, context: [], forwardedProps: {
         timezone, screenContext: input.screenContext, communicationPreferences, receiptToolResults, emailDraftContract: 2, emailAgentContract: 1, calendarReviewContract: 1, emailReadReceiptContract: 2,
+        ...(portfolioRead ? { portfolioContextContract: PORTFOLIO_CONTEXT_CONTRACT } : {}),
       } });
-      if (!receiptSessionCurrent()) throw new Error("Receipt authority changed. Ask again.");
+      if (!receiptSessionCurrent()) throw new Error(`${privateReadLabel} authority changed. Ask again.`);
     }
     await terminalRun;
   } catch (error) {
