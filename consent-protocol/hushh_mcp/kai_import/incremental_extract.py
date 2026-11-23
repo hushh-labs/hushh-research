@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from .csv_layout import CsvLayoutUnsupported, csv_batches, decode_csv_batch, read_csv_records
+from .declared_layout import declared_csv, declared_pdf, is_declared_pdf
 from .incremental_contracts import (
     CSV_LAYOUT_SCHEMA,
     DocumentContextRequired,
@@ -111,6 +112,34 @@ def _unit(index: int, total: int, kind: str, rows: list[dict], facts: dict) -> d
     }
 
 
+async def _declared_events(
+    parsed: dict[str, Any], kind: str, started: float, guard: Guard
+) -> AsyncIterator[dict[str, Any]]:
+    rows = parsed["detailed_holdings"]
+    await guard()
+    elapsed = int((time.perf_counter() - started) * 1000)
+    yield {
+        **_unit(
+            1,
+            1,
+            kind,
+            rows,
+            {key: val for key, val in parsed.items() if key != "detailed_holdings"},
+        ),
+        "declared_layout": True,
+    }
+    await guard()
+    yield {
+        "kind": "complete",
+        "parsed": parsed,
+        "source": f"{kind}_declared_layout",
+        "units": 1,
+        "fallback_reason": None,
+        "first_result_ms": elapsed,
+        "elapsed_ms": int((time.perf_counter() - started) * 1000),
+    }
+
+
 async def incremental_statement_extract(
     *,
     content: bytes,
@@ -144,6 +173,13 @@ async def incremental_statement_extract(
     try:
         if is_csv:
             records = await _thread_call(read_csv_records, content)
+            direct = declared_csv(records)
+            if direct is not None and not (
+                needs_document_context and needs_document_context(direct)
+            ):
+                async for event in _declared_events(direct, "csv", started, guard):
+                    yield event
+                return
             batches = csv_batches(records)
             if not batches:
                 raise CsvLayoutUnsupported("csv_empty")
@@ -211,6 +247,20 @@ async def incremental_statement_extract(
                 yield _unit(index, len(batches), "csv", rows, facts)
         else:
             source = await PdfPages.open(content)
+            if source.count <= 8:
+                first_page = await source.page_text(0)
+                if is_declared_pdf(first_page):
+                    pages = [first_page]
+                    for index in range(1, source.count):
+                        await guard()
+                        pages.append(await source.page_text(index))
+                    direct = declared_pdf(pages)
+                    if direct is not None and not (
+                        needs_document_context and needs_document_context(direct)
+                    ):
+                        async for event in _declared_events(direct, "pdf", started, guard):
+                            yield event
+                        return
             context = ""
             previous_rows: list[dict] = []
             schema = page_extraction_schema(_EXTRACTION_SCHEMA)
