@@ -98,6 +98,8 @@ def test_raw_chat_keeps_the_non_client_roster():
     from ag_ui_adk import AGUIToolset
 
     from hushh_mcp.one_adk.agent_tree import _SPECIALIST_MODEL, build_one_text_agent
+    from hushh_mcp.one_adk.portfolio_context_contract import PORTFOLIO_CONTEXT_TOOL
+    from hushh_mcp.one_adk.receipt_client_tools import RECEIPT_TOOL_NAMES
 
     model = turn_warmup._WarmupLlm(model=_SPECIALIST_MODEL)
     interactive = build_one_text_agent(model=model, allow_workspace_tools=True)
@@ -112,7 +114,12 @@ def test_raw_chat_keeps_the_non_client_roster():
             getattr(tool, "name", None) or getattr(tool, "__name__", None),
         )
 
-    assert sum(isinstance(tool, AGUIToolset) for tool in interactive.tools) == 1
+    client_toolsets = [
+        set(tool.tool_filter) for tool in interactive.tools if isinstance(tool, AGUIToolset)
+    ]
+    assert len(client_toolsets) == 2
+    assert set(RECEIPT_TOOL_NAMES) in client_toolsets
+    assert {PORTFOLIO_CONTEXT_TOOL} in client_toolsets
     assert not any(isinstance(tool, AGUIToolset) for tool in raw.tools)
     assert [identity(tool) for tool in raw.tools] == [
         identity(tool) for tool in interactive.tools if not isinstance(tool, AGUIToolset)
