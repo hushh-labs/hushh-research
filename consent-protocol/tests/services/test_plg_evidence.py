@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import time
+from contextlib import asynccontextmanager as _metrics_asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -14,9 +15,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.middleware import require_firebase_auth_read_only
+from api.routes.one import metrics as _metrics_route
 from api.routes.one import plg
 from hushh_mcp.hushh_adk import product_activity as sdk
 from hushh_mcp.services import marketing_preferences
+from hushh_mcp.services import metrics_adoption as _metrics_source
 from hushh_mcp.services import plg_audience as audience
 from hushh_mcp.services import plg_customer_cohort as cohort
 from hushh_mcp.services import plg_evidence as evidence
@@ -25,6 +28,7 @@ from hushh_mcp.services import plg_reporting as reporting
 from hushh_mcp.services import product_activity as sink
 from hushh_mcp.services.pkm_mutation_contracts import derive_pkm_mutation_commit_id
 from hushh_mcp.services.plg_catalog import activity_catalog
+from hushh_mcp.services.plg_reporting import ReportingPolicy as _MetricsReportingPolicy
 
 SECRET = "test-only-plg-export-signature-key-with-32-characters"
 NOW = datetime.now(timezone.utc)
@@ -1235,3 +1239,721 @@ def test_slow_measurement_checkout_cannot_stall_product_or_build_an_unbounded_qu
         release.set()
         for future in pending:
             future.result(timeout=2)
+
+
+# Server-only Metrics aggregate uses the existing signed-source verification lane.
+
+_METRICS_NOW = datetime.now(timezone.utc)
+
+
+@pytest.fixture
+def metrics_aggregate_setup(monkeypatch):
+    from api.utils import firebase_admin
+
+    auth_app = SimpleNamespace(project_id="hushh-pda")
+    monkeypatch.setattr(firebase_admin, "get_firebase_auth_app", lambda: auth_app)
+    binding = {
+        "approved": True,
+        "definitionVersion": "1",
+        "sourceGeneration": "a" * 64,
+        "scopeDigest": "b" * 64,
+        "populationPolicyRevision": "c" * 64,
+        "reconciliationDigest": "d" * 64,
+        "coverageFrom": (_METRICS_NOW - timedelta(days=7)).date().isoformat(),
+    }
+    body = {
+        "definitionVersion": "1",
+        "sourceGeneration": "a" * 64,
+        "scopeDigest": "b" * 64,
+        "period": {
+            "startDate": (_METRICS_NOW - timedelta(days=2)).date().isoformat(),
+            "endDate": (_METRICS_NOW - timedelta(days=1)).date().isoformat(),
+            "timezone": "UTC",
+        },
+    }
+    secret = "synthetic-metrics-signing-fixture-" * 2
+    monkeypatch.setenv("ONE_METRICS_ADOPTION_ENABLED", "true")
+    monkeypatch.setenv("ONE_METRICS_ADOPTION_SECRET", secret)
+    monkeypatch.setenv("ONE_METRICS_ADOPTION_BINDING_JSON", json.dumps(binding))
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda")
+    monkeypatch.setattr(_metrics_route, "current_auth_lane", lambda: "production")
+    app = FastAPI()
+    app.include_router(_metrics_route.router)
+    policy = _MetricsReportingPolicy(
+        frozenset({"staff"}), frozenset(), frozenset({"company.invalid"}), "c" * 64
+    )
+    monkeypatch.setattr(_metrics_source.plg_reporting, "reporting_policy", lambda: policy)
+    return SimpleNamespace(binding=binding, body=body, secret=secret, client=TestClient(app))
+
+
+def _metrics_signed(f, body=None, timestamp=None):
+    raw = json.dumps(body or f.body, separators=(",", ":")).encode()
+    at = str(timestamp or int(time.time() * 1000))
+    signature = hmac.new(
+        f.secret.encode(),
+        b"metrics-one-aggregate-v1:" + at.encode() + b":" + raw,
+        hashlib.sha256,
+    ).hexdigest()
+    return (
+        raw,
+        {
+            "X-Metrics-Timestamp": at,
+            "X-Metrics-Signature": signature,
+            "Content-Type": "application/json",
+        },
+    )
+
+
+def test_metrics_aggregate_signature_and_environment_refuse_before_source_access(
+    metrics_aggregate_setup, monkeypatch
+):
+    run = AsyncMock()
+    monkeypatch.setattr(_metrics_source, "bounded_adoption_aggregate", run)
+    for key, value in [
+        ("ONE_METRICS_ADOPTION_ENABLED", "false"),
+        ("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat"),
+    ]:
+        with monkeypatch.context() as scoped:
+            scoped.setenv(key, value)
+            raw, headers = _metrics_signed(metrics_aggregate_setup)
+            assert (
+                metrics_aggregate_setup.client.post(
+                    "/api/one/metrics/adoption", content=raw, headers=headers
+                ).status_code
+                == 404
+            )
+    raw, headers = _metrics_signed(
+        metrics_aggregate_setup, timestamp=int(time.time() * 1000) - 60001
+    )
+    assert (
+        metrics_aggregate_setup.client.post(
+            "/api/one/metrics/adoption", content=raw, headers=headers
+        ).status_code
+        == 401
+    )
+    raw, headers = _metrics_signed(metrics_aggregate_setup)
+    headers["X-Metrics-Signature"] = "0" * 64
+    assert (
+        metrics_aggregate_setup.client.post(
+            "/api/one/metrics/adoption", content=raw, headers=headers
+        ).status_code
+        == 401
+    )
+    with monkeypatch.context() as scoped:
+        scoped.setattr(_metrics_route, "current_auth_lane", lambda: "uat")
+        assert (
+            metrics_aggregate_setup.client.post(
+                "/api/one/metrics/adoption", content=raw, headers=headers
+            ).status_code
+            == 404
+        )
+    assert not run.called
+
+
+def test_metrics_aggregate_wire_contract_has_no_owner_override_and_sanitizes_unavailable(
+    metrics_aggregate_setup, monkeypatch
+):
+    run = AsyncMock(side_effect=_metrics_source.AggregateUnavailable("private source diagnostics"))
+    monkeypatch.setattr(_metrics_source, "bounded_adoption_aggregate", run)
+    raw, headers = _metrics_signed(
+        metrics_aggregate_setup, {**metrics_aggregate_setup.body, "userId": "other-owner"}
+    )
+    assert (
+        metrics_aggregate_setup.client.post(
+            "/api/one/metrics/adoption", content=raw, headers=headers
+        ).status_code
+        == 400
+    )
+    assert not run.called
+    raw, headers = _metrics_signed(metrics_aggregate_setup)
+    response = metrics_aggregate_setup.client.post(
+        "/api/one/metrics/adoption", content=raw, headers=headers
+    )
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Metrics aggregate unavailable"}
+    assert response.headers["cache-control"] == "private, no-store"
+    assert run.await_args.args[0].model_dump() == metrics_aggregate_setup.body
+
+
+class _MetricsConnection:
+    def __init__(self):
+        self.ids = ["customer", "staff"]
+        self.restricted = False
+        self.transactions = []
+
+    @_metrics_asynccontextmanager
+    async def transaction(self, **options):
+        self.transactions.append(options)
+        yield
+
+    async def execute(self, *_args):
+        return None
+
+    async def fetchval(self, query, *_args, **_options):
+        if "row_security_active" in query:
+            return self.restricted
+        assert query == "SELECT transaction_timestamp()"
+        return _METRICS_NOW - timedelta(seconds=1)
+
+    async def fetch(self, query, *_args, **_options):
+        if query == _metrics_source.CANDIDATES_SQL:
+            return [{"user_id": uid} for uid in self.ids]
+        assert query == _metrics_source.MEANINGFUL_REPLIES_SQL
+        return [{"user_id": "customer"}, {"user_id": "customer"}]
+
+
+@pytest.fixture
+def metrics_aggregate_database(metrics_aggregate_setup, monkeypatch):
+    guard, data = (_MetricsConnection(), _MetricsConnection())
+    connections = iter([guard, data])
+
+    @_metrics_asynccontextmanager
+    async def acquire(**_options):
+        yield next(connections)
+
+    before = (
+        {
+            "customer": {"emails": ("person@outside.invalid",)},
+            "staff": {"emails": ("staff@company.invalid",)},
+        },
+        {
+            "customer": {"email": "person@outside.invalid"},
+            "staff": {"email": "staff@company.invalid"},
+        },
+        {},
+    )
+    identity = AsyncMock(return_value=before)
+    monkeypatch.setattr(_metrics_source, "_identity", identity)
+    monkeypatch.setattr(
+        _metrics_source.AccountDeletionLifecycleService,
+        "active_projection_user_ids",
+        AsyncMock(return_value={"customer", "staff"}),
+    )
+    summaries = AsyncMock(
+        return_value={"customer": {"supported": True, "limited": False, "count": 3}}
+    )
+    monkeypatch.setattr(_metrics_source.plg_outcomes, "value_summaries", summaries)
+    return SimpleNamespace(
+        pool=SimpleNamespace(acquire=acquire),
+        guard=guard,
+        data=data,
+        identity=identity,
+        summaries=summaries,
+    )
+
+
+@pytest.mark.asyncio
+async def test_metrics_aggregate_aggregate_uses_one_snapshot_and_source_owned_effects_without_identity_export(
+    metrics_aggregate_setup, metrics_aggregate_database
+):
+    result = await _metrics_source.adoption_aggregate(
+        _metrics_source.AdoptionRequest.model_validate(metrics_aggregate_setup.body),
+        metrics_aggregate_setup.binding,
+        pool=metrics_aggregate_database.pool,
+    )
+    assert result["metrics"]["activeAccounts"]["value"] == 1
+    assert result["metrics"]["confirmedOutcomes"]["value"] == 3
+    assert all((metric["coverage"] == "partial" for metric in result["metrics"].values()))
+    assert metrics_aggregate_database.data.transactions == [
+        {"isolation": "repeatable_read", "readonly": True}
+    ]
+    assert metrics_aggregate_database.guard.transactions == [{"isolation": "read_committed"}]
+    assert metrics_aggregate_database.summaries.await_args.args[1:3] == (["customer"], "agent_one")
+    assert set(result) == {
+        "metrics",
+        "sourceCheckedAt",
+        "sourceWatermark",
+        "sourceGeneration",
+        "scopeDigest",
+        "definitionVersion",
+        "period",
+        "reconciled",
+    }
+    assert "customer" not in json.dumps(result) and "outside.invalid" not in json.dumps(result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "fault", ["rls", "overflow", "cohort-change", "revocation", "outcome-limit"]
+)
+async def test_metrics_aggregate_incomplete_or_revoked_source_never_returns_zero_counts(
+    metrics_aggregate_setup, metrics_aggregate_database, fault
+):
+    if fault == "rls":
+        metrics_aggregate_database.guard.restricted = True
+    elif fault == "overflow":
+        metrics_aggregate_database.guard.ids = [f"owner-{i}" for i in range(51)]
+    elif fault == "cohort-change":
+        metrics_aggregate_database.data.ids.append("new-owner")
+    elif fault == "revocation":
+        metrics_aggregate_database.identity.side_effect = [
+            metrics_aggregate_database.identity.return_value,
+            ({}, {}, {}),
+        ]
+    else:
+        metrics_aggregate_database.summaries.return_value["customer"]["limited"] = True
+    with pytest.raises(_metrics_source.AggregateUnavailable):
+        await _metrics_source.adoption_aggregate(
+            _metrics_source.AdoptionRequest.model_validate(metrics_aggregate_setup.body),
+            metrics_aggregate_setup.binding,
+            pool=metrics_aggregate_database.pool,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("project", [None, "hushh-pda-uat", "foreign-project"])
+async def test_metrics_empty_aggregate_refuses_foreign_auth_before_database_access(
+    metrics_aggregate_setup, metrics_aggregate_database, monkeypatch, project
+):
+    from api.utils import firebase_admin
+
+    monkeypatch.setattr(
+        firebase_admin,
+        "get_firebase_auth_app",
+        lambda: None if project is None else SimpleNamespace(project_id=project),
+    )
+    metrics_aggregate_database.guard.ids = []
+    metrics_aggregate_database.data.ids = []
+    with pytest.raises(_metrics_source.AggregateUnavailable, match="authority unavailable"):
+        await _metrics_source.adoption_aggregate(
+            _metrics_source.AdoptionRequest.model_validate(metrics_aggregate_setup.body),
+            metrics_aggregate_setup.binding,
+            pool=metrics_aggregate_database.pool,
+        )
+    assert metrics_aggregate_database.guard.transactions == []
+    assert metrics_aggregate_database.data.transactions == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("authority", ["stable", "missing", "replaced"])
+async def test_metrics_empty_aggregate_rechecks_auth_after_source_reads(
+    metrics_aggregate_setup, metrics_aggregate_database, monkeypatch, authority
+):
+    from api.utils import firebase_admin
+
+    metrics_aggregate_database.guard.ids = []
+    metrics_aggregate_database.data.ids = []
+    request = _metrics_source.AdoptionRequest.model_validate(metrics_aggregate_setup.body)
+    app = SimpleNamespace(project_id="hushh-pda")
+    after = (
+        app
+        if authority == "stable"
+        else None
+        if authority == "missing"
+        else SimpleNamespace(project_id="hushh-pda")
+    )
+    apps = iter([app, after])
+    monkeypatch.setattr(firebase_admin, "get_firebase_auth_app", lambda: next(apps))
+    if authority != "stable":
+        with pytest.raises(_metrics_source.AggregateUnavailable):
+            await _metrics_source.adoption_aggregate(
+                request, metrics_aggregate_setup.binding, pool=metrics_aggregate_database.pool
+            )
+    else:
+        result = await _metrics_source.adoption_aggregate(
+            request, metrics_aggregate_setup.binding, pool=metrics_aggregate_database.pool
+        )
+        assert all(
+            metric["value"] == 0 and metric["coverage"] == "partial"
+            for metric in result["metrics"].values()
+        )
+    assert metrics_aggregate_database.guard.transactions == [{"isolation": "read_committed"}]
+    assert metrics_aggregate_database.data.transactions == [
+        {"isolation": "repeatable_read", "readonly": True}
+    ]
+
+
+def test_metrics_aggregate_period_is_source_calendar_days_and_generation_bound(
+    metrics_aggregate_setup,
+):
+    request = _metrics_source.AdoptionRequest.model_validate(
+        {
+            **metrics_aggregate_setup.body,
+            "period": {
+                "startDate": "2026-03-08",
+                "endDate": "2026-03-08",
+                "timezone": "America/New_York",
+            },
+        }
+    )
+    binding = {**metrics_aggregate_setup.binding, "coverageFrom": "2026-03-01"}
+    first, through = _metrics_source.period_bounds(
+        request, binding, datetime(2026, 3, 10, tzinfo=timezone.utc)
+    )
+    assert through + timedelta(microseconds=1) - first == timedelta(hours=23)
+    for change in [
+        {"sourceGeneration": "e" * 64},
+        {"scopeDigest": "e" * 64},
+        {"period": {**request.period.model_dump(), "timezone": "invalid/zone"}},
+    ]:
+        with pytest.raises(ValueError):
+            _metrics_source.period_bounds(
+                _metrics_source.AdoptionRequest.model_validate({**request.model_dump(), **change}),
+                binding,
+                datetime(2026, 3, 10, tzinfo=timezone.utc),
+            )
+
+
+def test_production_admits_seven_closed_calendar_days_without_expanding_uat(
+    metrics_aggregate_setup,
+):
+    now = datetime(2026, 11, 13, 12, tzinfo=timezone.utc)
+    period = {"startDate": "2026-11-06", "endDate": "2026-11-12", "timezone": "UTC"}
+    request = _metrics_source.AdoptionRequest.model_validate(
+        {**metrics_aggregate_setup.body, "period": period}
+    )
+    binding = {**metrics_aggregate_setup.binding, "coverageFrom": "2026-11-01"}
+    first, last = _metrics_source.period_bounds(request, binding, now)
+    assert first == datetime(2026, 11, 6, tzinfo=timezone.utc)
+    assert last == datetime(2026, 11, 13, tzinfo=timezone.utc) - timedelta(microseconds=1)
+    with pytest.raises(ValueError):
+        _metrics_source.period_bounds(request, binding, now, environment="uat")
+    for invalid in (
+        {"startDate": "2026-11-05", "endDate": "2026-11-05", "timezone": "UTC"},
+        {"startDate": "2026-11-13", "endDate": "2026-11-13", "timezone": "UTC"},
+    ):
+        bad = _metrics_source.AdoptionRequest.model_validate(
+            {**metrics_aggregate_setup.body, "period": invalid}
+        )
+        with pytest.raises(ValueError):
+            _metrics_source.period_bounds(bad, binding, now)
+
+
+def test_metrics_current_day_requires_one_explicit_utc_day_in_uat(metrics_aggregate_setup):
+    now = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
+    today = "2026-11-22"
+    period = {"startDate": today, "endDate": today, "timezone": "UTC"}
+    body = {**metrics_aggregate_setup.body, "period": period}
+    binding = {**metrics_aggregate_setup.binding, "coverageFrom": "2026-11-19"}
+    approved = {**binding, "provisionalUtcDay": today}
+    request = _metrics_source.AdoptionRequest.model_validate(body)
+    with pytest.raises(ValueError):
+        _metrics_source.period_bounds(request, binding, now, environment="uat")
+    with pytest.raises(ValueError):
+        _metrics_source.period_bounds(request, approved, now)
+    assert _metrics_source.period_bounds(request, approved, now, environment="uat") == (
+        datetime(2026, 11, 22, tzinfo=timezone.utc),
+        now,
+    )
+    for override in [
+        {"startDate": "2026-11-21"},
+        {"startDate": "2026-11-23", "endDate": "2026-11-23"},
+        {"timezone": "Etc/UTC"},
+    ]:
+        candidate = _metrics_source.AdoptionRequest.model_validate(
+            {**body, "period": {**period, **override}}
+        )
+        with pytest.raises(ValueError):
+            _metrics_source.period_bounds(candidate, approved, now, environment="uat")
+    after_midnight = datetime(2026, 11, 23, tzinfo=timezone.utc)
+    _, through = _metrics_source.period_bounds(request, approved, after_midnight, environment="uat")
+    assert through == after_midnight - timedelta(microseconds=1)
+
+
+@pytest.mark.asyncio
+async def test_metrics_uat_provisional_aggregate_labels_and_pins_cutoff(
+    metrics_aggregate_setup, metrics_aggregate_database, monkeypatch
+):
+    cutoff = _METRICS_NOW - timedelta(seconds=2)
+    today = cutoff.date().isoformat()
+    binding = {
+        **metrics_aggregate_setup.binding,
+        "databaseName": "uat_fixture",
+        "databaseUser": "uat_user",
+        "provisionalUtcDay": today,
+    }
+    monkeypatch.setenv("ONE_METRICS_UAT_ADOPTION_BINDING_JSON", json.dumps(binding))
+    monkeypatch.setattr(_metrics_source.metrics_uat_authority, "runtime_authority", lambda _b: None)
+    monkeypatch.setattr(_metrics_source.metrics_uat_authority, "verify_database", AsyncMock())
+    monkeypatch.setattr(
+        _metrics_source.metrics_uat_authority,
+        "policy",
+        _metrics_source.plg_reporting.reporting_policy,
+    )
+    auth = object()
+    monkeypatch.setattr(_metrics_source, "_identity_authority", lambda _env: auth)
+    body = {
+        **metrics_aggregate_setup.body,
+        "period": {"startDate": today, "endDate": today, "timezone": "UTC"},
+    }
+    result = await _metrics_source.adoption_aggregate(
+        _metrics_source.AdoptionRequest.model_validate(body),
+        _metrics_source.approved_binding("uat"),
+        pool=metrics_aggregate_database.pool,
+        now=cutoff,
+        environment="uat",
+    )
+    assert result["sourceWatermark"] == int(cutoff.timestamp() * 1000)
+    assert {metric["coverage"] for metric in result["metrics"].values()} == {"provisional"}
+    assert metrics_aggregate_database.summaries.await_args.args[-1] == cutoff
+
+
+def test_metrics_uat_route_requires_separate_lane_secret_binding_and_signing_purpose(
+    metrics_aggregate_setup, monkeypatch
+):
+    from hushh_mcp.services import metrics_uat_authority
+
+    f = metrics_aggregate_setup
+    uat_secret = "synthetic-uat-metrics-secret-" * 2
+    uat_binding = {**f.binding, "databaseName": "uat_fixture", "databaseUser": "uat_user"}
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    monkeypatch.setattr(_metrics_route, "current_auth_lane", lambda: "uat")
+    monkeypatch.setenv("ONE_METRICS_UAT_ADOPTION_ENABLED", "true")
+    monkeypatch.setenv("ONE_METRICS_UAT_ADOPTION_SECRET", uat_secret)
+    monkeypatch.setenv("ONE_METRICS_UAT_ADOPTION_BINDING_JSON", json.dumps(uat_binding))
+    run = AsyncMock(return_value={"coverage": "partial"})
+    monkeypatch.setattr(_metrics_source, "bounded_adoption_aggregate", run)
+    raw = json.dumps(f.body, separators=(",", ":")).encode()
+    at = str(int(time.time() * 1000))
+
+    def headers(purpose):
+        return {
+            "X-Metrics-Timestamp": at,
+            "X-Metrics-Signature": hmac.new(
+                uat_secret.encode(), purpose + at.encode() + b":" + raw, hashlib.sha256
+            ).hexdigest(),
+        }
+
+    assert (
+        f.client.post(
+            "/api/one/metrics/adoption", content=raw, headers=headers(b"metrics-one-aggregate-v1:")
+        ).status_code
+        == 401
+    )
+    result = f.client.post(
+        "/api/one/metrics/adoption", content=raw, headers=headers(b"metrics-one-aggregate-uat-v1:")
+    )
+    assert result.status_code == 200 and result.json() == {"coverage": "partial"}
+    assert run.await_args.kwargs == {"environment": "uat"}
+    with monkeypatch.context() as scoped:
+        scoped.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda")
+        assert (
+            f.client.post(
+                "/api/one/metrics/adoption",
+                content=raw,
+                headers=headers(b"metrics-one-aggregate-uat-v1:"),
+            ).status_code
+            == 404
+        )
+    with monkeypatch.context() as scoped:
+        scoped.delenv("ONE_METRICS_UAT_ADOPTION_ENABLED")
+        assert (
+            f.client.post(
+                "/api/one/metrics/adoption",
+                content=raw,
+                headers=headers(b"metrics-one-aggregate-uat-v1:"),
+            ).status_code
+            == 404
+        )
+    assert metrics_uat_authority.PROJECT == "hushh-pda-uat"
+
+
+def test_metrics_uat_authority_requires_dedicated_policy_auth_and_physical_database(monkeypatch):
+    from api.utils import firebase_admin
+    from hushh_mcp.services import metrics_uat_authority as uat
+
+    binding = {"databaseName": "uat_fixture", "databaseUser": "uat_user"}
+    monkeypatch.setattr(uat, "current_auth_lane", lambda: "uat")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    monkeypatch.setenv("DB_UNIX_SOCKET", "/cloudsql/hushh-pda-uat:us-central1:hushh-uat-pg")
+    monkeypatch.setenv(
+        "CLOUDSQL_INSTANCE_CONNECTION_NAME", "hushh-pda-uat:us-central1:hushh-uat-pg"
+    )
+    monkeypatch.setenv("DB_NAME", "uat_fixture")
+    monkeypatch.setenv("DB_USER", "uat_user")
+    uat.runtime_authority(binding)
+    connection = SimpleNamespace(fetchval=AsyncMock(side_effect=["uat_fixture", "uat_user"]))
+    asyncio.run(uat.verify_database(connection, binding))
+    connection.fetchval = AsyncMock(return_value="production_fixture")
+    with pytest.raises(RuntimeError):
+        asyncio.run(uat.verify_database(connection, binding))
+    monkeypatch.setenv("DB_UNIX_SOCKET", "/cloudsql/hushh-pda:us-central1:hushh-vault-db")
+    with pytest.raises(RuntimeError):
+        uat.runtime_authority(binding)
+    monkeypatch.setattr(
+        firebase_admin, "get_firebase_auth_app", lambda: SimpleNamespace(project_id="hushh-pda")
+    )
+    with pytest.raises(RuntimeError):
+        uat.auth_app()
+    monkeypatch.setattr(
+        firebase_admin, "get_firebase_auth_app", lambda: SimpleNamespace(project_id="hushh-pda-uat")
+    )
+    assert uat.auth_app().project_id == "hushh-pda-uat"
+    monkeypatch.delenv("ONE_METRICS_UAT_REPORTING_POLICY_JSON", raising=False)
+    monkeypatch.setenv("ONE_PLG_REPORTING_POLICY_JSON", '{"version":1}')
+    with pytest.raises(RuntimeError):
+        uat.policy()
+    monkeypatch.setenv(
+        "ONE_METRICS_UAT_REPORTING_POLICY_JSON",
+        json.dumps(
+            {
+                "version": 1,
+                "excludedAccountIds": [],
+                "excludedEmails": [],
+                "excludedDomains": [],
+            }
+        ),
+    )
+    all_eligible = uat.policy()
+    assert all_eligible.account_ids == frozenset()
+    assert all_eligible.emails == frozenset()
+    assert all_eligible.domains == frozenset()
+    assert all_eligible.revision == uat.policy().revision
+    assert all_eligible.eligible("registered-uat", {"email": "owner@example.test"})
+    assert not all_eligible.eligible("missing-identity", None)
+    monkeypatch.setenv(
+        "ONE_PLG_REPORTING_POLICY_JSON",
+        json.dumps(
+            {"version": 1, "excludedAccountIds": [], "excludedEmails": [], "excludedDomains": []}
+        ),
+    )
+    monkeypatch.delenv("REVIEWER_UID", raising=False)
+    monkeypatch.delenv("REVIEWER_COUNTERPART_UID", raising=False)
+    monkeypatch.setattr(reporting, "one_magic_intelligence_cohorts", lambda: ())
+    with pytest.raises(reporting.ReportingPolicyUnavailable):
+        reporting.reporting_policy()
+    monkeypatch.setenv("ONE_METRICS_UAT_REPORTING_POLICY_JSON", '{"version":1}')
+    with pytest.raises(RuntimeError):
+        uat.policy()
+    monkeypatch.setenv(
+        "ONE_METRICS_UAT_REPORTING_POLICY_JSON",
+        json.dumps(
+            {
+                "version": 1,
+                "excludedAccountIds": ["fixture-excluded"],
+                "excludedEmails": [],
+                "excludedDomains": [],
+            }
+        ),
+    )
+    policy = uat.policy()
+    assert policy.account_ids == frozenset({"fixture-excluded"}) and len(policy.revision) == 64
+
+
+def test_metrics_uat_dedicated_pool_pins_socket_user_and_closes_on_swap(monkeypatch):
+    import asyncpg
+
+    from hushh_mcp.services import metrics_uat_authority as uat
+
+    binding = {"databaseName": "uat_fixture", "databaseUser": "uat_user"}
+    monkeypatch.setattr(uat, "current_auth_lane", lambda: "uat")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    monkeypatch.setenv("DB_UNIX_SOCKET", "/cloudsql/hushh-pda-uat:us-central1:hushh-uat-pg")
+    monkeypatch.setenv(
+        "CLOUDSQL_INSTANCE_CONNECTION_NAME", "hushh-pda-uat:us-central1:hushh-uat-pg"
+    )
+    monkeypatch.setenv("DB_NAME", "uat_fixture")
+    monkeypatch.setenv("DB_USER", "uat_user")
+    monkeypatch.setenv("DB_PASSWORD", "synthetic-fixture-password")
+    pool = SimpleNamespace(close=AsyncMock(), terminate=MagicMock())
+    create = AsyncMock(return_value=pool)
+    monkeypatch.setattr(asyncpg, "create_pool", create)
+
+    async def exercise():
+        with pytest.raises(RuntimeError):
+            async with uat.dedicated_pool(binding) as acquired:
+                assert acquired is pool
+                for _ in range(2):
+                    connection = SimpleNamespace(
+                        fetchval=AsyncMock(side_effect=["uat_fixture", "uat_user"])
+                    )
+                    await uat.verify_database(connection, binding)
+                monkeypatch.setenv(
+                    "DB_UNIX_SOCKET", "/cloudsql/hushh-pda:us-central1:hushh-vault-db"
+                )
+                await uat.verify_database(SimpleNamespace(fetchval=AsyncMock()), binding)
+
+    asyncio.run(exercise())
+    kwargs = create.await_args.kwargs
+    assert kwargs["host"] == "/cloudsql/hushh-pda-uat:us-central1:hushh-uat-pg"
+    assert (
+        kwargs["port"] == 5432
+        and kwargs["database"] == "uat_fixture"
+        and kwargs["user"] == "uat_user"
+    )
+    assert kwargs["ssl"] is False and kwargs["min_size"] == 0 and kwargs["max_size"] == 2
+    pool.close.assert_awaited_once()
+    monkeypatch.setenv("DB_UNIX_SOCKET", "/cloudsql/hushh-pda-uat:us-central1:hushh-uat-pg")
+    monkeypatch.setenv("PGSERVICE", "foreign-instance")
+    with pytest.raises(RuntimeError):
+        uat.runtime_authority(binding)
+
+
+@pytest.mark.asyncio
+async def test_metrics_uat_pool_admission_bounds_concurrent_connections(monkeypatch):
+    from contextlib import asynccontextmanager
+
+    from hushh_mcp.services import metrics_uat_authority as uat
+
+    monkeypatch.setattr(uat, "_pool_admission", asyncio.Semaphore(1))
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    @asynccontextmanager
+    async def admitted(_binding):
+        entered.set()
+        await release.wait()
+        yield object()
+
+    monkeypatch.setattr(uat, "_admitted_pool", admitted)
+
+    async def first():
+        async with uat.dedicated_pool({}):
+            pass
+
+    task = asyncio.create_task(first())
+    await entered.wait()
+    with pytest.raises(TimeoutError):
+        async with uat.dedicated_pool({}):
+            pytest.fail("a second pool must not start")
+    release.set()
+    await task
+    async with uat.dedicated_pool({}):
+        pass
+
+
+@pytest.mark.asyncio
+async def test_metrics_uat_aggregate_rechecks_uat_authorities_and_both_connections(
+    metrics_aggregate_setup, metrics_aggregate_database, monkeypatch
+):
+    from hushh_mcp.services import metrics_uat_authority as uat
+
+    f, db = metrics_aggregate_setup, metrics_aggregate_database
+    binding = {**f.binding, "databaseName": "uat_fixture", "databaseUser": "uat_user"}
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    monkeypatch.setenv("DB_UNIX_SOCKET", "/cloudsql/hushh-pda-uat:us-central1:hushh-uat-pg")
+    monkeypatch.setenv(
+        "CLOUDSQL_INSTANCE_CONNECTION_NAME", "hushh-pda-uat:us-central1:hushh-uat-pg"
+    )
+    monkeypatch.setenv("DB_NAME", "uat_fixture")
+    monkeypatch.setenv("DB_USER", "uat_user")
+    monkeypatch.setenv("ONE_METRICS_UAT_ADOPTION_BINDING_JSON", json.dumps(binding))
+    uat_app = SimpleNamespace(project_id="hushh-pda-uat")
+    monkeypatch.setattr(uat, "auth_app", lambda: uat_app)
+    monkeypatch.setattr(
+        uat,
+        "policy",
+        lambda: _MetricsReportingPolicy(
+            frozenset({"staff"}), frozenset(), frozenset({"company.invalid"}), "c" * 64
+        ),
+    )
+    verify = AsyncMock()
+    monkeypatch.setattr(uat, "verify_database", verify)
+    result = await _metrics_source.adoption_aggregate(
+        _metrics_source.AdoptionRequest.model_validate(f.body),
+        binding,
+        pool=db.pool,
+        environment="uat",
+    )
+    assert result["metrics"]["activeAccounts"] == {
+        "value": 1,
+        "coverage": "partial",
+        "unit": "account",
+        "basis": "exact",
+    }
+    assert verify.await_count == 2 and {call.args[0] for call in verify.await_args_list} == {
+        db.guard,
+        db.data,
+    }
+    assert all(call.args[2] == "uat" for call in db.identity.await_args_list)
+    assert "customer" not in json.dumps(result) and "outside.invalid" not in json.dumps(result)

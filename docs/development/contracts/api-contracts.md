@@ -59,6 +59,25 @@ flowchart TB
 
 ---
 
+## Metrics adoption aggregate source
+
+`POST /api/one/metrics/adoption` is a default-off, server-only aggregate for the
+Metrics collector. Production and UAT use separate project, identity, binding,
+and HMAC signing purposes; neither lane accepts an account override. The request
+pins its reporting period, definition, source generation, and scope. Responses
+are private and no-store and contain aggregate active-account and confirmed-outcome
+counts with partial or provisional coverage, never account records.
+
+Production requires `ONE_METRICS_ADOPTION_ENABLED`, a separate
+`ONE_METRICS_ADOPTION_SECRET`, and an approved
+`ONE_METRICS_ADOPTION_BINDING_JSON`; this source change does not install them.
+Production admits only recent closed periods of up to seven days and refuses
+more than 50 candidates. UAT admits a specifically bound provisional UTC day.
+The bound is a refusal ceiling, not evidence of production-scale capacity. Source
+activation requires reviewed population and credentials, independent reconciliation,
+capacity qualification, and the governed release; fixture tests do not establish
+current customer coverage.
+
 ## Connection network discovery
 
 These Firebase-authenticated reads bind the viewer to the verified session and
