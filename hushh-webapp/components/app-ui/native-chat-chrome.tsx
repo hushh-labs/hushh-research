@@ -7,6 +7,7 @@ import { NativeChromeFocusCancelled } from "@/lib/capacitor/native-chrome";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { appHaptic } from "@/lib/capacitor/app-haptics";
 
+import { subscribeNativeTopRegion } from "@/lib/capacitor/native-presentation-regions";
 import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
 import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
 import { ShellActionSurfaceBase as ShellActionSurface } from "./shell-action-surface-base";
@@ -427,12 +428,14 @@ export function NativeChatChrome(props: Props) {
     document.addEventListener("visibilitychange", invalidate);
     window.addEventListener("resize", reconcileGeometry);
     window.addEventListener(NATIVE_PANEL_LAYOUT_EVENT, reconcileGeometry);
+    const stopTopRegion = subscribeNativeTopRegion(reconcileGeometry);
     const observer = new ResizeObserver(reconcileGeometry);
     if (node) observer.observe(node);
     return () => {
       cancelled = true;
       rehearsalDiagnostics.current = false;
       handles.forEach((handle) => { void handle.remove(); });
+      stopTopRegion();
       observer.disconnect();
       node?.removeEventListener("focusout", onFocusOut);
       document.removeEventListener("visibilitychange", invalidate);

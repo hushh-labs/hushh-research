@@ -19,6 +19,7 @@ export function NetworkStatusBanner() {
     const measure = () => {
       const height = `${Math.ceil(element.getBoundingClientRect().height)}px`;
       if (root.style.getPropertyValue("--network-status-height") !== height) {
+        // perf-lint: allow root-custom-property-write -- The root coordinates portals and shell chrome only when the measured notice height changes.
         root.style.setProperty("--network-status-height", height);
         void syncNativePresentationRegions().catch(() => undefined);
       }

@@ -4157,6 +4157,27 @@ describe("native chrome presentation lease", () => {
       x: 2, y: 60, width: 44, height: 44, top: 60, left: 2, right: 46, bottom: 104, toJSON: () => ({}),
     });
   }
+  it("moves the native Back button with the header when a notice changes only its position", async () => {
+    let noticeHeight = 0;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const header = this.hasAttribute("data-app-top-bar");
+      const x = header ? 0 : 2;
+      const y = header ? 0 : 60 + noticeHeight;
+      const width = header ? 390 : 44;
+      const height = header ? 112 + noticeHeight : 44;
+      return { x, y, width, height, top: y, left: x, right: x + width, bottom: y + height, toJSON: () => ({}) };
+    });
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["back"], independentControls: true,
+      reservedPresentationRegions: true });
+    render(<header data-app-top-bar><Harness /></header>);
+    const latestY = () => bridge.prepare.mock.calls.at(-1)?.[0].frame.y;
+    await waitFor(() => expect(latestY()).toBe(60));
+    for (const height of [57, 0]) {
+      noticeHeight = height;
+      await act(async () => { await syncNativePresentationRegions(); });
+      await waitFor(() => expect(latestY()).toBe(60 + height));
+    }
+  });
   it("keeps shell Back bound to its own lifecycle event and lease", async () => {
     measureSlot();
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["back"], independentControls: true,

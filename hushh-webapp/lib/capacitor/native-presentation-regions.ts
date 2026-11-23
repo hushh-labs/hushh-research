@@ -56,6 +56,19 @@ const drawerSources = new Map<NativePanelIdentity["group"], {
   identity: NativePanelIdentity; sample: (privacyGeneration: number) => NativePanelPose | undefined;
 }>();
 
+/** A fixed-size toolbar control can move when the shell inset changes.
+ * Notify its geometry owner only when the acknowledged top edge moves. */
+export function subscribeNativeTopRegion(remeasure: () => void): () => void {
+  let top = accepted?.top;
+  const changed = () => {
+    if (!accepted || accepted.top === top) return;
+    top = accepted.top;
+    remeasure();
+  };
+  listeners.add(changed);
+  return () => { listeners.delete(changed); };
+}
+
 /** Authored presentation only. Dormant registration changes no admission. */
 export function registerNativeDrawerPose(identity: NativePanelIdentity,
   sample: (privacyGeneration: number) => NativePanelPose | undefined) {
