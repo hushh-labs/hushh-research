@@ -56,7 +56,7 @@ flowchart LR
 
 | Family | Reviewed scope | Remaining boundary |
 |---|---|---|
-| Memory / Wallet | Existing six-group closeout below; all 11 current Memory category entries/returns, recent and Location branches; Profile Memory previews/entities expanded. | Living Sources/Wallet count-versus-empty-reader discrepancy remains. Populated payment-card fixtures, actual card creation and consequential writes retain their recorded limits. |
+| Memory / Wallet | Existing six-group closeout below; all 11 current Memory category entries/returns, recent and Location branches; Profile Memory previews/entities expanded. | Current Saved policy excludes Living Sources. Wallet visibility during missing-index recovery has route regression coverage. The earlier account observation has no matching metadata capture. Populated payment-card fixtures, actual card creation and consequential writes retain their recorded limits. |
 | Consent / Profile | Bounded native menu, inputs/Cancel, connected handoffs and return. Account session entry/return and Profile Memory previews have additional evidence. | Pane evidence does not qualify every standalone URL, populated provider/connection/secret fixture or live operation. |
 | Chat | Composer, keyboard, History search/clear/dismiss, draft/New and resume observed; e77 retained. | Attachment and populated saved-chat runtime remain open. |
 | Referrals | Native tabs, rules, Circle chooser, draft/Cancel, return/reentry and resume observed. | Populated people/paging and creation/join/claim/invitation remain binding/fixture-limited. |
@@ -123,7 +123,7 @@ flowchart LR
 | `/one/pkm/location` search/list | Native Location adapter | Passed list, reversible search, no-match state and source-backed Clear search. |
 | `/one/pkm/location/detail` and return | Authored React detail | Passed populated detail → native Location list → native Saved root. Location-owned records remain read-only here. |
 
-**Open content discrepancy:** One Living Sources and Wallet display nonzero collection counts but open empty readers with sharing unavailable. Their entry, empty presentation and return are observed; populated details and a content/read-model correction are not claimed. The Wallet category here is distinct from the accepted Wallet route.
+**Memory category visibility:** The November 5 review observed nonzero counts opening empty Living Sources and Wallet readers. Current Saved policy excludes Living Sources. A missing-index API response could omit the Wallet manifest’s visibility flags and present its structural path count as a Memory count. The recovery response now preserves explicit visibility flags. A synthetic route regression reproduced the omission and verified the fix. The historical account’s index state is unknown. The standalone Wallet route has its own evidence.
 
 **Evidence and cost:** unchanged installed iPhone 17 Pro 1.4.1 (69) artifact identified above; native binaries/assets rechecked. No web export, sync or app build. Eleven temporary runner compilations included starting-state, unlock, locator, moving-target, timeout and resume-environment corrections; failed attempts and successful individual checkpoints remain separate. Actual captures were reviewed. A final normal restart cleared temporary document observers and the clean unlocked Memory handoff passed. The bounded sanitized receipt is `local output: hushh-webapp/tmp/ios-route-closeout/memory-nested-receipt.json`; private runtime resources are removed after review.
 

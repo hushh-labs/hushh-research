@@ -2403,6 +2403,13 @@ async def get_metadata(
                 if _is_internal_only_pkm_domain(domain_key):
                     continue
                 manifest = await pkm_service.get_domain_manifest(user_id, domain_key)
+                projection = (manifest or {}).get("summary_projection")
+                summary_projection = projection if isinstance(projection, dict) else {}
+                visibility = {
+                    key: summary_projection[key]
+                    for key in ("consumer_visible", "internal_only")
+                    if isinstance(summary_projection.get(key), bool)
+                }
                 degraded_domains.append(
                     DomainMetadata(
                         key=domain_key,
@@ -2411,6 +2418,7 @@ async def get_metadata(
                         color="#6366F1",
                         attribute_count=int((manifest or {}).get("path_count") or 0),
                         summary={
+                            **visibility,
                             "storage_mode": "per_domain_blob",
                             "manifest_version": (manifest or {}).get("manifest_version") or 1,
                             "path_count": (manifest or {}).get("path_count") or 0,
@@ -2421,26 +2429,16 @@ async def get_metadata(
                         },
                         available_scopes=[],
                         last_updated=str(row.get("updated_at") or ""),
-                        readable_summary=_summary_text(
-                            (manifest or {}).get("summary_projection"), "readable_summary"
-                        )
-                        if isinstance((manifest or {}).get("summary_projection"), dict)
-                        else None,
+                        readable_summary=_summary_text(summary_projection, "readable_summary"),
                         readable_highlights=_summary_string_list(
-                            (manifest or {}).get("summary_projection"), "readable_highlights"
-                        )
-                        if isinstance((manifest or {}).get("summary_projection"), dict)
-                        else [],
+                            summary_projection, "readable_highlights"
+                        ),
                         readable_updated_at=_summary_text(
-                            (manifest or {}).get("summary_projection"), "readable_updated_at"
-                        )
-                        if isinstance((manifest or {}).get("summary_projection"), dict)
-                        else None,
+                            summary_projection, "readable_updated_at"
+                        ),
                         readable_source_label=_summary_text(
-                            (manifest or {}).get("summary_projection"), "readable_source_label"
-                        )
-                        if isinstance((manifest or {}).get("summary_projection"), dict)
-                        else None,
+                            summary_projection, "readable_source_label"
+                        ),
                         domain_contract_version=int(
                             (manifest or {}).get("domain_contract_version") or 1
                         ),
