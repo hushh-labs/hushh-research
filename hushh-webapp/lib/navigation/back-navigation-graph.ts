@@ -946,13 +946,16 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
   },
   {
     id: "one-tasks",
-    resolve: (pathname) => {
+    resolve: (pathname, searchParams) => {
       if (pathname !== ROUTES.ONE_TASKS) return undefined;
+      const fromGoals = searchParams?.get("from") === "goals";
       return {
-        backHref: ROUTES.ONE_HOME,
+        backHref: fromGoals ? ROUTES.ONE_GOALS : ROUTES.ONE_HOME,
         width: "profile",
         align: "center",
-        items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Tasks" }],
+        items: fromGoals
+          ? [{ label: "Goals", href: ROUTES.ONE_GOALS }, { label: "Tasks" }]
+          : [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Tasks" }],
       };
     },
   },

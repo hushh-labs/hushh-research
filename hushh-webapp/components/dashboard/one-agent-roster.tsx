@@ -269,6 +269,7 @@ function useCachedAgentMetrics(
 
 // The welcome illustration shares this roster's outline treatment.
 function rosterIcon(mode: OneAgentMode): OneCapabilityIcon {
+  if (mode.id === "goals") return mode.icon;
   return {
     kind: "custom",
     component: (props) => <OneRosterAgentIcon {...props} agentId={mode.id} />,
@@ -312,12 +313,12 @@ function buildModes(
         (!setupDismissed || capability.id === "finance"),
     );
 
-    const primaryMetric =
-      cachedMetrics[capability.id] ??
-      resolvePrimaryMetric({
-        capabilityId: capability.id,
-        status,
-      });
+    const primaryMetric = capability.id === "goals"
+      ? { value: "", label: "Goals and tasks" }
+      : cachedMetrics[capability.id] ?? resolvePrimaryMetric({
+          capabilityId: capability.id,
+          status,
+        });
 
     return {
       id: capability.id,
@@ -775,10 +776,6 @@ export function OneAgentRosterBody({ model, scheduledContent }: {
           <AgentRosterViewToggle value={view} onChange={selectView} />
         </div>
       </div>
-      <nav aria-label="Planning" className="mb-3 flex flex-wrap gap-2">
-        <Link href={ROUTES.ONE_GOALS} className="inline-flex min-h-11 items-center rounded-lg px-3 text-sm font-medium hover:bg-muted">Goals</Link>
-        <Link href={ROUTES.ONE_TASKS} className="inline-flex min-h-11 items-center rounded-lg px-3 text-sm font-medium hover:bg-muted">Tasks</Link>
-      </nav>
       {SHOW_AGENT_SEARCH ? (
         <label className="relative mb-3.5 block">
           <SearchIcon

@@ -52,6 +52,7 @@ describe("Goals workspace", () => {
       });
     render(<GoalsWorkspace />);
     await screen.findByText("No goals yet");
+    expect(screen.getByRole("link", { name: "Tasks" })).toHaveAttribute("href", "/one/tasks?from=goals");
     fireEvent.click(screen.getByRole("button", { name: "New goal" }));
     fireEvent.change(screen.getByLabelText("Goal name"), { target: { value: goal.title } });
     fireEvent.change(screen.getByLabelText("What would success look like?"), { target: { value: goal.outcome } });
