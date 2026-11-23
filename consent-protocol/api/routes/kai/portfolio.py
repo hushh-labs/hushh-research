@@ -1217,9 +1217,12 @@ _PLACEHOLDER_SYMBOL_TOKENS = {
 def _normalize_symbol_token(raw_value: Any) -> str:
     if raw_value is None:
         return ""
-    token = re.sub(r"[^A-Za-z0-9]", "", str(raw_value)).upper()
-    if token in _PLACEHOLDER_SYMBOL_TOKENS:
+    reported = str(raw_value).strip().upper()
+    plain = re.sub(r"[^A-Z0-9]", "", reported)
+    if plain in _PLACEHOLDER_SYMBOL_TOKENS:
         return ""
+    # Keep supported exchange punctuation so share classes retain their identity.
+    token = reported if _PICK_TICKER_RE.fullmatch(reported) else plain
     return token[:12]
 
 
@@ -2808,10 +2811,12 @@ async def _portfolio_import_stream_generator(
             content_source = extraction["source"]
             elapsed_ms = extraction["elapsed_ms"]
             logger.info(
-                "portfolio_import.extraction source=%s first_result_ms=%s elapsed_ms=%s",
+                "portfolio_import.extraction source=%s first_result_ms=%s elapsed_ms=%s units=%s fallback_reason=%s",
                 content_source,
                 extraction.get("first_result_ms"),
                 elapsed_ms,
+                extraction["units"],
+                extraction["fallback_reason"],
             )
             serialized_payload = json.dumps(parsed_data, separators=(",", ":"))
             extract_full_result.update(

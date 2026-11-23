@@ -1403,34 +1403,42 @@ all-day and DST boundaries, and exact alternative times before deployment claims
 
 ## Incremental portfolio import layout and page extraction
 
-Before semantic layout discovery, the import decoder can read a declared wire
-format directly. The recognized profiles are a USD holdings-only CSV with
-explicit columns and consistent account metadata, and the marked synthetic QA
-PDF layout with explicit row ranges and printed control totals. The reader
-copies source cells, checks every row, and requires PDF counts and totals to
-reconcile. It does not infer row roles or assign missing values. Unknown or
-inconsistent layouts continue to the model-owned path below. Accepted direct
-decodes are recorded as `csv_declared_layout` or `pdf_declared_layout` and
-use the same owner checks, review, and final validation as model results.
+Before model layout discovery, the import decoder can read literal holdings
+tables directly. The existing marked QA PDF and exact USD CSV profiles remain
+available. The broader reader also admits CSV holdings tables with a unique
+header from explicit aliases, and searchable PDF holdings tables whose visual
+cells can be separated by the isolated PDFium worker. Neither route needs a
+fixture marker or a brokerage name to recognize a table.
+
+The reader copies the source cells and retains row or page provenance. CSV
+acceptance requires complete source-row coverage, consistent statement
+metadata, unambiguous numbers and reconciled positions. Recognized cash and
+account totals are verified against the source rows. PDF acceptance requires
+reconciled holdings counts and market values or a printed holdings footer,
+checks secondary position tables when present, and validates account controls
+separately from security totals. If the holdings are independently reconciled
+but a supplementary section is opaque, the checked holdings can be shown as
+provisional while the whole-document gene supplies the final record. Completion
+must retain the verified security set, exact numeric holding fields and
+currencies, or the result fails validation. A parser failure retains the model-backed route. Direct paths never override a model
+answer or invent missing values. Their sources are recorded as
+`csv_declared_layout`, `pdf_declared_layout`, `csv_structured_table`, or
+`pdf_structured_table`.
 
 `agent_portfolio_import_csv_layout` and `agent_portfolio_import_pdf_page` are
 manifest-authored, tool-free LOW single-turn children of Portfolio Import. CSV
-layout receives every source record in bounded batches and owns column meaning,
-row roles, metadata references, locale and currency. Host code validates complete
-row coverage and source references, then decodes the referenced original cells.
-It neither classifies brokerage rows by keywords nor manufactures missing costs.
-PDF extraction receives every page sequentially and owns page-local facts and
-explicit ambiguity/continuation markers. Host code preserves distinct source
-rows, rejects contradictions, and checks explicit statement counts/subtotals
-through the existing quality contract. It does not choose semantic replacements.
+layout receives source records in bounded batches and owns semantic column
+meaning and row roles for ambiguous layouts. The host validates source
+references and decodes literal cells. Short unsupported PDFs retain the
+page-local model path, including existing continuation and quality checks.
+Larger PDFs without a complete direct layout go to whole-document extraction
+once, with the original PDF bytes. Cross-page ambiguities also retain this
+whole-document path. Provider failures remain bounded by the existing runtime
+contract.
 
-Unsupported layouts or unreconciled page results reset provisional information
-and invoke the existing whole-document extraction child once. Cross-page rows
-currently require that fallback rather than a speculative host merge. Provider
-failure fails the run; it does not switch providers or silently bypass a gene.
-Each model stage and fallback is observable as an extraction source/unit count
-and fixed fallback reason. Public output, consent, encrypted persistence and
-explicit review/save authority retain their existing owners.
+Extraction telemetry includes source, unit count, fallback reason, and
+latency. Public output, owner checks, final quality validation, encrypted
+persistence, and explicit review/save authority retain their existing owners.
 
 Qualification: synthetic source-integrity, cancellation, authority and real ADK
 adapter contract tests cover this change. The existing UAT provider failure and
