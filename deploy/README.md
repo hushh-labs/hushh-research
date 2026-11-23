@@ -532,7 +532,7 @@ the revision of the existing Production PLG population policy. Omitting the
 file keeps this source off on the next normal release.
 
 For the independent closed-day reference, the One database owner runs
-`consent-protocol/scripts/ops/one_adoption_reference.py --day YYYY-MM-DD --population-revision DIGEST`
+`consent-protocol/.venv/bin/python consent-protocol/scripts/ops/one_adoption_reference.py --day YYYY-MM-DD --population-revision DIGEST`
 from a clean, reviewed checkout in the existing authorized Production operator
 session. The session supplies the source's effective population and Firebase
 settings and the normal libpq connection. The operation verifies the connected
