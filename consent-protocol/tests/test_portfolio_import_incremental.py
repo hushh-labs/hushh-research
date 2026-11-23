@@ -11,6 +11,7 @@ import pypdfium2
 import pytest
 
 from hushh_mcp.kai_import.csv_layout import CsvLayoutUnsupported, parse_csv_number
+from hushh_mcp.kai_import.declared_layout import declared_pdf
 from hushh_mcp.kai_import.incremental_contracts import CSV_LAYOUT_SCHEMA
 from hushh_mcp.kai_import.incremental_extract import incremental_statement_extract
 
@@ -140,6 +141,49 @@ async def test_csv_every_batch_keeps_original_lots_and_missing_cost(monkeypatch)
     assert len(calls) == 2
     assert len(__import__("json").loads(calls[1]["prompt"])["records"]) == 2
     fallback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_declared_csv_uses_literal_cells_and_keeps_owner_checks(monkeypatch):
+    guard = AsyncMock()
+    content = (
+        "Ticker,Security Name,Shares,Current Price,Current Value,Total Cost,Gain Loss,"
+        "Asset Type,Sector,Currency,Statement Date,Account Number,Brokerage\n"
+        "TEST,Example security,1.5,$10.00,$15.00,$20.00,($5.00),stock,Tech,USD,2026-10-31,ABC,Demo\n"
+    ).encode()
+    stream, calls, fallback = extract(monkeypatch, [], content=content, csv=True, guard=guard)
+    preview, complete = [event async for event in stream]
+    assert preview["update"]["rows"][0]["unrealized_gain_loss"] == -5
+    assert complete["source"] == "csv_declared_layout"
+    assert complete["parsed"]["detailed_holdings"][0]["quantity"] == 1.5
+    assert not calls
+    fallback.assert_not_awaited()
+    assert guard.await_count >= 3
+
+    malformed = content.replace(b"$15.00", b"$150.00")
+    rejected, calls, _ = extract(monkeypatch, [layout()], content=malformed, csv=True)
+    assert not (await anext(rejected)).get("declared_layout")
+    await rejected.aclose()
+    assert len(calls) == 1
+
+
+def test_declared_pdf_rejects_missing_rows_instead_of_publishing_a_partial_statement():
+    prefix = (
+        "SYNTHETIC TEST STATEMENT - NOT AN OFFICIAL RECORD\nDemo Broker\n"
+        "Account holder Example Owner Statement date 2026-10-31\n"
+        "Account number DEMO-ABC Account type Individual brokerage\n"
+        "Holdings 1-2 of 2\n"
+        "Symbol Security description Quantity Price Cost basis Market value Gain / (loss)\n"
+    )
+    rows = "ONE Example one 2 10.00 18.00 20.00 2.00\nTWO Example two 1 2.00 3.00 2.00 (1.00)\n"
+    control = (
+        "CONTROL TOTAL - 2 securities | Market value $22.00 | Cost basis $21.00 "
+        "| Cash $4.00 | Account value $26.00"
+    )
+    result = declared_pdf([prefix + rows + control])
+    assert result is not None
+    assert result["detailed_holdings"][0]["market_value"] == 20.00
+    assert declared_pdf([prefix + rows.splitlines()[0] + "\n" + control]) is None
 
 
 @pytest.mark.asyncio

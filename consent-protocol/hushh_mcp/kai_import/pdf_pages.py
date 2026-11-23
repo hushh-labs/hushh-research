@@ -118,6 +118,20 @@ class PdfPages:
         except (OSError, ValueError, asyncio.IncompleteReadError, TimeoutError):
             raise PdfPageSplitUnsupported("pdf_page_split_unavailable") from None
 
+    async def page_text(self, index: int) -> str:
+        """Read embedded text through the same isolated PDF worker."""
+        if self.closed or not 0 <= index < self.count:
+            raise PdfPageSplitUnsupported("pdf_page_text_unavailable")
+        try:
+            async with asyncio.timeout(_RESPONSE_SECONDS):
+                await self._write(f"text:{index}".encode("ascii"))
+                response = await self._read(128 * 1024)
+                if not response.startswith(b"t"):
+                    raise ValueError("page_text_frame")
+                return response[1:].decode("utf-8")
+        except (OSError, ValueError, asyncio.IncompleteReadError, TimeoutError):
+            raise PdfPageSplitUnsupported("pdf_page_text_unavailable") from None
+
     async def close(self) -> None:
         if self.closed:
             return
@@ -200,9 +214,22 @@ def _worker() -> None:
             command = _read_frame(sys.stdin.buffer, 32)
             if command == b"close":
                 break
-            index = int(command)
+            prefix, separator, argument = command.partition(b":")
+            index = int(argument if separator else command)
             if not 0 <= index < len(source):
                 raise ValueError("page_index")
+            if prefix == b"text" and separator:
+                input_page = source[index]
+                text_page = input_page.get_textpage()
+                try:
+                    text = text_page.get_text_range().encode("utf-8")
+                    _write_frame(
+                        sys.stdout.buffer, b"t" + (text if len(text) < 128 * 1024 else b"")
+                    )
+                finally:
+                    text_page.close()
+                    input_page.close()
+                continue
             with pypdfium2.PdfDocument.new() as page, io.BytesIO() as output:
                 page.import_pages(source, pages=[index])
                 page.save(output)
