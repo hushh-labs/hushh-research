@@ -36613,7 +36613,7 @@
         "key",
         "setup"
       ],
-      "meaning": "Opens the supported AI connection choice for the selected hosting, preserving built-in sandbox AI and switchable Gemini or OpenAI configurations.",
+      "meaning": "Opens the supported AI connection choice for the selected hosting, preserving the verified cloud default and explicit owner-key choices.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {

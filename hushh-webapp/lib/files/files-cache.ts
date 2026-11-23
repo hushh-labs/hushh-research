@@ -428,7 +428,7 @@ export function clearFilesHostingCache(
   ownerKey?: string,
   options?: { includeDevice?: boolean },
 ): void {
-  const includeDevice = options?.includeDevice === true;
+  const includeDevice = options?.includeDevice !== false;
   if (!ownerKey) {
     HOSTING_CACHE.clear();
     HYDRATIONS.clear();
@@ -493,7 +493,7 @@ export function clearFilesCache(
   userId?: string,
   options?: { includeDevice?: boolean },
 ): void {
-  const includeDevice = options?.includeDevice === true;
+  const includeDevice = options?.includeDevice !== false;
   invalidateFilesMutationCache(userId, { includeDevice });
   clearFilesHostingCache(userId, { includeDevice });
 }

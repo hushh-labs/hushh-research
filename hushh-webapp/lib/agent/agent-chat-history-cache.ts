@@ -283,7 +283,7 @@ export function clearAgentChatHistoryCache(
   userId?: string,
   options?: { includeDevice?: boolean },
 ): void {
-  const includeDevice = options?.includeDevice === true;
+  const includeDevice = options?.includeDevice !== false;
   if (userId) {
     generationByUser.set(userId, (generationByUser.get(userId) || 0) + 1);
     entriesByUser.delete(userId);
