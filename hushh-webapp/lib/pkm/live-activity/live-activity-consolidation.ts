@@ -10,6 +10,7 @@
  * stages the model's facts once per cycle. It is the only PKM writer for activity.
  */
 
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import {
   AGENT_PKM_PRODUCT_DEFAULT_EFFECTIVE_AT,
   DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY,
@@ -98,7 +99,7 @@ function isCurrentRun(params: ConsolidationParams): boolean {
   return !params.signal?.aborted && params.isCurrent();
 }
 
-const isOffline = () => typeof navigator !== "undefined" && navigator.onLine === false;
+const isOffline = () => !isNetworkOnline();
 
 /**
  * A thrown failure while offline or after cancellation says nothing about the

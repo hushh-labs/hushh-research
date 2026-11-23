@@ -35,6 +35,27 @@ describe("useNetworkStatus", () => {
     });
   });
 
+  it("uses the iOS path when the WebView signal is stale in either direction", () => {
+    const status = vi.fn();
+    const host = window as Window & { __HUSHH_NETWORK_ONLINE__?: boolean };
+    const previous = Object.getOwnPropertyDescriptor(navigator, "onLine");
+    try {
+      Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
+      host.__HUSHH_NETWORK_ONLINE__ = true;
+      const view = render(<Harness onStatus={status} />);
+      expect(status).toHaveBeenLastCalledWith({ online: true, offline: false });
+      Object.defineProperty(navigator, "onLine", { configurable: true, value: true });
+      host.__HUSHH_NETWORK_ONLINE__ = false;
+      act(() => { window.dispatchEvent(new Event("offline")); });
+      expect(status).toHaveBeenLastCalledWith({ online: false, offline: true });
+      view.unmount();
+    } finally {
+      delete host.__HUSHH_NETWORK_ONLINE__;
+      if (previous) Object.defineProperty(navigator, "onLine", previous);
+      else Reflect.deleteProperty(navigator, "onLine");
+    }
+  });
+
   it("responds to offline events", () => {
     const callback = vi.fn();
 

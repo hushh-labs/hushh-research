@@ -1,5 +1,6 @@
 "use client";
 
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { EMAIL_UPDATES_DESCRIPTION, MarketingPreferencePanel } from "@/components/account/marketing-preference-panel";
 import { AttemptEmailPanel } from "@/components/account/attempt-email-panel";
 import { useMarketingPreference } from "@/components/account/use-marketing-preference";
@@ -2036,7 +2037,7 @@ function ProfilePageContent({
       return { kind: "rejected" };
     }
 
-    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    if (!isNetworkOnline()) {
       setSupportComposerState({
         status: "error",
         message: "You're offline. Reconnect to send your message.",

@@ -25,7 +25,7 @@ import { advanceVaultSessionEpoch, snapshotVaultSessionEpoch } from "@/lib/vault
 import { NativeAgentDock } from "@/components/agent/native-agent-dock";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { NativePanelPoseWriter, useNativePanelPresentation, type NativePanelPose } from "@/lib/capacitor/native-panel-presentation";
-import { nativePresentationAdmission, registerNativeDrawerPose, setNativePresentationRegionIsolation, syncNativePresentationRegions, useNativeFullWindowOverlayReady, waitForNativeDrawerCoverageRelease, type NativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
+import { nativePresentationAdmission, setNetworkStatusBannerHeight, registerNativeDrawerPose, setNativePresentationRegionIsolation, syncNativePresentationRegions, useNativeFullWindowOverlayReady, waitForNativeDrawerCoverageRelease, type NativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
 import { AgentDockPortal, AgentDockProvider, useAgentDockState } from "@/components/agent/agent-dock";
 import { useNativeDockPort, useNativeDockPorts, type NativeDockPort } from "@/components/agent/native-dock-port";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
@@ -4157,6 +4157,27 @@ describe("native chrome presentation lease", () => {
       x: 2, y: 60, width: 44, height: 44, top: 60, left: 2, right: 46, bottom: 104, toJSON: () => ({}),
     });
   }
+  it.each([false, true])("moves Back with the offline notice with legacy region receipts %s", async (legacyRegions) => {
+    let noticeHeight = 0;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const header = this.hasAttribute("data-app-top-bar");
+      const x = header ? 0 : 2;
+      const y = header ? 0 : 60 + noticeHeight;
+      const width = header ? 390 : 44;
+      const height = header ? 112 + noticeHeight : 44;
+      return { x, y, width, height, top: y, left: x, right: x + width, bottom: y + height, toJSON: () => ({}) };
+    });
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["back"], independentControls: true,
+      reservedPresentationRegions: legacyRegions });
+    render(<header data-app-top-bar><Harness /></header>);
+    const latestY = () => bridge.prepare.mock.calls.at(-1)?.[0].frame.y;
+    await waitFor(() => expect(latestY()).toBe(60));
+    for (const height of [57, 0]) {
+      noticeHeight = height;
+      act(() => setNetworkStatusBannerHeight(height));
+      await waitFor(() => expect(latestY()).toBe(60 + height));
+    }
+  });
   it("keeps shell Back bound to its own lifecycle event and lease", async () => {
     measureSlot();
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["back"], independentControls: true,

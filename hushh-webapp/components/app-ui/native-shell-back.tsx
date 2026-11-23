@@ -1,5 +1,6 @@
 "use client";
 
+import { subscribeNativeShellInset } from "@/lib/capacitor/native-presentation-regions";
 import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -128,11 +129,13 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
     })();
     document.addEventListener("visibilitychange", invalidate);
     window.addEventListener("resize", reconcileGeometry);
+    const stopShellInset = subscribeNativeShellInset(reconcileGeometry);
     const observer = new ResizeObserver(reconcileGeometry);
     if (slot.current) observer.observe(slot.current);
     return () => {
       cancelled = true;
       handles.forEach((handle) => { void handle.remove(); });
+      stopShellInset();
       observer.disconnect();
       window.removeEventListener("resize", reconcileGeometry);
       document.removeEventListener("visibilitychange", invalidate);

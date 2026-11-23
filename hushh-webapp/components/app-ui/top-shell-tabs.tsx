@@ -4,6 +4,8 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useImperativeHandle,
+  type Ref,
   useState,
   useMemo,
   useRef,
@@ -44,12 +46,14 @@ export function TopShellTabs({
   navigationMode = "replace",
   onValueChange,
   disabled = false,
+  selectionRef,
 }: {
   tabSet: TopShellTabSet;
   navigationMode?: "push" | "replace";
   /** Local workspaces keep their state in the mounted pager. */
   onValueChange?: (value: string) => void;
   disabled?: boolean;
+  selectionRef?: Ref<(value: string) => void>;
 }) {
   const router = useRouter();
   const interactionIntents = useInteractionIntents();
@@ -209,6 +213,10 @@ export function TopShellTabs({
       transitionMode,
     ],
   );
+
+  useImperativeHandle(selectionRef, () => (value: string) => {
+    selectIndex(tabSet.tabs.findIndex((tab) => tab.value === value), false);
+  }, [selectIndex, tabSet.tabs]);
 
   return (
     <div

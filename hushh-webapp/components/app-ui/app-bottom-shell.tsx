@@ -17,6 +17,7 @@ import {
 } from "@/components/app-ui/bottom-chrome-column";
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
 import { useOptionalLocationCommand } from "@/components/agent/location-command-provider";
+import { useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { Navbar } from "@/components/navbar";
 import { bottomChromeScrollTravel, snapKaiBottomChromeVisible } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { useNativeNavigationBottomInset } from "@/lib/capacitor/native-navigation";
@@ -48,7 +49,8 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
   const nativeBottomInset = useNativeNavigationBottomInset();
   const nativeDock = useNativeDockPorts();
   const voiceActive = useAgentVoiceState((state) => state.active);
-  const hidden = model.hidden && !command?.active && !voiceActive;
+  const sessionSuppressed = useSessionChromeSuppressed();
+  const hidden = sessionSuppressed || (model.hidden && !command?.active && !voiceActive);
   const suppressVoiceSlot = Boolean(model.voiceSlotSuppressed) && !command?.active && !voiceActive;
   // The owner remains mounted above routes; Chat presents its active control
   // in the composer slot, not a second overlapping shell launcher.

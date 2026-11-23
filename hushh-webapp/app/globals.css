@@ -840,11 +840,12 @@ html.native-keyboard-inset.kb-open
     --safe-area-inset-top,
     env(safe-area-inset-top, 0px)
   );
-  --app-safe-area-top-effective: max(
+  --app-system-safe-area-top: max(
     var(--app-safe-area-top),
     env(safe-area-max-inset-top, 0px),
     var(--app-safe-area-top-probe)
   );
+  --app-safe-area-top-effective: calc(var(--app-system-safe-area-top) + var(--network-status-height, 0px));
   --app-top-bar-height: 72px;
   --kai-route-tabs-height: 56px;
   --kai-route-tabs-content-gap: 14px;
@@ -4010,13 +4011,18 @@ body:has([data-location-page], [data-location-hub], [data-wallet-hub]) [data-app
   gap: var(--surface-stack-gap-compact);
 }
 
+.network-status-banner {
+  top: var(--app-system-safe-area-top);
+  padding-inline: max(1rem, env(safe-area-inset-left, 0px)) max(1rem, env(safe-area-inset-right, 0px));
+}
+
 /* Capacitor iOS uses `ios.contentInset = "never"` with CSS-owned insets; don't double-count shell spacing. */
 html.native-ios {
   /* UIKit supplies the real inset even when WKWebView env() is zero. Older
    * binaries and the first document frame use a Dynamic-Island-safe fallback. */
   --app-safe-area-top: max(var(--app-native-safe-area-top, 59px), env(safe-area-inset-top, 0px));
   /* A measured zero is valid after rotation; stale CSS probes must not win. */
-  --app-safe-area-top-effective: var(--app-native-safe-area-top, max(var(--app-safe-area-top), env(safe-area-max-inset-top, 0px), var(--app-safe-area-top-probe)));
+  --app-system-safe-area-top: var(--app-native-safe-area-top, max(var(--app-safe-area-top), env(safe-area-max-inset-top, 0px), var(--app-safe-area-top-probe)));
   /* Lift persistent bottom chrome above the iOS home indicator zone. */
   --app-bottom-chrome-lift: 10px;
   /* Keep a small effective inset because WKWebView already applies content inset on iOS. */
@@ -4029,12 +4035,12 @@ html.native-ios {
  * Some iOS WebViews report a zero inset, so share a Dynamic-Island-safe floor
  * while allowing larger measured device insets to win. */
 html.native-ios [data-testid="one-location-onboarding"] {
-  --app-safe-area-top-effective: max(
+  --app-safe-area-top-effective: calc(var(--network-status-height, 0px) + max(
     59px,
     var(--app-safe-area-top),
     env(safe-area-max-inset-top, 0px),
     var(--app-safe-area-top-probe)
-  );
+  ));
 }
 
 /* Location onboarding is a focused full-screen flow. Suppress persistent app

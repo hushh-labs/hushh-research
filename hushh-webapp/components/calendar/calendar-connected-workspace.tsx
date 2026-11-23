@@ -1,5 +1,6 @@
 "use client";
 
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { CalendarLoading } from "./calendar-loading";
 import { CalendarAccountBoard } from "./calendar-account-board";
 import { CalendarDateNavigation } from "./calendar-date-navigation";
@@ -256,13 +257,13 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
     controller.signal.addEventListener("abort", () => { clearTimeout(timeout); window.removeEventListener("offline", failOffline); }, { once: true });
     window.addEventListener("offline", failOffline);
     try {
-      if (!navigator.onLine) { failOffline(); return; }
+      if (!isNetworkOnline()) { failOffline(); return; }
       const firebaseIdToken = await getIdTokenRef.current();
       if (!isCurrent()) return;
       if (!firebaseIdToken) throw new Error("Sign in again to check availability.");
       const response = await GoogleCalendarService.availability({ signal: controller.signal, firebaseIdToken, isEffectCurrent: isCurrent, date, timeZone: zone, startTime: "00:00", endTime: "24:00", durationMinutes: duration, calendarOverrides: JSON.parse(selectionJson) });
       if (isCurrent()) { const options = response.calendar_options || response.calendars; rememberCalendars(options); availabilityPreview.current = { key: availabilityKey, value: response }; setAvailability(response); }
-    } catch (error) { if (isCurrent()) { if (!navigator.onLine) failOffline(); else { if (error instanceof GoogleCalendarError && error.calendarOptions) rememberCalendars(error.calendarOptions); setAvailabilityError(calendarFailure(error)); } } }
+    } catch (error) { if (isCurrent()) { if (!isNetworkOnline()) failOffline(); else { if (error instanceof GoogleCalendarError && error.calendarOptions) rememberCalendars(error.calendarOptions); setAvailabilityError(calendarFailure(error)); } } }
     finally { clearTimeout(timeout); window.removeEventListener("offline", failOffline); if (ownsRequest()) setAvailabilityLoading(false); if (availabilityFlight.current?.controller === controller) availabilityFlight.current = null; }
   }, [date, zone, duration, availabilityKey, selectionJson, rememberCalendars]);
   useEffect(() => { if (view === "free" && tab === "schedule") void checkAvailability(); return () => { availabilityFlight.current?.controller.abort(); }; }, [view, tab, checkAvailability]);
@@ -270,7 +271,7 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
   useEffect(() => {
     let lastResume = 0;
     const resume = (event: Event) => {
-      if (view === "free" && (!navigator.onLine || (availabilityError && (event.type !== "online" || !(availabilityError instanceof GoogleCalendarError) || availabilityError.reasonCode !== "calendar_offline")))) return;
+      if (view === "free" && (!isNetworkOnline() || (availabilityError && (event.type !== "online" || !(availabilityError instanceof GoogleCalendarError) || availabilityError.reasonCode !== "calendar_offline")))) return;
       if (document.visibilityState !== "visible" || tab !== "schedule" || selected || Date.now() - lastResume < 3000) return;
       if (!(view === "free" && event.type === "online" && availabilityError) && Date.now() - lastReadStarted.current[view === "today" ? "events" : "availability"] < 3000) return;
       lastResume = Date.now();

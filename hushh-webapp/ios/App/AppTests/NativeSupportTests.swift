@@ -4451,11 +4451,11 @@ final class NativeSupportTests: XCTestCase {
     func testNativeChromeKeepsKeyboardFenceUntilCurrentDismissalCompletes() async {
         let plugin = HushhNativeChromePlugin()
         plugin.load()
-        let ready = expectation(description: "Native lifecycle observers registered")
-        DispatchQueue.main.async { ready.fulfill() }
-        // load() registers on the main queue. Yield the actor so registration
-        // can complete before asserting the synchronous keyboard fence.
-        await fulfillment(of: [ready], timeout: 1)
+        // load() queues observer installation on main. Its FIFO successor
+        // proves setup completed even when the hosted simulator is busy.
+        await withCheckedContinuation { (ready: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async { ready.resume() }
+        }
         #if DEBUG
         let invalidations = plugin.presentationInvalidations
         #endif
