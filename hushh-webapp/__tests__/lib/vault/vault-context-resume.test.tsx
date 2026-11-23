@@ -61,6 +61,7 @@ vi.mock("@/lib/pkm/markdown-memory", async (importOriginal) => ({ ...(await impo
 
 vi.mock("@/lib/agent/agent-chat-history-cache", () => ({
   clearAgentChatHistoryCache: mocks.clearAgentChatHistoryCache,
+  hydrateAgentChatHistoryFromEncryptedCache: vi.fn().mockResolvedValue(null),
   warmAgentChatHistoryCache: mocks.warmAgentChatHistoryCache,
 }));
 

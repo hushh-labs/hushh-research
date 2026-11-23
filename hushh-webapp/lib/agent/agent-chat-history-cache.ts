@@ -68,7 +68,7 @@ if (typeof window !== "undefined") {
   window.addEventListener(AGENT_CHAT_HISTORY_INVALIDATED_EVENT, (event) => {
     const detail = (event as CustomEvent<{ userId?: unknown }>).detail;
     const userId = typeof detail?.userId === "string" ? detail.userId : "";
-    if (userId) clearAgentChatHistoryCache(userId, { includeDevice: true });
+    if (userId) clearAgentChatHistoryCache(userId, { includeDevice: false });
   });
   subscribeAuthSessionGeneration(() => {
     const owner = snapshotValidatedAuthSessionOwner();
@@ -344,13 +344,21 @@ export function warmAgentChatHistoryCache(input: {
 
   const startedAt = Date.now();
   const generation = generationFor(input.userId);
+  const hydrationPromise =
+    !entriesByUser.has(input.userId) && canSealOwnerUiCache(input.vaultKey)
+      ? hydrateAgentChatHistoryFromEncryptedCache({
+          userId: input.userId,
+          vaultKey: input.vaultKey,
+        }).catch(() => null)
+      : Promise.resolve(null);
   const warmup = listAgentChatConversations({
     userId: input.userId,
     vaultOwnerToken: input.vaultOwnerToken,
     vaultKey: input.vaultKey,
     limit: CONVERSATION_LIMIT,
   })
-    .then((conversations) => {
+    .then(async (conversations) => {
+      await hydrationPromise;
       assertCurrentGeneration(input.userId, generation);
       const previous = entriesByUser.get(input.userId);
       const messagesByConversation = new Map(previous?.messagesByConversation || []);

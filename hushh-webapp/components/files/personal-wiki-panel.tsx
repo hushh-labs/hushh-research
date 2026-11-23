@@ -92,7 +92,6 @@ type EnrichedWikiFile = WikiSummaryPage & {
 
 export function PersonalWikiPanel({
   ownerId,
-  signal,
   busy,
   unavailable,
   act,
@@ -101,7 +100,6 @@ export function PersonalWikiPanel({
   onInitialSelectionConsumed,
 }: {
   ownerId: string | undefined;
-  signal: AbortSignal;
   busy: boolean;
   unavailable: boolean;
   act: FilesAction;
@@ -133,6 +131,10 @@ export function PersonalWikiPanel({
     useState<WikiOptimizationResult | null>(null);
   const [optimizing, setOptimizing] = useState(false);
   const localAbort = useRef<AbortController | null>(null);
+  const getActiveSignal = useCallback(
+    () => (localAbort.current ?? (localAbort.current = new AbortController())).signal,
+    [],
+  );
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const initialHandledRef = useRef<string | null>(null);
   const lastOwnerRef = useRef<string | undefined>(ownerId);
@@ -172,8 +174,6 @@ export function PersonalWikiPanel({
     localAbort.current?.abort();
     const controller = new AbortController();
     localAbort.current = controller;
-    const onParentAbort = () => controller.abort();
-    signal.addEventListener("abort", onParentAbort, { once: true });
 
     if (lastOwnerRef.current !== ownerId) {
       lastOwnerRef.current = ownerId;
@@ -192,7 +192,6 @@ export function PersonalWikiPanel({
       setLoading(false);
       setHydratingWiki(false);
       return () => {
-        signal.removeEventListener("abort", onParentAbort);
         controller.abort();
       };
     }
@@ -267,10 +266,9 @@ export function PersonalWikiPanel({
 
     return () => {
       canceled = true;
-      signal.removeEventListener("abort", onParentAbort);
       controller.abort();
     };
-  }, [ownerId, unavailable, vaultKey, signal, loadOverview]);
+  }, [ownerId, unavailable, vaultKey, loadOverview]);
 
   const disabled = busy || unavailable || loading;
 
@@ -330,7 +328,7 @@ export function PersonalWikiPanel({
           pageId,
         ).catch(() => null);
       }
-      const activeSignal = localAbort.current?.signal ?? signal;
+      const activeSignal = getActiveSignal();
       if (activeSignal.aborted) return;
       if (
         cachedPage &&
@@ -355,7 +353,7 @@ export function PersonalWikiPanel({
         false,
       );
     },
-    [act, ownerId, signal, unavailable, vaultKey],
+    [act, getActiveSignal, ownerId, unavailable, vaultKey],
   );
 
   useEffect(() => {
@@ -499,7 +497,7 @@ export function PersonalWikiPanel({
               const chosen = event.target.files?.[0];
               event.target.value = "";
               if (!chosen || disabled) return;
-              const activeSignal = localAbort.current?.signal ?? signal;
+              const activeSignal = getActiveSignal();
               void act(
                 async () => {
                   const uploaded = await FilesService.upload(
@@ -528,7 +526,7 @@ export function PersonalWikiPanel({
                 checked={Boolean(overview.captureOptIn)}
                 disabled={disabled}
                 onCheckedChange={(enabled) => {
-                  const activeSignal = localAbort.current?.signal ?? signal;
+                  const activeSignal = getActiveSignal();
                   void act(
                     async () => {
                       await FilesService.wikiSetOptIn(enabled, activeSignal);
@@ -552,7 +550,7 @@ export function PersonalWikiPanel({
                 data-testid="wiki-optimize-memory-button"
                 disabled={disabled || optimizing}
                 onClick={() => {
-                  const activeSignal = localAbort.current?.signal ?? signal;
+                  const activeSignal = getActiveSignal();
                   setOptimizing(true);
                   void act(
                     async () => {
@@ -843,7 +841,7 @@ export function PersonalWikiPanel({
             size="compact"
             disabled={busy || unavailable}
             onClick={() => {
-              const activeSignal = localAbort.current?.signal ?? signal;
+              const activeSignal = getActiveSignal();
               void act(
                 () => loadOverview(activeSignal),
                 "Personal wiki refreshed",
@@ -872,7 +870,7 @@ export function PersonalWikiPanel({
                 aria-label={`Add ${archive.name} to wiki`}
                 disabled={disabled}
                 onClick={() => {
-                  const activeSignal = localAbort.current?.signal ?? signal;
+                  const activeSignal = getActiveSignal();
                   void act(
                     async () => {
                       await FilesService.wikiImportArchive(
@@ -926,7 +924,7 @@ export function PersonalWikiPanel({
                   size="compact"
                   disabled={disabled}
                   onClick={() => {
-                    const activeSignal = localAbort.current?.signal ?? signal;
+                    const activeSignal = getActiveSignal();
                     void act(
                       async () => {
                         await FilesService.wikiConfirmCandidate(
@@ -971,7 +969,7 @@ export function PersonalWikiPanel({
                   size="compact"
                   disabled={disabled}
                   onClick={() => {
-                    const activeSignal = localAbort.current?.signal ?? signal;
+                    const activeSignal = getActiveSignal();
                     void act(
                       async () => {
                         await FilesService.wikiMigrateCohort(
@@ -1009,8 +1007,7 @@ export function PersonalWikiPanel({
                       size="compact"
                       disabled={disabled}
                       onClick={() => {
-                        const activeSignal =
-                          localAbort.current?.signal ?? signal;
+                        const activeSignal = getActiveSignal();
                         void act(
                           async () => {
                             await FilesService.wikiMigrateCohort(
@@ -1037,8 +1034,7 @@ export function PersonalWikiPanel({
                       size="compact"
                       disabled={disabled}
                       onClick={() => {
-                        const activeSignal =
-                          localAbort.current?.signal ?? signal;
+                        const activeSignal = getActiveSignal();
                         void act(
                           async () => {
                             await FilesService.wikiMigrateCohort(
@@ -1086,8 +1082,7 @@ export function PersonalWikiPanel({
                       size="compact"
                       disabled={disabled}
                       onClick={() => {
-                        const activeSignal =
-                          localAbort.current?.signal ?? signal;
+                        const activeSignal = getActiveSignal();
                         void act(
                           async () => {
                             await FilesService.wikiMigrateCohort(
@@ -1188,7 +1183,7 @@ export function PersonalWikiPanel({
           return savedOk;
         }}
         onSaveWiki={async ({ pageId, expectedRevision, title, tldr, body }) => {
-          const activeSignal = localAbort.current?.signal ?? signal;
+          const activeSignal = getActiveSignal();
           let savedOk = false;
           await act(
             async () => {
@@ -1211,7 +1206,7 @@ export function PersonalWikiPanel({
           return savedOk;
         }}
         onForgetWikiClaim={async ({ pageId, claimId }) => {
-          const activeSignal = localAbort.current?.signal ?? signal;
+          const activeSignal = getActiveSignal();
           await act(
             async () => {
               await FilesService.wikiForgetClaim(
@@ -1251,7 +1246,7 @@ export function PersonalWikiPanel({
             <AlertDialogAction
               disabled={busy}
               onClick={() => {
-                const activeSignal = localAbort.current?.signal ?? signal;
+                const activeSignal = getActiveSignal();
                 setConfirmRollback(false);
                 void act(
                   async () => {

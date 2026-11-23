@@ -293,6 +293,7 @@ import {
   warmAgentChatHistoryCache,
   clearAgentChatHistoryCache,
   isAgentChatHistorySnapshotCurrent,
+  type AgentChatHistorySnapshot,
 } from "@/lib/agent/agent-chat-history-cache";
 import {
   applyActiveAgentTurnMessages,
@@ -2350,6 +2351,89 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setWelcomePromptSetIndex(getWelcomePromptSetIndex(null));
   }, []);
 
+  const applyCachedHistorySnapshot = useCallback(
+    (
+      ownerId: string,
+      snap: AgentChatHistorySnapshot,
+      options?: {
+        authOwner?: ReturnType<typeof snapshotValidatedAuthSessionOwner>;
+        vaultEpoch?: number;
+      },
+    ): boolean => {
+      if (!isAgentChatHistorySnapshotCurrent(ownerId, snap)) return false;
+      const authOwner = options?.authOwner ?? snapshotValidatedAuthSessionOwner();
+      const vaultEpoch = options?.vaultEpoch ?? snapshotVaultSessionEpoch();
+      if (
+        !authOwner ||
+        authOwner.userId !== ownerId ||
+        !isValidatedAuthSessionOwnerCurrent(authOwner)
+      ) {
+        return false;
+      }
+      historyListOwner.current = { auth: authOwner, epoch: vaultEpoch };
+      setConversations(snap.conversations);
+      const snapshotMainId =
+        snap.conversations.find(isPinnedOneStreamConversation)?.id ?? null;
+      if (snapshotMainId && pendingMainChatIdRef.current) {
+        pendingMainChatIdRef.current = null;
+        setPendingMainChatId(null);
+      }
+      const selectedId = selectedInAppChat(ownerId);
+      const activeSession =
+        typeof peekActiveAgentTurnSession === "function"
+          ? peekActiveAgentTurnSession<AgentMessage>(ownerId, vaultEpoch)
+          : null;
+      const activeOwnsTranscript = Boolean(
+        activeSession &&
+          (activeSession.isChatLoading ||
+            activeSession.isStreaming ||
+            (activeSession.conversationId &&
+              activeSession.conversationId === selectedId &&
+              activeSession.messages.length > 0)),
+      );
+      if (!activeOwnsTranscript) {
+        const hasValidSelected =
+          Boolean(selectedId) &&
+          (snap.conversations.some((item) => item.id === selectedId) ||
+            isAgentTurnWatched(ownerId, selectedId!));
+        const canonicalMainId = snapshotMainId ?? pendingMainChatIdRef.current;
+        const targetConversationId = hasValidSelected
+          ? selectedId!
+          : isOneStreamDraftRef.current
+            ? canonicalMainId
+            : null;
+        const targetCachedMessages = targetConversationId
+          ? targetConversationId === snap.latestConversationId &&
+            snap.latestMessages.length > 0
+            ? snap.latestMessages
+            : (peekAgentChatConversationMessages(ownerId, targetConversationId) ?? [])
+          : [];
+        if (targetConversationId && targetCachedMessages.length > 0) {
+          const restored = storedMessagesToAgentMessages(targetCachedMessages).map(
+            (message) => ({
+              ...message,
+              restoredFromHistory: true,
+            }),
+          );
+          if (canonicalMainId && targetConversationId === canonicalMainId) {
+            setIsOneStreamDraft(true);
+          }
+          updateConversationId(targetConversationId, false);
+          setMessages((current) =>
+            mergePendingConsentMessages(
+              restored.length > 0 ? restored : [createGreetingMessage()],
+              current,
+            ),
+          );
+        }
+      }
+      setHistoryReadyForSlot(true);
+      setIsLoadingHistory(false);
+      return true;
+    },
+    [updateConversationId],
+  );
+
   const lastWorkspaceIdentityRef = useRef<{
     ownerId: string | null;
     unlocked: boolean;
@@ -2402,7 +2486,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     updateConversationId(restoredSession?.conversationId ?? null, false);
     setPendingMainChatId(null);
     pendingMainChatIdRef.current = null;
-    setIsOneStreamDraft(!restoredSession?.conversationId);
+    const nextIsOneStreamDraft = !restoredSession?.conversationId;
+    setIsOneStreamDraft(nextIsOneStreamDraft);
+    isOneStreamDraftRef.current = nextIsOneStreamDraft;
     setConversations([]);
     historyListOwner.current = null;
     setCalendarSlot(null);
@@ -2426,11 +2512,25 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setHistoryReadyForSlot(false);
     setSlotHistoryFailed(false);
     historyRestoreEpochRef.current += 1;
+    const shouldSkipInitialHistoryLoad = skipInitialHistoryLoadRef.current;
     skipInitialHistoryLoadRef.current = false;
     latestVisibleTurnIdRef.current = null;
     inlineConsentRequestIdsRef.current.clear();
+    if (
+      nextIdentity.unlocked &&
+      nextIdentity.ownerId &&
+      !restoredSession &&
+      !shouldSkipInitialHistoryLoad &&
+      typeof peekAgentChatHistoryCache === "function"
+    ) {
+      const warmSnapshot = peekAgentChatHistoryCache(nextIdentity.ownerId);
+      if (warmSnapshot) {
+        applyCachedHistorySnapshot(nextIdentity.ownerId, warmSnapshot);
+      }
+    }
   }, [
     abortAgentTurnWork,
+    applyCachedHistorySnapshot,
     clearTranscriptProgrammaticScroll,
     isVaultUnlocked,
     updateConversationId,
@@ -3730,10 +3830,25 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       !vaultKey ||
       !vaultOwnerToken ||
       skipInitialHistoryLoadRef.current ||
-      typeof hydrateAgentChatHistoryFromEncryptedCache !== "function" ||
-      (typeof peekAgentChatHistoryCache === "function" &&
-        peekAgentChatHistoryCache(applicationOwnerId))
+      typeof hydrateAgentChatHistoryFromEncryptedCache !== "function"
     ) return;
+    const existingSnap =
+      typeof peekAgentChatHistoryCache === "function"
+        ? peekAgentChatHistoryCache(applicationOwnerId)
+        : null;
+    if (existingSnap) {
+      if (
+        !historyListOwner.current ||
+        !isValidatedAuthSessionOwnerCurrent(historyListOwner.current.auth) ||
+        !isVaultSessionEpochCurrent(historyListOwner.current.epoch)
+      ) {
+        applyCachedHistorySnapshot(applicationOwnerId, existingSnap, {
+          authOwner: snapshotValidatedAuthSessionOwner(),
+          vaultEpoch: snapshotVaultSessionEpoch(),
+        });
+      }
+      return;
+    }
     const restoreEpoch = historyRestoreEpochRef.current;
     const historyOwner = snapshotValidatedAuthSessionOwner();
     const historyVaultEpoch = snapshotVaultSessionEpoch();
@@ -3758,72 +3873,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         if (!hydrated || !canPublish() || !isAgentChatHistorySnapshotCurrent(applicationOwnerId, hydrated)) {
           return;
         }
-        historyListOwner.current = { auth: historyOwner!, epoch: historyVaultEpoch };
-        setConversations(hydrated.conversations);
-        const snapshotMainId =
-          hydrated.conversations.find(isPinnedOneStreamConversation)?.id ?? null;
-        if (snapshotMainId && pendingMainChatIdRef.current) {
-          pendingMainChatIdRef.current = null;
-          setPendingMainChatId(null);
-        }
-        const selectedId = selectedInAppChat(applicationOwnerId);
-        const activeSession =
-          typeof peekActiveAgentTurnSession === "function"
-            ? peekActiveAgentTurnSession<AgentMessage>(
-                applicationOwnerId,
-                historyVaultEpoch,
-              )
-            : null;
-        const activeOwnsTranscript = Boolean(
-          activeSession &&
-            (activeSession.isChatLoading ||
-              activeSession.isStreaming ||
-              (activeSession.conversationId &&
-                activeSession.conversationId === selectedId &&
-                activeSession.messages.length > 0)),
-        );
-        if (!activeOwnsTranscript) {
-          const hasValidSelected =
-            Boolean(selectedId) &&
-            (hydrated.conversations.some((item) => item.id === selectedId) ||
-              isAgentTurnWatched(applicationOwnerId, selectedId!));
-          const canonicalMainId = snapshotMainId ?? pendingMainChatIdRef.current;
-          const targetConversationId = hasValidSelected
-            ? selectedId!
-            : isOneStreamDraftRef.current
-              ? canonicalMainId
-              : null;
-          const targetCachedMessages = targetConversationId
-            ? targetConversationId === hydrated.latestConversationId && hydrated.latestMessages.length > 0
-              ? hydrated.latestMessages
-              : (peekAgentChatConversationMessages(applicationOwnerId, targetConversationId) ?? [])
-            : [];
-          if (targetConversationId && targetCachedMessages.length > 0) {
-            const restored = storedMessagesToAgentMessages(targetCachedMessages).map((message) => ({
-              ...message,
-              restoredFromHistory: true,
-            }));
-            if (canonicalMainId && targetConversationId === canonicalMainId) {
-              setIsOneStreamDraft(true);
-            }
-            updateConversationId(targetConversationId, false);
-            setMessages((current) =>
-              mergePendingConsentMessages(
-                restored.length > 0 ? restored : [createGreetingMessage()],
-                current,
-              ),
-            );
-          }
-        }
-        setHistoryReadyForSlot(true);
-        setIsLoadingHistory(false);
+        applyCachedHistorySnapshot(applicationOwnerId, hydrated, {
+          authOwner: historyOwner!,
+          vaultEpoch: historyVaultEpoch,
+        });
       })
       .catch(() => undefined);
 
     return () => {
       cancelled = true;
     };
-  }, [hasChatAccess, applicationOwnerId, vaultKey, vaultOwnerToken, updateConversationId]);
+  }, [hasChatAccess, applicationOwnerId, vaultKey, vaultOwnerToken, applyCachedHistorySnapshot]);
 
   useEffect(() => {
     if (
@@ -4143,7 +4203,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
   useEffect(() => {
     if (
-      !rootChatReady ||
       !applicationOwnerId ||
       !vaultKey ||
       !vaultOwnerToken ||
@@ -4219,7 +4278,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     recoveryCheckedForUid,
     getVaultOwnerToken,
     restoreConversationMessages,
-    rootChatReady,
     setComposerExpanded,
     setInput,
     setLongPromptAttachment,
@@ -6935,7 +6993,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       })) {
         if (!chatSessionRef.current.isCurrent(chatEpoch)) return "failed";
         dropOptimisticContinuationBubbles();
-        clearAgentChatHistoryCache(userId, { includeDevice: true });
+        clearAgentChatHistoryCache(userId, { includeDevice: false });
         dispatchAgentChatHistoryInvalidated(userId);
         if (conversationIdRef.current === threadId) {
           void restoreConversationMessages(threadId, token, () => chatSessionRef.current.isCurrent(chatEpoch) && conversationIdRef.current === threadId)
@@ -10117,7 +10175,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                             || review.subjectRef !== receipt.subjectRef) {
                             throw new Error("Submitted request history did not match the recipient.");
                           }
-                          clearAgentChatHistoryCache(ownerUid, { includeDevice: true });
+                          clearAgentChatHistoryCache(ownerUid, { includeDevice: false });
                           if (historyRestoreEpochRef.current !== epoch || conversationIdRef.current !== threadId) return;
                           showSent(review);
                         } catch (error) {

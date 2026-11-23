@@ -551,7 +551,6 @@ export function FilesWorkspace({
                   <PersonalWikiPanel
                     key={`wiki-inline:${userId}`}
                     ownerId={userId ?? undefined}
-                    signal={work.current.signal}
                     busy={busy || Boolean(edit)}
                     unavailable={!available || Boolean(message)}
                     act={act}
