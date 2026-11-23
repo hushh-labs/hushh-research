@@ -1594,6 +1594,31 @@ def test_metrics_aggregate_period_is_source_calendar_days_and_generation_bound(
             )
 
 
+def test_production_admits_seven_closed_calendar_days_without_expanding_uat(
+    metrics_aggregate_setup,
+):
+    now = datetime(2026, 11, 13, 12, tzinfo=timezone.utc)
+    period = {"startDate": "2026-11-06", "endDate": "2026-11-12", "timezone": "UTC"}
+    request = _metrics_source.AdoptionRequest.model_validate(
+        {**metrics_aggregate_setup.body, "period": period}
+    )
+    binding = {**metrics_aggregate_setup.binding, "coverageFrom": "2026-11-01"}
+    first, last = _metrics_source.period_bounds(request, binding, now)
+    assert first == datetime(2026, 11, 6, tzinfo=timezone.utc)
+    assert last == datetime(2026, 11, 13, tzinfo=timezone.utc) - timedelta(microseconds=1)
+    with pytest.raises(ValueError):
+        _metrics_source.period_bounds(request, binding, now, environment="uat")
+    for invalid in (
+        {"startDate": "2026-11-05", "endDate": "2026-11-05", "timezone": "UTC"},
+        {"startDate": "2026-11-13", "endDate": "2026-11-13", "timezone": "UTC"},
+    ):
+        bad = _metrics_source.AdoptionRequest.model_validate(
+            {**metrics_aggregate_setup.body, "period": invalid}
+        )
+        with pytest.raises(ValueError):
+            _metrics_source.period_bounds(bad, binding, now)
+
+
 def test_metrics_current_day_requires_one_explicit_utc_day_in_uat(metrics_aggregate_setup):
     now = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
     today = "2026-11-22"

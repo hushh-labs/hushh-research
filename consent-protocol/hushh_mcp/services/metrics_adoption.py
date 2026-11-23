@@ -124,11 +124,13 @@ def period_bounds(
         and binding.get("provisionalUtcDay") == end.isoformat()
     )
     if (
-        start > end
+        environment not in {"production", "uat"}
+        or start > end
         or (end - start).days >= 7
         or start.isoformat() < binding["coverageFrom"]
         or (end >= local_day and not provisional)
-        or first < now - timedelta(days=7)
+        or (environment == "uat" and first < now - timedelta(days=7))
+        or (environment == "production" and start < local_day - timedelta(days=7))
         or any(
             getattr(request, key) != binding[key]
             for key in ("definitionVersion", "sourceGeneration", "scopeDigest")
