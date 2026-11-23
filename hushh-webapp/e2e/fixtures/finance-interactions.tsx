@@ -8,6 +8,9 @@ import { createRoot } from "react-dom/client";
 import { ImportProgressView } from "../../components/kai/views/import-progress-view";
 import { DecisionCard } from "../../components/kai/views/decision-card";
 import { HoldingRowActions } from "../../components/kai/holdings/holding-row-actions";
+import { PortfolioReviewHoldingsTable } from "../../components/kai/holdings/portfolio-review-holdings-table";
+import { ReviewEntriesSheet } from "../../components/kai/holdings/review-entries-sheet";
+import { PortfolioReviewHoldingsPanel } from "../../components/kai/views/portfolio-review-layout";
 import { RiaPicksList } from "../../components/kai/cards/renaissance-market-list";
 import { OneMarketNewsBriefing } from "../../components/kai/cards/market-news-briefing";
 import { SectorRotationChart } from "../../components/kai/cards/sector-rotation-chart";
@@ -75,6 +78,31 @@ function FinanceSharingFixture() {
   </section>;
 }
 
+const importReviewPositions = groupHoldingPositions([
+  { client_id: "aapl", symbol: "AAPL", name: "Apple Inc.", quantity: 42, price: 229.14, market_value: 9623.88, cost_basis: 8405.46 },
+  { client_id: "vti", symbol: "VTI", name: "Vanguard Total Stock Market ETF", quantity: 36, price: 296.24, market_value: 10664.64, cost_basis: 9956.16 },
+]);
+const importReviewValue = importReviewPositions.reduce((total, row) => total + row.market_value, 0);
+
+function PortfolioImportReviewFixture() {
+  const [selected, setSelected] = useState<string | null>(null);
+  const position = importReviewPositions.find((row) => row.client_id === selected);
+  return <div data-testid="import-holdings-review-fixture" className={financeStyles.detail}>
+    <PortfolioReviewHoldingsPanel>
+      <PortfolioReviewHoldingsTable positions={importReviewPositions} totalValue={importReviewValue} onManageEntries={setSelected} />
+    </PortfolioReviewHoldingsPanel>
+    <ReviewEntriesSheet
+      open={Boolean(position)}
+      position={position ? toHoldingViewModel(position, importReviewValue) : null}
+      entries={position?.entries.map((entry) => toHoldingViewModel(entry, importReviewValue)) ?? []}
+      onOpenChange={(open) => { if (!open) setSelected(null); }}
+      onEditEntry={() => {}}
+      onToggleDeleteEntry={() => {}}
+      onAddEntry={() => {}}
+    />
+  </div>;
+}
+
 function GroupedHoldingsFixture() {
   const [entries, setEntries] = useState<HoldingsListItem[]>([
     { client_id: "entry-one", entry_id: "entry-one", symbol: "TEST", name: "Sample Company", quantity: 10, price: 130, market_value: 1300, cost_basis: 1000, account_id: "sample", acquisition_date: "2026-01-10" },
@@ -119,6 +147,7 @@ function Fixture() {
         onConnectPlaid={() => setAction("Connect Plaid")} onPreloadSchema={() => setAction("Try sample")} />
     </section>
     <GroupedHoldingsFixture />
+    <PortfolioImportReviewFixture />
     <section data-testid="finance-import-status">
       <button onClick={() => setUpdated(true)}>Finish reading statement</button>
       <ImportProgressView stage={updated ? "validating" : "extracting"} onCancel={() => setAction("Cancelled")} />

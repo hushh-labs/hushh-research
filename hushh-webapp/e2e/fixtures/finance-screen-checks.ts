@@ -206,6 +206,32 @@ export function registerFinanceScreenChecks(
 
 export function registerHoldingEntryChecks(mount: (page: Page, width?: number) => Promise<void>): void {
   for (const width of [393, 1440]) {
+    test("Import review shows four columns and opens the selected holding at " + width + "px", async ({ page }) => {
+      await mount(page, width);
+      const review = page.getByTestId("import-holdings-review-fixture");
+      const table = review.getByRole("table");
+      await expect(table.locator("thead th")).toHaveText(["Holdings", "Share Price", "Market Value", "Gain / Loss"]);
+      const row = table.getByRole("row").filter({ hasText: "VTI" });
+      await expect(row.getByRole("cell").nth(1)).toContainText("36 shares");
+      const trigger = row.getByRole("button", { name: "Manage entries for VTI" });
+      await expect(row.getByRole("cell").last().getByRole("button")).toBeVisible();
+      expect((await trigger.boundingBox())?.width).toBeGreaterThanOrEqual(44);
+      const { scrollWidth, clientWidth } = await table.evaluate((element) => {
+        const container = element.parentElement!;
+        return { scrollWidth: container.scrollWidth, clientWidth: container.clientWidth };
+      });
+      expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
+
+      await trigger.click();
+      const entries = page.getByRole("dialog", { name: "Manage entries" });
+      await expect(entries).toBeVisible();
+      await expect(entries.getByText("Vanguard Total Stock Market ETF · VTI")).toBeVisible();
+      await expect(entries.getByRole("button", { name: "Edit entry 1" })).toBeVisible();
+      await entries.getByRole("button", { name: "Done" }).click();
+      await expect(entries).not.toBeVisible();
+    });
+  }
+  for (const width of [393, 1440]) {
     for (const theme of ["light", "dark"]) {
       test(`Portfolio entries stay grouped through edit, add and removal at ${width}px ${theme}`, async ({ page }) => {
         await mount(page, width);
@@ -214,7 +240,7 @@ export function registerHoldingEntryChecks(mount: (page: Page, width?: number) =
         if (width < 768) await list.getByRole("button", { name: "View TEST entries" }).click();
         else {
           await expect(list.locator("tbody tr")).toHaveCount(1);
-          await list.getByRole("button", { name: "Manage entries", exact: true }).click();
+          await list.getByRole("button", { name: "Manage entries for TEST", exact: true }).click();
         }
         const detail = page.getByRole("dialog", { name: "TEST", exact: true });
         const entryList = detail.getByRole("region", { name: "Your entries" });
