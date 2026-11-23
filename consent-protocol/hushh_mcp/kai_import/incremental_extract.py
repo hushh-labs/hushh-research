@@ -162,6 +162,8 @@ async def incremental_statement_extract(
         _STATEMENT_DETAILS_SCHEMA,
         run_portfolio_gene,
     )
+    from hushh_mcp.hushh_adk.events import AdkEventTimeoutError
+    from hushh_mcp.hushh_adk.turn import SpecialistAdkTurnError
 
     started = time.perf_counter()
     await guard()
@@ -353,6 +355,12 @@ async def incremental_statement_extract(
         # replacement of successful model facts. The authored full-document
         # extractor retains its existing authority and final output contract.
         fallback_reason = str(exc)
+    except SpecialistAdkTurnError as exc:
+        if not isinstance(exc.__cause__, AdkEventTimeoutError):
+            raise
+        # The local deadline for a page or CSV batch expired. A whole-document
+        # call has its own bounded budget and runs after the same owner check.
+        fallback_reason = "incremental_model_deadline"
     finally:
         if source is not None:
             await source.close()

@@ -22,7 +22,8 @@ import { useRouter } from "next/navigation";
 import { AppPageContentRegion } from "@/components/app-ui/app-page-shell";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { KaiWorkspaceHeader } from "@/components/kai/kai-workspace-header";
-import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
+import { normalizePortfolioData, normalizeTickerSymbol, parseMaybeNumber } from "@/lib/kai/import/normalize-statement";
+import { MAX_STATEMENT_FILE_SIZE_MESSAGE, readStatementImportResult, statementFileError, statementImportForm } from "@/lib/kai/import/statement-upload";
 import { useCache } from "@/lib/cache/cache-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { PortfolioImportView } from "./views/portfolio-import-view";
@@ -238,8 +239,6 @@ interface PersistedImportBackgroundSnapshot {
 }
 
 const KAI_IMPORT_BACKGROUND_KEY = "kai_portfolio_import_background_v1";
-const MAX_IMPORT_FILE_BYTES = 25 * 1024 * 1024;
-const MAX_IMPORT_FILE_SIZE_MESSAGE = "File too large. Maximum size is 25MB.";
 
 function createInitialStreamingState(): StreamingState {
   return {
@@ -349,93 +348,10 @@ function clearImportBackgroundSnapshot(userId: string): void {
 /**
  * Normalize V2 backend portfolio data to match frontend ReviewPortfolioData interface.
  */
-function parseMaybeNumber(value: unknown): number | undefined {
-  if (value === null || value === undefined) return undefined;
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : undefined;
-  }
-
-  const text = String(value).trim();
-  if (
-    !text ||
-    ["n/a", "na", "null", "none", "--", "-"].includes(text.toLowerCase())
-  ) {
-    return undefined;
-  }
-
-  const negative = text.startsWith("(") && text.endsWith(")");
-  const sanitized = text
-    .replace(/[,$\s]/g, "")
-    .replace(/%/g, "")
-    .replace(/[()]/g, "");
-  const maybe = Number(negative ? `-${sanitized}` : sanitized);
-  return Number.isFinite(maybe) ? maybe : undefined;
-}
-
-function parseNumberOrZero(value: unknown): number {
-  return parseMaybeNumber(value) ?? 0;
-}
-
-function compactRecord<T extends Record<string, unknown>>(
-  value: T | undefined,
-): T | undefined {
-  if (!value) return undefined;
-  const entries = Object.entries(value).filter(([, entryValue]) => {
-    if (entryValue === undefined || entryValue === null) return false;
-    if (typeof entryValue === "string" && entryValue.trim().length === 0)
-      return false;
-    return true;
-  });
-  if (entries.length === 0) return undefined;
-  return Object.fromEntries(entries) as T;
-}
-
-const TRADE_ACTION_SYMBOLS = new Set([
-  "BUY",
-  "SELL",
-  "REINVEST",
-  "DIVIDEND",
-  "INTEREST",
-  "TRANSFER",
-  "WITHDRAWAL",
-  "DEPOSIT",
-]);
-
-const CASH_EQUIVALENT_SYMBOLS = new Set(["CASH", "MMF", "SWEEP", "QACDS"]);
 const MAX_RAW_STREAM_LINES = 350;
 const STREAM_STALL_WARNING_MS = 45_000;
 const STREAM_STALL_ABORT_MS = 150_000;
 const STREAM_STALL_CHECK_INTERVAL_MS = 5_000;
-
-function normalizeTickerSymbol(
-  value: unknown,
-  opts?: { name?: string; assetType?: string },
-): string {
-  if (value === null || value === undefined) return "";
-  const normalized = String(value)
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9.\-]/g, "");
-  if (!normalized || normalized.startsWith("HOLDING_")) return "";
-  if (TRADE_ACTION_SYMBOLS.has(normalized)) return "";
-  if (CASH_EQUIVALENT_SYMBOLS.has(normalized)) return "CASH";
-  const nameLc = String(opts?.name || "")
-    .trim()
-    .toLowerCase();
-  const assetTypeLc = String(opts?.assetType || "")
-    .trim()
-    .toLowerCase();
-  if (
-    nameLc.includes("cash") ||
-    nameLc.includes("sweep") ||
-    assetTypeLc.includes("cash") ||
-    assetTypeLc.includes("sweep") ||
-    assetTypeLc.includes("money market")
-  ) {
-    return "CASH";
-  }
-  return normalized;
-}
 
 function normalizeRawStreamLine(input: string): string {
   const stripped = String(input || "")
@@ -569,75 +485,6 @@ function readHoldingsPreview(value: unknown): LiveHoldingPreview[] | undefined {
     });
   }
   return dedupeLiveHoldingPreviewRows(preview);
-}
-
-function normalizePortfolioData(
-  backendData: Record<string, unknown>,
-): ReviewPortfolioData {
-  const normalized = normalizeStoredPortfolio(
-    backendData as Record<string, unknown>,
-    { preserveEntries: true },
-  ) as ReviewPortfolioData;
-  const rawHoldings = Array.isArray(normalized.holdings)
-    ? normalized.holdings
-    : [];
-  const canonicalHoldings = rawHoldings
-    .map((h) => ({
-      ...h,
-      symbol: normalizeTickerSymbol(h.symbol, {
-        name: h.name,
-        assetType: h.asset_type,
-      }),
-      quantity: parseNumberOrZero(h.quantity),
-      price: parseNumberOrZero(h.price),
-      market_value: parseNumberOrZero(h.market_value),
-      cost_basis: parseMaybeNumber(h.cost_basis),
-      unrealized_gain_loss: parseMaybeNumber(h.unrealized_gain_loss),
-      unrealized_gain_loss_pct: parseMaybeNumber(h.unrealized_gain_loss_pct),
-    }))
-    .filter((h) => Boolean((h.symbol || "").trim()));
-
-  const accountSummary = normalized.account_summary || {};
-  const totalValue =
-    parseMaybeNumber(normalized.total_value) ??
-    parseMaybeNumber(accountSummary.ending_value) ??
-    canonicalHoldings.reduce((sum, h) => sum + (h.market_value || 0), 0);
-  const cashBalance =
-    parseMaybeNumber(normalized.cash_balance) ??
-    parseMaybeNumber(accountSummary.cash_balance);
-
-  const result: ReviewPortfolioData = {
-    ...normalized,
-    account_info:
-      normalized.account_info && typeof normalized.account_info === "object"
-        ? ({
-            ...(normalized.account_info as Record<string, unknown>),
-            holder_name:
-              (normalized.account_info as Record<string, unknown>)
-                .holder_name ??
-              (normalized.account_info as Record<string, unknown>)
-                .account_holder,
-            brokerage:
-              (normalized.account_info as Record<string, unknown>).brokerage ??
-              (normalized.account_info as Record<string, unknown>)
-                .brokerage_name,
-          } as ReviewPortfolioData["account_info"])
-        : normalized.account_info,
-    holdings: canonicalHoldings,
-    quality_report_v2: compactRecord(
-      normalized.quality_report_v2 &&
-        typeof normalized.quality_report_v2 === "object"
-        ? ({
-            ...(normalized.quality_report_v2 as Record<string, unknown>),
-          } as Record<string, unknown>)
-        : undefined,
-    ),
-    cash_balance: cashBalance,
-    total_value: totalValue,
-    parse_fallback: normalized.parse_fallback === true,
-  };
-
-  return result;
 }
 
 /**
@@ -1949,25 +1796,10 @@ export function KaiFlow({
   const handleFileUpload = useCallback(
     async (file: File) => {
       if (statementPreparationInFlight.current || skipSourceInFlight.current) return;
-      // Validate file size (max 25MB)
-      if (file.size > MAX_IMPORT_FILE_BYTES) {
-        setError(MAX_IMPORT_FILE_SIZE_MESSAGE);
-        toast.error(MAX_IMPORT_FILE_SIZE_MESSAGE);
-        return;
-      }
-
-      // Validate file type
-      const validTypes = [
-        "application/pdf",
-        "text/csv",
-        "application/vnd.ms-excel",
-      ];
-      if (
-        !validTypes.includes(file.type) &&
-        !/\.(csv|pdf)$/i.test(file.name)
-      ) {
-        setError("Invalid file type. Please upload a PDF or CSV file.");
-        toast.error("Invalid file type. Please upload a PDF or CSV file.");
+      const fileError = statementFileError(file);
+      if (fileError) {
+        setError(fileError);
+        toast.error(fileError);
         return;
       }
 
@@ -2314,9 +2146,7 @@ export function KaiFlow({
 
         // Create abort controller for cancellation
         // Build form data
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("user_id", userId);
+        const formData = statementImportForm(file, userId);
 
         const runImportRequest = async (
           importToken: string,
@@ -2385,7 +2215,7 @@ export function KaiFlow({
               "This document does not appear to be a brokerage statement.";
             throw new Error(message);
           } else if (response.status === 413) {
-            throw new Error(MAX_IMPORT_FILE_SIZE_MESSAGE);
+            throw new Error(MAX_STATEMENT_FILE_SIZE_MESSAGE);
           } else if (response.status >= 500) {
             throw new Error(
               "Service is temporarily unavailable. Please try again shortly.",
@@ -2420,15 +2250,6 @@ export function KaiFlow({
           typeof value === "string" && value.trim().length > 0
             ? value
             : undefined;
-        const readBoolean = (value: unknown): boolean | undefined => {
-          if (typeof value === "boolean") return value;
-          if (typeof value === "string") {
-            const normalized = value.trim().toLowerCase();
-            if (normalized === "true") return true;
-            if (normalized === "false") return false;
-          }
-          return undefined;
-        };
         const formatQualityGateDetails = (
           value: unknown,
         ): string | undefined => {
@@ -2883,51 +2704,9 @@ export function KaiFlow({
                 break;
               }
               case "complete": {
-                const rawPortfolioData = payload.portfolio_data_v2 as
-                  Record<string, unknown> | undefined;
-                if (
-                  !rawPortfolioData ||
-                  typeof rawPortfolioData !== "object" ||
-                  Array.isArray(rawPortfolioData)
-                ) {
-                  throw new Error(
-                    "Missing portfolio_data_v2 in complete event",
-                  );
-                }
-                const parseFallback =
-                  readBoolean(payload.parse_fallback) ??
-                  readBoolean(
-                    (rawPortfolioData as Record<string, unknown>)
-                      .parse_fallback,
-                  ) ??
-                  false;
-                const rawExtractV2 =
-                  payload.raw_extract_v2 &&
-                  typeof payload.raw_extract_v2 === "object" &&
-                  !Array.isArray(payload.raw_extract_v2)
-                    ? (payload.raw_extract_v2 as Record<string, unknown>)
-                    : undefined;
-                const analyticsV2 =
-                  payload.analytics_v2 &&
-                  typeof payload.analytics_v2 === "object" &&
-                  !Array.isArray(payload.analytics_v2)
-                    ? (payload.analytics_v2 as Record<string, unknown>)
-                    : undefined;
-                const qualityReportV2 =
-                  payload.quality_report_v2 &&
-                  typeof payload.quality_report_v2 === "object" &&
-                  !Array.isArray(payload.quality_report_v2)
-                    ? (payload.quality_report_v2 as Record<string, unknown>)
-                    : undefined;
-                parsedPortfolio = normalizePortfolioData({
-                  ...(rawPortfolioData as Record<string, unknown>),
-                  raw_extract_v2: rawExtractV2,
-                  analytics_v2: analyticsV2,
-                  quality_report_v2: qualityReportV2,
-                  parse_fallback: parseFallback,
-                });
+                parsedPortfolio = readStatementImportResult(payload);
 
-                const qualityReportRaw = qualityReportV2;
+                const qualityReportRaw = payload.quality_report_v2;
                 const qualityReport =
                   qualityReportRaw &&
                   typeof qualityReportRaw === "object" &&

@@ -101,13 +101,26 @@ function PortfolioContent({ section }: { section: FinancePortfolioSection }) {
   if (error && !data) return <p role="status">Portfolio information is unavailable.</p>;
   if (!data) return <p>No portfolio is available yet.</p>;
   if (section === "sources") {
+    if (data.activeSource === "plaid") return <p>Linked Plaid account</p>;
     const statement = data.statementSnapshots.find(item => item.id === data.activeStatementSnapshotId);
-    return <div className="space-y-1 text-sm">
-      <p>Active source: {data.activeSource === "plaid" ? "Linked accounts" : "Statement"}</p>
-      {data.activeSource === "statement" && statement ? <p>{statement.label}</p> : null}
-      <p>Available sources: {data.availableSources.map(item => item === "plaid" ? "Linked accounts" : "Statement").join(", ") || "None"}</p>
-      {data.freshness?.lastSyncedAt ? <p>Last synced {new Date(data.freshness.lastSyncedAt).toLocaleString()}</p> : null}
-    </div>;
+    if (!statement) return <p>No portfolio source available.</p>;
+    const importedAt = statement.importedAt;
+    const uploadedAt = importedAt && Number.isFinite(Date.parse(importedAt))
+      ? new Intl.DateTimeFormat(undefined, {
+          dateStyle: "medium",
+          ...(/T\d{2}:\d{2}/i.test(importedAt) ? { timeStyle: "short" } : { timeZone: "UTC" }),
+        }).format(new Date(importedAt))
+      : null;
+    return (
+      <div className="space-y-1">
+        <p className="break-words ui-text-row-label-emphasized">{statement.fileName || "Statement name unavailable"}</p>
+        {uploadedAt && importedAt ? (
+          <p className="ui-text-row-description text-muted-foreground">
+            Imported <time dateTime={importedAt}>{uploadedAt}</time>
+          </p>
+        ) : null}
+      </div>
+    );
   }
   if (!data.activePortfolio) return <p>No portfolio is available yet.</p>;
 

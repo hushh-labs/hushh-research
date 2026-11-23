@@ -35,6 +35,7 @@ export interface PortfolioFreshness {
 export interface StatementSnapshotOption {
   id: string;
   label: string;
+  fileName?: string | null;
   brokerage?: string | null;
   statementPeriodEnd?: string | null;
   importedAt?: string | null;

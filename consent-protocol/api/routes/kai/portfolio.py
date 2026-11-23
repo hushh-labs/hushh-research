@@ -3522,6 +3522,18 @@ async def import_portfolio_stream(
         ),
     )
     if state == "active":
+        if (
+            run.filename != file.filename
+            or run.is_csv_upload != is_csv_upload
+            or run.content != content
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "IMPORT_RUN_ALREADY_ACTIVE",
+                    "message": "Another portfolio statement is already processing.",
+                },
+            )
         logger.info("[Portfolio Import] Reusing active run %s for user %s", run.run_id, user_id)
 
     return _create_import_sse_response(
