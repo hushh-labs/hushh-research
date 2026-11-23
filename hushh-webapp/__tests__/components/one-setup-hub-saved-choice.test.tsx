@@ -28,6 +28,7 @@ const state = vi.hoisted(() => ({
   updatePreferences: vi.fn(),
   acknowledgeSetupExit: vi.fn(),
   emailStatus: "loading" as "loading" | "saving" | "failed",
+  personalAgentStatus: { hostingMode: "shared", state: "none", deploymentTarget: null as string | null } as Record<string, unknown>,
 }));
 vi.mock("@/components/account/use-marketing-preference", () => ({ useMarketingPreference: () => ({
   value: state.emailStatus === "saving" ? { enabled: false, frequency: "weekly" } : null,
@@ -65,13 +66,21 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({ PreVaultUserStat
   bootstrapState: async () => ({ phoneVerified: state.phoneHint, saved: state.saved, oneRuntimeSetupChoice: state.choice, initialContactsWelcomeAcknowledged: !state.pendingContactsWelcome }),
   hasOneCloudProject: () => state.hasCloudProject,
   hasOneRuntimeChoice: (value: { saved: boolean }) => value.saved,
+  markOneRuntimeChoice: async () => {
+    state.saved = true;
+    state.choice = "hushh_managed_vertex";
+    return { phoneVerified: state.phoneHint, saved: state.saved, oneRuntimeSetupChoice: state.choice, initialContactsWelcomeAcknowledged: !state.pendingContactsWelcome };
+  },
 } }));
 vi.mock("@/lib/services/account-identity-service", () => ({ AccountIdentityService: {
   peekCachedIdentity: () => state.cachedPhone ? ({ data: { phone_verified: state.cachedPhoneVerified }, isStale: state.stalePhone }) : null,
   refreshCurrentUserIdentity: state.refreshPhone,
   hasVerifiedPhone: (identity: { phone_verified?: boolean } | null) => identity?.phone_verified === true,
 } }));
-vi.mock("@/lib/services/api-service", () => ({ ApiService: { getByocSetupStatus: async () => ({ status: "idle" }) } }));
+vi.mock("@/lib/services/api-service", () => ({ ApiService: {
+  getByocSetupStatus: async () => ({ status: "idle" }),
+  getPersonalAgentStatus: async () => state.personalAgentStatus,
+} }));
 vi.mock("@/lib/onboarding/use-capability-setup-states", () => ({ useCapabilitySetupStates: () => ({ byId: {}, isLoading: false, isEnriching: false }) }));
 vi.mock("@/components/dashboard/one-agent-presence", () => ({ OneAgentPresence: () => null }));
 vi.mock("@/components/profile/public-profile-discovery-card", () => ({ PublicProfileDiscoveryCard: () => null }));
@@ -109,6 +118,7 @@ beforeEach(() => {
   state.hasCloudProject = true;
   state.saved = false;
   state.emailStatus = "loading";
+  state.personalAgentStatus = { hostingMode: "shared", state: "none", deploymentTarget: null };
   state.choice = "hushh_managed_vertex";
   state.stagedGeminiKey = false;
   state.savedGeminiKey = false;
@@ -338,4 +348,20 @@ it("displays Hussh Confidential Sandbox copy on Dev cutover lane without Hussh S
   } finally {
     vi.unstubAllEnvs();
   }
+});
+
+it("auto-defaults oneRuntimeSetupChoice when Hussh Confidential Sandbox (ace) is auto-placed", async () => {
+  state.hasCloudProject = true;
+  state.saved = false;
+  state.personalAgentStatus = {
+    hostingMode: "hussh_pods",
+    deploymentTarget: "ace",
+    state: "active",
+  };
+  render(<OneSetupHub />);
+  const finish = await screen.findByRole("button", { name: "Finish setup" });
+  await waitFor(() => expect(finish).toBeEnabled());
+  expect(screen.getByRole("button", { name: "Agent home: Connected" })).toBeVisible();
+  fireEvent.click(finish);
+  await screen.findByRole("dialog");
 });

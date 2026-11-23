@@ -6557,7 +6557,7 @@
         "cache_sync": false,
         "resource_wrapper": false,
         "direct_fetch": false,
-        "api_service": false,
+        "api_service": true,
         "hushh_loader": true,
         "sse_or_streaming": false,
         "native_beacon": true
@@ -7381,5 +7381,5 @@
       ]
     }
   ],
-  "content_sha256": "4dab382a3a03592e15ba83ff232d9a2c18ede05db5278820da12f578012940b7"
+  "content_sha256": "59d30eaf4503cd1c712577c78b7726dd3726c2824c899e36e906ac2e1a71cf44"
 }

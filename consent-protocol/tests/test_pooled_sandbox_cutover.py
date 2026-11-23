@@ -1258,3 +1258,57 @@ async def test_switch_hosting_mode_route_detaches_ace_to_shared_and_own_cloud_wh
         )
     assert exc.value.status_code == 409
     assert exc.value.detail["code"] == "CLOUD_REMOVAL_REVIEW_REQUIRED"
+
+
+async def test_persisted_shared_hosting_choice_row_promotes_idempotently_to_ace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_cutover(monkeypatch)
+    reg = _FakeRegistry()
+    grants = _FakeGrants()
+    jobs = _FakeJobs()
+
+    # Simulate an existing Shared owner recorded in HostingChoiceRepo with no registry row yet.
+    shared_choice = {"tier": "shared", "chosen_at": "2026-10-15T00:00:00+00:00"}
+    assert (
+        resolve_hosting_mode(
+            row=None,
+            registry_read_ok=True,
+            setup_job=None,
+            setup_job_read_ok=True,
+            shared_choice=shared_choice,
+            shared_choice_read_ok=True,
+        )
+        == "shared"
+    )
+
+    promoted = await ensure_pooled_sandbox_placement(
+        user_id="uid-persisted-shared",
+        registry=reg,
+        job_repo=jobs,
+        grant_service=grants,
+    )
+    assert promoted is not None
+    assert promoted["deployment_target"] == "ace"
+    assert promoted["status"] == "provisioned"
+    assert (
+        resolve_hosting_mode(
+            row=promoted,
+            registry_read_ok=True,
+            setup_job=None,
+            setup_job_read_ok=True,
+            shared_choice=shared_choice,
+            shared_choice_read_ok=True,
+        )
+        == "hussh_pods"
+    )
+
+    # Idempotent repeat does not overwrite or duplicate upserts.
+    second = await ensure_pooled_sandbox_placement(
+        user_id="uid-persisted-shared",
+        registry=reg,
+        job_repo=jobs,
+        grant_service=grants,
+    )
+    assert second == promoted
+    assert len(reg.upserts) == 1

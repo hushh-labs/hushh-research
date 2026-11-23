@@ -139,6 +139,7 @@ import {
 } from "@/components/agent/mcp-call-review-card";
 import { isBareReviewReply } from "@/lib/agent/mcp-review-typed-reply";
 import { serverNow } from "@/lib/agent/server-clock";
+import { invalidateFilesMutationCache } from "@/lib/files/files-cache";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
 import {
   AgentConnectionsDrawer,
@@ -6225,6 +6226,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         turnStopped = true;
         if (isTurnSessionActive()) {
           if (isWorkspaceMountedRef.current) slowNotice.finish("stopped");
+          setActiveToolCalls([]);
           flushAssistantDelta();
           updateMessage(assistantMessageId, (message) => ({
             ...message,
@@ -6481,6 +6483,32 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onToolResult: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
             setActiveToolCalls(current => current.filter(item => item.id !== toolEvent.callId));
+            const resultToolName = toolEvent.raw?.toolName;
+            if (
+              resultToolName === "files" ||
+              resultToolName === "create_folder" ||
+              resultToolName === "organize_file" ||
+              resultToolName === "write_file" ||
+              resultToolName === "optimize_personal_memory"
+            ) {
+              let resultStatus = "";
+              const rawResult = toolEvent.raw?.result;
+              if (rawResult && typeof rawResult === "object") {
+                resultStatus = String((rawResult as { status?: unknown }).status ?? "");
+              } else if (typeof rawResult === "string") {
+                try {
+                  const parsed = JSON.parse(rawResult) as { status?: unknown } | null;
+                  if (parsed && typeof parsed === "object") {
+                    resultStatus = String(parsed.status ?? "");
+                  }
+                } catch {
+                  // Ignore non-JSON payloads and still refresh cache.
+                }
+              }
+              if (resultStatus !== "error" && resultStatus !== "failed" && resultStatus !== "blocked") {
+                invalidateFilesMutationCache(applicationOwnerId ?? userId);
+              }
+            }
             if (toolEvent.raw?.toolName === "list_pending_information_requests") {
               const parseJsonObj = (val: unknown): Record<string, unknown> | null => {
                 let cur: unknown = val;
@@ -6637,6 +6665,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             // AG-UI interrupts are the normal boundary for a visible action
             // card. The card remains actionable, but the assistant turn has
             // finished thinking until the owner confirms or cancels it.
+            setActiveToolCalls([]);
             if (isWorkspaceMountedRef.current) slowNotice.finish("answered");
             flushThinkingDelta(false);
             flushAssistantDelta();
@@ -6692,6 +6721,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted || !isTurnSessionActive()) return;
             nameTurnCompleted = true;
+            setActiveToolCalls([]);
             if (isWorkspaceMountedRef.current) slowNotice.finish("answered");
             const finalConversationId =
               nextConversationId || activeSessionBinding?.conversationId || turnConversationId;
@@ -6732,6 +6762,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onError: (message) => {
             if (streamAbortController.signal.aborted || !isTurnSessionActive()) return;
             nameTurnCompleted = false;
+            setActiveToolCalls([]);
             // The error in the transcript owns this turn; only server strain
             // keeps the notice up, as the heavy-usage explanation.
             if (isWorkspaceMountedRef.current) slowNotice.finish("failed");
@@ -6798,6 +6829,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       if (!isMainChatTurn || turnStartedInOneStreamDraft) {
         void loadConversationList(true).catch(() => undefined);
       }
+      setActiveToolCalls([]);
       patchTurnSessionState({
         conversationId: finalConversationId,
         isChatLoading: false,
@@ -6809,6 +6841,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       finalizeSettledTurn(finalConversationId, true);
     } catch (error) {
       if (!isTurnSessionActive()) return;
+      setActiveToolCalls([]);
       if (streamAbortController.signal.aborted) {
         finishCanceledTurn();
         return;
@@ -6861,6 +6894,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         abort: null,
       });
     } finally {
+      if (isTurnSessionActive()) {
+        setActiveToolCalls([]);
+      }
       nameTurn?.finish(false);
       void preferredNameTurn?.finish(false);
       releaseForegroundChatPriority();
@@ -7151,6 +7187,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           },
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
+            setActiveToolCalls([]);
             slowNotice.finish("answered");
             flushAssistantDelta();
             if (nextConversationId) updateConversationId(nextConversationId);
@@ -7163,6 +7200,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           },
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
+            setActiveToolCalls([]);
             slowNotice.finish("failed");
             flushAssistantDelta();
             if (consentBundleId) {
@@ -7178,6 +7216,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         },
       });
       if (!chatSessionRef.current.isCurrent(chatEpoch)) return "failed";
+      setActiveToolCalls([]);
       if (streamAbortController.signal.aborted) {
         flushAssistantDelta();
         updateMessage(assistantMessageId, (message) => ({
@@ -7213,6 +7252,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       return "answered";
     } catch (error) {
       if (!chatSessionRef.current.isCurrent(chatEpoch)) return "failed";
+      setActiveToolCalls([]);
       slowNotice.finish(streamAbortController.signal.aborted ? "stopped" : "failed");
       flushAssistantDelta();
       let result: FollowUpTurnResult = "failed";
@@ -7243,6 +7283,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setIsStreaming(false);
       return result;
     } finally {
+      if (chatSessionRef.current.isCurrent(chatEpoch)) {
+        setActiveToolCalls([]);
+      }
       setIsTurnWaking(false);
       releaseForegroundChatPriority();
       slowNotice.finish("stopped");
@@ -7412,6 +7455,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onToolWaiting: stageIntroNavigation,
           onComplete: () => {
             if (streamAbortController.signal.aborted) return;
+            setActiveToolCalls([]);
             flushAssistantDelta();
             updateIntroMessage(assistantMessageId, (message) => ({
               ...message,
@@ -7427,6 +7471,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           },
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
+            setActiveToolCalls([]);
             flushAssistantDelta();
             updateIntroMessage(assistantMessageId, (current) =>
               settleAssistantMessageError(current, message),
@@ -7438,6 +7483,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       });
     } catch (error) {
       if (!chatSessionRef.current.isCurrent(chatEpoch)) return;
+      setActiveToolCalls([]);
       cancelAssistantFlush();
       if (!chatSessionRef.current.isCurrent(chatEpoch)) return;
       if (streamAbortController.signal.aborted) {
@@ -7458,6 +7504,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setIsChatLoading(false);
       setIsStreaming(false);
     } finally {
+      if (chatSessionRef.current.isCurrent(chatEpoch)) {
+        setActiveToolCalls([]);
+      }
       if (streamAbortControllerRef.current === streamAbortController) {
         streamAbortControllerRef.current = null;
       }

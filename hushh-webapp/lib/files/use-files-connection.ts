@@ -17,6 +17,7 @@ import {
   snapshotVaultSessionEpoch,
 } from "@/lib/vault/session-epoch";
 import { ApiService } from "@/lib/services/api-service";
+import { ensureSharedToAceMigration } from "@/lib/services/shared-to-ace-migration-service";
 
 /** Bind ciphertext/pod transport to the exact current unlocked owner visit. */
 export function useFilesConnection(
@@ -176,6 +177,15 @@ export function useFilesConnection(
         );
         setFilesHostingCache(userId, vaultKey, resolvedHosting);
         setHosting(resolvedHosting);
+        if (status.hostingMode === "hussh_pods") {
+          void ensureSharedToAceMigration({
+            userId,
+            vaultKey,
+            vaultOwnerToken,
+            hostingMode: status.hostingMode,
+            signal: controller.signal,
+          }).catch(() => undefined);
+        }
       })
       .catch(async () => {
         if (hydrationPromise && !authoritativeUnplaced) {

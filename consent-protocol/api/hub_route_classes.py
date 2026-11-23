@@ -298,6 +298,11 @@ GET,PUT /api/one/hosted-memory/pilot/envelope
 GET /api/one/files/storage
 GET /api/one/files/objects/{namespace}
 GET,PUT /api/one/files/objects/{namespace}/{object_id}
+GET /api/one/agent-chat/migration/sessions
+GET /api/one/files/migration/manifest
+GET /api/one/files/migration/wiki/{page_id}
+GET /api/one/files/migration/file/{file_id}/chunk/{index}
+POST /api/one/files/migration/complete
 POST /api/one/answer-requests/{request_id}/deliver
 GET /api/one/answer-requests/{request_id}/answer
 DELETE,PUT /api/one/circles/{circle}/chat/messages/{message}/reactions/{emoji}

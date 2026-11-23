@@ -311,9 +311,11 @@ class WikiOptInBody(BaseModel):
 
 class WikiSavePageBody(BaseModel):
     page_id: str = Field(min_length=4, max_length=64)
-    expected_revision: int = Field(ge=1)
+    expected_revision: int = Field(default=0, ge=0)
     title: str = Field(min_length=1, max_length=120)
+    folder: str = Field(default="root", min_length=1, max_length=120)
     tldr: str = Field(default="", max_length=600)
+    status_as_of: str = Field(default="2026-01-01", min_length=4, max_length=32)
     body: str = Field(default="", max_length=64000)
     request_id: str = Field(min_length=8, max_length=128)
 
@@ -560,6 +562,23 @@ async def save_wiki_page_detail(body: WikiSavePageBody, owner: Owner):
 
     try:
         async with wiki_operation(mutation=True) as wiki:
+            if body.expected_revision == 0:
+                created = await wiki.create_page(
+                    page_id=body.page_id,
+                    title=body.title,
+                    folder=body.folder,
+                    tldr=body.tldr,
+                    status_as_of=body.status_as_of,
+                    body=body.body,
+                    idempotency_key=body.request_id,
+                )
+                await wiki.rebuild_indexes()
+                await WikiKnowledgeWriter(wiki).refresh_hot_digest()
+                return {
+                    "pageId": created["page_id"],
+                    "revision": created["revision"],
+                    "staledReceipts": [],
+                }
             updated = await wiki.edit_page(
                 body.page_id,
                 expected_revision=body.expected_revision,

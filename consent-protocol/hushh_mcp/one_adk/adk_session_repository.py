@@ -174,6 +174,20 @@ class PostgresAdkSessionRepository:
             {"app": app, "user": user, "chat_marker": chat_marker},
         )
 
+    async def list_sealed_for_migration(
+        self, *, app: str, user: str, chat_marker: str
+    ) -> SessionRecordResult:
+        return await self._execute(
+            """SELECT app_name, user_id, session_id, payload_ciphertext, payload_iv,
+                      payload_tag, payload_algorithm, revision, updated_at
+               FROM one_adk_sessions
+               WHERE app_name = :app AND user_id = :user
+                 AND payload_ciphertext LIKE :chat_marker
+               ORDER BY updated_at DESC
+               LIMIT 1000""",
+            {"app": app, "user": user, "chat_marker": chat_marker},
+        )
+
     async def delete(
         self, *, app: str, user: str, session: str, chat_marker: str
     ) -> SessionRecordResult:

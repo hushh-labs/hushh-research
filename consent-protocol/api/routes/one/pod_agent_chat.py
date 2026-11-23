@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from ag_ui.core import RunAgentInput
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sse_starlette.sse import EventSourceResponse
 
 from api.routes.external_connectors import (
@@ -109,6 +109,74 @@ async def context(request: Request) -> PodChatContext:
         )
         result.browser_runtime = getattr(request.app.state, "browser_task_runtime", None)
     return result
+
+
+async def migration_context(request: Request) -> PodChatContext:
+    _require_enabled()
+    result = PodChatContext(
+        request.headers.get("authorization"),
+        needs_key=False,
+        browser_runtime=getattr(request.app.state, "browser_task_runtime", None),
+    )
+    await result.require_access()
+    return result
+
+
+class SealedMigrationSession(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    app_name: str = Field(default=ONE_APP_NAME, min_length=1, max_length=128)
+    user_id: str | None = Field(default=None, min_length=1, max_length=256)
+    session_id: str = Field(min_length=1, max_length=256)
+    payload_ciphertext: str = Field(min_length=1)
+    payload_iv: str = Field(min_length=1)
+    payload_tag: str = Field(min_length=1)
+    payload_algorithm: str = Field(min_length=1)
+    revision: int = Field(default=1, ge=1)
+    updated_at: str = Field(default="")
+
+
+class MigrationSessionImportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sessions: list[SealedMigrationSession] = Field(default_factory=list, max_length=1000)
+
+
+@router.post("/migration/import")
+async def import_migration_sessions(
+    payload: MigrationSessionImportRequest,
+    owner: PodChatContext = Depends(migration_context),
+):
+    from hushh_mcp.one_adk.pod_adk_session_repository import (
+        PodAdkSessionRepository,
+        PodAdkSessionUnavailable,
+    )
+    from hushh_mcp.services.pod_upgrade_admission import ADMISSION, pod_incarnation
+
+    repo = owner.sessions._repository
+    if not isinstance(repo, PodAdkSessionRepository):
+        raise HTTPException(status_code=503, detail={"code": "POD_CHAT_RECOVERY_UNAVAILABLE"})
+    for item in payload.sessions:
+        if item.user_id is not None and item.user_id != owner.owner:
+            raise HTTPException(status_code=403, detail={"code": "POD_CHAT_OWNER_MISMATCH"})
+    permit = await ADMISSION.acquire_turn(incarnation=pod_incarnation())
+    try:
+        imported, skipped = await repo.import_sealed_sessions(
+            user=owner.owner,
+            sessions=[item.model_dump() for item in payload.sessions],
+        )
+    except PodAdkSessionUnavailable as exc:
+        detail = str(exc)
+        code = (
+            "POD_CHAT_OWNER_MISMATCH"
+            if "owner mismatch" in detail.lower()
+            else "POD_CHAT_MIGRATION_INVALID"
+        )
+        status = 403 if code == "POD_CHAT_OWNER_MISMATCH" else 400
+        raise HTTPException(status_code=status, detail={"code": code, "message": detail}) from None
+    finally:
+        await permit.release()
+    return {"status": "imported", "imported": imported, "skipped": skipped}
 
 
 @router.get("/capabilities")

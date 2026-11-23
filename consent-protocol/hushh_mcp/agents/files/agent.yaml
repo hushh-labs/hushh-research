@@ -48,9 +48,12 @@ system_instruction: |
   Do not rescan the library or repeat successful reads or changes to verify them.
   Stop on unsupported content, refused authority, or an operation failure and
   report the actual outcome without retrying or searching for a workaround.
-  Finish within six model calls, including completion. Once the bounded request
-  is completed, unchanged, unsupported, or failed, call finish_task immediately
-  using its declared output schema. Do not continue exploring after completion.
+  When running a structured organization task with finish_task available, finish
+  within six model calls and call finish_task immediately using its declared output
+  schema. When answering a direct chat lookup, search, read, or write request
+  without finish_task, use search_files, list_files, read_file, write_file,
+  create_folder, or organize_file directly and reply concisely with the exact
+  filenames, metadata, and grounded content found.
   Automatic organization applies only to new uploads after owner opt-in;
   existing files require an explicit request. Destructive changes are not in
   your tool set: direct the owner to confirm them in Files. Reading is never
@@ -79,13 +82,21 @@ availability:
   environments: [development]
 tools:
   - name: list_files
-    description: List one bounded page of owner library metadata after analysis consent.
+    description: List bounded owner library metadata (optionally recursive), excluding excluded folders.
     py_func: hushh_mcp.one_adk.files_tools.list_files
     required_scope: files.read
+  - name: search_files
+    description: Search owner library files and folders recursively by normalized name or path.
+    py_func: hushh_mcp.one_adk.files_tools.search_files
+    required_scope: files.read
   - name: read_file
-    description: Read supported bounded text content after library analysis consent.
+    description: Read or extract bounded file content (text, PDF, XLSX, HTML, or metadata fallback) by ID or filename.
     py_func: hushh_mcp.one_adk.files_tools.read_file
     required_scope: files.read
+  - name: write_file
+    description: Create a bounded UTF-8 text, markdown, JSON, or CSV file with idempotent request_id.
+    py_func: hushh_mcp.one_adk.files_tools.write_file
+    required_scope: files.manage
   - name: create_folder
     description: Create an empty folder with idempotent request identity and current consent.
     py_func: hushh_mcp.one_adk.files_tools.create_folder

@@ -29,6 +29,7 @@ import {
   ROUTES,
 } from "@/lib/navigation/routes";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
+import { ApiService } from "@/lib/services/api-service";
 import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
@@ -116,20 +117,38 @@ export function PhoneMandatePageContent() {
       // redirect. Refresh the authoritative root state before resolving a
       // destination: a stale cached bootstrap result must never let a newly
       // verified account skip One setup and land in Profile/Home.
-      const setupResolved = await PreVaultUserStateService.bootstrapState(
+      const bootstrapState = await PreVaultUserStateService.bootstrapState(
         owner,
         {
           force: true,
         },
-      )
-        .then((state) => PreVaultUserStateService.isSetupResolved(state))
-        .catch((error) => {
-          console.warn(
-            "[RegisterPhonePage] Failed to refresh setup state:",
-            error,
-          );
-          return false;
-        });
+      ).catch((error) => {
+        console.warn(
+          "[RegisterPhonePage] Failed to refresh setup state:",
+          error,
+        );
+        return null;
+      });
+      if (
+        bootstrapState &&
+        PreVaultUserStateService.hasOneCloudProject?.(bootstrapState) &&
+        !PreVaultUserStateService.hasOneRuntimeChoice?.(bootstrapState) &&
+        typeof ApiService?.getPersonalAgentStatus === "function"
+      ) {
+        const agentStatus = await ApiService.getPersonalAgentStatus().catch(() => null);
+        if (
+          agentStatus?.hostingMode === "hussh_pods" &&
+          (agentStatus.deploymentTarget === "ace" || agentStatus.state === "active")
+        ) {
+          await PreVaultUserStateService.markOneRuntimeChoice?.(
+            owner,
+            "hushh_managed_vertex",
+          ).catch(() => undefined);
+        }
+      }
+      const setupResolved = bootstrapState
+        ? PreVaultUserStateService.isSetupResolved(bootstrapState)
+        : false;
       const idToken = await activeUser.getIdToken().catch(() => undefined);
 
       // The number they just verified is the trigger for claiming: if the SEC

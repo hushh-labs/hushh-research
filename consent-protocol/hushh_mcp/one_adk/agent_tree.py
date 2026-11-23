@@ -570,11 +570,9 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "DIFFERENT action before the first one settles -- it does not mean one "
     "person per call. Several named people going into the SAME action (one "
     "'person' slot carrying every name the person said, e.g. share/ask/connect/ "
-    "add-to-circle below) is still exactly one call; naming three people and "
-    "calling the tool once is compliant with this rule, not a violation of it. "
-    "Never read this rule as a reason to split a multi-person request into "
-    "several turns or to ask who to do first -- that is the opposite of what "
-    "it means. If a tool reports 'settling', the "
+    "add-to-circle below) is still exactly one call; naming three people "
+    "in one call complies; never split across turns or ask who first. "
+    "If a tool reports 'settling', the "
     "previous action has not finished; briefly tell the user you are waiting, "
     "then retry after the settlement note arrives. Do not call a tool again "
     "for the same action while it is still pending, confirming, or settling; "
@@ -598,14 +596,8 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "slot. It does NOT mean two calls, one per name. There is no order and "
     "no sequence: never ask 'who first', 'which one first', or what order "
     "to do them in, never wait for one name to finish before naming the "
-    "next, and never split a multi-person request across turns. If you "
-    "are about to ask who to do first -- stop. That question has no right "
-    "answer, because there is no first; put every name in the one call "
-    "instead, then let the result say what happened to each. This is what "
-    "the 'at most ONE action-producing tool per turn' rule above already "
-    "means for these: one call naming three people IS one action-producing "
-    "tool call, fully within that rule, not three calls squeezed into one "
-    "turn.\n\n"
+    "next, and never split across turns -- stop and put every name in the "
+    "one call, then let the result say what happened to each.\n\n"
     # Sharing a location with named people. Resolution and ambiguity checking
     # happen in one canonical action call, but execution remains bounded by
     # the current executable surface. If the action is not in that inventory,
@@ -1023,7 +1015,16 @@ def _compose_one_instruction_parts(
         if drive_admitted
         else "\n\nDRIVE READ ADMISSION: disabled. Do not call ask_documents_agent or inspect_selected_drive_files. Do not claim Drive is disconnected or a file is absent without a current status check."
     )
-    static_prefix = ONE_IDENTITY_INSTRUCTION + mail_core_instruction + drive_instruction
+    pod_files_instruction = (
+        "\n\nPRIVATE FILES LIBRARY (/one/files): Call `files` first for uploaded files, "
+        "/one/files, or named private files/keys unless Google Drive is specified. Never "
+        "route /one/files queries to `ask_documents_agent` (Drive) or `/workspace`."
+        if pod_mode() and os.getenv("POD_FILES_ENABLED", "").lower() in {"1", "true"}
+        else ""
+    )
+    static_prefix = (
+        ONE_IDENTITY_INSTRUCTION + mail_core_instruction + drive_instruction + pod_files_instruction
+    )
     selected_drive_ref = (
         state_getter(STATE_DRIVE_SEARCH_SELECTION) if callable(state_getter) else None
     )
@@ -1802,12 +1803,44 @@ async def _specialist_turn(
             "availability": availability_payload,
             "message": "Unlock the vault before asking this specialist to use protected information.",
         }
+    from hushh_mcp.services.pod_specialist_runtime import PodSpecialistAdapterUnavailable
+
     trace = _new_dependency_trace()
     # Every managed surface inherits the shared project configuration.
     chat_project = None
     try:
         with _dependency_scope(trace), bind_managed_vertex_project(chat_project):
             result = await dispatch(agent_id, task)
+    except PodSpecialistAdapterUnavailable:
+        logger.info("one_adk.specialist_adapter_unavailable agent_id=%s", agent_id)
+        if agent_id == "agent_documents":
+            unavailable_msg = (
+                "Google Drive isn't connected in this private sandbox right now. "
+                "If you meant a file you uploaded in Files (/one/files), check your private "
+                "Files library instead, or connect Google Drive in Connectors."
+            )
+            return _with_dependency(
+                {
+                    "status": "unavailable",
+                    "reason": "adapter_unavailable",
+                    "availability": availability_payload,
+                    "structured": {"connector": "drive", "status": "unavailable"},
+                    "text": unavailable_msg,
+                    "message": unavailable_msg,
+                    "is_complete": True,
+                },
+                trace,
+            )
+        return _with_dependency(
+            {
+                "status": "unavailable",
+                "reason": "adapter_unavailable",
+                "availability": availability_payload,
+                "message": f"{specialist_label(agent_id)} is not available in this private sandbox right now.",
+                "is_complete": True,
+            },
+            trace,
+        )
     except PuppyCapabilityUnsupported as exc:
         return _with_dependency(
             {
@@ -2838,7 +2871,9 @@ def _one_roster_tools(
         from hushh_mcp.one_adk.wiki_recall_tools import pod_wiki_recall_tools
 
         files_manifest = _load_product_agent_manifest("agent_files")
-        tools.append(AgentTool(agent=build_files_agent(files_manifest, model=text_model)))
+        tools.append(
+            AgentTool(agent=build_files_agent(files_manifest, model=text_model, mode="chat"))
+        )
         tools.extend(pod_wiki_recall_tools())
         from hushh_mcp.services.pod_session_authority import active_session_authority
 

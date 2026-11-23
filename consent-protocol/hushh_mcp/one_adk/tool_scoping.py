@@ -125,6 +125,18 @@ ALL_SCOPED_LEAF_TOOLS: frozenset[str] = (
     frozenset().union(*CAPABILITY_PACKS_BY_ID.values()) - CALENDAR_LEAF_TOOLS
 )
 
+# Pod private /one/files tools stay always-on (outside ALL_SCOPED_LEAF_TOOLS)
+# so queries about uploaded private documents never fail recall or collide with Drive.
+POD_FILES_ALWAYS_ON_TOOLS: frozenset[str] = frozenset({"files", "propose_file_schedule"})
+_PRIVATE_FILES_EXPLICIT_HINTS: tuple[str, ...] = (
+    "/one/files",
+    "files library",
+    "uploaded file",
+    "uploaded files",
+    "my uploaded",
+    "recovery key",
+)
+
 _PACK_KEYWORDS: tuple[tuple[str, frozenset[str], tuple[str, ...]], ...] = (
     (
         "calendar",
@@ -386,6 +398,12 @@ def _history_referenced_tools_and_packs(contents: list[Any]) -> tuple[set[str], 
     return used_tools, used_packs
 
 
+def _is_private_files_without_drive_intent(intent_text: str) -> bool:
+    if "drive" in intent_text:
+        return False
+    return any(hint in intent_text for hint in _PRIVATE_FILES_EXPLICIT_HINTS)
+
+
 def _active_leaf_tools(
     intent_text: str,
     history_tools: set[str],
@@ -394,12 +412,12 @@ def _active_leaf_tools(
     active: set[str] = set(history_tools)
     pruned_pack_ids: list[str] = []
     forced_packs = explicit_packs or set()
+    private_files_only = _is_private_files_without_drive_intent(intent_text)
     for pack_id, pack, keywords in _PACK_KEYWORDS:
-        if (
-            pack_id in forced_packs
-            or any(keyword in intent_text for keyword in keywords)
-            or (pack & history_tools)
-        ):
+        keyword_match = any(keyword in intent_text for keyword in keywords)
+        if pack_id == "drive_files" and private_files_only:
+            keyword_match = False
+        if pack_id in forced_packs or keyword_match or (pack & history_tools):
             active.update(pack)
         else:
             pruned_pack_ids.append(pack_id)

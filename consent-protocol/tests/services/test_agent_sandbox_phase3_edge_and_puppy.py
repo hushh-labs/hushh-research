@@ -750,7 +750,8 @@ async def test_edge_gateway_fails_fast_on_blackholed_pod_ip_and_rotates_expiring
             proxy_client = manager._proxy_http_client
             assert proxy_client is not None
             assert proxy_client.timeout.connect == pytest.approx(0.35)
-            assert proxy_client.timeout.read == pytest.approx(160.0)
+            # Matches SandboxEdgeGatewayManager default (240.0s, exceeding the 230s+ AG-UI turn window).
+            assert proxy_client.timeout.read == pytest.approx(240.0)
 
             # Second warm request reuses the exact same pooled client instance
             r2 = await client.get(f"{base_http}/u/owner_fast/health")
