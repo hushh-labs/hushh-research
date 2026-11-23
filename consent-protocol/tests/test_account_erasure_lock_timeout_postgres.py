@@ -1548,17 +1548,38 @@ async def _assert_account_generation_cycles(conn, database_url, monkeypatch):
         engine.dispose()
 
 
-async def test_exact_owner_identity_batch_reads_do_not_rebind_retired_or_unknown_generations():
+async def test_exact_owner_identity_batch_reads_do_not_rebind_retired_or_unknown_generations(
+    monkeypatch,
+):
     """Exercise the bounded SQL projection; lifecycle guard qualification is above."""
+    import asyncpg
+
     from hushh_mcp.services import account_generation_service as generations
+    from hushh_mcp.services import metrics_adoption
 
     server = postgres_harness.TempPostgres()
     engine = None
+    guard = None
     try:
         with patch.object(postgres_harness, "MIGRATIONS", []):
             server.start()
-        engine = create_engine(f"postgresql://hushh@/postgres?host={server.dir}&port={server.port}")
+        url = f"postgresql://hushh@/postgres?host={server.dir}&port={server.port}"
+        engine = create_engine(url)
+        guard = await asyncpg.connect(url)
         owner = "acct_" + "a" * 32
+        retired = "acct_" + "c" * 32
+        unknown = "acct_" + "b" * 32
+        monkeypatch.delenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", raising=False)
+        async with guard.transaction(isolation="read_committed"):
+            assert await metrics_adoption._owner_identities(["legacy-active"], guard) == {
+                "legacy-active": "legacy-active"
+            }
+            with pytest.raises(metrics_adoption.AggregateUnavailable):
+                await metrics_adoption._owner_identities([unknown], guard)
+            monkeypatch.setenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "true")
+            with pytest.raises(metrics_adoption.AggregateUnavailable):
+                await metrics_adoption._owner_identities(["legacy-active"], guard)
+        monkeypatch.delenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", raising=False)
         with engine.begin() as conn:
             conn.execute(
                 text(
@@ -1573,6 +1594,16 @@ async def test_exact_owner_identity_batch_reads_do_not_rebind_retired_or_unknown
                 text("INSERT INTO account_deletion_tombstones VALUES(:hash)"),
                 {"hash": lifecycle.account_deletion_user_hash("external-uid")},
             )
+            conn.execute(
+                text("INSERT INTO account_generations VALUES(:hash,NULL,NULL,now())"),
+                {"hash": lifecycle.account_deletion_user_hash(retired)},
+            )
+        async with guard.transaction(isolation="read_committed"):
+            await guard.execute("SET LOCAL statement_timeout='5s'")
+            await guard.execute("SET LOCAL lock_timeout='1s'")
+            assert await metrics_adoption._owner_identities(
+                ["external-uid", owner, unknown, retired, "legacy-active"], guard
+            ) == {owner: "external-uid", "legacy-active": "legacy-active"}
         with patch.object(generations, "get_db_connection", engine.begin):
             assert generations.AccountGenerationService.firebase_identities_for_owners(
                 ["external-uid", owner, "acct_" + "b" * 32, "legacy-active"]
@@ -1585,7 +1616,11 @@ async def test_exact_owner_identity_batch_reads_do_not_rebind_retired_or_unknown
             assert (
                 generations.AccountGenerationService.firebase_identities_for_owners([owner]) == {}
             )
+            async with guard.transaction(isolation="read_committed"):
+                assert await metrics_adoption._owner_identities([owner], guard) == {}
     finally:
+        if guard is not None:
+            await guard.close()
         if engine is not None:
             engine.dispose()
         server.stop()
