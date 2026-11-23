@@ -150,7 +150,34 @@ async def run_ai_selection_put(
     }
 
 
-async def run_ai_selection_delete(
+async def _verify_default_for_clear(
+    *,
+    consent_token: str,
+    verifier: Any,
+    session: Optional[dict],
+) -> dict[str, Any]:
+    from hushh_mcp.services import pod_ai_selection as store  # noqa: PLC0415
+    from hushh_mcp.services.pod_ai_selection_check import (  # noqa: PLC0415
+        classify_check_failure,
+        verify_cloud_default,
+    )
+    from hushh_mcp.services.pod_session_authority import SCOPE_POD_CONFIG  # noqa: PLC0415
+
+    try:
+        verified = await verify_cloud_default(gemini_default=_gemini_default())
+    except store.AiSelectionRefused as exc:
+        raise HTTPException(status_code=409, detail={"code": exc.code}) from None
+    except Exception as exc:  # noqa: BLE001 - typed refusal preserves prior selection
+        raise HTTPException(status_code=422, detail={"code": classify_check_failure(exc)}) from None
+    # Provider calls are asynchronous; admission must still be current before
+    # replacing the owner's working selection.
+    await _admit_owner_local(
+        consent_token, verifier=verifier, session=session, scope=SCOPE_POD_CONFIG
+    )
+    return verified
+
+
+async def run_ai_selection_deactivate(
     *,
     consent_token: str,
     verifier: Any = None,
@@ -158,7 +185,7 @@ async def run_ai_selection_delete(
     log: Any = None,
     verify_default: bool = False,
 ) -> dict:
-    """Clear the selection; the agent returns to its default model path."""
+    """Deactivate active BYOK and fall back to built-in AI without wiping saved configs."""
     from hushh_mcp.services import pod_ai_selection as store  # noqa: PLC0415
     from hushh_mcp.services.pod_session_authority import SCOPE_POD_CONFIG  # noqa: PLC0415
 
@@ -168,37 +195,177 @@ async def run_ai_selection_delete(
     log = log if log is not None else _log()
     if log is None:
         raise _no_store()
-    verified: dict[str, Any] = {}
     owner_id = (os.environ.get("HUSSH_ID") or "").strip()
+    verified: dict[str, Any] = {}
+    try:
+        # Lenient: a damaged record must never block deactivating back to built-in AI.
+        _prior, floor = store.selection_from_records(await log.replay(), hushh_id=owner_id)
+        if verify_default:
+            verified = await _verify_default_for_clear(
+                consent_token=consent_token, verifier=verifier, session=session
+            )
+        saved, _active = await store.deactivate_ai_selection(
+            log,
+            hushh_id=owner_id,
+            expected_floor=floor if verify_default else None,
+            verified_default=verified or None,
+        )
+    except store.AiSelectionRefused:
+        raise HTTPException(status_code=409, detail={"code": "STALE_SELECTION"}) from None
+    except (PodLogConflict, PodLogFenced):
+        raise HTTPException(status_code=409, detail={"code": "AI_SELECTION_NOT_RECORDED"}) from None
+    store.note_ai_selection_failure(None)
+    logger.info("pod_ai_selection.deactivated")
+    return {
+        "status": "deactivated",
+        "savedProviders": store.public_saved_selections(saved, None),
+        **{k: v for k, v in verified.items() if k != "connectionFingerprint"},
+    }
+
+
+async def run_ai_selection_activate(
+    *,
+    body: Any = None,
+    read_body: Optional[Callable[[], Awaitable[Any]]] = None,
+    consent_token: str,
+    verifier: Any = None,
+    session: Optional[dict] = None,
+    log: Any = None,
+    check: Any = None,
+    now_ms: Optional[int] = None,
+) -> Any:
+    """Switch active BYOK provider to a previously saved configuration after live probe."""
+    from collections.abc import Mapping
+
+    from hushh_mcp.services import pod_ai_selection as store  # noqa: PLC0415
+    from hushh_mcp.services.pod_ai_selection_check import live_check  # noqa: PLC0415
+    from hushh_mcp.services.pod_ai_selection_seal import SUPPORTED_PROVIDERS  # noqa: PLC0415
+    from hushh_mcp.services.pod_session_authority import SCOPE_POD_CONFIG  # noqa: PLC0415
+
+    await _admit_owner_local(
+        consent_token, verifier=verifier, session=session, scope=SCOPE_POD_CONFIG
+    )
+    if read_body is not None:
+        body = await read_body()
+    if not isinstance(body, Mapping) or not isinstance(body.get("provider"), str):
+        raise HTTPException(status_code=400, detail={"code": "BAD_ENVELOPE"})
+    provider = body["provider"].strip()
+    if provider not in SUPPORTED_PROVIDERS:
+        raise HTTPException(status_code=400, detail={"code": "PROVIDER_UNSUPPORTED"})
+    hushh_id = (os.environ.get("HUSSH_ID") or "").strip()
     log = log if log is not None else _log()
     if log is None:
         raise _no_store()
-    _prior, floor = await store.read_ai_selection(log, hushh_id=owner_id)
-    if verify_default:
-        from hushh_mcp.services.pod_ai_selection_check import (  # noqa: PLC0415
-            classify_check_failure,
-            verify_cloud_default,
+    now = now_ms if now_ms is not None else int(time.time() * 1000)
+    saved_map, _active, _floor, _retired = store.selection_state_from_records(
+        await log.replay(), hushh_id=hushh_id
+    )
+    saved = saved_map.get(provider)
+    if saved is None:
+        raise HTTPException(status_code=404, detail={"code": "AI_SELECTION_NOT_CONFIGURED"})
+    code = await (check or live_check)(saved, gemini_default=_gemini_default())
+    if code:
+        store.note_ai_selection_failure(code)
+        return _refused(code)
+    await _admit_owner_local(
+        consent_token, verifier=verifier, session=session, scope=SCOPE_POD_CONFIG
+    )
+    try:
+        selection = await store.activate_saved_ai_selection(
+            log, hushh_id=hushh_id, provider=provider, checked_at_ms=now
         )
+    except store.AiSelectionNotConfigured:
+        raise HTTPException(
+            status_code=404, detail={"code": "AI_SELECTION_NOT_CONFIGURED"}
+        ) from None
+    except (PodLogConflict, PodLogFenced):
+        raise HTTPException(status_code=409, detail={"code": "AI_SELECTION_NOT_RECORDED"}) from None
+    store.note_ai_selection_failure(None)
+    logger.info("pod_ai_selection.activated provider=%s", selection.provider)
+    public = store.public_selection(selection)
+    return {
+        "status": "active",
+        "provider": public["provider"],
+        "model": public["model"],
+        "checkedAtMs": public["checkedAtMs"],
+        "savedProviders": store.public_saved_selections(),
+    }
 
-        try:
-            verified = await verify_cloud_default(gemini_default=_gemini_default())
-        except store.AiSelectionRefused as exc:
-            raise HTTPException(status_code=409, detail={"code": exc.code}) from None
-        except Exception as exc:  # noqa: BLE001 - typed refusal preserves prior selection
-            raise HTTPException(
-                status_code=422, detail={"code": classify_check_failure(exc)}
-            ) from None
-        # Provider calls are asynchronous; admission must still be current before
-        # replacing the owner's working selection.
+
+async def run_ai_selection_delete(
+    *,
+    consent_token: str,
+    verifier: Any = None,
+    session: Optional[dict] = None,
+    log: Any = None,
+    verify_default: bool = False,
+    provider: Optional[str] = None,
+    deactivate_only: bool = False,
+) -> dict:
+    """Clear the selection (or delete/deactivate a saved provider); returns to default."""
+    from hushh_mcp.services import pod_ai_selection as store  # noqa: PLC0415
+    from hushh_mcp.services.pod_ai_selection_seal import SUPPORTED_PROVIDERS  # noqa: PLC0415
+    from hushh_mcp.services.pod_session_authority import SCOPE_POD_CONFIG  # noqa: PLC0415
+
+    if provider is not None:
         await _admit_owner_local(
             consent_token, verifier=verifier, session=session, scope=SCOPE_POD_CONFIG
         )
+        clean_provider = provider.strip()
+        if clean_provider not in SUPPORTED_PROVIDERS:
+            raise HTTPException(status_code=400, detail={"code": "PROVIDER_UNSUPPORTED"})
+        log = log if log is not None else _log()
+        if log is None:
+            raise _no_store()
+        owner_id = (os.environ.get("HUSSH_ID") or "").strip()
+        try:
+            saved, active_provider = await store.delete_provider_ai_selection(
+                log, hushh_id=owner_id, provider=clean_provider
+            )
+        except (PodLogConflict, PodLogFenced):
+            raise HTTPException(
+                status_code=409, detail={"code": "AI_SELECTION_NOT_RECORDED"}
+            ) from None
+        store.note_ai_selection_failure(None)
+        logger.info("pod_ai_selection.deleted provider=%s", clean_provider)
+        return {
+            "status": "deleted",
+            "provider": clean_provider,
+            "activeProvider": active_provider,
+            "savedProviders": store.public_saved_selections(saved, active_provider),
+        }
+
+    if deactivate_only:
+        return await run_ai_selection_deactivate(
+            consent_token=consent_token,
+            verifier=verifier,
+            session=session,
+            log=log,
+            verify_default=verify_default,
+        )
+
+    await _admit_owner_local(
+        consent_token, verifier=verifier, session=session, scope=SCOPE_POD_CONFIG
+    )
+    log = log if log is not None else _log()
+    if log is None:
+        raise _no_store()
+    verified: dict[str, Any] = {}
+    owner_id = (os.environ.get("HUSSH_ID") or "").strip()
     try:
+        # Lenient: a damaged record must never block clearing back to built-in AI.
+        _prior, floor = store.selection_from_records(await log.replay(), hushh_id=owner_id)
+        if verify_default:
+            verified = await _verify_default_for_clear(
+                consent_token=consent_token, verifier=verifier, session=session
+            )
         await store.clear_ai_selection(
             log, hushh_id=owner_id, expected_floor=floor, verified_default=verified or None
         )
     except store.AiSelectionRefused:
         raise HTTPException(status_code=409, detail={"code": "STALE_SELECTION"}) from None
+    except (PodLogConflict, PodLogFenced):
+        raise HTTPException(status_code=409, detail={"code": "AI_SELECTION_NOT_RECORDED"}) from None
     store.note_ai_selection_failure(None)
     logger.info("pod_ai_selection.cleared")
     return {
@@ -239,6 +406,8 @@ async def run_ai_selection_get(
     return {
         "answerRuntime": answer_runtime,
         **store.public_selection(store.current_ai_selection()),
+        "savedProviders": store.public_saved_selections(),
+        "retiredProvider": store.retired_ai_provider(),
         "lastFailure": store.last_ai_selection_failure(),
         "effectiveConnection": connection,
     }
@@ -260,16 +429,52 @@ async def pod_ai_selection_put_route(
     )
 
 
-@router.delete("/ai-selection")
-async def pod_ai_selection_delete_route(
+@router.post("/ai-selection/activate")
+async def pod_ai_selection_activate_route(
+    request: Request,
+    x_consent_token: Optional[str] = Header(default=None, alias="X-Consent-Token"),
+    authorization: Optional[str] = Header(default=None),
+) -> Any:
+    from hushh_mcp.services.pod_session_authority import SCOPE_POD_CONFIG  # noqa: PLC0415
+
+    return await run_ai_selection_activate(
+        read_body=lambda: _envelope(request),
+        **await _owner_local_door(
+            x_consent_token, authorization, scope=SCOPE_POD_CONFIG, held=True
+        ),
+    )
+
+
+@router.post("/ai-selection/deactivate")
+async def pod_ai_selection_deactivate_route(
     x_consent_token: Optional[str] = Header(default=None, alias="X-Consent-Token"),
     authorization: Optional[str] = Header(default=None),
     verify_default: bool = False,
 ) -> dict:
     from hushh_mcp.services.pod_session_authority import SCOPE_POD_CONFIG  # noqa: PLC0415
 
+    return await run_ai_selection_deactivate(
+        verify_default=verify_default,
+        **await _owner_local_door(
+            x_consent_token, authorization, scope=SCOPE_POD_CONFIG, held=True
+        ),
+    )
+
+
+@router.delete("/ai-selection")
+async def pod_ai_selection_delete_route(
+    x_consent_token: Optional[str] = Header(default=None, alias="X-Consent-Token"),
+    authorization: Optional[str] = Header(default=None),
+    verify_default: bool = False,
+    provider: Optional[str] = None,
+    deactivate_only: bool = False,
+) -> dict:
+    from hushh_mcp.services.pod_session_authority import SCOPE_POD_CONFIG  # noqa: PLC0415
+
     return await run_ai_selection_delete(
         verify_default=verify_default,
+        provider=provider,
+        deactivate_only=deactivate_only,
         **await _owner_local_door(
             x_consent_token, authorization, scope=SCOPE_POD_CONFIG, held=True
         ),

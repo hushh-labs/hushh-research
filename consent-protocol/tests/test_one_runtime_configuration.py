@@ -262,3 +262,82 @@ async def test_uat_readiness_failure_is_sanitized_and_not_cached(monkeypatch):
         assert failure.value.status_code == 503
         assert "private-provider-details" not in str(failure.value.detail)
     assert probe.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_openai_validation_probes_statelessly_and_never_echoes_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import httpx
+    import openai
+
+    generate_content = AsyncMock(return_value=SimpleNamespace(text="OK"))
+    aclose = AsyncMock()
+    transport = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content)),
+        aclose=aclose,
+    )
+    gate = AsyncMock(return_value={"scheduled": True, "reason": "ai connection verified"})
+    monkeypatch.setattr(runtime, "build_owner_openai_transport", lambda **_kwargs: transport)
+    monkeypatch.setattr(runtime, "on_ai_connection_verified", gate)
+
+    secret = "sk-openai-validation-never-echoed"
+    result = await runtime.validate_openai_credential(
+        request=_request(),
+        body=runtime.OpenAICredentialValidationRequest(credential=secret),
+        _firebase_uid="user-1",
+    )
+    assert result.status == "ready"
+    generate_content.assert_awaited_once()
+    aclose.assert_awaited_once()
+    gate.assert_awaited_once_with(user_id="user-1", provider="openai", transport="developer_api")
+
+    # Negative control: 401/429 errors return safe taxonomy without echoing apiKey.
+    req = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    for exc, expected_status in (
+        (
+            openai.AuthenticationError(
+                f"Incorrect API key provided: {secret}",
+                response=httpx.Response(401, request=req),
+                body=None,
+            ),
+            "invalid_key",
+        ),
+        (
+            openai.RateLimitError(
+                "Too many requests",
+                response=httpx.Response(429, request=req),
+                body=None,
+            ),
+            "quota_exhausted",
+        ),
+    ):
+        failing_transport = SimpleNamespace(
+            aio=SimpleNamespace(
+                models=SimpleNamespace(generate_content=AsyncMock(side_effect=exc))
+            ),
+            aclose=AsyncMock(),
+        )
+        monkeypatch.setattr(
+            runtime,
+            "build_owner_openai_transport",
+            lambda _ft=failing_transport, **_kwargs: _ft,
+        )
+        with pytest.raises(HTTPException) as raised:
+            await runtime.validate_openai_credential(
+                request=_request(),
+                body=runtime.OpenAICredentialValidationRequest(credential=secret),
+                _firebase_uid="user-1",
+            )
+        assert raised.value.status_code == 422
+        assert raised.value.detail == {
+            "code": "OPENAI_CREDENTIAL_VALIDATION_FAILED",
+            "status": expected_status,
+        }
+        assert secret not in str(raised.value.detail)
+        failing_transport.aclose.assert_awaited_once()
+
+    from api.routes.one import router as one_router
+
+    paths = {getattr(r, "path", "") for r in one_router.routes}
+    assert "/api/one/runtime/openai/validate" in paths

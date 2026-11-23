@@ -164,6 +164,8 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         # `pod.config` to change it and `pod.status` to read it), and the envelope is
         # opened only after that admission, by a key that never leaves this process.
         "/api/one/pod/ai-selection",
+        "/api/one/pod/ai-selection/activate",
+        "/api/one/pod/ai-selection/deactivate",
         "/api/one/pod/circle-rules",
         "/api/one/pod/circle-rules/preview",
     }

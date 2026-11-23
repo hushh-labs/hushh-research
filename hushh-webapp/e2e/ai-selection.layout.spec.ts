@@ -111,21 +111,14 @@ for (const viewport of [
       const next = page.getByRole("button", { name: "Continue", exact: true });
       const card = page.getByTestId("profile-gemini-runtime");
       await expect(card.getByText("Bring your own AI", { exact: true })).toBeVisible();
-      await expect(card.getByText("Use Hussh AI", { exact: true })).toBeVisible();
+      await expect(card.getByText("Use Hussh AI", { exact: true })).toHaveCount(0);
       await expect(card.locator('[data-slot="settings-row-title"]').filter({ hasText: /^Gemini$/ })).toBeVisible();
       await expect(page.locator('[data-slot="settings-row-title"]').filter({ hasText: /^OpenAI$/ })).toBeVisible();
-      await expect(page.locator('[data-slot="settings-row-title"]').filter({ hasText: /^Azure AI key$/ })).toBeVisible();
-      await expect(next).toBeDisabled();
-      const radios = page.getByRole("radio");
-      await expect(radios).toHaveCount(2);
-      await expect(radios.nth(0)).not.toBeChecked();
-      await radios.nth(0).click();
-      await expect(radios.nth(0)).toBeChecked();
+      await expect(page.locator('[data-slot="settings-row-title"]').filter({ hasText: /^Azure AI key$/ })).toHaveCount(0);
+      // Built-in sandbox AI is ready out of the box.
       await expect(next).toBeEnabled();
-      // Editing another connection must not imply a validated credential.
-      const change = page.getByRole("button", { name: "Change AI", exact: true });
-      if (await change.isVisible()) await change.click();
-      await radios.nth(1).click();
+      // Opening Gemini configuration editor pauses Continue until saved or cancelled.
+      await page.getByTestId("profile-byok-runtime").locator("button").click();
       await expect(next).toBeDisabled();
       await page.getByRole("button", { name: "Validate key", exact: true }).click();
       await expect(page.getByRole("alert")).toHaveText("Enter your Gemini API key.");

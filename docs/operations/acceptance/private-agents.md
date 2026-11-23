@@ -13,7 +13,17 @@ certify the currently serving image or replace the original operation receipts.
 Use the [hosting module](../../architecture/modules/hosting.md) and
 [Browser module](../../architecture/modules/browser.md) for system boundaries.
 
-## Current Dev sharing checkpoint — 17 November 2026
+## Dev confidential sandbox cutover baseline (23 November 2026)
+
+Source-implemented on `dev` (pending live `hushh-pda-dev` atomic rollout and background Chrome comeback acceptance):
+
+- **Unified placement & branding:** `Hussh Confidential Sandbox` on Google Cloud (`gVisor` warm pool `hussh-one-warm-pool` / `SandboxTemplate` `hussh-one-sandbox-v1`) alongside `Bring Your Own Cloud` (`user_gcp`, `user_azure`) and `Local Puppy`, retiring `Hussh Shared` and legacy GCP-to-Azure hosted-pod migration UI on Dev cutover lanes.
+- **Encrypted Read Plane (`hushh-owner-ui-cache`):** Owner-scoped AES-256-GCM IndexedDB replica (`chat-history:v1`, `files:hosting:v1`, `files:settings:v1`, `files:wiki:overview:v1`, `files:list:<parent>:live`) targeting `0ms - 150ms` (`<100ms` target for Chats sidebar and `/one/files`) across reload and idle lock (`includeDevice: false`).
+- **Sub-second resume & `<2s` Edge Gateway self-heal:** Stateless Edge Gateway (`/u/{hushh_id}/...`, `WS /u/{hushh_id}/api/one/puppy/relay`) with `<2s` Kubernetes pod-termination inspection (`SANDBOX_HYDRATION_FAILED`) and automatic dead-standby replacement, compacted shutdown recovery checkpoints (`OwnerRecoveryProjection`), and 12-hour `pst1.` placement-bound browser session reuse.
+- **Offline `pod_mode()` custody parity:** Scheduled background Goals (`scheduled_goal` wake trigger via `pod_scheduled_runtime.py`) execute inside DEK-sealed `pod_mode()` custody without Hub/disk plaintext or interactive browser `X-Hussh-Chat-Key`.
+- **Live Dev rollout & acceptance status:** Atomic Dev deployment (`deploy-dev.yml` `scope=all`, `build_pod_image=true`), `sandbox-edge-gateway` / `hussh-one-sandbox-v1` `@sha256:` digest alignment, and live Chrome comeback verification remain tracked in [#9744](https://github.com/hushh-labs/hushh-research/issues/9744) alongside [#9511](https://github.com/hushh-labs/hushh-research/issues/9511), [#9736](https://github.com/hushh-labs/hushh-research/issues/9736), [#9517](https://github.com/hushh-labs/hushh-research/issues/9517), [#9370](https://github.com/hushh-labs/hushh-research/issues/9370), and [#5507](https://github.com/hushh-labs/hushh-research/issues/5507).
+
+## Current Dev sharing checkpoint (17 November 2026)
 
 Three Stripe Sandbox cases passed through the private Chats: funding credited
 100 coins once; cancelling a 24-coin request returned the full reservation; a
@@ -65,9 +75,9 @@ provider labels and the false cold-wake notice. These density changes remain
 local; the functional cancellation label is isolated in this correction.
 The local server on port 3001 remains stopped at the owner’s request.
 
-The owner’s Azure pod remains on its identified `da9e0dc9…` image with retained
+Historical 17 November 2026 pre-cutover observation: the owner’s Azure pod remains on its identified `da9e0dc9…` image with retained
 Azure OpenAI, Memory, approval and export evidence; this is not a new Azure
-installation qualification. GCP uses Gemini, Azure its configured OpenAI and
+installation qualification. Under that pre-cutover snapshot, GCP used Gemini, Azure its configured OpenAI and
 Shared its configured runtime. The original synthetic managed two-owner cohort
 remains **0/2 and paused**. The operational third GCP placement does not complete
 that cohort. [Floci wire verification](../../development/quality/floci-multicloud-wire-verification.md)
@@ -78,7 +88,7 @@ readback.
 
 Current acceptance and remaining review stay in the existing tasks:
 [#7587 Consumer-controlled paid scope access and Stripe sandbox acceptance](https://github.com/hushh-labs/hushh-research/issues/7587)
-and [#5507 Owner-controlled GCP and Azure private pods — dev readiness](https://github.com/hushh-labs/hushh-research/issues/5507).
+and [#5507 Owner-controlled GCP and Azure private pods: dev readiness](https://github.com/hushh-labs/hushh-research/issues/5507).
 
 ## What the retained evidence establishes
 
@@ -117,7 +127,7 @@ and provider outcome before acting.
 - [Browser execution and qualification](../../../consent-protocol/docs/reference/private-browser-runtime.md)
 - [Remaining private-agent delivery plan](../../roadmap/personal-agent/normal-release-transition.md)
 
-## Dev evidence and unresolved recovery — 13 November 2026
+## Dev evidence and unresolved recovery (13 November 2026)
 
 These retained observations supplement Main's evidence above. They are not fresh
 provider readback. The [original Dev record](https://github.com/hushh-labs/hushh-research/blob/2223ec5a59/docs/reference/quality/adk-orchestration-docs-audit.md)

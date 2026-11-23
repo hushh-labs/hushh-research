@@ -16,6 +16,7 @@ flowchart TB
 
   subgraph device["Device persistence"]
     secure["Encrypted IndexedDB<br/>secure resource cache"]
+    ownerui["Encrypted Owner UI Cache<br/>hushh-owner-ui-cache (0ms - 150ms)"]
     plain["Plain IndexedDB<br/>non-sensitive resource cache"]
   end
 
@@ -30,6 +31,7 @@ flowchart TB
   end
 
   ui --> mem
+  ui --> ownerui
   mem --> secure
   mem --> plain
   mem --> pkm
@@ -44,6 +46,7 @@ flowchart TB
   sync --> secure
   sync --> plain
   key --> secure
+  key --> ownerui
   plaintext --> mem
 ```
 
@@ -53,6 +56,7 @@ Hussh frontend cache is split by sensitivity and runtime role:
 
 - decrypted PKM stays **memory-only**
 - encrypted PKM-derived snapshots can persist in **encrypted IndexedDB**
+- encrypted owner UI read-plane snapshots (`hushh-owner-ui-cache`) persist in **encrypted IndexedDB** for `0ms - 150ms` (`<100ms` target) passive UI reads across Chats, `/one/files`, and Personal Wiki
 - non-sensitive read models can use resource-specific memory/device caches
 
 Every DB-backed mutation must still pass through `CacheSyncService` so views stay coherent without ad-hoc invalidation.
@@ -282,6 +286,9 @@ Source files:
 - `hushh-webapp/cache-coherence-screen-manifest.generated.json`
 - `hushh-webapp/scripts/architecture/audit-cache-coherence.mjs`
 - `hushh-webapp/lib/services/secure-resource-cache-service.ts`
+- `hushh-webapp/lib/storage/encrypted-owner-ui-cache.ts`
+- `hushh-webapp/lib/files/files-cache.ts`
+- `hushh-webapp/lib/agent/agent-chat-history-cache.ts`
 - `hushh-webapp/lib/pkm/pkm-domain-resource.ts`
 - `hushh-webapp/lib/services/pkm-write-coordinator.ts`
 - `consent-protocol/hushh_mcp/services/market_insights_cache.py`
@@ -387,11 +394,13 @@ Do:
   the prior bounded projection answers the next turn immediately while one
   user-scoped refresh checks metadata and reloads ciphertext only when its
   revision changed. No decrypted working set survives vault lock or process exit.
-- Agent Chat conversation metadata and message history use a separate
-  process-memory-only, user-scoped cache. Vault unlock single-flights a bounded
-  warm of the recent conversation list and latest thread; opening Agent Chat
-  renders the composer first and restores authorized memory snapshots immediately,
-  including snapshots older than five minutes. Expiry starts one shared background
+- Agent Chat conversation metadata and message history pair a process-memory
+  decrypted RAM cache with an owner-scoped AES-256-GCM encrypted IndexedDB
+  read replica (`chat-history:v1` inside `hushh-owner-ui-cache`). Vault unlock
+  single-flights a bounded warm of the recent conversation list and latest thread;
+  opening Agent Chat renders the composer first and restores authorized snapshots
+  immediately (from RAM or encrypted IndexedDB in `0ms - 150ms`), including
+  snapshots older than five minutes. Expiry starts one shared background
   list/transcript refresh; failure retains readable history without blocking the
   composer. Fresh settled returns make no history request. Owner, vault, chat,
   restoration and cache generations fence every deferred publication. Successful
@@ -399,7 +408,10 @@ Do:
   in-flight list cannot restore the deleted conversation. The workspace defers
   a cold history request to an idle beat. Direct Ask One handoffs never wait for
   or get overwritten by restoration. Selecting another thread loads only that
-  thread, and vault lock synchronously clears all cached chat text.
+  thread. Idle `lockVault()` clears decrypted RAM plaintext synchronously while
+  retaining the AES-256-GCM encrypted `chat-history:v1` IndexedDB replica across
+  reload and idle lock (`includeDevice: false`); only explicit sign-out,
+  confirmed owner mismatch, or explicit vault reset/erasure purges IndexedDB.
 - A loaded Connected Systems record follows the same protected L1 rule: show the
   current-session record immediately, then re-read it silently after binding and
   schema authority settle. Record values, binding IDs, and staged changes never
@@ -563,12 +575,38 @@ The `audit:cache-coherence` script hard-fails when the screen cache manifest is 
 
 ## Reconciliation Notes
 
+### Encrypted Owner UI Read Replica (0ms - 150ms Read Plane, 2026-11-23)
+
+- **Storage and cryptography:** `hushh-webapp/lib/storage/encrypted-owner-ui-cache.ts`
+  stores encrypted read-plane snapshots in IndexedDB database `hushh-owner-ui-cache`
+  (`RECORD_STORE = "encrypted_records"`, `OWNER_INDEX = "by_owner"`) using
+  AES-256-GCM with an HKDF-SHA256 subkey derived in RAM from `vaultKey` (salt
+  `ownerId`, info `hussh-ui-read-cache-v1`), AEAD
+  `additionalData = "hussh-ui-read-cache-v1|<ownerId>|<namespace>"`, and a
+  `2 MiB` max plaintext guard.
+- **Covered namespaces:** `chat-history:v1` (Chats sidebar and Rolling Main Chat via
+  `hushh-webapp/lib/agent/agent-chat-history-cache.ts`), plus `files:hosting:v1`,
+  `files:settings:v1`, `files:wiki:overview:v1`, and `files:list:<parent>:live`
+  (`/one/files` and Personal Wiki via `hushh-webapp/lib/files/files-cache.ts`).
+- **Reload and idle lock retention:** Pending-auth initialization
+  (`publishPendingAuthSessionIdentity` in `hushh-webapp/lib/firebase/auth-context.tsx`)
+  and idle `lockVault()` (`hushh-webapp/lib/vault/vault-context.tsx`) clear only
+  RAM caches (`includeDevice: false`), preserving encrypted IndexedDB records so
+  return-from-idle and reload render in `0ms - 150ms` (`<100ms` target for Chats
+  sidebar and `/one/files`) without grey skeleton hangs while sandboxes pre-warm
+  silently. Transient hub errors retain `files:hosting:v1`.
+- **Permitted IndexedDB wipe conditions only:** Explicit sign-out
+  (`onAuthSignedOut`), confirmed owner mismatch, or explicit vault reset/erasure
+  (`deleteEncryptedOwnerUiRecords`).
+- **Tracking:** [#9744](https://github.com/hushh-labs/hushh-research/issues/9744) ·
+  [#9370](https://github.com/hushh-labs/hushh-research/issues/9370).
+
 ### Market session refresh
 
 `KaiMarketHomeProvider` owns the shared Market/Stocks resource and registers
 `useMarketLiveRefresh` on the shared idle scheduler. Visible, online screens
 request fresh information on the two-minute clock during scheduled US regular
-hours (weekdays, 09:30–16:00 America/New_York), including opening and return from
+hours (weekdays, 09:30 to 16:00 America/New_York), including opening and return from
 the background. Scheduled requests bypass the client freshness TTL, reuse valid
 owner credentials, and retain the rendered snapshot while awaiting a response.
 Hidden/offline screens make no scheduled requests. Failed attempts are bounded

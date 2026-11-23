@@ -13,7 +13,12 @@ import { profileHostingSetupHref } from "@/lib/navigation/profile-routes";
 import { agentUpdateApprovalToast } from "@/lib/one/agent-update-approval";
 import { AZURE_UPDATE_AWAITING_LABEL, useAzureUpdateAwaitingSignIn } from "@/lib/one/azure-update-sign-in";
 import { useAzureUpdateProgress } from "@/lib/one/use-azure-update-progress";
-import { hostedPodDisplayLabel, isOwnerCloudTarget, ownerCloudProvider } from "@/lib/one/owner-cloud";
+import {
+  hostedPodDisplayLabel,
+  isOwnerCloudTarget,
+  isPooledSandboxSwitchAvailable,
+  ownerCloudProvider,
+} from "@/lib/one/owner-cloud";
 import { ApiService } from "@/lib/services/api-service";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 
@@ -27,6 +32,13 @@ export const HOST_LABELS = {
 } as const;
 
 type HostingMode = keyof typeof HOST_LABELS;
+
+export function hostModeLabel(mode: HostingMode): string {
+  if (mode === "shared" && isPooledSandboxSwitchAvailable()) {
+    return "Confidential Sandbox transition";
+  }
+  return HOST_LABELS[mode];
+}
 
 const RAW_BUILD_SHA_PATTERN = /^(?:(?:dev|uat|prod|main)-)?[0-9a-f]{12,}$/i;
 
@@ -52,7 +64,7 @@ export function agentSettingsSummary(model: Pick<AgentSettingsController, "statu
   const versionLabel = mode === "shared"
     ? version?.replace(/^Managed service /, "Managed build ")
     : isPersonalSandbox
-      ? (version && !isRawBuildIdentifier(version) ? releaseLabel(version, releasedAt) : "Personal Sandbox · Latest")
+      ? (version && !isRawBuildIdentifier(version) ? releaseLabel(version, releasedAt) : "Confidential Sandbox · Latest")
       : version
         ? (isRawBuildIdentifier(version) ? "Current build" : releaseLabel(version, releasedAt))
         : null;
@@ -178,7 +190,7 @@ export function useAgentSettingsController({
                 ? cloudHostingHealthSentence(inspectedHealth.status)
                 : isOwnerCloudTarget(next.deploymentTarget)
                   ? "Cloud resources checked."
-                  : `Hosting confirmed: ${next.hostingMode === "hussh_pods" ? hostedPodDisplayLabel(next.deploymentTarget) : HOST_LABELS[next.hostingMode as HostingMode]}.`
+                  : `Hosting confirmed: ${next.hostingMode === "hussh_pods" ? hostedPodDisplayLabel(next.deploymentTarget) : hostModeLabel(next.hostingMode as HostingMode)}.`
               : updateCheckMessage(next),
           error:
             kind === "hosting"
@@ -451,13 +463,13 @@ export function useAgentSettingsController({
         }),
         {
           loading: isPod
-            ? "Switching to Hussh Personal Sandbox…"
-            : "Starting Hussh Personal Sandbox…",
-          success: "Your Hussh Personal Sandbox is ready.",
+            ? "Switching to Hussh Confidential Sandbox…"
+            : "Starting Hussh Confidential Sandbox…",
+          success: "Your Hussh Confidential Sandbox is ready.",
           error: (err) =>
             err instanceof Error && err.message
               ? err.message
-              : "Could not switch to Hussh Personal Sandbox right now. Your existing setup is unchanged.",
+              : "Could not switch to Hussh Confidential Sandbox right now. Your existing setup is unchanged.",
         },
         isEffectCurrent,
       ).unwrap();

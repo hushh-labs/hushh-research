@@ -244,9 +244,12 @@ Migration authority:
 ./bin/consent-protocol format       # Format code
 ./bin/consent-protocol typecheck    # Type check with mypy
 ./bin/consent-protocol test         # Run tests with pytest
+./bin/consent-protocol floci        # Tier-1.5 multi-cloud wire conformance (AWS, GCP, Azure, prefix gateway)
 ./bin/consent-protocol security     # Security scan with bandit
 ./bin/consent-protocol ci           # Run all checks (same as CI)
 ```
+
+For multi-cloud storage, KMS custody, capability-prefix, and sandbox or BYOC adapters, see [`../docs/development/quality/floci-multicloud-wire-verification.md`](../docs/development/quality/floci-multicloud-wire-verification.md).
 
 All checks run automatically in CI on every PR to `main`.
 

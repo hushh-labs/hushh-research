@@ -1,4 +1,10 @@
-import { hasSavedAzureKey, hasSavedOpenAiKey, loadSelectedAiProvider } from "@/lib/one/ai-selection-vault";
+import {
+  AI_ACTIVE_CONFIG_ID_REF,
+  AI_BYOK_CONFIGS_REF,
+  hasSavedOpenAiKey,
+  loadSelectedAiProvider,
+  parseSavedAiConfigurations,
+} from "@/lib/one/ai-selection-vault";
 import { PreVaultUserStateService, type PreVaultUserState } from "@/lib/services/pre-vault-user-state-service";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
 import { GEMINI_RUNTIME_CREDENTIAL_REF, PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
@@ -13,7 +19,12 @@ export function immediateRuntimeChoiceReadiness(
   // process memory until vault finalization. A reload can leave the marker
   // behind without a key. An unlocked vault may also hold a saved key.
   if (state?.oneRuntimeSetupChoice !== "byok_pending_vault") return true;
-  if (PreVaultSensitiveDraftService.hasGeminiRuntime(userId)) return true;
+  if (
+    PreVaultSensitiveDraftService.hasGeminiRuntime(userId) ||
+    PreVaultSensitiveDraftService.hasActiveStagedAiConfiguration?.(userId)
+  ) {
+    return true;
+  }
   return canReadVault ? null : false;
 }
 
@@ -61,10 +72,27 @@ export async function hasStoredAiKey(
   if (!vaultKey || !vaultOwnerToken) return false;
   const vault = { userId, vaultKey, vaultOwnerToken };
   try {
+    const [rawConfigs, activeConfigId] = await Promise.all([
+      PersonalKnowledgeModelService.loadRuntimeSecret({
+        ...vault,
+        credentialRef: AI_BYOK_CONFIGS_REF,
+      }).catch(() => null),
+      PersonalKnowledgeModelService.loadRuntimeSecret({
+        ...vault,
+        credentialRef: AI_ACTIVE_CONFIG_ID_REF,
+      }).catch(() => null),
+    ]);
+    if (rawConfigs && activeConfigId) {
+      const configs = parseSavedAiConfigurations(rawConfigs);
+      const active = configs.find((entry) => entry.id === activeConfigId);
+      if (active && (!selectedProvider || active.provider === selectedProvider)) {
+        return Boolean(active.apiKey);
+      }
+    }
     const provider = selectedProvider === undefined
       ? await loadSelectedAiProvider(vault, { requireReadable: true }) : selectedProvider;
+    if (provider === "azure_openai") return false;
     if (provider === "openai") return hasSavedOpenAiKey(vault);
-    if (provider === "azure_openai") return hasSavedAzureKey(vault);
     if (provider && provider !== "gemini") return false;
     return hasStoredGeminiKey(userId, vaultKey, vaultOwnerToken);
   } catch {

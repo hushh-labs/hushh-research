@@ -44,11 +44,9 @@ export function useAiPlacement(
           status.hostingMode === "shared"
             ? "shared"
             : isAceSandbox
-              ? status.state === "active"
-                ? "shared"
-                : status.state === "failed"
-                  ? "unknown"
-                  : "pending"
+              ? status.state === "failed"
+                ? "unknown"
+                : "shared"
               : isPodMode && provider
                 ? status.state === "active"
                   ? provider

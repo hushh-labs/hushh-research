@@ -103,7 +103,7 @@ describe("History caller authority", () => {
     expect(deps.chatMemory.withdrawConversation).toHaveBeenCalledWith("selected-chat");
     expect(deps.handleCreateNewChat).toHaveBeenCalledWith({ triggerMemory: false });
     expect(deps.setConversations).toHaveBeenCalledTimes(1);
-    expect(deps.clearAgentChatHistoryCache).toHaveBeenCalledWith("history-owner");
+    expect(deps.clearAgentChatHistoryCache).toHaveBeenCalledWith("history-owner", { includeDevice: true });
     expect(deps.clearAgentChatHistoryCache.mock.invocationCallOrder[0]).toBeLessThan(deps.warmAgentChatHistoryCache.mock.invocationCallOrder[0]);
     publishValidatedAuthSessionPrincipal(null);
   });

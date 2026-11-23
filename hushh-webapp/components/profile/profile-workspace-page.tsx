@@ -1308,7 +1308,7 @@ function ProfilePageContent({
     needsVaultCreation: vaultAccess.needsVaultCreation, needsUnlock: vaultAccess.needsUnlock,
     onRequestVaultCreation: () => requestVaultUnlock("profile_data"), onRequestVaultUnlock: () => requestVaultUnlock("profile_data"),
     enabled: activePanel === "preferences" && activeDetail === "gemini" && (presentation !== "native-page" || nativeMenuOpen) });
-  const nativeRuntimeEligible = runtimeSettings.placement === "shared" && !runtimeSettings.otherProvider && nativeRuntimeAvailable && voiceParent !== null && presentation === "native-page" && nativeMenuOpen &&
+  const nativeRuntimeEligible = runtimeSettings.placement === "shared" && runtimeSettings.addingProvider !== "openai" && nativeRuntimeAvailable && voiceParent !== null && presentation === "native-page" && nativeMenuOpen &&
     activePanel === "preferences" && activeDetail === "gemini" && isVaultUnlocked;
   const nativeRuntime = useNativeRuntimeSettings(runtimeSettings, nativeDetailOwner, nativeRuntimeEligible);
   const nativeRuntimeActive = nativeRuntimeEligible && !nativeRuntime.failed;

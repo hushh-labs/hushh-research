@@ -27,6 +27,8 @@ import {
   Upload,
 } from "@/components/icons";
 import {
+  hydrateFilesCacheFromEncryptedCache,
+  hydrateFilesWikiPageFromEncryptedCache,
   peekFilesWikiOverviewCache,
   peekFilesWikiPageCache,
 } from "@/lib/files/files-cache";
@@ -117,6 +119,9 @@ export function PersonalWikiPanel({
   const [loading, setLoading] = useState(
     () => !(ownerId && peekFilesWikiOverviewCache(ownerId)),
   );
+  const [hydratingWiki, setHydratingWiki] = useState<boolean>(() =>
+    Boolean(ownerId && vaultKey && !peekFilesWikiOverviewCache(ownerId)),
+  );
   const [loadError, setLoadError] = useState("");
   const [confirmRollback, setConfirmRollback] = useState(false);
   const [filterQuery, setFilterQuery] = useState("");
@@ -131,6 +136,7 @@ export function PersonalWikiPanel({
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const initialHandledRef = useRef<string | null>(null);
   const lastOwnerRef = useRef<string | undefined>(ownerId);
+  const hasRenderedOverviewRef = useRef<boolean>(Boolean(overview));
 
   useEffect(() => {
     if (!ownerId || !vaultKey || !vaultOwnerToken) {
@@ -175,14 +181,16 @@ export function PersonalWikiPanel({
       initialHandledRef.current = null;
       setFocusedFolder(null);
       setCollapsedFolders({});
-    } else if (unavailable) {
+      hasRenderedOverviewRef.current = false;
+    } else if (unavailable && !hasRenderedOverviewRef.current) {
       setDocTarget((prev) => (prev?.kind === "core" ? prev : null));
     }
     setConfirmRollback(false);
-    if (!ownerId || unavailable) {
-      const warm = ownerId ? peekFilesWikiOverviewCache(ownerId) : null;
-      setOverview(warm);
+    if (!ownerId) {
+      setOverview(null);
+      hasRenderedOverviewRef.current = false;
       setLoading(false);
+      setHydratingWiki(false);
       return () => {
         signal.removeEventListener("abort", onParentAbort);
         controller.abort();
@@ -192,26 +200,77 @@ export function PersonalWikiPanel({
     const warmOverview = peekFilesWikiOverviewCache(ownerId);
     if (warmOverview) {
       setOverview(warmOverview);
+      hasRenderedOverviewRef.current = true;
       setLoading(false);
-    } else {
-      setLoading(true);
+      setHydratingWiki(false);
     }
-    setLoadError("");
-    void loadOverview(controller.signal)
-      .catch(() => {
-        if (!controller.signal.aborted && !warmOverview) {
+
+    let canceled = false;
+    void (async () => {
+      let currentOverview = warmOverview;
+      if (
+        !currentOverview &&
+        vaultKey &&
+        typeof hydrateFilesCacheFromEncryptedCache === "function"
+      ) {
+        setHydratingWiki(true);
+        try {
+          const hydrated = await hydrateFilesCacheFromEncryptedCache(ownerId, vaultKey);
+          if (controller.signal.aborted || canceled) return;
+          if (hydrated.wikiOverview) {
+            currentOverview = hydrated.wikiOverview;
+            hasRenderedOverviewRef.current = true;
+            setOverview(hydrated.wikiOverview);
+            setLoading(false);
+          }
+        } catch {
+          // Best-effort encrypted IDB hydration.
+        } finally {
+          if (!controller.signal.aborted && !canceled) {
+            setHydratingWiki(false);
+          }
+        }
+      } else {
+        setHydratingWiki(false);
+      }
+
+      if (controller.signal.aborted || canceled) return;
+
+      if (unavailable) {
+        if (currentOverview) {
+          setOverview(currentOverview);
+          hasRenderedOverviewRef.current = true;
+        }
+        setLoading(false);
+        return;
+      }
+
+      if (!currentOverview) {
+        setLoading(true);
+      }
+      setLoadError("");
+      try {
+        const next = await loadOverview(controller.signal);
+        if (!controller.signal.aborted && !canceled && next) {
+          hasRenderedOverviewRef.current = true;
+        }
+      } catch {
+        if (!controller.signal.aborted && !canceled && !currentOverview) {
           setLoadError("Could not open your personal wiki right now.");
         }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
+      } finally {
+        if (!controller.signal.aborted && !canceled) {
+          setLoading(false);
+        }
+      }
+    })();
 
     return () => {
+      canceled = true;
       signal.removeEventListener("abort", onParentAbort);
       controller.abort();
     };
-  }, [ownerId, unavailable, signal, loadOverview]);
+  }, [ownerId, unavailable, vaultKey, signal, loadOverview]);
 
   const disabled = busy || unavailable || loading;
 
@@ -255,19 +314,37 @@ export function PersonalWikiPanel({
   );
 
   const openPage = useCallback(
-    (pageId: string, expectedRevision?: number) => {
-      const warmPage = ownerId
+    async (pageId: string, expectedRevision?: number) => {
+      let cachedPage = ownerId
         ? peekFilesWikiPageCache(ownerId, pageId)
         : null;
       if (
-        warmPage &&
-        (expectedRevision === undefined ||
-          warmPage.revision >= expectedRevision)
+        !cachedPage &&
+        ownerId &&
+        vaultKey &&
+        typeof hydrateFilesWikiPageFromEncryptedCache === "function"
       ) {
-        setDocTarget({ kind: "wiki", page: warmPage });
-        return;
+        cachedPage = await hydrateFilesWikiPageFromEncryptedCache(
+          ownerId,
+          vaultKey,
+          pageId,
+        ).catch(() => null);
       }
       const activeSignal = localAbort.current?.signal ?? signal;
+      if (activeSignal.aborted) return;
+      if (
+        cachedPage &&
+        (unavailable ||
+          expectedRevision === undefined ||
+          cachedPage.revision >= expectedRevision)
+      ) {
+        setDocTarget({ kind: "wiki", page: cachedPage });
+        return;
+      }
+      if (cachedPage && !unavailable) {
+        setDocTarget({ kind: "wiki", page: cachedPage });
+      }
+      if (unavailable) return;
       void act(
         async () => {
           const detail = await FilesService.wikiPage(pageId, activeSignal);
@@ -278,7 +355,7 @@ export function PersonalWikiPanel({
         false,
       );
     },
-    [act, ownerId, signal],
+    [act, ownerId, signal, unavailable, vaultKey],
   );
 
   useEffect(() => {
@@ -293,7 +370,7 @@ export function PersonalWikiPanel({
       });
       return;
     }
-    if (unavailable || !initialPageId) return;
+    if (!initialPageId || (unavailable && !overview && !vaultKey)) return;
     const pageKey = `page:${ownerId}:${initialPageId}`;
     if (initialHandledRef.current === pageKey) return;
     initialHandledRef.current = pageKey;
@@ -302,6 +379,7 @@ export function PersonalWikiPanel({
   }, [
     ownerId,
     unavailable,
+    overview,
     vaultKey,
     vaultOwnerToken,
     initialDocId,
@@ -627,7 +705,7 @@ export function PersonalWikiPanel({
                       key={page.pageId}
                       type="button"
                       aria-label={`Open ${page.title}`}
-                      disabled={disabled}
+                      disabled={busy || (unavailable && !overview) || (loading && !overview)}
                       onClick={() => openPage(page.pageId, page.revision)}
                       className="flex w-full min-w-0 items-center gap-2.5 py-2 pl-9 pr-3 text-left hover:bg-muted/30 transition-colors disabled:opacity-50 sm:gap-3 sm:pl-11 sm:pr-4"
                     >
@@ -715,6 +793,7 @@ export function PersonalWikiPanel({
         })}
 
         {!loading &&
+        !hydratingWiki &&
         !unavailable &&
         !loadError &&
         groupedFolders.length === 0 &&
@@ -728,11 +807,11 @@ export function PersonalWikiPanel({
       </div>
 
       {/* Inline Status / Error Feedback */}
-      {unavailable && !overview ? (
+      {unavailable && !overview && !hydratingWiki ? (
         <p role="status" className="px-1 text-xs text-muted-foreground">
           Checking your Personal wiki connection…
         </p>
-      ) : loading && !overview ? (
+      ) : loading && !overview && !hydratingWiki ? (
         <div
           role="status"
           aria-label="Loading personal wiki"

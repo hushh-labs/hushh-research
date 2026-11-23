@@ -27,6 +27,12 @@ from hushh_mcp.runtime_providers.factory import (
     ManagedGeminiRuntimeBinding,
     build_runtime_client,
 )
+from hushh_mcp.runtime_providers.owner_openai import (
+    OWNER_OPENAI_MODE,
+    OwnerOpenAIModeMismatch,
+    build_owner_openai_transport,
+    owner_openai_model,
+)
 from hushh_mcp.services.ai_connection_gate import on_ai_connection_verified
 from hushh_mcp.services.owner_hosting_choice import (
     write_cloud_setup_marker as _write_cloud_setup_marker,
@@ -65,6 +71,15 @@ class GeminiCredentialValidationResponse(BaseModel):
     status: Literal["ready"]
 
 
+class OpenAICredentialValidationRequest(BaseModel):
+    credential: SecretStr = Field(min_length=1, max_length=12_000)
+    model: str | None = Field(default=None, max_length=128)
+
+
+class OpenAICredentialValidationResponse(BaseModel):
+    status: Literal["ready"]
+
+
 class ManagedGeminiReadinessResponse(BaseModel):
     status: Literal["ready"]
     model: str
@@ -81,6 +96,17 @@ _MANAGED_READINESS_TTL_SECONDS = 60.0
 def _safe_failure_code(exc: Exception) -> str:
     # Classify without logging or reflecting provider text: it can contain
     # request metadata and must never be associated with a user's secret.
+    status_code = getattr(exc, "status_code", None)
+    if not isinstance(status_code, int) or isinstance(status_code, bool):
+        status_code = getattr(getattr(exc, "response", None), "status_code", None)
+    if status_code == 429:
+        return "quota_exhausted"
+    if status_code == 403:
+        return "permission_denied"
+    if status_code == 401:
+        return "invalid_key"
+    if status_code == 404:
+        return "unsupported_model"
     message = str(exc).lower()
     if any(
         token in message
@@ -511,6 +537,62 @@ async def validate_gemini_credential(
     )
     logger.info("runtime.ai_connection_verified provision=%s", verdict.get("reason"))
     return GeminiCredentialValidationResponse(status="ready")
+
+
+@router.post("/openai/validate", response_model=OpenAICredentialValidationResponse)
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def validate_openai_credential(
+    request: Request,
+    body: OpenAICredentialValidationRequest,
+    _firebase_uid: str = Depends(require_firebase_auth),
+) -> OpenAICredentialValidationResponse:
+    """Bounded stateless OpenAI probe; the credential is never stored server-side."""
+    try:
+        model = owner_openai_model(body.model)
+    except OwnerOpenAIModeMismatch:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "OPENAI_CREDENTIAL_VALIDATION_FAILED",
+                "status": "unsupported_model",
+            },
+        ) from None
+    credential = body.credential.get_secret_value()
+    transport: Any = None
+    try:
+        transport = build_owner_openai_transport(
+            runtime_provider="openai",
+            runtime_mode=OWNER_OPENAI_MODE,
+            credential=credential,
+        )
+        await asyncio.wait_for(
+            transport.aio.models.generate_content(
+                model=model,
+                contents="Reply OK.",
+                config=genai_types.GenerateContentConfig(max_output_tokens=16),
+            ),
+            timeout=_PROBE_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:  # noqa: BLE001 - preserve a safe public taxonomy
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "OPENAI_CREDENTIAL_VALIDATION_FAILED",
+                "status": _safe_failure_code(exc),
+            },
+        ) from None
+    finally:
+        credential = ""
+        if transport is not None and hasattr(transport, "aclose"):
+            try:
+                await transport.aclose()
+            except Exception:  # noqa: BLE001 - best-effort transport cleanup
+                pass
+    verdict = await on_ai_connection_verified(
+        user_id=_firebase_uid, provider="openai", transport="developer_api"
+    )
+    logger.info("runtime.ai_connection_verified provision=%s", verdict.get("reason"))
+    return OpenAICredentialValidationResponse(status="ready")
 
 
 # --- BYOC: naming and creating the project a person's pod will live in --------------

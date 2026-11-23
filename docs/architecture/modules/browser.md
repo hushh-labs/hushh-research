@@ -32,7 +32,7 @@ sequenceDiagram
 ## Trust boundary and limits
 
 > [!CAUTION]
-> **Shared Container Compromise Boundary:** Inside a private pod, One and supervised Chromium share a non-root container boundary. Chromium's internal sandbox is enabled on GCP and explicitly disabled in Azure's reviewed configuration; application checks alone do not contain compromised browser code.
+> **Shared Container Compromise Boundary:** Inside a private pod or Hussh Confidential Sandbox (Google Cloud `gVisor`), One and supervised Chromium share a non-root container boundary. Chromium's internal sandbox is enabled on Google Cloud and explicitly disabled in reviewed Azure BYOC Container Apps configuration; application checks alone do not contain compromised browser code.
 
 - Development admission plus exact image, host, model, and policy qualification remain mandatory before enabling Browser.
 - Manual login suppresses model observations; uncertain external side effects never auto-replay.
@@ -41,6 +41,7 @@ sequenceDiagram
 
 - [Browser execution contract](../../../consent-protocol/docs/reference/private-browser-runtime.md)
 - [Installed acceptance](../../operations/acceptance/private-agents.md)
+- Tracking issues: [#9511](https://github.com/hushh-labs/hushh-research/issues/9511) · [#9744](https://github.com/hushh-labs/hushh-research/issues/9744)
 
 <details>
 <summary><strong>For coding agents: Browser runtime invariants</strong></summary>

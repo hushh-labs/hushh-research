@@ -354,6 +354,7 @@ POST /api/one/google/connect/transition/prepare
 POST /api/one/google/connect/transition/complete
 GET,POST /api/one/kyc/client-connector
 POST /api/one/runtime/gemini/validate
+POST /api/one/runtime/openai/validate
 [SUPPORT]
 GET /api/one/todos/suggestions/status
 GET /api/kai/market/company-facts/{user_id}

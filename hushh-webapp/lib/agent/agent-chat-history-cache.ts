@@ -19,6 +19,7 @@ import {
 import {
   canSealOwnerUiCache,
   deleteEncryptedOwnerUiRecords,
+  deleteEncryptedOwnerUiRecordsExceptOwner,
   readEncryptedOwnerUiRecord,
   writeEncryptedOwnerUiRecord,
 } from "@/lib/storage/encrypted-owner-ui-cache";
@@ -67,12 +68,13 @@ if (typeof window !== "undefined") {
   window.addEventListener(AGENT_CHAT_HISTORY_INVALIDATED_EVENT, (event) => {
     const detail = (event as CustomEvent<{ userId?: unknown }>).detail;
     const userId = typeof detail?.userId === "string" ? detail.userId : "";
-    if (userId) clearAgentChatHistoryCache(userId);
+    if (userId) clearAgentChatHistoryCache(userId, { includeDevice: true });
   });
   subscribeAuthSessionGeneration(() => {
     const owner = snapshotValidatedAuthSessionOwner();
     if (!owner?.userId) {
-      clearAgentChatHistoryCache();
+      // Pending auth or reload before principal validation clears only RAM.
+      clearAgentChatHistoryCache(undefined, { includeDevice: false });
       return;
     }
     const staleOwners = new Set([
@@ -81,9 +83,10 @@ if (typeof window !== "undefined") {
     ]);
     for (const userId of staleOwners) {
       if (userId !== owner.userId) {
-        clearAgentChatHistoryCache(userId);
+        clearAgentChatHistoryCache(userId, { includeDevice: true });
       }
     }
+    void deleteEncryptedOwnerUiRecordsExceptOwner(owner.userId);
   });
 }
 
@@ -276,7 +279,11 @@ export function isAgentChatHistorySnapshotCurrent(userId: string, value: AgentCh
   return value.ownerId === userId && value.cacheGeneration === generationFor(userId);
 }
 
-export function clearAgentChatHistoryCache(userId?: string): void {
+export function clearAgentChatHistoryCache(
+  userId?: string,
+  options?: { includeDevice?: boolean },
+): void {
+  const includeDevice = options?.includeDevice === true;
   if (userId) {
     generationByUser.set(userId, (generationByUser.get(userId) || 0) + 1);
     entriesByUser.delete(userId);
@@ -285,7 +292,9 @@ export function clearAgentChatHistoryCache(userId?: string): void {
     for (const key of historyLoadsByKey.keys()) {
       if (key.startsWith(`${userId}:`)) historyLoadsByKey.delete(key);
     }
-    void deleteEncryptedOwnerUiRecords(userId, "chat-history:");
+    if (includeDevice) {
+      void deleteEncryptedOwnerUiRecords(userId, "chat-history:");
+    }
     return;
   }
   globalGeneration += 1;
@@ -293,7 +302,9 @@ export function clearAgentChatHistoryCache(userId?: string): void {
   warmupsByUser.clear();
   hydrationsByUser.clear();
   historyLoadsByKey.clear();
-  void deleteEncryptedOwnerUiRecords(undefined, "chat-history:");
+  if (includeDevice) {
+    void deleteEncryptedOwnerUiRecords(undefined, "chat-history:");
+  }
 }
 
 /** Test-only helper simulating tab reload by dropping RAM maps without wiping encrypted storage. */

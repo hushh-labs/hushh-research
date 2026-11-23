@@ -39,6 +39,7 @@ import {
 } from "@/lib/files/service";
 import {
   hydrateFilesCacheFromEncryptedCache,
+  hydrateFilesListFolderFromEncryptedCache,
   isPreviewableTextFilename,
   peekFilesListCache,
   peekFilesSettingsCache,
@@ -70,7 +71,7 @@ export function FilesWorkspace({
 
   const { userId } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
-  const { hosting, connectionError } = useFilesConnection(userId ?? undefined, vaultKey, vaultOwnerToken);
+  const { hosting, connectionError, hydratingCache } = useFilesConnection(userId ?? undefined, vaultKey, vaultOwnerToken);
   const [entries, setEntries] = useState<FileEntry[]>(() => {
     if (!userId || routeFolder === "personal-wiki") return [];
     return peekFilesListCache(userId, "root", "", false)?.entries ?? [];
@@ -146,7 +147,7 @@ export function FilesWorkspace({
   useEffect(() => {
     work.current.abort();
     work.current = new AbortController();
-    const canPeekWarm = Boolean(vaultUnlocked && userId && !connectionError);
+    const canPeekWarm = Boolean(vaultUnlocked && userId);
     const warmList =
       canPeekWarm && parent !== PERSONAL_WIKI_FOLDER_ID
         ? peekFilesListCache(userId!, parent, "", trash)
@@ -164,14 +165,15 @@ export function FilesWorkspace({
     actionPending.current = false;
     const signal = work.current.signal;
     let hasRenderedCachedList = Boolean(warmList);
+    let idbHydrationPromise: Promise<void> | null = null;
     if (
       !warmList &&
       canPeekWarm &&
-      parent === "root" &&
       !trash &&
+      parent === "root" &&
       typeof hydrateFilesCacheFromEncryptedCache === "function"
     ) {
-      void hydrateFilesCacheFromEncryptedCache(userId!, vaultKey)
+      idbHydrationPromise = hydrateFilesCacheFromEncryptedCache(userId!, vaultKey)
         .then((hydrated) => {
           if (signal.aborted || !hydrated.rootList) return;
           hasRenderedCachedList = true;
@@ -182,6 +184,28 @@ export function FilesWorkspace({
           if (hydrated.settings) {
             setSettings((current) => current ?? hydrated.settings);
           }
+          setLoading(false);
+        })
+        .catch(() => undefined);
+    } else if (
+      !warmList &&
+      canPeekWarm &&
+      !trash &&
+      parent !== PERSONAL_WIKI_FOLDER_ID &&
+      typeof hydrateFilesListFolderFromEncryptedCache === "function"
+    ) {
+      idbHydrationPromise = hydrateFilesListFolderFromEncryptedCache(
+        userId!,
+        vaultKey,
+        parent,
+      )
+        .then((hydratedFolder) => {
+          if (signal.aborted || !hydratedFolder) return;
+          hasRenderedCachedList = true;
+          setEntries((current) =>
+            current.length > 0 ? current : hydratedFolder.entries,
+          );
+          setCursor((current) => current || hydratedFolder.cursor);
           setLoading(false);
         })
         .catch(() => undefined);
@@ -201,7 +225,10 @@ export function FilesWorkspace({
           }
         }
       })()
-        .catch((error: unknown) => {
+        .catch(async (error: unknown) => {
+          if (idbHydrationPromise) {
+            await idbHydrationPromise.catch(() => undefined);
+          }
           if (!signal.aborted && !hasRenderedCachedList)
             setMessage(
               error instanceof Error && error.message === "FILES_NOT_ENABLED"
@@ -215,14 +242,14 @@ export function FilesWorkspace({
           if (!signal.aborted) setLoading(false);
         });
     return () => work.current.abort();
-  }, [available, connectionError, userId, vaultKey, vaultUnlocked, load, hosting, parent, trash]);
+  }, [available, userId, vaultKey, vaultUnlocked, load, hosting, parent, trash]);
 
   useEffect(() => {
     setFolders(routeFolder === "personal-wiki" ? WIKI_FOLDERS : ROOT_FOLDERS);
     setTrash(false);
     setPanel(null);
     setPreviewTarget(null);
-  }, [userId, available, routeFolder]);
+  }, [userId, vaultUnlocked, routeFolder]);
 
   useEffect(() => {
     if (!userId) return;
@@ -358,7 +385,7 @@ export function FilesWorkspace({
         <PageHeader title="Files" titleVisuallyHidden className="sr-only" />
       </AppPageHeaderRegion>
       <AppPageContentRegion>
-        {!available && !(vaultUnlocked && inWikiFolder) ? (
+        {!vaultUnlocked || (!available && !hydratingCache && entries.length === 0 && !inWikiFolder) ? (
           <p className="text-sm text-muted-foreground">
             {connectionError ||
               (vaultKey && vaultOwnerToken
@@ -492,7 +519,7 @@ export function FilesWorkspace({
                   </p>
                 </div>
               ) : null}
-              {loading && entries.length === 0 && !inWikiFolder ? (
+              {loading && !hydratingCache && entries.length === 0 && !inWikiFolder ? (
                 <div
                   role="status"
                   aria-label="Loading files"

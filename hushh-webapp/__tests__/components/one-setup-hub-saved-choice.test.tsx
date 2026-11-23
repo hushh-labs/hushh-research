@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   stalePhone: false,
   cachedPhoneVerified: true,
   refreshPhone: vi.fn(),
+  hasCloudProject: true,
   saved: false,
   choice: "hushh_managed_vertex" as "hushh_managed_vertex" | "byok_pending_vault",
   stagedGeminiKey: false,
@@ -62,7 +63,7 @@ vi.mock("@/lib/services/cache-service", async (importOriginal) => ({
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({ PreVaultUserStateService: {
   getCachedBootstrapState: () => ({ phoneVerified: state.phoneHint, saved: state.saved, oneRuntimeSetupChoice: state.choice, initialContactsWelcomeAcknowledged: !state.pendingContactsWelcome }),
   bootstrapState: async () => ({ phoneVerified: state.phoneHint, saved: state.saved, oneRuntimeSetupChoice: state.choice, initialContactsWelcomeAcknowledged: !state.pendingContactsWelcome }),
-  hasOneCloudProject: () => true,
+  hasOneCloudProject: () => state.hasCloudProject,
   hasOneRuntimeChoice: (value: { saved: boolean }) => value.saved,
 } }));
 vi.mock("@/lib/services/account-identity-service", () => ({ AccountIdentityService: {
@@ -105,6 +106,7 @@ beforeEach(() => {
   state.stalePhone = false;
   state.cachedPhoneVerified = true;
   state.refreshPhone.mockReset().mockResolvedValue({ phone_verified: true });
+  state.hasCloudProject = true;
   state.saved = false;
   state.emailStatus = "loading";
   state.choice = "hushh_managed_vertex";
@@ -158,13 +160,13 @@ describe("Setup saved AI choice", () => {
     view.unmount();
   });
 
-  it.each([null, "gemini", "openai", "azure_openai"])("accepts a BYOK choice backed by its selected encrypted key (%s)", async provider => {
+  it.each([null, "gemini", "openai"])("accepts a BYOK choice backed by its selected encrypted key (%s)", async provider => {
     state.saved = true;
     state.choice = "byok_pending_vault";
     state.unlocked = true;
     state.selectedProvider = provider;
     state.savedGeminiKey = provider === null || provider === "gemini";
-    state.savedProviderKey = provider === "openai" || provider === "azure_openai";
+    state.savedProviderKey = provider === "openai";
     render(<OneSetupHub />);
 
     const finish = await screen.findByRole("button", { name: "Finish setup" });
@@ -321,4 +323,19 @@ it("does not let an older bootstrap hint override a fresh unverified identity", 
   render(<OneSetupHub />);
   await screen.findByRole("button", { name: "Verify your phone: Required" });
   expect(screen.getByRole("button", { name: "Finish setup" })).toBeDisabled();
+});
+
+it("displays Hussh Confidential Sandbox copy on Dev cutover lane without Hussh Shared", async () => {
+  vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+  try {
+    state.hasCloudProject = false;
+    state.saved = false;
+    render(<OneSetupHub />);
+    expect(
+      await screen.findByText("Choose Hussh Confidential Sandbox or your own cloud."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Hussh Shared/i)).toBeNull();
+  } finally {
+    vi.unstubAllEnvs();
+  }
 });

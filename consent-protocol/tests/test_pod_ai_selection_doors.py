@@ -190,6 +190,16 @@ async def test_a_checked_selection_is_sealed_into_the_log_and_never_echoed(
         "provider": "openai",
         "model": None,
         "checkedAtMs": checked,
+        "savedProviders": [
+            {
+                "provider": "openai",
+                "model": None,
+                "transport": None,
+                "checkedAtMs": checked,
+                "active": True,
+            }
+        ],
+        "retiredProvider": None,
         "lastFailure": None,
         "answerRuntime": None,
     }
@@ -586,3 +596,332 @@ async def test_default_verification_survives_replay_but_not_target_drift_or_unve
     await pod_ai_selection.load_active_ai_selection(pod)
     state = await run_ai_selection_get(log=pod, **_local())
     assert state["effectiveConnection"]["verification"] == "unverified"
+
+
+async def test_saving_second_provider_preserves_first_and_switches_on_activate(
+    pod, owner_session, caplog
+):
+    client = _client()
+    gemini_secret = "AIza-owner-gemini-secret-never-echoed"
+    openai_secret = "sk-owner-openai-secret-never-echoed"
+    t0 = _now_ms()
+
+    put_gemini = client.put(
+        PATH,
+        json=_envelope(
+            t0,
+            provider="gemini",
+            apiKey=gemini_secret,
+            transport="developer_api",
+            model="gemini-2.5-pro",
+        ),
+        headers=OWNER_SESSION,
+    )
+    assert put_gemini.status_code == 200, put_gemini.text
+
+    put_openai = client.put(
+        PATH,
+        json=_envelope(t0 + 10, provider="openai", apiKey=openai_secret, model="gpt-5.6-luna"),
+        headers=OWNER_SESSION,
+    )
+    assert put_openai.status_code == 200, put_openai.text
+
+    got = client.get(PATH, headers=OWNER_SESSION)
+    assert got.status_code == 200
+    body = got.json()
+    assert body["configured"] is True
+    assert body["provider"] == "openai"
+    assert [item["provider"] for item in body["savedProviders"]] == ["gemini", "openai"]
+    assert {item["provider"]: item["active"] for item in body["savedProviders"]} == {
+        "gemini": False,
+        "openai": True,
+    }
+    assert pod_ai_selection.active_ai_selection().api_key == openai_secret
+
+    activated = client.post(f"{PATH}/activate", json={"provider": "gemini"}, headers=OWNER_SESSION)
+    assert activated.status_code == 200, activated.text
+    assert activated.json()["status"] == "active"
+    assert activated.json()["provider"] == "gemini"
+    assert pod_ai_selection.active_ai_selection().api_key == gemini_secret
+
+    # Reboot/reload replays commit log and restores both saved configs with gemini active.
+    pod_ai_selection.set_active_ai_selection(None)
+    await pod_ai_selection.load_active_ai_selection(pod)
+    reloaded = client.get(PATH, headers=OWNER_SESSION).json()
+    assert reloaded["provider"] == "gemini"
+    assert {item["provider"]: item["active"] for item in reloaded["savedProviders"]} == {
+        "gemini": True,
+        "openai": False,
+    }
+
+    # Negative control: zero plaintext BYOK secrets in any response or log line.
+    for text in (
+        put_gemini.text,
+        put_openai.text,
+        got.text,
+        activated.text,
+        json.dumps(reloaded),
+        caplog.text,
+    ):
+        assert gemini_secret not in text
+        assert openai_secret not in text
+
+
+async def test_deactivate_falls_back_to_builtin_without_deleting_saved_providers(
+    pod, owner_session, caplog
+):
+    client = _client()
+    t0 = _now_ms()
+    gemini_secret = "AIza-saved-gemini-never-echoed"
+    openai_secret = "sk-saved-openai-never-echoed"
+
+    assert (
+        client.put(
+            PATH,
+            json=_envelope(t0, provider="gemini", apiKey=gemini_secret, transport="developer_api"),
+            headers=OWNER_SESSION,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.put(
+            PATH,
+            json=_envelope(t0 + 10, provider="openai", apiKey=openai_secret),
+            headers=OWNER_SESSION,
+        ).status_code
+        == 200
+    )
+
+    deactivated = client.post(f"{PATH}/deactivate", headers=OWNER_SESSION)
+    assert deactivated.status_code == 200, deactivated.text
+    assert deactivated.json()["status"] == "deactivated"
+    assert pod_ai_selection.active_ai_selection() is None
+    assert len(deactivated.json()["savedProviders"]) == 2
+    assert all(item["active"] is False for item in deactivated.json()["savedProviders"])
+
+    status = client.get(PATH, headers=OWNER_SESSION).json()
+    assert status["configured"] is False
+    assert status["provider"] is None
+    assert {item["provider"]: item["active"] for item in status["savedProviders"]} == {
+        "gemini": False,
+        "openai": False,
+    }
+
+    # Re-activating openai works directly without re-sealing an envelope.
+    reactivated = client.post(
+        f"{PATH}/activate", json={"provider": "openai"}, headers=OWNER_SESSION
+    )
+    assert reactivated.status_code == 200, reactivated.text
+    assert reactivated.json()["provider"] == "openai"
+    assert pod_ai_selection.active_ai_selection().api_key == openai_secret
+
+    # DELETE ?deactivate_only=true also preserves saved configs.
+    deactivated_query = client.delete(f"{PATH}?deactivate_only=true", headers=OWNER_SESSION)
+    assert deactivated_query.status_code == 200
+    assert deactivated_query.json()["status"] == "deactivated"
+    assert pod_ai_selection.active_ai_selection() is None
+    assert len(deactivated_query.json()["savedProviders"]) == 2
+
+    for text in (deactivated.text, reactivated.text, deactivated_query.text, caplog.text):
+        assert gemini_secret not in text
+        assert openai_secret not in text
+
+
+async def test_delete_single_provider_keeps_other_saved_provider(pod, owner_session):
+    client = _client()
+    t0 = _now_ms()
+    assert (
+        client.put(
+            PATH,
+            json=_envelope(t0, provider="gemini", apiKey="AIza-1", transport="developer_api"),
+            headers=OWNER_SESSION,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.put(
+            PATH,
+            json=_envelope(t0 + 10, provider="openai", apiKey="sk-1"),
+            headers=OWNER_SESSION,
+        ).status_code
+        == 200
+    )
+
+    deleted = client.delete(f"{PATH}?provider=gemini", headers=OWNER_SESSION)
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["status"] == "deleted"
+    assert deleted.json()["provider"] == "gemini"
+    assert deleted.json()["activeProvider"] == "openai"
+    assert [item["provider"] for item in deleted.json()["savedProviders"]] == ["openai"]
+    assert pod_ai_selection.active_ai_selection().provider == "openai"
+
+    deleted_active = client.delete(f"{PATH}?provider=openai", headers=OWNER_SESSION)
+    assert deleted_active.status_code == 200
+    assert deleted_active.json()["activeProvider"] is None
+    assert deleted_active.json()["savedProviders"] == []
+    assert pod_ai_selection.active_ai_selection() is None
+
+    assert client.delete(f"{PATH}?provider=azure_openai", headers=OWNER_SESSION).status_code == 400
+
+
+async def test_legacy_azure_selection_falls_back_gracefully_without_503(pod, owner_session):
+    """Negative control: legacy azure_openai record never triggers 503 OWNER_AI_SELECTION_UNAVAILABLE."""
+    await pod.append(
+        pod_ai_selection.POD_AI_SELECTION_RECORD_KIND,
+        {
+            "hushh_id": OWNER,
+            "version": 1,
+            "provider": "azure_openai",
+            "apiKey": "legacy-azure-secret",
+            "issuedAtMs": NOW,
+            "selectionId": VECTOR["aad"]["selectionId"],
+            "checkedAtMs": NOW,
+            "azureEndpoint": "https://legacy.openai.azure.com/",
+            "model": "gpt-4o",
+        },
+    )
+
+    loaded = await pod_ai_selection.load_active_ai_selection(pod)
+    assert loaded is None
+    assert pod_ai_selection.ai_selection_load_failed() is False
+    assert pod_ai_selection.active_ai_selection() is None
+    assert pod_ai_selection.retired_ai_provider() == "azure_openai"
+
+    got = _client().get(PATH, headers=OWNER_SESSION)
+    assert got.status_code == 200, got.text
+    assert got.json()["configured"] is False
+    assert got.json()["provider"] is None
+    assert got.json()["savedProviders"] == []
+    assert got.json()["retiredProvider"] == "azure_openai"
+    assert owner_selected_turn(PodTurnRequest(message="hello"), "gemini", "gemini-test") is None
+
+    # Replay floor is still preserved across the retired legacy record.
+    stale = await run_ai_selection_put(
+        envelope=_envelope(NOW), check=_answers, now_ms=NOW, **_local()
+    )
+    assert json.loads(stale.body) == {"code": "STALE_SELECTION"}
+
+
+async def test_failed_probe_on_activate_preserves_active_selection(pod, owner_session, monkeypatch):
+    """Negative control: failed live_check on /activate refuses 422 without changing active."""
+    client = _client()
+    t0 = _now_ms()
+    assert (
+        client.put(
+            PATH,
+            json=_envelope(t0, provider="gemini", apiKey="AIza-bad", transport="developer_api"),
+            headers=OWNER_SESSION,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.put(
+            PATH,
+            json=_envelope(t0 + 10, provider="openai", apiKey="sk-good"),
+            headers=OWNER_SESSION,
+        ).status_code
+        == 200
+    )
+
+    # Missing config -> 404, Hub token -> 403.
+    assert (
+        client.post(f"{PATH}/activate", json={"provider": "gemini"}, headers=HUB).status_code == 403
+    )
+    assert client.post(f"{PATH}/deactivate", headers=HUB).status_code == 403
+    assert client.delete(f"{PATH}?provider=gemini", headers=OWNER_SESSION).status_code == 200
+    assert (
+        client.post(
+            f"{PATH}/activate", json={"provider": "gemini"}, headers=OWNER_SESSION
+        ).status_code
+        == 404
+    )
+
+    # Re-save gemini, then make live_check refuse when trying to activate gemini.
+    assert (
+        client.put(
+            PATH,
+            json=_envelope(
+                t0 + 20, provider="gemini", apiKey="AIza-revoked", transport="developer_api"
+            ),
+            headers=OWNER_SESSION,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            f"{PATH}/activate", json={"provider": "openai"}, headers=OWNER_SESSION
+        ).status_code
+        == 200
+    )
+    monkeypatch.setattr(pod_ai_selection_check, "live_check", _refuses)
+    refused = client.post(f"{PATH}/activate", json={"provider": "gemini"}, headers=OWNER_SESSION)
+    assert refused.status_code == 422
+    assert refused.json() == {"code": "KEY_REFUSED"}
+    assert pod_ai_selection.active_ai_selection().provider == "openai"
+
+
+async def test_deactivate_and_bare_delete_recover_from_damaged_record_and_preserve_floor(
+    pod, owner_session
+):
+    """Damaged non-Azure records still fail closed on GET 503, yet /deactivate and DELETE heal."""
+    client = _client()
+
+    await pod.append(
+        pod_ai_selection.POD_AI_SELECTION_RECORD_KIND,
+        {
+            "hushh_id": OWNER,
+            "version": 1,
+            "provider": "openai",
+            "issuedAtMs": NOW,
+        },
+    )
+    await pod_ai_selection.load_active_ai_selection(pod)
+    assert pod_ai_selection.ai_selection_load_failed() is True
+
+    got_damaged = client.get(PATH, headers=OWNER_SESSION)
+    assert got_damaged.status_code == 503
+    assert got_damaged.json()["detail"] == {"code": "OWNER_AI_SELECTION_UNAVAILABLE"}
+
+    deactivated = client.post(f"{PATH}/deactivate", headers=OWNER_SESSION)
+    assert deactivated.status_code == 200, deactivated.text
+    assert deactivated.json()["status"] == "deactivated"
+    assert pod_ai_selection.ai_selection_load_failed() is False
+
+    got_healed = client.get(PATH, headers=OWNER_SESSION)
+    assert got_healed.status_code == 200, got_healed.text
+    assert got_healed.json()["configured"] is False
+
+    stale_after_deactivate = await run_ai_selection_put(
+        envelope=_envelope(NOW), check=_answers, now_ms=NOW, **_local()
+    )
+    assert json.loads(stale_after_deactivate.body) == {"code": "STALE_SELECTION"}
+
+    await pod.append(
+        pod_ai_selection.POD_AI_SELECTION_RECORD_KIND,
+        {
+            "hushh_id": OWNER,
+            "version": 1,
+            "provider": "openai",
+            "issuedAtMs": NOW + 10,
+        },
+    )
+    await pod_ai_selection.load_active_ai_selection(pod)
+    assert pod_ai_selection.ai_selection_load_failed() is True
+
+    got_damaged_again = client.get(PATH, headers=OWNER_SESSION)
+    assert got_damaged_again.status_code == 503
+    assert got_damaged_again.json()["detail"] == {"code": "OWNER_AI_SELECTION_UNAVAILABLE"}
+
+    cleared = client.delete(PATH, headers=OWNER_SESSION)
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["status"] == "cleared"
+    assert pod_ai_selection.ai_selection_load_failed() is False
+
+    got_cleared = client.get(PATH, headers=OWNER_SESSION)
+    assert got_cleared.status_code == 200, got_cleared.text
+    assert got_cleared.json()["configured"] is False
+
+    stale_after_clear = await run_ai_selection_put(
+        envelope=_envelope(NOW + 10), check=_answers, now_ms=NOW + 10, **_local()
+    )
+    assert json.loads(stale_after_clear.body) == {"code": "STALE_SELECTION"}

@@ -31,6 +31,17 @@ vi.mock("@/lib/pkm/agent-core-markdown-files", async (importOriginal) => {
 
 import { FilesWorkspace } from "@/components/files/files-workspace";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import { ApiService } from "@/lib/services/api-service";
+import {
+  evictInMemoryFilesCacheForTests,
+  setFilesHostingCache,
+  setFilesWikiOverviewCache,
+  setFilesWikiPageCache,
+} from "@/lib/files/files-cache";
+import {
+  deleteEncryptedOwnerUiRecords,
+  flushEncryptedOwnerUiWritesForTests,
+} from "@/lib/storage/encrypted-owner-ui-cache";
 
 describe("PersonalWikiPanel in FilesWorkspace (Phase 5 #9370)", () => {
   beforeEach(() => {
@@ -271,5 +282,140 @@ describe("PersonalWikiPanel in FilesWorkspace (Phase 5 #9370)", () => {
     expect(receipt).toHaveTextContent("2 duplicates merged");
     expect(receipt).toHaveTextContent("1 stale retired");
     expect(receipt).toHaveTextContent("1 shared/paid scope protected");
+  });
+
+  it("hydrates Personal Wiki overview and note detail from encrypted IDB offline without skeleton hangs", async () => {
+    await deleteEncryptedOwnerUiRecords();
+    const realVaultKey = "e5".repeat(32);
+    session.vaultKey = realVaultKey;
+
+    setFilesHostingCache("synthetic-owner", realVaultKey, "pod");
+    setFilesWikiOverviewCache("synthetic-owner", {
+      captureOptIn: false,
+      migrationState: "wiki_primary_with_v1_rollback",
+      migrationRevision: 2,
+      pages: [
+        {
+          pageId: "wpg_1111222233334444",
+          title: "Travel Preferences",
+          folder: "topics",
+          tldr: "Prefers morning flights",
+          revision: 3,
+          updatedAt: 1_760_000_000_000,
+        },
+      ],
+      candidateReceipts: [],
+    });
+    setFilesWikiPageCache("synthetic-owner", "wpg_1111222233334444", {
+      pageId: "wpg_1111222233334444",
+      title: "Travel Preferences",
+      folder: "topics",
+      tldr: "Prefers morning flights",
+      body: "- Prefers morning flights from Austin.",
+      revision: 3,
+      statusAsOf: "2026-11-15",
+      claims: [
+        {
+          claimId: "wcl_1111222233334444",
+          statement: "Prefers morning flights from Austin",
+          status: "active",
+          observedAt: "2026-11-15",
+          origins: ["Conversation · 2026-11-15"],
+        },
+      ],
+    });
+    await flushEncryptedOwnerUiWritesForTests();
+
+    evictInMemoryFilesCacheForTests("synthetic-owner");
+    vi.mocked(ApiService.getPersonalAgentStatus).mockRejectedValue(
+      new TypeError("Hub offline"),
+    );
+    files.wikiOverview.mockRejectedValue(new TypeError("Pod offline"));
+    files.wikiPage.mockRejectedValue(new TypeError("Pod offline"));
+
+    try {
+      render(<FilesWorkspace initialFolder="personal-wiki" />);
+      expect(await screen.findByText("Travel Preferences")).toBeInTheDocument();
+      expect(screen.queryByText(/Checking your Personal wiki connection/)).toBeNull();
+      expect(screen.queryByTestId("personal-wiki-cold-skeleton")).toBeNull();
+
+      fireEvent.click(
+        screen.getByRole("button", { name: "Open Travel Preferences" }),
+      );
+      const sheet = await screen.findByTestId("files-markdown-document-sheet");
+      expect(sheet).toHaveTextContent("Prefers morning flights from Austin");
+      expect(files.wikiPage).not.toHaveBeenCalled();
+    } finally {
+      await deleteEncryptedOwnerUiRecords();
+      session.vaultKey = "synthetic-memory-only";
+      vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({
+        filesActivationAvailable: false,
+        hostingMode: "byoc",
+        state: "active",
+      });
+    }
+  });
+
+  it("allows opening cached Personal Wiki notes offline even when files:hosting:v1 is missing and unavailable=true", async () => {
+    await deleteEncryptedOwnerUiRecords();
+    const realVaultKey = "f6".repeat(32);
+    session.vaultKey = realVaultKey;
+
+    setFilesHostingCache("synthetic-owner", realVaultKey, "pod");
+    setFilesWikiOverviewCache("synthetic-owner", {
+      captureOptIn: false,
+      migrationState: "wiki_primary_with_v1_rollback",
+      migrationRevision: 1,
+      pages: [
+        {
+          pageId: "wpg_offline_only",
+          title: "Offline Note",
+          folder: "topics",
+          tldr: "Cached without hosting marker",
+          revision: 2,
+          updatedAt: 1_760_000_000_000,
+        },
+      ],
+      candidateReceipts: [],
+    });
+    setFilesWikiPageCache("synthetic-owner", "wpg_offline_only", {
+      pageId: "wpg_offline_only",
+      title: "Offline Note",
+      folder: "topics",
+      tldr: "Cached without hosting marker",
+      body: "- Readable even while hosting is unavailable.",
+      revision: 2,
+      statusAsOf: "2026-11-15",
+      claims: [],
+    });
+    await flushEncryptedOwnerUiWritesForTests();
+    await deleteEncryptedOwnerUiRecords("synthetic-owner", "files:hosting");
+
+    evictInMemoryFilesCacheForTests("synthetic-owner");
+    vi.mocked(ApiService.getPersonalAgentStatus).mockRejectedValue(
+      new TypeError("Hub offline"),
+    );
+    files.wikiOverview.mockRejectedValue(new TypeError("Pod offline"));
+    files.wikiPage.mockRejectedValue(new TypeError("Pod offline"));
+
+    try {
+      render(<FilesWorkspace initialFolder="personal-wiki" />);
+      const openButton = await screen.findByRole("button", {
+        name: "Open Offline Note",
+      });
+      expect(openButton).toBeEnabled();
+      fireEvent.click(openButton);
+      const sheet = await screen.findByTestId("files-markdown-document-sheet");
+      expect(sheet).toHaveTextContent("Readable even while hosting is unavailable.");
+      expect(files.wikiPage).not.toHaveBeenCalled();
+    } finally {
+      await deleteEncryptedOwnerUiRecords();
+      session.vaultKey = "synthetic-memory-only";
+      vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({
+        filesActivationAvailable: false,
+        hostingMode: "byoc",
+        state: "active",
+      });
+    }
   });
 });

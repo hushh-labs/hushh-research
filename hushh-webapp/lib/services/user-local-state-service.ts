@@ -65,9 +65,14 @@ export class UserLocalStateService {
     const { clearMarkdownMemory } = await import("@/lib/pkm/markdown-memory");
     const { clearCachedGmailReceipts } = await import("@/lib/profile/gmail-receipts-cache");
     const { clearLiveActivity, clearLiveActivityNotice } = await import("@/lib/pkm/live-activity/live-activity-journal");
+    const { clearAgentChatHistoryCache } = await import("@/lib/agent/agent-chat-history-cache");
+    const { clearFilesCache } = await import("@/lib/files/files-cache");
+    const { deleteEncryptedOwnerUiRecords } = await import("@/lib/storage/encrypted-owner-ui-cache");
     clearMarkdownMemory(userId);
     clearCachedGmailReceipts(userId);
     clearLiveActivity(userId);
+    clearAgentChatHistoryCache(userId, { includeDevice: true });
+    clearFilesCache(userId, { includeDevice: true });
     const { SecureDurableResourceService } = await import("./secure-durable-resource-service");
     let receiptPurgeError: unknown;
     if (options.deleteDurableReceipts) {
@@ -95,6 +100,7 @@ export class UserLocalStateService {
 
     const tasks: [Promise<unknown>, ...Promise<unknown>[]] = [
       messageDraftCleanup,
+      deleteEncryptedOwnerUiRecords(userId),
       PreVaultOnboardingService.clear(userId),
       FinanceSetupDraftService.clear(userId),
       KaiNavTourLocalService.clear(userId),

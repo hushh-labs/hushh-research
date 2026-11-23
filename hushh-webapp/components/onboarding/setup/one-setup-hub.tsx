@@ -75,6 +75,7 @@ import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitiv
 import { FinanceSetupDraftService } from "@/lib/services/finance-setup-draft-service";
 import { PostUnlockSyncService } from "@/lib/services/post-unlock-sync-service";
 import { notifyGeminiRuntimeConfigurationChanged } from "@/lib/connections/gemini-runtime-configuration";
+import { isPooledSandboxSwitchAvailable } from "@/lib/one/owner-cloud";
 
 /**
  * OneSetupHub: the `/one/setup` hub screen.
@@ -869,7 +870,9 @@ export function OneSetupHub() {
                         : "Finish choosing AI access in your agent setup."
                       : cloudSetupRunning
                         ? "Being set up in the background. Keep going; this finishes on its own."
-                        : "Choose Hussh Shared, your own cloud, or Hussh Pods when available."
+                        : isPooledSandboxSwitchAvailable()
+                          ? "Choose Hussh Confidential Sandbox or your own cloud."
+                          : "Choose Hussh Shared, your own cloud, or Hussh Pods when available."
                   }
                   href={buildOneSetupCloudRoute(returnTo)}
                   voiceControlId="one_setup_tile_cloud"

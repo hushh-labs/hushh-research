@@ -106,6 +106,8 @@ const OWNER_POD_ROUTES = new Set([
   "turn/cancel",
   "puppy/models",
   "ai-selection",
+  "ai-selection/activate",
+  "ai-selection/deactivate",
   "actions/gmail/proposals",
   "browser/capability",
   "browser/tasks",
@@ -408,6 +410,48 @@ export async function ownerPodRequest(
     });
     if (!podOwnerIsCurrent(admittedOwner))
       throw new Error("POD_OWNER_CHANGED");
+  }
+  if (route === "ai-selection/deactivate") {
+    if (
+      method !== "POST" ||
+      (body !== undefined && body !== null) ||
+      session.role !== "app" ||
+      !Array.isArray(session.scopes) ||
+      !session.scopes.includes("pod.config")
+    ) {
+      throw new Error("POD_AI_SELECTION_INVALID");
+    }
+  }
+  if (route === "ai-selection/activate") {
+    if (
+      method !== "POST" ||
+      typeof body !== "string" ||
+      session.role !== "app" ||
+      !Array.isArray(session.scopes) ||
+      !session.scopes.includes("pod.config")
+    ) {
+      throw new Error("POD_AI_SELECTION_INVALID");
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      throw new Error("POD_AI_SELECTION_INVALID");
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("POD_AI_SELECTION_INVALID");
+    }
+    const record = parsed as Record<string, unknown>;
+    const allowedKeys = new Set(["provider", "configId"]);
+    const forbiddenKeys = ["apiKey", "api_key", "credential", "secret", "token", "azureEndpoint"];
+    if (
+      forbiddenKeys.some((key) => key in record) ||
+      Object.keys(record).some((key) => !allowedKeys.has(key)) ||
+      (record.provider !== "gemini" && record.provider !== "openai") ||
+      ("configId" in record && typeof record.configId !== "string")
+    ) {
+      throw new Error("POD_AI_SELECTION_INVALID");
+    }
   }
   refuseCancelled();
   refuseRetiredOwner(ports.isCurrent);

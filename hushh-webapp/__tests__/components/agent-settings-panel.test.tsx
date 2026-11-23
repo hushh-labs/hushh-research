@@ -731,7 +731,7 @@ describe("owner hosting and software settings", () => {
       const card = await screen.findByTestId("pooled-sandbox-switch-card");
       expect(screen.queryByTestId("hussh-pods-migration-route")).toBeNull();
       expect(card).toHaveTextContent(
-        expectConfirm ? "Switch to Hussh Personal Sandbox" : "Start in Hussh Personal Sandbox",
+        expectConfirm ? "Switch to Hussh Confidential Sandbox" : "Start in Hussh Confidential Sandbox",
       );
 
       fireEvent.click(screen.getByTestId("pooled-sandbox-switch-trigger"));
@@ -749,7 +749,9 @@ describe("owner hosting and software settings", () => {
     status("hussh_pods", { state: "active", deploymentTarget: "ace", featureEnabled: true });
 
     render(<AgentSettingsPanel userId="owner" kind="hosting" />);
-    expect(await screen.findByText("Hussh Pods · Personal Sandbox")).toBeTruthy();
+    expect(await screen.findByTestId("current-hosting-row")).toHaveTextContent(
+      "Hussh Confidential Sandbox",
+    );
     expect(screen.getByTestId("current-hosting-status-signal")).toHaveTextContent("Connected");
     expect(screen.getByTestId("current-hosting-cloud-badge")).toHaveTextContent("Google Cloud");
     expect(screen.queryByTestId("hosting-choice-shared")).toBeNull();
@@ -776,7 +778,7 @@ describe("owner hosting and software settings", () => {
     render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
     expect(screen.getByText("Managed automatically")).toBeTruthy();
     expect(screen.queryByText("Running version not verified")).toBeNull();
-    expect(screen.getByText("Personal Sandbox · Latest")).toBeTruthy();
+    expect(screen.getByText("Confidential Sandbox · Latest")).toBeTruthy();
     expect(screen.queryByText(rawSha)).toBeNull();
 
     fireEvent.click(screen.getByTestId("agent-current-version-row").querySelector("button")!);
@@ -835,5 +837,18 @@ describe("owner hosting and software settings", () => {
     );
     await waitFor(() => expect(mocks.reconnect).toHaveBeenCalledOnce());
     await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
+  });
+
+  it("never displays retired Hussh Shared copy on Dev even for legacy hostingMode=shared accounts", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    const { updateCheckMessage } = await import("@/lib/feed/agent-update-status");
+    status("shared", { featureEnabled: true });
+
+    render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+    expect(screen.queryByText(/Hussh Shared/i)).toBeNull();
+    expect(screen.getByText("Confidential Sandbox transition")).toBeInTheDocument();
+    expect(updateCheckMessage({ hostingMode: "shared", featureEnabled: true } as never)).toBe(
+      "Confidential Sandbox updates automatically.",
+    );
   });
 });
