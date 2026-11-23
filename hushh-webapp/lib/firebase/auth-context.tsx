@@ -1941,7 +1941,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
               );
             }, timeoutMs);
             signal?.addEventListener("abort", onAbort, { once: true });
-            prepareRecaptchaVerifier("recaptcha-container").then(
+            (async () => prepareRecaptchaVerifier("recaptcha-container"))().then(
               (verifier) => {
                 if (settled) return;
                 settled = true;

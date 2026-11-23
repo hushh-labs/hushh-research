@@ -339,6 +339,7 @@ export function usePhoneVerificationFlow({
     setSelectedCountry(nextOption.value);
     const maximum = getMobileNumberLengthRange(nextOption.value).maximum;
     rejectedPhoneInputRef.current = localPhoneNumber.length > maximum;
+    setOperationError(null);
     setPhoneNumberError((previous) => phonePresentation === "compact"
       ? (previous ? getPhoneEntryError(localPhoneNumber, nextOption.value) : null)
       : localPhoneNumber.length > maximum
@@ -912,7 +913,7 @@ export function usePhoneVerificationFlow({
       if (!current() || phoneFlowInFlightRef.current || stepRef.current !== "code") return;
       const next = value.replace(/\D/g, "").slice(0, 6);
       if (next !== verificationCode) advanceEntryRevision();
-      setCodeError(null); setVerificationCode(next);
+      setCodeError(null); setOperationError(null); setVerificationCode(next);
     },
   };
 }

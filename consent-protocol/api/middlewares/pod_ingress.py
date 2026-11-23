@@ -109,6 +109,7 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         "/api/one/pod/puppy/models",
         "/api/one/pod/agent-chat",
         "/api/one/pod/agent-chat/capabilities",
+        "/api/one/pod/agent-chat/migration/import",
         # The owner's ratings, and voice command proposals validated and
         # checkpointed in the agent (pod_command_proposals.py). Same owner app
         # session as chat; ids, enums and the owner's own plan only.

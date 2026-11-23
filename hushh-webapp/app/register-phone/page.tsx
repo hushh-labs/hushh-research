@@ -131,8 +131,8 @@ export function PhoneMandatePageContent() {
       });
       if (
         bootstrapState &&
-        PreVaultUserStateService.hasOneCloudProject(bootstrapState) &&
-        !PreVaultUserStateService.hasOneRuntimeChoice(bootstrapState) &&
+        PreVaultUserStateService.hasOneCloudProject?.(bootstrapState) &&
+        !PreVaultUserStateService.hasOneRuntimeChoice?.(bootstrapState) &&
         typeof ApiService?.getPersonalAgentStatus === "function"
       ) {
         const agentStatus = await ApiService.getPersonalAgentStatus().catch(() => null);
@@ -146,7 +146,9 @@ export function PhoneMandatePageContent() {
           ).catch(() => undefined);
         }
       }
-      const setupResolved = PreVaultUserStateService.isSetupResolved(bootstrapState);
+      const setupResolved = bootstrapState
+        ? PreVaultUserStateService.isSetupResolved(bootstrapState)
+        : false;
       const idToken = await activeUser.getIdToken().catch(() => undefined);
 
       // The number they just verified is the trigger for claiming: if the SEC

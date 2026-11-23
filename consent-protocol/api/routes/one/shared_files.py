@@ -12,7 +12,6 @@ import base64
 import json
 import os
 import re
-from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any
 
@@ -22,7 +21,6 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
-from db.connection import get_pool
 from hushh_mcp.runtime_settings import pod_mode
 from hushh_mcp.services.owner_placement_guard import admit_hub_content, hub_content_owner
 from hushh_mcp.services.personal_agent_hosting import get_owner_hosting_mode
@@ -467,27 +465,11 @@ async def _read_bounded_migration_object(
 async def _mark_ace_migration_complete(
     owner: str, *, migrated_files: int, migrated_wiki_pages: int
 ) -> None:
-    marker = {
-        "status": "migrated",
-        "migrated_files": migrated_files,
-        "migrated_wiki_pages": migrated_wiki_pages,
-        "migrated_at": datetime.now(timezone.utc).isoformat(),
-    }
-    try:
-        pool = await get_pool()
-    except Exception:
-        return
-    try:
-        await pool.execute(
-            """UPDATE shared_files_storage
-               SET receipt = COALESCE(receipt, '{}'::jsonb) || jsonb_build_object('ace_migration', $2::jsonb),
-                   updated_at = now()
-               WHERE user_id = $1""",
-            owner,
-            json.dumps(marker),
-        )
-    except UndefinedTableError:
-        return
+    await registry.mark_ace_migration_complete(
+        owner,
+        migrated_files=migrated_files,
+        migrated_wiki_pages=migrated_wiki_pages,
+    )
 
 
 @router.get("/migration/manifest")

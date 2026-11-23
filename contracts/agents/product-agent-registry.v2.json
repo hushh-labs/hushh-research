@@ -2103,20 +2103,32 @@
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "8829c9f173835aaccdb26da535a9b728420ed8b8c48f645af70fde164c77a014",
+      "system_instruction_sha256": "fe5d3b5d0e3bf8e1b7dc76a2d6742c4afacb8a03d2ec4cb1568473ddcf7c5702",
       "telemetry_namespace": "agent.files",
       "tools": [
         {
-          "description": "List one bounded page of owner library metadata after analysis consent.",
+          "description": "List bounded owner library metadata (optionally recursive), excluding excluded folders.",
           "name": "list_files",
           "py_func": "hushh_mcp.one_adk.files_tools.list_files",
           "required_scope": "files.read"
         },
         {
-          "description": "Read supported bounded text content after library analysis consent.",
+          "description": "Search owner library files and folders recursively by normalized name or path.",
+          "name": "search_files",
+          "py_func": "hushh_mcp.one_adk.files_tools.search_files",
+          "required_scope": "files.read"
+        },
+        {
+          "description": "Read or extract bounded file content (text, PDF, XLSX, HTML, or metadata fallback) by ID or filename.",
           "name": "read_file",
           "py_func": "hushh_mcp.one_adk.files_tools.read_file",
           "required_scope": "files.read"
+        },
+        {
+          "description": "Create a bounded UTF-8 text, markdown, JSON, or CSV file with idempotent request_id.",
+          "name": "write_file",
+          "py_func": "hushh_mcp.one_adk.files_tools.write_file",
+          "required_scope": "files.manage"
         },
         {
           "description": "Create an empty folder with idempotent request identity and current consent.",
@@ -5041,7 +5053,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "94cb58a133a28d777e9a208e85d4929cf98aa27080423d4410f0d4c85ea417ce",
+      "system_instruction_sha256": "981579b76e8398c1081df4ef0f52f270e37c8edc583d9f233146e43571b5e369",
       "telemetry_namespace": "agent.one",
       "tools": [
         {

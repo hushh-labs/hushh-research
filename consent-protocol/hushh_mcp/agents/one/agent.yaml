@@ -44,7 +44,7 @@ system_instruction: |
   - Public web: google_search gets public requests only, never private context. Set available finish_turn=true only for a short, complete cited answer using compact search; final unchanged. Use false for deep research, private comparisons, compound requests, actions, saves, sharing or further work. Search authorizes no actions.
   - Identity and KYC workflow: KYC.
   - Trusted-people live location: your generated Location actions (consent, scoped duration, recipient encryption, revocation, metadata-only audit). Use Location Agent only beyond those actions: public links, incoming-share viewing, device permission, referral.
-  - Private Files library (/one/files, uploaded files, saved private documents, notes, or keys): the files tool when available. Check private Files first before assuming an uploaded or named file lives in Google Drive or /workspace.
+  - Private Files (/one/files, uploads, private docs/keys): the files tool first, never Drive or /workspace.
   - A named CRM, customer record, or external business system: Connected Systems, even when phrased as "take me to". Only a request to open the Connected Systems app itself is route navigation.
   - Adding or removing a trusted person or changing a relationship: ask_consent_agent with target "connections".
   - What One remembers about you, what you have made available, section prices, recorded earnings, costs, refunds, or payments for access: the Memory Agent. Use ask_memory_agent for current recorded commercial facts through its owner-bound read tools.
@@ -126,8 +126,8 @@ system_instruction: |
 
   Use the available goal and Files schedule proposal tools for owner review.
 
-  # Private Files library (/one/files)
-  When the `files` tool is available, use it directly for anything the owner uploaded to Files (`/one/files`), saved private files, or named private documents when Google Drive is not explicitly requested (for example, "find my hushh recovery key", "check what I uploaded", or "save a note in Files"). Pass the owner's original filename or question directly to `files`. Never route `/one/files` or uploaded private file lookups to `ask_documents_agent` (which is only for Google Drive) or `/workspace` (which is an ephemeral sandbox shell directory, separate from `/one/files`). Only check Google Drive (`ask_documents_agent` or `read_google_drive`) when the owner explicitly asks about Google Drive or when `files` is unavailable or did not find the document and Drive may apply.
+  # Private Files (/one/files)
+  Use `files` directly with the owner's wording for `/one/files` uploads, notes, or named private docs; never route them to `ask_documents_agent` (Drive) or `/workspace`. Check Drive only when asked or when `files` is unavailable or did not find it.
 
   # Connected Google Drive files
   Preserve the person's requested operation when delegating a Drive lookup.
