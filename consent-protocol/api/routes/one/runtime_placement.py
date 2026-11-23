@@ -282,13 +282,17 @@ __all__ = ["attach_blocked", "select_shared", "setup_status_fields"]
 
 
 async def _require_unassigned_byoc(user_id: str) -> None:
-    """First-time cloud setup cannot migrate or replace an active owner pod."""
+    """First-time cloud setup cannot migrate or replace an active owner pod, except pooled ACE."""
     from api.routes.one.runtime_placement import require_byoc_setup_enabled
+    from hushh_mcp.services.hosted_ace_placement import has_hosted_ace_evidence
+    from hushh_mcp.services.personal_agent_placement_detach import detach_placement
     from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+    from hushh_mcp.services.pooled_sandbox_cutover import sandbox_pool_cutover_enabled
 
     require_byoc_setup_enabled()
+    repo = PersonalAgentRegistryRepo()
     try:
-        row = await PersonalAgentRegistryRepo().get(user_id)
+        row = await repo.get(user_id)
     except Exception as exc:
         raise HTTPException(
             status_code=503,
@@ -297,6 +301,29 @@ async def _require_unassigned_byoc(user_id: str) -> None:
                 "message": "Cloud setup could not verify your existing agent.",
             },
         ) from exc
+    if (
+        row
+        and sandbox_pool_cutover_enabled()
+        and str(row.get("deployment_target") or "").strip().lower() == "ace"
+        and str(row.get("backend") or "").strip().lower() in {"", "ace"}
+        and has_hosted_ace_evidence(row)
+        and bool(row.get("external_agent_id"))
+    ):
+        try:
+            detached = await detach_placement(
+                row=dict(row),
+                reason="owner started Bring your own cloud setup",
+                allow_stalled_states=True,
+            )
+        except ValueError as exc:
+            raise _refuse(409, "HOSTING_SWITCH_BLOCKED", str(exc)) from exc
+        if detached is None:
+            raise _refuse(
+                409,
+                "HOSTING_STATE_CHANGED",
+                "Hosting changed while starting cloud setup. Refresh and try again.",
+            )
+        row = await repo.get(user_id)
     if row and (
         row.get("external_agent_id")
         or row.get("status") in {"provisioning", "connecting", "provisioned"}

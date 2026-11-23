@@ -1074,11 +1074,20 @@ class AccountService:
             results[table_name] = True
 
     def _assert_personal_agent_external_resources_absent(
-        self, conn, *, params: dict[str, Any], finalize_erasure: bool = False
+        self,
+        conn,
+        *,
+        params: dict[str, Any],
+        finalize_erasure: bool = False,
+        erased_ace_hushh_ids_out: list[str] | None = None,
     ) -> dict[str, bool]:
         """Verify absence under this account transaction's existing owner locks."""
         return assert_external_resources_absent(
-            conn, params=params, table_exists=self._table_exists, finalize_erasure=finalize_erasure
+            conn,
+            params=params,
+            table_exists=self._table_exists,
+            finalize_erasure=finalize_erasure,
+            erased_ace_hushh_ids_out=erased_ace_hushh_ids_out,
         )
 
     def assert_personal_agent_external_resources_absent(self, user_id: str) -> None:
@@ -1095,11 +1104,15 @@ class AccountService:
             self._assert_personal_agent_external_resources_absent(conn, params={"user_id": user_id})
 
     def _delete_personal_agent_state(
-        self, conn, *, params: dict[str, Any], results: dict[str, bool]
-    ) -> None:
+        self, conn, *, params: dict[str, Any], results: dict[str, Any]
+    ) -> list[str]:
         """Keep absence assertion and account-state deletion in one transaction."""
+        ace_hushh_ids: list[str] = []
         table_presence = self._assert_personal_agent_external_resources_absent(
-            conn, params=params, finalize_erasure=True
+            conn,
+            params=params,
+            finalize_erasure=True,
+            erased_ace_hushh_ids_out=ace_hushh_ids,
         )
         from hushh_mcp.services.account_cloud_retirement import local_erasure_ready
 
@@ -1114,6 +1127,7 @@ class AccountService:
         self._delete_optional_user_tables(
             conn, table_names=["personal_agent_cloud_removals"], params=params, results=results
         )
+        return ace_hushh_ids
 
     @staticmethod
     def _lock_fabric_receipt_users(conn, *, user_ids: Iterable[str]) -> None:
@@ -2176,6 +2190,15 @@ class AccountService:
                 backend_only=backend_only,
                 **extra,
             )
+            if result["success"]:
+                erased_ace_ids = (result.get("details") or {}).pop("_erased_ace_hushh_ids", None)
+                if erased_ace_ids:
+                    from hushh_mcp.services.account_personal_agent_erasure import (
+                        purge_pooled_ace_storage_prefixes_best_effort,
+                    )
+
+                    await purge_pooled_ace_storage_prefixes_best_effort(list(erased_ace_ids))
+                    result["details"]["pooled_ace_storage_prefix_purged"] = True
             if result["success"] and provider_cleanup is not None:
                 result["details"]["provider_grant_release"] = {
                     "status": "cleanup_qualified_before_erasure"
@@ -2384,6 +2407,7 @@ class AccountService:
 
         provider_credentials = ProviderCredentialSnapshot(user_id=user_id)
         backend_cleanup = None
+        erased_ace_hushh_ids: list[str] = []
         graph_viewer_ids: set[str] = set()
         graph_hint_committed = False
         try:
@@ -2440,7 +2464,7 @@ class AccountService:
                 # before destructive statements, including bounded recovery batches.
                 conn.execute(_ACCOUNT_ERASURE_SQL_LIMITS)
                 guard_answer_erasure(conn, user_id=user_id)
-                self._delete_personal_agent_state(
+                erased_ace_hushh_ids = self._delete_personal_agent_state(
                     conn,
                     params=params,
                     results=results,
@@ -2843,6 +2867,8 @@ class AccountService:
 
         # Outside the erasure try-block on purpose: the deletion has committed,
         # and releasing provider grants is bounded best effort that never raises.
+        if erased_ace_hushh_ids:
+            results["_erased_ace_hushh_ids"] = erased_ace_hushh_ids
         if graph_viewer_ids:
             try:
                 from hushh_mcp.services.connections_service import _notify_connection_graph_changed

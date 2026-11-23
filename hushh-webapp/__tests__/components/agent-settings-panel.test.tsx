@@ -786,7 +786,7 @@ describe("owner hosting and software settings", () => {
     expect(screen.getByText(rawSha)).toBeTruthy();
   });
 
-  it("enables switching from Personal Sandbox (ace) to Bring your own cloud with confirmation while keeping Shared retired on Dev", async () => {
+  it("enables non-destructive switching from Personal Sandbox (ace) to Bring your own cloud while keeping Shared retired on Dev", async () => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
     status("hussh_pods", { state: "active", deploymentTarget: "ace", featureEnabled: true });
 
@@ -794,18 +794,8 @@ describe("owner hosting and software settings", () => {
     expect(screen.getByTestId("hosting-choice-pods")).toHaveTextContent("Current");
     expect(screen.queryByTestId("hosting-choice-shared")).toBeNull();
 
-    mocks.switchHostingMode.mockResolvedValueOnce({
-      hostingMode: "unplaced",
-      detachedPriorHost: true,
-    });
     fireEvent.click(screen.getByTestId("hosting-choice-own-cloud").querySelector("button")!);
-    fireEvent.click(await screen.findByTestId("hosting-switch-own-cloud-confirm"));
-    await waitFor(() =>
-      expect(mocks.switchHostingMode).toHaveBeenCalledWith({
-        target: "own_cloud",
-        isEffectCurrent: expect.any(Function),
-      }),
-    );
+    expect(mocks.switchHostingMode).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(mocks.push).toHaveBeenCalledWith(
         "/one/setup/cloud?return_to=%2Fone%2Fprofile%2Fhosting&from=%2Fone%2Fprofile%2Fhosting&intent=own",

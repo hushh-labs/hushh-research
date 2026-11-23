@@ -4,12 +4,178 @@ The account service retains transaction ownership and compatibility entrypoints.
 Missing or uncertain cloud receipts refuse erasure; no cloud resources are deleted here.
 """
 
+from collections.abc import Mapping
 from typing import Any, Callable
 
 from sqlalchemy import text
 
 from hushh_mcp.services.byoc_setup_intent import is_untouched_intent
+from hushh_mcp.services.hosted_ace_placement import has_hosted_ace_evidence
 from hushh_mcp.services.personal_agent_standby_guard import standby_present
+
+_USER_CLOUD_COORDINATE_FIELDS = (
+    "user_cloud_project",
+    "user_cloud_region",
+    "user_cloud_bootstrap_sa",
+    "user_cloud_authorized_at",
+    "user_cloud_tenant_id",
+    "user_cloud_subscription_id",
+    "user_cloud_resource_group",
+)
+
+
+def _has_user_cloud_coordinates(row: Mapping[str, Any]) -> bool:
+    return any(
+        row.get(field_name) not in (None, "", {}, [])
+        for field_name in _USER_CLOUD_COORDINATE_FIELDS
+    )
+
+
+def _entry_is_pooled_ace_only(entry: Any) -> bool:
+    if not isinstance(entry, Mapping):
+        return False
+    if _has_user_cloud_coordinates(entry):
+        return False
+    target = (
+        str(entry.get("deployment_target") or entry.get("deploymentTarget") or "").strip().lower()
+    )
+    backend = str(entry.get("backend") or "").strip().lower()
+    return target == "ace" and (backend in {"", "ace"}) and has_hosted_ace_evidence(entry)
+
+
+def _has_unretired_external_source_pod(meta: Mapping[str, Any]) -> bool:
+    retirements = meta.get("sourcePodRetirements")
+    if not isinstance(retirements, Mapping):
+        return False
+    for item in retirements.values():
+        if not isinstance(item, Mapping):
+            return True
+        source_target = str(item.get("sourceTarget") or "").strip().lower()
+        status = str(item.get("status") or "").strip().lower()
+        if source_target != "ace" and not status.startswith("retired_"):
+            return True
+    return False
+
+
+def _detached_placements_are_ace_only(meta: Mapping[str, Any]) -> bool:
+    detached = meta.get("detachedPlacements")
+    if detached in (None, []):
+        return True
+    if not isinstance(detached, list):
+        return False
+    return all(_entry_is_pooled_ace_only(item) for item in detached)
+
+
+def is_pure_pooled_ace_registry_state(registry: Mapping[str, Any]) -> bool:
+    """True when the registry row holds only Hussh-pooled ACE state with zero external cloud resources."""
+    if not registry or _has_user_cloud_coordinates(registry):
+        return False
+    raw_meta = registry.get("backend_metadata")
+    meta: Mapping[str, Any] = raw_meta if isinstance(raw_meta, Mapping) else {}
+    if (
+        "erasure" in meta
+        or meta.get("upgradeLease")
+        or meta.get("hostedFilesExecutor")
+        or _has_unretired_external_source_pod(meta)
+        or not _detached_placements_are_ace_only(meta)
+    ):
+        return False
+    attempt = meta.get("provisionAttempt")
+    if isinstance(attempt, Mapping) and str(attempt.get("phase") or "") != "provisioned":
+        return False
+
+    status = str(registry.get("status") or "").strip().lower()
+    target = str(registry.get("deployment_target") or "").strip().lower()
+    backend = str(registry.get("backend") or "").strip().lower()
+    if (
+        status == "provisioned"
+        and target == "ace"
+        and backend == "ace"
+        and has_hosted_ace_evidence(registry)
+    ):
+        return True
+    if (
+        status == "unprovisioned"
+        and not registry.get("external_agent_id")
+        and not registry.get("deployment_target")
+        and not registry.get("backend")
+        and not registry.get("attestation_ref")
+        and not registry.get("pod_pubkey")
+        and not registry.get("region")
+        and bool(meta.get("detachedPlacements"))
+        and set(meta.keys()) <= {"detachedPlacements"}
+    ):
+        return True
+    return False
+
+
+def collect_pooled_ace_hushh_ids(registry: Mapping[str, Any] | None) -> list[str]:
+    """Collect deterministic ACE hushh_ids from active or detached pooled rows for post-commit prefix purge."""
+    if not isinstance(registry, Mapping):
+        return []
+    found: list[str] = []
+
+    def _add(raw_id: Any) -> None:
+        val = str(raw_id or "").strip()
+        if val.startswith("ha1_") and val not in found:
+            found.append(val)
+
+    if str(registry.get("deployment_target") or "").strip().lower() == "ace":
+        _add(registry.get("hushh_id"))
+    raw_meta = registry.get("backend_metadata")
+    if isinstance(raw_meta, Mapping):
+        detached = raw_meta.get("detachedPlacements")
+        if isinstance(detached, list):
+            for item in detached:
+                if _entry_is_pooled_ace_only(item):
+                    _add(item.get("hushh_id"))
+    return found
+
+
+async def purge_pooled_ace_storage_prefixes_best_effort(hushh_ids: list[str]) -> int:
+    """Best-effort post-commit purge of encrypted ACE owner prefixes from the Hub storage gateway store."""
+    if not hushh_ids:
+        return 0
+    try:
+        from api.routes.one.pod_prefix_storage_gateway import (
+            _READ_ADMISSION_CACHE,
+            _list_prefix_items,
+            _resolve_store,
+        )
+        from hushh_mcp.services.pod_capability_broker import validated_pod_prefix
+
+        for hid in hushh_ids:
+            stale_keys = [key for key in list(_READ_ADMISSION_CACHE) if key[1] == hid]
+            for key in stale_keys:
+                _READ_ADMISSION_CACHE.pop(key, None)
+
+        store = _resolve_store()
+        if store is None:
+            return 0
+        deleted = 0
+        for hid in hushh_ids:
+            prefix = validated_pod_prefix(hid)
+            base = prefix.rstrip("/") + "/"
+            all_rels: list[str] = []
+            cursor = ""
+            for _ in range(50):
+                items, cursor = await _list_prefix_items(
+                    store,
+                    pod_prefix=prefix,
+                    target_prefix=prefix.rstrip("/"),
+                    cursor=cursor,
+                    limit=200,
+                )
+                all_rels.extend(items)
+                if not cursor:
+                    break
+            for rel in all_rels:
+                if await store.delete(f"{base}{rel}"):
+                    deleted += 1
+        return deleted
+    except Exception:  # noqa: BLE001 - post-commit object purge is best-effort; tombstone already blocks reads
+        return 0
+
 
 PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE = (
     "ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING"
@@ -202,7 +368,12 @@ def _azure_setup_has_no_effects(
 
 
 def assert_external_resources_absent(
-    conn, *, params: dict[str, Any], table_exists: Callable, finalize_erasure: bool = False
+    conn,
+    *,
+    params: dict[str, Any],
+    table_exists: Callable,
+    finalize_erasure: bool = False,
+    erased_ace_hushh_ids_out: list[str] | None = None,
 ) -> dict[str, bool]:
     from hushh_mcp.services.phone_transfer_service import assert_erasure_ready
 
@@ -218,6 +389,8 @@ def assert_external_resources_absent(
         if local_erasure_ready(conn, params["user_id"]):
             return table_presence
     registry = dict((registry_row or {}).get("registry") or {})
+    if erased_ace_hushh_ids_out is not None and registry_row is not None:
+        erased_ace_hushh_ids_out.extend(collect_pooled_ace_hushh_ids(registry))
     status = str(registry.get("status") or "").strip().lower()
     erasure = (registry.get("backend_metadata") or {}).get("erasure")
     if isinstance(erasure, dict) and erasure:
@@ -247,11 +420,16 @@ def assert_external_resources_absent(
                 return table_presence
     has_external_coordinates = _has_external_coordinates(registry)
     has_pending_deprovision = _pending_deprovision(conn, params, registry, table_exists)
-    demonstrably_unprovisioned = (registry_row is None and lifecycle_row is None) or (
-        registry_row is not None
-        and lifecycle_row is None
-        and status == "unprovisioned"
-        and not has_external_coordinates
+    pure_pooled_ace = registry_row is not None and is_pure_pooled_ace_registry_state(registry)
+    demonstrably_unprovisioned = (
+        (registry_row is None and lifecycle_row is None)
+        or pure_pooled_ace
+        or (
+            registry_row is not None
+            and lifecycle_row is None
+            and status == "unprovisioned"
+            and not has_external_coordinates
+        )
     )
     if _azure_setup_has_no_effects(
         conn,

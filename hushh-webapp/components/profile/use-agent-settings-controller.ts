@@ -389,11 +389,14 @@ export function useAgentSettingsController({
 
   async function switchToOwnCloud(): Promise<boolean> {
     if (busyRef.current || !current()) return false;
-    if (mode !== "hussh_pods") {
+    if (
+      mode !== "hussh_pods" ||
+      (isPooledSandboxSwitchAvailable() && status?.deploymentTarget === "ace")
+    ) {
       router.push(
         profileHostingSetupHref(
           resolvePaneOrigin(),
-          mode === "shared" ? { intent: "own" } : undefined,
+          mode === "shared" || mode === "hussh_pods" ? { intent: "own" } : undefined,
         ),
       );
       return true;

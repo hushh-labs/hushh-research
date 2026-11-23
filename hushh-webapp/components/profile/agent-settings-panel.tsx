@@ -440,9 +440,9 @@ function AgentSettingsBody({
             onClick={
               !canManageCloud
                 ? undefined
-                : mode === "hussh_pods"
+                : mode === "hussh_pods" && !(pooledSwitchAvailable && isPersonalSandboxActive)
                   ? () => setConfirmSwitch("own_cloud")
-                  : mode === "shared"
+                  : mode === "shared" || (mode === "hussh_pods" && pooledSwitchAvailable && isPersonalSandboxActive)
                     ? () => void switchToOwnCloud()
                     : chooseHosting
             }

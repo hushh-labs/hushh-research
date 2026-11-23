@@ -8966,6 +8966,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     emailDraftMessageId: emailDraftAnchorMessageId,
     emailDeliveries: emailDeliveryHistory,
   };
+  const pendingVaultUnlockRetryRef = useRef<{
+    messageId: string;
+    ownerId: string;
+    conversationId: string;
+  } | null>(null);
   const handleRetryAssistantResponse = (messageId: string) => {
     const canRetry = () => {
       const current = retryPresentationRef.current;
@@ -9059,6 +9064,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       return retired;
     };
 
+    // Authenticated owner conversations restored from encrypted UI cache while
+    // locked must unlock the vault first rather than fall back to intro chat.
+    if (!hasChatAccess && user && applicationOwnerId && retryFromConversation) {
+      pendingVaultUnlockRetryRef.current = {
+        messageId,
+        ownerId: applicationOwnerId,
+        conversationId: retryFromConversation,
+      };
+      setVaultDialogOpen(true);
+      return;
+    }
+
     // Pre-vault / anonymous turns go through the informational intro tier, which
     // runAgentTurn early-returns on (no vault access). Route the retry to the
     // same tier the original turn used so the button is not a no-op there.
@@ -9118,6 +9135,20 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       },
     });
   };
+  const handleRetryAssistantResponseRef = useRef(handleRetryAssistantResponse);
+  handleRetryAssistantResponseRef.current = handleRetryAssistantResponse;
+  useEffect(() => {
+    if (!hasChatAccess) return;
+    const pending = pendingVaultUnlockRetryRef.current;
+    if (!pending) return;
+    pendingVaultUnlockRetryRef.current = null;
+    if (
+      applicationOwnerId === pending.ownerId &&
+      conversationIdRef.current === pending.conversationId
+    ) {
+      handleRetryAssistantResponseRef.current(pending.messageId);
+    }
+  }, [applicationOwnerId, hasChatAccess]);
   const submitSuggestedPrompt = (prompt: string) => {
     if (!prompt.trim() || recoveryInspectionPending || isVoiceConnecting || voiceActive || isChatLoading || isStreaming) return;
     transcriptUserScrollRef.current = false;
