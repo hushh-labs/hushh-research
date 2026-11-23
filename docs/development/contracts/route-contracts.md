@@ -44,7 +44,7 @@ onboarding redirect or a new page. It uses the existing `/api/one/[...path]`
 proxy and native `ApiService` transport for `GET /api/one/business/suggestion`.
 It adds no native plugin or navigation authority; current owner and unlocked
 vault admission fence discovery, review and explicit memory confirmation. See
-[the B2B suggestion contract](./api-contracts.md#b2b-profile-suggestion--directory-discovery-review-and-confirmation).
+[the B2B suggestion contract](./api-route-catalog.md#b2b-profile-suggestion--directory-discovery-review-and-confirmation).
 
 Every physical page also has one required `voicePlaybook` in
 `app-route-layout.contract.json`. The surface-map and route-index generators reject
