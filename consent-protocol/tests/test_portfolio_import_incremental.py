@@ -14,6 +14,8 @@ from hushh_mcp.kai_import.csv_layout import CsvLayoutUnsupported, parse_csv_numb
 from hushh_mcp.kai_import.declared_layout import declared_pdf
 from hushh_mcp.kai_import.incremental_contracts import CSV_LAYOUT_SCHEMA
 from hushh_mcp.kai_import.incremental_extract import incremental_statement_extract
+from hushh_mcp.kai_import.strict_json import ImportStrictParseError
+from hushh_mcp.kai_import.structured_pdf import structured_pdf
 
 
 def test_csv_group_separator_schema_avoids_vertex_rejected_empty_enum():
@@ -184,6 +186,112 @@ def test_declared_pdf_rejects_missing_rows_instead_of_publishing_a_partial_state
     assert result is not None
     assert result["detailed_holdings"][0]["market_value"] == 20.00
     assert declared_pdf([prefix + rows.splitlines()[0] + "\n" + control]) is None
+
+
+@pytest.mark.asyncio
+async def test_structured_csv_accepts_reordered_columns_and_reconciles_cash(monkeypatch):
+    csv = (
+        "Portfolio holdings as of 2026-10-31\n"
+        "Share price (USD);Ticker symbol;Position value (USD);Units;Book value;Unrealized P&L\n"
+        "10.00;AAA;15.00;1.5;20.00;(5.00)\n"
+        "2.00;BBB;4.00;2;3.00;1.00\n"
+        ";Cash & Cash Investments;7.00;;;\n"
+        ";Account Total;26.00;;23.00;(4.00)\n"
+    ).encode()
+    stream, calls, fallback = extract(monkeypatch, [], content=csv, csv=True)
+    preview, complete = [event async for event in stream]
+    assert preview["update"]["rows"][0]["unrealized_gain_loss"] == -5
+    assert complete["source"] == "csv_structured_table"
+    parsed = complete["parsed"]
+    assert parsed["cash_balance"] == 7 and parsed["total_value"] == 26
+    assert parsed["statement_details"]["statement_period_end"] == "2026-10-31"
+    assert [row["_import_source"]["row"] for row in parsed["detailed_holdings"]] == [3, 4]
+    assert not calls
+    fallback.assert_not_awaited()
+
+    corrupt = csv.replace(b";Account Total;26.00", b";Account Total;29.00")
+    rejected, calls, _ = extract(
+        monkeypatch, [{"decision": "unsupported"}], content=corrupt, csv=True
+    )
+    events = [event async for event in rejected]
+    assert events[-1]["source"] == "full"
+    assert len(calls) == 1
+
+
+def test_structured_pdf_retains_checked_positions_without_a_qa_marker():
+    cover = (
+        "Example Clearing | Brokerage statement\n"
+        "Currency: USD\n"
+        "As of date: 2026-10-31\n"
+        "Total positions: 2\n"
+        "Securities market value: 24.00\n"
+        "Cash balance: 5.00\n"
+        "Total account value: 29.00\n"
+    )
+    first_page = (
+        "Ticker\tSecurity Name\tShares\tShare Price\tCost Basis\tMarket Value\tGain / Loss\n"
+        "AAA\tExample one\t2\t10.00\t18.00\t20.00\t2.00\n"
+    )
+    second_page = (
+        "Ticker\tSecurity Name\tShares\tShare Price\tCost Basis\tMarket Value\tGain / Loss\n"
+        "BBB\tExample two\t2\t2.00\t5.00\t4.00\t(1.00)\n"
+    )
+    result = structured_pdf([cover, first_page, second_page])
+    assert result is not None
+    parsed, requires_model = result
+    assert not requires_model
+    assert parsed["statement_details"]["institution_name"] == "Example Clearing"
+    assert parsed["total_value"] == 29
+    assert [row["_import_source"]["page"] for row in parsed["detailed_holdings"]] == [2, 3]
+    assert structured_pdf([cover, first_page]) is None
+    assert structured_pdf([cover, first_page, second_page.replace("4.00", "5.00")]) is None
+    wrong_currency = second_page.replace("Gain / Loss\n", "Gain / Loss\tCurrency\n").replace(
+        "(1.00)\n", "(1.00)\tCAD\n"
+    )
+    assert structured_pdf([cover, first_page, wrong_currency]) is None
+    ambiguous_symbol = second_page.replace("BBB\t", "BRK/B\t")
+    assert structured_pdf([cover, first_page, ambiguous_symbol]) is None
+
+
+@pytest.mark.asyncio
+async def test_supplementary_model_cannot_replace_verified_pdf_holdings(monkeypatch):
+    table = (
+        "Currency: USD\n"
+        "Total positions: 1\n"
+        "Securities market value: 20.00\n"
+        "Balance history: 2026-10-31\n"
+        "Ticker\tShares\tShare Price\tMarket Value\n"
+        "AAA\t2\t10.00\t20.00\n"
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.kai_import.pdf_pages.PdfPages.page_text", AsyncMock(return_value=table)
+    )
+    fallback = AsyncMock(return_value=({"detailed_holdings": []}, "full", 1))
+    stream, calls, _ = extract(monkeypatch, [], content=pdf_bytes(1), full=fallback)
+    first = await anext(stream)
+    assert first["kind"] == "partial"
+    assert first["update"]["rows"][0]["symbol"] == "AAA"
+    with pytest.raises(ImportStrictParseError, match="disagree with verified holdings"):
+        await anext(stream)
+    fallback.assert_awaited_once()
+    assert not calls
+
+
+def test_statement_symbol_keeps_share_class_punctuation():
+    from api.routes.kai.portfolio import _normalize_import_holding_light
+
+    assert _normalize_import_holding_light({"symbol": "BRK.B"}, 0)["symbol"] == "BRK.B"
+    assert _normalize_import_holding_light({"symbol": "N.A."}, 0)["symbol"] == ""
+
+
+@pytest.mark.asyncio
+async def test_large_unreadable_pdf_passes_the_whole_file_to_fallback(monkeypatch):
+    stream, calls, fallback = extract(monkeypatch, [], content=pdf_bytes(5))
+    events = [event async for event in stream]
+    assert [event["kind"] for event in events] == ["reset", "complete"]
+    assert events[-1]["fallback_reason"] == "pdf_large_whole_document"
+    assert not calls
+    fallback.assert_awaited_once()
 
 
 @pytest.mark.asyncio

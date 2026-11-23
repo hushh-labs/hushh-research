@@ -29,13 +29,15 @@ class CsvBatch:
         return self.start + len(self.rows) - 1
 
 
-def read_csv_records(content: bytes) -> tuple[tuple[str, ...], ...]:
+def read_csv_records(content: bytes, delimiter: str = ",") -> tuple[tuple[str, ...], ...]:
     try:
         text = content.decode("utf-8-sig")
     except UnicodeDecodeError:
         text = content.decode("latin-1")
     try:
-        return tuple(tuple(row) for row in csv.reader(io.StringIO(text), strict=True))
+        return tuple(
+            tuple(row) for row in csv.reader(io.StringIO(text), delimiter=delimiter, strict=True)
+        )
     except csv.Error as exc:
         raise CsvLayoutUnsupported("csv_syntax") from exc
 

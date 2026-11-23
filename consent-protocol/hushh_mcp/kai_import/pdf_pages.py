@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 import io
 import os
+import re
 import struct
 import subprocess
 import sys
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 _MAX_BYTES = 25 * 1024 * 1024
 _FRAME = struct.Struct("!I")
@@ -118,13 +119,14 @@ class PdfPages:
         except (OSError, ValueError, asyncio.IncompleteReadError, TimeoutError):
             raise PdfPageSplitUnsupported("pdf_page_split_unavailable") from None
 
-    async def page_text(self, index: int) -> str:
+    async def page_text(self, index: int, *, layout: bool = False) -> str:
         """Read embedded text through the same isolated PDF worker."""
         if self.closed or not 0 <= index < self.count:
             raise PdfPageSplitUnsupported("pdf_page_text_unavailable")
         try:
             async with asyncio.timeout(_RESPONSE_SECONDS):
-                await self._write(f"text:{index}".encode("ascii"))
+                command = "layout" if layout else "text"
+                await self._write(f"{command}:{index}".encode("ascii"))
                 response = await self._read(128 * 1024)
                 if not response.startswith(b"t"):
                     raise ValueError("page_text_frame")
@@ -201,6 +203,26 @@ def _write_frame(stream: BinaryIO, value: bytes) -> None:
     stream.flush()
 
 
+def _column_text(text_page: Any, text: str) -> str:
+    """Separate visual cells using gaps between glyphs on the same text line."""
+    if len(text) > 16_384 or len(text) != text_page.count_chars():
+        raise ValueError("pdf_text_geometry_unavailable")
+    lines: list[str] = []
+    for line in re.finditer(r"[^\r\n]+", text):
+        cells: list[str] = []
+        right: float | None = None
+        for word in re.finditer(r"\S+", line[0]):
+            left = text_page.get_charbox(line.start() + word.start())[0]
+            edge = text_page.get_charbox(line.start() + word.end() - 1)[2]
+            if right is None or left - right >= 8:
+                cells.append(word[0])
+            else:
+                cells[-1] += " " + word[0]
+            right = edge
+        lines.append("\t".join(cells))
+    return "\n".join(lines)
+
+
 def _worker() -> None:
     import pypdfium2
 
@@ -218,13 +240,20 @@ def _worker() -> None:
             index = int(argument if separator else command)
             if not 0 <= index < len(source):
                 raise ValueError("page_index")
-            if prefix == b"text" and separator:
+            if prefix in (b"text", b"layout") and separator:
                 input_page = source[index]
                 text_page = input_page.get_textpage()
                 try:
-                    text = text_page.get_text_range().encode("utf-8")
+                    text = text_page.get_text_range()
+                    if prefix == b"layout":
+                        try:
+                            text = _column_text(text_page, text)
+                        except (ValueError, IndexError, pypdfium2.PdfiumError):
+                            _write_frame(sys.stdout.buffer, b"u")
+                            continue
+                    encoded = text.encode("utf-8")
                     _write_frame(
-                        sys.stdout.buffer, b"t" + (text if len(text) < 128 * 1024 else b"")
+                        sys.stdout.buffer, b"t" + (encoded if len(encoded) < 128 * 1024 else b"")
                     )
                 finally:
                     text_page.close()
