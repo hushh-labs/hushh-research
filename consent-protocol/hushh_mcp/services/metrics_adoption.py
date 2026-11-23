@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from hushh_mcp.services import metrics_uat_authority, plg_outcomes, plg_reporting
 from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionLifecycleService
+from hushh_mcp.services.account_generation_service import EXACT_OWNER_IDENTITIES_SQL
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 
 
@@ -209,17 +210,50 @@ async def _candidates(conn, since, through):
     return ids
 
 
+async def _owner_identities(ids, conn):
+    # NULL means the table is genuinely absent on a pre-generation installation.
+    # Active row security could hide a retired row and manufacture a legacy match.
+    restricted = await conn.fetchval(
+        "SELECT row_security_active(to_regclass('public.account_generations'))", timeout=5
+    )
+    if restricted is None:
+        if os.getenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "").strip().lower() == "true" or any(
+            re.fullmatch(r"acct_[0-9a-f]{32}", owner) for owner in ids
+        ):
+            raise AggregateUnavailable("Metrics generation authority unavailable")
+        return {owner: owner for owner in ids}
+    if restricted is not False:
+        raise AggregateUnavailable("Metrics generation authority unavailable")
+    rows = await conn.fetch(EXACT_OWNER_IDENTITIES_SQL, ids, timeout=5)
+    identities = {row["owner"]: row["identity_uid"] for row in rows}
+    if (
+        len(identities) != len(rows)
+        or not identities.keys() <= set(ids)
+        or len(set(identities.values())) != len(identities)
+    ):
+        raise AggregateUnavailable("Ambiguous Metrics owner identity")
+    return identities
+
+
 async def _identity(ids, conn, environment="production"):
     if not ids:
         return {}, {}, {}
-    records = await (
-        metrics_uat_authority.current_records(ids)
+    identities = await _owner_identities(ids, conn)
+    firebase_uids = list(identities.values())
+    firebase_records = await (
+        metrics_uat_authority.current_records(firebase_uids)
         if environment == "uat"
-        else plg_reporting.current_reporting_records(ids)
+        else plg_reporting.current_reporting_records(firebase_uids)
     )
+    records = {
+        owner: {**firebase_records[uid], "firebase_uid": uid}
+        for owner, uid in identities.items()
+        if uid in firebase_records
+    }
     identity = ActorIdentityService()
-    canonical = await identity.get_many(ids, conn=conn)
-    aliases = await identity.get_many_verified_email_aliases(ids, conn=conn)
+    owners = list(records)
+    canonical = await identity.get_many(owners, conn=conn)
+    aliases = await identity.get_many_verified_email_aliases(owners, conn=conn)
     return records, canonical, aliases
 
 
@@ -239,12 +273,15 @@ def _identity_authority(environment="production"):
 def _eligible(ids, active, identity, policy):
     records, canonical, aliases = identity
     return [
-        uid
-        for uid in ids
-        if uid in active
-        and uid in records
+        owner
+        for owner in ids
+        if owner in active
+        and owner in records
+        and owner not in policy.account_ids
         and policy.eligible(
-            uid, canonical.get(uid), (*records[uid]["emails"], *aliases.get(uid, []))
+            records[owner]["firebase_uid"],
+            canonical.get(owner),
+            (*records[owner]["emails"], *aliases.get(owner, [])),
         )
     ]
 

@@ -30,6 +30,18 @@ from hushh_mcp.services.account_deletion_lifecycle_service import (
     account_deletion_user_hash,
 )
 
+# Shared by SQLAlchemy and the async Metrics reader on its lifecycle guard.
+EXACT_OWNER_IDENTITIES_SQL = """
+SELECT requested.owner,
+       CASE WHEN g.owner_id=requested.owner THEN g.identity_uid ELSE requested.owner END AS identity_uid
+FROM unnest(CAST($1 AS text[])) AS requested(owner)
+LEFT JOIN public.account_generations g ON g.owner_hash='sha256:'||encode(sha256(convert_to(requested.owner,'UTF8')),'hex')
+LEFT JOIN public.account_deletion_tombstones t ON t.user_id_hash='sha256:'||encode(sha256(convert_to(requested.owner,'UTF8')),'hex')
+WHERE t.user_id_hash IS NULL AND
+      ((g.owner_id=requested.owner AND g.retired_at IS NULL) OR
+       (g.owner_hash IS NULL AND requested.owner !~ '^acct_[0-9a-f]{32}$'))
+"""
+
 
 class AccountGenerationRefused(RuntimeError):
     """The verified identity cannot admit the requested application generation."""
@@ -411,14 +423,7 @@ class AccountGenerationService:
             if installed is not True:
                 raise AccountGenerationRefused("generation_schema_unavailable")
             rows = conn.execute(
-                text("""SELECT requested.owner,
-              CASE WHEN g.owner_id=requested.owner THEN g.identity_uid ELSE requested.owner END AS identity_uid
-              FROM unnest(CAST(:owners AS text[])) AS requested(owner)
-              LEFT JOIN public.account_generations g ON g.owner_hash='sha256:'||encode(sha256(convert_to(requested.owner,'UTF8')),'hex')
-              LEFT JOIN public.account_deletion_tombstones t ON t.user_id_hash='sha256:'||encode(sha256(convert_to(requested.owner,'UTF8')),'hex')
-              WHERE t.user_id_hash IS NULL AND
-               ((g.owner_id=requested.owner AND g.retired_at IS NULL) OR
-                (g.owner_hash IS NULL AND requested.owner !~ '^acct_[0-9a-f]{32}$'))"""),
+                text(EXACT_OWNER_IDENTITIES_SQL.replace("$1", ":owners")),
                 {"owners": owners},
             ).mappings()
             return {row["owner"]: row["identity_uid"] for row in rows}
