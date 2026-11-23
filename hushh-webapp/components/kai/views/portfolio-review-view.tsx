@@ -16,13 +16,10 @@
 
 "use client";
 
-import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import { PortfolioReviewSummary } from "@/components/kai/cards/portfolio-review-summary";
 
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import type { ColumnDef } from "@tanstack/react-table";
 import {
-  Plus,
   Loader2,
   Building2,
   PieChart,
@@ -33,9 +30,8 @@ import { cn } from "@/lib/utils";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { DataTable } from "@/components/app-ui/data-table";
+import { PortfolioReviewHoldingsTable } from "@/components/kai/holdings/portfolio-review-holdings-table";
 import { PortfolioReviewHoldingsFilter, type ReviewHoldingsFilter } from "@/components/kai/holdings/portfolio-review-holdings-filter";
-import { HoldingGainLoss } from "@/components/kai/holdings/holding-gain-loss";
 import { ReviewEntriesSheet } from "@/components/kai/holdings/review-entries-sheet";
 import { toHoldingViewModel } from "@/components/kai/holdings/holding-view-model";
 
@@ -75,7 +71,7 @@ import {
   runKaiStepWithTimeout,
 } from "@/lib/kai/brokerage/kai-operation-timeout";
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
-import { groupHoldingPositions, prepareHoldingEntryEdit, type HoldingPosition } from "@/lib/kai/holding-positions";
+import { groupHoldingPositions, prepareHoldingEntryEdit } from "@/lib/kai/holding-positions";
 import type { Holding as PortfolioHolding } from "@/components/kai/types/portfolio";
 import { PortfolioReviewFrame, PortfolioReviewSection, PortfolioReviewHoldingsPanel } from "./portfolio-review-layout";
 import { ImportProgressStatus } from "./import-progress-view";
@@ -280,23 +276,6 @@ function deriveRiskBucket(holdings: Holding[]): string {
   if (topHoldingPct > 30) return "aggressive";
   if (topHoldingPct > 15) return "moderate";
   return "conservative";
-}
-
-function getPositionSide(holding: Holding): "long" | "short" | "liability" {
-  if (holding.position_side === "long" || holding.position_side === "short" || holding.position_side === "liability") {
-    return holding.position_side;
-  }
-  if (holding.is_liability_position) return "liability";
-  if (holding.is_short_position) return "short";
-  const qty = toFiniteNumber(holding.quantity);
-  const marketValue = toFiniteNumber(holding.market_value);
-  if ((holding.is_cash_equivalent || isCashEquivalentHolding(holding)) && (marketValue ?? 0) < 0) {
-    return "liability";
-  }
-  if ((qty ?? 0) < 0 || (marketValue ?? 0) < 0) {
-    return "short";
-  }
-  return "long";
 }
 
 function inferHoldingIdentifierType(holding: Holding): "ticker" | "cusip" | "derived" {
@@ -1026,26 +1005,6 @@ export function PortfolioReviewView({
     [closeHoldingModal, editingHoldingIndex, holdings]
   );
 
-  const handleAddHolding = useCallback(() => {
-    const newHolding: Holding = {
-      symbol: "",
-      identifier_type: "ticker",
-      name: "",
-      quantity: 0,
-      price: 0,
-      market_value: 0,
-      instrument_kind: "equity",
-      is_cash_equivalent: false,
-      is_investable: false,
-      analyze_eligible: false,
-      debate_eligible: false,
-      optimize_eligible: false,
-      pending_delete: false,
-    };
-    setEditingHolding(newHolding);
-    setEditingHoldingIndex(-1);
-  }, []);
-
   const tableHoldingRows = useMemo(
     () => groupHoldingPositions(holdings.map((holding, index): ReviewHoldingRow => ({
       ...normalizeHoldingForStorage(holding),
@@ -1101,76 +1060,6 @@ export function PortfolioReviewView({
   function entryByClientId(id: string) {
     return managedPosition?.entries.find((entry) => entry.client_id === id);
   }
-
-  function manageEntriesButton(position: HoldingPosition<ReviewHoldingRow>) {
-    return (
-      <ShellActionSurface
-        variant="pill"
-        className="h-11 whitespace-nowrap text-sm sm:text-sm"
-        aria-label={"Manage entries for " + (position.symbol || "holding")}
-        onClick={(event) => {
-          event.stopPropagation();
-          setManagedPositionId(position.client_id);
-        }}
-      >
-        Manage
-      </ShellActionSurface>
-    );
-  }
-
-  function positionLabel(position: HoldingPosition<ReviewHoldingRow>) {
-    const side = getPositionSide(position);
-    return (
-      <div className="min-w-0">
-        <p title={position.symbol} className={cn("ui-text-row-label-emphasized truncate", position.pending_delete && "line-through")}>{position.symbol}</p>
-        <p title={position.name} className="ui-text-row-description truncate text-muted-foreground">
-          {position.name || "Unnamed security"}{side === "long" ? "" : " · " + side}
-        </p>
-        {position.entries.length > 1 ? (
-          <p className="ui-text-row-description text-muted-foreground">{position.entries.length} entries</p>
-        ) : null}
-        {position.pending_delete ? <p className="ui-text-row-description text-rose-600 dark:text-rose-400">Pending removal</p> : null}
-      </div>
-    );
-  }
-
-  function positionValue(holding: Holding) {
-    return formatCurrency(holding.market_value, holding.currency || holding.iso_currency_code);
-  }
-
-  function sharesAtPrice(holding: Holding) {
-    const quantity = Math.abs(holding.quantity).toLocaleString(undefined, { maximumFractionDigits: 4 });
-    return quantity + (holding.price_unavailable ? " @ —" : " @ " + formatCurrency(holding.price, holding.currency || holding.iso_currency_code));
-  }
-
-  const holdingsTableColumns: ColumnDef<HoldingPosition<ReviewHoldingRow>>[] = [
-    {
-      id: "entries",
-      header: "Entries",
-      cell: ({ row }) => manageEntriesButton(row.original),
-    },
-    {
-      accessorKey: "symbol",
-      header: "Holding",
-      cell: ({ row }) => positionLabel(row.original),
-    },
-    {
-      id: "position",
-      header: "Shares @ Price",
-      cell: ({ row }) => <span className="ui-text-row-description tabular-nums">{sharesAtPrice(row.original)}</span>,
-    },
-    {
-      accessorKey: "market_value",
-      header: "Market value",
-      cell: ({ row }) => <span className="ui-text-row-label-emphasized tabular-nums">{positionValue(row.original)}</span>,
-    },
-    {
-      accessorKey: "unrealized_gain_loss",
-      header: "Gain / Loss",
-      cell: ({ row }) => <HoldingGainLoss holding={toHoldingViewModel(row.original, totalValue)}
-        className="ui-text-row-description tabular-nums" />,
-    },
-  ];
 
   const resolveVaultOwnerTokenForSave = useCallback(
     async (forceRefresh = false): Promise<string | undefined> => {
@@ -2083,42 +1972,18 @@ export function PortfolioReviewView({
               </div>
             </PortfolioReviewSection>
       </Accordion>
-      <PortfolioReviewHoldingsPanel actions={
-          <ShellActionSurface variant="pill" className="min-h-11 shrink-0 ui-text-compact-button-label" onClick={handleAddHolding}>
-            <Plus className="size-4" aria-hidden="true" /> Add holding
-          </ShellActionSurface>
-      }>
+      <PortfolioReviewHoldingsPanel>
           {pendingDeleteCount > 0 ? (
             <p className="ui-text-row-description mb-2 text-muted-foreground">{pendingDeleteCount} pending removal</p>
           ) : null}
           <div className="flex flex-col gap-3">
             <PortfolioReviewHoldingsFilter value={holdingsTab} onChange={setHoldingsTab} />
-            <section aria-label="Holdings results">
-              <DataTable
-                columns={holdingsTableColumns}
-                tableClassName={financeStyles.reviewTable}
-                data={holdingsTab === "all" ? holdingTables.all : holdingsTab === "analyze"
-                  ? holdingTables.analyzeEligible : holdingsTab === "cash" ? holdingTables.cashSweep : holdingTables.nonAnalyzable}
-                globalSearchKeys={["symbol", "name"]}
-                searchPlaceholder="Search holdings"
-                paginate={false}
-                density="compact"
-                renderMobileCard={(position) => (
-                  <article className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 border-b border-border py-2">
-                    {positionLabel(position)}
-                    <div className="grid justify-items-end gap-1 text-right">
-                      <span className="ui-text-row-label-emphasized tabular-nums">{positionValue(position)}</span>
-                      <span className="ui-text-row-description tabular-nums text-muted-foreground">{sharesAtPrice(position)}</span>
-                      {!isCashEquivalentHolding(position) && <HoldingGainLoss
-                        holding={toHoldingViewModel(position, totalValue)}
-                        className="ui-text-row-description tabular-nums"
-                      />}
-                      {manageEntriesButton(position)}
-                    </div>
-                  </article>
-                )}
-              />
-            </section>
+            <PortfolioReviewHoldingsTable
+              positions={holdingsTab === "all" ? holdingTables.all : holdingsTab === "analyze"
+                ? holdingTables.analyzeEligible : holdingsTab === "cash" ? holdingTables.cashSweep : holdingTables.nonAnalyzable}
+              totalValue={totalValue}
+              onManageEntries={setManagedPositionId}
+            />
           </div>
       </PortfolioReviewHoldingsPanel>
       <footer
