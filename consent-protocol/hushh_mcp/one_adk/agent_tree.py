@@ -874,9 +874,8 @@ def _compose_one_runtime_instruction(context: Any) -> str:
         identity_instruction += (
             "\n\nFINANCE IN CHAT: Keep these requests in Chat. Call show_market_gainers for "
             "U.S. or unspecified gainers. Acknowledge opening the card without claiming quotes "
-            "or ranks. For portfolio holdings, allocation, performance or sources, call "
-            "show_portfolio_card. For importing, uploading or adding a statement or portfolio, "
-            "call show_portfolio_upload. Say the upload is available in Chat. The card reports "
+            "or ranks. For importing, uploading or adding a statement or portfolio, call "
+            "show_portfolio_upload. Say the upload is available in Chat. The card reports "
             "processing and save results. For a specific brokerage connection, use its setup flow. "
             "To preview, research, analyze or debate a stock, call "
             "show_stock_preview with its ticker and say it is ready for review. The person "
@@ -884,13 +883,22 @@ def _compose_one_runtime_instruction(context: Any) -> str:
         )
         if state_getter(STATE_PORTFOLIO_CONTEXT_ENABLED):
             identity_instruction += (
-                " For a question about facts in the owner's saved portfolio or a follow-up to "
-                "a portfolio card, call read_portfolio_context before answering. Select holdings, "
-                "allocation, or saved performance based on the question. Select active by "
-                "default. Use last_card if the person refers to the card or its earlier snapshot. "
-                "Use a ticker filter only when asking about a named holding. End the first pass "
-                "at the device call and answer only after it returns. An explicit request to show "
-                "the UI still uses show_portfolio_card. Live prices and news use the market tools."
+                " For facts about saved holdings, allocation, or performance, call "
+                "read_portfolio_context before answering. This includes summaries and questions "
+                "about the largest holdings or portfolio impact. Read the active portfolio for "
+                "an unqualified or current question, including when chat was reopened or earlier "
+                "turns contain a privacy receipt. An active read needs no open card. Use last_card "
+                "only for an explicit reference to the figures previously shown in a card. "
+                "Use a ticker filter only for a named holding. End the first pass at the device "
+                "call, then answer in prose or a concise table from the returned facts. "
+                "Call show_portfolio_card for portfolio sources or when the person wants an "
+                "interactive view of their holdings, allocation, or performance. Live prices "
+                "and news use the market tools."
+            )
+        else:
+            identity_instruction += (
+                " For portfolio holdings, allocation, performance or sources, call "
+                "show_portfolio_card."
             )
 
     mail_admitted = (

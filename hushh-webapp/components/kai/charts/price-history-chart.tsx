@@ -10,11 +10,13 @@ import { formatDisplayMoney } from "@/lib/kai/market-value-format";
 import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 
 /** Shared, non-smoothed area chart: never manufactures candles or a trend. */
-export function PriceHistoryChart({ data, label, height = 248, currency = "USD", timeZone = "America/New_York" }: {
-  data: PriceHistoryPoint[]; label: string; height?: number; currency?: "USD" | "INR"; timeZone?: string;
+export function PriceHistoryChart({ data, label, height = 248, currency = "USD", timeZone = "America/New_York", formatValue }: {
+  data: PriceHistoryPoint[]; label: string; height?: number; currency?: string; timeZone?: string;
+  formatValue?: (value: number, compact: boolean) => string;
 }) {
   useMarketCurrency();
-  const money = (value: number, compact = false) => formatDisplayMoney(value, { source: currency, notation: compact ? "compact" : "standard", maximumFractionDigits: compact ? 1 : 2 });
+  const money = (value: number, compact = false) => formatValue?.(value, compact) ??
+    formatDisplayMoney(value, { source: currency, notation: compact ? "compact" : "standard", maximumFractionDigits: compact ? 1 : 2 });
   const dateLabel = (date: string) => new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: date.length === 10 ? "UTC" : timeZone }).format(new Date(date));
   const fillId = `price-${useId().replace(/:/g, "")}`;
   const points = useMemo(() => normalizePriceHistory(data), [data]);

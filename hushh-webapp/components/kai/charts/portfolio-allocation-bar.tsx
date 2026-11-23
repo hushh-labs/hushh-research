@@ -30,6 +30,7 @@ interface PortfolioAllocationBarProps {
   onSelectionChange?: (name: string | null) => void;
   className?: string;
   embedded?: boolean;
+  formatValue?: (value: number) => string;
 }
 
 function toChartKey(name: string, index: number): string {
@@ -47,6 +48,7 @@ export function PortfolioAllocationBar({
   onSelectionChange,
   className,
   embedded,
+  formatValue = formatCurrency,
 }: PortfolioAllocationBarProps) {
   useMarketCurrency();
   const { segments, total, chartConfig, chartRow } = useMemo(() => {
@@ -115,7 +117,7 @@ export function PortfolioAllocationBar({
                     <div className="flex min-w-[10rem] items-baseline justify-between gap-4">
                       <span className="text-muted-foreground">{label}</span>
                       <span className="font-medium text-foreground">
-                        {formatCurrency(amount)}
+                        {formatValue(amount)}
                       </span>
                     </div>
                   );
@@ -172,14 +174,14 @@ export function PortfolioAllocationBar({
                 <span className={styles.allocationName}>{segment.name}</span>
               </span>
               <span className={styles.allocationAmount}>
-                <span>{formatCurrency(segment.value)}</span>
+                <span>{formatValue(segment.value)}</span>
                 <span className={styles.allocationMeta}>{segment.percent.toFixed(1)}%</span>
               </span>
             </button>
           );
         })}
       </div>
-      <p className={styles.allocationMeta}>Percentages use {formatCurrency(totalValue ?? total)} total portfolio value.</p>
+      <p className={styles.allocationMeta}>Percentages use {formatValue(totalValue ?? total)} total portfolio value.</p>
     </AllocationSection>
   );
 }

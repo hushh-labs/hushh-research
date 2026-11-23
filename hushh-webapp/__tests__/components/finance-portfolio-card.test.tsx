@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { FinancePortfolioCard } from "@/components/agent/finance-portfolio-card";
 
@@ -7,78 +7,85 @@ vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ userId: "owner" }) }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ isVaultUnlocked: state.unlocked, vaultKey: "key", vaultOwnerToken: "token" }),
 }));
-vi.mock("@/lib/kai/kai-financial-resource", () => ({ useKaiFinancialResource: state.resource }));
-vi.mock("@/lib/kai/portfolio-chat-context", () => ({ rememberPortfolioCard: state.remember }));
+vi.mock("@/lib/kai/kai-financial-resource", () => ({ KaiFinancialResourceService: { readForAnswer: state.resource } }));
+vi.mock("@/lib/kai/portfolio-chat-context", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/kai/portfolio-chat-context")>(),
+  rememberPortfolioCard: state.remember,
+}));
 vi.mock("@/components/kai/charts/portfolio-allocation-bar", () => ({ PortfolioAllocationBar: () => null }));
 vi.mock("@/components/kai/charts/portfolio-history-chart", () => ({ PortfolioHistoryChart: () => null }));
 vi.mock("@/components/kai/performance/performance-strip", () => ({ PerformanceStrip: () => null }));
 
+function mockPortfolio(data: object) {
+  state.resource.mockResolvedValue({
+    isCurrent: () => true,
+    resource: { statementSnapshots: [], ...data },
+  });
+}
+
+function toggleCard(label: string, open = true) {
+  const details = screen.getByText(label).closest("details")!;
+  details.open = open;
+  fireEvent(details, new Event("toggle"));
+  return details;
+}
+
 describe("Finance portfolio card", () => {
   it("blocks protected information while locked", () => {
     state.unlocked = false;
-    state.resource.mockReturnValue({ data: null, loading: false });
+    state.resource.mockClear();
     render(<FinancePortfolioCard section="holdings" />);
-    const details = screen.getByText("Holdings").closest("details")!;
-    details.open = true;
-    fireEvent(details, new Event("toggle"));
+    toggleCard("Holdings");
     expect(screen.getByText("Sign in and unlock your vault to view your portfolio.")).toBeVisible();
-    expect(state.resource).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }));
+    expect(state.resource).not.toHaveBeenCalled();
   });
 
-  it("does not present inactive sources when no statement is selected", () => {
+  it("does not present inactive sources when no statement is selected", async () => {
     state.unlocked = true;
-    state.resource.mockReturnValue({ loading: false, data: {
+    mockPortfolio({
       activePortfolio: null, activeSource: "statement", activeStatementSnapshotId: null,
       statementSnapshots: [], availableSources: ["statement", "plaid"], freshness: null,
-    } });
+    });
     render(<FinancePortfolioCard section="sources" />);
-    const details = screen.getByText("Portfolio sources").closest("details")!;
-    details.open = true;
-    fireEvent(details, new Event("toggle"));
-    expect(screen.getByText("No portfolio source available.")).toBeVisible();
+    toggleCard("Portfolio sources");
+    expect(await screen.findByText("No portfolio source available.")).toBeVisible();
     expect(screen.queryByText(/available sources|linked accounts/i)).toBeNull();
   });
 
-  it("shows only the selected statement name and upload time", () => {
+  it("shows only the selected statement name and upload time", async () => {
     state.unlocked = true;
     const importedAt = "2026-11-20T11:32:00.000Z";
-    state.resource.mockReturnValue({ loading: false, data: {
+    mockPortfolio({
       activeSource: "statement", activeStatementSnapshotId: "selected",
       statementSnapshots: [
         { id: "newest", fileName: "Newer statement.pdf" },
         { id: "selected", fileName: "November statement.pdf", importedAt, label: "Broker · 2026-09-30" },
       ],
       availableSources: ["statement", "plaid"], freshness: { lastSyncedAt: importedAt },
-    } });
+    });
     render(<FinancePortfolioCard section="sources" />);
-    const details = screen.getByText("Portfolio sources").closest("details")!;
-    details.open = true;
-    fireEvent(details, new Event("toggle"));
-    expect(screen.getByText("November statement.pdf")).toBeVisible();
+    const details = toggleCard("Portfolio sources");
+    expect(await screen.findByText("November statement.pdf")).toBeVisible();
     expect(details.querySelector("time")).toHaveAttribute("datetime", importedAt);
     expect(screen.queryByText(/newer statement|broker ·|last synced|available sources/i)).toBeNull();
   });
 
-  it("shows only linked Plaid for a Plaid portfolio", () => {
+  it("shows only linked Plaid for a Plaid portfolio", async () => {
     state.unlocked = true;
-    state.resource.mockReturnValue({ loading: false, data: {
+    mockPortfolio({
       activeSource: "plaid", activeStatementSnapshotId: "selected",
       statementSnapshots: [{ id: "selected", fileName: "November statement.pdf" }],
       freshness: { lastSyncedAt: "2026-11-20T11:32:00.000Z" },
-    } });
+    });
     render(<FinancePortfolioCard section="sources" />);
-    const details = screen.getByText("Portfolio sources").closest("details")!;
-    details.open = true;
-    fireEvent(details, new Event("toggle"));
-    expect(screen.getByText("Linked Plaid account")).toBeVisible();
+    toggleCard("Portfolio sources");
+    expect(await screen.findByText("Linked Plaid account")).toBeVisible();
     expect(screen.queryByText(/November statement|last synced/i)).toBeNull();
   });
 
-  it("lets the person expand and collapse the holdings preview", () => {
+  it("previews the highest valued holdings before expanding the list", async () => {
     state.unlocked = true;
-    state.resource.mockReturnValue({
-      loading: false,
-      data: {
+    mockPortfolio({
         activeSource: "plaid",
         activePortfolio: {
           holdings: Array.from({ length: 6 }, (_, index) => ({
@@ -86,30 +93,29 @@ describe("Finance portfolio card", () => {
             name: `Sample holding ${index + 1}`,
             quantity: 1,
             price: 100,
-            market_value: 100,
+            market_value: index + 1,
+            currency: "CAD",
           })),
         },
-      },
     });
     render(<FinancePortfolioCard section="holdings" />);
-    const details = screen.getByText("Holdings").closest("details")!;
-    details.open = true;
-    fireEvent(details, new Event("toggle"));
+    toggleCard("Holdings");
 
-    const list = screen.getByRole("list", { name: "Portfolio holdings" });
-    expect(within(list).getAllByRole("listitem")).toHaveLength(5);
+    const list = await screen.findByRole("list", { name: "Portfolio holdings" });
+    const preview = within(list).getAllByRole("listitem");
+    expect(preview).toHaveLength(5);
+    expect(preview[0]).toHaveTextContent("Sample holding 6");
+    expect(preview[0]).toHaveTextContent("CA$6.00");
     fireEvent.click(screen.getByRole("button", { name: "Show all 6 holdings" }));
-    expect(within(list).getByText("Sample holding 6")).toBeVisible();
+    expect(within(list).getByText("Sample holding 1")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Show fewer holdings" }));
-    expect(within(list).queryByText("Sample holding 6")).toBeNull();
+    expect(within(list).queryByText("Sample holding 1")).toBeNull();
   });
 
-  it("uses logo images for public tickers and falls back when a logo is missing", () => {
+  it("uses logo images for public tickers and falls back when a logo is missing", async () => {
     state.unlocked = true;
     const position = { quantity: 1, price: 100, market_value: 100 };
-    state.resource.mockReturnValue({
-      loading: false,
-      data: {
+    mockPortfolio({
         activeSource: "plaid",
         activePortfolio: {
           holdings: [
@@ -119,14 +125,11 @@ describe("Finance portfolio card", () => {
             { ...position, symbol: "CASH", name: "Cash", identifier_type: "ticker", is_cash_equivalent: true },
           ],
         },
-      },
     });
     render(<FinancePortfolioCard section="holdings" />);
-    const details = screen.getByText("Holdings").closest("details")!;
-    details.open = true;
-    fireEvent(details, new Event("toggle"));
+    toggleCard("Holdings");
 
-    const list = screen.getByRole("list", { name: "Portfolio holdings" });
+    const list = await screen.findByRole("list", { name: "Portfolio holdings" });
     const images = list.querySelectorAll("img");
     expect(images).toHaveLength(1);
     expect(images[0]).toHaveAttribute("src", expect.stringMatching(/\/AAPL\.png$/));
@@ -135,24 +138,20 @@ describe("Finance portfolio card", () => {
     expect(within(list).getByText("Apple")).toBeVisible();
   });
 
-  it("binds a card follow-up to its first opened snapshot until the card reopens", () => {
+  it("binds follow-ups to the fresh snapshot drawn after a portfolio change", async () => {
     state.unlocked = true;
+    state.remember.mockClear();
     const before = { userId: "owner", activeSource: "statement", activePortfolio: { holdings: [] } };
     const after = { ...before, activeSource: "plaid" };
-    state.resource.mockReturnValue({ data: before, loading: false });
-    const { rerender } = render(<FinancePortfolioCard section="holdings" conversationId="thread" />);
-    const details = screen.getByText("Holdings").closest("details")!;
-    const toggle = (open: boolean) => {
-      details.open = open;
-      fireEvent(details, new Event("toggle"));
-    };
-    toggle(true);
-    expect(state.remember).toHaveBeenLastCalledWith("thread", before);
-    state.resource.mockReturnValue({ data: after, loading: false });
-    rerender(<FinancePortfolioCard section="holdings" conversationId="thread" />);
-    expect(state.remember).toHaveBeenCalledTimes(1);
-    toggle(false);
-    toggle(true);
-    expect(state.remember).toHaveBeenLastCalledWith("thread", after);
+    mockPortfolio(before);
+    render(<FinancePortfolioCard section="holdings" conversationId="thread" />);
+    toggleCard("Holdings");
+    await waitFor(() => expect(state.remember).toHaveBeenLastCalledWith("thread", expect.objectContaining(before)));
+    mockPortfolio(after);
+    fireEvent(window, new CustomEvent("pkm-domain-changed", {
+      detail: { userId: "owner", domain: "financial", operation: "stored" },
+    }));
+    await waitFor(() => expect(state.remember).toHaveBeenLastCalledWith("thread", expect.objectContaining(after)));
+    expect(state.remember).toHaveBeenCalledTimes(2);
   });
 });

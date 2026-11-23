@@ -792,6 +792,27 @@ def _tool_context(state: dict, *, session_id: str | None = None) -> SimpleNamesp
     return SimpleNamespace(state=state, session=session)
 
 
+def test_portfolio_answer_first_instruction_preserves_legacy_card_support():
+    from hushh_mcp.one_adk.portfolio_context_contract import STATE_PORTFOLIO_CONTEXT_ENABLED
+
+    state = {_tree.STATE_EXECUTION_SURFACE: "typed_chat", STATE_USER_ID: "owner"}
+    legacy = _one_runtime_instruction(SimpleNamespace(state=state))
+    assert (
+        "For portfolio holdings, allocation, performance or sources, call show_portfolio_card"
+        in legacy
+    )
+    state[STATE_PORTFOLIO_CONTEXT_ENABLED] = True
+    instruction = _one_runtime_instruction(SimpleNamespace(state=state))
+    assert "read_portfolio_context before answering" in instruction
+    assert (
+        "For portfolio holdings, allocation, performance or sources, call show_portfolio_card"
+        not in instruction
+    )
+    assert "Call show_portfolio_card for portfolio sources" in instruction
+    assert "chat was reopened" in instruction
+    assert "An active read needs no open card" in instruction
+
+
 def test_portfolio_card_offer_contains_only_valid_section():
     state = {_tree.STATE_EXECUTION_SURFACE: "typed_chat", STATE_USER_ID: "owner"}
     assert _tree.show_portfolio_card("holdings", _tool_context(state)) == {
