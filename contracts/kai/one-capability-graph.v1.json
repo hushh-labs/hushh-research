@@ -17538,6 +17538,166 @@
     },
     {
       "aliases": [
+        "Enable calendar changes",
+        "enable calendar changes"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_owner_token"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.enable_calendar_changes",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Starts Google's Calendar permission upgrade from the connected Calendar details. The person grants access in Google; each later event change still requires review.",
+      "execution": {
+        "binding_ref": "render:profile.enable_calendar_changes",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.enable_calendar_changes",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Enable calendar changes",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/profile"
+        ],
+        "screens": [
+          "profile_connectors"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "calendar",
+        "permissions",
+        "schedule"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Retry phone lookup",
         "retry phone lookup",
         "reload my saved phone"
@@ -49823,7 +49983,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "8d7ed3f4932361df9645c54359a57421fce399a1eaf83c738d95d919f9e4bbb8",
+      "projection_digest": "e021563b7bc33908ec550bbaa4909629de09a2dd2e3a29e400f17ec9c7599284",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -49842,7 +50002,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "dd70dadd9f8465da",
+      "source_revision": "94ce715e9cd57b49",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -51360,7 +51520,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "dd70dadd9f8465da",
+    "source_revision": "94ce715e9cd57b49",
     "web": {
       "actions": [
         {
@@ -51403,7 +51563,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "b467aacb4a4d555dad70049eac37b5630ac1d63a4317cc49472feb7a1186a04c",
+      "projection_digest": "c47b8086a6912a338207c0fa10f03e7b36aa9855e6b51c3054902f3449622b13",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -51422,7 +51582,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "dd70dadd9f8465da",
+      "source_revision": "94ce715e9cd57b49",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -52979,7 +53139,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "dd70dadd9f8465da",
+  "revision": "94ce715e9cd57b49",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -54970,18 +55130,16 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:profile.enable_calendar_changes"
+    ],
     "breaking": [],
     "changed": [],
     "compatible": [],
-    "deprecated": [
-      "actions:profile.network_visibility.choose"
-    ],
-    "from_revision": "6019c40d049d820e",
+    "deprecated": [],
+    "from_revision": "dd70dadd9f8465da",
     "migrated": [],
-    "removed": [
-      "actions:profile.network_visibility.choose"
-    ]
+    "removed": []
   },
   "services": [
     {
@@ -57338,7 +57496,7 @@
     "capability_graph_evolution": "4f609adf844d9ffb7529b286814e53d64de38438108e508ec46eaedfa49ae893",
     "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
     "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
-    "kai_action_gateway": "3c6cab9b0227a1f03016abd4ebeb7a7d4a05a0f22a003dd413b1c047a94d8208",
+    "kai_action_gateway": "17cc43ae362a9725a29ff8418d0a3adbb8a9870eaaf0a37ff353168cb26d66a9",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
@@ -57347,9 +57505,9 @@
     "route_orchestration_index": "2f7c319fcc0a0a96b0dee159e1edb50bdd5c23fbaef941b212aae4b44f1d77e7",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "dd70dadd9f8465da",
+  "source_revision": "94ce715e9cd57b49",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "dd70dadd9f8465da",
+    "current_graph_revision": "94ce715e9cd57b49",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -57696,6 +57854,7 @@
           "dc84beb721eb8553",
           "dc8f4bacebd2e0cf",
           "dd0bf20a1ad852d3",
+          "dd70dadd9f8465da",
           "de6d576a06f1dde6",
           "df37a235665ef89d",
           "df4366957bbf9e17",
@@ -57884,6 +58043,7 @@
           "db2187647b28df19",
           "dc84beb721eb8553",
           "dd0bf20a1ad852d3",
+          "dd70dadd9f8465da",
           "de6d576a06f1dde6",
           "df4366957bbf9e17",
           "e06d27b000c77fa3",
@@ -57918,6 +58078,7 @@
           "54ad44da9d67fca0",
           "6019c40d049d820e",
           "b3c51a0a9d2d96e8",
+          "dd70dadd9f8465da",
           "fea32131fcdd3a30"
         ],
         "migration_required_graph_revisions": [],
@@ -58561,6 +58722,7 @@
           "dc84beb721eb8553",
           "dc8f4bacebd2e0cf",
           "dd0bf20a1ad852d3",
+          "dd70dadd9f8465da",
           "de6d576a06f1dde6",
           "df37a235665ef89d",
           "df4366957bbf9e17",
@@ -58697,6 +58859,7 @@
           "9ea5b914a24b6f47",
           "b3c51a0a9d2d96e8",
           "d189716db83ece80",
+          "dd70dadd9f8465da",
           "e29b1163bbf8a333",
           "e96761ff3e2db4d2",
           "fea32131fcdd3a30"
@@ -59436,6 +59599,7 @@
           "dc84beb721eb8553",
           "dc8f4bacebd2e0cf",
           "dd0bf20a1ad852d3",
+          "dd70dadd9f8465da",
           "de6d576a06f1dde6",
           "df37a235665ef89d",
           "df4366957bbf9e17",
@@ -59841,6 +60005,7 @@
           "dc84beb721eb8553",
           "dc8f4bacebd2e0cf",
           "dd0bf20a1ad852d3",
+          "dd70dadd9f8465da",
           "de6d576a06f1dde6",
           "df37a235665ef89d",
           "df4366957bbf9e17",
@@ -60248,6 +60413,7 @@
           "dc84beb721eb8553",
           "dc8f4bacebd2e0cf",
           "dd0bf20a1ad852d3",
+          "dd70dadd9f8465da",
           "de6d576a06f1dde6",
           "df37a235665ef89d",
           "df4366957bbf9e17",
