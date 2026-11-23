@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import {
   clearFilesCache,
@@ -55,6 +55,42 @@ const OWNER_ID = "owner-m8-bridge";
 const VAULT_KEY = "a".repeat(64);
 const VAULT_TOKEN = "vault-owner-token";
 
+async function runWithFakeTimersUntilSettled<T>(
+  work: Promise<T>,
+  options: { maxRealWaitMs?: number; maxFakeAdvanceMs?: number; stepMs?: number } = {},
+): Promise<T> {
+  const maxRealWaitMs = options.maxRealWaitMs ?? 4_000;
+  const maxFakeAdvanceMs = options.maxFakeAdvanceMs ?? 10_000;
+  const stepMs = options.stepMs ?? 100;
+  let settled = false;
+  const tracked = work.finally(() => {
+    settled = true;
+  });
+  const startedAtRealMs = vi.getRealSystemTime();
+  let fakeAdvancedMs = 0;
+
+  while (!settled) {
+    if (vi.getTimerCount() > 0) {
+      if (fakeAdvancedMs >= maxFakeAdvanceMs) {
+        throw new Error(
+          `Timed out advancing fake timers (${fakeAdvancedMs}ms simulated) before stream settled.`,
+        );
+      }
+      await vi.advanceTimersByTimeAsync(stepMs);
+      fakeAdvancedMs += stepMs;
+    } else {
+      if (vi.getRealSystemTime() - startedAtRealMs >= maxRealWaitMs) {
+        throw new Error(
+          `Stream did not settle or schedule timers within ${maxRealWaitMs}ms real time.`,
+        );
+      }
+      await vi.advanceTimersByTimeAsync(0);
+    }
+  }
+
+  return tracked;
+}
+
 describe("Milestone 8 agent chat and files cache bridge", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -68,7 +104,12 @@ describe("Milestone 8 agent chat and files cache bridge", () => {
       hostingMode: "shared",
       state: "none",
     } as never);
-    vi.spyOn(ApiService, "apiFetch").mockResolvedValue(Response.json({}));
+    vi.spyOn(ApiService, "apiFetch").mockImplementation(async () => Response.json({}));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it("registers all Private Files tools in SERVER_TOOL_PRESENTATION with exact 4-line entries", () => {
@@ -158,22 +199,16 @@ describe("Milestone 8 agent chat and files cache bridge", () => {
         sub.onRunFinishedEvent?.({ outcome: "success", result: {} });
       });
 
-      let settled = false;
-      const pending = streamAgentChat({
-        userId: OWNER_ID,
-        message: "Follow up immediately",
-        vaultOwnerToken: VAULT_TOKEN,
-        vaultKey: VAULT_KEY,
-        loadConnectorConfigurations: async () => [],
-        handlers: { onError, onToken },
-      }).finally(() => {
-        settled = true;
-      });
-
-      for (let tick = 0; tick < 30 && !settled; tick += 1) {
-        await vi.advanceTimersByTimeAsync(100);
-      }
-      const result = await pending;
+      const result = await runWithFakeTimersUntilSettled(
+        streamAgentChat({
+          userId: OWNER_ID,
+          message: "Follow up immediately",
+          vaultOwnerToken: VAULT_TOKEN,
+          vaultKey: VAULT_KEY,
+          loadConnectorConfigurations: async () => [],
+          handlers: { onError, onToken },
+        }),
+      );
 
       expect(attempt).toBe(3);
       expect(onError).not.toHaveBeenCalled();
@@ -196,24 +231,16 @@ describe("Milestone 8 agent chat and files cache bridge", () => {
         });
       });
 
-      let settled = false;
-      const pending = streamAgentChat({
-        userId: OWNER_ID,
-        message: "Still busy check",
-        vaultOwnerToken: VAULT_TOKEN,
-        vaultKey: VAULT_KEY,
-        loadConnectorConfigurations: async () => [],
-        handlers: { onError },
-      })
-        .catch((err: Error) => err)
-        .finally(() => {
-          settled = true;
-        });
-
-      for (let tick = 0; tick < 30 && !settled; tick += 1) {
-        await vi.advanceTimersByTimeAsync(100);
-      }
-      const err = await pending;
+      const err = await runWithFakeTimersUntilSettled(
+        streamAgentChat({
+          userId: OWNER_ID,
+          message: "Still busy check",
+          vaultOwnerToken: VAULT_TOKEN,
+          vaultKey: VAULT_KEY,
+          loadConnectorConfigurations: async () => [],
+          handlers: { onError },
+        }).catch((err: Error) => err),
+      );
       expect(err).toBeInstanceOf(Error);
       expect(attempt).toBe(4);
       expect(onError).toHaveBeenCalledOnce();
