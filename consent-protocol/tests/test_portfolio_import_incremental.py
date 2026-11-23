@@ -11,6 +11,7 @@ import pypdfium2
 import pytest
 
 from hushh_mcp.kai_import.csv_layout import CsvLayoutUnsupported, parse_csv_number
+from hushh_mcp.kai_import.declared_layout import declared_pdf
 from hushh_mcp.kai_import.incremental_contracts import CSV_LAYOUT_SCHEMA
 from hushh_mcp.kai_import.incremental_extract import incremental_statement_extract
 
@@ -143,6 +144,49 @@ async def test_csv_every_batch_keeps_original_lots_and_missing_cost(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_declared_csv_uses_literal_cells_and_keeps_owner_checks(monkeypatch):
+    guard = AsyncMock()
+    content = (
+        "Ticker,Security Name,Shares,Current Price,Current Value,Total Cost,Gain Loss,"
+        "Asset Type,Sector,Currency,Statement Date,Account Number,Brokerage\n"
+        "TEST,Example security,1.5,$10.00,$15.00,$20.00,($5.00),stock,Tech,USD,2026-10-31,ABC,Demo\n"
+    ).encode()
+    stream, calls, fallback = extract(monkeypatch, [], content=content, csv=True, guard=guard)
+    preview, complete = [event async for event in stream]
+    assert preview["update"]["rows"][0]["unrealized_gain_loss"] == -5
+    assert complete["source"] == "csv_declared_layout"
+    assert complete["parsed"]["detailed_holdings"][0]["quantity"] == 1.5
+    assert not calls
+    fallback.assert_not_awaited()
+    assert guard.await_count >= 3
+
+    malformed = content.replace(b"$15.00", b"$150.00")
+    rejected, calls, _ = extract(monkeypatch, [layout()], content=malformed, csv=True)
+    assert not (await anext(rejected)).get("declared_layout")
+    await rejected.aclose()
+    assert len(calls) == 1
+
+
+def test_declared_pdf_rejects_missing_rows_instead_of_publishing_a_partial_statement():
+    prefix = (
+        "SYNTHETIC TEST STATEMENT - NOT AN OFFICIAL RECORD\nDemo Broker\n"
+        "Account holder Example Owner Statement date 2026-10-31\n"
+        "Account number DEMO-ABC Account type Individual brokerage\n"
+        "Holdings 1-2 of 2\n"
+        "Symbol Security description Quantity Price Cost basis Market value Gain / (loss)\n"
+    )
+    rows = "ONE Example one 2 10.00 18.00 20.00 2.00\nTWO Example two 1 2.00 3.00 2.00 (1.00)\n"
+    control = (
+        "CONTROL TOTAL - 2 securities | Market value $22.00 | Cost basis $21.00 "
+        "| Cash $4.00 | Account value $26.00"
+    )
+    result = declared_pdf([prefix + rows + control])
+    assert result is not None
+    assert result["detailed_holdings"][0]["market_value"] == 20.00
+    assert declared_pdf([prefix + rows.splitlines()[0] + "\n" + control]) is None
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("field", ["decimal_separator", "group_separator"])
 @pytest.mark.parametrize("separator", [None, 1, [], {}])
 async def test_invalid_csv_separator_type_requests_document_fallback(monkeypatch, field, separator):
@@ -218,6 +262,23 @@ async def test_provider_failure_never_becomes_partial_success_or_retry(monkeypat
     with pytest.raises(RuntimeError, match="synthetic provider failure"):
         await anext(stream)
     fallback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_incremental_deadline_uses_whole_statement_once(monkeypatch):
+    from hushh_mcp.hushh_adk.events import AdkEventTimeoutError
+    from hushh_mcp.hushh_adk.turn import SpecialistAdkTurn, SpecialistAdkTurnError
+
+    turn_failed = SpecialistAdkTurnError(SpecialistAdkTurn("", (), (), {}, 1, 45_000))
+    turn_failed.__cause__ = AdkEventTimeoutError(phase="total", elapsed_seconds=45)
+    stream, _, fallback = extract(monkeypatch, [page(), turn_failed])
+
+    partial, reset, complete = [event async for event in stream]
+    assert partial["kind"] == "partial"
+    assert reset == {"kind": "reset", "reason": "incremental_model_deadline"}
+    assert complete["kind"] == "complete"
+    assert complete["parsed"]["detailed_holdings"][0]["symbol"] == "FULL"
+    fallback.assert_awaited_once()
 
 
 @pytest.mark.asyncio

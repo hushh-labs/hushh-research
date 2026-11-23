@@ -2778,7 +2778,9 @@ async def _portfolio_import_stream_generator(
                         {
                             "phase": "extracting",
                             "stage": "extracting",
-                            "message": f"Reading {'batch' if is_csv_upload else 'page'} {update['index']} of {update['total']}",
+                            "message": "Reading holdings from the statement"
+                            if update.get("declared_layout")
+                            else f"Reading {'batch' if is_csv_upload else 'page'} {update['index']} of {update['total']}",
                             "progress_pct": 3 + 70 * update["index"] / update["total"],
                             "holdings_extracted": len(partial_rows),
                             "holdings_preview": _build_holdings_preview(partial_rows, max_items=40),
@@ -2805,6 +2807,12 @@ async def _portfolio_import_stream_generator(
             parsed_data = extraction["parsed"]
             content_source = extraction["source"]
             elapsed_ms = extraction["elapsed_ms"]
+            logger.info(
+                "portfolio_import.extraction source=%s first_result_ms=%s elapsed_ms=%s",
+                content_source,
+                extraction.get("first_result_ms"),
+                elapsed_ms,
+            )
             serialized_payload = json.dumps(parsed_data, separators=(",", ":"))
             extract_full_result.update(
                 {
@@ -3514,6 +3522,18 @@ async def import_portfolio_stream(
         ),
     )
     if state == "active":
+        if (
+            run.filename != file.filename
+            or run.is_csv_upload != is_csv_upload
+            or run.content != content
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "IMPORT_RUN_ALREADY_ACTIVE",
+                    "message": "Another portfolio statement is already processing.",
+                },
+            )
         logger.info("[Portfolio Import] Reusing active run %s for user %s", run.run_id, user_id)
 
     return _create_import_sse_response(

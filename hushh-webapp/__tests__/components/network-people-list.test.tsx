@@ -4,18 +4,17 @@ import { usePeriodicTask } from "@/lib/perf/use-periodic-task";
 vi.mock("@/lib/perf/use-periodic-task", async (original) => ({ ...await original<typeof import("@/lib/perf/use-periodic-task")>(), usePeriodicTask: vi.fn() }));
 const state = vi.hoisted(() => ({
   user: { uid: "owner", getIdToken: vi.fn(async () => "token") }, generation: 1,
-  list: vi.fn(), mutuals: vi.fn(), summary: vi.fn(), visibility: vi.fn(), update: vi.fn(), connect: vi.fn(), invalidate: vi.fn(),
+  list: vi.fn(), mutuals: vi.fn(), summary: vi.fn(), connect: vi.fn(), invalidate: vi.fn(),
   Error: class extends Error { constructor(public status: number) { super("Unavailable"); } },
 }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: state.user, userId: "acct_recreated_owner" }) }));
 vi.mock("@/lib/auth/session-owner", () => ({ getAuthSessionGeneration: () => state.generation, subscribeAuthSessionGeneration: () => () => {} }));
-vi.mock("@/lib/services/connections-service", () => ({ ConnectionsService: { listNetwork: state.list, listMutualConnections: state.mutuals, getNetworkSummary: state.summary, getNetworkVisibility: state.visibility, updateNetworkVisibility: state.update }, ConnectionsServiceRequestError: state.Error }));
+vi.mock("@/lib/services/connections-service", () => ({ ConnectionsService: { listNetwork: state.list, listMutualConnections: state.mutuals, getNetworkSummary: state.summary }, ConnectionsServiceRequestError: state.Error }));
 vi.mock("@/components/connections/connection-person-avatar", () => ({ ConnectionPersonAvatar: () => <span /> }));
 vi.mock("@/lib/services/person-profile-service", () => ({ PersonProfileService: { connect: state.connect } }));
 vi.mock("@/lib/cache/cache-sync-service", () => ({ CacheSyncService: { onConnectionGraphMutated: state.invalidate } }));
 import { NetworkPeopleList } from "@/components/connect/network-people-list";
 import { PersonNetworkSummary } from "@/components/connections/person-network-summary";
-import { NetworkVisibilitySetting } from "@/components/profile/network-visibility-setting";
 import { PERSON_PROFILE_PREVIEW_EVENT } from "@/lib/connections/person-profile-preview";
 import { dispatchConnectionGraphChanged } from "@/lib/connections/connection-graph-events";
 import { discoveryNetworkPages, NetworkPageCache, preloadNetworkDiscovery } from "@/lib/connect/network-page-cache";
@@ -31,7 +30,7 @@ describe("network permission and journey return @feature_connected_profiles", ()
       ...page(opts.page),
       items: page(opts.page).items.map(person => ({ ...person, networkDegree: opts.degree ?? 2 })),
     }));
-    state.mutuals.mockReset(); state.summary.mockReset(); state.visibility.mockReset(); state.update.mockReset();
+    state.mutuals.mockReset(); state.summary.mockReset();
     state.connect.mockReset(); state.invalidate.mockReset();
   });
   afterEach(cleanup);
@@ -562,23 +561,6 @@ describe("network permission and journey return @feature_connected_profiles", ()
     expect(screen.queryByRole("button", { name: /Open Person .* profile/ })).toBeNull();
   });
 
-  it("accepts server-false after a sharing request and exposes failed updates without changing the switch", async () => {
-    state.visibility.mockResolvedValue({ shareConnectionList: false });
-    state.update.mockResolvedValueOnce({ shareConnectionList: false }).mockRejectedValueOnce(new Error("Offline"));
-    render(<NetworkVisibilitySetting />);
-    const toggle = screen.getByRole("switch");
-    await waitFor(() => expect(toggle).toBeEnabled());
-    fireEvent.click(toggle);
-    await waitFor(() => expect(state.update).toHaveBeenCalledOnce());
-    await waitFor(() => expect(toggle).toBeEnabled());
-    expect(toggle).not.toBeChecked();
-    fireEvent.click(toggle);
-    await screen.findByRole("alert");
-    expect(toggle).not.toBeChecked();
-    expect(toggle).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
-  });
-
   it("uses the mutual endpoint for a missing single preview and never labels a hidden path or offers a private list", async () => {
     state.summary.mockResolvedValue({ person: { publicPersonRef: "target" }, mutualConnectionCount: 1, mutualConnectionPreview: null, networkDegree: null, canBrowseConnections: false });
     state.mutuals.mockResolvedValue({ ...page(), totalCount: 1, hasMore: false });
@@ -628,23 +610,5 @@ describe("network permission and journey return @feature_connected_profiles", ()
     act(() => dispatchConnectionGraphChanged("acct_recreated_owner"));
     await screen.findByText("1st connection");
     expect(screen.queryByRole("button")).toBeNull();
-  });
-
-  it("keeps sharing off until the server confirms and ignores a late save after auth changes", async () => {
-    state.visibility.mockResolvedValue({ shareConnectionList: false });
-    let finish!: (value: unknown) => void;
-    state.update.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
-    const { rerender } = render(<NetworkVisibilitySetting />);
-    const toggle = screen.getByRole("switch", { name: "Extended network discovery" });
-    await waitFor(() => expect(toggle).toBeEnabled());
-    fireEvent.click(toggle);
-    await waitFor(() => expect(finish).toBeDefined());
-    expect(toggle).not.toBeChecked();
-    expect(toggle).toBeDisabled();
-    state.generation++;
-    rerender(<NetworkVisibilitySetting />);
-    await act(async () => finish({ shareConnectionList: true }));
-    await waitFor(() => expect(screen.getByRole("switch")).toBeEnabled());
-    expect(screen.getByRole("switch")).not.toBeChecked();
   });
 });

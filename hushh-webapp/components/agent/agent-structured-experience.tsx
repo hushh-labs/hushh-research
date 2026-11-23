@@ -36,6 +36,7 @@ import { MailChatCard } from "@/components/agent/mail-chat-card";
 import { ExperienceShell } from "@/components/agent/agent-experience-shell";
 import { FinanceStockPreviewCard } from "@/components/agent/finance-stock-preview-card";
 import { FinancePortfolioCard } from "@/components/agent/finance-portfolio-card";
+import { FinancePortfolioUploadCard } from "@/components/agent/finance-portfolio-upload-card";
 import { FinanceTopGainersCard } from "@/components/agent/finance-top-gainers-card";
 import { CustomConnectorProbeCard } from "@/components/agent/custom-connector-probe-card";
 import type { DriveCompilationUiState } from "@/lib/agent/drive-batch-progress";
@@ -116,6 +117,7 @@ export { AgentTranscriptRevealContext };
 
 export function AgentStructuredExperienceView({
   experience,
+  allowPortfolioUpload,
   allowFinancePreviewStart,
   onConfirmFinanceAnalysis,
   onOpenConnections,
@@ -126,6 +128,7 @@ export function AgentStructuredExperienceView({
   onMailQuickAction,
 }: {
   experience: AgentStructuredExperience;
+  allowPortfolioUpload?: boolean;
   allowFinancePreviewStart?: boolean;
   onConfirmFinanceAnalysis?: (confirmation: string) => Promise<void>;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
@@ -141,6 +144,8 @@ export function AgentStructuredExperienceView({
       return <FinanceTopGainersCard historical={experience.historical} />;
     case "one.finance_portfolio.v1":
       return <FinancePortfolioCard section={experience.section} />;
+    case "one.finance_portfolio_upload.v1":
+      return <FinancePortfolioUploadCard offerId={experience.offerId} allowUpload={allowPortfolioUpload && !experience.historical} />;
     case "one.finance_stock_preview.v1":
       return <FinanceStockPreviewCard ticker={experience.ticker} allowStart={allowFinancePreviewStart} onConfirm={onConfirmFinanceAnalysis} />;
     case "one.shared_with_me_card.v1":

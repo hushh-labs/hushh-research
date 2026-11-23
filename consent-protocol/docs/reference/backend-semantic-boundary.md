@@ -1403,6 +1403,16 @@ all-day and DST boundaries, and exact alternative times before deployment claims
 
 ## Incremental portfolio import layout and page extraction
 
+Before semantic layout discovery, the import decoder can read a declared wire
+format directly. The recognized profiles are a USD holdings-only CSV with
+explicit columns and consistent account metadata, and the marked synthetic QA
+PDF layout with explicit row ranges and printed control totals. The reader
+copies source cells, checks every row, and requires PDF counts and totals to
+reconcile. It does not infer row roles or assign missing values. Unknown or
+inconsistent layouts continue to the model-owned path below. Accepted direct
+decodes are recorded as `csv_declared_layout` or `pdf_declared_layout` and
+use the same owner checks, review, and final validation as model results.
+
 `agent_portfolio_import_csv_layout` and `agent_portfolio_import_pdf_page` are
 manifest-authored, tool-free LOW single-turn children of Portfolio Import. CSV
 layout receives every source record in bounded batches and owns column meaning,

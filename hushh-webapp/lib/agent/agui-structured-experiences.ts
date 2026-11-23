@@ -1,8 +1,10 @@
 import {
   FINANCE_PORTFOLIO_EXPERIENCE_TYPE,
+  FINANCE_PORTFOLIO_UPLOAD_EXPERIENCE_TYPE,
   FINANCE_STOCK_PREVIEW_EXPERIENCE_TYPE,
   FINANCE_TOP_GAINERS_EXPERIENCE_TYPE,
   parseFinancePortfolio,
+  parseFinancePortfolioUpload,
   parseFinanceStockPreview,
   parseFinanceTopGainers,
   parseFinanceToolResult,
@@ -761,6 +763,7 @@ export function parseSharedWithMeCard(content: unknown): SharedWithMeCardExperie
 
 const EXPERIENCE_REGISTRY: Record<string, ExperienceParser> = {
   [FINANCE_PORTFOLIO_EXPERIENCE_TYPE]: parseFinancePortfolio,
+  [FINANCE_PORTFOLIO_UPLOAD_EXPERIENCE_TYPE]: parseFinancePortfolioUpload,
   [FINANCE_TOP_GAINERS_EXPERIENCE_TYPE]: parseFinanceTopGainers,
   [FINANCE_STOCK_PREVIEW_EXPERIENCE_TYPE]: parseFinanceStockPreview,
   [SHARED_WITH_ME_CARD_EXPERIENCE_TYPE]: parseSharedWithMeCard,

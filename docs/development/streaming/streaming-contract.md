@@ -93,10 +93,11 @@ retains at most 1,000 preview rows and paginates them; final extraction is not
 capped by that display budget.
 
 An explicit unsupported layout, continuation, conflicting account/summary fact,
-or printed securities-count/value mismatch requests the existing whole-document
-extractor once. Before it starts, `progress.extraction_reset: true` clears units
-and provisional facts; its sequence fences earlier replay. Provider/transport
-failure does not invoke this fallback. A failed page cannot yield terminal
+printed securities-count/value mismatch, or expired incremental ADK deadline
+requests the existing whole-document extractor once. Before it starts,
+`progress.extraction_reset: true` clears units and provisional facts and fences
+earlier replay by sequence. Provider and transport failures still surface as
+errors. A failed page cannot yield terminal
 success from earlier pages. Existing final normalization, reconciliation and
 quality rules still own terminal results. Only terminal success enables review
 editing/saving; provisional information is never saved automatically.

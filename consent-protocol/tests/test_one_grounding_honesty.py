@@ -198,3 +198,38 @@ def test_market_gainers_card_has_typed_chat_authority_and_read_only_history() ->
         "content": {"type": kind, "historical": True},
     }
     assert finance_card_history_descriptor(part("get_market_quotes")) is None
+
+
+def test_portfolio_upload_offer_requires_a_signed_in_chat_and_restores_as_a_receipt() -> None:
+    from hushh_mcp.one_adk.external_read_boundary import STATE_EXECUTION_SURFACE
+    from hushh_mcp.one_adk.finance_chat_cards import (
+        PORTFOLIO_UPLOAD_CARD_TYPE,
+        finance_card_history_descriptor,
+        show_portfolio_upload,
+    )
+    from hushh_mcp.one_adk.state_keys import STATE_USER_ID
+
+    def context(surface: str, user_id: str | None):
+        return SimpleNamespace(state={STATE_EXECUTION_SURFACE: surface, STATE_USER_ID: user_id})
+
+    result = show_portfolio_upload(context("typed_chat", "owner"))
+    assert result["status"] == "card_offered"
+    assert result["structured"]["type"] == PORTFOLIO_UPLOAD_CARD_TYPE
+    assert show_portfolio_upload(context("typed_chat", None)) == {"status": "unavailable"}
+    assert show_portfolio_upload(context("voice", "owner")) == {"status": "unavailable"}
+
+    def part(offer_id: str):
+        response = {
+            **result,
+            "structured": {**result["structured"], "offerId": offer_id, "fileName": "private.csv"},
+        }
+        return SimpleNamespace(
+            function_response=SimpleNamespace(name="show_portfolio_upload", response=response)
+        )
+
+    offer_id = result["structured"]["offerId"]
+    assert finance_card_history_descriptor(part(offer_id)) == {
+        "activityType": PORTFOLIO_UPLOAD_CARD_TYPE,
+        "content": {**result["structured"], "historical": True},
+    }
+    assert finance_card_history_descriptor(part("private.csv")) is None

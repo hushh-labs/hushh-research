@@ -146,6 +146,7 @@ from hushh_mcp.one_adk.feed_attention import (
 from hushh_mcp.one_adk.finance_chat_cards import (
     show_market_gainers,
     show_portfolio_card,
+    show_portfolio_upload,
     show_stock_preview,
 )
 from hushh_mcp.one_adk.finance_market_tools import (
@@ -870,7 +871,10 @@ def _compose_one_runtime_instruction(context: Any) -> str:
             "\n\nFINANCE IN CHAT: Keep these requests in Chat. Call show_market_gainers for "
             "U.S. or unspecified gainers. Acknowledge opening the card without claiming quotes "
             "or ranks. For portfolio holdings, allocation, performance or sources, call "
-            "show_portfolio_card. To preview, research, analyze or debate a stock, call "
+            "show_portfolio_card. For importing, uploading or adding a statement or portfolio, "
+            "call show_portfolio_upload. Say the upload is available in Chat. The card reports "
+            "processing and save results. For a specific brokerage connection, use its setup flow. "
+            "To preview, research, analyze or debate a stock, call "
             "show_stock_preview with its ticker and say it is ready for review. The person "
             "confirms in the card before the debate starts."
         )
@@ -2590,6 +2594,7 @@ def _one_roster_tools(
         list_app_actions,
         show_stock_preview,
         show_portfolio_card,
+        show_portfolio_upload,
         show_market_gainers,
         open_gmail_email_draft,
         open_gmail_information_request_reply,

@@ -24,7 +24,7 @@ describe("Finance portfolio card", () => {
     expect(state.resource).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }));
   });
 
-  it("shows available sources even without an active portfolio", () => {
+  it("does not present inactive sources when no statement is selected", () => {
     state.unlocked = true;
     state.resource.mockReturnValue({ loading: false, data: {
       activePortfolio: null, activeSource: "statement", activeStatementSnapshotId: null,
@@ -34,7 +34,43 @@ describe("Finance portfolio card", () => {
     const details = screen.getByText("Portfolio sources").closest("details")!;
     details.open = true;
     fireEvent(details, new Event("toggle"));
-    expect(screen.getByText("Available sources: Statement, Linked accounts")).toBeVisible();
+    expect(screen.getByText("No portfolio source available.")).toBeVisible();
+    expect(screen.queryByText(/available sources|linked accounts/i)).toBeNull();
+  });
+
+  it("shows only the selected statement name and upload time", () => {
+    state.unlocked = true;
+    const importedAt = "2026-11-20T11:32:00.000Z";
+    state.resource.mockReturnValue({ loading: false, data: {
+      activeSource: "statement", activeStatementSnapshotId: "selected",
+      statementSnapshots: [
+        { id: "newest", fileName: "Newer statement.pdf" },
+        { id: "selected", fileName: "November statement.pdf", importedAt, label: "Broker · 2026-09-30" },
+      ],
+      availableSources: ["statement", "plaid"], freshness: { lastSyncedAt: importedAt },
+    } });
+    render(<FinancePortfolioCard section="sources" />);
+    const details = screen.getByText("Portfolio sources").closest("details")!;
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+    expect(screen.getByText("November statement.pdf")).toBeVisible();
+    expect(details.querySelector("time")).toHaveAttribute("datetime", importedAt);
+    expect(screen.queryByText(/newer statement|broker ·|last synced|available sources/i)).toBeNull();
+  });
+
+  it("shows only linked Plaid for a Plaid portfolio", () => {
+    state.unlocked = true;
+    state.resource.mockReturnValue({ loading: false, data: {
+      activeSource: "plaid", activeStatementSnapshotId: "selected",
+      statementSnapshots: [{ id: "selected", fileName: "November statement.pdf" }],
+      freshness: { lastSyncedAt: "2026-11-20T11:32:00.000Z" },
+    } });
+    render(<FinancePortfolioCard section="sources" />);
+    const details = screen.getByText("Portfolio sources").closest("details")!;
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+    expect(screen.getByText("Linked Plaid account")).toBeVisible();
+    expect(screen.queryByText(/November statement|last synced/i)).toBeNull();
   });
 
   it("lets the person expand and collapse the holdings preview", () => {
