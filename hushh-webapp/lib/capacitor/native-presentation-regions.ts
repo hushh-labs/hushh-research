@@ -56,17 +56,26 @@ const drawerSources = new Map<NativePanelIdentity["group"], {
   identity: NativePanelIdentity; sample: (privacyGeneration: number) => NativePanelPose | undefined;
 }>();
 
-/** A fixed-size toolbar control can move when the shell inset changes.
- * Notify its geometry owner only when the acknowledged top edge moves. */
-export function subscribeNativeTopRegion(remeasure: () => void): () => void {
-  let top = accepted?.top;
-  const changed = () => {
-    if (!accepted || accepted.top === top) return;
-    top = accepted.top;
-    remeasure();
-  };
-  listeners.add(changed);
-  return () => { listeners.delete(changed); };
+const shellInsetListeners = new Set<() => void>();
+
+export function subscribeNativeShellInset(remeasure: () => void): () => void {
+  shellInsetListeners.add(remeasure);
+  return () => { shellInsetListeners.delete(remeasure); };
+}
+
+/** Move controls with their DOM seats even on hosts without legacy region receipts. */
+export function setNetworkStatusBannerHeight(height: number) {
+  const root = document.documentElement;
+  const value = height > 0 ? `${Math.ceil(height)}px` : "";
+  if (root.style.getPropertyValue("--network-status-height") === value) return;
+  if (value) {
+    // perf-lint: allow root-custom-property-write -- The shell and its portals share the measured notice height, updated only on a size change.
+    root.style.setProperty("--network-status-height", value);
+  } else {
+    root.style.removeProperty("--network-status-height");
+  }
+  shellInsetListeners.forEach(remeasure => remeasure());
+  void syncNativePresentationRegions().catch(() => undefined);
 }
 
 /** Authored presentation only. Dormant registration changes no admission. */

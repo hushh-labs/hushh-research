@@ -4,7 +4,7 @@ import { useLayoutEffect, useRef } from "react";
 
 import { WifiOff } from "@/components/icons";
 
-import { syncNativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
+import { setNetworkStatusBannerHeight } from "@/lib/capacitor/native-presentation-regions";
 import { useNetworkStatus } from "@/hooks/use-network-status";
 
 export function NetworkStatusBanner() {
@@ -14,23 +14,13 @@ export function NetworkStatusBanner() {
   useLayoutEffect(() => {
     const element = banner.current;
     if (!offline || !element) return;
-    const root = document.documentElement;
-    // Reserve the rendered height, including wrapped or enlarged text.
-    const measure = () => {
-      const height = `${Math.ceil(element.getBoundingClientRect().height)}px`;
-      if (root.style.getPropertyValue("--network-status-height") !== height) {
-        // perf-lint: allow root-custom-property-write -- The root coordinates portals and shell chrome only when the measured notice height changes.
-        root.style.setProperty("--network-status-height", height);
-        void syncNativePresentationRegions().catch(() => undefined);
-      }
-    };
+    const measure = () => setNetworkStatusBannerHeight(element.getBoundingClientRect().height);
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => {
       observer.disconnect();
-      root.style.removeProperty("--network-status-height");
-      queueMicrotask(() => { void syncNativePresentationRegions().catch(() => undefined); });
+      setNetworkStatusBannerHeight(0);
     };
   }, [offline]);
 
