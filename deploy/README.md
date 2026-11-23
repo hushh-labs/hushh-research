@@ -531,6 +531,16 @@ The collector needs the matching Production signing key. The binding carries
 the revision of the existing Production PLG population policy. Omitting the
 file keeps this source off on the next normal release.
 
+For the independent closed-day reference, the One database owner runs
+`consent-protocol/scripts/ops/one_adoption_reference.py --day YYYY-MM-DD --population-revision DIGEST`
+from a clean, reviewed checkout in the existing authorized Production operator
+session. The session supplies the source's effective population and Firebase
+settings and the normal libpq connection. The operation verifies the connected
+Production cluster and role, uses one read-only repeatable-read snapshot, and
+enumerates confirmed effects per eligible owner. Return the aggregate receipt to
+Metrics with the population rules. An incomplete or unauthorized read produces
+no totals. Keep the collector held until the independent reference is accepted.
+
 ## Verification model
 
 Every hosted deployment must prove:
