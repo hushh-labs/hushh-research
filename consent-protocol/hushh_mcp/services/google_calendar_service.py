@@ -1457,6 +1457,7 @@ class GoogleCalendarService:
                     reason_code="calendar_availability_changed",
                 )
         await self._check_read_binding(user_id, binding)
+        plan = proposal_options.seal_review_plan(action=action, plan=plan)
         proposal_id, expires_at = await self.proposals.issue(
             user_id=user_id, action=action, plan=plan, expected_etag=expected_etag
         )
@@ -1839,6 +1840,7 @@ class GoogleCalendarService:
         plan = proposal["plan"]
         gmail_reply = None
         try:
+            plan = proposal_options.open_review_plan(action=proposal["action"], plan=plan)
             if (
                 not all(key in plan for key in ("account_id", "calendar_id", "connection_binding"))
                 or not plan["connection_binding"]

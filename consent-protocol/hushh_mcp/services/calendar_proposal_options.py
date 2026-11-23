@@ -11,6 +11,73 @@ from hushh_mcp.services.google_connection_service import GoogleConnectionError
 MAX_WEEKLY_OCCURRENCES = 52
 
 
+def _extended_review(action: str, plan: dict[str, Any]) -> bool:
+    return (
+        action == "create"
+        and bool(plan.get("all_day"))
+        or any(
+            key in plan
+            for key in ("preserve_time", "weekly_recurrence", "reminders", "add_attendees")
+        )
+    )
+
+
+def _review_version_error() -> GoogleConnectionError:
+    return GoogleConnectionError(
+        "This Calendar review needs a new version. Review the meeting again.",
+        status_code=409,
+        reason_code="calendar_review_version_required",
+    )
+
+
+def _binding(value: object) -> bool:
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and all(isinstance(part, str) and part for part in value)
+    )
+
+
+def seal_review_plan(*, action: str, plan: dict[str, Any]) -> dict[str, Any]:
+    """Keep new reviews unreadable by consumers that ignore their new fields.
+
+    Legacy execute requires connection_binding. Only the versioned consumer may
+    restore it after validating the sealed review contract, including on rollback.
+    """
+    if not _extended_review(action, plan) and "review_contract" not in plan:
+        return plan
+    if (
+        "review_contract" in plan
+        and (type(plan["review_contract"]) is not int or plan["review_contract"] != 1)
+        or "review_connection_binding" in plan
+        or not _binding(plan.get("connection_binding"))
+    ):
+        raise _review_version_error()
+    sealed = {
+        **plan,
+        "review_contract": 1,
+        "review_connection_binding": list(plan["connection_binding"]),
+    }
+    sealed.pop("connection_binding")
+    return sealed
+
+
+def open_review_plan(*, action: str, plan: dict[str, Any]) -> dict[str, Any]:
+    """Decode exactly one stored format before any grant or provider effect."""
+    if "review_contract" not in plan:
+        if _extended_review(action, plan) or "review_connection_binding" in plan:
+            raise _review_version_error()
+        return plan
+    if (
+        type(plan["review_contract"]) is not int
+        or plan["review_contract"] != 1
+        or "connection_binding" in plan
+        or not _binding(plan.get("review_connection_binding"))
+    ):
+        raise _review_version_error()
+    return {**plan, "connection_binding": list(plan["review_connection_binding"])}
+
+
 def invalid(message: str) -> GoogleConnectionError:
     return GoogleConnectionError(message, status_code=422, reason_code="calendar_invalid_request")
 
