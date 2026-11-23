@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { CalendarPermissionList } from "@/components/calendar/calendar-permission-list";
 import { ArrowLeftIcon, XIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -76,6 +77,7 @@ export function PrivateOwnerConnectorsPanel(props: {
             />
           ) : null}
         </SettingsGroup>
+        {entry.permissions.length > 0 && <CalendarPermissionList permissions={entry.permissions} />}
         <div className="flex flex-wrap items-center gap-2" data-connector-action-bar="true">
           {entry.allowChanges ? (
             <Button variant="default" size="compact" data-connector-action="primary" disabled={disabled} onClick={() => void google.run(entry.connector, false)}>
@@ -168,6 +170,7 @@ export function PrivateOwnerConnectorsPanel(props: {
       { id: "stripe", name: "Stripe", detail: STRIPE_CONNECTION_STATUS[stripe.status], connected: stripe.status === "connected" || stripe.status === "verified", onOpen: () => select("stripe") }]
       .filter(entry => `${entry.name} ${entry.detail}`.toLowerCase().includes(query.toLowerCase()));
     const detail: ConnectorDetailPresentation | null = entry ? { kind: "private-google", status: entry.status, purpose: entry.purpose,
+      permissions: entry.permissions,
       message: google.message, notes: ["Connect Google directly to Agent One. Your agent asks you to confirm changes."], busy: google.busy !== null,
       background: entry.connected ? entry.backgroundPrep : null,
       actions: [

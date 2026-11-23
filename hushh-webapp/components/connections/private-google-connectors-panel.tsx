@@ -19,6 +19,7 @@ import {
   isProductionVisitorPostureEnabled,
 } from '@/lib/agent/production-visitor-posture';
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from '@/lib/auth/session-owner';
+import { calendarPermissionRows } from '@/lib/calendar/calendar-permissions';
 import {
   DEFAULT_POD_BACKGROUND_CONFIG,
   readPodBackgroundConfig,
@@ -126,6 +127,8 @@ export function usePrivateGoogleConnectorsModel({ open, visitKey }: { open: bool
     const lockedDown = backgroundConfig.sessionOnlyLockdown;
     const bgEnabled = !lockedDown && backgroundConfig.backgroundPrepEnabled && backgroundConfig.connectors[connector];
     return { connector, label: LABELS[connector], status, purpose: connectorAccessPurpose(connector), connected: statuses[connector] === 'connected',
+      permissions: connector === 'calendar' && statuses[connector] === 'connected'
+        ? calendarPermissionRows({ read: readable[connector] === true, manage: managed[connector] === true }) : [],
       allowChanges: statuses[connector] === 'connected' && (connector === 'gmail' || connector === 'calendar') && !managed[connector],
       backgroundPrep: {
         enabled: lockedDown ? null : bgEnabled,

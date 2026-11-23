@@ -5601,6 +5601,7 @@
       "voice_action_contract_ids": [
         "help.open_examples",
         "profile.delete_account",
+        "profile.enable_calendar_changes",
         "profile.marketplace_visibility.toggle",
         "profile.payouts.redeem",
         "profile.payouts.test_redeem",
@@ -11388,5 +11389,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "6a0a4918e4c857d1c3ae62c585988a0a4662d6d00d72845fdb400849b710c156"
+  "content_sha256": "8270b6eb18d8522f718c8dd2d6fd64bb1b79b79714eaf05c8e4e12dc0bd0e507"
 }

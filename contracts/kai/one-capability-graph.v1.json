@@ -19479,6 +19479,166 @@
     },
     {
       "aliases": [
+        "Enable calendar changes",
+        "enable calendar changes"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_owner_token"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.enable_calendar_changes",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Starts Google's Calendar permission upgrade from the connected Calendar details. The person grants access in Google; each later event change still requires review.",
+      "execution": {
+        "binding_ref": "render:profile.enable_calendar_changes",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.enable_calendar_changes",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Enable calendar changes",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/profile"
+        ],
+        "screens": [
+          "profile_connectors"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "calendar",
+        "permissions",
+        "schedule"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Retry phone lookup",
         "retry phone lookup",
         "reload my saved phone"
@@ -53432,7 +53592,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "c4a125628be87f17258ef6d6511d642d351eb852dca678b1e63041af3fb225c6",
+      "projection_digest": "2d535ba3bec91c7e2d87093aaf604f9a26d00c1151fa75ae1ca6c5afe3c8566f",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -53451,7 +53611,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "4412e014cc3dba38",
+      "source_revision": "415dd51703bf0166",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -54969,7 +55129,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "4412e014cc3dba38",
+    "source_revision": "415dd51703bf0166",
     "web": {
       "actions": [
         {
@@ -55012,7 +55172,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "621fe7f2b25d34826651913a629d68ce6225ea962a1f29441e92b334c972b817",
+      "projection_digest": "efdcef47f5f902f57888782101895645c7857147738c1660732f897ddcebd06c",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -55031,7 +55191,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "4412e014cc3dba38",
+      "source_revision": "415dd51703bf0166",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -56588,7 +56748,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "4412e014cc3dba38",
+  "revision": "415dd51703bf0166",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -58618,18 +58778,16 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:profile.enable_calendar_changes"
+    ],
     "breaking": [],
     "changed": [],
     "compatible": [],
-    "deprecated": [
-      "actions:profile.network_visibility.choose"
-    ],
-    "from_revision": "efcc81d3b962e90c",
+    "deprecated": [],
+    "from_revision": "4412e014cc3dba38",
     "migrated": [],
-    "removed": [
-      "actions:profile.network_visibility.choose"
-    ]
+    "removed": []
   },
   "services": [
     {
@@ -61000,7 +61158,7 @@
     "capability_graph_evolution": "e7229a8573fab5de25eaf5175e193c932d5435598f813ef6333dfa8ae74833e5",
     "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
     "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
-    "kai_action_gateway": "1448651e9d2badcfd561c4f251d2936a52087b093bb80e73ce8c0b84cef345ec",
+    "kai_action_gateway": "e1328d15be5c7374b1411f5611291d07f15966196f34d0e6761fccfb0dbc641c",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
@@ -61009,9 +61167,9 @@
     "route_orchestration_index": "e20aee3096ec5b97a40d7121d89eda12abe94ff080bdad3346be08da85b930a7",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "4412e014cc3dba38",
+  "source_revision": "415dd51703bf0166",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "4412e014cc3dba38",
+    "current_graph_revision": "415dd51703bf0166",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -61117,6 +61275,7 @@
           "4290bffc350511d9",
           "43c428db7505bdee",
           "43efe9fb3a1513f1",
+          "4412e014cc3dba38",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "45004b343a415b2d",
@@ -61467,6 +61626,7 @@
           "fb9264b42c8db59f",
           "fb9a089556077ad3",
           "fbac9497545a7c39",
+          "fcc70f8de6a75bd7",
           "fd8802940355dd20",
           "fdf3e8c081a8528a",
           "fe7124ad349b7300",
@@ -61529,6 +61689,7 @@
           "427976fdc9c31f85",
           "43c428db7505bdee",
           "43efe9fb3a1513f1",
+          "4412e014cc3dba38",
           "45004b343a415b2d",
           "45be718cd9891cd4",
           "476a8c21042e9057",
@@ -61680,6 +61841,7 @@
           "fa8ce03e294e7564",
           "fb9264b42c8db59f",
           "fb9a089556077ad3",
+          "fcc70f8de6a75bd7",
           "fd8802940355dd20",
           "fdf3e8c081a8528a",
           "fea32131fcdd3a30",
@@ -61708,6 +61870,7 @@
           "3b34a9419de765bc",
           "3ba87d0e532e05b9",
           "3c84b78e51438c4a",
+          "4412e014cc3dba38",
           "4a43af7c168529de",
           "4f73662d0429f94e",
           "5131dac7d5ab2776",
@@ -61749,6 +61912,7 @@
           "efcc81d3b962e90c",
           "f495a76e76d62e38",
           "f85fb4034950f39f",
+          "fcc70f8de6a75bd7",
           "fdf3e8c081a8528a",
           "fea32131fcdd3a30"
         ],
@@ -62208,6 +62372,7 @@
           "4290bffc350511d9",
           "43c428db7505bdee",
           "43efe9fb3a1513f1",
+          "4412e014cc3dba38",
           "4498aedb2e5e2aca",
           "45004b343a415b2d",
           "454780a997b07892",
@@ -62494,6 +62659,7 @@
           "fac4fe10478339eb",
           "fb9264b42c8db59f",
           "fb9a089556077ad3",
+          "fcc70f8de6a75bd7",
           "fd8802940355dd20",
           "fdf3e8c081a8528a",
           "fe7124ad349b7300",
@@ -62587,6 +62753,7 @@
           "33bd4a2385238d02",
           "3b34a9419de765bc",
           "3c485e1154148116",
+          "4412e014cc3dba38",
           "54ad44da9d67fca0",
           "5aa4f2628d570838",
           "6019c40d049d820e",
@@ -62604,6 +62771,7 @@
           "e29b1163bbf8a333",
           "e96761ff3e2db4d2",
           "efcc81d3b962e90c",
+          "fcc70f8de6a75bd7",
           "fea32131fcdd3a30"
         ],
         "migration_required_graph_revisions": [],
@@ -63146,6 +63314,7 @@
           "4290bffc350511d9",
           "43c428db7505bdee",
           "43efe9fb3a1513f1",
+          "4412e014cc3dba38",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "45004b343a415b2d",
@@ -63496,6 +63665,7 @@
           "fb9264b42c8db59f",
           "fb9a089556077ad3",
           "fbac9497545a7c39",
+          "fcc70f8de6a75bd7",
           "fd8802940355dd20",
           "fdf3e8c081a8528a",
           "fe7124ad349b7300",
@@ -63611,6 +63781,7 @@
           "4290bffc350511d9",
           "43c428db7505bdee",
           "43efe9fb3a1513f1",
+          "4412e014cc3dba38",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "45004b343a415b2d",
@@ -63959,6 +64130,7 @@
           "fb9264b42c8db59f",
           "fb9a089556077ad3",
           "fbac9497545a7c39",
+          "fcc70f8de6a75bd7",
           "fd8802940355dd20",
           "fdf3e8c081a8528a",
           "fe7124ad349b7300",
@@ -64074,6 +64246,7 @@
           "4290bffc350511d9",
           "43c428db7505bdee",
           "43efe9fb3a1513f1",
+          "4412e014cc3dba38",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "45004b343a415b2d",
@@ -64424,6 +64597,7 @@
           "fb9264b42c8db59f",
           "fb9a089556077ad3",
           "fbac9497545a7c39",
+          "fcc70f8de6a75bd7",
           "fd8802940355dd20",
           "fdf3e8c081a8528a",
           "fe7124ad349b7300",

@@ -16492,6 +16492,113 @@
       }
     },
     {
+      "action_id": "profile.enable_calendar_changes",
+      "surface_id": "profile_account",
+      "label": "Enable calendar changes",
+      "aliases": [
+        "enable calendar changes"
+      ],
+      "search_keywords": [
+        "calendar",
+        "permissions",
+        "schedule"
+      ],
+      "meaning": "Starts Google's Calendar permission upgrade from the connected Calendar details. The person grants access in Google; each later event change still requires review.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile"
+        ],
+        "screens": [
+          "profile_connectors"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Calendar details are open with an active read-only connection and no pending sign-in"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Google sign-in starts only from the person's confirming tap in Calendar details.",
+        "intended_handler": "connectCalendar"
+      },
+      "control_ids": [
+        "enable_calendar_changes"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/register-phone/page.voice-action-contract.json",
+        "components/agent/connectors-panel.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.enable_calendar_changes",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.enable_calendar_changes",
+            "label": "Enable calendar changes",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "profile.retry_phone_lookup",
       "surface_id": "profile_account",
       "label": "Retry phone lookup",

@@ -114,6 +114,7 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
   if (model?.selectedConnector && detail) {
     let detailRows: NativeDrawerRow[] = [];
     if (detail.kind === "private-google" || detail.kind === "private-stripe") detailRows = [read("private-status", detail.status), ...text("private-purpose", detail.purpose),
+      ...(detail.permissions ?? []).map(permission => read(`calendar-permission:${permission.id}`, permission.label, permission.status)),
       ...detail.notes.flatMap((note, index) => text(`private-note-${index}`, note)),
       ...(detail.background ? [read("private-background-state", "Background preparation", detail.background.description),
         ...(detail.background.enabled === null ? [] : [toggle("private-background", "Background preparation", detail.background.enabled, !detail.background.busy, detail.background.change)])] : []),
@@ -122,6 +123,7 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
       ...action("mail-retry", detail.retry), ...(detail.connected ? [read("mail-read", "Read mail", "Allowed"), read("mail-send", "Send mail", detail.sendAllowed ? "Allowed · review required" : "Not enabled"),
         ...(detail.draftsAllowed ? [read("mail-drafts", "Drafts", "Allowed · review required")] : action("mail-drafts", detail.enableDrafts))] : []), ...action("mail-cancel", detail.cancelSignIn), ...text("mail-message", detail.message)];
     else if (detail.kind === "calendar") detailRows = [...text("calendar-description", detail.description), read("calendar-status", detail.status), ...action("calendar-connection", detail.connection),
+      ...detail.permissions.map(permission => read(`calendar-permission:${permission.id}`, permission.label, permission.status)), ...action("calendar-enable-changes", detail.enableChanges),
       ...text("calendar-helper", detail.helper ?? ""), ...action("calendar-cancel", detail.cancelSignIn), ...action("calendar-retry", detail.retry), ...text("calendar-message", detail.message)];
     else if (detail.kind === "plaid") detailRows = [read("bank-status", detail.status), ...pageRows("banks", detail.banks, bank => [read(`bank:${bank.key}`, bank.name, bank.status),
       ...action(`bank-disconnect:${bank.key}`, bank.disconnect)]), ...action("bank-connect", detail.connect), ...text("bank-message", detail.message)];
