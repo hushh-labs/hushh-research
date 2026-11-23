@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import { BriefcaseBusiness, ChevronDown } from "@/components/icons";
 import { PortfolioAllocationBar } from "@/components/kai/charts/portfolio-allocation-bar";
@@ -15,6 +15,7 @@ import { useKaiFinancialResource } from "@/lib/kai/kai-financial-resource";
 import { groupHoldingPositions, type HoldingPosition } from "@/lib/kai/holding-positions";
 import { normalizeMarketSymbol } from "@/lib/kai/market-symbol";
 import { formatCurrency } from "@/lib/kai/market-value-format";
+import { rememberPortfolioCard } from "@/lib/kai/portfolio-chat-context";
 import { sinceBought } from "@/lib/kai/portfolio-performance";
 import { Button } from "@/lib/morphy-ux/button";
 import { cn } from "@/lib/utils";
@@ -89,13 +90,25 @@ function HoldingsList({ positions }: { positions: HoldingPosition[] }) {
   );
 }
 
-function PortfolioContent({ section }: { section: FinancePortfolioSection }) {
+function PortfolioContent({ section, conversationId }: { section: FinancePortfolioSection; conversationId?: string | null }) {
   const { userId } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const enabled = Boolean(userId && isVaultUnlocked && vaultKey && vaultOwnerToken);
   const { data, loading, error } = useKaiFinancialResource({
     userId: userId || "", vaultKey, vaultOwnerToken, enabled, backgroundRefresh: false,
   });
+  const capturedScope = useRef<string | null>(null);
+  useEffect(() => {
+    if (!enabled || !conversationId || section === "sources" || !data?.activePortfolio || data.userId !== userId) return;
+    const scope = JSON.stringify([userId, conversationId]);
+    if (capturedScope.current === scope) return;
+    // Resource updates can redraw an open card. Only a new card opening changes
+    // the snapshot that a subsequent reference to this observation can resolve.
+    capturedScope.current = scope;
+    void rememberPortfolioCard(conversationId, data).catch(() => {
+      // A card can render when the device cannot capture a safe reference.
+    });
+  }, [conversationId, data, enabled, section, userId]);
   if (!enabled) return <p>Sign in and unlock your vault to view your portfolio.</p>;
   if (loading && !data) return <p role="status">Loading portfolio…</p>;
   if (error && !data) return <p role="status">Portfolio information is unavailable.</p>;
@@ -156,7 +169,7 @@ function PortfolioContent({ section }: { section: FinancePortfolioSection }) {
   );
 }
 
-export function FinancePortfolioCard({ section }: { section: FinancePortfolioSection }) {
+export function FinancePortfolioCard({ section, conversationId }: { section: FinancePortfolioSection; conversationId?: string | null }) {
   const [open, setOpen] = useState(false);
   return (
     <SurfaceCard>
@@ -172,7 +185,7 @@ export function FinancePortfolioCard({ section }: { section: FinancePortfolioSec
         </summary>
         {open ? (
           <SurfaceCardContent>
-            <PortfolioContent section={section} />
+            <PortfolioContent section={section} conversationId={conversationId} />
           </SurfaceCardContent>
         ) : null}
       </details>

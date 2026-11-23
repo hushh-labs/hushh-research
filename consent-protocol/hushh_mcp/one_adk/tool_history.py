@@ -12,7 +12,7 @@ def validate_one_tool_result_history(callback_context: Any, llm_request: Any) ->
 
 
 def _receipt_placeholder_matches(event: Any, result: Any, expected_name: str | None) -> bool:
-    from hushh_mcp.one_adk.receipt_client_tools import RECEIPT_TOOL_NAMES
+    from hushh_mcp.one_adk.receipt_client_tools import PRIVATE_DEVICE_READ_TOOLS
 
     # Tool-only AG-UI handback stores a value-free result with its exact call ID.
     # Receipt admission checks the actual values separately before this callback.
@@ -20,7 +20,7 @@ def _receipt_placeholder_matches(event: Any, result: Any, expected_name: str | N
         event.author == "user"
         and bool(result.id)
         and result.name == "unknown"
-        and expected_name in RECEIPT_TOOL_NAMES
+        and expected_name in PRIVATE_DEVICE_READ_TOOLS
         and result.response
         in (
             {"schema": "receipt_result.v1", "operation": expected_name, "ephemeral_result": True},

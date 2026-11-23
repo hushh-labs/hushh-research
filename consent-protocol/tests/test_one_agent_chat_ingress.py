@@ -16,6 +16,11 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_PKM_CONTEXT,
     STATE_USER_ID,
 )
+from hushh_mcp.one_adk.portfolio_context_contract import (
+    PORTFOLIO_CONTEXT_PARAMETERS,
+    PORTFOLIO_CONTEXT_TOOL,
+    STATE_PORTFOLIO_CONTEXT_ENABLED,
+)
 
 
 def request(headers=None):
@@ -65,11 +70,18 @@ async def test_only_verified_intro_state_selects_intro(monkeypatch, no_secret_st
     monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", placement)
     monkeypatch.setattr(agent_chat, "verify_firebase_bearer", lambda header: "synthetic-owner")
     data = incoming(
-        state={STATE_CONSENT_TOKEN: "forged-reference", STATE_PKM_CONTEXT: "forged-private"}
+        state={
+            STATE_CONSENT_TOKEN: "forged-reference",
+            STATE_PKM_CONTEXT: "forged-private",
+            STATE_PORTFOLIO_CONTEXT_ENABLED: True,
+        },
+        forwarded_props={"portfolioContextContract": 1},
     )
     assert await select(request(headers), data) is agent_chat._intro_agent
     assert data.state[STATE_CONSENT_TOKEN] == ""
     assert data.state[STATE_PKM_CONTEXT] == ""
+    assert not data.state[STATE_PORTFOLIO_CONTEXT_ENABLED]
+    assert not any(tool.name == PORTFOLIO_CONTEXT_TOOL for tool in data.tools)
     assert data.state[STATE_USER_ID] != "forged-owner"
     if headers:
         placement.assert_awaited_once_with("synthetic-owner")
@@ -338,6 +350,7 @@ async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(
         state={STATE_USER_ID: "forged-owner"},
         forwarded_props={
             "pkmContext": "synthetic-scoped-context",
+            "portfolioContextContract": 1,
             "emailMemoryProjection": {
                 "source": "one_memory.markdown",
                 "owner_id": "owner-a",
@@ -349,6 +362,10 @@ async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(
     )
     assert await select(request({"x-hushh-consent": "HCT:synthetic"}), data) is agent_chat._agent
     assert data.state[STATE_USER_ID] == "owner-a"
+    assert data.state[STATE_PORTFOLIO_CONTEXT_ENABLED]
+    tool = next(tool for tool in data.tools if tool.name == PORTFOLIO_CONTEXT_TOOL)
+    assert tool.parameters == PORTFOLIO_CONTEXT_PARAMETERS
+    assert "portfolioContextContract" not in data.forwarded_props
     assert data.state[STATE_CONSENT_TOKEN] != "synthetic-owner-capability"
     assert resolve_request_secret(data.state[STATE_CONSENT_TOKEN]) == "synthetic-owner-capability"
     assert resolve_request_secret(data.state[STATE_PKM_CONTEXT]) == "synthetic-scoped-context"
