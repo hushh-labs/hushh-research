@@ -1,5 +1,6 @@
 "use client";
 
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { useEffect, useState } from "react";
 
 export function useNetworkStatus() {
@@ -7,7 +8,7 @@ export function useNetworkStatus() {
 
   useEffect(() => {
     const updateStatus = () => {
-      setOnline(window.navigator.onLine);
+      setOnline(isNetworkOnline());
     };
 
     updateStatus();

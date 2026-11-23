@@ -1,3 +1,4 @@
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { ApiService } from "@/lib/services/api-service";
 
 export type CalendarReadRecovery = "connect" | "reconnect" | "permission" | "retry";
@@ -61,12 +62,12 @@ export async function scheduleRequest<T>(path: string, token: string | null, bod
 export async function scheduleRead<T>(path: string, body: object, auth: CalendarAuth): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     auth.signal?.throwIfAborted();
-    if (path === "schedule/availability" && typeof navigator !== "undefined" && !navigator.onLine) throw new GoogleCalendarError("You’re offline. Connect to the internet to check availability.", "calendar_offline", 0);
+    if (path === "schedule/availability" && !isNetworkOnline()) throw new GoogleCalendarError("You’re offline. Connect to the internet to check availability.", "calendar_offline", 0);
     if (auth.isEffectCurrent?.() === false) throw new DOMException("Superseded", "AbortError");
     try { return await scheduleRequest<T>(path, null, body, auth); }
     catch (error) {
       const transient = error instanceof TypeError || (error instanceof DOMException && error.name === "TimeoutError") || (error instanceof GoogleCalendarError && ([408, 502, 503, 504].includes(error.status) || (path === "schedule/availability" && error.status === 429)));
-      if ((path === "schedule/availability" && ((typeof navigator !== "undefined" && !navigator.onLine) || (error instanceof GoogleCalendarError && ["calendar_invalid_response", "calendar_unreadable"].includes(error.reasonCode || "")))) || !transient || attempt >= 2 || auth.signal?.aborted || auth.isEffectCurrent?.() === false) throw error;
+      if ((path === "schedule/availability" && ((!isNetworkOnline()) || (error instanceof GoogleCalendarError && ["calendar_invalid_response", "calendar_unreadable"].includes(error.reasonCode || "")))) || !transient || attempt >= 2 || auth.signal?.aborted || auth.isEffectCurrent?.() === false) throw error;
       await new Promise<void>((resolve, reject) => {
         const abort = () => { clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")); };
         const timer = setTimeout(() => { auth.signal?.removeEventListener("abort", abort); resolve(); }, attempt === 0 ? 750 : 2000);

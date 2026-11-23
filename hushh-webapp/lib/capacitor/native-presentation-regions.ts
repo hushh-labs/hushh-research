@@ -99,7 +99,8 @@ function measureRegions(): Omit<NativePresentationRegions, "revision"> {
   const topShell = document.querySelector<HTMLElement>("[data-app-top-bar]");
   const history = document.querySelector<HTMLElement>('[data-native-chrome-slot="chat-history-toggle"]');
   const bottomShell = document.querySelector<HTMLElement>("[data-app-bottom-shell]");
-  const top = Math.ceil(Math.max(topShell?.getBoundingClientRect().bottom ?? 0,
+  const banner = document.querySelector<HTMLElement>("[data-network-status-banner]");
+  const top = Math.ceil(Math.max(banner?.getBoundingClientRect().bottom ?? 0, topShell?.getBoundingClientRect().bottom ?? 0,
     history?.getBoundingClientRect().bottom ?? 0));
   const bottom = Math.ceil(Math.max(bottomShell ? viewport.height - bottomShell.getBoundingClientRect().top : 0,
     dockFrame?.documentId === nativeDocumentId() ? viewport.height - dockFrame.y : 0));

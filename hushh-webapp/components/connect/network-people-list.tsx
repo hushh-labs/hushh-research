@@ -1,5 +1,6 @@
 "use client";
 
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { Input } from "@/components/ui/input";
@@ -121,7 +122,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, retainedPages
     setRevision(value => value + 1);
   }, [pageCache]);
   usePeriodicTask(`network-people-availability:${owner}:${visitKey}`, DIRECTORY_PASSIVE_REFRESH_AFTER_MS, () => {
-    if (!busy && navigator.onLine !== false) refresh(true);
+    if (!busy && isNetworkOnline()) refresh(true);
   }, { enabled: Boolean(user && owner) });
   useEffect(() => subscribeToConnectionGraphChanges(event => {
     if (event.userId !== owner || notifyingOwnRequest.current) return;

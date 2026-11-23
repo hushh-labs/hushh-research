@@ -14,6 +14,7 @@
 
 "use client";
 
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { resolveAccountLifecycleRecovery } from "@/lib/auth/account-lifecycle-recovery";
 import { rememberPendingAccountDeviceDeparture, purgeConfirmedAccountDeviceDeparture, purgeDepartedAccountDevice, pendingAccountCleanupOperationId } from "@/lib/auth/account-departure-device";
 
@@ -591,7 +592,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const isCurrent = () => !disposed && userRef.current?.uid === expectedUid &&
       getAuthSessionGeneration() === generation;
-    const canReachBackend = () => document.visibilityState === "visible" && navigator.onLine !== false &&
+    const canReachBackend = () => document.visibilityState === "visible" && isNetworkOnline() &&
       appInteractionCoordinator.getLifecycleSnapshot().state === "active";
     const clearRetry = () => {
       if (retryTimer !== null) globalThis.clearTimeout(retryTimer);
@@ -1400,7 +1401,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (cancelled) return;
 
         const canReachBackend =
-          document.visibilityState === "visible" && navigator.onLine !== false;
+          document.visibilityState === "visible" && isNetworkOnline();
         if (!canReachBackend) {
           scheduleRetry(); // Hidden or offline ticks re-arm without counting as checks.
           return;

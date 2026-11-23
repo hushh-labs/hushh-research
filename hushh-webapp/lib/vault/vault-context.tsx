@@ -1,5 +1,6 @@
 "use client";
 
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { clearCachedGmailReceipts } from "@/lib/profile/gmail-receipts-cache";
 
 import { clearMemoryDocument } from "@/lib/pkm/memory-refresh";
@@ -206,7 +207,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
     if (!authReady || !currentUserId || !vaultKey || !vaultOwnerToken) return;
     let lastAttemptAt = 0;
     const triggerReceivingSetup = (forceNow: boolean) => {
-      if (document.visibilityState !== "visible" || navigator.onLine === false) return;
+      if (document.visibilityState !== "visible" || !isNetworkOnline()) return;
       const now = Date.now();
       if (!forceNow && now - lastAttemptAt < 15_000) return;
       lastAttemptAt = now;

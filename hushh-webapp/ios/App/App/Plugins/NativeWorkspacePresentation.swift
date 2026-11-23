@@ -17,7 +17,7 @@ struct NativeWorkspaceRetirementFence {
 struct NativeWorkspaceIdentity: Codable, Equatable, Hashable {
     let documentId: String; let ownerEpoch: String; let ownerGeneration: Int; let revision: Int; let workspace: String
     var valid: Bool {
-        NativeDrawerIdentity.identifier(documentId) && NativeDrawerIdentity.identifier(ownerEpoch) && ["referrals", "wallet", "memory", "consent", "tasks", "feed", "connect", "email", "launcher", "mail", "calendar", "finance", "career", "location", "setup"].contains(workspace) &&
+        NativeDrawerIdentity.identifier(documentId) && NativeDrawerIdentity.identifier(ownerEpoch) && ["referrals", "wallet", "memory", "consent", "tasks", "feed", "connect", "email", "launcher", "mail", "calendar", "finance", "career", "location", "setup", "ria"].contains(workspace) &&
         ownerGeneration > 0 && revision > 0 && [ownerGeneration, revision].allSatisfy { $0 <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration }
     }
     var event: [String: Any] { ["documentId": documentId, "ownerEpoch": ownerEpoch, "ownerGeneration": ownerGeneration, "revision": revision, "workspace": workspace] }

@@ -1,5 +1,6 @@
 "use client";
 
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { NativeConnectWorkspace, type NativeConnectPerson } from "@/components/connect/native-connect-workspace";
 import { navigateDirectMessage } from "@/lib/direct-messages/navigate-direct-message";
@@ -643,7 +644,7 @@ export default function ConnectPageClient() {
       connectionView === "discover" &&
       !isFocusedCircleTask &&
       !mutualPersonRef &&
-      navigator.onLine !== false
+      isNetworkOnline()
     ) {
       void loadNetworkPreviewList().catch(() => {});
       preloadNetworkDiscovery(userId, () => user.getIdToken());
@@ -1426,7 +1427,7 @@ export default function ConnectPageClient() {
 
   const [directoryRefreshNonce, setDirectoryRefreshNonce] = useState(0);
   usePeriodicTask(`connect-directory-availability:${userId ?? ""}`, 30_000, () => {
-    if (navigator.onLine === false || directoryRequestPendingRef.current) return;
+    if (!isNetworkOnline() || directoryRequestPendingRef.current) return;
     if (isNative() && appInteractionCoordinator.getLifecycleSnapshot().state !== "active") return;
     if (Date.now() - lastDirectoryReadAtRef.current < DIRECTORY_PASSIVE_REFRESH_AFTER_MS) return;
     ++directoryReadGenerationRef.current;

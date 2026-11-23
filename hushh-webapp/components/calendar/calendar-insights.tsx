@@ -1,5 +1,6 @@
 "use client";
 
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { NativeCalendarLayer, calendarNativeDayControls, useNativeCalendarEnabled, type CalendarNativeSection, type CalendarNativeRow } from "./native-calendar-workspace";
 import { shiftCalendarDate } from "./calendar-schedule-presentation";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
@@ -93,7 +94,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [revision, setRevision] = useState(0);
-  const [canRefresh, setCanRefresh] = useState(() => typeof document === "undefined" || (document.visibilityState !== "hidden" && navigator.onLine));
+  const [canRefresh, setCanRefresh] = useState(() => typeof document === "undefined" || (document.visibilityState !== "hidden" && isNetworkOnline()));
   const refreshBudget = useRef(5);
   const autoAdvance = useRef(0);
   const lastForeground = useRef(0);
@@ -145,7 +146,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
   const lastSelectedId = useRef<string | null>(null);
 
   const refresh = useCallback(() => {
-    if (document.visibilityState === "hidden" || !navigator.onLine) return;
+    if (document.visibilityState === "hidden" || !isNetworkOnline()) return;
     lifetime.current?.abort();
     refreshTarget.current = viewRef.current === "library" && libraryRef.current ? Math.max(1, loadedPageCount.current) : 0;
     refreshChecked.current = 0;
@@ -163,7 +164,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
   }, [refreshRevision, refresh]);
   useEffect(() => {
     const resume = () => {
-      const active = document.visibilityState !== "hidden" && navigator.onLine;
+      const active = document.visibilityState !== "hidden" && isNetworkOnline();
       setCanRefresh(active);
       if (!active) { lifetime.current?.abort(); setLoading(false); return; }
       if (Date.now() - lastForeground.current < 1000) return;

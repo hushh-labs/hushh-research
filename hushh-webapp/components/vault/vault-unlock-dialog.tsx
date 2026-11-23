@@ -1,5 +1,6 @@
 "use client";
 
+import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 import { type CSSProperties, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { User } from "firebase/auth";
 import { Dialog as DialogPrimitive } from "radix-ui";
@@ -106,6 +107,7 @@ export function VaultUnlockDialog({
     setSetupStage(active ? "recovery" : "lock");
     setSetupMenuOpen(false);
   }, []);
+  useSessionChromeSuppression(open && !suppressedByHardGate);
   const onOpenChangeRef = useRef(onOpenChange);
   const effectiveDismissible =
     dismissible && !recoveryKeyDisclosureActive;
@@ -222,10 +224,10 @@ export function VaultUnlockDialog({
             borderRadius: 0,
             padding: 0,
           } as CSSProperties : {
-            "--vault-available-height": "min(640px, calc(100svh - max(calc(env(safe-area-inset-top, 0px) + 1.5rem), 6svh) - var(--kb-height, 0px) - 1rem))",
+            "--vault-available-height": "min(640px, calc(100svh - max(calc(var(--app-safe-area-top-effective, 0px) + 1.5rem), 6svh) - var(--kb-height, 0px) - 1rem))",
             position: "fixed",
             zIndex: 712,
-            top: "max(calc(env(safe-area-inset-top, 0px) + 1.5rem), 6svh)",
+            top: "max(calc(var(--app-safe-area-top-effective, 0px) + 1.5rem), 6svh)",
             left: "50%",
             width: "calc(100% - 2rem)",
             maxWidth: "28rem",

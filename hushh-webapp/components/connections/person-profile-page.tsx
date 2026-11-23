@@ -1,4 +1,5 @@
 "use client";
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { PersonNetworkSummary } from "./person-network-summary";
 import { cn } from "@/lib/utils";
 import {
@@ -421,7 +422,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
   // A public visitor may have no relationship to receive a targeted graph
   // event. Repair that open profile without rereading the private catalog.
   usePeriodicTask(`person-profile-availability:${resolvedPersonRef}:${availabilityInstance}`, 30_000, async () => {
-    if (navigator.onLine !== false) await revalidatePublicProfile();
+    if (isNetworkOnline()) await revalidatePublicProfile();
   }, { enabled: !profileMissing });
 
   const [viewerReloadToken, setViewerReloadToken] = useState(0);
