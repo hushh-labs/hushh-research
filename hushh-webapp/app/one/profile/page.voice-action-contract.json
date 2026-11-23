@@ -16,6 +16,31 @@
   },
   "actions": [
     {
+      "action_id": "profile.enable_calendar_changes",
+      "label": "Enable calendar changes",
+      "meaning": "Starts Google's Calendar permission upgrade from the connected Calendar details. The person grants access in Google; each later event change still requires review.",
+      "aliases": ["enable calendar changes"],
+      "search_keywords": ["calendar", "permissions", "schedule"],
+      "reachability": {
+        "routes": ["/one/profile"],
+        "screens": ["profile_connectors"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": ["Calendar details are open with an active read-only connection and no pending sign-in"]
+      },
+      "guard_ids": ["auth_signed_in", "vault_owner_token", "manual_user_execution"],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Google sign-in starts only from the person's confirming tap in Calendar details.",
+        "intended_handler": "connectCalendar"
+      },
+      "control_ids": ["enable_calendar_changes"],
+      "state_exposure": [],
+      "docs_references": ["components/agent/connectors-panel.tsx"],
+      "speaker_persona": "one"
+    },
+    {
       "action_id": "profile.retry_phone_lookup",
       "label": "Retry phone lookup",
       "meaning": "Retries reading the signed-in person's saved verified phone. Does not start OTP verification or change the phone.",

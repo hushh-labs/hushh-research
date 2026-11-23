@@ -44,6 +44,7 @@ export function PrivateOwnerConnectorsPanel(props: {
     const entry = google.entries.find(item => item.connector === selected);
     const disabled = !google.enabled || google.busy !== null;
     const detail: ConnectorDetailPresentation | null = entry ? { kind: "private-google", status: entry.status, purpose: entry.purpose,
+      permissions: entry.permissions,
       message: google.message, notes: ["Connect Google directly to Agent One. Your agent asks you to confirm changes."], busy: google.busy !== null,
       actions: [
         ...(entry.allowChanges ? [{ label: "Allow changes", disabled, run: () => { void google.run(entry.connector, false); } }] : []),
