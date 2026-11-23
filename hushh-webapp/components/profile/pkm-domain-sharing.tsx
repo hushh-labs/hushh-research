@@ -27,8 +27,15 @@ export function PkmDomainSharing({ userId, title, manifest, pendingKey, onChange
   const { userId: ownerId } = useAuth();
   const { capture } = useCommerceSession(`domain-sharing:${userId}:${manifest.domain}:${manifest.manifest_version}`);
   const { vaultOwnerToken, isVaultUnlocked } = useVault();
-  const [catalog, setCatalog] = useState<ReadonlyArray<Record<string, unknown>>>([]);
-  const [checking, setChecking] = useState(true);
+  const valid = Boolean(ownerId === userId && isVaultUnlocked && vaultOwnerToken &&
+    (!manifest.user_id || manifest.user_id === userId) && Number.isSafeInteger(manifest.manifest_version) && manifest.manifest_version > 0);
+  const warmScopes = valid && typeof PersonalKnowledgeModelService.peekAvailableScopes === "function"
+    ? PersonalKnowledgeModelService.peekAvailableScopes(userId)
+    : null;
+  const [catalog, setCatalog] = useState<ReadonlyArray<Record<string, unknown>>>(() =>
+    warmScopes && warmScopes.userId === userId ? (warmScopes.scopeEntries ?? []) : [],
+  );
+  const [checking, setChecking] = useState(() => !(warmScopes && warmScopes.userId === userId));
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
   const bundles = buildPkmShareBundles(manifest);
@@ -39,19 +46,27 @@ export function PkmDomainSharing({ userId, title, manifest, pendingKey, onChange
   const whole = targets.find(target => target.machineScope === `attr.${manifest.domain}.*`);
   const showWholeBundlePrice = Boolean(whole && !failed && (sections.length > 1 || Boolean(proposal)));
   const available = sections.length > 0 && sections.every(section => section.enabled);
-  const valid = Boolean(ownerId === userId && isVaultUnlocked && vaultOwnerToken &&
-    (!manifest.user_id || manifest.user_id === userId) && Number.isSafeInteger(manifest.manifest_version) && manifest.manifest_version > 0);
 
   useEffect(() => {
     let active = true;
     const current = capture();
-    setCatalog([]); setChecking(true); setFailed(false);
+    const cached = valid && typeof PersonalKnowledgeModelService.peekAvailableScopes === "function"
+      ? PersonalKnowledgeModelService.peekAvailableScopes(userId)
+      : null;
+    if (cached && cached.userId === userId) {
+      setCatalog(cached.scopeEntries ?? []);
+      setChecking(false);
+    } else {
+      setCatalog([]);
+      setChecking(true);
+    }
+    setFailed(false);
     if (!valid || !vaultOwnerToken) { setChecking(false); return; }
     void PersonalKnowledgeModelService.getAvailableScopes(userId, vaultOwnerToken).then(result => {
       if (!active || !current()) return;
       if (result.userId !== userId) throw new Error("Owner changed.");
       setCatalog(result.scopeEntries ?? []);
-    }).catch(() => { if (active && current()) setFailed(true); })
+    }).catch(() => { if (active && current() && !cached) setFailed(true); })
       .finally(() => { if (active && current()) setChecking(false); });
     return () => { active = false; };
   }, [userId, vaultOwnerToken, valid, manifest.domain, manifest.manifest_version, capture, retry]);

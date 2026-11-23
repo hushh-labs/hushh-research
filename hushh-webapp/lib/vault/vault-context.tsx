@@ -294,9 +294,9 @@ export function VaultProvider({ children }: VaultProviderProps) {
       clearMemoryDocument(lockedUserId);
       clearCoreAgentMarkdownCache(lockedUserId);
       clearActiveAgentTurnSession(lockedUserId);
-      clearFilesCache(lockedUserId);
+      clearFilesCache(lockedUserId, { includeDevice: false });
       clearAgentPkmContext(lockedUserId);
-      clearAgentChatHistoryCache(lockedUserId);
+      clearAgentChatHistoryCache(lockedUserId, { includeDevice: false });
       clearGeminiRuntimeConnectionCache(lockedUserId);
       PreVaultSensitiveDraftService.clearForUser(lockedUserId);
       CacheService.getInstance().invalidate(
@@ -372,11 +372,19 @@ export function VaultProvider({ children }: VaultProviderProps) {
       currentUserId !== vaultUserId &&
       (storedVaultKey || storedVaultOwnerToken)
     ) {
+      const priorVaultUserId = vaultUserId;
+      const confirmedOwnerMismatch = Boolean(
+        currentUserId && currentUserId !== priorVaultUserId,
+      );
       console.log(
         "🔒 [VaultProvider] Auth identity changed - clearing vault memory...",
       );
-      void MessagesDraftService.clearForUser(vaultUserId).catch(() => undefined);
+      void MessagesDraftService.clearForUser(priorVaultUserId).catch(() => undefined);
       lockVault();
+      if (confirmedOwnerMismatch) {
+        clearFilesCache(priorVaultUserId, { includeDevice: true });
+        clearAgentChatHistoryCache(priorVaultUserId, { includeDevice: true });
+      }
     }
   }, [
     currentUserId,

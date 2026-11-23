@@ -70,6 +70,10 @@ import { FoundationPublicAmbient } from "@/components/app-ui/foundation-public-a
 import { AgentOwnerGate } from "@/components/agent/agent-owner-gate";
 import { OneVoiceReadinessProvider } from "@/lib/one-voice/readiness";
 import { AppBottomShell } from "@/components/app-ui/app-bottom-shell";
+import {
+  isProductionProfileLegalSubsurface,
+  isProductionVoiceBarSuppressedRoute,
+} from "@/lib/agent/production-visitor-posture";
 import { AgentDockProvider } from "@/components/agent/agent-dock";
 import { AmbientChromeController } from "@/components/app-ui/ambient-chrome-mask";
 import { resolveRiaRouteTabSet } from "@/lib/navigation/top-shell-tabs";
@@ -103,6 +107,7 @@ import {
   ROUTES,
   isFoundationPublicRoute,
   isOneSetupSurfaceRoute,
+  isPublicEditorialOrLegalRoute,
   isRiaRoute,
 } from "@/lib/navigation/routes";
 import { useAuth } from "@/hooks/use-auth";
@@ -229,13 +234,25 @@ function AppShellFrame({ children }: ProvidersProps) {
       searchParams?.get("action") ?? null,
       searchParams?.get("circleId") ?? null,
     );
+  const productionVoiceRouteHidden = isProductionVoiceBarSuppressedRoute({
+    pathname,
+    shellPathname,
+    isAuthenticated,
+    useOnboardingChrome: chromeState.useOnboardingChrome,
+  });
+  const productionVoiceSlotSuppressed = isProductionProfileLegalSubsurface(
+    pathname,
+    searchParams,
+  );
   // Focused tasks clear the bottom command/navigation stack while keeping the
   // top shell route context. Setup pages own their bottom completion actions.
   const bottomChromeHidden =
+    productionVoiceRouteHidden ||
     hidesPersistentChrome ||
     routeLayout.route === ROUTES.ONE_SETUP ||
     routeLayout.route === ROUTES.ONE_SETUP_CONNECTIONS ||
     focusedLocationBottomTask ||
+    isPublicEditorialOrLegalRoute(pathname) ||
     focusedConnectCircleChromeFlow;
   const effectiveHideCommandBar =
     chromeState.hideCommandBar ||
@@ -390,7 +407,9 @@ function AppShellFrame({ children }: ProvidersProps) {
   // developers pages.
   const foundationVoiceOnlyChrome = isFoundationRoute && !isAuthenticated;
   const hideBottomNavigation =
-    effectiveHideCommandBar || foundationVoiceOnlyChrome;
+    effectiveHideCommandBar ||
+    foundationVoiceOnlyChrome ||
+    isPublicEditorialOrLegalRoute(pathname);
   // RIA and Foundation both use a persistent-but-pinned lower utility. Keep
   // the scroll-hide driver for ordinary signed-in navigation only.
   const nativeNavigationInstalled = useNativeNavigationInstalled();
@@ -414,6 +433,7 @@ function AppShellFrame({ children }: ProvidersProps) {
         !authLoading &&
         (pathname === ROUTES.HOME || routeLayout.route === ROUTES.ONE_MESSAGES),
       includeComposerHeight: routeLayout.route === ROUTES.ONE_MESSAGES,
+      voiceSlotSuppressed: productionVoiceSlotSuppressed,
       hidden: bottomChromeHidden,
     }),
     [
@@ -422,6 +442,7 @@ function AppShellFrame({ children }: ProvidersProps) {
       isAuthenticated,
       authLoading,
       pathname,
+      productionVoiceSlotSuppressed,
       routeLayout.route,
     ],
   );

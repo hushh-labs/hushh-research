@@ -21,8 +21,10 @@ sleep/wake cycles to the log is exactly the noise §2.2 of the plan rejects.
 from __future__ import annotations
 
 import logging
+import os
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
 
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import RateLimits, limiter
@@ -30,6 +32,10 @@ from api.routes.one.pod_relay import _pod_url, _proxy_get, _require_enabled
 from hushh_mcp.services.personal_agent_registry_repo import (
     PersonalAgentRegistryRepo,
     registry_host_snapshot,
+)
+from hushh_mcp.services.pod_wake_coalescer import (
+    WAKE_COALESCER,
+    ZeroContentViolationError,
 )
 
 logger = logging.getLogger(__name__)
@@ -186,3 +192,67 @@ async def _wake_vm(owner: str, metadata: dict) -> dict:
                 "message": "Your agent could not reconnect. Try again.",
             },
         ) from None
+
+
+def _require_scheduler_drain_identity(authorization: str | None) -> None:
+    from hushh_mcp.services.scheduler_identity import (  # noqa: PLC0415
+        SchedulerIdentityError,
+        verify_scheduler_request,
+    )
+
+    audience = str(
+        os.getenv("HUSHH_SCHEDULER_AUDIENCE") or os.getenv("HUSSH_HUB_URL") or ""
+    ).strip()
+    allowed = tuple(
+        email.strip()
+        for email in str(os.getenv("HUSHH_SCHEDULER_CALLER_EMAILS") or "").split(",")
+        if email.strip()
+    )
+    try:
+        verify_scheduler_request(
+            authorization_header=authorization,
+            audience=audience,
+            allowed_emails=allowed,
+        )
+    except SchedulerIdentityError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "WAKE_DRAIN_REFUSED", "message": "Scheduler identity required."},
+        ) from exc
+
+
+@router.post("/signal")
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def wake_signal(
+    request: Request,
+    payload: dict[str, Any] = Body(default_factory=dict),
+    user_id: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Zero-content wake doorbell across Personal Sandbox, GCP BYOC, and Azure BYOC."""
+    _require_enabled()
+    try:
+        return dict(await WAKE_COALESCER.ingest_signal(owner_user_id=user_id, signal=payload))
+    except ZeroContentViolationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "ZERO_CONTENT_VIOLATION", "message": str(exc)},
+        ) from None
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_WAKE_SIGNAL", "message": str(exc)},
+        ) from None
+
+
+@router.post("/drain")
+async def drain_coalesced_wakes(
+    payload: dict[str, Any] = Body(default_factory=dict),
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Authenticated scheduler sweep flushing due 15-minute coalesced wakes."""
+    _require_enabled()
+    _require_scheduler_drain_identity(authorization)
+    quiet_lifted = bool(payload.get("quietHoursLifted", True))
+    limit = int(payload.get("limit", 50))
+    limit = max(1, min(200, limit))
+    return dict(await WAKE_COALESCER.drain_due(quiet_hours_lifted=quiet_lifted, limit=limit))

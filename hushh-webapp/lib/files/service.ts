@@ -67,6 +67,7 @@ export type WikiSummaryPage = {
   title: string;
   folder: string;
   tldr: string;
+  statusAsOf?: string;
   revision: number;
   updatedAt: number;
 };
@@ -95,6 +96,19 @@ export type WikiOverview = {
   candidateReceipts: WikiCandidateItem[];
   staleReceipts?: StaledWikiProjectionDescriptor[];
   projectedClaimKeys?: string[];
+};
+export type WikiOptimizationResult = {
+  optimizationRunId: string;
+  inspectedPageCount: number;
+  deduplicatedClaimCount: number;
+  staleRetiredCount: number;
+  structureRepairsCount: number;
+  protectedGrantScopes: string[];
+  protectedGrantPagesCount: number;
+  protectedClaimsPreservedCount: number;
+  contradictions: Array<{ page_id: string; slot: string; claim_ids: string[] }>;
+  hotDigestChars: number;
+  hotDigestWithinBudget: boolean;
 };
 export type WikiMigrationAction =
   | "compile_and_verify"
@@ -554,16 +568,30 @@ export const FilesService = {
       );
     }
 
-    if (raw.candidateReceipts.length === 0) return raw;
+    if (raw.candidateReceipts.length === 0) {
+      setFilesWikiOverviewCache(filesCacheOwner(), raw);
+      return raw;
+    }
+    const impactByScopeKey = new Map<
+      string,
+      Promise<{ activeRecipientCount: number; recipientLabels: string[] }>
+    >();
     const enrichedCandidates = await Promise.all(
       raw.candidateReceipts.map(async (cand) => {
         if (cand.state !== "private_candidate" || !cand.jsonPath) return cand;
-        try {
-          const impact = await fetchProjectionSharingImpact(
+        const topScope = cand.jsonPath.split(".")[0] || cand.jsonPath;
+        const scopeKey = `${cand.domain}:${topScope}`;
+        let impactPromise = impactByScopeKey.get(scopeKey);
+        if (!impactPromise) {
+          impactPromise = fetchProjectionSharingImpact(
             access,
             cand.domain,
             cand.jsonPath,
           );
+          impactByScopeKey.set(scopeKey, impactPromise);
+        }
+        try {
+          const impact = await impactPromise;
           return {
             ...cand,
             activeRecipientCount: impact.activeRecipientCount,
@@ -876,6 +904,24 @@ export const FilesService = {
     if (input.action === "compile_and_verify" && access) {
       await syncWikiPagesToPkmProjections(access, filesWikiSyncTransport(), {
         explicitChatSave: true,
+        surface: "web",
+        signal,
+      }).catch(() => undefined);
+    }
+    invalidateFilesMutationCache(filesCacheOwner());
+    return res;
+  },
+  wikiOptimize: async (signal?: AbortSignal): Promise<WikiOptimizationResult> => {
+    const res = await json<WikiOptimizationResult>(
+      "wiki/optimize",
+      { request_id: crypto.randomUUID() },
+      "POST",
+      signal,
+    );
+    const access = activeFilesAccess();
+    if (access) {
+      await syncWikiPagesToPkmProjections(access, filesWikiSyncTransport(), {
+        explicitChatSave: false,
         surface: "web",
         signal,
       }).catch(() => undefined);

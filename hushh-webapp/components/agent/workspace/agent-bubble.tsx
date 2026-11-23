@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   Copy,
+  Info,
   Loader2,
   Mail,
   RotateCcw,
@@ -21,9 +22,12 @@ import type { AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
 import type { InformationRequestSubmissionReceipt } from "@/components/agent/agent-structured-experience";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
 import type { DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
+import type { NegativeNetAcknowledgement } from "@/lib/services/scope-commerce-service";
 import {
+  OneStreamEventCard,
   SpecialistConsentActionsCard,
   SpecialistPendingConsentRequestCard,
+  type OneStreamEventItem,
   type SpecialistConsentActionItem,
   type SpecialistPendingConsentRequestItem,
 } from "@/components/agent/specialist-directive-card";
@@ -42,109 +46,38 @@ import {
   AgentActivityMark,
   type AgentActivityIcon,
 } from "@/components/agent/agent-turn-stream-panel";
+import { OneThinkingIndicator, type OneTurnPendingPhase } from "@/components/agent/one-thinking-indicator";
 import type { ChatTimeSeparator } from "@/lib/agent/chat-time-separators";
 import { AgentMessageReactionBadge } from "../agent-message-reaction";
 import { QueuedJoinedCaption } from "@/components/agent/agent-queued-stack";
 import { AgentMemoryCaptureStatus } from "@/components/agent/agent-memory-capture-status";
 import { AgentMessageAttachments } from "@/components/agent/agent-message-attachments";
+import { AgentThoughtProcessSheet } from "@/components/agent/agent-thought-process-sheet";
 import { SecretPlaceholderText } from "@/components/secrets/secret-placeholder-text";
 import type { GmailInformationRequestSourcePreview } from "@/lib/services/gmail-information-requests-service";
+import { useAnimatedStreamText } from "./use-animated-stream-text";
 import {
   AGENT_STREAM_RENDER_FRAME_MS,
   getConsentActionsPayload,
+  getOneStreamEventPayload,
   getPendingConsentRequestPayload,
   type AgentMessage,
 } from "./agent-message-transforms";
 
 function useAnimatedAssistantText(targetText: string, active: boolean) {
-  const [displayedText, setDisplayedText] = useState(active ? "" : targetText);
-  const displayedTextRef = useRef(displayedText);
-  const targetTextRef = useRef(targetText);
-
-  useEffect(() => {
-    targetTextRef.current = targetText;
-
-    // Completed answers must remain readable when a background tab suspends frames.
-    if (!active) {
-      displayedTextRef.current = targetText;
-      setDisplayedText(targetText);
-    }
-  }, [active, targetText]);
-
-  useEffect(() => {
-    if (!active) return;
-    let frame = 0;
-    let lastPaintAt = 0;
-
-    const tick = (now: number) => {
-      const target = targetTextRef.current;
-      const current = displayedTextRef.current;
-
-      if (!target.startsWith(current)) {
-        displayedTextRef.current = target;
-        setDisplayedText(target);
-        return;
-      }
-
-      if (current.length >= target.length) {
-        return;
-      }
-
-      if (lastPaintAt && now - lastPaintAt < AGENT_STREAM_RENDER_FRAME_MS) {
-        frame = window.requestAnimationFrame(tick);
-        return;
-      }
-
-      const elapsedMs = lastPaintAt
-        ? Math.max(12, now - lastPaintAt)
-        : AGENT_STREAM_RENDER_FRAME_MS;
-      lastPaintAt = now;
-      const backlog = target.length - current.length;
-      const charsPerSecond = backlog > 900 ? 2600 : backlog > 260 ? 1500 : 620;
-      const step = Math.max(
-        1,
-        Math.min(backlog, Math.ceil((charsPerSecond * elapsedMs) / 1000)),
-      );
-      const nextText = target.slice(0, current.length + step);
-      displayedTextRef.current = nextText;
-      setDisplayedText(nextText);
-
-      if (nextText.length < target.length) {
-        frame = window.requestAnimationFrame(tick);
-      }
-    };
-
-    const target = targetTextRef.current;
-    const current = displayedTextRef.current;
-    if (
-      target &&
-      (!target.startsWith(current) || current.length < target.length)
-    ) {
-      frame = window.requestAnimationFrame(tick);
-    }
-
-    return () => {
-      if (frame) {
-        window.cancelAnimationFrame(frame);
-      }
-    };
-  }, [active, targetText]);
-
-  return {
-    displayedText: active ? displayedText : targetText,
-    isAnimating: active,
-  };
+  return useAnimatedStreamText(targetText, active, AGENT_STREAM_RENDER_FRAME_MS);
 }
 
-function AgentThinkingDots() {
+function AgentThinkingDots({
+  phase = "thinking",
+  label = null,
+}: {
+  phase?: OneTurnPendingPhase;
+  label?: string | null;
+}) {
   return (
-    <span
-      className="inline-flex items-center gap-1 py-1 text-muted-foreground"
-      aria-label="Agent is thinking"
-    >
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:-160ms] motion-reduce:animate-none" />
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:-80ms] motion-reduce:animate-none" />
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current motion-reduce:animate-none" />
+    <span role="status" aria-live="polite" aria-label="Agent status">
+      <OneThinkingIndicator phase={phase} label={label} />
     </span>
   );
 }
@@ -287,6 +220,9 @@ export const AgentBubble = memo(function AgentBubble({
   onPendingConsentApprove,
   onPendingConsentDeny,
   onPendingConsentDetails,
+  onOneStreamAccept,
+  onOneStreamDecline,
+  onOneStreamOpen,
   rating = null,
   onRate,
   reported = false,
@@ -301,6 +237,8 @@ export const AgentBubble = memo(function AgentBubble({
   onUnlockVault,
   ephemeralCard,
   businessProfileCard,
+  pendingPhase = "thinking",
+  pendingLabel = null,
 }: {
   message: AgentMessage;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
@@ -315,11 +253,15 @@ export const AgentBubble = memo(function AgentBubble({
   onConsentDetails?: (item: SpecialistConsentActionItem) => void;
   onPendingConsentApprove?: (
     item: SpecialistPendingConsentRequestItem,
+    negativeNetAcknowledgement?: NegativeNetAcknowledgement,
   ) => Promise<void> | void;
   onPendingConsentDeny?: (
     item: SpecialistPendingConsentRequestItem,
   ) => Promise<void> | void;
   onPendingConsentDetails?: (item: SpecialistPendingConsentRequestItem) => void;
+  onOneStreamAccept?: (item: OneStreamEventItem) => Promise<void> | void;
+  onOneStreamDecline?: (item: OneStreamEventItem) => Promise<void> | void;
+  onOneStreamOpen?: (item: OneStreamEventItem) => void;
   rating?: "up" | "down" | null;
   onRate?: (rating: "up" | "down" | null) => void;
   reported?: boolean;
@@ -338,9 +280,14 @@ export const AgentBubble = memo(function AgentBubble({
   ephemeralCard?: ReactNode;
   /** Compatibility for the existing Business Intelligence card. */
   businessProfileCard?: ReactNode;
+  /** Phase-accurate pending indicator driven by live wake/reconnect/stream state. */
+  pendingPhase?: OneTurnPendingPhase;
+  pendingLabel?: string | null;
 }) {
   const backgroundCard = ephemeralCard ?? businessProfileCard;
   const [copied, setCopied] = useState(false);
+  const [thoughtOpen, setThoughtOpen] = useState(false);
+  const thoughtTriggerRef = useRef<HTMLButtonElement | null>(null);
   // The rating is owned by the workspace so it survives a reload; the bubble
   // only reflects it. It used to be local state that died with the tab, which
   // meant nobody could ever read what people thought of an answer.
@@ -349,6 +296,18 @@ export const AgentBubble = memo(function AgentBubble({
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming";
   const isError = message.status === "error";
+  const thinkingSummary =
+    !isUser &&
+    !isError &&
+    !message.receiptRedacted &&
+    !message.consentAccessEnded &&
+    !message.consentBundleId
+      ? (message.thinkingSummary ?? "").trim()
+      : "";
+  const hasThinkingSummary = thinkingSummary.length > 0;
+  const isThinkingStreaming = Boolean(
+    hasThinkingSummary && isStreaming && message.isThinkingStreaming,
+  );
   const streamEvents = (message.streamEvents ?? []).filter(
     (event) => event.label !== "Memory" && event.label !== "Add to Memory",
   );
@@ -394,11 +353,24 @@ export const AgentBubble = memo(function AgentBubble({
     onPendingConsentDeny &&
     onPendingConsentDetails,
   );
+  const oneStreamEventPayload = !isUser
+    ? getOneStreamEventPayload(message.specialistDirective ?? null)
+    : null;
+  const canRenderOneStreamEvent = Boolean(
+    oneStreamEventPayload &&
+    (onOneStreamAccept || onOneStreamDecline || onOneStreamOpen),
+  );
+  const isRedundantPendingConsentLead =
+    canRenderPendingConsentRequest &&
+    /is asking for access\.(?:\s*Review the request here in Agent One\.)?$/i.test(
+      assistantText.trim(),
+    );
+  const visibleAssistantText = isRedundantPendingConsentLead ? "" : assistantText;
   const showResponseActions =
     !isUser &&
     !message.ephemeral &&
     !isStreaming &&
-    assistantText.trim().length > 0;
+    visibleAssistantText.trim().length > 0;
   // Give the assistant turn the same rounded-card shape as the user bubble
   // (just in a neutral tone, not primary) so both sides of the conversation
   // read as one consistent rhythm. The stream panel and the consent-actions-
@@ -408,8 +380,12 @@ export const AgentBubble = memo(function AgentBubble({
     !isUser &&
     !shouldRenderStreamPanel &&
     !backgroundOnly &&
-    (assistantText.trim().length > 0 ||
-      !(canRenderConsentActions || canRenderPendingConsentRequest));
+    (visibleAssistantText.trim().length > 0 ||
+      !(
+        canRenderConsentActions ||
+        canRenderPendingConsentRequest ||
+        canRenderOneStreamEvent
+      ));
 
   const handleCopy = async () => {
     try {
@@ -514,11 +490,49 @@ export const AgentBubble = memo(function AgentBubble({
     </div>
   ) : null;
 
+  const renderThoughtButton = (floating: boolean) => {
+    if (!hasThinkingSummary) return null;
+    const label = isThinkingStreaming
+      ? "View live thought process"
+      : "View thought process";
+    return (
+      <button
+        ref={thoughtTriggerRef}
+        type="button"
+        data-testid="agent-bubble-thought-trigger"
+        data-streaming={isThinkingStreaming ? "true" : undefined}
+        aria-label={label}
+        aria-haspopup="dialog"
+        aria-expanded={thoughtOpen}
+        title={isThinkingStreaming ? "Thought process (live)" : "Thought process"}
+        onClick={() => setThoughtOpen(true)}
+        className={cn(
+          "grid size-6 shrink-0 cursor-pointer place-items-center rounded-full transition-[background-color,color,opacity] duration-[140ms] ease-[var(--ease-out)] after:absolute after:-inset-2 after:content-[''] motion-reduce:transition-none active:enabled:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]",
+          floating ? "absolute top-2 right-2 z-10" : "relative",
+          isThinkingStreaming
+            ? "bg-[color:var(--app-accent)]/14 text-[color:var(--app-accent)]"
+            : "text-[color:var(--one-chat-meta)] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-foreground/[0.07] [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground dark:[@media(hover:hover)_and_(pointer:fine)]:hover:bg-white/[0.09]",
+        )}
+      >
+        <Info
+          aria-hidden="true"
+          weight={thoughtOpen || isThinkingStreaming ? "fill" : "regular"}
+          className={cn(
+            "size-3.5",
+            isThinkingStreaming && "motion-safe:animate-pulse",
+          )}
+        />
+        <MaterialRipple variant="none" effect="glass" />
+      </button>
+    );
+  };
+
   return (
     <div
       data-message-role={message.role}
       data-message-id={message.id}
       data-message-status={message.status}
+      data-agent-settled-row={!isStreaming ? "true" : undefined}
       // The time is kept on the row for tooling; the transcript shows it in
       // the centered separator above each group instead of under every bubble.
       data-message-sent-at={message.sentAtMs ? new Date(message.sentAtMs).toISOString() : undefined}
@@ -577,13 +591,25 @@ export const AgentBubble = memo(function AgentBubble({
               responseText={assistantText}
               isStreaming={isStreaming}
               isError={isError}
+              pendingPhase={pendingPhase}
+              pendingLabel={pendingLabel}
+              pendingTrailingAction={renderThoughtButton(false)}
               opportunities={turnPanelOpportunities}
               response={
                 assistantText ? (
                   <div
                     data-agent-response-bubble
-                    className={cn(ONE_CHAT_ASSISTANT_BUBBLE_CLASSNAME, "relative w-full min-w-0 max-w-full break-words")}
+                    data-agent-streaming-settle={
+                      isStreaming || animated.tailSettling ? "true" : undefined
+                    }
+                    data-agent-streaming-cursor={isStreaming ? "true" : undefined}
+                    className={cn(
+                      ONE_CHAT_ASSISTANT_BUBBLE_CLASSNAME,
+                      "relative w-full min-w-0 max-w-full break-words",
+                      hasThinkingSummary && "pr-9",
+                    )}
                   >
+                    {renderThoughtButton(true)}
                     <AgentMarkdown text={assistantText} />
                     {hoverResponseActionsNode}
                   </div>
@@ -592,12 +618,28 @@ export const AgentBubble = memo(function AgentBubble({
             />
           ) : assistantText ? (
             <>
-              <AgentMarkdown text={assistantText} />
+              {showAssistantBubble ? renderThoughtButton(true) : null}
+              <div
+                data-agent-streaming-settle={
+                  !isUser && (isStreaming || animated.tailSettling) ? "true" : undefined
+                }
+                data-agent-streaming-cursor={
+                  !isUser && isStreaming ? "true" : undefined
+                }
+                className={cn(hasThinkingSummary && showAssistantBubble && "pr-5")}
+              >
+                <AgentMarkdown text={assistantText} />
+              </div>
               {showAssistantBubble && !isError ? hoverResponseActionsNode : null}
             </>
           ) : backgroundOnly || canRenderConsentActions ||
-            canRenderPendingConsentRequest ? null : (
-            <AgentThinkingDots />
+            canRenderPendingConsentRequest || canRenderOneStreamEvent ? null : hasThinkingSummary ? (
+            <div className="flex items-center justify-between gap-2">
+              <AgentThinkingDots phase={pendingPhase} label={pendingLabel} />
+              {renderThoughtButton(false)}
+            </div>
+          ) : (
+            <AgentThinkingDots phase={pendingPhase} label={pendingLabel} />
           )}
           {!isUser && isError && message.errorNotice ? (
             <p
@@ -634,6 +676,15 @@ export const AgentBubble = memo(function AgentBubble({
           })() : null}
           {!isUser && backgroundCard ? <div className={backgroundOnly ? undefined : "mt-3"}>{backgroundCard}</div> : null}
         </OneChatBubble>
+        {hasThinkingSummary ? (
+          <AgentThoughtProcessSheet
+            open={thoughtOpen}
+            onOpenChange={setThoughtOpen}
+            text={thinkingSummary}
+            isStreaming={isThinkingStreaming}
+            returnFocusRef={thoughtTriggerRef}
+          />
+        ) : null}
         {isUser && message.queuedPlacement === "joined" ? <QueuedJoinedCaption /> : null}
         {!isUser && message.memoryCapture ? <AgentMemoryCaptureStatus status={message.memoryCapture} onConfirmNeedsOwner={onConfirmMemoryNeedsOwner} onRetry={onRetryMemorySave} pendingCards={pendingMemoryCards} canConfirmNeedsOwner={canConfirmMemoryNeedsOwner} onUnlock={onUnlockVault} /> : null}
         {!isUser && !isStreaming && !isError ? driveMemoryReview : null}
@@ -650,7 +701,7 @@ export const AgentBubble = memo(function AgentBubble({
         </div>
         ) : null}
         {canRenderConsentActions && consentActionsPayload ? (
-          <div className="mt-4">
+          <div className={cn(showAssistantBubble && "mt-4")}>
             <SpecialistConsentActionsCard
               items={consentActionsPayload.items}
               busyItemId={busyConsentItemId}
@@ -664,12 +715,12 @@ export const AgentBubble = memo(function AgentBubble({
           </div>
         ) : null}
         {canRenderPendingConsentRequest && pendingConsentRequestPayload ? (
-          <div className="mt-4">
+          <div className={cn(showAssistantBubble && "mt-4")}>
             <SpecialistPendingConsentRequestCard
               item={pendingConsentRequestPayload.item}
               busy={busyConsentItemId === pendingConsentRequestPayload.item.id}
-              onApprove={(item) => {
-                void onPendingConsentApprove?.(item);
+              onApprove={(item, negativeNetAcknowledgement) => {
+                void onPendingConsentApprove?.(item, negativeNetAcknowledgement);
               }}
               onDeny={(item) => {
                 void onPendingConsentDeny?.(item);
@@ -677,6 +728,29 @@ export const AgentBubble = memo(function AgentBubble({
               onDetails={(item) => {
                 onPendingConsentDetails?.(item);
               }}
+            />
+          </div>
+        ) : null}
+        {canRenderOneStreamEvent && oneStreamEventPayload ? (
+          <div className={cn(showAssistantBubble && "mt-4")}>
+            <OneStreamEventCard
+              item={oneStreamEventPayload.item}
+              busy={busyConsentItemId === oneStreamEventPayload.item.id}
+              onAccept={
+                onOneStreamAccept
+                  ? (item) => {
+                      void onOneStreamAccept(item);
+                    }
+                  : undefined
+              }
+              onDecline={
+                onOneStreamDecline
+                  ? (item) => {
+                      void onOneStreamDecline(item);
+                    }
+                  : undefined
+              }
+              onOpen={onOneStreamOpen}
             />
           </div>
         ) : null}
@@ -698,23 +772,32 @@ export function ChatTimeSeparatorRow({ separator }: { separator: ChatTimeSeparat
   );
 }
 
-export function ChatAgentSubtitle({ text, working, brand, icon }: { text: string; working: boolean; brand?: ConnectorBrand | null; icon?: AgentActivityIcon }) {
-  const [display, setDisplay] = useState({ text, working, brand, icon });
+export type ChatPresenceDotTone = "active" | "idle" | "waking" | "warning";
+
+const PRESENCE_DOT_CLASS: Record<ChatPresenceDotTone, string> = {
+  active: "bg-emerald-500",
+  idle: "bg-emerald-500/70",
+  waking: "bg-amber-400 motion-safe:animate-pulse",
+  warning: "bg-amber-500",
+};
+
+export function ChatAgentSubtitle({ text, working, brand, icon, presenceDot }: { text: string; working: boolean; brand?: ConnectorBrand | null; icon?: AgentActivityIcon; presenceDot?: ChatPresenceDotTone | null }) {
+  const [display, setDisplay] = useState({ text, working, brand, icon, presenceDot });
   const [visible, setVisible] = useState(true);
   useEffect(() => {
-    if (display.text === text && display.working === working && display.brand === brand && display.icon === icon) {
+    if (display.text === text && display.working === working && display.brand === brand && display.icon === icon && display.presenceDot === presenceDot) {
       setVisible(true);
       return;
     }
     setVisible(false);
     // The mark and label are one projection, including during the fade.
-    const timer = window.setTimeout(() => { setDisplay({ text, working, brand, icon }); setVisible(true); }, 90);
+    const timer = window.setTimeout(() => { setDisplay({ text, working, brand, icon, presenceDot }); setVisible(true); }, 90);
     return () => window.clearTimeout(timer);
-  }, [display, text, working, brand, icon]);
+  }, [display, text, working, brand, icon, presenceDot]);
   if (!display.text) return null;
-  return <p aria-live="polite" className="flex max-w-48 items-center gap-1.5 truncate text-xs text-muted-foreground sm:max-w-64">
+  return <p aria-live="polite" data-testid="agent-chat-header-status" className="flex max-w-48 items-center gap-1.5 truncate text-xs text-muted-foreground sm:max-w-64">
     <span className={`flex min-w-0 items-center gap-1.5 transition-opacity duration-100 motion-reduce:transition-none ${visible ? "opacity-100" : "opacity-0"}`}>
-      {display.brand || display.icon ? <AgentActivityMark brand={display.brand} icon={display.icon} /> : display.working ? <Loader2 aria-hidden="true" className="size-3 shrink-0 animate-spin motion-reduce:animate-none" /> : null}
+      {display.brand || display.icon ? <AgentActivityMark brand={display.brand} icon={display.icon} /> : display.working ? <Loader2 aria-hidden="true" className="size-3 shrink-0 animate-spin motion-reduce:animate-none" /> : display.presenceDot ? <span aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${PRESENCE_DOT_CLASS[display.presenceDot]}`} /> : null}
       <span className="truncate">{display.text}</span>
     </span>
   </p>;

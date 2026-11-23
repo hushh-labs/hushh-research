@@ -40,6 +40,10 @@ from urllib.parse import urlsplit
 
 import requests  # type: ignore[import-untyped]
 
+_DEFAULT_REQUESTS_MODULE = requests
+_DEFAULT_REQUESTS_GET = requests.get
+_DEFAULT_REQUESTS_POST = requests.post
+
 logger = logging.getLogger(__name__)
 
 _METADATA_IDENTITY_URL = (
@@ -117,20 +121,25 @@ def _resolve_request_signing_epoch(path: str) -> Optional[int]:
         signing_epoch,
     )
 
+    raw_env_epoch = (os.getenv("HUSSH_POD_PLACEMENT_EPOCH") or "").strip()
+    env_epoch = int(raw_env_epoch) if raw_env_epoch.isdigit() and int(raw_env_epoch) > 0 else None
+
     hit = cached_role()
     if hit is not None:
-        return None if hit is PRIMARY_AT_ZERO else hit.epoch
+        if hit is PRIMARY_AT_ZERO:
+            return env_epoch
+        hit_ep = int(hit.epoch)
+        return max(hit_ep, env_epoch) if env_epoch is not None else hit_ep
 
     if getattr(_SIGNING_IN_PROGRESS, "active", False) or path.startswith("/api/one/pod/custody/"):
-        raw_env_epoch = (os.getenv("HUSSH_POD_PLACEMENT_EPOCH") or "").strip()
-        if raw_env_epoch.isdigit() and int(raw_env_epoch) > 0:
-            return int(raw_env_epoch)
-        return None
+        return env_epoch
 
     _SIGNING_IN_PROGRESS.active = True
     try:
         ep = signing_epoch()
-        return int(ep) if isinstance(ep, int) else None
+        if isinstance(ep, int):
+            return max(ep, env_epoch) if env_epoch is not None else ep
+        return env_epoch
     finally:
         _SIGNING_IN_PROGRESS.active = False
 
@@ -177,8 +186,22 @@ class PodHubClient:
         # the signed audience, and a trailing slash would change both.
         self._base = ((base_url if base_url is not None else hub_base_url()) or "").rstrip("/")
         self._timeout = timeout_seconds
+        self._using_default_session = session is None
         # Injectable for hermetic tests; never reaches the metadata server in unit tests.
-        self._session = session if session is not None else requests
+        if session is not None:
+            self._session = session
+        elif (
+            requests is _DEFAULT_REQUESTS_MODULE
+            and requests.get is _DEFAULT_REQUESTS_GET
+            and requests.post is _DEFAULT_REQUESTS_POST
+        ):
+            from hushh_mcp.services.pod_storage_transport import (
+                shared_pod_storage_transport,
+            )
+
+            self._session = shared_pod_storage_transport()
+        else:
+            self._session = requests
         self._token: Optional[str] = None
         self._token_expiry: float = 0.0
         self._metadata_absent_until: float = 0.0
@@ -222,14 +245,14 @@ class PodHubClient:
         now = time.time()
         if now < self._metadata_absent_until:
             return None
-        if self._session is requests and _is_process_metadata_absent(now):
+        if self._using_default_session and _is_process_metadata_absent(now):
             return None
         try:
             return self._identity_token()
         except PodHubUnavailable as exc:
             absent_until = time.time() + _METADATA_ABSENT_RETRY_SECONDS
             self._metadata_absent_until = absent_until
-            if self._session is requests:
+            if self._using_default_session:
                 _mark_process_metadata_absent(absent_until)
             self._metadata_failure = str(exc)
             return None

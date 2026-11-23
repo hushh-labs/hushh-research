@@ -9,7 +9,7 @@ const hasPendingEarnings = (account: CommerceAccount) => (account.earnings?.pend
 
 /** One owner can feed either renderer without creating a second subscription. */
 export function useMemoryCommerceSummary(active = true) {
-  return useCommerceRead("memory-earnings", ScopeCommerceService.account, hasPendingEarnings, active);
+  return useCommerceRead("memory-earnings", ScopeCommerceService.account, hasPendingEarnings, active, { warmSnapshot: true });
 }
 export type MemoryCommerceSummaryModel = ReturnType<typeof useMemoryCommerceSummary>;
 

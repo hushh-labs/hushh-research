@@ -2,7 +2,9 @@ import { PodNotReachedError, PodSendUnconfirmedError, isAgentStillWaking, notRea
 import { legacyReceiptResult } from "@/lib/mail/receipt-availability";
 import {
   admittedPodActionIds,
+  clientWikiRecallVersion,
   hasPodReceiptTools,
+  plaidConnectorToolVersion,
   projectPodActionTools,
   projectPodReceiptTools,
   receiptToolVersion,
@@ -16,10 +18,18 @@ import {
 const agentAnswered = new Map<string, number>();
 const fencedProbeAttempts = new Map<string, number>();
 const AGENT_AWAKE_MS = 60_000;
+const RECENT_ANSWER_WINDOW_MS = 300_000;
 const MAX_FENCED_PROBE_RETRIES = 2;
 
 export function markAgentAnswered(url: string): void {
   agentAnswered.set(url, Date.now());
+}
+
+export function hasRecentAgentAnswer(now = Date.now()): boolean {
+  for (const answeredAt of agentAnswered.values()) {
+    if (now - answeredAt <= RECENT_ANSWER_WINDOW_MS) return true;
+  }
+  return false;
 }
 
 /** Forget which agents answered recently. Tests start from a cold agent. */
@@ -62,7 +72,13 @@ function legacyReceiptResults(request: RequestInit): RequestInit {
  */
 const receiptCapabilities = new WeakMap<
   object,
-  { version: 0 | 1; admittedActions: ReadonlySet<string> | null; checkedAt: number }
+  {
+    version: 0 | 1;
+    plaidVersion: 0 | 1;
+    clientWikiVersion: 0 | 1;
+    admittedActions: ReadonlySet<string> | null;
+    checkedAt: number;
+  }
 >();
 
 export async function sendChatTurn(
@@ -78,6 +94,8 @@ export async function sendChatTurn(
   const cached = session ? receiptCapabilities.get(session) : undefined;
   const freshCache = cached && now - cached.checkedAt <= AGENT_AWAKE_MS ? cached : undefined;
   let version = freshCache?.version;
+  let plaidVersion: 0 | 1 = freshCache?.plaidVersion ?? 0;
+  let clientWikiVersion: 0 | 1 = freshCache?.clientWikiVersion ?? 0;
   let admittedActions = freshCache?.admittedActions ?? null;
   const recentlyAdmitted =
     typeof directVerifiedAt === "number" &&
@@ -136,9 +154,17 @@ export async function sendChatTurn(
       }
       const payload = await probe.json().catch(() => null);
       version = receiptToolVersion(payload);
+      plaidVersion = plaidConnectorToolVersion(payload);
+      clientWikiVersion = clientWikiRecallVersion(payload);
       admittedActions = admittedPodActionIds(payload);
       if (session) {
-        receiptCapabilities.set(session, { version, admittedActions, checkedAt: Date.now() });
+        receiptCapabilities.set(session, {
+          version,
+          plaidVersion,
+          clientWikiVersion,
+          admittedActions,
+          checkedAt: Date.now(),
+        });
       }
     } else {
       void probe.body?.cancel().catch(() => undefined);
@@ -153,7 +179,10 @@ export async function sendChatTurn(
     request = projectPodReceiptTools(request, version);
     if (version === 1) request = legacyReceiptResults(request);
   }
-  request = projectPodActionTools(request, admittedActions);
+  request = projectPodActionTools(request, admittedActions, {
+    plaidVersion,
+    clientWikiVersion,
+  });
   try {
     const response = await fetch(`${url}/api/one/pod/agent-chat`, request);
     // A gateway can time out after the pod accepted the turn. Only the earlier
@@ -161,6 +190,9 @@ export async function sendChatTurn(
     if (isAgentStillWaking(response)) {
       void response.body?.cancel().catch(() => undefined);
       throw new PodSendUnconfirmedError();
+    }
+    if (response.ok) {
+      markAgentAnswered(url);
     }
     return response;
   } catch (error) {

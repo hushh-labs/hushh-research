@@ -380,7 +380,10 @@ export function AgentMarkdown({
 
 
   return (
-    <div className={cn("agent-markdown min-w-0 break-words", className)}>
+    <div
+      data-slot="markdown"
+      className={cn("agent-markdown min-w-0 break-words", className)}
+    >
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkChatPhoneLinks]}
         remarkRehypeOptions={{

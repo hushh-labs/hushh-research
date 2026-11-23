@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   pauseConsentExport: vi.fn(),
   clearAgentPkmContext: vi.fn(),
   clearAgentChatHistoryCache: vi.fn(),
+  clearFilesCache: vi.fn(),
   warmAgentChatHistoryCache: vi.fn(),
   clearLiveActivity: vi.fn(), renewLiveActivitySession: vi.fn(), renewMarkdownMemorySession: vi.fn(),
   invalidateVaultState: vi.fn(),
@@ -61,6 +62,11 @@ vi.mock("@/lib/pkm/markdown-memory", async (importOriginal) => ({ ...(await impo
 vi.mock("@/lib/agent/agent-chat-history-cache", () => ({
   clearAgentChatHistoryCache: mocks.clearAgentChatHistoryCache,
   warmAgentChatHistoryCache: mocks.warmAgentChatHistoryCache,
+}));
+
+vi.mock("@/lib/files/files-cache", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/files/files-cache")>()),
+  clearFilesCache: mocks.clearFilesCache,
 }));
 
 vi.mock("@/lib/pkm/live-activity/live-activity-journal", () => ({
@@ -790,6 +796,24 @@ describe("VaultProvider app-resume expiry recovery", () => {
     expect(screen.getByTestId("vault-status").textContent).toBe("locked");
     expect(screen.getByTestId("vault-token").textContent).toBe("none");
     expect(screen.getByTestId("vault-key").textContent).toBe("none");
+    expect(mocks.clearAgentChatHistoryCache).toHaveBeenCalledWith("vault-owner", { includeDevice: true });
+    expect(mocks.clearFilesCache).toHaveBeenCalledWith("vault-owner", { includeDevice: true });
     await waitFor(() => expect(mocks.invalidateVaultState).toHaveBeenCalled());
+  });
+
+  it("keeps encrypted chat and files IDB caches intact on idle or manual lockVault()", () => {
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+    mocks.clearAgentChatHistoryCache.mockClear();
+    mocks.clearFilesCache.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: "Lock" }));
+
+    expect(mocks.clearAgentChatHistoryCache).toHaveBeenCalledWith("vault-owner", {
+      includeDevice: false,
+    });
+    expect(mocks.clearFilesCache).toHaveBeenCalledWith("vault-owner", {
+      includeDevice: false,
+    });
   });
 });

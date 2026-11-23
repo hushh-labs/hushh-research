@@ -62,12 +62,20 @@ export function marketNewsImageUrl(value: unknown): string | null {
   } catch { return null; }
 }
 
+export function marketNewsCoverSources(row: KaiHomeNewsItem, thumbnail = false): string[] {
+  return [...new Set([
+    marketNewsImageUrl(thumbnail ? row.image_thumbnail_url || row.image_url : row.image_url),
+    marketNewsImageUrl(thumbnail ? row.image_url : row.image_thumbnail_url),
+    shouldShowNewsCompanyLogo(row) ? getCompanyLogoUrl({ symbol: normalizeMarketSymbol(row.symbol) }) : null,
+  ].filter((url): url is string => Boolean(url)))];
+}
+
 export function OneMarketNewsCover({ row, className, thumbnail = false }: { row: KaiHomeNewsItem; index: number; className?: string; thumbnail?: boolean }) {
   const articleImage = marketNewsImageUrl(thumbnail ? row.image_thumbnail_url || row.image_url : row.image_url);
   const fallbackImage = marketNewsImageUrl(thumbnail ? row.image_url : row.image_thumbnail_url);
   const logo = shouldShowNewsCompanyLogo(row) ? getCompanyLogoUrl({ symbol: normalizeMarketSymbol(row.symbol) }) : null;
   const [failedUrls, setFailedUrls] = useState<string[]>([]);
-  const source = [articleImage, fallbackImage, logo].find((url) => url && !failedUrls.includes(url));
+  const source = marketNewsCoverSources(row, thumbnail).find(url => !failedUrls.includes(url));
   useEffect(() => { setFailedUrls([]); }, [articleImage, fallbackImage, logo]);
   return (
     <div className={cn("relative flex items-center justify-center overflow-hidden bg-muted text-muted-foreground", className || "h-[140px]")}>

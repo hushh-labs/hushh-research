@@ -80,11 +80,33 @@ export function createSlowNoticeToastPort(onPersonDismiss: () => void): SlowNoti
 }
 
 /** One notice controller per chat surface, taken down when the surface unmounts. */
-export function useAgentChatSlowNotice(): SlowTurnNotice {
+export function useAgentChatSlowNotice(
+  onStateChange?: (state: SlowNoticeState | null) => void,
+): SlowTurnNotice {
   const [notice] = useState(() => {
-    const controller: SlowTurnNotice = new SlowTurnNotice(
-      createSlowNoticeToastPort(() => controller.dismissedByPerson()),
-    );
+    const basePort = createSlowNoticeToastPort(() => controller.dismissedByPerson());
+    const controller: SlowTurnNotice = new SlowTurnNotice({
+      show: (view) => {
+        onStateChange?.(view.state);
+        // Routine thinking, startup, and stream reconnects belong inline in the
+        // chat turn and avatar status pill rather than a floating toast that
+        // collides over the agent header. Reserve the toast strictly for
+        // genuine server-declared capacity or unavailability notices.
+        if (
+          view.state === "slow" ||
+          view.state === "waking" ||
+          view.state === "connecting"
+        ) {
+          basePort.clear();
+          return;
+        }
+        basePort.show(view);
+      },
+      clear: () => {
+        onStateChange?.(null);
+        basePort.clear();
+      },
+    });
     return controller;
   });
   useEffect(() => () => notice.dispose(), [notice]);

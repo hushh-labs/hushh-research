@@ -10,13 +10,20 @@ import { useVault } from "@/lib/vault/vault-context";
 
 export type CalendarNativeRow = NativeWorkspaceSurfaceRow;
 export type CalendarNativeSection = NativeWorkspaceSurfaceSection;
+export function calendarNativeDayControls(actions: { previous: () => void; today: () => void; next: () => void; enabled?: boolean }): CalendarNativeSection {
+  return { key: "date-controls", layout: "toolbar", rows: [{ key: "day-navigation", label: "Date navigation", enabled: actions.enabled, inlineActions: [
+    { key: "previous-day", label: "Previous day", symbol: "chevron.left", tone: "ghost", run: actions.previous },
+    { key: "today", label: "Today", tone: "ghost", run: actions.today },
+    { key: "next-day", label: "Next day", symbol: "chevron.right", tone: "ghost", run: actions.next },
+  ] }] };
+}
 type LayerProps = Omit<Parameters<typeof NativeWorkspaceSurface>[0], "owner" | "workspace" | "current" | "backPath" | "presentation" | "frame" | "tabs">;
 type RouteModel = { owner: string | null; onboarding: boolean; rootOnly: boolean; root: CalendarNativeSection[];
   webChild: boolean; confirmation?: NativeWorkspaceSurfaceConfirmation };
 type RouteScope = { model: RouteModel; frame: RefObject<HTMLDivElement | null>; enabled: boolean;
   presentation: ReturnType<typeof useNativeWorkspacePresentation>; current: () => boolean; path: string };
 const CalendarPresentation = createContext<RouteScope | null>(null);
-type PaneScope = { tabs: NonNullable<Parameters<typeof NativeWorkspaceSurface>[0]["tabs"]>; sections: CalendarNativeSection[] };
+type PaneScope = { tabs: NonNullable<Parameters<typeof NativeWorkspaceSurface>[0]["tabs"]>; sections: CalendarNativeSection[]; webChild: boolean };
 const CalendarPanes = createContext<PaneScope | null>(null);
 
 export function NativeCalendarRoute({ model, frame, children }: { model: RouteModel; frame: RefObject<HTMLDivElement | null>; children: ReactNode }) {
@@ -42,10 +49,9 @@ export function NativeCalendarLayer(props: LayerProps) {
   const scope = useContext(CalendarPresentation), panes = useContext(CalendarPanes);
   if (!scope?.enabled || !props.active || scope.model.rootOnly && panes) return props.fallback;
   return <NativeWorkspaceSurface {...props} owner={scope.model.owner!} workspace="calendar" current={scope.current}
-    contentPresentation={panes ? "rich" : props.contentPresentation}
     backPath={scope.path} presentation={scope.presentation} frame={scope.frame} tabs={panes?.tabs}
     sections={[...(panes?.sections ?? []), ...props.sections]} confirmation={scope.model.confirmation}
-    webChild={scope.model.webChild || props.webChild} />;
+    webChild={scope.model.webChild || panes?.webChild || props.webChild} />;
 }
 export function useNativeCalendarFrame() { return useContext(CalendarPresentation)?.frame; }
 export function useNativeCalendarEnabled() { return Boolean(useContext(CalendarPresentation)?.enabled); }

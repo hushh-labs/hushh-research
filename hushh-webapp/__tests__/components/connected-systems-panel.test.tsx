@@ -1503,7 +1503,7 @@ describe("ConnectedSystemsPanel", () => {
     ).toHaveClass("w-full", "justify-end");
     expect(
       screen.getByRole("button", { name: "Edit Preferred language" }),
-    ).toHaveClass("size-8", "rounded-full", "bg-muted/55");
+    ).toHaveClass("size-8", "rounded-full", "bg-[color:var(--app-neutral-fill)]");
   });
 
   it("keeps CRM field values hidden until an explicit record refresh settles", async () => {

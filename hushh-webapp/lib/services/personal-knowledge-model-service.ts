@@ -2512,75 +2512,121 @@ export class PersonalKnowledgeModelService {
   /**
    * Get available scopes for a user (MCP discovery).
    */
+  private static availableScopesInflight = new Map<string, Promise<ScopeDiscovery>>();
+
+  private static availableScopesCacheKey(userId: string): string {
+    return `pkm_domain_resource_${userId}_available_scopes`;
+  }
+
+  static peekAvailableScopes(userId: string): ScopeDiscovery | null {
+    if (!userId) return null;
+    const snap = CacheService.getInstance().peek<{
+      vaultEpoch: number;
+      discovery: ScopeDiscovery;
+    }>(this.availableScopesCacheKey(userId));
+    if (!snap || !isVaultSessionEpochCurrent(snap.data.vaultEpoch)) {
+      return null;
+    }
+    return snap.data.discovery;
+  }
+
   static async getAvailableScopes(
     userId: string,
-    vaultOwnerToken?: string
+    vaultOwnerToken?: string,
+    options?: { force?: boolean },
   ): Promise<ScopeDiscovery> {
-    if (Capacitor.isNativePlatform()) {
-      const nativeResult = await HushhPersonalKnowledgeModel.getAvailableScopes({
-        userId,
-        vaultOwnerToken: this.getVaultOwnerToken(vaultOwnerToken),
-      });
-       
-      const raw = nativeResult as any;
-      return {
-        userId: raw.user_id || raw.userId || userId,
-        availableDomains: (raw.available_domains || raw.availableDomains || []).map(
-          (d: Record<string, unknown>) => ({
-            domain: d.domain as string,
-            displayName: (d.display_name || d.displayName) as string,
-            scopes: (d.scopes || []) as string[],
-          })
-        ),
-        allScopes: raw.all_scopes || raw.allScopes || [],
-        wildcardScopes: raw.wildcard_scopes || raw.wildcardScopes || [],
-        scopeEntries: raw.scope_entries || raw.scopeEntries || [],
-      };
+    const vaultEpoch = snapshotVaultSessionEpoch();
+    const cache = CacheService.getInstance();
+    const cacheKey = this.availableScopesCacheKey(userId);
+    if (!options?.force) {
+      const cached = cache.peek<{ vaultEpoch: number; discovery: ScopeDiscovery }>(cacheKey);
+      if (cached?.isFresh && cached.data.vaultEpoch === vaultEpoch) {
+        return cached.data.discovery;
+      }
     }
+    const inflightKey = `${userId}:${vaultEpoch}`;
+    if (!options?.force) {
+      const existing = this.availableScopesInflight.get(inflightKey);
+      if (existing) return existing;
+    }
+    const job = (async (): Promise<ScopeDiscovery> => {
+      let discovery: ScopeDiscovery;
+      if (Capacitor.isNativePlatform()) {
+        const nativeResult = await HushhPersonalKnowledgeModel.getAvailableScopes({
+          userId,
+          vaultOwnerToken: this.getVaultOwnerToken(vaultOwnerToken),
+        });
 
-    // Web: Use ApiService.apiFetch() for tri-flow compliance
-    const response = await ApiService.apiFetch(`${this.PKM_API_PREFIX}/scopes/${userId}`, {
-      headers: this.getAuthHeaders(vaultOwnerToken),
+        const raw = nativeResult as any;
+        discovery = {
+          userId: raw.user_id || raw.userId || userId,
+          availableDomains: (raw.available_domains || raw.availableDomains || []).map(
+            (d: Record<string, unknown>) => ({
+              domain: d.domain as string,
+              displayName: (d.display_name || d.displayName) as string,
+              scopes: (d.scopes || []) as string[],
+            })
+          ),
+          allScopes: raw.all_scopes || raw.allScopes || [],
+          wildcardScopes: raw.wildcard_scopes || raw.wildcardScopes || [],
+          scopeEntries: raw.scope_entries || raw.scopeEntries || [],
+        };
+      } else {
+        // Web: Use ApiService.apiFetch() for tri-flow compliance
+        const response = await ApiService.apiFetch(`${this.PKM_API_PREFIX}/scopes/${userId}`, {
+          headers: this.getAuthHeaders(vaultOwnerToken),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to get scopes: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const rawScopes: string[] = Array.isArray(data.scopes)
+          ? data.scopes
+          : Array.isArray(data.all_scopes)
+            ? data.all_scopes
+            : [];
+        const groupedDomains = new Map<string, string[]>();
+        for (const scope of rawScopes) {
+          const match = /^attr\.([a-zA-Z0-9_]+)/.exec(scope);
+          if (!match) continue;
+          const domain = match[1] ?? "";
+          if (!domain) continue;
+          const existing = groupedDomains.get(domain) || [];
+          existing.push(scope);
+          groupedDomains.set(domain, existing);
+        }
+
+        discovery = {
+          userId: data.user_id,
+          availableDomains:
+            data.available_domains ||
+            [...groupedDomains.entries()].map(([domain, scopes]) => ({
+              domain,
+              displayName: domain.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase()),
+              scopes,
+            })),
+          allScopes: rawScopes,
+          wildcardScopes:
+            data.wildcard_scopes ||
+            rawScopes.filter(
+              (scope) => scope === "pkm.read" || scope.endsWith(".*")
+            ),
+          scopeEntries: Array.isArray(data.scope_entries) ? data.scope_entries : undefined,
+        };
+      }
+      if (isVaultSessionEpochCurrent(vaultEpoch)) {
+        cache.set(cacheKey, { vaultEpoch, discovery }, CACHE_TTL.MEDIUM);
+      }
+      return discovery;
+    })().finally(() => {
+      if (this.availableScopesInflight.get(inflightKey) === job) {
+        this.availableScopesInflight.delete(inflightKey);
+      }
     });
-
-    if (!response.ok) {
-      throw new Error(`Failed to get scopes: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const rawScopes: string[] = Array.isArray(data.scopes)
-      ? data.scopes
-      : Array.isArray(data.all_scopes)
-        ? data.all_scopes
-        : [];
-    const groupedDomains = new Map<string, string[]>();
-    for (const scope of rawScopes) {
-      const match = /^attr\.([a-zA-Z0-9_]+)/.exec(scope);
-      if (!match) continue;
-      const domain = match[1] ?? "";
-      if (!domain) continue;
-      const existing = groupedDomains.get(domain) || [];
-      existing.push(scope);
-      groupedDomains.set(domain, existing);
-    }
-
-    return {
-      userId: data.user_id,
-      availableDomains:
-        data.available_domains ||
-        [...groupedDomains.entries()].map(([domain, scopes]) => ({
-          domain,
-          displayName: domain.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase()),
-          scopes,
-        })),
-      allScopes: rawScopes,
-      wildcardScopes:
-        data.wildcard_scopes ||
-        rawScopes.filter(
-          (scope) => scope === "pkm.read" || scope.endsWith(".*")
-        ),
-      scopeEntries: Array.isArray(data.scope_entries) ? data.scope_entries : undefined,
-    };
+    this.availableScopesInflight.set(inflightKey, job);
+    return job;
   }
 
   /**

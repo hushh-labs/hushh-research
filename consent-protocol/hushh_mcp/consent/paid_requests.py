@@ -490,6 +490,10 @@ async def admitted_request_status(row: dict[str, Any] | None) -> dict[str, Any] 
     metadata = _metadata(row.get("metadata"))
     if not is_paid_grant(metadata):
         return row
+    if row.get("action") in {"CANCELLED", "REVOKED", "CONSENT_DENIED", "TIMEOUT"} and isinstance(
+        metadata.get("commerce_status"), str
+    ):
+        return row
     from hushh_mcp.services.scope_commerce.service import ScopeCommerceService
 
     try:

@@ -16,7 +16,7 @@ export type NativeControlAppearance = {
 
 export type NativeControlForeground = "accent" | "secondary" | "on-accent";
 
-export function nativeColorTokenHex(token: "--muted-foreground" | "--app-accent-fg" | "--background" | "--agent-location-blue"): string | null {
+export function nativeColorTokenHex(token: `--${string}`): string | null {
   const literal = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
   if (/^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(literal)) return literal;
   const [, format, body] = literal.match(/^(rgba?|oklch|oklab|lab)\(([^)]+)\)$/i) ?? [];

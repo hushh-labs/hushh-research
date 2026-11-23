@@ -654,3 +654,193 @@ def test_multicloud_downscoped_policy_builders_and_prefix_confinement(
     # Unused env imports verified cleanly
     assert HUB_AZURE_ACCOUNT_ENV == "HUSSH_HUB_POD_AZURE_ACCOUNT"
     assert HUB_AZURE_CONTAINER_ENV == "HUSSH_HUB_POD_AZURE_CONTAINER"
+
+
+def test_sandbox_edge_epoch_handshake_and_precutover_pooled_custody(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+) -> None:
+    """Verify stateless Edge -> Hub epoch lookup, PRIMARY_AT_ZERO signing retention,
+    and pre-detach pooled ACE sandbox custody during lossless commit-log import."""
+    from api.routes.one.pod_capability_broker import handle_sandbox_placement
+    from hushh_mcp.services.agent_sandbox.edge_gateway_app import (
+        derive_owner_pod_identity,
+        sign_sandbox_edge_placement_headers,
+    )
+    from hushh_mcp.services.pod_hub_client import _resolve_request_signing_epoch
+    from hushh_mcp.services.pod_role import PRIMARY_AT_ZERO, remember_role, reset_role_cache
+    from hushh_mcp.services.pooled_sandbox_cutover import derive_pooled_owner_public_keys
+
+    master_seed = b"M" * 32
+    hub_url = "https://hub-precutover.test"
+    hushh_id = "ha1_7o6wt3s4mtydneyytqfswsxtafdlpjwz"
+    owner_id = "owner-epoch-migrated"
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "1")
+    monkeypatch.setenv("POD_HUB_IDENTITY_AUTH_ENABLED", "1")
+    monkeypatch.setenv("POD_HUB_EXPECTED_AUDIENCE", hub_url)
+    monkeypatch.setenv("HUSSH_AGENT_SANDBOX_CUTOVER_ENABLED", "1")
+    monkeypatch.setenv("HUSSH_SANDBOX_EDGE_PUBLIC_URL", "https://edge-precutover.test")
+    monkeypatch.setenv("HUSSH_SANDBOX_IDENTITY_MASTER_KEY", master_seed.decode("ascii"))
+    monkeypatch.setenv(BROKER_SEAL_SECRET_ENV, "hub_precutover_seal_key_32bytes!")
+    monkeypatch.setenv(CUSTODY_MODE_ENV, CUSTODY_HUB_BROKER)
+    monkeypatch.setenv(HUB_KMS_BACKEND_ENV, "hub_aead")
+
+    # Registry row STILL points to legacy Azure pod (epoch=2, different pod_signing_key_id)
+    legacy_az_row = _configure_durable_pod_identity(
+        monkeypatch,
+        hushh_id=hushh_id,
+        owner_id=owner_id,
+        seed_byte=0x21,
+        deployment_target="azure",
+        epoch=2,
+    )
+    registry = _FakeRegistry([legacy_az_row])
+    id_store = _FakeIdentityStore()
+    standbys = _FakeStandbyStore()
+    tombstoned_owners: set[str] = set()
+    app = _build_hub_broker_test_app(
+        registry=registry,
+        id_store=id_store,
+        standbys=standbys,
+        tombstoned_owners=tombstoned_owners,
+    )
+
+    @app.get("/api/one/pod/custody/sandbox-placement/{hid}")
+    async def _placement(hid: str, request: Request) -> dict[str, Any]:
+        return await handle_sandbox_placement(hid, request, registry=registry)
+
+    hub_http = TestClient(app)
+
+    # 1. Edge-to-Hub placement epoch lookup + negative controls
+    unauth = hub_http.get(f"/api/one/pod/custody/sandbox-placement/{hushh_id}")
+    assert unauth.status_code == 401
+
+    stale = sign_sandbox_edge_placement_headers(master_seed, hushh_id, now_s=1_700_000_000)
+    assert (
+        hub_http.get(
+            f"/api/one/pod/custody/sandbox-placement/{hushh_id}", headers=stale
+        ).status_code
+        == 401
+    )
+
+    wrong_hid = sign_sandbox_edge_placement_headers(master_seed, "ha1_other_owner")
+    assert (
+        hub_http.get(
+            f"/api/one/pod/custody/sandbox-placement/{hushh_id}", headers=wrong_hid
+        ).status_code
+        == 401
+    )
+
+    valid_edge_hdrs = sign_sandbox_edge_placement_headers(master_seed, hushh_id)
+    ep_resp = hub_http.get(
+        f"/api/one/pod/custody/sandbox-placement/{hushh_id}", headers=valid_edge_hdrs
+    )
+    assert ep_resp.status_code == 200
+    assert ep_resp.json() == {"hushhId": hushh_id, "placementEpoch": 2}
+
+    # 2. Switch local pod process to deterministic pooled ACE identity (as VirginStandbyRuntime does)
+    priv_b64, _, _ = derive_owner_pod_identity(master_seed, hushh_id)
+    pod_self_registration._STATE = None
+    pod_self_registration._SIGNING = None
+    monkeypatch.setenv("HUSSH_POD_PRIVATE_KEY", priv_b64)
+    monkeypatch.setenv("HUSSH_ID", hushh_id)
+
+    # Negative control: missing or stale HUSSH_POD_PLACEMENT_EPOCH on epoch=2 row -> 401 refused!
+    monkeypatch.delenv("HUSSH_POD_PLACEMENT_EPOCH", raising=False)
+    reset_role_cache()
+    wire_session = _TestClientRequestsAdapter(hub_http)
+    hub_client = PodHubClient(base_url=hub_url, session=wire_session)
+    missing_ep_resp = hub_client.post("/api/one/pod/custody/storage-token", json={})
+    assert missing_ep_resp.status_code == 401
+
+    monkeypatch.setenv("HUSSH_POD_PLACEMENT_EPOCH", "1")
+    stale_ep_resp = hub_client.post("/api/one/pod/custody/storage-token", json={})
+    assert stale_ep_resp.status_code == 401
+
+    # Negative control: non-pooled arbitrary key with epoch=2 while row is on Azure -> 401 refused!
+    pod_self_registration._STATE = None
+    pod_self_registration._SIGNING = None
+    monkeypatch.setenv("HUSSH_POD_PRIVATE_KEY", base64.b64encode(b"\x77" * 32).decode("ascii"))
+    monkeypatch.setenv("HUSSH_POD_PLACEMENT_EPOCH", "2")
+    stranger_resp = hub_client.post("/api/one/pod/custody/storage-token", json={})
+    assert stranger_resp.status_code == 401
+
+    # Restore pooled ACE key + epoch=2 and verify PRIMARY_AT_ZERO cache does NOT strip epoch!
+    pod_self_registration._STATE = None
+    pod_self_registration._SIGNING = None
+    monkeypatch.setenv("HUSSH_POD_PRIVATE_KEY", priv_b64)
+    monkeypatch.setenv("HUSSH_POD_PLACEMENT_EPOCH", "2")
+    monkeypatch.setenv("POD_STORAGE_BACKEND", "commit_log")
+    remember_role(PRIMARY_AT_ZERO)
+    assert _resolve_request_signing_epoch("/api/one/pod/custody/storage-token") == 2
+    assert _resolve_request_signing_epoch("/api/one/pod/heartbeat") == 2
+    reset_role_cache()
+
+    # 3. Pre-detach pooled ACE sandbox boots DEK custody + storage token while row is still Azure,
+    #    then seamlessly unwraps the SAME DEK after registry flips to ACE!
+    tok_resp = hub_client.post("/api/one/pod/custody/storage-token", json={})
+    assert tok_resp.status_code == 200
+    assert tok_resp.json()["hushhId"] == hushh_id
+
+    pod_store = LocalObjectStore(str(tmp_path / "precutover-ace-store"))
+    dek_pre = resolve_key_custody_port(store=pod_store, hub_client=hub_client).resolve_log_key()
+    assert len(dek_pre) == 32
+
+    # Flip registry row to ACE (post-import detach + ensure_pooled_sandbox_placement)
+    pooled_pub = derive_pooled_owner_public_keys(master_seed, hushh_id)
+    registry.by_hushh[hushh_id].update(
+        {
+            "deployment_target": "ace",
+            "pod_pubkey": pooled_pub["pod_pubkey"],
+            "pod_key_id": pooled_pub["pod_key_id"],
+            "pod_signing_pubkey": pooled_pub["pod_signing_pubkey"],
+            "pod_signing_key_id": pooled_pub["pod_signing_key_id"],
+        }
+    )
+    dek_post = resolve_key_custody_port(store=pod_store, hub_client=hub_client).resolve_log_key()
+    assert dek_post == dek_pre
+
+
+def test_hub_custody_broker_eliminates_redundant_registry_reads_for_local_crypto(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Local-crypto storage-token (`ace_prefix_bearer`) and DEK (`hub_aead`) reuse the
+    request-scoped registry lookup (1 `get_by_hushh_id` per HTTP call instead of 3)."""
+    hub_url = "https://hub-query-budget.test"
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "1")
+    monkeypatch.setenv("POD_HUB_IDENTITY_AUTH_ENABLED", "1")
+    monkeypatch.setenv("POD_HUB_EXPECTED_AUDIENCE", hub_url)
+    monkeypatch.setenv("HUSSH_HUB_BASE_URL", hub_url)
+    monkeypatch.setenv(BROKER_SEAL_SECRET_ENV, "hub_budget_seal_key_material_32bytes")
+    monkeypatch.setenv(HUB_KMS_BACKEND_ENV, "hub_aead")
+
+    row = _configure_durable_pod_identity(
+        monkeypatch, hushh_id="pod-budget-01", owner_id="owner-budget-01", seed_byte=0x44
+    )
+
+    class _CountingRegistry(_FakeRegistry):
+        def __init__(self, rows: list[dict[str, Any]]) -> None:
+            super().__init__(rows)
+            self.by_hushh_calls = 0
+
+        async def get_by_hushh_id(self, hushh_id: str) -> dict[str, Any] | None:
+            self.by_hushh_calls += 1
+            return await super().get_by_hushh_id(hushh_id)
+
+    registry = _CountingRegistry([row])
+    id_store = _FakeIdentityStore()
+    standbys = _FakeStandbyStore()
+    app = _build_hub_broker_test_app(
+        registry=registry, id_store=id_store, standbys=standbys, tombstoned_owners=set()
+    )
+
+    with TestClient(app) as hub_http:
+        adapter_session = _TestClientRequestsAdapter(hub_http)
+        hub_client = PodHubClient(base_url=hub_url, session=adapter_session)
+        resp = hub_client.post("/api/one/pod/custody/storage-token", json={})
+        assert resp.status_code == 200
+        assert registry.by_hushh_calls == 1

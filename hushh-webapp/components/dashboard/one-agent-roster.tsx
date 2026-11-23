@@ -356,7 +356,7 @@ function resolvePrimaryMetric({
 }): OneAgentMode["primaryMetric"] {
   if (capabilityId === "consent") {
     if (!status || status.state === "unknown") {
-      return { value: "—", label: "checking" };
+      return { value: "--", label: "checking" };
     }
     const pendingConsentCount = status.pendingCount;
     return {
@@ -366,7 +366,7 @@ function resolvePrimaryMetric({
   }
 
   if (!status || status.state === "unknown") {
-    return { value: "—", label: "status not loaded" };
+    return { value: "--", label: "checking" };
   }
 
   if (status.pendingCount > 0) {
@@ -528,7 +528,7 @@ function AgentGridItem({
       className={cn(
         "group relative flex min-h-[96px] min-w-0 w-full flex-col items-center justify-start gap-[7px] overflow-hidden rounded-[14px] px-1.5 py-2 text-center",
         "transition-[background-color,opacity] duration-[120ms] ease-[var(--ease-out)]",
-        "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-[rgba(120,120,128,.08)] active:bg-[rgba(120,120,128,.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60 focus-visible:ring-inset motion-reduce:transition-none",
+        "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-neutral-fill)] active:bg-[color:var(--app-neutral-fill-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60 focus-visible:ring-inset motion-reduce:transition-none",
         className,
       )}
     >
@@ -571,7 +571,7 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       className={cn(
         "group/agent-row relative grid min-h-[58px] w-full grid-cols-[40px_minmax(0,1fr)_minmax(84px,auto)_14px] items-center gap-x-3 overflow-hidden px-3.5 text-left outline-none",
         "transition-colors duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none",
-        "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-[rgba(120,120,128,.08)] active:bg-[rgba(120,120,128,.12)]",
+        "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-neutral-fill)] active:bg-[color:var(--app-neutral-fill-strong)]",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
       )}
     >
@@ -605,11 +605,11 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       </span>
       <CaretRightIcon
         aria-hidden
-        className="relative z-10 h-4 w-4 text-[#C7C7CC] transition-transform duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:group-hover/agent-row:translate-x-0.5"
+        className="relative z-10 h-4 w-4 text-[color:var(--app-tertiary-label)] transition-transform duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:group-hover/agent-row:translate-x-0.5"
       />
       <span
         aria-hidden
-        className="pointer-events-none absolute bottom-0 left-16 right-4 h-px bg-[rgba(60,60,67,.12)] dark:bg-white/[0.09] group-last/agent-row:hidden"
+        className="pointer-events-none absolute bottom-0 left-16 right-4 h-px bg-[color:var(--app-separator)] group-last/agent-row:hidden"
       />
       <MaterialRipple variant="blue" effect="fade" className="z-0" />
     </Link>

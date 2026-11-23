@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import Mapping
 from typing import Any, Literal, Optional
 
@@ -80,16 +81,42 @@ def _refuse_own_cloud(row: dict) -> None:
         raise HTTPException(409, detail={"code": "AGENT_PRIVATE_RUNTIME_REQUIRED"})
 
 
-def _pod_url(row: dict) -> Optional[str]:
-    """The pod's URL as the HUB recorded it. Never taken from the request."""
+def _canonical_pod_url(row: dict) -> Optional[str]:
+    """The canonical HTTPS pod URL recorded in registry metadata."""
     metadata = row.get("backend_metadata")
     if not isinstance(metadata, dict):
         return None
     url = str(metadata.get("url") or "").strip().rstrip("/")
-    return url if url.startswith("https://") else None
+    if not url.startswith("https://"):
+        return None
+    return url
+
+
+def _pod_url(row: dict) -> Optional[str]:
+    """The pod's URL as the HUB recorded it, mapped to local sandbox edge when configured."""
+    url = _canonical_pod_url(row)
+    if not url:
+        return None
+    env = os.environ.get("ENVIRONMENT", "").strip().lower()
+    local_edge = os.environ.get("HUSSH_LOCAL_SANDBOX_EDGE_URL", "").strip().rstrip("/")
+    if env in {"local", "development"} and local_edge:
+        from urllib.parse import urlsplit
+
+        parsed_local = urlsplit(local_edge)
+        parsed_url = urlsplit(url)
+        if parsed_local.hostname in {"127.0.0.1", "localhost"} and parsed_url.path.startswith(
+            "/u/"
+        ):
+            return f"{parsed_local.scheme}://{parsed_local.netloc}{parsed_url.path}"
+    return url
 
 
 def _identity_token(audience: str) -> Optional[str]:
+    if audience.startswith(("http://127.0.0.1", "http://localhost")) or (
+        os.environ.get("ENVIRONMENT", "").strip().lower() in {"local", "development"}
+        and not os.environ.get("K_SERVICE")
+    ):
+        return None
     try:
         import google.auth.transport.requests
         import google.oauth2.id_token
@@ -110,10 +137,14 @@ async def _proxy_get(
         import requests  # type: ignore[import-untyped]  # noqa: PLC0415 - deferred so tests can inject
 
         client = requests
-    token = await run_in_threadpool(_identity_token, url)
-    if not token:
+    is_local_dev_loopback = os.environ.get("ENVIRONMENT", "").strip().lower() in {
+        "local",
+        "development",
+    } and (url.startswith("http://127.0.0.1:") or url.startswith("http://localhost:"))
+    token = None if is_local_dev_loopback else await run_in_threadpool(_identity_token, url)
+    if not token and not is_local_dev_loopback:
         return 503, {"detail": "pod identity unavailable"}
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
     try:
         response = await run_in_threadpool(
             lambda: client.get(
@@ -890,7 +921,7 @@ async def direct_chat_grants(
         != (before.get("backend_metadata") or {}).get("directReadiness")
         or metadata.get("ingress") != "direct"
         or after.get("pod_key_id") != endpoint.get("podKeyId")
-        or _pod_url(after) != endpoint.get("url")
+        or _canonical_pod_url(after) != endpoint.get("url")
     ):
         raise HTTPException(409, detail={"code": "POD_ASSIGNMENT_CHANGED"})
     return {"endpoint": endpoint, "dataDoorGrants": grants}

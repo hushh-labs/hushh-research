@@ -62,9 +62,11 @@ Owners: [Profile controller](../../components/profile/profile-connectors-section
 | --- | --- |
 | Gmail | Connect/Reconnect starts Google authorization; read/send/drafts permission status. **Enable drafts** explicitly authorizes compose scope. **Cancel sign-in** aborts attempt, **Retry** reloads failed status. Confirmed Disconnect invokes existing Gmail disconnect. |
 | Calendar | Connect/Reconnect requests read connection through existing Google flow. **Cancel sign-in**, status **Retry**, confirmed Disconnect. Completion must verify connected/service/access level. |
-| Plaid | Encrypted financial connection list. Each bank Disconnect confirmation removes connected vault records and refreshes. Successful empty offers **Connect a bank** → portfolio sources; failed read is not an empty account. |
+| Plaid | Encrypted financial connection list with a compact top-level summary. Each bank Disconnect uses a restrained neutral secondary pill on the uniform 32px trailing row scale; confirmation removes connected vault records and refreshes. Successful empty offers **Connect a bank** → portfolio sources; failed read is not an empty account. |
+| Payments · Stripe | Renders as one uniform top-level `SettingsRow` under **Payments** that drills into query-owned detail `connector:stripe` (`Stripe` title in `BUILT_IN_CONNECTOR_TITLES`). Inside the detail screen, **Open payments and earnings**, **Connect or reconnect Stripe tools**, and **Check connection** share one uniform 36px, 13px/500 detail action bar with clear primary-versus-secondary contrast instead of embedding multi-button cards on the root list. |
 | Drive | Enabled selected/live connection profile. Selected files do not grant whole-Drive access. **Enable full Drive access** can upgrade, **Retry Drive** verifies status, **Cancel sign-in** aborts. Confirmed Disconnect removes One's selected records; existing Google sharing requires separate revocation and outcome stays explicit. |
 | Curated | Connect/Reconnect/Cancel sign-in, confirmed Disconnect. Verifying is sign-in-needed, not falsely connected; provider revocation failure differs from local credential removal. |
+| Custom connectors | Grouped inside the same standard `SettingsGroup` and `SettingsRow` container as built-in connectors, with uniform trailing pill scale and detail/editor expansion. |
 
 ## Drive nested pages and controls
 

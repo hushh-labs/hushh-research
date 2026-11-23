@@ -15,7 +15,7 @@ from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from google.adk.apps import App, ResumabilityConfig
 from google.adk.sessions import InMemorySessionService
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_vault_owner_token
@@ -92,6 +92,9 @@ from hushh_mcp.one_adk.history_descriptors import (
     _safe_submitted_information_request_descriptor as _safe_submitted_information_request_descriptor,
 )
 from hushh_mcp.one_adk.history_descriptors import (
+    _session_category_projection,
+)
+from hushh_mcp.one_adk.history_descriptors import (
     _session_title as _session_title,
 )
 from hushh_mcp.one_adk.history_descriptors import (
@@ -124,6 +127,16 @@ from hushh_mcp.one_adk.owner_style import STATE_OWNER_STYLE, OwnerStyleError, ad
 from hushh_mcp.one_adk.pending_email_draft import (
     STATE_PENDING_EMAIL_DRAFT,
     admit_pending_email_draft,
+)
+from hushh_mcp.one_adk.plaid_connector_tools import (
+    STATE_PLAID_CLIENT_READY,
+    STATE_PLAID_POSTURE,
+    STATE_PLAID_RESULT,
+)
+from hushh_mcp.one_adk.plaid_turn_admission import (
+    admit_plaid_continuation,
+    admit_plaid_posture,
+    admit_plaid_tool,
 )
 from hushh_mcp.one_adk.queued_input import QueuedInputError
 from hushh_mcp.one_adk.queued_input import registry as queued_input_registry
@@ -207,6 +220,12 @@ def admit_client_tools(tools: list[Any]) -> list[Any]:
                 continue
         except ValueError:
             raise HTTPException(status_code=400, detail="Wiki tool contract is invalid.") from None
+        try:
+            if admit_plaid_tool(tool):
+                admitted.append(tool)
+                continue
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Plaid tool contract is invalid.") from None
         action_id = action_id_from_tool_name(tool.name)
         if action_id and get_action_gateway_action(action_id) is not None:
             admitted.append(tool)
@@ -539,6 +558,29 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         raise HTTPException(
             status_code=413, detail="Personal wiki hot digest exceeds the request budget."
         ) from None
+    try:
+        plaid_result = await admit_plaid_continuation(
+            forwarded,
+            owner_id=user_id if token else "",
+            conversation_id=input_data.thread_id,
+            messages=input_data.messages,
+            execution_head=_one_head,
+            load_session=lambda: _shared_sessions().get_session(
+                app_name=ONE_APP_NAME, user_id=user_id, session_id=input_data.thread_id
+            ),
+        )
+    except (ValueError, KeyError, TypeError):
+        raise HTTPException(
+            status_code=403, detail="Plaid continuation is unavailable. Ask again."
+        ) from None
+    try:
+        plaid_posture, plaid_client_ready = admit_plaid_posture(
+            forwarded, owner_admitted=bool(token and user_id)
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=413, detail="Plaid posture exceeds the request budget."
+        ) from None
     # The device sends a coarse position only when the person already granted
     # location; pre-vault turns never keep it.
     turn_location = admit_turn_location(forwarded)
@@ -574,6 +616,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         consume_request_secret(wiki_hot_digest)
         wiki_hot_digest = ""
         wiki_client_ready = False
+        consume_request_secret(plaid_posture)
+        plaid_posture = ""
+        plaid_client_ready = False
         # Without a vault-owner token the memory packet is dropped, never stored.
         raw_pkm_context = ""
     owner_display_name = await _owner_display_name_for_turn(user_id) if token and user_id else ""
@@ -627,6 +672,10 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_WIKI_HOT_DIGEST: wiki_hot_digest,
         STATE_WIKI_CLIENT_READY: wiki_client_ready,
         STATE_WIKI_RESULT: wiki_result,
+        STATE_PLAID_POSTURE: plaid_posture,
+        STATE_PLAID_CLIENT_READY: plaid_client_ready,
+        STATE_PLAID_RESULT: plaid_result,
+        **({"hussh:thread_title": "One"} if forwarded.get("mainChat") is True else {}),
     }
 
 
@@ -746,6 +795,7 @@ def _one_head() -> TimedADKAgent:
         user_id_extractor=_user_id,
     )
     agent.detached_turn_hook = _notify_detached_turn
+    agent.post_turn_hook = _persist_hub_rolling_horizon
     return agent
 
 
@@ -782,6 +832,18 @@ def __getattr__(name: str) -> Any:
     if name == "_intro_agent":
         return _intro_head()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+async def _persist_hub_rolling_horizon(owner_id: str, conversation_id: str) -> None:
+    """Silently persist encrypted rolling-horizon digest after RUN_FINISHED (zero turn pause)."""
+    from hushh_mcp.one_adk.rolling_horizon import persist_rolling_horizon_post_turn
+
+    await persist_rolling_horizon_post_turn(
+        _shared_sessions(),
+        app_name=ONE_APP_NAME,
+        user_id=owner_id,
+        session_id=conversation_id,
+    )
 
 
 async def _notify_detached_turn(owner_id: str, conversation_id: str) -> None:
@@ -823,7 +885,14 @@ mark_inline_routes(router, "/api/one/agent-chat", "agent_chat")  # _extract_stat
 
 
 class RenameConversation(BaseModel):
-    title: str = Field(min_length=1, max_length=160)
+    title: str | None = Field(default=None, min_length=1, max_length=160)
+    category: str | None = Field(default=None, max_length=32)
+
+    @model_validator(mode="after")
+    def _require_mutation(self) -> RenameConversation:
+        if self.title is None and "category" not in self.model_fields_set:
+            raise ValueError("Provide title or category.")
+        return self
 
 
 @router.post("/api/one/agent-chat/history/{conversation_id}/information-requests")
@@ -878,6 +947,8 @@ async def list_conversations(
             {
                 "id": session.id,
                 "title": _session_title(session),
+                "category": category,
+                "category_source": category_source,
                 "status": "active",
                 "model": None,
                 "message_count": sum(1 for event in session.events if _event_text(event)),
@@ -886,6 +957,7 @@ async def list_conversations(
                 "last_message_at": session.last_update_time,
             }
             for session in sessions
+            for category, category_source in [_session_category_projection(session)]
         ],
     }
 
@@ -923,6 +995,7 @@ async def _consent_access_for_history(
 async def conversation_history(
     conversation_id: str,
     limit: int = Query(default=50, ge=1, le=100),
+    before: str | None = Query(default=None, max_length=160),
     token: dict = Depends(require_vault_owner_chat_key),
 ):
     user_id = str(token["user_id"])
@@ -940,6 +1013,7 @@ async def conversation_history(
         session.events,
         conversation_id,
         limit,
+        before_id=before,
         session_state=session.state,
         consent_by_invocation=consent_by_invocation,
         consent_ended=consent_ended,
@@ -987,19 +1061,36 @@ async def rename_conversation(
     payload: RenameConversation,
     token: dict = Depends(require_vault_owner_chat_key),
 ):
-    session = await _shared_sessions().set_title(
-        app_name=ONE_APP_NAME,
-        user_id=str(token["user_id"]),
-        session_id=conversation_id,
-        title=payload.title,
-    )
+    sessions = _shared_sessions()
+    update_category = "category" in payload.model_fields_set
+    if update_category and hasattr(sessions, "update_conversation_metadata"):
+        session = await sessions.update_conversation_metadata(
+            app_name=ONE_APP_NAME,
+            user_id=str(token["user_id"]),
+            session_id=conversation_id,
+            title=payload.title,
+            category=payload.category,
+            update_category=True,
+        )
+    else:
+        session = await sessions.set_title(
+            app_name=ONE_APP_NAME,
+            user_id=str(token["user_id"]),
+            session_id=conversation_id,
+            title=payload.title or "",
+        )
     if session is None:
         raise HTTPException(status_code=404, detail="Conversation not found.")
+    category, category_source = _session_category_projection(session)
     return {
         "id": session.id,
         "title": _session_title(session),
+        "category": category,
+        "category_source": category_source,
         "status": "active",
         "message_count": len(session.events),
+        "updated_at": session.last_update_time,
+        "last_message_at": session.last_update_time,
     }
 
 

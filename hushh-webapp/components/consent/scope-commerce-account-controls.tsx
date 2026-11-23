@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { formatCommerceMoney as money, parseCommerceDollarInput, type CommerceAccount } from "@/lib/services/scope-commerce-service";
@@ -16,9 +17,10 @@ export function CommerceBalanceSummary({ account }: { account: CommerceAccount }
   </>;
 }
 
-export function CommerceFundingControls({ enabled, busy, amount, changeAmount, checkout, maxCents }: {
+export function CommerceFundingControls({ enabled, busy, amount, changeAmount, checkout, maxCents, secondaryAction }: {
   enabled: boolean; busy: boolean; amount: string; changeAmount: (value: string) => void; checkout: () => void;
   maxCents?: number | null;
+  secondaryAction?: ReactNode;
 }) {
   let coins: number | null = null;
   let invalid: string | null = null;
@@ -27,7 +29,7 @@ export function CommerceFundingControls({ enabled, busy, amount, changeAmount, c
   const remainingExhausted = typeof maxCents === "number" && maxCents < 50;
   const exceedsRemaining = typeof maxCents === "number" && coins !== null && coins > maxCents;
   if (!enabled) return <p data-consent-role="helper" className="text-xs text-muted-foreground">Funding is unavailable. Check Payouts and History for existing activity, or Refund unused balance when funds are refundable.</p>;
-  return <div className="space-y-[var(--app-form-related-gap)]">
+  return <div className="space-y-2.5">
     <label data-consent-role="form-label" className="block space-y-[var(--app-form-field-gap)] text-sm">Amount (USD)
       <Input data-consent-input="true" inputMode="decimal" value={amount} aria-invalid={Boolean((invalid && amount.trim()) || exceedsRemaining || remainingExhausted)} onChange={event => changeAmount(event.target.value)} disabled={busy || remainingExhausted} />
     </label>
@@ -42,10 +44,21 @@ export function CommerceFundingControls({ enabled, busy, amount, changeAmount, c
     ) : null}
     <p data-consent-role="helper" className="text-xs text-muted-foreground">
       {typeof maxCents === "number" && maxCents >= 50
-        ? `$0.50–$${(maxCents / 100).toFixed(2)} sandbox remaining · Adding coins doesn't buy access.`
-        : "$0.50–$1,000 per payment. Adding coins doesn't buy access."}
+        ? `$0.50-$${(maxCents / 100).toFixed(2)} sandbox remaining · Adding coins doesn't buy access.`
+        : "$0.50-$1,000 per payment. Adding coins doesn't buy access."}
     </p>
-    <Button type="button" data-consent-role="compact-action" disabled={busy || coins === null || remainingExhausted || exceedsRemaining} onClick={checkout}>Continue to secure checkout</Button>
+    <div className="flex flex-wrap items-center gap-2 pt-0.5">
+      <Button
+        type="button"
+        data-consent-role="compact-action"
+        className="min-h-11 sm:whitespace-nowrap"
+        disabled={busy || coins === null || remainingExhausted || exceedsRemaining}
+        onClick={checkout}
+      >
+        Continue to secure checkout
+      </Button>
+      {secondaryAction}
+    </div>
   </div>;
 }
 

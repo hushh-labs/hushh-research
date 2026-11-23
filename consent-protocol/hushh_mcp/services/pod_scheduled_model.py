@@ -64,7 +64,12 @@ class ScheduledModel:
 def _selected(selection: AiSelection, default_model: str, floor: int) -> ScheduledModel:
     from hushh_mcp.services.pod_ai_selection_check import selection_model
 
-    if selection.issued_at_ms != floor or not selection.selection_id or not selection.api_key:
+    if (
+        selection.issued_at_ms <= 0
+        or selection.issued_at_ms > floor
+        or not selection.selection_id
+        or not selection.api_key
+    ):
         raise ScheduleRefused("SCHEDULE_MODEL_SELECTION_INVALID")
     provider = selection.provider
     model = selection_model(provider, selection.model, gemini_default=default_model)
@@ -118,7 +123,7 @@ def _selected(selection: AiSelection, default_model: str, floor: int) -> Schedul
 
 def _default(default_provider: str, default_model: str, floor: int) -> ScheduledModel:
     from hushh_mcp.runtime_providers.azure_openai import azure_openai_topology
-    from hushh_mcp.runtime_settings import pod_user_adc_enabled
+    from hushh_mcp.runtime_settings import pod_sentinel_model_enabled, pod_user_adc_enabled
 
     provider: Literal["gemini", "azure_openai"]
     azure = azure_openai_topology()
@@ -130,6 +135,21 @@ def _default(default_provider: str, default_model: str, floor: int) -> Scheduled
             "endpoint": azure.endpoint,
             "workload_client_id": workload_client_id(),
             "transport": "managed_identity",
+        }
+    elif pod_sentinel_model_enabled():
+        if default_provider != "gemini":
+            raise ScheduleRefused("SCHEDULE_MODEL_UNAVAILABLE")
+        from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+        from hushh_mcp.runtime_providers.sentinel_gemini import (
+            sentinel_vertex_location,
+            sentinel_vertex_project,
+        )
+
+        provider, model, mode = "gemini", resolve_fleet_model_name(default_model), "sentinel_vertex"
+        destination = {
+            "project": sentinel_vertex_project(),
+            "location": sentinel_vertex_location(),
+            "transport": "sentinel_vertex",
         }
     elif pod_user_adc_enabled():
         if default_provider != "gemini":
@@ -182,10 +202,14 @@ async def resolve_scheduled_model(
     expected: ScheduledModelBinding | None = None,
 ) -> ScheduledModel:
     from hushh_mcp.services.agent_chat_service import load_one_agent_runtime_manifest
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent
+    from hushh_mcp.services.pod_owner_cloud import personal_sandbox_workspace_runtime
 
     await check()
-    if not owner_cloud_agent() or log is None or getattr(log, "_owner_id", None) != pod_id:
+    if (
+        not personal_sandbox_workspace_runtime()
+        or log is None
+        or getattr(log, "_owner_id", None) != pod_id
+    ):
         raise ScheduleRefused("SCHEDULE_MODEL_OWNER_REFUSED")
     await log.require_open()
     revision = ai_selection_revision()

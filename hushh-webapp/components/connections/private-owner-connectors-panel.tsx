@@ -1,10 +1,16 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { XIcon } from "@/components/icons";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { CalendarPermissionList } from "@/components/calendar/calendar-permission-list";
+import { ArrowLeftIcon, XIcon } from "@/components/icons";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { ConnectorVectorGlyph } from "@/components/agent/connector-brand-mark";
 import { PrivateGoogleConnectorsPanel, usePrivateGoogleConnectorsModel } from "@/components/connections/private-google-connectors-panel";
-import { PrivatePlaidConnectorGroup, usePrivatePlaidConnectorModel } from "@/components/connections/private-plaid-connector-group";
+import { GoogleConnectorPhoneHandoff } from "@/components/connections/google-connector-phone-handoff";
+import { PrivatePlaidConnectorDetail, PrivatePlaidConnectorGroup, usePrivatePlaidConnectorModel } from "@/components/connections/private-plaid-connector-group";
 import { StripeConnectorReadiness, useStripeConnectorReadiness, STRIPE_CONNECTION_STATUS } from "@/components/agent/stripe-connector-readiness";
 import { CustomConnectorsSettings } from "@/components/agent/custom-connectors-settings";
 import type { CustomConnectorSettingsModel } from "@/components/agent/custom-connectors-settings";
@@ -28,7 +34,12 @@ export function PrivateOwnerConnectorsPanel(props: {
     ? { userId, vaultKey, vaultOwnerToken } : null;
   const [query, setQuery] = useState("");
   const [localSelection, setSelection] = useState<string | null>(null);
+  const drawerScrollRef = useRef<HTMLDivElement | null>(null);
   const selected = props.activeConnector !== undefined ? props.activeConnector : localSelection;
+  useEffect(() => {
+    if (props.surface === "profile" || !selected) return;
+    drawerScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
+  }, [props.surface, selected]);
   const google = usePrivateGoogleConnectorsModel({ open: props.open, visitKey: selected });
   const plaid = usePrivatePlaidConnectorModel({ open: props.open, access, visitKey: selected });
   const stripe = useStripeConnectorReadiness({ access, onPrepareRecovery: props.onPrepareRecovery });
@@ -36,10 +47,92 @@ export function PrivateOwnerConnectorsPanel(props: {
   if (!props.open) return null;
   const render = (custom: CustomConnectorSettingsModel | null, customBody: ReactNode) => {
     const inDrawer = props.surface !== "profile";
+    const entry = google.entries.find(item => item.connector === selected);
+    const disabled = !google.enabled || google.busy !== null;
+    const webDetailBody = entry ? (
+      <section className="space-y-4" data-connector-detail={entry.connector} data-testid={`private-connector-detail-${entry.connector}`}>
+        {inDrawer ? (
+          <Button variant="ghost" size="sm" onClick={() => select(null)} className="h-9 gap-1.5 rounded-full px-2.5 text-[13px] font-semibold">
+            <ArrowLeftIcon className="size-4" aria-hidden="true" />
+            <span>All connectors</span>
+          </Button>
+        ) : null}
+        <SettingsGroup title={entry.label} separatorInset>
+          <SettingsRow title="Connection" description={entry.status} />
+          <SettingsRow title="Purpose" description={entry.purpose} />
+          {entry.connected ? (
+            <SettingsRow
+              title="Background preparation"
+              description={entry.backgroundPrep.description}
+              trailing={
+                entry.backgroundPrep.enabled === null ? undefined : (
+                  <Switch
+                    aria-label={`${entry.label} background preparation`}
+                    checked={entry.backgroundPrep.enabled}
+                    disabled={entry.backgroundPrep.busy}
+                    onCheckedChange={checked => entry.backgroundPrep.change(checked)}
+                  />
+                )
+              }
+            />
+          ) : null}
+        </SettingsGroup>
+        {entry.permissions.length > 0 && <CalendarPermissionList permissions={entry.permissions} />}
+        <div className="flex flex-wrap items-center gap-2" data-connector-action-bar="true">
+          {entry.allowChanges ? (
+            <Button variant="default" size="compact" data-connector-action="primary" disabled={disabled} onClick={() => void google.run(entry.connector, false)}>
+              Allow changes
+            </Button>
+          ) : null}
+          <Button
+            variant={entry.connected ? "outline" : "default"}
+            size="compact"
+            data-connector-action={entry.connected ? "destructive" : "primary"}
+            disabled={disabled}
+            onClick={() => void google.run(entry.connector, entry.connected)}
+          >
+            {google.busy === entry.connector ? "Working…" : entry.connected ? "Disconnect" : "Connect"}
+          </Button>
+          <Button variant="outline" size="compact" data-connector-action="secondary" disabled={disabled} onClick={() => void google.refresh()}>
+            Check connection
+          </Button>
+        </div>
+        {google.handoff ? <GoogleConnectorPhoneHandoff handoff={google.handoff} /> : null}
+        {google.message ? <p role="status" className="text-xs text-muted-foreground">{google.message}</p> : null}
+        {google.transition.transitionDialog}
+      </section>
+    ) : selected === "plaid" ? (
+      <section className="space-y-4" data-connector-detail="plaid" data-testid="private-connector-detail-plaid">
+        {inDrawer ? (
+          <Button variant="ghost" size="sm" onClick={() => select(null)} className="h-9 gap-1.5 rounded-full px-2.5 text-[13px] font-semibold">
+            <ArrowLeftIcon className="size-4" aria-hidden="true" />
+            <span>All connectors</span>
+          </Button>
+        ) : null}
+        <PrivatePlaidConnectorDetail model={plaid} showAccessDetails={props.showAccessDetails} />
+      </section>
+    ) : selected === "stripe" ? (
+      <section className="space-y-4" data-connector-detail="stripe" data-testid="private-connector-detail-stripe">
+        {inDrawer ? (
+          <Button variant="ghost" size="sm" onClick={() => select(null)} className="h-9 gap-1.5 rounded-full px-2.5 text-[13px] font-semibold">
+            <ArrowLeftIcon className="size-4" aria-hidden="true" />
+            <span>All connectors</span>
+          </Button>
+        ) : null}
+        <StripeConnectorReadiness access={access} onPrepareRecovery={props.onPrepareRecovery} model={stripe} />
+      </section>
+    ) : null;
+    const stripeSummaryDescription = stripe.checking
+      ? "Checking connection…"
+      : stripe.status === "verified"
+        ? "Verified · Account and balance tools ready"
+        : stripe.status === "connected"
+          ? "Connected · Account tools need verification"
+          : "Payouts and optional Stripe tools";
     const webBody = <div className={inDrawer ? "flex h-full min-h-0 flex-col bg-background text-foreground" : "min-w-0 space-y-5"}>
       {inDrawer ? (
         <header className="flex shrink-0 items-center justify-between gap-2 px-4 pb-3 pt-4">
-          <h2 className="min-w-0 flex-1 truncate text-lg font-semibold">Connectors</h2>
+          <h2 className="min-w-0 flex-1 truncate text-lg font-semibold">{entry ? entry.label : selected === "plaid" ? "Plaid" : selected === "stripe" ? "Stripe" : "Connectors"}</h2>
           <ShellActionSurface
             className="size-11 text-foreground"
             onClick={() => { (props.onClose ?? props.onBack)(); }}
@@ -49,11 +142,25 @@ export function PrivateOwnerConnectorsPanel(props: {
           </ShellActionSurface>
         </header>
       ) : null}
-      <div className={inDrawer ? "min-h-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto overscroll-contain px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]" : "space-y-5"}>
-        <PrivateGoogleConnectorsPanel {...props} surface="profile" model={google} />
-        <PrivatePlaidConnectorGroup model={plaid} showAccessDetails={props.showAccessDetails} />
-        <StripeConnectorReadiness access={access} onPrepareRecovery={props.onPrepareRecovery} model={stripe} />
-        {customBody}
+      <div ref={inDrawer ? drawerScrollRef : undefined} className={inDrawer ? "min-h-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto overscroll-contain px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]" : "space-y-5"}>
+        {webDetailBody ?? (
+          <>
+            <PrivateGoogleConnectorsPanel {...props} surface="profile" model={google} onSelectConnector={connector => select(connector)} />
+            <PrivatePlaidConnectorGroup model={plaid} showAccessDetails={props.showAccessDetails} onSelectConnector={() => select("plaid")} />
+            <SettingsGroup title="Payments" separatorInset testId="private-stripe-settings-group">
+              <SettingsRow
+                testId="private-stripe-row"
+                leading={<ConnectorVectorGlyph id="stripe" variant="profile" />}
+                title="Stripe"
+                description={stripeSummaryDescription}
+                textOverflow="truncate"
+                onClick={() => select("stripe")}
+                chevron
+              />
+            </SettingsGroup>
+            {customBody}
+          </>
+        )}
       </div>
     </div>;
     if (!props.render) return webBody;
@@ -62,11 +169,10 @@ export function PrivateOwnerConnectorsPanel(props: {
       { id: "plaid", name: "Plaid", detail: plaid.statusLabel, connected: plaid.connected, onOpen: () => select("plaid") },
       { id: "stripe", name: "Stripe", detail: STRIPE_CONNECTION_STATUS[stripe.status], connected: stripe.status === "connected" || stripe.status === "verified", onOpen: () => select("stripe") }]
       .filter(entry => `${entry.name} ${entry.detail}`.toLowerCase().includes(query.toLowerCase()));
-    const entry = google.entries.find(item => item.connector === selected);
-    const disabled = !google.enabled || google.busy !== null;
     const detail: ConnectorDetailPresentation | null = entry ? { kind: "private-google", status: entry.status, purpose: entry.purpose,
       permissions: entry.permissions,
       message: google.message, notes: ["Connect Google directly to Agent One. Your agent asks you to confirm changes."], busy: google.busy !== null,
+      background: entry.connected ? entry.backgroundPrep : null,
       actions: [
         ...(entry.allowChanges ? [{ label: "Allow changes", disabled, run: () => { void google.run(entry.connector, false); } }] : []),
         { label: google.busy === entry.connector ? "Working…" : entry.connected ? "Disconnect" : "Connect", disabled,

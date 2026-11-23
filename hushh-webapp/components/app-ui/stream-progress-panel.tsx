@@ -215,10 +215,11 @@ export type AppStreamPanelProps = {
   response?: ReactNode;
   responseText?: string;
   /** App-owned state shown while the model has not emitted response text yet. */
-  responsePendingLabel?: string;
+  responsePendingLabel?: ReactNode;
   isStreaming?: boolean;
   isError?: boolean;
   opportunities?: ReactNode;
+  footerNote?: ReactNode;
   className?: string;
 };
 
@@ -243,6 +244,7 @@ export function AppStreamPanel({
   isStreaming = false,
   isError = false,
   opportunities,
+  footerNote,
   className,
 }: AppStreamPanelProps) {
   const hasResponseText = responseText.trim().length > 0;
@@ -343,14 +345,16 @@ export function AppStreamPanel({
           <div
             role="status"
             aria-live="polite"
-            // A plain line, not a pill: the panel is already the container, and
-            // a filled pill inside it read as a box in a box. Same padding and
-            // line height as the answer below, so the answer takes its place
-            // without the row jumping.
             className="flex items-center gap-2 px-1 text-sm leading-6 text-muted-foreground"
           >
-            <Loader2 className="h-4 w-4 animate-spin text-accent-strong motion-reduce:animate-none" aria-hidden="true" />
-            <span>{responsePendingLabel}</span>
+            {typeof responsePendingLabel === "string" ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin text-accent-strong motion-reduce:animate-none" aria-hidden="true" />
+                <span>{responsePendingLabel}</span>
+              </>
+            ) : (
+              responsePendingLabel
+            )}
           </div>
         ) : null}
 
@@ -363,19 +367,33 @@ export function AppStreamPanel({
             )}
             aria-live={isStreaming ? "polite" : undefined}
           >
-            {response ?? <p className="whitespace-pre-wrap break-words">{responseText}</p>}
-            {isStreaming ? (
-              <StreamingCursor
-                isStreaming
-                color={isError ? "error" : "primary"}
-                size="md"
-                className="ml-1"
-              />
-            ) : null}
+            {response ?? (
+              <p className="whitespace-pre-wrap break-words">
+                {responseText}
+                {isStreaming ? (
+                  <StreamingCursor
+                    isStreaming
+                    color={isError ? "error" : "primary"}
+                    size="md"
+                    className="ml-1"
+                  />
+                ) : null}
+              </p>
+            )}
           </div>
         ) : null}
 
         {structuredContent && structuredContentPlacement === "after" ? <div>{structuredContent}</div> : null}
+
+        {footerNote ? (
+          <p
+            role="note"
+            data-testid="agui-google-clearance-note"
+            className="px-1 text-xs leading-5 text-muted-foreground"
+          >
+            {footerNote}
+          </p>
+        ) : null}
       </div>
     </section>
   );

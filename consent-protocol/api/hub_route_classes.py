@@ -258,6 +258,7 @@ POST /api/one/agent-chat/proposals/prepare
 GET /api/one/personal-agent/verification-keys
 POST /api/one/pod/consent/verify
 GET /api/one/pod/custody/broker-key
+GET /api/one/pod/custody/sandbox-placement/{hushh_id}
 POST /api/one/pod/custody/storage-token
 POST /api/one/pod/custody/dek
 POST /api/one/pod/mcp-approval/consume
@@ -353,6 +354,7 @@ POST /api/one/google/connect/transition/prepare
 POST /api/one/google/connect/transition/complete
 GET,POST /api/one/kyc/client-connector
 POST /api/one/runtime/gemini/validate
+POST /api/one/runtime/openai/validate
 [SUPPORT]
 GET /api/one/todos/suggestions/status
 GET /api/kai/market/company-facts/{user_id}
@@ -431,6 +433,8 @@ POST /api/one/pod/heartbeat
 GET /api/one/pod/lifecycle
 GET /api/one/pod/lifecycle/stream
 POST /api/one/pod/wake
+POST /api/one/pod/wake/signal
+POST /api/one/pod/wake/drain
 GET /api/one/puppy/status/{device_id}
 POST /api/one/runtime/byoc/authorize/begin
 POST /api/one/runtime/byoc/authorize/complete
@@ -451,6 +455,7 @@ POST /api/one/runtime/byoc/project/plan
 POST /api/one/runtime/byoc/project/save
 GET /api/one/runtime/byoc/project/suggest
 GET /api/one/runtime/byoc/setup/status
+POST /api/one/runtime/hosting/switch
 GET /api/one/runtime/managed/readiness
 POST /api/one/runtime/managed/select
 POST /api/one/runtime/pooled-sandbox/adopt

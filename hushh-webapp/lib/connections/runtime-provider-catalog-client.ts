@@ -22,7 +22,6 @@ const MAX_PROVIDERS = 32;
 const CONFIGURABLE_HERE: Readonly<Record<string, readonly string[]>> = {
   gemini: ["own_key"],
   openai: ["own_key"],
-  azure_openai: ["own_key"],
 };
 
 export type ResolvedRuntimeProvider = {
@@ -43,6 +42,7 @@ function resolveEntry(raw: unknown): ResolvedRuntimeProvider | null {
   const value = raw as Record<string, unknown>;
   const id = typeof value.id === "string" ? value.id : "";
   if (!/^[a-z0-9_]{1,64}$/.test(id)) return null;
+  if (id === "azure_openai") return null;
   const mark = knownEntry(id);
   const name =
     typeof value.name === "string" &&

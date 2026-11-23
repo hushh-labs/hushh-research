@@ -18,6 +18,7 @@ import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { REQUEST_DURATION_OPTIONS } from "@/lib/agent/action-directive-summary";
 import { proposalDurationLabel, type ScopeProposal } from "@/lib/agent/scope-proposal";
 import { InformationRequestPriceReview } from "@/components/consent/information-request-price";
+import { formatCommerceMoney } from "@/lib/services/scope-commerce-service";
 import type { InformationRequestPrice, PersonScopeCatalogPage, RequestablePersonScope } from "@/lib/services/person-profile-service";
 import { firstName, joinLabels } from "./request-progress";
 import {
@@ -403,7 +404,13 @@ export function AskProposalCard({ personName, personRef, proposal, ready, sendin
       <div ref={actionsRef} data-testid="ask-proposal-actions" className="flex flex-wrap items-center gap-2">
         <MorphyButton data-consent-role="compact-action" type="button" size="sm" className="min-h-11" disabled={!canSend}
           onClick={() => onSend({ scopes, purpose: reason.trim(), durationHours, priceBinding: price?.binding })}>
-          {sending ? "Sending…" : !ready || !placed ? "Checking…" : "Send"}
+          {sending
+            ? "Sending…"
+            : !ready || !placed
+              ? "Checking…"
+              : price && price.totalCoins > 0
+                ? `Reserve & Send · ${formatCommerceMoney(price.totalCoins)}`
+                : "Send"}
         </MorphyButton>
         <MorphyButton data-consent-role="compact-action" type="button" size="sm" variant="none" data-consent-quiet-action="true" disabled={sending}
           onClick={() => setChanging((current) => !current)}>

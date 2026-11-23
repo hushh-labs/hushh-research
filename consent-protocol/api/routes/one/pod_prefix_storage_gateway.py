@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import urllib.parse
 from pathlib import Path
 from typing import Any, Callable
@@ -46,6 +47,8 @@ router = APIRouter(prefix="/api/one/pod/storage-gateway", tags=["personal-agent"
 _MAX_OBJECT_BYTES = 16 * 1024 * 1024
 _DEFAULT_STORE_FACTORY: Callable[[], Any] | None = None
 _DEFAULT_REGISTRY_FACTORY: Callable[[], Any] | None = None
+_READ_ADMISSION_TTL_S = 5.0
+_READ_ADMISSION_CACHE: dict[tuple[str, str, int], float] = {}
 
 
 def set_storage_gateway_overrides_for_tests(
@@ -57,6 +60,7 @@ def set_storage_gateway_overrides_for_tests(
     global _DEFAULT_STORE_FACTORY, _DEFAULT_REGISTRY_FACTORY
     _DEFAULT_STORE_FACTORY = store_factory
     _DEFAULT_REGISTRY_FACTORY = registry_factory
+    _READ_ADMISSION_CACHE.clear()
 
 
 def _resolve_store() -> Any | None:
@@ -96,6 +100,7 @@ async def _authorize_gateway_request(
     *,
     object_path: str,
     authorization: str | None,
+    allow_cached_admission: bool = False,
 ) -> tuple[str, dict[str, Any]] | Response:
     if not personal_agent_enabled():
         return Response(status_code=404, content=b"not found")
@@ -122,23 +127,39 @@ async def _authorize_gateway_request(
     except (TypeError, ValueError):
         return Response(status_code=403, content=b"invalid token epoch")
 
+    cache_key = (owner_id, hushh_id, token_epoch)
+    now_mono = time.monotonic()
+    if allow_cached_admission and _DEFAULT_REGISTRY_FACTORY is None:
+        cached_until = _READ_ADMISSION_CACHE.get(cache_key, 0.0)
+        if cached_until > now_mono:
+            return clean_path, claims
+
     registry = _resolve_registry()
     tombstone_fn = getattr(registry, "tombstone_exists", None)
     if callable(tombstone_fn) and await tombstone_fn(owner_id):
+        _READ_ADMISSION_CACHE.pop(cache_key, None)
         return Response(status_code=403, content=b"owner tombstoned")
 
     row = await registry.get_by_hushh_id(hushh_id)
     if not isinstance(row, dict) or str(row.get("user_id") or "") != owner_id:
+        _READ_ADMISSION_CACHE.pop(cache_key, None)
         return Response(status_code=403, content=b"unknown pod")
 
     raw_meta = row.get("backend_metadata")
     meta: dict[str, Any] = raw_meta if isinstance(raw_meta, dict) else {}
     if "erasure" in meta:
+        _READ_ADMISSION_CACHE.pop(cache_key, None)
         return Response(status_code=403, content=b"pod fenced for erasure")
 
     live_epoch = int(row.get("placement_epoch") or 0)
     if live_epoch != token_epoch:
+        _READ_ADMISSION_CACHE.pop(cache_key, None)
         return Response(status_code=403, content=b"stale placement epoch")
+
+    if _DEFAULT_REGISTRY_FACTORY is None:
+        if len(_READ_ADMISSION_CACHE) > 2048:
+            _READ_ADMISSION_CACHE.clear()
+        _READ_ADMISSION_CACHE[cache_key] = now_mono + _READ_ADMISSION_TTL_S
 
     return clean_path, claims
 
@@ -258,7 +279,9 @@ async def gateway_get_or_list(
     limit: int = Query(default=100, ge=1, le=100),
 ) -> Response:
     auth_res = await _authorize_gateway_request(
-        object_path=object_path, authorization=authorization
+        object_path=object_path,
+        authorization=authorization,
+        allow_cached_admission=True,
     )
     if isinstance(auth_res, Response):
         return auth_res

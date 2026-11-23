@@ -61,6 +61,7 @@ from api.routes.one.pod_capabilities import (
     connectors_capability,
     pod_capabilities,
 )
+from api.routes.one.pod_circle_rules import router as pod_circle_rules_router
 from api.routes.one.pod_commands import router as pod_commands_router
 from api.routes.one.pod_connectors import router as pod_connectors_router
 from api.routes.one.pod_files import router as pod_files_router
@@ -163,6 +164,7 @@ _POD_ROUTERS = (
     # admits its owner's app and devices itself from a hub-signed binding, so a
     # turn no longer needs the hub in the path. See api/routes/one/pod_session.py.
     pod_session_router,
+    pod_circle_rules_router,
     pod_files_router,
     pod_scheduled_tasks_router,
     pod_commands_router,
@@ -622,6 +624,18 @@ async def _stop_files_queue() -> None:
         await browser.close()
         app.state.browser_composition = None
         app.state.browser_task_runtime = None
+
+    import contextlib  # noqa: PLC0415
+
+    from hushh_mcp.services.pod_session_authority import active_session_authority  # noqa: PLC0415
+
+    authority = active_session_authority()
+    projection = getattr(authority, "recovery_projection", None)
+    log = getattr(getattr(authority, "_store", None), "_log", None)
+    if authority is not None and projection is not None and log is not None:
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(authority.require_held(), timeout=1.0)
+            await asyncio.wait_for(projection.recover(log, force_save=True), timeout=2.0)
 
 
 async def _continue_gmail_notifications() -> None:

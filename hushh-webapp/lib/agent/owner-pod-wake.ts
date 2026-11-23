@@ -105,8 +105,12 @@ const WAKING_REFUSAL = /^(?:POD_CHALLENGE_REFUSED|POD_ADMISSION_REFUSED):(?:502|
 export function isAgentStillWaking(outcome: unknown): boolean {
   if (outcome instanceof Response) {
     if (!GATEWAY_STATUSES.has(outcome.status)) return false;
-    if (outcome.headers.get("x-hussh-pod-state")?.trim().toLowerCase() === "waking") {
+    const podState = outcome.headers.get("x-hussh-pod-state")?.trim().toLowerCase();
+    if (podState === "waking") {
       return true;
+    }
+    if (podState === "unavailable" || podState === "error") {
+      return false;
     }
     return !(outcome.headers.get("content-type") ?? "").includes("application/json");
   }
@@ -119,6 +123,8 @@ export type AgentWakePorts = {
   onWaking: () => void;
   /** Whether this turn goes to the owner's own agent; nothing else is woken. */
   isOwnerAgent: () => Promise<boolean>;
+  /** True when the pod already answered recently, suppressing speculative slow-byte wake hints. */
+  isAlreadyAwake?: () => boolean;
   signal?: AbortSignal | null;
   hintMs?: number;
   budgetMs?: number;
@@ -177,7 +183,10 @@ export async function sendWhileAgentWakes(
     woke = true;
     ports.onWaking();
   };
-  const hintIfOwnerAgent = () => void isOwnerAgent().then((owner) => owner && waking());
+  const hintIfOwnerAgent = () => {
+    if (ports.isAlreadyAwake?.()) return;
+    void isOwnerAgent().then((owner) => owner && waking());
+  };
   for (let attempt = 0; ; attempt += 1) {
     const outcome = await settleWithHint(send, ports.hintMs ?? WAKE_HINT_MS, hintIfOwnerAgent);
     const value = outcome.response ?? outcome.error;

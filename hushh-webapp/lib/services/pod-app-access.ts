@@ -86,6 +86,7 @@ const OWNER_POD_ROUTES = new Set([
   "files/wiki/migrate",
   "files/wiki/rollback",
   "files/wiki/import",
+  "files/wiki/optimize",
   "files/workspaces/status",
   "files/workspaces/execute",
   "files/workspaces/control",
@@ -97,10 +98,16 @@ const OWNER_POD_ROUTES = new Set([
   "answers/compose",
   "memory/status",
   "memory/provider-consent",
+  "status",
+  "config",
+  "circle-rules",
+  "circle-rules/preview",
   "turn/stream",
   "turn/cancel",
   "puppy/models",
   "ai-selection",
+  "ai-selection/activate",
+  "ai-selection/deactivate",
   "actions/gmail/proposals",
   "browser/capability",
   "browser/tasks",
@@ -122,6 +129,7 @@ const OWNER_POD_ROUTE_PATTERNS: readonly RegExp[] = [
   /^browser\/tasks\/browser_[a-f0-9]{32}(\/(frame|control|input|review|session))?$/,
   /^browser\/tasks\/browser_[a-f0-9]{32}\/downloads\/[a-f0-9]{32}$/,
   /^connectors\/(gmail|calendar|drive|contacts)$/,
+  /^circle-rules\/rule_[a-z0-9][a-z0-9_-]{7,63}(\/toggle)?$/,
   /^agent-chat\/(history|conversations)\/[A-Za-z0-9_-]{1,256}$/,
   /^agent-chat\/history\/[A-Za-z0-9_-]{1,256}\/information-requests$/,
   /^agent-chat\/connectors\/[A-Za-z0-9_-]{1,128}\/mcp\/review$/,
@@ -146,6 +154,21 @@ function isOwnerPodRoute(route: string): boolean {
   if (OWNER_POD_ROUTES.has(route) || OWNER_POD_AGENT_ROUTES.has(route))
     return true;
   return OWNER_POD_ROUTE_PATTERNS.some((pattern) => pattern.test(route));
+}
+
+function isStalePinnedEndpointAdmissionError(error: unknown): boolean {
+  const code =
+    typeof (error as { code?: unknown })?.code === "string"
+      ? String((error as { code: string }).code)
+      : error instanceof Error
+        ? error.message
+        : "";
+  return (
+    code === "BINDING_POD_KEY_MISMATCH" ||
+    code === "BINDING_OWNER_OR_ENDPOINT_MISMATCH" ||
+    code.startsWith("POD_CHALLENGE_REFUSED:") ||
+    code.startsWith("POD_ADMISSION_REFUSED:")
+  );
 }
 
 export async function ownerPodRequest(
@@ -181,15 +204,37 @@ export async function ownerPodRequest(
     route === "agent-chat" && init.method?.toUpperCase() === "POST";
   // Admission is shared, so a cancelled caller stops waiting without cancelling it.
   const connect = async () => {
-    if (!(await ownerPod.loadPinnedEndpoint(uid)))
+    const pinned = await ownerPod.loadPinnedEndpoint(uid);
+    if (!pinned) {
       await untilCancelled(
         ownerPod.refreshEndpointFromHub(uid, transport),
         init.signal,
       );
-    return untilCancelled(
-      ownerPod.currentPodConnection(uid, transport),
-      init.signal,
-    );
+      return untilCancelled(
+        ownerPod.currentPodConnection(uid, transport),
+        init.signal,
+      );
+    }
+    try {
+      return await untilCancelled(
+        ownerPod.currentPodConnection(uid, transport),
+        init.signal,
+      );
+    } catch (error) {
+      if (!isStalePinnedEndpointAdmissionError(error)) throw error;
+      prewarmedChatGrants = null;
+      const refreshed = await untilCancelled(
+        ownerPod.refreshEndpointFromHub(uid, transport),
+        init.signal,
+      );
+      if (!refreshed || refreshed.endpointVersion <= pinned.endpointVersion) {
+        throw error;
+      }
+      return untilCancelled(
+        ownerPod.currentPodConnection(uid, transport),
+        init.signal,
+      );
+    }
   };
   // A chat turn's admission happens before the turn is handed over: a network
   // failure there (an agent still waking) proves nothing was sent.
@@ -280,6 +325,48 @@ export async function ownerPodRequest(
   ) {
     throw new Error("POD_ACTION_REQUEST_REFUSED");
   }
+  if (route === "status") {
+    if (
+      method !== "GET" ||
+      (body !== undefined && body !== null) ||
+      session.role !== "app" ||
+      !session.scopes.includes("pod.status")
+    ) {
+      throw new Error("POD_STATUS_REQUEST_REFUSED");
+    }
+  }
+  if (route === "config") {
+    if (
+      method !== "POST" ||
+      session.role !== "app" ||
+      !session.scopes.includes("pod.config")
+    ) {
+      throw new Error("POD_CONFIG_REQUEST_REFUSED");
+    }
+  }
+  if (
+    route === "circle-rules" ||
+    route === "circle-rules/preview" ||
+    /^circle-rules\/rule_[a-z0-9][a-z0-9_-]{7,63}(\/toggle)?$/.test(route)
+  ) {
+    const isRead =
+      (route === "circle-rules" && method === "GET") ||
+      (route === "circle-rules/preview" && method === "POST");
+    const isWrite =
+      (route === "circle-rules" && method === "PUT") ||
+      (/^circle-rules\/rule_[a-z0-9][a-z0-9_-]{7,63}$/.test(route) &&
+        method === "DELETE") ||
+      (/^circle-rules\/rule_[a-z0-9][a-z0-9_-]{7,63}\/toggle$/.test(route) &&
+        method === "POST");
+    const requiredScope = isRead ? "pod.status" : "pod.config";
+    if (
+      (!isRead && !isWrite) ||
+      session.role !== "app" ||
+      !session.scopes.includes(requiredScope)
+    ) {
+      throw new Error("POD_CIRCLE_RULES_REQUEST_REFUSED");
+    }
+  }
   if (/^connectors\/(gmail|calendar|drive|contacts)$/.test(route)) {
     if (
       !["GET", "PUT", "DELETE"].includes(method) ||
@@ -324,6 +411,48 @@ export async function ownerPodRequest(
     if (!podOwnerIsCurrent(admittedOwner))
       throw new Error("POD_OWNER_CHANGED");
   }
+  if (route === "ai-selection/deactivate") {
+    if (
+      method !== "POST" ||
+      (body !== undefined && body !== null) ||
+      session.role !== "app" ||
+      !Array.isArray(session.scopes) ||
+      !session.scopes.includes("pod.config")
+    ) {
+      throw new Error("POD_AI_SELECTION_INVALID");
+    }
+  }
+  if (route === "ai-selection/activate") {
+    if (
+      method !== "POST" ||
+      typeof body !== "string" ||
+      session.role !== "app" ||
+      !Array.isArray(session.scopes) ||
+      !session.scopes.includes("pod.config")
+    ) {
+      throw new Error("POD_AI_SELECTION_INVALID");
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      throw new Error("POD_AI_SELECTION_INVALID");
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("POD_AI_SELECTION_INVALID");
+    }
+    const record = parsed as Record<string, unknown>;
+    const allowedKeys = new Set(["provider", "configId"]);
+    const forbiddenKeys = ["apiKey", "api_key", "credential", "secret", "token", "azureEndpoint"];
+    if (
+      forbiddenKeys.some((key) => key in record) ||
+      Object.keys(record).some((key) => !allowedKeys.has(key)) ||
+      (record.provider !== "gemini" && record.provider !== "openai") ||
+      ("configId" in record && typeof record.configId !== "string")
+    ) {
+      throw new Error("POD_AI_SELECTION_INVALID");
+    }
+  }
   refuseCancelled();
   refuseRetiredOwner(ports.isCurrent);
   const request: RequestInit = {
@@ -340,7 +469,7 @@ export async function ownerPodRequest(
   ) {
     throw new Error("POD_VAULT_SESSION_CHANGED");
   }
-  const response = chatTurn
+  let response = chatTurn
     ? await sendChatTurn(endpoint.url, request, ports.fetch, directVerifiedAt, session, () => {
         refuseCancelled();
         refuseRetiredOwner(ports.isCurrent);
@@ -348,6 +477,31 @@ export async function ownerPodRequest(
           throw new Error("POD_OWNER_CHANGED");
       })
     : await ports.fetch(`${endpoint.url}/api/one/pod/${path}`, request);
+  if (!chatTurn && method === "GET" && (response.status === 404 || response.status === 401)) {
+    const refreshed = await untilCancelled(
+      ownerPod.refreshEndpointFromHub(uid, transport),
+      init.signal,
+    ).catch(() => null);
+    if (
+      refreshed &&
+      refreshed.hushhId === endpoint.hushhId &&
+      refreshed.endpointVersion > endpoint.endpointVersion &&
+      podOwnerIsCurrent(admittedOwner) &&
+      isVaultSessionEpochCurrent(vaultEpoch)
+    ) {
+      prewarmedChatGrants = null;
+      const next = await untilCancelled(
+        ownerPod.currentPodConnection(uid, transport),
+        init.signal,
+      );
+      ({ endpoint, session, directVerifiedAt } = next);
+      headers.set("Authorization", `Bearer ${session.session}`);
+      response = await ports.fetch(`${endpoint.url}/api/one/pod/${path}`, {
+        ...request,
+        headers,
+      });
+    }
+  }
   if (!isAgentStillWaking(response))
     markAgentAnswered(endpoint.url);
   if (!podOwnerIsCurrent(admittedOwner))
@@ -639,10 +793,21 @@ export async function prewarmOwnerPodChatAccess(ports: {
       }
       const ownerPod = await import("./owner-pod-endpoint");
       const transport = await ports.transport();
-      if (!(await ownerPod.loadPinnedEndpoint(uid))) {
+      const pinned = await ownerPod.loadPinnedEndpoint(uid);
+      if (!pinned) {
         await ownerPod.refreshEndpointFromHub(uid, transport);
       }
-      const connection = await ownerPod.currentPodConnection(uid, transport);
+      let connection: PodConnection;
+      try {
+        connection = await ownerPod.currentPodConnection(uid, transport);
+      } catch (error) {
+        if (!pinned || !isStalePinnedEndpointAdmissionError(error)) throw error;
+        const refreshed = await ownerPod.refreshEndpointFromHub(uid, transport);
+        if (!refreshed || refreshed.endpointVersion <= pinned.endpointVersion) {
+          throw error;
+        }
+        connection = await ownerPod.currentPodConnection(uid, transport);
+      }
       if (!podOwnerIsCurrent(admittedOwner) || !isVaultSessionEpochCurrent(vaultEpoch)) {
         return;
       }
@@ -669,7 +834,11 @@ export async function prewarmOwnerPodChatAccess(ports: {
                   };
                 }
               })
-              .catch(() => undefined),
+              .catch(async (error: unknown) => {
+                if (error instanceof EndpointAdvancedError && podOwnerIsCurrent(admittedOwner)) {
+                  await ownerPod.refreshEndpointFromHub(uid, transport).catch(() => undefined);
+                }
+              }),
         ports
           .fetch(`${connection.endpoint.url}/health`, {
             method: "GET",

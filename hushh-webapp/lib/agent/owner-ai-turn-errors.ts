@@ -14,9 +14,9 @@ const PROVIDER_NAMES: Readonly<Record<string, string>> = { openai: "OpenAI", gem
 
 const FIXED_MESSAGES: Readonly<Record<string, string>> = {
   AGENT_RUNTIME_CREDENTIAL_MISSING:
-    "One needs your Gemini key. Add it in Connections settings, or switch to Hussh managed Gemini.",
+    "One needs your custom AI key. Update it in Bring your own AI, or switch back to built-in sandbox AI.",
   AGENT_RUNTIME_CREDENTIAL_INVALID:
-    "Your saved Gemini key could not be used. Update it in Connections settings, or switch to Hussh managed Gemini.",
+    "Your saved custom AI key could not be used. Update it in Bring your own AI, or switch back to built-in sandbox AI.",
 };
 
 function providerName(message: string): string | null {

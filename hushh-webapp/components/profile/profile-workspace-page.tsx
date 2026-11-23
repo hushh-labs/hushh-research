@@ -2,7 +2,6 @@
 
 import { EMAIL_UPDATES_DESCRIPTION, MarketingPreferencePanel } from "@/components/account/marketing-preference-panel";
 import { AttemptEmailPanel } from "@/components/account/attempt-email-panel";
-import { NetworkVisibilitySetting } from "./network-visibility-setting";
 import { useMarketingPreference } from "@/components/account/use-marketing-preference";
 
 import { useDocumentFeedStream } from "@/lib/feed/use-document-feed-stream";
@@ -1309,7 +1308,7 @@ function ProfilePageContent({
     needsVaultCreation: vaultAccess.needsVaultCreation, needsUnlock: vaultAccess.needsUnlock,
     onRequestVaultCreation: () => requestVaultUnlock("profile_data"), onRequestVaultUnlock: () => requestVaultUnlock("profile_data"),
     enabled: activePanel === "preferences" && activeDetail === "gemini" && (presentation !== "native-page" || nativeMenuOpen) });
-  const nativeRuntimeEligible = runtimeSettings.placement === "shared" && !runtimeSettings.otherProvider && nativeRuntimeAvailable && voiceParent !== null && presentation === "native-page" && nativeMenuOpen &&
+  const nativeRuntimeEligible = runtimeSettings.placement === "shared" && runtimeSettings.addingProvider !== "openai" && nativeRuntimeAvailable && voiceParent !== null && presentation === "native-page" && nativeMenuOpen &&
     activePanel === "preferences" && activeDetail === "gemini" && isVaultUnlocked;
   const nativeRuntime = useNativeRuntimeSettings(runtimeSettings, nativeDetailOwner, nativeRuntimeEligible);
   const nativeRuntimeActive = nativeRuntimeEligible && !nativeRuntime.failed;
@@ -3579,7 +3578,6 @@ function ProfilePageContent({
             />
           }
         />
-        <NetworkVisibilitySetting />
         <SettingsRow
           icon={PROFILE_ICONS.visibility}
           iconTone="capability"
@@ -4250,8 +4248,52 @@ function ProfilePageContent({
         activePanel === "hosting"
           ? "Where Agent One runs."
           : "Your version and available updates.",
-      content: <AgentSettingsPanel kind={activePanel} userId={applicationOwnerId} controller={agentSettings} />,
+      content: (
+        <AgentSettingsPanel
+          kind={activePanel}
+          userId={applicationOwnerId}
+          controller={agentSettings}
+          onOpenDetail={(nextDetail) =>
+            updateProfileView({ panel: activePanel, detail: nextDetail }, "push")
+          }
+        />
+      ),
     });
+    if (activePanel === "hosting" && activeDetail === "hosting-details") {
+      profileStackEntries.push({
+        key: "detail:hosting-details",
+        title: "Hosting details",
+        description: "Active cloud runtime and background controls.",
+        content: (
+          <AgentSettingsPanel
+            kind="hosting"
+            userId={applicationOwnerId}
+            controller={agentSettings}
+            detail="hosting-details"
+            onOpenDetail={(nextDetail) =>
+              updateProfileView({ panel: "hosting", detail: nextDetail }, "push")
+            }
+          />
+        ),
+      });
+    } else if (activePanel === "software-updates" && activeDetail === "update-details") {
+      profileStackEntries.push({
+        key: "detail:update-details",
+        title: "Version details",
+        description: "Build and verification status.",
+        content: (
+          <AgentSettingsPanel
+            kind="software-updates"
+            userId={applicationOwnerId}
+            controller={agentSettings}
+            detail="update-details"
+            onOpenDetail={(nextDetail) =>
+              updateProfileView({ panel: "software-updates", detail: nextDetail }, "push")
+            }
+          />
+        ),
+      });
+    }
   } else if (!routeBlockedByVault && activePanel === "account") {
     profileStackEntries.push({
       key: "panel:account",

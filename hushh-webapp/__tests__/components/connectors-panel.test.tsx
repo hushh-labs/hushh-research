@@ -138,8 +138,34 @@ describe("supported connector catalog", () => {
   });
   afterEach(() => { cleanup(); publishValidatedAuthSessionPrincipal(null); });
 
-  it('private placement mounts only pod connectors and does not claim management access from a connection receipt', async () => {
+  it('private placement mounts only pod connectors, uses 1-row progressive disclosure, and drills cleanly into Google and Plaid details', async () => {
     state.privatePlacement.mockResolvedValue(true);
+    state.financial = {
+      loading: false,
+      error: null,
+      data: {
+        data: {
+          connections_v1: {
+            item_1: {
+              item_id: "item_1",
+              institution_name: "First Platypus Bank",
+              status: "active",
+              last_refreshed_at: "2026-11-19T12:00:00Z",
+            },
+          },
+          derived_v1: {
+            schema: "plaid-derived-v1",
+            net_worth: { value: 115000 },
+            liquid_cash: { value: 50000 },
+            investable_assets: { value: 65000 },
+          },
+          summary: {
+            schema: "plaid-summary-v1",
+            net_worth_band: "$100k-$250k",
+          },
+        },
+      },
+    };
     const view = render(<ConnectorsPanel open surface="profile" showAccessDetails {...callbacks} />);
     expect(await screen.findByTestId('private-google-connectors')).toBeInTheDocument();
     expect(await screen.findByTestId('private-plaid-connectors')).toBeInTheDocument();
@@ -148,16 +174,30 @@ describe("supported connector catalog", () => {
     expect(document.querySelector('img[data-connector-brand="plaid"][src="/icons/connectors/plaid.svg"]')).not.toBeNull();
     expect(document.querySelector('img[data-connector-brand="stripe"][src="/icons/connectors/stripe.svg"]')).not.toBeNull();
     expect(screen.getByText('Use your calendar to help plan your time.')).toBeInTheDocument();
-    expect(await screen.findAllByRole('button', { name: 'Allow changes' })).toHaveLength(2);
-    expect(screen.getAllByText('Connected · reading only')).toHaveLength(2);
-    const permissions = screen.getByRole('group', { name: 'Calendar permissions' });
-    expect(within(permissions).getByText('Read events').parentElement).toHaveTextContent('Allowed');
-    expect(within(permissions).getByText('Create events').parentElement).toHaveTextContent('Not enabled');
-    expect(within(permissions).queryByText('Check availability')).not.toBeInTheDocument();
-    expect(within(permissions).queryByText('Respond to invitations')).not.toBeInTheDocument();
+    expect(await screen.findAllByText('Connected · reading only')).toHaveLength(2);
+    // Strict 1-row progressive disclosure: root list keeps action buttons and bank sub-rows inside detail views.
+    expect(screen.queryByRole('button', { name: 'Allow changes' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('private-plaid-bank-item_1')).not.toBeInTheDocument();
     expect(state.ownerPodRequest).toHaveBeenCalledTimes(4);
     expect(state.overview).not.toHaveBeenCalled();
     expect(state.calendarStartNativeConnect).not.toHaveBeenCalled();
+
+    // Drilling into Gmail exposes Allow changes, Disconnect, Check connection, and Background preparation.
+    fireEvent.click(within(screen.getByTestId('private-connector-row-gmail')).getByRole('button'));
+    const gmailDetail = await screen.findByTestId('private-connector-detail-gmail');
+    expect(within(gmailDetail).getByRole('button', { name: 'Allow changes' })).toBeEnabled();
+    expect(within(gmailDetail).getByRole('button', { name: 'Disconnect' })).toHaveAttribute('data-connector-action', 'destructive');
+    expect(within(gmailDetail).getByRole('button', { name: 'Check connection' })).toBeEnabled();
+
+    // Drilling into Plaid shows projection summary, primary Add bank, Refresh live, and connected bank Disconnect.
+    view.rerender(<ConnectorsPanel open surface="profile" activeConnector="plaid" showAccessDetails {...callbacks} />);
+    const plaidDetail = await screen.findByTestId('private-connector-detail-plaid');
+    expect(within(plaidDetail).getByTestId('private-plaid-projection-summary')).toHaveTextContent('Net worth $115,000');
+    expect(within(plaidDetail).getByRole('button', { name: 'Add bank' })).toHaveAttribute('data-connector-action', 'primary');
+    expect(within(plaidDetail).getByRole('button', { name: 'Refresh live' })).toHaveAttribute('data-connector-action', 'secondary');
+    expect(within(plaidDetail).getByText('First Platypus Bank')).toBeInTheDocument();
+    expect(within(plaidDetail).getByRole('button', { name: 'Disconnect' })).toHaveAttribute('data-connector-action', 'destructive');
+
     state.token = null;
     view.rerender(panel());
     expect(await screen.findByText('Sign in and unlock your vault to connect Google.')).toBeInTheDocument();
@@ -189,7 +229,7 @@ describe("supported connector catalog", () => {
     state.ownerPodRequest.mockImplementation(async (path: string) => new Response(JSON.stringify({
       connectorId: path.split('/')[1], status: 'connected', accessLevel: 'manage', capabilities: { read: true, manage },
     })));
-    render(<ConnectorsPanel open surface="profile" {...callbacks} />);
+    render(<ConnectorsPanel open surface="profile" activeConnector="calendar" {...callbacks} />);
     const permissions = await screen.findByRole('group', { name: 'Calendar permissions' });
     expect(within(permissions).getByText('Create events').parentElement).toHaveTextContent(manage ? 'Allowed · review required' : 'Not enabled');
     expect(state.calendarStartConnect).not.toHaveBeenCalled();
@@ -1948,6 +1988,24 @@ describe("supported connector catalog", () => {
       expect(await screen.findByRole("button", { name: "Enable full Drive access" })).toBeInTheDocument();
       expect(screen.queryByRole("switch", { name: "Background Drive access" })).not.toBeInTheDocument();
       expect(state.liveBackground).not.toHaveBeenCalled();
+    });
+
+    it("renders the subtle Google Apps clearance disclaimer only on Production while keeping connect actions enabled", async () => {
+      try {
+        vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
+        const view = render(<ConnectorsPanel open {...callbacks} />);
+        expect(await screen.findByTestId("connector-google-clearance-note")).toHaveTextContent(
+          "Google Apps (Gmail, Calendar, Drive) are undergoing Google clearance; public sign-in may be limited.",
+        );
+        view.unmount();
+
+        vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+        render(<ConnectorsPanel open {...callbacks} />);
+        await waitFor(() => expect(state.overview).toHaveBeenCalled());
+        expect(screen.queryByTestId("connector-google-clearance-note")).not.toBeInTheDocument();
+      } finally {
+        vi.unstubAllEnvs();
+      }
     });
   });
 

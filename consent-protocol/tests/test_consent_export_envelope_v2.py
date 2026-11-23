@@ -86,6 +86,128 @@ async def test_paid_grant_admission_preserves_free_and_fails_closed_across_time_
 
 
 @pytest.mark.asyncio
+async def test_paid_grants_batch_admission_uses_single_shared_lock_transaction(monkeypatch):
+    import hashlib
+    from contextlib import asynccontextmanager
+    from datetime import datetime, timedelta, timezone
+
+    from hushh_mcp.consent import paid_admission
+    from hushh_mcp.services import scope_commerce_requests
+    from hushh_mcp.services.scope_commerce import service as commerce
+
+    now = datetime.now(timezone.utc)
+    tx_count = 0
+    env_calls = 0
+    batch_calls = 0
+    lock_sqls: list[str] = []
+
+    class _FakeConn:
+        @asynccontextmanager
+        async def transaction(self):
+            nonlocal tx_count
+            tx_count += 1
+            yield
+
+        async def execute(self, sql, *args):
+            lock_sqls.append(str(sql))
+
+        async def fetchval(self, _sql):
+            return now
+
+    class _FakePool:
+        @asynccontextmanager
+        async def acquire(self):
+            yield _FakeConn()
+
+    async def _fake_pool():
+        return _FakePool()
+
+    live_tok = "tok-live-01"
+    expired_tok = "tok-expired-02"
+    disputed_tok = "tok-disputed-03"
+    purchases = {
+        hashlib.sha256(live_tok.encode()).hexdigest(): {
+            "purchase_id": "p-live",
+            "request_id": "req-live",
+            "owner_user_id": "owner-1",
+            "payer_user_id": "buyer-1",
+            "buyer_app_id": "app-1",
+            "machine_scope": "attr.financial",
+            "scope_handle": "h-1",
+            "recipient_key_fingerprint": "fp-1",
+            "status": "staged",
+            "erased_at": None,
+            "activation_at": now - timedelta(minutes=5),
+            "expires_at": now + timedelta(minutes=30),
+            "admission_now": now,
+        },
+        hashlib.sha256(expired_tok.encode()).hexdigest(): {
+            "purchase_id": "p-exp",
+            "request_id": "req-exp",
+            "owner_user_id": "owner-1",
+            "status": "staged",
+            "erased_at": None,
+            "activation_at": now - timedelta(hours=2),
+            "expires_at": now - timedelta(minutes=1),
+            "admission_now": now,
+        },
+        hashlib.sha256(disputed_tok.encode()).hexdigest(): {
+            "purchase_id": "p-disp",
+            "request_id": "req-disp",
+            "owner_user_id": "owner-1",
+            "status": "payment_disputed",
+            "erased_at": None,
+            "activation_at": now - timedelta(minutes=5),
+            "expires_at": now + timedelta(minutes=30),
+            "admission_now": now,
+        },
+    }
+
+    class _FakeService:
+        async def _environment(self, _conn):
+            nonlocal env_calls
+            env_calls += 1
+
+        async def lookup_many_by_consent_tokens(self, tokens, conn=None):
+            nonlocal batch_calls
+            batch_calls += 1
+            return {
+                h: purchases[h]
+                for tok in tokens
+                if (h := hashlib.sha256(tok.encode()).hexdigest()) in purchases
+            }
+
+    async def _resolve_req(req_id, owner_id, connection=None):
+        return {
+            "owner_user_id": owner_id,
+            "payer_user_id": "buyer-1",
+            "buyer_app_id": "app-1",
+            "machine_scope": "attr.financial",
+            "scope_handle": "h-1",
+            "recipient_key_fingerprint": "fp-1",
+            "consent_action": "CONSENT_GRANTED",
+        }
+
+    monkeypatch.setattr(paid_admission, "get_pool", _fake_pool)
+    monkeypatch.setattr(commerce, "ScopeCommerceService", _FakeService)
+    monkeypatch.setattr(scope_commerce_requests, "resolve_commerce_request", _resolve_req)
+
+    outcomes = await paid_admission.paid_grants_are_admitted_batch(
+        [
+            ("free-tok", {}),
+            (live_tok, {"commercial_required": True, "commerce_purchase_id": "p-live"}),
+            (expired_tok, {"commercial_required": True, "commerce_purchase_id": "p-exp"}),
+            (disputed_tok, {"commercial_required": True, "commerce_purchase_id": "p-disp"}),
+        ]
+    )
+    assert outcomes == [True, True, False, False]
+    assert tx_count == 1
+    assert env_calls == 1
+    assert batch_calls == 1
+    assert any("pg_advisory_xact_lock_shared" in sql for sql in lock_sqls)
+
+
+@pytest.mark.asyncio
 async def test_disabled_commerce_or_missing_paid_schema_cannot_downgrade_owner_approval(
     monkeypatch,
 ):
@@ -223,7 +345,7 @@ async def test_paid_purchase_cancellation_checks_actor_and_db_activation_before_
     from datetime import UTC, datetime, timedelta
 
     from hushh_mcp.consent.paid_admission import end_paid_purchase
-    from hushh_mcp.services.consent_db import ConsentDBService
+    from hushh_mcp.services import consent_commerce_ports
     from hushh_mcp.services.scope_commerce import service as commerce
 
     purchase_id = "123e4567-e89b-12d3-a456-426614174000"
@@ -259,12 +381,12 @@ async def test_paid_purchase_cancellation_checks_actor_and_db_activation_before_
             purchase["status"] = "revoked"
             return {"purchaseId": purchase_id, "status": "revoked"}
 
-    async def event(self, **kwargs):
-        events.append(kwargs)
+    async def event(_conn, payload):
+        events.append(payload)
         return 1
 
     monkeypatch.setattr(commerce, "ScopeCommerceService", Service)
-    monkeypatch.setattr(ConsentDBService, "insert_event", event)
+    monkeypatch.setattr(consent_commerce_ports, "insert_consent_event", event)
     conn = Connection()
     with pytest.raises(PermissionError, match="purchase_unavailable"):
         await end_paid_purchase("other", purchase_id, as_owner=True, connection=conn)

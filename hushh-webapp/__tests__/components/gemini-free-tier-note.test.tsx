@@ -52,6 +52,13 @@ vi.mock("@/lib/one/ai-selection-agent", async (importOriginal) => ({
   loadAgentAiState: mocks.loadAgentAiState,
 }));
 vi.mock("@/lib/one/ai-selection-vault", () => ({
+  loadSavedAiConfigurations: vi.fn().mockResolvedValue({
+    configurations: [],
+    activeConfigId: null,
+    mode: "hushh_managed_vertex",
+    selectedProvider: null,
+  }),
+  defaultAiConfigurationLabel: (provider: string) => (provider === "openai" ? "OpenAI" : "Gemini"),
   loadSelectedAiProvider: vi.fn().mockResolvedValue(null),
   hasSavedOpenAiKey: mocks.hasSavedOpenAiKey,
   recordOpenAiSelection: vi.fn(),
@@ -84,7 +91,8 @@ describe("Gemini free-tier note", () => {
       <GeminiRuntimeSettingsCard userId="owner-1" {...VAULT_PROPS} requiresExplicitSelection
         initiallyConfigured initialSetupChoice="byok_pending_vault" />,
     );
-    fireEvent.click((await screen.findAllByRole("radio"))[1]);
+    const geminiButton = (await screen.findByTestId("profile-byok-runtime")).querySelector("button")!;
+    fireEvent.click(geminiButton);
     expect(await screen.findByLabelText("Gemini API key")).toBeInTheDocument();
     expect(screen.getByTestId("gemini-free-tier-note")).toHaveTextContent(GEMINI_FREE_TIER_NOTE);
     // Honest, not a guess: the note never claims Hussh checked the key's tier.

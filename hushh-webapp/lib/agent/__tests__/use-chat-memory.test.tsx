@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const runtimeMocks = vi.hoisted(() => ({
@@ -26,6 +26,7 @@ describe("useChatMemory chat-switching and vault-lock boundaries", () => {
   });
 
   afterEach(() => {
+    cleanup();
     CacheService.getInstance().clear();
   });
 
@@ -127,9 +128,7 @@ describe("useChatMemory chat-switching and vault-lock boundaries", () => {
         { id: "m5", serverMessageId: "srv-m5", role: "user" as const, text: "Remember that I study robotics." },
       ],
     });
-    await act(async () => {
-      await Promise.resolve();
-    });
+    await vi.waitFor(() => expect(runtimeMocks.registerSnapshot).toHaveBeenCalledTimes(2));
     expect(runtimeMocks.trigger).toHaveBeenCalledTimes(1);
   });
 

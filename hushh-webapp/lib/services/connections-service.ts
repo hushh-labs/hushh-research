@@ -314,19 +314,6 @@ export class ConnectionsService {
     }));
   }
 
-  static async getNetworkVisibility(opts: { idToken: string; signal?: AbortSignal }): Promise<{ shareConnectionList: boolean }> {
-    return jsonOrThrow(await ApiService.apiFetch("/api/one/connections/network/visibility", {
-      method: "GET", headers: authHeaders(opts.idToken), cache: "no-store", signal: opts.signal,
-    }));
-  }
-
-  static async updateNetworkVisibility(opts: { idToken: string; shareConnectionList: boolean }): Promise<{ shareConnectionList: boolean }> {
-    return jsonOrThrow(await ApiService.apiFetch("/api/one/connections/network/visibility", {
-      method: "PATCH", headers: authHeaders(opts.idToken), cache: "no-store",
-      body: JSON.stringify({ share_connection_list: opts.shareConnectionList }),
-    }));
-  }
-
   static async listMutualConnections(opts: { idToken: string; personRef: string; page: number; signal?: AbortSignal }): Promise<MutualConnectionsPage> {
     const params = new URLSearchParams({ person_ref: opts.personRef, page: String(opts.page), limit: "20" });
     const response = await ApiService.apiFetch(`/api/one/connections/mutuals?${params}`, {
@@ -434,11 +421,13 @@ export class ConnectionsService {
     audience?: DirectoryAudience;
     nameOnly?: boolean;
     typedSearch?: boolean;
+    excludeConnected?: boolean;
   }): Promise<DirectoryPage> {
     const params = new URLSearchParams();
     if (opts.query) params.set("query", opts.query);
     if (opts.nameOnly) params.set("name_only", "true");
     if (opts.typedSearch) params.set("typed_search", "true");
+    if (opts.excludeConnected) params.set("exclude_connected", "true");
     params.set("page", String(opts.page ?? 1));
     if (typeof opts.limit === "number") params.set("limit", String(opts.limit));
     // Omitted rather than sent as "all", so the request a pre-split caller

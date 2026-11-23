@@ -157,9 +157,9 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
         if (!validDockEvent(event) || !identity.current || !sameDock(identity.current, event) || !before.ports?.get(before.family) ||
             !before.enabled || before.suppressed || before.overlay || before.dock?.suppressed ||
             isSessionChromeSuppressed() || nativeShellOverlayBlocked()) return;
-        const { documentId, ownerEpoch, revision, updateSequence, sequence, editRevision, editorRevision, privacyGeneration, context, kind } = event;
+        const { documentId, ownerEpoch, revision, updateSequence, sequence, editRevision, editorRevision, privacyGeneration, context, kind, action } = event;
         const isolation = nativeDrawerIsolation();
-        const confirmation = await boundedDock(nativeDock.confirmEvent({ documentId, ownerEpoch, revision, updateSequence, sequence, editRevision, editorRevision, privacyGeneration, context, kind }));
+        const confirmation = await boundedDock(nativeDock.confirmEvent({ documentId, ownerEpoch, revision, updateSequence, sequence, editRevision, editorRevision, privacyGeneration, context, kind, action }));
         const after = current.current;
         const afterPort = after.ports?.get(after.family);
         if (!confirmation.valid || isolation.isolated || nativeDrawerIsolation().isolated || isolation.generation !== nativeDrawerIsolation().generation || capturedGeneration !== generation.current || !after.enabled || after.dock?.suppressed || after.suppressed || after.overlay ||
@@ -167,7 +167,9 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
             event.editorRevision !== afterPort.projection.editorRevision ||
             event.kind === "action" && (applied.current?.sequence !== event.updateSequence || applied.current.configuration !== actionConfiguration(afterPort.projection)) ||
             !fence.current?.accept(event, afterPort.projection.context, afterPort.projection.editorRevision)) return;
-        if (event.kind === "action" && event.action === "send") {
+        if (event.kind === "action" && (event.action === "send" || event.action === "send-now")) {
+          if (event.action === "send-now" && (afterPort.projection.mode !== "text" ||
+              !afterPort.projection.sendEnabled || !afterPort.projection.sendNowEnabled)) return;
           consuming = identity.current;
           const consumptionFence = fence.current;
           const consumption = await boundedDock(nativeDock.consumeDraft(event));
@@ -226,7 +228,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
           settledConsumption.current = fence.current?.editRevision ?? 0;
           measure(value => value + 1);
         }
-        if (event?.kind === "action" && event.action === "send" && capturedGeneration === generation.current) {
+        if (event?.kind === "action" && (event.action === "send" || event.action === "send-now") && capturedGeneration === generation.current) {
           morphyToast.error(dispatched ? "Send wasn’t confirmed. Check the conversation before trying again." : "Send wasn’t confirmed. Your draft has not been sent.");
         }
       }); // Never log a private bridge error/payload or replay.

@@ -71,3 +71,11 @@ export function diversifyMarketNewsRows(
   }
   return diversified;
 }
+
+/** Publisher destinations are actions, never native presentation values. */
+export function marketNewsArticleUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
+  } catch { return null; }
+}

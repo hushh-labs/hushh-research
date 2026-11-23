@@ -385,9 +385,11 @@ class PrefixTokenObjectStore:
         if static_token and token_provider is not None:
             self._token_expires_at = time.monotonic() + 840.0
         if session is None:
-            from hushh_mcp.services.pod_storage_transport import PodStorageTransport
+            from hushh_mcp.services.pod_storage_transport import (
+                shared_pod_storage_transport,
+            )
 
-            session = PodStorageTransport()
+            session = shared_pod_storage_transport()
         self._session = session
 
     def _current_token(self) -> str:

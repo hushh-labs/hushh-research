@@ -103,7 +103,7 @@ describe("History caller authority", () => {
     expect(deps.chatMemory.withdrawConversation).toHaveBeenCalledWith("selected-chat");
     expect(deps.handleCreateNewChat).toHaveBeenCalledWith({ triggerMemory: false });
     expect(deps.setConversations).toHaveBeenCalledTimes(1);
-    expect(deps.clearAgentChatHistoryCache).toHaveBeenCalledWith("history-owner");
+    expect(deps.clearAgentChatHistoryCache).toHaveBeenCalledWith("history-owner", { includeDevice: true });
     expect(deps.clearAgentChatHistoryCache.mock.invocationCallOrder[0]).toBeLessThan(deps.warmAgentChatHistoryCache.mock.invocationCallOrder[0]);
     publishValidatedAuthSessionPrincipal(null);
   });
@@ -140,6 +140,12 @@ describe("Initial history warm return", () => {
         setConversations: vi.fn(), setMessages: vi.fn(), updateConversationId: vi.fn(),
         setHistoryReadyForSlot: vi.fn(), setIsLoadingHistory: vi.fn(), setSlotHistoryFailed: vi.fn(),
         restorePendingMcpReviews: vi.fn(async () => undefined),
+        isPinnedOneStreamConversation: (item: { title?: string }) =>
+          String(item.title ?? "").trim().toLowerCase() === "one",
+        pendingMainChatIdRef: { current: null },
+        setPendingMainChatId: vi.fn(),
+        isOneStreamDraftRef: { current: true },
+        setIsOneStreamDraft: vi.fn(),
       };
       const restore = new Function(...Object.keys(deps), compiled)(...Object.values(deps)) as () => Promise<void>;
       const pending = restore();

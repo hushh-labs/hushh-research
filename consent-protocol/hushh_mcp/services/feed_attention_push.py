@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
@@ -97,6 +98,82 @@ def feed_attention_push(item_id: str) -> dict[str, Any]:
         "data": {"feed_item_id": item_id, "message_id": uuid.uuid4().hex},
         "show_alert": True,
         # Recipient routing stays server-side; the account id never reaches the device.
+        "include_user_id": False,
+        "platforms": FEED_ATTENTION_PLATFORMS,
+    }
+
+
+MUSE_BACKGROUND_NOTIFICATION_TYPES: frozenset[str] = frozenset(
+    {
+        "pod_drafts_ready",
+        "circle_rule_fulfilled",
+        "information_request_ready",
+        "pod_brief_updated",
+    }
+)
+_OPAQUE_REF_RE = re.compile(r"^[A-Za-z0-9_:-]{1,64}$")
+
+
+def _bounded_count_label(count: int, singular: str, plural: str) -> str:
+    if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+        raise ValueError("count must be a positive integer")
+    if count == 1:
+        return f"1 {singular}"
+    if count > 9:
+        return f"9+ {plural}"
+    return f"{count} {plural}"
+
+
+def build_muse_background_push(
+    kind: str,
+    *,
+    ref_id: str,
+    count: int = 1,
+) -> dict[str, Any]:
+    """Build a zero-PII structural lockscreen push for Stage 2a background agency.
+
+    Guarantees:
+    * Zero sender names, subject lines, filenames, or dollar amounts ever enter
+      Apple/Google push relays.
+    * Deep-links straight to the Review Bar or Circle receipt surface.
+    """
+    clean_kind = str(kind or "").strip()
+    if clean_kind not in MUSE_BACKGROUND_NOTIFICATION_TYPES:
+        raise ValueError(f"Unsupported Muse notification kind: {kind!r}")
+    clean_ref = str(ref_id or "").strip()
+    if not _OPAQUE_REF_RE.fullmatch(clean_ref):
+        raise ValueError("ref_id must be an opaque identifier")
+
+    if clean_kind == "pod_drafts_ready":
+        count_label = _bounded_count_label(count, "draft", "drafts")
+        body = f"One prepared {count_label} for review"
+        deep_link = "/?review=drafts"
+    elif clean_kind == "circle_rule_fulfilled":
+        count_label = _bounded_count_label(count, "receipt", "receipts")
+        body = f"Trusted circle rule fulfilled · {count_label}"
+        deep_link = "/consents?tab=receipts"
+    elif clean_kind == "information_request_ready":
+        _bounded_count_label(count, "request", "requests")
+        body = "Document request ready to allow"
+        deep_link = "/consents?tab=requests"
+    else:
+        _bounded_count_label(count, "update", "updates")
+        body = "One updated your workspace brief"
+        deep_link = "/"
+
+    return {
+        "notification_type": clean_kind,
+        "title": FEED_ATTENTION_TITLE,
+        "body": body,
+        "deep_link": deep_link,
+        "notification_tag": f"{clean_kind}:{clean_ref}",
+        "notification_category": FEED_ATTENTION_CATEGORY,
+        "data": {
+            "surface_kind": clean_kind,
+            "ref_id": clean_ref,
+            "message_id": uuid.uuid4().hex,
+        },
+        "show_alert": True,
         "include_user_id": False,
         "platforms": FEED_ATTENTION_PLATFORMS,
     }
@@ -329,10 +406,12 @@ __all__ = [
     "FEED_ATTENTION_NOTIFICATION_TYPE",
     "FEED_ATTENTION_PLATFORMS",
     "FEED_ATTENTION_TITLE",
+    "MUSE_BACKGROUND_NOTIFICATION_TYPES",
     "NOTABLE_EVENT_TYPES",
     "FeedCandidate",
     "FeedAttentionStore",
     "PostgresFeedAttentionStore",
+    "build_muse_background_push",
     "feed_attention_enabled",
     "feed_attention_push",
     "get_offered_feed_item",

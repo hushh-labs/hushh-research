@@ -522,3 +522,37 @@ async def test_gone_transition_cas_miss_or_failure_never_sends_fresh_setup(
     )
     assert gate.calls == []
     assert reg.row == _byoc_row()
+
+
+async def test_managed_select_succeeds_on_cold_ace_placement_without_awake_pod(monkeypatch):
+    """Cold ACE placement row (no running pod) resolves cleanly without Hub-to-pod RPC."""
+    ace_row = {
+        "user_id": "u-ace",
+        "hushh_id": "ha1_ace",
+        "status": "provisioned",
+        "deployment_target": "ace",
+        "model_credential_mode": None,
+        "backend_metadata": {
+            "tenancy": "hussh-hosted",
+            "pool": "agent_sandbox_warm_pool",
+            "observed": {
+                "aiSelection": {
+                    "version": 1,
+                    "providers": ["gemini", "openai"],
+                    "defaultVerification": True,
+                }
+            },
+        },
+    }
+    reg = _Registry(ace_row)
+    gate = _Gate({"scheduled": False, "reason": "host already provisioned"})
+    monkeypatch.setattr(runtime_route, "PersonalAgentRegistryRepo", lambda: reg)
+    monkeypatch.setattr(runtime_route, "_probe_managed_gemini", _ready("global"))
+    monkeypatch.setattr(runtime_route, "on_ai_connection_verified", gate)
+
+    result = await runtime_route.select_managed_gemini(request=None, firebase_uid="u-ace")
+
+    assert result.status == "ready"
+    assert result.agentScheduled is False
+    assert result.agentReason == "host already provisioned"
+    assert gate.calls[0]["provider"] == "hushh_managed_vertex"

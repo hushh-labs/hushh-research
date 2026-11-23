@@ -169,7 +169,7 @@ async def test_unplaced_new_signup_places_onto_ace_pooled_sandbox_with_exact_key
     assert row["deployment_target"] == "ace"
     assert row["backend"] == "ace"
     assert row["status"] == "provisioned"
-    assert row["liveness_mode"] == "warm"
+    assert row["liveness_mode"] == "economy"
     assert row["model_credential_mode"] == "byok_per_turn"
 
     hushh_id = row["hushh_id"]
@@ -1117,3 +1117,144 @@ async def test_adopt_pooled_sandbox_dead_byoc_falls_back_to_3_day_grace_and_opt_
     assert del_rec["ownerConfirmed"] is True
     assert del_rec["removePriorCloudResources"] is True
     assert del_rec["status"] == "ready_for_retirement"
+
+
+async def test_ensure_pooled_sandbox_placement_writes_cloud_setup_marker_except_for_byoc(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_cutover(monkeypatch)
+    reg = _FakeRegistry(
+        {
+            "uid-byoc-preserve": {
+                "user_id": "uid-byoc-preserve",
+                "hushh_id": "ha1_byocpreserve0000000000000000000",
+                "status": "provisioned",
+                "deployment_target": "user_azure",
+                "backend": "user_azure",
+                "external_agent_id": "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.App/containerApps/pod",
+                "user_cloud_subscription_id": "sub",
+                "backend_metadata": {"url": "https://byoc-az.example"},
+            }
+        }
+    )
+    marked: list[str] = []
+
+    async def _mark(uid: str) -> None:
+        marked.append(uid)
+
+    placed = await ensure_pooled_sandbox_placement(
+        user_id="uid-cold-signup",
+        registry=reg,
+        job_repo=_FakeJobs(),
+        grant_service=_FakeGrants(),
+        cloud_marker_writer=_mark,
+    )
+    assert placed is not None and placed["deployment_target"] == "ace"
+    assert marked == ["uid-cold-signup"]
+
+    # Idempotent repeat on already-placed ACE row also ensures marker is present.
+    repeated = await ensure_pooled_sandbox_placement(
+        user_id="uid-cold-signup",
+        registry=reg,
+        job_repo=_FakeJobs(),
+        grant_service=_FakeGrants(),
+        cloud_marker_writer=_mark,
+    )
+    assert repeated is not None and repeated["deployment_target"] == "ace"
+    assert marked == ["uid-cold-signup", "uid-cold-signup"]
+
+    # Negative control: preserved BYOC placement never receives an ACE cloud marker.
+    byoc = await ensure_pooled_sandbox_placement(
+        user_id="uid-byoc-preserve",
+        registry=reg,
+        job_repo=_FakeJobs(),
+        grant_service=_FakeGrants(),
+        cloud_marker_writer=_mark,
+    )
+    assert byoc is not None and byoc["deployment_target"] == "user_azure"
+    assert "uid-byoc-preserve" not in marked
+
+
+async def test_switch_hosting_mode_route_detaches_ace_to_shared_and_own_cloud_while_protecting_byoc(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api.routes.one import runtime_placement
+
+    detached_calls: list[tuple[str, str]] = []
+    recorded_shared: list[tuple[str, bool]] = []
+    marked: list[str] = []
+    current_mode = {"value": "hussh_pods"}
+
+    async def _fake_placement(_uid: str) -> str:
+        return current_mode["value"]
+
+    async def _fake_get_row(self: Any, uid: str) -> dict[str, Any] | None:
+        return {
+            "user_id": uid,
+            "hushh_id": "ha1_sandbox0000000000000000000000",
+            "status": "provisioned",
+            "deployment_target": "ace",
+            "external_agent_id": "ace:ha1_sandbox0000000000000000000000",
+            "updated_at": "2026-11-22T12:00:00Z",
+        }
+
+    async def _fake_detach(*, row: dict[str, Any], reason: str, **kwargs: Any) -> dict[str, Any]:
+        detached_calls.append((str(row["user_id"]), reason))
+        return {"user_id": row["user_id"], "detached_count": 1}
+
+    async def _fake_record_shared(
+        self: Any, uid: str, *, after_detach: bool = False
+    ) -> dict[str, Any]:
+        recorded_shared.append((uid, after_detach))
+        return {"tier": "shared"}
+
+    async def _fake_mark(uid: str) -> None:
+        marked.append(uid)
+
+    monkeypatch.setattr(runtime_placement, "_placement", _fake_placement)
+    monkeypatch.setattr(runtime_placement, "require_byoc_setup_enabled", lambda: None)
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_registry_repo.PersonalAgentRegistryRepo.get",
+        _fake_get_row,
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_placement_detach.detach_placement",
+        _fake_detach,
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.owner_hosting_choice.HostingChoiceRepo.record_shared",
+        _fake_record_shared,
+    )
+    monkeypatch.setattr(runtime, "_write_cloud_setup_marker", _fake_mark)
+
+    shared_resp = await runtime.switch_hosting_mode_route.__wrapped__(  # type: ignore[attr-defined]
+        request=None,
+        body=runtime.HostingSwitchRequest(target="shared"),
+        firebase_uid="uid-ace-1",
+    )
+    assert shared_resp.hostingMode == "shared"
+    assert shared_resp.detachedPriorHost is True
+    assert detached_calls == [("uid-ace-1", "owner switched to Hussh Shared")]
+    assert recorded_shared == [("uid-ace-1", True)]
+    assert marked == ["uid-ace-1"]
+
+    own_resp = await runtime.switch_hosting_mode_route.__wrapped__(  # type: ignore[attr-defined]
+        request=None,
+        body=runtime.HostingSwitchRequest(target="own_cloud"),
+        firebase_uid="uid-ace-2",
+    )
+    assert own_resp.hostingMode == "shared"
+    assert own_resp.detachedPriorHost is True
+    assert detached_calls[-1] == ("uid-ace-2", "owner switched to Bring your own cloud")
+    assert recorded_shared[-1] == ("uid-ace-2", True)
+    assert marked[-1] == "uid-ace-2"
+
+    current_mode["value"] = "byoc"
+    with pytest.raises(HTTPException) as exc:
+        await runtime.switch_hosting_mode_route.__wrapped__(  # type: ignore[attr-defined]
+            request=None,
+            body=runtime.HostingSwitchRequest(target="shared"),
+            firebase_uid="uid-byoc-1",
+        )
+    assert exc.value.status_code == 409
+    assert exc.value.detail["code"] == "CLOUD_REMOVAL_REVIEW_REQUIRED"

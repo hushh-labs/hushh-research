@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from ag_ui.core import RunAgentInput
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 from sse_starlette.sse import EventSourceResponse
 
 from api.routes.external_connectors import (
@@ -24,6 +24,7 @@ from hushh_mcp.one_adk.agui_factory import _authenticated_capabilities
 from hushh_mcp.one_adk.history_descriptors import (
     _event_text,
     _safe_agent_history_metadata,
+    _session_category_projection,
     _session_title,
     _submitted_source_id,
 )
@@ -32,6 +33,15 @@ from hushh_mcp.one_adk.information_request_submission import RecordInformationRe
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
 from hushh_mcp.one_adk.nws_turn_context import STATE_NWS_REPORT, admit_nws_report
+from hushh_mcp.one_adk.plaid_connector_tools import (
+    STATE_PLAID_CLIENT_READY,
+    STATE_PLAID_POSTURE,
+    STATE_PLAID_RESULT,
+)
+from hushh_mcp.one_adk.plaid_turn_admission import (
+    admit_plaid_continuation,
+    admit_plaid_posture,
+)
 from hushh_mcp.one_adk.pod_agui_context import PodChatContext
 from hushh_mcp.one_adk.pod_agui_lifetime import _ACTIVE_THREADS
 from hushh_mcp.one_adk.pod_chat_stream import (
@@ -56,6 +66,16 @@ from hushh_mcp.one_adk.specialist_focus import (
     admit_specialist_focus,
 )
 from hushh_mcp.one_adk.turn_location import STATE_TURN_LOCATION, admit_turn_location
+from hushh_mcp.one_adk.wiki_recall_tools import (
+    STATE_WIKI_CLIENT_READY,
+    STATE_WIKI_HOT_DIGEST,
+    STATE_WIKI_RESULT,
+    pod_files_wiki_enabled,
+)
+from hushh_mcp.one_adk.wiki_turn_admission import (
+    admit_wiki_continuation,
+    admit_wiki_hot_digest,
+)
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
 from hushh_mcp.services.message_feedback_service import MessageFeedbackError
@@ -100,6 +120,8 @@ async def capabilities(owner: PodChatContext = Depends(context)):
         **_authenticated_capabilities,
         "podCommandCheckpointVersion": 1,
         "receiptToolVersion": 1,
+        "plaidConnectorToolVersion": 1,
+        "clientWikiRecallVersion": 0 if pod_files_wiki_enabled() else 1,
         "admittedActionIds": sorted(
             {"pkm.add", *(entry["action_id"] for entry in list_action_gateway_actions())}
         ),
@@ -144,6 +166,17 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         raise HTTPException(400, detail={"code": "POD_CHAT_SPECIALIST_FOCUS_INVALID"}) from None
     screen_context = forwarded.get("screenContext")
     screen = sanitize_agent_context(screen_context if isinstance(screen_context, dict) else {})
+    allow_client_wiki = not pod_files_wiki_enabled()
+    try:
+        wiki_hot_digest, wiki_client_ready = admit_wiki_hot_digest(
+            forwarded, owner_admitted=allow_client_wiki
+        )
+    except ValueError:
+        raise HTTPException(413, detail={"code": "POD_CHAT_WIKI_DIGEST_TOO_LARGE"}) from None
+    try:
+        plaid_posture, plaid_client_ready = admit_plaid_posture(forwarded, owner_admitted=True)
+    except ValueError:
+        raise HTTPException(413, detail={"code": "POD_CHAT_PLAID_POSTURE_TOO_LARGE"}) from None
     state = {
         owner_style.STATE_OWNER_STYLE: owner_style.admit_owner_style(
             forwarded, owner_admitted=True
@@ -179,6 +212,11 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         "hussh:voice_context": screen,
         "hussh:pkm_context": store_request_secret(options.pkm_context or "", ttl_seconds=240),
         STATE_NWS_REPORT: admit_nws_report(forwarded, owner_admitted=True),
+        STATE_WIKI_HOT_DIGEST: wiki_hot_digest,
+        STATE_WIKI_CLIENT_READY: wiki_client_ready,
+        STATE_PLAID_POSTURE: plaid_posture,
+        STATE_PLAID_CLIENT_READY: plaid_client_ready,
+        **({"hussh:thread_title": "One"} if forwarded.get("mainChat") is True else {}),
     }
     return state, options
 
@@ -211,6 +249,36 @@ async def chat(input: RunAgentInput, owner: PodChatContext = Depends(context)):
         )
     except (ValueError, KeyError, TypeError):
         raise HTTPException(403, detail={"code": "POD_CHAT_RECEIPT_NOT_ADMITTED"}) from None
+    try:
+        if not pod_files_wiki_enabled():
+            state[STATE_WIKI_RESULT] = await admit_wiki_continuation(
+                forwarded,
+                owner_id=owner.owner,
+                conversation_id=input.thread_id,
+                messages=input.messages,
+                execution_head=lambda: None,
+                load_session=lambda: owner.sessions.get_session(
+                    app_name=ONE_APP_NAME, user_id=owner.owner, session_id=input.thread_id
+                ),
+            )
+        else:
+            forwarded.pop("wikiToolResults", None)
+            state[STATE_WIKI_RESULT] = ""
+    except (ValueError, KeyError, TypeError):
+        raise HTTPException(403, detail={"code": "POD_CHAT_WIKI_NOT_ADMITTED"}) from None
+    try:
+        state[STATE_PLAID_RESULT] = await admit_plaid_continuation(
+            forwarded,
+            owner_id=owner.owner,
+            conversation_id=input.thread_id,
+            messages=input.messages,
+            execution_head=lambda: None,
+            load_session=lambda: owner.sessions.get_session(
+                app_name=ONE_APP_NAME, user_id=owner.owner, session_id=input.thread_id
+            ),
+        )
+    except (ValueError, KeyError, TypeError):
+        raise HTTPException(403, detail={"code": "POD_CHAT_PLAID_NOT_ADMITTED"}) from None
     from api.routes.one.pod_consent_chat import admit_continuation
 
     state.update(await admit_continuation(forwarded, input, owner, ONE_APP_NAME))
@@ -223,7 +291,10 @@ async def chat(input: RunAgentInput, owner: PodChatContext = Depends(context)):
     admitted = input.model_copy(update={"state": state, "forwarded_props": {}})
     return EventSourceResponse(
         pod_chat_events(agent, admitted, owner_id=owner.owner),
-        headers={"Cache-Control": "no-store"},
+        headers={
+            "Cache-Control": "no-cache, no-store, no-transform",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
@@ -243,6 +314,8 @@ async def conversations(
             {
                 "id": session.id,
                 "title": _session_title(session),
+                "category": category,
+                "category_source": category_source,
                 "status": "active",
                 "model": None,
                 "message_count": sum(1 for event in session.events if _event_text(event)),
@@ -251,6 +324,7 @@ async def conversations(
                 "last_message_at": session.last_update_time,
             }
             for session in sessions
+            for category, category_source in [_session_category_projection(session)]
         ],
     }
 
@@ -259,6 +333,7 @@ async def conversations(
 async def history(
     conversation_id: str,
     limit: int = Query(50, ge=1, le=100),
+    before: str | None = Query(default=None, max_length=160),
     owner: PodChatContext = Depends(context),
 ):
     pending_before_read = conversation_id in _ACTIVE_THREADS or turn_is_preparing(
@@ -278,6 +353,7 @@ async def history(
     submitted = {source for event in session.events if (source := _submitted_source_id(event))}
     providers = _call_providers(session.events)
     from hushh_mcp.one_adk.consent_chat_admission import consent_history_access
+    from hushh_mcp.one_adk.consent_continuation import continued_outcomes
     from hushh_mcp.services.pod_consent_read import PodConsentReadPort
 
     consent_by_invocation, consent_ended = await consent_history_access(
@@ -290,6 +366,7 @@ async def history(
         session.events,
         conversation_id,
         limit,
+        before_id=before,
         session_state=session.state,
         consent_by_invocation=consent_by_invocation,
         consent_ended=consent_ended,
@@ -305,6 +382,8 @@ async def history(
         or conversation_id in _ACTIVE_THREADS
         or turn_is_preparing(owner.owner, conversation_id)
     }
+    result["consentOutcomes"] = continued_outcomes(session.state)
+    result["consentAccessEnded"] = consent_ended
     from hushh_mcp.one_adk.pod_mcp_restore import pending_reviews
 
     result["mcpReviews"] = [
@@ -315,30 +394,53 @@ async def history(
 
 
 class Rename(BaseModel):
-    title: str = Field(min_length=1, max_length=160)
+    title: str | None = Field(default=None, min_length=1, max_length=160)
+    category: str | None = Field(default=None, max_length=32)
+
+    @model_validator(mode="after")
+    def _require_mutation(self) -> Rename:
+        if self.title is None and "category" not in self.model_fields_set:
+            raise ValueError("Provide title or category.")
+        return self
 
 
 @router.patch("/conversations/{conversation_id}")
 async def rename(conversation_id: str, payload: Rename, owner: PodChatContext = Depends(context)):
     from hushh_mcp.services.pod_upgrade_admission import ADMISSION, pod_incarnation
 
+    update_category = "category" in payload.model_fields_set
     permit = await ADMISSION.acquire_turn(incarnation=pod_incarnation())
     try:
-        session = await owner.sessions.set_title(
-            app_name=ONE_APP_NAME,
-            user_id=owner.owner,
-            session_id=conversation_id,
-            title=payload.title,
-        )
+        if update_category and hasattr(owner.sessions, "update_conversation_metadata"):
+            session = await owner.sessions.update_conversation_metadata(
+                app_name=ONE_APP_NAME,
+                user_id=owner.owner,
+                session_id=conversation_id,
+                title=payload.title,
+                category=payload.category,
+                update_category=True,
+            )
+        else:
+            session = await owner.sessions.set_title(
+                app_name=ONE_APP_NAME,
+                user_id=owner.owner,
+                session_id=conversation_id,
+                title=payload.title or "",
+            )
     finally:
         await permit.release()
     if session is None:
         raise HTTPException(404, detail="Conversation not found.")
+    category, category_source = _session_category_projection(session)
     return {
         "id": session.id,
         "title": _session_title(session),
+        "category": category,
+        "category_source": category_source,
         "status": "active",
         "message_count": len(session.events),
+        "updated_at": session.last_update_time,
+        "last_message_at": session.last_update_time,
     }
 
 

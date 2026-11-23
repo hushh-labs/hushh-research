@@ -74,13 +74,23 @@ Do **not** add `MagicMock` stubs for `boto3`, GCS REST, Azure Blob/Key Vault RES
 
 ## Authoritative Verification Commands
 
-Run the full multi-cloud Floci wire conformance bundle from `consent-protocol`:
+Run the full multi-cloud Floci wire conformance bundle through the canonical root or package CLI:
+
+```bash
+./bin/hushh protocol floci
+# or inside consent-protocol:
+./bin/consent-protocol floci
+```
+
+Equivalent direct `pytest` invocation from `consent-protocol`:
 
 ```bash
 cd consent-protocol
-./.venv/bin/python -m pytest \
+./.venv/bin/python -m pytest -n auto --dist loadfile \
   tests/test_floci_aws_wire_conformance.py \
   tests/test_floci_gcp_azure_wire_conformance.py \
+  tests/test_floci_umbrella_cell_and_hosted_azure.py \
+  tests/test_pod_prefix_storage_gateway.py \
   tests/test_provider_capability_registry_and_aws_parity.py \
   tests/test_pod_capability_broker.py \
   tests/test_pod_activation_and_upgrade_clearance.py \

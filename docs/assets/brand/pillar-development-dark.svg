@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 200" width="1200" height="200" role="img" aria-label="Development &amp; Contracts">
+  <defs>
+    <linearGradient id="pillar-development-dark-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#070B14"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+    <radialGradient id="pillar-development-dark-glow" cx="90%" cy="35%" r="40%">
+      <stop offset="0%" stop-color="#818CF8" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#070B14" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="pillar-development-dark-grid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#1E293B" stroke-width="0.7" stroke-opacity="0.4"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="200" rx="16" fill="url(#pillar-development-dark-bg)"/>
+  <rect width="1200" height="200" rx="16" fill="url(#pillar-development-dark-grid)"/>
+  <rect width="1200" height="200" rx="16" fill="url(#pillar-development-dark-glow)"/>
+  <rect x="0.75" y="0.75" width="1198.5" height="198.5" rx="15.25" fill="none" stroke="#1E293B" stroke-width="1.5"/>
+  <rect x="48" y="36" width="4" height="92" rx="2" fill="#818CF8"/>
+  <text x="66" y="50" fill="#818CF8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" font-weight="600" letter-spacing="0.1em">PILLAR 03 · TUTORIALS, HOW-TO &amp; CONTRACTS</text>
+  <text x="66" y="92" fill="#F8FAFC" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="34" font-weight="700" letter-spacing="-0.025em">Development &amp; Contracts</text>
+  <text x="66" y="122" fill="#94A3B8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="15">Local bootstrap, contributor standards, route/API/cache contracts, and package-local references.</text>
+  <rect x="48" y="148" width="139" height="28" rx="8" fill="#0F172A" stroke="#334155"/><text x="62" y="166" fill="#E2E8F0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12" font-weight="500">Local Bootstrap</text><rect x="199" y="148" width="153" height="28" rx="8" fill="#0F172A" stroke="#334155"/><text x="213" y="166" fill="#E2E8F0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12" font-weight="500">Modular Contracts</text><rect x="364" y="148" width="167" height="28" rx="8" fill="#0F172A" stroke="#334155"/><text x="378" y="166" fill="#E2E8F0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12" font-weight="500">UI &amp; Protocol Gates</text>
+</svg>

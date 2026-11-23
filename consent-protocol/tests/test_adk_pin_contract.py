@@ -1,6 +1,6 @@
 """Pin contract for the google-adk runtime One is built on.
 
-These contracts were characterized on 2.9.0 and requalified on 2.14.0. The
+These contracts were characterized on 2.9.0 and requalified on 2.15.0. The
 point is not that these behaviours are desirable; it is that a
 future bump that silently changes one of them is noticed at the pin, not in a
 person's pod at request time.

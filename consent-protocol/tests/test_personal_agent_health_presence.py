@@ -109,3 +109,19 @@ async def test_last_seen_accompanies_a_verdict_but_never_stands_alone():
 async def test_a_missing_row_reports_no_health():
     result = await _status(None)
     assert "health" not in result
+
+
+@pytest.mark.parametrize("legacy_health", ["unreachable", "degraded"])
+async def test_stale_ace_personal_sandbox_verdict_normalizes_to_sleeping(legacy_health):
+    """Disposable Personal Sandboxes (`ace`) reap idle leases; stale pre-fix
+    warm-sweep verdicts must report sleeping instead of Not responding."""
+    result = await _status(
+        _row(
+            backend="ace",
+            deployment_target="ace",
+            liveness_mode="warm",
+            health_state=legacy_health,
+        )
+    )
+    assert result["state"] == "active"
+    assert result["health"] == "sleeping"

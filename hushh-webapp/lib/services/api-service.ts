@@ -2026,7 +2026,38 @@ export class ApiService {
       body: JSON.stringify({}),
     });
     if (!response.ok) throw new Error("SHARED_SELECT_FAILED");
+    ApiService.clearRoutingHostingBurstCache();
     return response.json();
+  }
+
+  static async switchHostingMode(options: {
+    target: "shared" | "own_cloud";
+    isEffectCurrent?: () => boolean;
+  }): Promise<{
+    hostingMode: string;
+    detachedPriorHost: boolean;
+  }> {
+    const token = await this.getFirebaseToken();
+    const response = await apiFetch("/api/one/runtime/hosting/switch", {
+      method: "POST",
+      isEffectCurrent: options.isEffectCurrent,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ target: options.target }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(
+        extractHostedMigrationErrorMessage(
+          payload,
+          "Could not switch hosting right now. Your existing setup is unchanged.",
+        ),
+      );
+    }
+    ApiService.clearRoutingHostingBurstCache();
+    return payload;
   }
 
   static async adoptPooledSandbox(options?: {
@@ -2064,10 +2095,11 @@ export class ApiService {
       throw new Error(
         extractHostedMigrationErrorMessage(
           payload,
-          "Could not switch to Hussh Personal Sandbox right now. Your existing setup is unchanged.",
+          "Could not switch to Hussh Confidential Sandbox right now. Your existing setup is unchanged.",
         ),
       );
     }
+    ApiService.clearRoutingHostingBurstCache();
     return payload;
   }
 
@@ -3967,6 +3999,55 @@ export class ApiService {
     return response.json() as Promise<{ status: "ready" }>;
   }
 
+  /**
+   * Bounded pre-save probe for an OpenAI key when no enrolled pod is reachable yet.
+   * Throws `OPENAI_VALIDATE_ROUTE_UNAVAILABLE` on 404/405 so callers can fall back to pod checks.
+   */
+  static async validateOpenAiRuntimeCredential(input: {
+    credential: string;
+    model?: string | null;
+  }): Promise<{ status: "ready" }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      "/api/one/runtime/openai/validate",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+        body: JSON.stringify({
+          credential: input.credential,
+          ...(input.model ? { model: input.model } : {}),
+        }),
+      },
+    );
+    if (response.status === 404 || response.status === 405) {
+      throw new Error("OPENAI_VALIDATE_ROUTE_UNAVAILABLE");
+    }
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as {
+        detail?: { status?: string; code?: string };
+      } | null;
+      const status = payload?.detail?.status ?? payload?.detail?.code;
+      if (status === "invalid_key" || status === "KEY_REFUSED") {
+        throw new Error("OpenAI could not accept that API key.");
+      }
+      if (status === "quota_exhausted" || status === "QUOTA_EXCEEDED") {
+        throw new Error(
+          "This OpenAI key has no available quota or is currently rate limited.",
+        );
+      }
+      if (status === "unsupported_model" || status === "MODEL_UNAVAILABLE") {
+        throw new Error("This OpenAI key cannot access the model One uses.");
+      }
+      throw new Error("OpenAI could not be reached to validate this key.");
+    }
+    return response.json() as Promise<{ status: "ready" }>;
+  }
+
   static async getOneAdkLiveRelaySession(data?: {
     signal?: AbortSignal;
   }): Promise<{
@@ -4025,9 +4106,11 @@ export class ApiService {
     /** Unlocked vault key; only its derived chat key is sent. */
     vaultKey: string;
     limit?: number;
+    before?: string;
   }): Promise<Response> {
     const query = new URLSearchParams();
     if (data.limit) query.set("limit", String(data.limit));
+    if (data.before) query.set("before", data.before);
     const suffix = query.toString() ? `?${query.toString()}` : "";
     return ApiService.agentChatRequest(
       `/api/one/agent-chat/history/${encodeURIComponent(data.conversationId)}${suffix}`,
@@ -4043,11 +4126,15 @@ export class ApiService {
 
   static async renameAgentChatConversation(data: {
     conversationId: string;
-    title: string;
+    title?: string;
+    category?: string | null;
     vaultOwnerToken: string;
     /** Unlocked vault key; only its derived chat key is sent. */
     vaultKey: string;
   }): Promise<Response> {
+    const body: Record<string, unknown> = {};
+    if (data.title !== undefined) body.title = data.title;
+    if ("category" in data) body.category = data.category ?? null;
     return ApiService.agentChatRequest(
       `/api/one/agent-chat/conversations/${encodeURIComponent(data.conversationId)}`,
       {
@@ -4056,7 +4143,7 @@ export class ApiService {
           Authorization: `Bearer ${data.vaultOwnerToken}`,
           ...(await oneChatKeyHeaders(data.vaultKey)),
         },
-        body: JSON.stringify({ title: data.title }),
+        body: JSON.stringify(body),
       },
     );
   }
@@ -4475,6 +4562,26 @@ export class ApiService {
     return settleTrustedDeviceRevocation(hub, deviceId, uid, isCurrentOwner, () => ApiService.ownerPodTransport(), !!(options?.proof || options?.receipt));
   }
 
+  private static rewriteLocalDevSandboxUrl(url: string): string {
+    if (process.env.NODE_ENV !== "development") return url;
+    const rawOverride = (process.env.NEXT_PUBLIC_LOCAL_SANDBOX_EDGE_URL ?? "").trim();
+    if (!rawOverride) return url;
+    try {
+      const localBase = new URL(rawOverride);
+      if (
+        (localBase.protocol !== "http:" && localBase.protocol !== "https:") ||
+        (localBase.hostname !== "127.0.0.1" && localBase.hostname !== "localhost")
+      ) {
+        return url;
+      }
+      const parsed = new URL(url);
+      if (!parsed.pathname.startsWith("/u/")) return url;
+      return `${localBase.origin}${parsed.pathname}${parsed.search}`;
+    } catch {
+      return url;
+    }
+  }
+
   private static async ownerPodTransport(): Promise<
     import("./owner-pod-endpoint").OwnerPodTransport
   > {
@@ -4495,7 +4602,12 @@ export class ApiService {
           },
         }),
       // Pods authenticate signed sessions, never hub/browser cookies.
-      direct: (url, init) => apiFetch(url, { ...init, credentials: "omit", isEffectCurrent: current }),
+      direct: (url, init) =>
+        apiFetch(ApiService.rewriteLocalDevSandboxUrl(url), {
+          ...init,
+          credentials: "omit",
+          isEffectCurrent: current,
+        }),
     };
   }
 
@@ -4509,8 +4621,12 @@ export class ApiService {
     const vaultEpoch = snapshotVaultSessionEpoch();
     if (!uid || !current()) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
     const access = await import("./pod-app-access");
-    const fetcher = streaming ? (await import("./native-sse-fetch")).nativeStreamFetch
-      : (url: string, options: ApiFetchOptions) => apiFetch(url, withCurrentOwnerEffect(options, current));
+    const nativeStream = streaming ? (await import("./native-sse-fetch")).nativeStreamFetch : null;
+    const fetcher = nativeStream
+      ? (url: string, options?: RequestInit) =>
+          nativeStream(ApiService.rewriteLocalDevSandboxUrl(url), options)
+      : (url: string, options: ApiFetchOptions) =>
+          apiFetch(ApiService.rewriteLocalDevSandboxUrl(url), withCurrentOwnerEffect(options, current));
     if (!current()) throw new Error("POD_OWNER_CHANGED");
     return access.ownerPodRequest(path, init, { transport: () => this.ownerPodTransport(), fetch: fetcher, onChatAdmission, isCurrent: current }, expectedHushhId, uid, vaultEpoch);
   }
@@ -4528,7 +4644,7 @@ export class ApiService {
     await access.prewarmOwnerPodChatAccess({
       hosting: () => this.getPersonalAgentStatusForRouting(),
       transport: () => this.ownerPodTransport(),
-      fetch: (url, init) => apiFetch(url, init),
+      fetch: (url, init) => apiFetch(ApiService.rewriteLocalDevSandboxUrl(url), init),
     });
   }
 

@@ -53,6 +53,10 @@ import {
   isConsumerBrowsablePkmDomain,
 } from "@/lib/profile/pkm-profile-presentation";
 import {
+  CacheService,
+  CACHE_KEYS,
+} from "@/lib/services/cache-service";
+import {
   ConsentCenterService,
   type ConsentCenterEntry,
 } from "@/lib/services/consent-center-service";
@@ -305,15 +309,42 @@ export function usePkmNaturalModel({
     [],
   );
   const pkmChangeRevision = usePkmDomainChangeRevision(applicationOwnerId);
+  const mountedPkmRevisionRef = useRef<{
+    session: MemoryReadSession;
+    revision: number;
+  }>({
+    session: memoryReadSession,
+    revision: pkmChangeRevision,
+  });
+  if (mountedPkmRevisionRef.current.session !== memoryReadSession) {
+    mountedPkmRevisionRef.current = {
+      session: memoryReadSession,
+      revision: pkmChangeRevision,
+    };
+  }
+  const pkmChangedWhileMounted =
+    pkmChangeRevision > mountedPkmRevisionRef.current.revision;
+
+  const warmCachedMetadata = useMemo(() => {
+    if (!applicationOwnerId || !isVaultUnlocked || !vaultOwnerToken) return null;
+    const snap = CacheService.getInstance().peek<PersonalKnowledgeModelMetadata>(
+      CACHE_KEYS.PKM_METADATA(applicationOwnerId),
+    );
+    return snap?.data && snap.data.userId === applicationOwnerId ? snap.data : null;
+  }, [applicationOwnerId, isVaultUnlocked, vaultOwnerToken]);
 
   const [metadataState, setMetadataState] = useState<{
     session: MemoryReadSession;
     metadata: PersonalKnowledgeModelMetadata | null;
-  } | null>(null);
+  } | null>(() =>
+    warmCachedMetadata
+      ? { session: memoryReadSession, metadata: warmCachedMetadata }
+      : null,
+  );
   const metadata =
     metadataState?.session === memoryReadSession
       ? metadataState.metadata
-      : null;
+      : warmCachedMetadata;
   const setMetadata = useCallback(
     (nextMetadata: PersonalKnowledgeModelMetadata | null) => {
       if (memoryReadSessionRef.current === memoryReadSession)
@@ -340,7 +371,7 @@ export function usePkmNaturalModel({
     [memoryReadSession],
   );
   const [sharingResolved, setSharingResolved] = useState(false);
-  const [bootstrapLoading, setBootstrapLoading] = useState(true);
+  const [bootstrapLoading, setBootstrapLoading] = useState(() => !warmCachedMetadata);
   const [bootstrapError, setBootstrapError] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const localDomainKey = navigation.domainKey;
@@ -764,11 +795,11 @@ export function usePkmNaturalModel({
         return;
       }
 
-      setBootstrapLoading(true);
+      if (!warmCachedMetadata) setBootstrapLoading(true);
       setBootstrapError(false);
       setSharingResolved(false);
       const force =
-        refreshNonce > 0 || refreshToken > 0 || pkmChangeRevision > 0;
+        refreshNonce > 0 || refreshToken > 0 || pkmChangedWhileMounted;
       const metadataTask = PersonalKnowledgeModelService.getMetadata(
         applicationOwnerId,
         force,
@@ -817,6 +848,8 @@ export function usePkmNaturalModel({
     setActiveGrants,
     isVaultUnlocked,
     pkmChangeRevision,
+    pkmChangedWhileMounted,
+    warmCachedMetadata,
     refreshNonce,
     refreshToken,
     user,
@@ -1135,7 +1168,7 @@ export function usePkmNaturalModel({
       vaultKey,
       vaultOwnerToken,
       forceRefresh:
-        refreshNonce > 0 || memoryCardsNonce > 0 || pkmChangeRevision > 0,
+        refreshNonce > 0 || memoryCardsNonce > 0 || pkmChangedWhileMounted,
       backgroundRefresh: true,
       onProgress: ({ domain, snapshot }) => {
         if (cancelled || !snapshot?.data) return;
@@ -1165,6 +1198,7 @@ export function usePkmNaturalModel({
     memoryCardsNonce,
     metadata,
     pkmChangeRevision,
+    pkmChangedWhileMounted,
     refreshNonce,
     applicationOwnerId,
     vaultKey,

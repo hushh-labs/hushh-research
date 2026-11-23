@@ -1,7 +1,12 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { normalizeStaticExportPathname, resolvePersonRefFromProfilePathname, ROUTES } from "@/lib/navigation/routes";
+import {
+  isPublicEditorialOrLegalRoute,
+  normalizeStaticExportPathname,
+  resolvePersonRefFromProfilePathname,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { useOptionalLocationCommand } from "./location-command-provider";
 import { RetainedAgentBar } from "./agent-bar-surface";
 import { useAgentDockSurface } from "./agent-dock";
@@ -10,7 +15,8 @@ import { OneVoiceControl } from "@/components/one-voice/one-voice-control";
 import { openProfilePane } from "@/lib/navigation/profile-pane";
 import { useOneVoiceLiveEnabled, useOneVoiceReadiness, useOneVoiceCommandsEnabled } from "@/lib/one-voice/readiness";
 
-const VOICE_HOSTING_UNAVAILABLE_LABEL = "Voice unavailable — check Hosting settings";
+const VOICE_HOSTING_UNAVAILABLE_LABEL = "Voice unavailable. Check Hosting settings";
+const VOICE_AZURE_UNAVAILABLE_LABEL = "Voice unavailable on Azure hosting";
 
 /**
  * The persistent agent launcher. One stable entry point, two owners: the
@@ -24,13 +30,33 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const dock = useAgentDockSurface();
   const command = useOptionalLocationCommand();
   const pathname = normalizeStaticExportPathname(usePathname());
+  if (
+    isPublicEditorialOrLegalRoute(pathname) ||
+    pathname === ROUTES.LOGIN ||
+    pathname === ROUTES.GETTING_STARTED ||
+    pathname === ROUTES.DELETE_ACCOUNT ||
+    pathname === ROUTES.PHONE_MANDATE ||
+    pathname === ROUTES.LOGOUT
+  ) {
+    return null;
+  }
   const sharing = pathname === ROUTES.CONSENTS || pathname === ROUTES.LEGACY_CONSENTS || Boolean(resolvePersonRefFromProfilePathname(pathname));
   if (sharing && !live && !commands && !dock?.composerVisible &&
       !command?.active && !command?.recording && (command?.view.phase ?? "idle") === "idle") return null;
 
-  const unavailableLabel = commands ? undefined : readiness.status === "unknown" && readiness.microphoneOwner !== "none"
-    ? "Checking voice connection…" : VOICE_HOSTING_UNAVAILABLE_LABEL;
-  const openHosting = unavailableLabel === VOICE_HOSTING_UNAVAILABLE_LABEL
+  const azureHosting =
+    readiness.deploymentTarget === "user_azure" ||
+    readiness.deploymentTarget === "azure";
+  const unavailableLabel = commands
+    ? undefined
+    : readiness.status === "unknown" && readiness.microphoneOwner !== "none"
+      ? "Checking voice connection…"
+      : azureHosting
+        ? VOICE_AZURE_UNAVAILABLE_LABEL
+        : VOICE_HOSTING_UNAVAILABLE_LABEL;
+  const openHosting =
+    unavailableLabel === VOICE_HOSTING_UNAVAILABLE_LABEL ||
+    unavailableLabel === VOICE_AZURE_UNAVAILABLE_LABEL
     ? () => {
         if (typeof window === "undefined") return;
         openProfilePane(window.location.pathname, window.location.search, { panel: "hosting", detail: null }, { returnsToOrigin: true });

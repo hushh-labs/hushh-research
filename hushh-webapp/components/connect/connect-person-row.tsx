@@ -60,15 +60,15 @@ export function ConnectPersonRow({
         {leading}
       </span>
       <span data-slot="settings-row-identity" className="min-w-0">
-        <span className="flex min-w-0 flex-wrap items-center gap-x-1.5">
-          <span data-slot="settings-row-title" className="min-w-0 group-hover/connect-person:text-[color:var(--app-accent)] [overflow-wrap:anywhere]">
+        <span className="flex min-w-0 items-center gap-x-1.5">
+          <span data-slot="settings-row-title" className="min-w-0 truncate group-hover/connect-person:text-[color:var(--app-accent)]">
             {title}
           </span>
         </span>
         {description || supplement ? (
-          <span className="flex min-w-0 flex-wrap items-center gap-x-1.5">
+          <span className="flex min-w-0 items-center gap-x-1.5">
             {description ? (
-              <span data-slot="settings-row-description" className="[overflow-wrap:anywhere]">
+              <span data-slot="settings-row-description" className="min-w-0 truncate">
                 {description}
               </span>
             ) : null}

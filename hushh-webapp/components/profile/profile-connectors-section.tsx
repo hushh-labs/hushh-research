@@ -161,6 +161,9 @@ export function buildProfileConnectorsStackEntry({
     : null;
   return {
     key: "panel:connectors",
+    scrollKey: openConnectorId
+      ? `panel:connectors:detail:${openConnectorId}`
+      : "panel:connectors",
     title: "Connectors",
     description: openConnectorId
       ? undefined

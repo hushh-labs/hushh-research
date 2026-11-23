@@ -36,6 +36,7 @@ export const GOVERNED_ACTIONS_BY_EVENT: Partial<Record<ObservabilityEventName, R
 };
 const GOVERNED_RESULTS = new Set(["success", "expected_error", "error"]);
 export const GOVERNED_RESULTS_BY_EVENT: Partial<Record<ObservabilityEventName, ReadonlySet<string>>> = {
+  hushh_mail_signin_screen_view: new Set(["success"]),
   gmail_connect_started: new Set(["success"]),
   gmail_connect_result: GOVERNED_RESULTS,
   gmail_disconnect_result: GOVERNED_RESULTS,

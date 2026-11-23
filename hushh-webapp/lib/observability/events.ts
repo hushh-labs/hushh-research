@@ -108,6 +108,7 @@ export type ObservabilityEventName =
   | "account_delete_completed"
   | "account_reset_requested"
   | "account_reset_completed"
+  | "hushh_mail_signin_screen_view"
   | "gmail_connect_started"
   | "gmail_connect_result"
   | "gmail_disconnect_result"
@@ -321,6 +322,7 @@ const EVENT_CATEGORY_BY_NAME: Record<
   account_delete_completed: "system",
   account_reset_requested: "system",
   account_reset_completed: "system",
+  hushh_mail_signin_screen_view: "system",
   gmail_connect_started: "system",
   gmail_connect_result: "system",
   gmail_disconnect_result: "system",
@@ -563,6 +565,9 @@ export interface EventPayloadMap {
   account_reset_completed: {
     result: EventResult;
     status_bucket?: StatusBucket;
+  };
+  hushh_mail_signin_screen_view: {
+    result: "success";
   };
   gmail_connect_started: {
     action: (typeof GMAIL_CONNECT_STARTED_ACTIONS)[number];

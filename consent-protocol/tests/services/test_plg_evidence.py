@@ -1253,6 +1253,11 @@ def test_catalog_covers_authored_agents_and_actions_without_dynamic_tool_names()
     mail_actions = [a for a in catalog["actions"] if a["id"].startswith("profile.gmail.")]
     assert mail_actions
     assert all(a["agentId"] == "agent_email" for a in mail_actions)
+    prompt = next(
+        a for a in catalog["actions"] if a["id"] == "observation:hushh_mail_signin_screen_view"
+    )
+    assert prompt["agentId"] == "agent_email"
+    assert prompt["proof"] == "client_reported"
     memory_ids = {
         "pkm.export_memory",
         "pkm.edit_memory",
@@ -2370,6 +2375,75 @@ def test_metrics_aggregate_period_is_source_calendar_days_and_generation_bound(
             )
 
 
+def test_metrics_current_day_requires_one_explicit_utc_day_in_uat(metrics_aggregate_setup):
+    now = datetime(2026, 11, 22, 12, tzinfo=timezone.utc)
+    today = "2026-11-22"
+    period = {"startDate": today, "endDate": today, "timezone": "UTC"}
+    body = {**metrics_aggregate_setup.body, "period": period}
+    binding = {**metrics_aggregate_setup.binding, "coverageFrom": "2026-11-19"}
+    approved = {**binding, "provisionalUtcDay": today}
+    request = _metrics_source.AdoptionRequest.model_validate(body)
+    with pytest.raises(ValueError):
+        _metrics_source.period_bounds(request, binding, now, environment="uat")
+    with pytest.raises(ValueError):
+        _metrics_source.period_bounds(request, approved, now)
+    assert _metrics_source.period_bounds(request, approved, now, environment="uat") == (
+        datetime(2026, 11, 22, tzinfo=timezone.utc),
+        now,
+    )
+    for override in [
+        {"startDate": "2026-11-21"},
+        {"startDate": "2026-11-23", "endDate": "2026-11-23"},
+        {"timezone": "Etc/UTC"},
+    ]:
+        candidate = _metrics_source.AdoptionRequest.model_validate(
+            {**body, "period": {**period, **override}}
+        )
+        with pytest.raises(ValueError):
+            _metrics_source.period_bounds(candidate, approved, now, environment="uat")
+    after_midnight = datetime(2026, 11, 23, tzinfo=timezone.utc)
+    _, through = _metrics_source.period_bounds(request, approved, after_midnight, environment="uat")
+    assert through == after_midnight - timedelta(microseconds=1)
+
+
+@pytest.mark.asyncio
+async def test_metrics_uat_provisional_aggregate_labels_and_pins_cutoff(
+    metrics_aggregate_setup, metrics_aggregate_database, monkeypatch
+):
+    cutoff = _METRICS_NOW - timedelta(seconds=2)
+    today = cutoff.date().isoformat()
+    binding = {
+        **metrics_aggregate_setup.binding,
+        "databaseName": "uat_fixture",
+        "databaseUser": "uat_user",
+        "provisionalUtcDay": today,
+    }
+    monkeypatch.setenv("ONE_METRICS_UAT_ADOPTION_BINDING_JSON", json.dumps(binding))
+    monkeypatch.setattr(_metrics_source.metrics_uat_authority, "runtime_authority", lambda _b: None)
+    monkeypatch.setattr(_metrics_source.metrics_uat_authority, "verify_database", AsyncMock())
+    monkeypatch.setattr(
+        _metrics_source.metrics_uat_authority,
+        "policy",
+        _metrics_source.plg_reporting.reporting_policy,
+    )
+    auth = object()
+    monkeypatch.setattr(_metrics_source, "_identity_authority", lambda _env: auth)
+    body = {
+        **metrics_aggregate_setup.body,
+        "period": {"startDate": today, "endDate": today, "timezone": "UTC"},
+    }
+    result = await _metrics_source.adoption_aggregate(
+        _metrics_source.AdoptionRequest.model_validate(body),
+        _metrics_source.approved_binding("uat"),
+        pool=metrics_aggregate_database.pool,
+        now=cutoff,
+        environment="uat",
+    )
+    assert result["sourceWatermark"] == int(cutoff.timestamp() * 1000)
+    assert {metric["coverage"] for metric in result["metrics"].values()} == {"provisional"}
+    assert metrics_aggregate_database.summaries.await_args.args[-1] == cutoff
+
+
 def test_metrics_uat_route_requires_separate_lane_secret_binding_and_signing_purpose(
     metrics_aggregate_setup, monkeypatch
 ):
@@ -2463,6 +2537,38 @@ def test_metrics_uat_authority_requires_dedicated_policy_auth_and_physical_datab
     assert uat.auth_app().project_id == "hushh-pda-uat"
     monkeypatch.delenv("ONE_METRICS_UAT_REPORTING_POLICY_JSON", raising=False)
     monkeypatch.setenv("ONE_PLG_REPORTING_POLICY_JSON", '{"version":1}')
+    with pytest.raises(RuntimeError):
+        uat.policy()
+    monkeypatch.setenv(
+        "ONE_METRICS_UAT_REPORTING_POLICY_JSON",
+        json.dumps(
+            {
+                "version": 1,
+                "excludedAccountIds": [],
+                "excludedEmails": [],
+                "excludedDomains": [],
+            }
+        ),
+    )
+    all_eligible = uat.policy()
+    assert all_eligible.account_ids == frozenset()
+    assert all_eligible.emails == frozenset()
+    assert all_eligible.domains == frozenset()
+    assert all_eligible.revision == uat.policy().revision
+    assert all_eligible.eligible("registered-uat", {"email": "owner@example.test"})
+    assert not all_eligible.eligible("missing-identity", None)
+    monkeypatch.setenv(
+        "ONE_PLG_REPORTING_POLICY_JSON",
+        json.dumps(
+            {"version": 1, "excludedAccountIds": [], "excludedEmails": [], "excludedDomains": []}
+        ),
+    )
+    monkeypatch.delenv("REVIEWER_UID", raising=False)
+    monkeypatch.delenv("REVIEWER_COUNTERPART_UID", raising=False)
+    monkeypatch.setattr(reporting, "one_magic_intelligence_cohorts", lambda: ())
+    with pytest.raises(reporting.ReportingPolicyUnavailable):
+        reporting.reporting_policy()
+    monkeypatch.setenv("ONE_METRICS_UAT_REPORTING_POLICY_JSON", '{"version":1}')
     with pytest.raises(RuntimeError):
         uat.policy()
     monkeypatch.setenv(

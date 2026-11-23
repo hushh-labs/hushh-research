@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Blob as NodeBlob } from "node:buffer";
-import { prepareProfilePortrait } from "@/lib/services/profile-portrait-service";
+import { prepareNativeSymbolArtwork, prepareProfilePortrait } from "@/lib/services/native-public-image-service";
 
 const mocks = vi.hoisted(() => ({
   native: true,
@@ -72,6 +72,18 @@ describe("private portrait media budget", () => {
     expect(fetchMedia).not.toHaveBeenCalled();
     await expect(prepareProfilePortrait(photo, signal, "people")).rejects.toThrow("public fixture unavailable");
     expect(fetchMedia).toHaveBeenCalledExactlyOnceWith(photo, expect.objectContaining({ credentials: "omit", referrerPolicy: "no-referrer", cache: "no-store", redirect: "error" }));
+  });
+  it("admits only public stock-logo reads without broadening profile-photo authority", async () => {
+    const download = vi.fn().mockRejectedValue(new Error("public fixture unavailable"));
+    Object.defineProperty(window, "CapacitorWebFetch", { configurable: true, value: download });
+    const logo = "https://financialmodelingprep.com/image-stock/AAPL.png", signal = new AbortController().signal;
+    for (const source of ["http://financialmodelingprep.com/image-stock/AAPL.png", "https://financialmodelingprep.com.evil.test/image-stock/AAPL.png",
+      "https://user:credential@financialmodelingprep.com/image-stock/AAPL.png", `${logo}?token=forbidden`, "https://financialmodelingprep.com/api/v3/profile/AAPL", "https://financialmodelingprep.com/image-stock/%2F..%2Fsettings.png"])
+      await expect(prepareNativeSymbolArtwork(source, signal)).rejects.toThrow();
+    await expect(prepareProfilePortrait(logo, signal, "people")).rejects.toThrow();
+    expect(download).not.toHaveBeenCalled();
+    await expect(prepareNativeSymbolArtwork(logo, signal)).rejects.toThrow("public fixture unavailable");
+    expect(download).toHaveBeenCalledExactlyOnceWith(logo, expect.objectContaining({ credentials: "omit", referrerPolicy: "no-referrer", cache: "default", redirect: "error" }));
   });
   it("refuses oversized bytes and compressed oversized dimensions before browser image decoding", async () => {
     vi.stubGlobal("Blob", NodeBlob);

@@ -333,14 +333,15 @@ describe("cloud step placement states", () => {
     expect(await screen.findByTestId("hussh-pods-migration-route")).toBeInTheDocument();
   });
 
-  it("shows multi-cloud dual marks on active ACE Personal Sandbox without a switch card", async () => {
+  it("shows Google Cloud mark on active ACE Confidential Sandbox without false Azure claim", async () => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
     given({ hostingMode: "hussh_pods", state: "active", deploymentTarget: "ace" });
     render(<ByocCloudSetupPage />);
     const card = await screen.findByTestId("hussh-pods-connected");
     expect(card).toHaveAttribute("data-provider", "ace");
-    expect(card).toHaveTextContent("Isolated Personal Sandbox across Google Cloud and Microsoft Azure");
-    expect(screen.getByTestId("hussh-pods-active-dual-cloud")).toBeInTheDocument();
+    expect(card).toHaveTextContent("Isolated Confidential Sandbox on Google Cloud");
+    expect(card).not.toHaveTextContent("Microsoft Azure");
+    expect(screen.getByTestId("hussh-pods-active-gcp-cloud")).toBeInTheDocument();
     expect(screen.queryByTestId("pooled-sandbox-switch-card")).toBeNull();
   });
 
@@ -381,7 +382,7 @@ describe("cloud step placement states", () => {
       try {
         render(<ByocCloudSetupPage />);
         expect(await screen.findByTestId("pooled-sandbox-switch-card")).toHaveTextContent(
-          "Switch to Hussh Personal Sandbox",
+          "Switch to Hussh Confidential Sandbox",
         );
         expect(screen.queryByTestId("hussh-pods-migration-route")).toBeNull();
         expect(screen.getByTestId("byoc-open-home-fallback")).toHaveTextContent("Open Home");
@@ -477,7 +478,7 @@ describe("cloud step placement states", () => {
       render(<ByocCloudSetupPage />);
       const card = await screen.findByTestId("pooled-sandbox-switch-card");
       expect(card).toHaveTextContent(
-        expectConfirm ? "Switch to Hussh Personal Sandbox" : "Start in Hussh Personal Sandbox",
+        expectConfirm ? "Switch to Hussh Confidential Sandbox" : "Start in Hussh Confidential Sandbox",
       );
       fireEvent.click(screen.getByTestId("pooled-sandbox-switch-trigger"));
       if (expectConfirm) {
@@ -494,8 +495,9 @@ describe("cloud step placement states", () => {
     },
   );
 
-  it("renders the 3-day source-pod retirement card on Dev Azure and records owner confirmation", async () => {
-    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+  it("renders the 3-day source-pod retirement card on non-cutover env-flagged builds and records owner confirmation", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "staging");
+    vi.stubEnv("NEXT_PUBLIC_HOSTED_AZURE_MIGRATION_ENABLED", "1");
     const futureIso = new Date(Date.now() + 3 * 86400 * 1000).toISOString();
     vi.mocked(ApiService.getHostedSourceRetirementStatus).mockResolvedValue({
       environment: "dev",
@@ -577,58 +579,8 @@ describe("cloud step placement states", () => {
     expect(ApiService.getHostedSourceRetirementStatus).not.toHaveBeenCalled();
   });
 
-  it("renders prior-pod 3-day retirement confirmation on Dev Personal Sandbox (ace) and home pill", async () => {
+  it("hides legacy Prior cloud source-pod retirement on Dev Confidential Sandbox (ace) while keeping the home pill", async () => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
-    const futureIso = new Date(Date.now() + 3 * 86400 * 1000).toISOString();
-    vi.mocked(ApiService.getHostedSourceRetirementStatus).mockResolvedValue({
-      environment: "dev",
-      hasPendingConfirmation: true,
-      items: [
-        {
-          placementId: "ret_ace_prior_1",
-          sourceTarget: "azure",
-          sourceProvider: "azure",
-          sourceKind: "hussh_pods",
-          sourceLabel: "Hussh Pods · Microsoft Azure",
-          resourceHint: "cell-az-eastus2-dev-01",
-          detachedAt: new Date().toISOString(),
-          graceReapAfter: futureIso,
-          daysRemaining: 3,
-          graceExpired: false,
-          ownerConfirmed: false,
-          confirmedAt: null,
-          retiredAt: null,
-          status: "awaiting_owner_confirmation",
-          ownerCloudCleanupReady: false,
-          revokedRoleAssignmentCount: 0,
-        },
-      ],
-    });
-    vi.mocked(ApiService.confirmHostedSourceRetirement).mockResolvedValue({
-      environment: "dev",
-      hasPendingConfirmation: false,
-      confirmedPlacementId: "ret_ace_prior_1",
-      items: [
-        {
-          placementId: "ret_ace_prior_1",
-          sourceTarget: "azure",
-          sourceProvider: "azure",
-          sourceKind: "hussh_pods",
-          sourceLabel: "Hussh Pods · Microsoft Azure",
-          resourceHint: "cell-az-eastus2-dev-01",
-          detachedAt: new Date().toISOString(),
-          graceReapAfter: futureIso,
-          daysRemaining: 3,
-          graceExpired: false,
-          ownerConfirmed: true,
-          confirmedAt: new Date().toISOString(),
-          retiredAt: null,
-          status: "owner_confirmed",
-          ownerCloudCleanupReady: false,
-          revokedRoleAssignmentCount: 0,
-        },
-      ],
-    });
 
     const { HusshPodsActiveCard, SandboxCutoverStatusPill } = await import(
       "@/components/connections/hussh-pods-cloud-card"
@@ -646,24 +598,47 @@ describe("cloud step placement states", () => {
 
     const pill = await screen.findByTestId("sandbox-cutover-ready-pill");
     expect(pill).toHaveTextContent(
-      "Personal Sandbox ready · Prior cloud cleanup running in background",
+      "Confidential Sandbox ready · Prior cloud cleanup running in background",
     );
     fireEvent.click(screen.getByTestId("sandbox-cutover-pill-dismiss"));
     expect(screen.queryByTestId("sandbox-cutover-ready-pill")).toBeNull();
     expect(window.sessionStorage.getItem(SANDBOX_CUTOVER_PILL_STORAGE_KEY)).toBeNull();
 
-    expect(await screen.findByTestId("hussh-pods-source-retirement")).toHaveTextContent(
-      "Prior cloud · Hussh Pods · Microsoft Azure",
-    );
-    fireEvent.click(await screen.findByTestId("hussh-pods-confirm-retirement-trigger"));
-    expect(await screen.findByText("Confirm your Personal Sandbox?")).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("hussh-pods-confirm-retirement-action"));
-
-    await waitFor(() => {
-      expect(ApiService.confirmHostedSourceRetirement).toHaveBeenCalledWith({
-        placementId: "ret_ace_prior_1",
-        isEffectCurrent: expect.any(Function),
-      });
+    await act(async () => {
+      await Promise.resolve();
     });
+    expect(screen.queryByTestId("hussh-pods-source-retirement")).toBeNull();
+    expect(screen.queryByText(/Prior cloud/i)).toBeNull();
+    expect(ApiService.getHostedSourceRetirementStatus).not.toHaveBeenCalled();
+  });
+
+  it("hides residual Hussh Shared copy and defaults on Dev cutover lanes", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    given({ hostingMode: "shared", state: "none" }, NO_JOB);
+    const { unmount } = render(<ByocCloudSetupPage />);
+    expect(await screen.findByRole("radio", { name: /Hussh Confidential Sandbox/i })).toBeInTheDocument();
+    expect(screen.queryByText(/Hussh Shared/i)).toBeNull();
+    expect(screen.queryByTestId("cloud-tier-shared-continue")).toBeNull();
+    unmount();
+
+    given(
+      { hostingMode: "pending", state: "none" },
+      {
+        ...NO_JOB,
+        status: "pending",
+        stage: "consent_pending",
+        projectId: "owner-proj",
+        stages: [{ stage: "consent_pending", provider: "gcp", project: "owner-proj" }],
+      },
+    );
+    const pendingView = render(<ByocCloudSetupPage />);
+    const pendingCard = await screen.findByTestId("hosting-consent-pending");
+    expect(pendingCard).not.toHaveTextContent("Hussh Shared");
+    expect(screen.queryByTestId("hosting-consent-choose-shared")).toBeNull();
+    pendingView.unmount();
+
+    const { HusshPodsPausedCard } = await import("@/components/connections/hosting-placement-cards");
+    render(<HusshPodsPausedCard deploymentTarget="gcp" />);
+    expect(screen.getByTestId("hussh-pods-paused")).not.toHaveTextContent("Hussh Shared");
   });
 });

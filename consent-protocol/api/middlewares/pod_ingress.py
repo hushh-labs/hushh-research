@@ -96,6 +96,7 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         "/api/one/pod/files/wiki/migrate",
         "/api/one/pod/files/wiki/rollback",
         "/api/one/pod/files/wiki/import",
+        "/api/one/pod/files/wiki/optimize",
         "/api/one/pod/files/workspaces/status",
         "/api/one/pod/files/workspaces/execute",
         "/api/one/pod/files/workspaces/control",
@@ -163,6 +164,10 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         # `pod.config` to change it and `pod.status` to read it), and the envelope is
         # opened only after that admission, by a key that never leaves this process.
         "/api/one/pod/ai-selection",
+        "/api/one/pod/ai-selection/activate",
+        "/api/one/pod/ai-selection/deactivate",
+        "/api/one/pod/circle-rules",
+        "/api/one/pod/circle-rules/preview",
     }
 )
 APP_SURFACE_PREFIXES: tuple[str, ...] = (
@@ -191,6 +196,7 @@ APP_SURFACE_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
         rf"/api/one/pod/agent-chat/runs/{_CONVERSATION}/queue/[A-Za-z0-9_-]{{8,64}}",
         rf"/api/one/pod/agent-chat/proposals/{_UUID}(?:/(?:settle|dispatch))?",
         r"/api/one/pod/connectors/(?:gmail|calendar|drive|contacts)",
+        r"/api/one/pod/circle-rules/rule_[a-z0-9][a-z0-9_-]{7,63}(?:/toggle)?",
         r"/api/one/pod/actions/(?:gcal|gmod|gdrv)_[A-Za-z0-9_-]{16,64}/confirm",
         r"/api/one/pod/actions/gmod_[A-Za-z0-9_-]{16,64}/status",
         r"/api/one/pod/browser/tasks/browser_[a-f0-9]{32}(?:/(?:frame|control|input|review|session))?",

@@ -20,6 +20,7 @@ loaded into this runtime.
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
@@ -140,7 +141,11 @@ from hushh_mcp.one_adk.finance_market_tools import (
     get_ticker_news,
 )
 from hushh_mcp.one_adk.follow_up_suggestions import follow_up_instruction, suggest_follow_ups
-from hushh_mcp.one_adk.mail_instruction import legacy_draft_addressing, mail_admission_instruction
+from hushh_mcp.one_adk.mail_instruction import (
+    legacy_draft_addressing,
+    mail_admission_instruction,
+    owner_clock_line,
+)
 from hushh_mcp.one_adk.message_reactions import react_to_message, reaction_instruction
 from hushh_mcp.one_adk.nws_turn_context import STATE_NWS_REPORT
 from hushh_mcp.one_adk.one_persona import build_one_persona_grounding
@@ -199,6 +204,7 @@ from hushh_mcp.services.agent_task_context import (
     specialist_directive_fingerprint,
 )
 from hushh_mcp.services.crm_product_availability import crm_product_available
+from hushh_mcp.services.pod_owner_cloud import hosted_ace_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -852,11 +858,23 @@ def _strip_dynamic_turn_context(parts: list[Any]) -> list[Any]:
     return kept
 
 
+_STEP_DYNAMIC_CONTEXT: contextvars.ContextVar[tuple[str, str] | None] = contextvars.ContextVar(
+    "one_step_dynamic_context", default=None
+)
+
+
 def _one_dynamic_turn_context(context: Any) -> str:
     """Volatile per-turn screen, memory, draft, and clock notes for model tail injection."""
     from hushh_mcp.agents.calendar.read_projection import turn_clock
 
-    _, legacy_draft_instruction, dynamic_tail = _compose_one_instruction_parts(context)
+    cached = _STEP_DYNAMIC_CONTEXT.get()
+    if cached is not None:
+        _STEP_DYNAMIC_CONTEXT.set(None)
+        legacy_draft_instruction, dynamic_tail = cached
+    else:
+        _, legacy_draft_instruction, dynamic_tail = _compose_one_instruction_parts(
+            context, split_clock=True
+        )
     return (legacy_draft_instruction + dynamic_tail + str(turn_clock(context))).strip()
 
 
@@ -890,10 +908,13 @@ def inject_dynamic_turn_context_before_model(callback_context: Any, llm_request:
         text=f"{_DYNAMIC_TURN_CONTEXT_MARKER}\n{dynamic_text}\n{_DYNAMIC_TURN_CONTEXT_END}"
     )
     for content in reversed(contents):
-        if getattr(content, "role", None) == "user" and isinstance(
-            getattr(content, "parts", None), list
+        parts = getattr(content, "parts", None)
+        if (
+            getattr(content, "role", None) == "user"
+            and isinstance(parts, list)
+            and not any(getattr(existing, "function_response", None) for existing in parts)
         ):
-            content.parts.append(part)
+            parts.append(part)
             return None
     contents.append(genai_types.Content(role="user", parts=[part]))
     return None
@@ -915,12 +936,16 @@ def _one_runtime_instruction(context: Any) -> str:
 
         state_getter = getattr(getattr(context, "state", None), "get", None)
         if callable(state_getter) and state_getter("temp:hussh:split_dynamic_context") is True:
-            static_prefix, _, _ = _compose_one_instruction_parts(context)
+            static_prefix, legacy_draft_instruction, dynamic_tail = _compose_one_instruction_parts(
+                context, split_clock=True
+            )
+            _STEP_DYNAMIC_CONTEXT.set((legacy_draft_instruction, dynamic_tail))
             return (
                 static_prefix
                 + follow_up_instruction(state_getter)
                 + reaction_instruction(state_getter)
             )
+        _STEP_DYNAMIC_CONTEXT.set(None)
         return (
             _compose_one_runtime_instruction(context)
             + str(turn_clock(context))
@@ -932,11 +957,15 @@ def _one_runtime_instruction(context: Any) -> str:
 
 
 def _compose_one_runtime_instruction(context: Any) -> str:
-    static_prefix, legacy_draft_instruction, dynamic_tail = _compose_one_instruction_parts(context)
+    static_prefix, legacy_draft_instruction, dynamic_tail = _compose_one_instruction_parts(
+        context, split_clock=False
+    )
     return static_prefix + legacy_draft_instruction + dynamic_tail
 
 
-def _compose_one_instruction_parts(context: Any) -> tuple[str, str, str]:
+def _compose_one_instruction_parts(
+    context: Any, *, split_clock: bool = False
+) -> tuple[str, str, str]:
     state = getattr(context, "state", None)
     state_getter = getattr(state, "get", None)
     from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
@@ -946,11 +975,15 @@ def _compose_one_instruction_parts(context: Any) -> tuple[str, str, str]:
         and state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
         and connector_feature_enabled("gmail_chat_reads", str(state_getter(STATE_USER_ID) or ""))
     )
+    timezone_val = state_getter(STATE_TIMEZONE) if callable(state_getter) else None
     mail_core_instruction = mail_admission_instruction(
         admitted=mail_admitted,
-        mailbox_changes=mail_admitted and (not pod_mode() or owner_cloud_agent()),
-        timezone=state_getter(STATE_TIMEZONE) if callable(state_getter) else None,
+        mailbox_changes=mail_admitted
+        and (not pod_mode() or owner_cloud_agent() or hosted_ace_runtime()),
+        timezone=timezone_val,
+        include_clock=not split_clock,
     )
+    split_mail_clock = owner_clock_line(timezone_val) if (split_clock and mail_admitted) else ""
     legacy_draft_instruction = legacy_draft_addressing(state_getter)
     drive_admitted = (
         callable(state_getter)
@@ -1084,6 +1117,10 @@ def _compose_one_instruction_parts(context: Any) -> tuple[str, str, str]:
     consent_continuation_block = consent_continuation_instruction(state_getter)
     # A push tap about one feed update: grounded only in that item, no tools.
     consent_continuation_block += feed_attention_instruction(state_getter)
+    # Incoming consent cards already popped inline above in Main Chat (dynamic tail only).
+    from hushh_mcp.one_adk.live_consent_cards import visible_incoming_consent_cards_instruction
+
+    consent_continuation_block += visible_incoming_consent_cards_instruction(state_getter)
     pending_draft_instruction = pending_email_draft_instruction(state_getter)
     memory_instruction = (  # pod only; restored after 0d514ebe2 left memory write-only
         agent_memory_instruction(
@@ -1093,22 +1130,33 @@ def _compose_one_instruction_parts(context: Any) -> tuple[str, str, str]:
         else ""
     )
     if callable(state_getter):
+        from hushh_mcp.one_adk.plaid_connector_tools import (
+            STATE_PLAID_CLIENT_READY,
+            STATE_PLAID_POSTURE,
+            plaid_posture_instruction,
+        )
         from hushh_mcp.one_adk.wiki_recall_tools import (
             STATE_WIKI_CLIENT_READY,
             STATE_WIKI_HOT_DIGEST,
+            pod_files_wiki_enabled,
             wiki_recall_instruction,
         )
 
         wiki_tools_enabled = bool(
             state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
-            and (
-                (pod_mode() and os.getenv("POD_FILES_ENABLED", "").lower() in {"1", "true"})
-                or state_getter(STATE_WIKI_CLIENT_READY) is True
-            )
+            and (pod_files_wiki_enabled() or state_getter(STATE_WIKI_CLIENT_READY) is True)
         )
         memory_instruction += wiki_recall_instruction(
             state_getter(STATE_WIKI_HOT_DIGEST),
             tools_available=wiki_tools_enabled,
+        )
+        plaid_tools_enabled = bool(
+            state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
+            and state_getter(STATE_PLAID_CLIENT_READY) is True
+        )
+        memory_instruction += plaid_posture_instruction(
+            state_getter(STATE_PLAID_POSTURE),
+            tools_available=plaid_tools_enabled,
         )
     # The owner's Settings choices: a trusted style channel, separate from the
     # recalled-memory packet above, rendered only from server templates.
@@ -1116,7 +1164,8 @@ def _compose_one_instruction_parts(context: Any) -> tuple[str, str, str]:
     voice_context = state_getter(STATE_VOICE_CONTEXT) if callable(state_getter) else None
     if not isinstance(voice_context, dict):
         dynamic_tail = (
-            selected_drive_instruction
+            split_mail_clock
+            + selected_drive_instruction
             + pkm_instruction
             + memory_instruction
             + owner_identity_instruction
@@ -1237,6 +1286,15 @@ def _compose_one_instruction_parts(context: Any) -> tuple[str, str, str]:
             "urgent phrasing -- call list_app_actions with their own words first, "
             "every time, rather than guessing from a label that only partly fits. "
             "Do not call open_screen or google_search instead of a matching current control."
+            + (
+                " Exception in typed chat: when a dedicated connector, personal-wiki, receipt, "
+                "consent-sharing, or memory tool (or CONNECTED PLAID FINANCIAL POSTURE / "
+                "CONSENTED TURN INFORMATION) directly answers or executes the request, call "
+                "that dedicated tool or answer directly in one pass without calling "
+                "list_app_actions first."
+                if callable(state_getter) and state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
+                else ""
+            )
         )
 
     layer_instruction = ""
@@ -1300,7 +1358,8 @@ def _compose_one_instruction_parts(context: Any) -> tuple[str, str, str]:
     playbook = voice_context.get("route_playbook")
     if not isinstance(playbook, dict):
         dynamic_tail = (
-            selected_drive_instruction
+            split_mail_clock
+            + selected_drive_instruction
             + layer_instruction
             + action_inventory
             + screen_state_instruction
@@ -1331,7 +1390,8 @@ def _compose_one_instruction_parts(context: Any) -> tuple[str, str, str]:
         "inventory, and runtime guards " + "remain the only execution authority."
     )
     dynamic_tail = (
-        selected_drive_instruction
+        split_mail_clock
+        + selected_drive_instruction
         + layer_instruction
         + playbook_instruction
         + action_inventory
@@ -2181,7 +2241,7 @@ async def ask_email_agent(request: str, tool_context: ToolContext) -> dict[str, 
         "gmail_chat_reads", str(tool_context.state.get(STATE_USER_ID) or "")
     ):
         return {"status": "unavailable", "message": "Mail chat reads are not available here."}
-    if private_pod_runtime() and not owner_cloud_agent():
+    if private_pod_runtime() and not (owner_cloud_agent() or hosted_ace_runtime()):
         grants = tool_context.state.get(STATE_DATA_DOOR_GRANTS)
         email_grant = (
             resolve_request_secret(grants.get("email")) if isinstance(grants, dict) else ""
@@ -2221,7 +2281,7 @@ async def ask_documents_agent(request: str, tool_context: ToolContext) -> dict[s
         "google_drive_chat_reads", str(tool_context.state.get(STATE_USER_ID) or "")
     ):
         return {"status": "unavailable", "message": "Drive chat reads are not available here."}
-    if private_pod_runtime() and not owner_cloud_agent():
+    if private_pod_runtime() and not (owner_cloud_agent() or hosted_ace_runtime()):
         message = (
             "Google Drive isn’t connected inside a Hussh-hosted pod. Switch to Shared or "
             "an owner-cloud pod to connect Google Drive."
@@ -2806,14 +2866,13 @@ def _one_roster_tools(
     if allow_receipt_tools:
         from ag_ui_adk import AGUIToolset
 
+        from hushh_mcp.one_adk.plaid_connector_tools import PLAID_TOOL_NAMES
         from hushh_mcp.one_adk.receipt_client_tools import RECEIPT_TOOL_NAMES
-        from hushh_mcp.one_adk.wiki_recall_tools import WIKI_TOOL_NAMES
+        from hushh_mcp.one_adk.wiki_recall_tools import WIKI_TOOL_NAMES, pod_files_wiki_enabled
 
-        client_tool_names = (
-            set(RECEIPT_TOOL_NAMES)
-            if pod_mode()
-            else (set(RECEIPT_TOOL_NAMES) | set(WIKI_TOOL_NAMES))
-        )
+        client_tool_names = set(RECEIPT_TOOL_NAMES) | set(PLAID_TOOL_NAMES)
+        if not pod_files_wiki_enabled():
+            client_tool_names |= set(WIKI_TOOL_NAMES)
         tools.append(AGUIToolset(tool_filter=sorted(client_tool_names)))
     return tools
 
@@ -2853,14 +2912,17 @@ def _before_one_tool(tool: Any, args: dict, tool_context: Any) -> dict | None:
     boundary = before_external_read_tool(tool, args, tool_context)
     if boundary:
         return boundary
+    from hushh_mcp.one_adk.plaid_connector_tools import before_plaid_connector_tool
     from hushh_mcp.one_adk.receipt_client_tools import before_receipt_tool
+    from hushh_mcp.one_adk.wiki_recall_tools import before_wiki_recall_tool, pod_files_wiki_enabled
 
     receipt_guard = before_receipt_tool(tool, args, tool_context)
     if receipt_guard:
         return receipt_guard
-    if not pod_mode():
-        from hushh_mcp.one_adk.wiki_recall_tools import before_wiki_recall_tool
-
+    plaid_guard = before_plaid_connector_tool(tool, args, tool_context)
+    if plaid_guard:
+        return plaid_guard
+    if not pod_files_wiki_enabled():
         return before_wiki_recall_tool(tool, args, tool_context)
     return None
 
@@ -2915,7 +2977,9 @@ def build_one_text_agent(
     google_search_model = search_model_for_text_head(text_model, google_search_model)
     from hushh_mcp.one_adk.chat_memory import chat_memory_after_model, chat_memory_before_model
     from hushh_mcp.one_adk.finance_share_context import finance_model_callbacks
+    from hushh_mcp.one_adk.plaid_connector_tools import plaid_after_model, plaid_before_model
     from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
+    from hushh_mcp.one_adk.rolling_horizon import compact_horizon_before_model
     from hushh_mcp.one_adk.tool_scoping import scope_leaf_tools_before_model
     from hushh_mcp.one_adk.wiki_recall_tools import wiki_after_model, wiki_before_model
 
@@ -2961,8 +3025,10 @@ def build_one_text_agent(
             finance_before_model,
             receipt_before_model,
             wiki_before_model,
+            plaid_before_model,
             document_period_before_model,
             scope_leaf_tools_before_model,
+            compact_horizon_before_model,
             timed_one_before_model,
             inject_dynamic_turn_context_before_model,
             club_queued_input,
@@ -2973,6 +3039,7 @@ def build_one_text_agent(
             timed_one_after_model,
             receipt_after_model,
             wiki_after_model,
+            plaid_after_model,
             chat_memory_after_model,
         ],
         # Preserve the configured Chat thinking level for measured comparison.

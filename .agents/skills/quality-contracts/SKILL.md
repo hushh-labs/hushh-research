@@ -72,5 +72,6 @@ Non-owned surfaces:
 Follow `floci-wire-verification.md` and [CI readiness policy](../../../docs/operations/releases/ci.md#managed-provider-readiness-policy) for `focused`, `release`, and `diagnostic` profile selection, One Browser vs app-browser boundaries, and Tier-1.5 multi-cloud wire suites.
 
 ```bash
+./bin/hushh protocol floci
 CI_VALIDATION_LEVEL=focused CI_CHANGED_FILES_FILE=/path/to/changed-files.txt scripts/ci/repo-governance-check.sh
 ```

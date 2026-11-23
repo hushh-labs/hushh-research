@@ -1,5 +1,6 @@
 "use client";
 import { ConnectorRow } from "./connector-list-row";
+import { GOOGLE_APPS_CLEARANCE_NOTE, isProductionVisitorPostureEnabled } from "@/lib/agent/production-visitor-posture";
 
 import {
   useCallback,
@@ -174,7 +175,8 @@ export type ConnectorDetailAction = { label: string; disabled: boolean; run: () 
 /** Feature facts and existing commands, not a native UI schema or service port. */
 export type ConnectorDetailPresentation =
   | { kind: "private-google" | "private-stripe"; status: string; purpose: string; message: string; notes: readonly string[];
-      busy: boolean; actions: readonly ConnectorDetailAction[]; permissions?: readonly CalendarPermission[] }
+      busy: boolean; actions: readonly ConnectorDetailAction[]; permissions?: readonly CalendarPermission[];
+      background?: { enabled: boolean | null; description: string; busy: boolean; change: (next: boolean) => void } | null }
   | { kind: "social"; network: "instagram" | "linkedin"; link: string; current: () => boolean; inputRevision: () => number; changeLink: (link: string, expectedRevision?: number) => boolean }
   | { kind: "drive"; account: string; status: string; message: string; notes: readonly string[]; connected: boolean; busy: boolean; mutationPending: () => boolean;
       actions: readonly ConnectorDetailAction[]; background: { enabled: boolean | null; description: string; busy: boolean; change: (next: boolean) => void; retry?: ConnectorDetailAction } | null;
@@ -182,7 +184,7 @@ export type ConnectorDetailPresentation =
         confirm: ConnectorDetailAction; cancel: ConnectorDetailAction } | null;
       files: readonly { key: string; name: string; status: string; background: boolean; changeBackground?: (next: boolean) => void; sync?: ConnectorDetailAction; remove: ConnectorDetailAction }[];
       collection: DriveCollectionModel | null; groups: DriveDataPacketsModel | null; packets: DrivePacketCatalogModel; packet: OwnerPacketPageModel; publications: PacketPublicationsModel; trust: TrustedDocumentRulesModel }
-  | { kind: "gmail"; account: string; status: string; message: string; connected: boolean;
+  | { kind: "gmail"; account: string; status: string; message: string; note?: string; connected: boolean;
       sendAllowed: boolean; draftsAllowed: boolean; connect?: ConnectorDetailAction; disconnect?: ConnectorDetailAction;
       retry?: ConnectorDetailAction; enableDrafts?: ConnectorDetailAction; cancelSignIn?: ConnectorDetailAction }
   | { kind: "calendar"; description: string; status: string; message: string; helper: string | null;
@@ -203,6 +205,7 @@ export type ConnectorsPanelPresentation = {
   catalog: {
     query: string; search: (query: string) => void; show: () => void;
     status: "locked" | "loading" | "unavailable" | "ready";
+    notice?: string;
     groups: readonly { title: "Connected" | "Available"; entries: readonly ConnectorListEntry[] }[];
     retry: () => Promise<boolean>;
   };
@@ -2362,6 +2365,7 @@ function OwnerConnectorsPanel({
   const driveBackgroundDescription = liveBackgroundChange === "saving" ? "Saving…" : liveBackground === null ?
     liveBackgroundError ? "Couldn’t check background access." : "Checking background access…" : liveBackgroundChange ?
       `Couldn’t turn ${liveBackgroundChange}. Try again.` : liveBackground ? "Agent One works while you’re away." : "Paused while you’re away.";
+  const showGoogleClearanceNote = isProductionVisitorPostureEnabled();
   const driveDetail: Extract<ConnectorDetailPresentation, { kind: "drive" }> = {
     kind: "drive", account: drive?.accountLabel || "Search and read files",
     status: loading ? "Checking Drive…" : !statusChecked ? "Connection status unavailable" : drive ?
@@ -2369,6 +2373,7 @@ function OwnerConnectorsPanel({
     message: drivePopupPending ? "Preparing secure Google sign-in…" : driveBusy ? "Updating Drive…" : driveMessage,
     connected: drive?.status === "connected", busy: driveBusy, mutationPending: () => driveLock.current || drivePublications.mutationPending(),
     notes: [
+      ...(showGoogleClearanceNote ? [GOOGLE_APPS_CLEARANCE_NOTE] : []),
       ...(overview?.features.google_drive_live === true && (drive?.status !== "connected" || drive.profile !== "live") ? [overview.driveAgentPackagesEnabled === true ?
         "Agent One prepares packets from your Drive automatically." : "Full Drive access lets One find and share matching files for approved document requests. You can turn background access off anytime."] : []),
       ...(canConnectDrive && driveConnectionProfile === "selected" && !hasDriveGrant ? ["You can choose files after connecting. One cannot search your entire Drive with this access."] : []),
@@ -2408,7 +2413,9 @@ function OwnerConnectorsPanel({
   const mailDetail: Extract<ConnectorDetailPresentation, { kind: "gmail" }> = {
     kind: "gmail", account: gmail.status?.google_email || "Gmail",
     status: gmail.loadingStatus ? "Checking Mail…" : gmail.statusError ? "Status unavailable" : gmail.status?.needs_reauth ? "Sign-in needed" : gmail.status?.connected ? "Connected" : "Not connected",
-    message: mailBusy ? "Updating Mail…" : mailMessage, connected: gmail.status?.connected === true,
+    message: mailBusy ? "Updating Mail…" : mailMessage,
+    ...(showGoogleClearanceNote ? { note: GOOGLE_APPS_CLEARANCE_NOTE } : {}),
+    connected: gmail.status?.connected === true,
     sendAllowed: gmail.status?.send_permission_granted === true, draftsAllowed: gmail.status?.compose_permission_granted === true,
     ...(!gmail.status?.connected || gmail.status?.needs_reauth ? { connect: detailAction("Connect Mail", mailBusy || gmail.loadingStatus, () => { void connectMail(); }) } : {}),
     ...(gmail.status?.connected || gmail.status?.needs_reauth ? { disconnect: detailAction("Disconnect Mail", mailBusy, () => setConfirm("mail"), true) } : {}),
@@ -2416,11 +2423,12 @@ function OwnerConnectorsPanel({
     ...(gmail.status?.connected && !gmail.status.compose_permission_granted ? { enableDrafts: detailAction("Enable Gmail drafts", mailBusy || gmail.loadingStatus, () => { void connectMail("compose"); }) } : {}),
     ...(mailPopupPending ? { cancelSignIn: detailAction("Cancel sign-in", false, () => mailPopupCancel.current?.abort()) } : {}),
   };
+  const baseCalendarHelper = !calendar.error && !calendar.connected && !calendarNeedsReconnect ? "Private by default. Disconnect anytime." : calendar.connected ? "Disconnect anytime." : null;
   const calendarPermissions = googleCalendarPermissions(calendar.status);
   const calendarDetail: Extract<ConnectorDetailPresentation, { kind: "calendar" }> = {
     kind: "calendar", description: calendarDescription, status: calendarStatusLabel,
     message: calendarPopupPending ? "Finish signing in with Google in the window that opened." : calendarBusy ? "Updating Calendar…" : calendarMessage,
-    helper: !calendar.error && !calendar.connected && !calendarNeedsReconnect ? "Private by default. Disconnect anytime." : calendar.connected ? "Disconnect anytime." : null,
+    helper: [baseCalendarHelper, showGoogleClearanceNote ? GOOGLE_APPS_CLEARANCE_NOTE : null].filter(Boolean).join(" ") || null,
     connection: calendar.connected ? detailAction("Disconnect Calendar", calendarBusy, () => setConfirm("calendar"), true) :
       detailAction(calendarConnectLabel, calendarBusy, () => { void connectCalendar(); }),
     permissions: calendar.connected ? calendarPermissions.rows : [],
@@ -2589,6 +2597,11 @@ function OwnerConnectorsPanel({
       </Button>
     </div>
   ) : null;
+  const googleClearanceNote = showGoogleClearanceNote ? (
+    <p role="note" data-testid="connector-google-clearance-note" className="text-xs leading-5 text-muted-foreground">{GOOGLE_APPS_CLEARANCE_NOTE}</p>
+  ) : null;
+  const showCatalogGoogleNote = showGoogleClearanceNote && (!query || matchingEntries.some((entry) => ["google_drive", "gmail", "calendar"].includes(entry.id)));
+  const googleClearanceBanner = showCatalogGoogleNote ? googleClearanceNote : null;
   const webBody = (
     <div
       ref={panelRootRef}
@@ -2647,6 +2660,7 @@ function OwnerConnectorsPanel({
         ) : !activeConnector && inProfile ? (
           <>
             {catalogState}
+            {googleClearanceBanner}
             {listSections.map(([heading, items]) =>
               items.length === 0 ? null : (
                 <SettingsGroup key={heading} title={heading} testId={`profile-connectors-${heading.toLowerCase()}`}>
@@ -2677,6 +2691,7 @@ function OwnerConnectorsPanel({
               />
             </label>
             {catalogState}
+            {googleClearanceBanner}
             {listSections.map(([heading, items]) =>
               query && items.length === 0 ? null : (
                 <section key={heading} aria-label={heading} className="space-y-2">
@@ -2749,6 +2764,7 @@ function OwnerConnectorsPanel({
               <p role="status" className="text-sm">
                 {mailDetail.status}
               </p>
+              {googleClearanceNote}
               <div className="flex flex-wrap gap-2">
                 {(!gmail.status?.connected || gmail.status?.needs_reauth) && (
                   <Button
@@ -2844,6 +2860,7 @@ function OwnerConnectorsPanel({
                     : "Full Drive access lets One find and share matching files for approved document requests. You can turn background access off anytime."}
                 </p>
               )}
+              {googleClearanceNote}
               <div className="flex flex-wrap gap-2">
                 {canConnectDrive && (!hasDriveGrant ||
                   drive?.status === "needs_reauth" ||
@@ -3125,6 +3142,7 @@ function OwnerConnectorsPanel({
                       Disconnect anytime.
                     </p>
                   ) : null}
+                  {googleClearanceNote}
                   {calendarPopupPending && (
                     <Button
                       size="compact"
@@ -3240,6 +3258,7 @@ function OwnerConnectorsPanel({
     catalog: {
       query: search, search: value => { if (currentPresentation() && value.length <= 256) setSearch(value); }, show: guardPresentation(() => setActiveConnector(null)),
       status: !vaultOwnerToken ? "locked" : catalogLoadFailed ? "unavailable" : !overview && !statusChecked ? "loading" : "ready",
+      ...(showCatalogGoogleNote ? { notice: GOOGLE_APPS_CLEARANCE_NOTE } : {}),
       groups: listSections.map(([title, items]) => ({ title, entries: items.map(entry => ({ ...entry,
         ...(entry.onOpen ? { onOpen: guardPresentation(entry.onOpen) } : {}),
         ...(entry.action ? { action: { ...entry.action, onClick: guardPresentation(() => { if (!entry.action?.disabled) entry.action?.onClick(); }) } } : {}),
