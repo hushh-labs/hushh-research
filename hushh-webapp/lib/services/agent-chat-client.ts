@@ -1644,7 +1644,7 @@ async function streamAgentChatAttempt(input: {
               personSelectionHandle: input.personSelectionHandle,
               gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
               ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
-              ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}), emailDraftContract: 2, emailAgentContract: 1, emailReadReceiptContract: 2,
+              ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}), emailDraftContract: 2, emailAgentContract: 1, calendarReviewContract: 1, emailReadReceiptContract: 2,
               screenContext: input.screenContext,
             },
             resume: [{ interruptId, status, payload }],
@@ -2207,7 +2207,7 @@ async function streamAgentChatAttempt(input: {
                     personSelectionHandle: input.personSelectionHandle,
                     gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
                     ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
-                    ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}), emailDraftContract: 2, emailAgentContract: 1, emailReadReceiptContract: 2,
+                    ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}), emailDraftContract: 2, emailAgentContract: 1, calendarReviewContract: 1, emailReadReceiptContract: 2,
                     screenContext: input.screenContext,
                     ...(approval ? { mcpApproval: {
                       directiveId: approval.directiveId, connectorId: approval.connectorId,
@@ -2319,7 +2319,7 @@ async function streamAgentChatAttempt(input: {
         ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
         ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}),
         // The mail draft envelope version this client reads. The server reads it per request, so resumed runs send it too.
-        emailDraftContract: 2, emailAgentContract: 1, emailReadReceiptContract: 2,
+        emailDraftContract: 2, emailAgentContract: 1, calendarReviewContract: 1, emailReadReceiptContract: 2,
         ...(portfolioContextEnabled ? { portfolioContextContract: PORTFOLIO_CONTEXT_CONTRACT } : {}),
         screenContext: input.screenContext,
         ...(input.consentContinuation ? { consentContinuation: input.consentContinuation } : {}),
@@ -2352,7 +2352,7 @@ async function streamAgentChatAttempt(input: {
       agent.setMessages(receiptToolResults.map(item => ({ id: crypto.randomUUID(), role: "tool" as const, toolCallId: item.toolCallId,
         content: JSON.stringify({ schema: "receipt_result.v1", operation: item.toolName, ephemeral_result: true }) })));
       await runUntilTerminal({ tools, context: [], forwardedProps: {
-        timezone, screenContext: input.screenContext, communicationPreferences, receiptToolResults, emailDraftContract: 2, emailAgentContract: 1, emailReadReceiptContract: 2,
+        timezone, screenContext: input.screenContext, communicationPreferences, receiptToolResults, emailDraftContract: 2, emailAgentContract: 1, calendarReviewContract: 1, emailReadReceiptContract: 2,
         ...(portfolioRead ? { portfolioContextContract: PORTFOLIO_CONTEXT_CONTRACT } : {}),
       } });
       if (!receiptSessionCurrent()) throw new Error(`${privateReadLabel} authority changed. Ask again.`);
@@ -2486,7 +2486,7 @@ export async function streamAgentIntro(input: {
     await agent.runAgent({
       tools: [],
       context: [],
-      forwardedProps: { screenContext: input.screenContext, timezone: browserTimeZone(), emailAgentContract: 1 },
+      forwardedProps: { screenContext: input.screenContext, timezone: browserTimeZone(), emailAgentContract: 1, calendarReviewContract: 1 },
     }, subscriber);
   } finally {
     liveness.stop();

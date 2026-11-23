@@ -76,6 +76,45 @@ These are code-path findings, not measured production incident rates. The dispos
 
 ## Scope decision and invariants
 
+Typed Chat retains all declared Calendar tools even when the request uses an
+implicit phrase, Hinglish or a typo. One's existing planner interprets the request;
+there is no second Calendar router or per-event model assessment. The root manifest
+contains the task-to-tool context, as the Email instructions do for Mail.
+
+Native search retains the exact requested dates, zone, query and page bounds.
+Creator filtering compares `creator.email` with the verified selected connection
+identity, rather than `creator.self` or organizer. Unknown creators or unavailable
+identity stay unknown; a filtered page and its truncation never establish a full count.
+Typed pagination, calendar selection and list-to-detail follow-ups retain the
+existing fresh-owner-turn boundary after an external read.
+
+Reviewed creation supports timed and date-only all-day events, explicit weekly
+series bounded to 1–52 occurrences, and up to five popup reminders. Weekly conflicts
+are checked across every occurrence using native retrieval and deterministic interval
+checks, then checked again at confirmation. All-day coverage uses the selected
+calendar's timezone and rejects timezone changes during review. Existing occurrence
+updates can add verified guests or reminders with times omitted; PATCH preserves
+unnamed fields, attendee responses and event ETags. Reminder additions preserve
+verified defaults/overrides, with the resulting explicit settings visible in review.
+Extended proposals require the shipping client's Calendar review contract.
+Confirmation must also carry strict integer `review_contract: 1` from the screen
+that displayed the v1 review. Both shared and owner-cloud transports preserve it;
+resuming a pending review on an older screen requires a fresh review. Legacy
+ordinary confirmations retain their existing bodyless or unversioned shape.
+Their sealed storage format omits the legacy execution-binding field. Older
+backends therefore reject pending newer reviews during rollback; the versioned
+consumer restores the binding only after validating the exact stored contract.
+Ordinary legacy reviews retain their existing format.
+
+Whole-series edits, arbitrary invitee availability, ICS import/export/download,
+continuous sync and bulk cross-calendar copy remain unavailable. Clarify genuinely
+missing dates, targets, bounds or identities, and report access limitations precisely.
+No workbook example grants authority to create, cancel or send invitations.
+
+Source contracts and automated service/review tests qualify these behaviors;
+deployment and a real connected owner's journey are separate evidence. Updating the
+UAT hub does not update an already installed owner-cloud image.
+
 Google exposes several read-only Calendar scopes. This product read surface will use the narrow grants needed for subscribed-calendar discovery, event list/detail/search, and availability, with incremental consent for newly requested access. It will not request unrelated ACL or settings scopes solely because they are read-only. See [Google Calendar scopes](https://developers.google.com/workspace/calendar/api/auth). Existing grants must keep working during rollout.
 
 1. One chooses the tool from meaning; deterministic code validates exact arguments, owner, grant, account, bounds, and result freshness. Keyword matching is not a parallel semantic router.

@@ -38,7 +38,10 @@ export async function runCalendarDirective(
   if (reviewError) throw new Error(reviewError);
 
   const linkedReply = payload.gmailReply != null;
-  const result = await GoogleCalendarService.executeProposal({ vaultOwnerToken, userId, proposalId, accountId: String(payload.accountId) })
+  const result = await GoogleCalendarService.executeProposal({
+    vaultOwnerToken, userId, proposalId, accountId: String(payload.accountId),
+    ...(payload.reviewContract === 1 ? { reviewContract: 1 as const } : {}),
+  })
     .catch(async (error: unknown): Promise<CalendarExecution> => {
       if (!linkedReply) throw error;
       const receipt = await readPrivateCalendarReplyStatus(proposalId).catch(() => null);
@@ -80,7 +83,7 @@ export async function runCalendarDirective(
           : result.event.conference_url
             ? `Scheduled ${eventTitle} with a Google Meet link. It is ready in the Calendar invite.`
             : `Scheduled ${eventTitle}. Google Meet is being added to the Calendar invite.`
-        : `Rescheduled ${eventTitle}.`;
+        : payload.metadataOnly === true ? `Updated ${eventTitle}.` : `Rescheduled ${eventTitle}.`;
 
   return {
     delegate_agent_id: "agent_calendar",

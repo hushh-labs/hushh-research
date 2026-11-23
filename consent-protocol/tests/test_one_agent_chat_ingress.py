@@ -351,6 +351,7 @@ async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(
         forwarded_props={
             "pkmContext": "synthetic-scoped-context",
             "portfolioContextContract": 1,
+            "calendarReviewContract": 1,
             "emailMemoryProjection": {
                 "source": "one_memory.markdown",
                 "owner_id": "owner-a",
@@ -363,6 +364,7 @@ async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(
     assert await select(request({"x-hushh-consent": "HCT:synthetic"}), data) is agent_chat._agent
     assert data.state[STATE_USER_ID] == "owner-a"
     assert data.state[STATE_PORTFOLIO_CONTEXT_ENABLED]
+    assert data.state["temp:one_calendar_review_contract"] is True
     tool = next(tool for tool in data.tools if tool.name == PORTFOLIO_CONTEXT_TOOL)
     assert tool.parameters == PORTFOLIO_CONTEXT_PARAMETERS
     assert "portfolioContextContract" not in data.forwarded_props

@@ -20,8 +20,10 @@ system_instruction: |
   booking plan. A request to show meetings, read events, check availability or
   find options authorizes no review. Explicit read-only/do-not-change/do-not-book
   restrictions on a read request prohibit action reviews, even conflict-check drafts. Only an
-  explicit request to prepare, book, reschedule, cancel or respond to an invitation
-  permits the corresponding create/reschedule/cancel/respond action.
+  explicit request to prepare, book, reschedule, edit event fields, add guests or
+  reminders, cancel or respond to an invitation permits the corresponding action.
+  Explicit edits to title, description, location, guests or reminders use reschedule;
+  this label also covers metadata-only updates without changing the time.
   An explicit request to prepare a review may permit that review while deferring
   execution ("prepare a proposal; do not book until I confirm"). Merely finding
   free time with "do not book" never permits a proposal. Contradictory requests
@@ -82,6 +84,19 @@ system_instruction: |
   timezone. Use the current turn's timezone for unqualified local times and
   summaries; retain an explicitly requested timezone. Do not clip meetings to
   the current day. The confirmation card must describe the actual proposed interval.
+
+  Use start_date/end_date (exclusive) for all-day creation, not midnight dateTimes.
+  All-day coverage follows the selected calendar's timezone. For weekly creation,
+  require an exact first date/time and an explicit repeat_count (1-52) or repeat_until
+  date; use repeat_weekly=true. Never invent an indefinite series or treat an offered
+  one-time slot as a series. All occurrences are checked before review and confirmation.
+  To add guests or reminders without moving a meeting, propose_calendar_reschedule
+  accepts add_attendees/contact_ordinals and add_reminder_minutes with both times
+  omitted. Preserve unnamed fields; reminder_minutes replaces reminders only when
+  explicitly requested. Show the exact resulting reminder settings in review.
+  Creator filters compare creator.email with the verified connected account identity;
+  creator.self describes the calendar copy, not the connected person. Missing identity
+  or creator is unknown. Filtering is per native page, never a complete-count claim.
 
   Use calendar_calendars to discover subscribed calendars before selecting a
   secondary calendar. In the next user turn, pass the calendar's position as
@@ -162,7 +177,7 @@ tools:
     py_func: hushh_mcp.agents.calendar.tools.calendar_summary
     required_scope: cap.one.invoke
   - name: calendar_events
-    description: List a bounded page of events in an exact time interval on the primary calendar or a previously offered subscribed calendar selected by calendar_ordinal; optionally match search text. A next-page token means more exist.
+    description: List a bounded native page in an exact interval, optionally with search text or a verified connected-account creator filter; retain truncation and unknown creators. Select subscribed calendars by offered ordinal and continue the same search with next_page.
     py_func: hushh_mcp.agents.calendar.tools.calendar_events
     required_scope: cap.one.invoke
   - name: calendar_calendars
@@ -190,11 +205,11 @@ tools:
     py_func: hushh_mcp.agents.calendar.opening_tools.calendar_opening_detail
     required_scope: cap.one.invoke
   - name: propose_calendar_event
-    description: Prepare a new Google Meet event for explicit owner confirmation; Calendar shares the invite with guests after confirmation.
+    description: Prepare a timed or all-day event, optionally with bounded weekly recurrence and reminders, for explicit owner confirmation; invitations and requested Google Meet are created only after confirmation.
     py_func: hushh_mcp.agents.calendar.tools.propose_calendar_event
     required_scope: cap.one.invoke
   - name: propose_calendar_reschedule
-    description: Prepare an existing event change for explicit owner confirmation; only named fields change, and the review lists every attendee added or removed.
+    description: Prepare an exact existing occurrence change, including guest/reminder additions with times omitted; only named fields change and every attendee addition/removal is reviewed before confirmation.
     py_func: hushh_mcp.agents.calendar.tools.propose_calendar_reschedule
     required_scope: cap.one.invoke
   - name: propose_calendar_cancellation

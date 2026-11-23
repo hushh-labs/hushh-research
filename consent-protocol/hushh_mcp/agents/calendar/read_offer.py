@@ -77,6 +77,7 @@ class CalendarEventsPage(CalendarOfferIdentity):
     query: str | None = Field(max_length=256)
     limit: int = Field(ge=1, le=250)
     page_token: str = Field(min_length=1, max_length=2048)
+    created_by_me: bool | None = None
 
 
 class CalendarAttendeeOffer(CalendarOfferIdentity):

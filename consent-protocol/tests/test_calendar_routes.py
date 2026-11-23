@@ -30,6 +30,35 @@ def _app() -> FastAPI:
     return app
 
 
+@pytest.mark.parametrize("version", [None, 1, True, "1", 1.0, 2])
+def test_calendar_confirmation_preserves_strict_screen_contract(monkeypatch, version):
+    execute = AsyncMock(return_value={"action": "create", "event": {}})
+    monkeypatch.setattr(
+        calendar, "_selected_calendar", lambda _account: type("Service", (), {"execute": execute})()
+    )
+    app = _app()
+    app.dependency_overrides[hub_content_owner] = lambda: {"user_id": "calendar-user"}
+    response = TestClient(app).post(
+        "/api/one/calendar/proposals/execute",
+        json={
+            "user_id": "calendar-user",
+            "proposal_id": "gcal_reviewed",
+            **({"review_contract": version} if version is not None else {}),
+        },
+    )
+    if type(version) is int and version == 1 or version is None:
+        assert response.status_code == 200
+        execute.assert_awaited_once_with(
+            user_id="calendar-user",
+            proposal_id="gcal_reviewed",
+            account_id="default",
+            **({"client_review_contract": 1} if version == 1 else {}),
+        )
+    else:
+        assert response.status_code == 422
+        execute.assert_not_awaited()
+
+
 def test_calendar_native_connect_uses_the_authenticated_owner(monkeypatch) -> None:
     calls: list[tuple[str, dict[str, object]]] = []
 

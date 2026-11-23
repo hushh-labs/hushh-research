@@ -466,9 +466,9 @@ class TestAgentTreeShape:
             in ONE_IDENTITY_INSTRUCTION
         )
         assert "Never invent; 'at 8pm' is not today" in ONE_IDENTITY_INSTRUCTION
-        assert "Resolve relative dates with get_current_time" in ONE_IDENTITY_INSTRUCTION
-        assert "preserve title/attendees" in ONE_IDENTITY_INSTRUCTION
-        assert "Cancellation needs event id" in ONE_IDENTITY_INSTRUCTION
+        assert "current turn clock or get_current_time" in ONE_IDENTITY_INSTRUCTION
+        assert "preserve unnamed fields" in ONE_IDENTITY_INSTRUCTION
+        assert "event_ordinal, never a guessed id" in ONE_IDENTITY_INSTRUCTION
 
     def test_identity_instruction_carries_persona_grounding(self):
         # Durable north-star + principle grounding is folded into the shared

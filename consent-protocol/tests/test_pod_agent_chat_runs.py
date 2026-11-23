@@ -420,6 +420,16 @@ def test_a_rating_needs_an_existing_conversation_and_closed_enums(monkeypatch):
     assert log.records == []
 
 
+@pytest.mark.parametrize(
+    "contract, admitted", [(1, True), (True, False), ("1", False), (None, False), (2, False)]
+)
+async def test_calendar_review_contract_requires_the_exact_supported_client_version(
+    contract, admitted
+):
+    state, _ = pod_agent_chat.trusted_state(_turn(calendarReviewContract=contract), _owner())
+    assert state["temp:one_calendar_review_contract"] is admitted
+
+
 async def test_main_chat_forwarded_prop_sets_canonical_one_title():
     main_state, _ = pod_agent_chat.trusted_state(_turn(mainChat=True), _owner())
     assert main_state.get("hussh:thread_title") == "One"

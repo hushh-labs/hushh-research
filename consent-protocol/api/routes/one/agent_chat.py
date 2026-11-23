@@ -567,6 +567,8 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     owner_display_name = await _owner_display_name_for_turn(user_id) if token and user_id else ""
     return {
         STATE_EXECUTION_SURFACE: "typed_chat",
+        "temp:one_calendar_review_contract": type(forwarded.get("calendarReviewContract")) is int
+        and forwarded.get("calendarReviewContract") == 1,
         "temp:one_email_review_contract": type(forwarded.get("emailAgentContract")) is int
         and forwarded.get("emailAgentContract") == 1,
         "temp:hussh:turn_started_at": turn_started_at,

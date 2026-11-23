@@ -1,3 +1,6 @@
+export type CalendarWeeklyReview = { count: number; lastDate: string; conflictCoverage: "all_occurrences" };
+export type CalendarReminderReview = { useDefault: false; overrides: { method: "popup" | "email"; minutes: number }[] };
+
 /** Validate the existing review envelope before any Calendar confirmation. */
 export function calendarProposalReviewError(payload: Record<string, unknown>): string | null {
   const incomplete = "This Calendar review is incomplete. Ask One to show the exact meeting details again.";
@@ -12,6 +15,26 @@ export function calendarProposalReviewError(payload: Record<string, unknown>): s
       !Array.isArray(payload.conflicts) || !text(payload.expiresAt) ||
       !text(payload.startAt) || !text(payload.endAt)) return incomplete;
   if (payload.action !== "create" && !text(payload.eventId)) return incomplete;
+  if (payload.reviewContract !== undefined && payload.reviewContract !== 1) return incomplete;
+  if (payload.metadataOnly !== undefined && (typeof payload.metadataOnly !== "boolean" ||
+      payload.metadataOnly && (payload.action !== "reschedule" || payload.reviewContract !== 1))) return incomplete;
+  if (payload.allDay !== undefined && typeof payload.allDay !== "boolean") return incomplete;
+  if (payload.allDay && (!isCalendarCivilDate(payload.startAt) || !isCalendarCivilDate(payload.endAt))) return incomplete;
+  if (payload.weeklyRecurrence !== undefined) {
+    const weekly = payload.weeklyRecurrence as Partial<CalendarWeeklyReview> | null;
+    if (payload.action !== "create" || payload.reviewContract !== 1 || !weekly ||
+        !Number.isInteger(weekly.count) || Number(weekly.count) < 1 || Number(weekly.count) > 52 ||
+        !isCalendarCivilDate(weekly.lastDate) || weekly.conflictCoverage !== "all_occurrences") return incomplete;
+  }
+  if (payload.reminders !== undefined) {
+    const reminders = payload.reminders as Partial<CalendarReminderReview> | null;
+    if (payload.reviewContract !== 1 || !reminders || reminders.useDefault !== false ||
+        !Array.isArray(reminders.overrides) || reminders.overrides.length > 5 ||
+        reminders.overrides.some(item => !item || !["popup", "email"].includes(item.method) ||
+          !Number.isInteger(item.minutes) || item.minutes < 0 || item.minutes > 40320)) return incomplete;
+  }
+  if (payload.remindersReplacesDefaults !== undefined && (
+      typeof payload.remindersReplacesDefaults !== "boolean" || payload.reminders === undefined)) return incomplete;
   if (payload.action === "reschedule" && (
       !Array.isArray(payload.attendeesAdded) || payload.attendeesAdded.some(value => !text(value)) ||
       !Array.isArray(payload.attendeesRemoved) || payload.attendeesRemoved.some(value => !text(value)) ||
@@ -29,6 +52,23 @@ export function calendarProposalReviewError(payload: Record<string, unknown>): s
       !Number.isFinite(end) || start >= end || !Number.isFinite(Date.parse(payload.expiresAt))) return incomplete;
   if (Date.parse(payload.expiresAt) <= Date.now()) return "This Calendar review expired. Ask One to check the meeting again.";
   return null;
+}
+
+export function isCalendarCivilDate(value: unknown): value is string {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+}
+
+/** Invalid envelopes show the blocking error without rendering unchecked extras. */
+export function calendarProposalReviewExtras(payload: Record<string, unknown>) {
+  if (calendarProposalReviewError(payload)) return {};
+  return {
+    metadataOnly: payload.metadataOnly === true,
+    weeklyRecurrence: payload.weeklyRecurrence as CalendarWeeklyReview | undefined,
+    reminders: payload.reminders as CalendarReminderReview | undefined,
+    remindersReplacesDefaults: payload.remindersReplacesDefaults === true,
+    attendeesAdded: Array.isArray(payload.attendeesAdded) ? payload.attendeesAdded as string[] : [],
+  };
 }
 
 /** Older tools must provide the same review facts; absent facts never become defaults. */
@@ -72,6 +112,13 @@ export function legacyCalendarProposalPayload(result: Record<string, unknown>, a
       return { title: event.title, startAt: flat(event.start) };
     }) : undefined,
     expiresAt: result.expires_at, googleMeet: action === "create" && (plan.meeting_type ?? "google_meet") === "google_meet",
+    ...(plan.review_contract === 1 ? { reviewContract: 1, metadataOnly: plan.preserve_time === true } : {}),
+    ...(plan.all_day === true ? { allDay: true } : {}),
+    ...(plan.weekly_recurrence && typeof plan.weekly_recurrence === "object" ? {
+      weeklyRecurrence: { count: (plan.weekly_recurrence as Record<string, unknown>).count,
+        lastDate: plan.recurrence_last_date, conflictCoverage: "all_occurrences" },
+    } : {}),
+    ...(plan.reminders ? { reminders: plan.reminders, remindersReplacesDefaults: plan.reminders_replaces_defaults === true } : {}),
     summary: `${verb} “${String(plan.title ?? current.title ?? "") }”`,
     confirmLabel: Array.isArray(conflicts) && conflicts.length ? `${verb} anyway` : action === "create" ? "Schedule meeting" : verb,
   };

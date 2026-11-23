@@ -24,7 +24,7 @@ import re
 from typing import Any, Awaitable, Callable, Literal, Optional, Protocol
 
 from fastapi import APIRouter, Header, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError
 
 from api.routes.one.pod_owner_door import admit_owner_local, owner_local_door
 from hushh_mcp.services.pod_session_authority import SCOPE_POD_ACT
@@ -41,6 +41,12 @@ class GmailProposalRequest(BaseModel):
 
     action: Literal["save_draft", "send_email"]
     draft: dict[str, Any]
+
+
+class ActionConfirmation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    review_contract: StrictInt | None = Field(default=None, ge=1, le=1)
 
 
 class _GmailProposalPort(Protocol):
@@ -124,12 +130,26 @@ def _refused(status: int, code: str) -> HTTPException:
     return HTTPException(status_code=status, detail={"code": code})
 
 
-async def _run(kind: str, owner: str, proposal_id: str, ports: dict[str, Any]) -> Any:
+async def _run(
+    kind: str,
+    owner: str,
+    proposal_id: str,
+    ports: dict[str, Any],
+    client_review_contract: int | None = None,
+) -> Any:
     if kind == "calendar":
         from hushh_mcp.services.pod_google_connections import pod_calendar_service
 
         calendar = ports.get("calendar") or pod_calendar_service()
-        return await calendar.execute(user_id=owner, proposal_id=proposal_id)
+        return await calendar.execute(
+            user_id=owner,
+            proposal_id=proposal_id,
+            **(
+                {"client_review_contract": client_review_contract}
+                if client_review_contract is not None
+                else {}
+            ),
+        )
     if kind == "gmail_mailbox":
         from hushh_mcp.services.pod_gmail_mailbox import PodGmailMailboxActions
 
@@ -175,6 +195,7 @@ async def run_action_confirm(
     verifier: Any = None,
     session: Optional[dict] = None,
     ports: Optional[dict[str, Any]] = None,
+    client_review_contract: int | None = None,
 ) -> dict:
     """Admit the owner's own session, then claim and run the one prepared change."""
     from hushh_mcp.services.pod_action_proposals import kind_of
@@ -197,7 +218,7 @@ async def run_action_confirm(
     if kind is None:
         raise _refused(404, "ACTION_UNKNOWN")
     try:
-        result = await _run(kind, owner, proposal_id, ports or {})
+        result = await _run(kind, owner, proposal_id, ports or {}, client_review_contract)
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001 - every failure becomes one authored answer
@@ -275,6 +296,7 @@ async def pod_email_send_status_route(
 @router.post("/actions/{proposal_id}/confirm")
 async def pod_action_confirm_route(
     proposal_id: str,
+    request: Request,
     x_consent_token: Optional[str] = Header(default=None, alias="X-Consent-Token"),
     authorization: Optional[str] = Header(default=None),
 ) -> dict:
@@ -285,7 +307,24 @@ async def pod_action_confirm_route(
     ):  # before any session check: other pods never reveal the door
         raise HTTPException(status_code=404, detail="not found")
     door = await owner_local_door(x_consent_token, authorization, scope=SCOPE_POD_ACT, held=True)
-    return await run_action_confirm(proposal_id, **door)
+    await admit_owner_local(
+        consent_token=door["consent_token"],
+        verifier=door.get("verifier"),
+        session=door.get("session"),
+        scope=SCOPE_POD_ACT,
+    )
+    raw = bytearray()
+    async for chunk in request.stream():
+        if len(raw) + len(chunk) > 1024:
+            raise _refused(413, "ACTION_CONFIRMATION_TOO_LARGE")
+        raw.extend(chunk)
+    try:
+        payload = ActionConfirmation.model_validate_json(raw or b"{}")
+    except ValidationError:
+        raise _refused(422, "ACTION_CONFIRMATION_INVALID") from None
+    return await run_action_confirm(
+        proposal_id, client_review_contract=payload.review_contract, **door
+    )
 
 
 __all__ = ["SCOPE_POD_ACT", "router", "run_action_confirm"]
