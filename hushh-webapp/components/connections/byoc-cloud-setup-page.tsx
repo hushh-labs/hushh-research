@@ -207,6 +207,19 @@ function OwnerCloudSetupPage({ user, owner }: {
         setReservedProjectId(
           unassignedByoc ? status.cloudProject ?? null : null,
         );
+        if (
+          mode === "hussh_pods" &&
+          (status.deploymentTarget === "ace" || status.state === "active") &&
+          typeof PreVaultUserStateService.markOneRuntimeChoice === "function" &&
+          !PreVaultUserStateService.hasOneRuntimeChoice(
+            PreVaultUserStateService.getCachedBootstrapState(ownerId),
+          )
+        ) {
+          void PreVaultUserStateService.markOneRuntimeChoice(
+            ownerId,
+            "hushh_managed_vertex",
+          ).catch(() => undefined);
+        }
         if (mode === "byoc" && provider === "azure" && !unassignedByoc && !byocUnavailableState) {
           setExisting(azureConnected(status.cloudProject));
         } else if (mode === "byoc" && status.cloudProject && !unassignedByoc && !byocUnavailableState) {

@@ -546,9 +546,29 @@ async def resolve_personal_agent_status(
             )
 
             if sandbox_pool_cutover_enabled():
-                row = await ensure_pooled_sandbox_placement(
-                    user_id=user_id, existing_row=row, registry=repo
-                )
+                phone_verified = row is not None
+                if not phone_verified:
+                    identities = await ActorIdentityService().get_many([user_id])
+                    identity = identities.get(user_id) or {}
+                    phone_verified = identity.get("phone_verified") is True
+                if phone_verified:
+                    if registry is None:
+                        from hushh_mcp.services.owner_hosting_choice import (  # noqa: PLC0415
+                            write_cloud_setup_marker,
+                        )
+
+                        row = await ensure_pooled_sandbox_placement(
+                            user_id=user_id,
+                            existing_row=row,
+                            registry=repo,
+                            cloud_marker_writer=write_cloud_setup_marker,
+                        )
+                    else:
+                        row = await ensure_pooled_sandbox_placement(
+                            user_id=user_id,
+                            existing_row=row,
+                            registry=repo,
+                        )
         except Exception as exc:  # fail safe: keep status endpoint responsive
             logger.warning(
                 "personal_agent.pooled_cutover_failed err=%s detail=%s",

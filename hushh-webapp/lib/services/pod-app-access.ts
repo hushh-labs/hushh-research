@@ -104,6 +104,7 @@ const OWNER_POD_ROUTES = new Set([
   "circle-rules/preview",
   "turn/stream",
   "turn/cancel",
+  "agent-chat/migration/import",
   "puppy/models",
   "ai-selection",
   "ai-selection/activate",
@@ -150,7 +151,7 @@ const OWNER_POD_AGENT_ROUTES = new Set([
 ]);
 
 /** The only pod routes this app reaches directly. */
-function isOwnerPodRoute(route: string): boolean {
+export function isOwnerPodRoute(route: string): boolean {
   if (OWNER_POD_ROUTES.has(route) || OWNER_POD_AGENT_ROUTES.has(route))
     return true;
   return OWNER_POD_ROUTE_PATTERNS.some((pattern) => pattern.test(route));

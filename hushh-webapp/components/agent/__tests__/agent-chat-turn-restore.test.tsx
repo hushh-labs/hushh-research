@@ -499,4 +499,28 @@ describe("a turn whose stream was lost", () => {
     expect(history).not.toHaveBeenCalled();
     history.mockRestore();
   });
+
+  it("clears header working status subtitle when activeToolCalls resets on error", () => {
+    const running = chatHeaderSubtitle({
+      isPuppySurface: false,
+      activeToolCalls: [{ id: "call-1", label: "Private Files", activity: "Checking Private Files" }],
+      statusText: null,
+    });
+    expect(running).toBe("Checking Private Files…");
+
+    const settled = chatHeaderSubtitle({
+      isPuppySurface: false,
+      activeToolCalls: [],
+      statusText: null,
+    });
+    expect(settled).toBe("");
+
+    render(
+      <ChatAgentSubtitle
+        text={settled}
+        working={false}
+      />,
+    );
+    expect(screen.queryByTestId("agent-chat-header-status")).not.toBeInTheDocument();
+  });
 });

@@ -1590,10 +1590,55 @@ export class AuthService {
       });
 
       const provider = new PhoneAuthProvider(auth);
-      const verificationId = await provider.verifyPhoneNumber(
-        normalizedPhoneNumber,
-        options?.recaptchaVerifier,
-      );
+      const WEB_VERIFY_START_TIMEOUT_MS = 25_000;
+      const verificationId = await new Promise<string>((resolve, reject) => {
+        if (options?.signal?.aborted) {
+          reject(this.createPhoneVerificationError("aborted", "Phone verification was cancelled."));
+          return;
+        }
+        let settled = false;
+        const onAbort = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          reject(this.createPhoneVerificationError("aborted", "Phone verification was cancelled."));
+        };
+        const timer = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          options?.signal?.removeEventListener("abort", onAbort);
+          try {
+            (options?.recaptchaVerifier as { clear?: () => void } | undefined)?.clear?.();
+          } catch {
+            // Ignore verifier clear errors on timeout.
+          }
+          reject(
+            this.createPhoneVerificationError(
+              "phone-verification-start-timeout",
+              "Sending the verification code took too long. Request a new code.",
+            ),
+          );
+        }, WEB_VERIFY_START_TIMEOUT_MS);
+        options?.signal?.addEventListener("abort", onAbort, { once: true });
+        Promise.resolve(
+          provider.verifyPhoneNumber(normalizedPhoneNumber, options?.recaptchaVerifier),
+        ).then(
+          (id) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            options?.signal?.removeEventListener("abort", onAbort);
+            resolve(id);
+          },
+          (err) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            options?.signal?.removeEventListener("abort", onAbort);
+            reject(err);
+          },
+        );
+      });
       if (auth.currentUser !== current) {
         throw this.createPhoneVerificationError("session_changed", "Your signed-in account changed.");
       }
@@ -1734,6 +1779,11 @@ export class AuthService {
       return "invalid-app-credential";
     if (message.includes("captcha-check-failed")) return "captcha-check-failed";
     if (message.includes("too-many-requests")) return "too-many-requests";
+    if (message.includes("operation-not-allowed")) return "operation-not-allowed";
+    if (message.includes("sms-region-not-allowed")) return "sms-region-not-allowed";
+    if (message.includes("invalid-phone-number")) return "invalid-phone-number";
+    if (message.includes("phone-verification-start-timeout"))
+      return "phone-verification-start-timeout";
     return "";
   }
 
@@ -1815,6 +1865,27 @@ export class AuthService {
       return this.createPhoneVerificationError(
         code,
         "Firebase is temporarily blocking SMS verification for this phone number or device after too many attempts. Wait before trying again, or use a different phone number.",
+      );
+    }
+
+    if (code === "operation-not-allowed") {
+      return this.createPhoneVerificationError(
+        code,
+        "Phone verification is temporarily unavailable for this configuration. Please try again later.",
+      );
+    }
+
+    if (code === "sms-region-not-allowed") {
+      return this.createPhoneVerificationError(
+        code,
+        "SMS verification is not currently available for this country or region.",
+      );
+    }
+
+    if (code === "invalid-phone-number") {
+      return this.createPhoneVerificationError(
+        code,
+        "Enter a valid phone number with your country code and try again.",
       );
     }
 

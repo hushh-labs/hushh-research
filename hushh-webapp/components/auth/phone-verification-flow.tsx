@@ -501,6 +501,7 @@ export function usePhoneVerificationFlow({
     }
     rejectedPhoneInputRef.current = false;
     setLocalPhoneNumber(nextInput.localPhoneNumber);
+    setOperationError(null);
     setPhoneNumberError((previous) => phonePresentation === "compact" && previous
       ? getPhoneEntryError(nextInput.localPhoneNumber, nextCountry) : null);
     return true;
@@ -927,7 +928,7 @@ export function PhoneVerificationForm({ model, className, style, onCancel, codeP
   helperText, primaryActionClassName, sendCodeLabel, confirmLabel, submissionBlocked = false }: PhoneVerificationFlowProps & {
     model: PhoneVerificationModel; submissionBlocked?: boolean;
   }) {
-  const { step, busy, maskedPhone, submittedPhoneNumber, verificationCode, codeError, phoneNumberError,
+  const { step, busy, maskedPhone, submittedPhoneNumber, verificationCode, codeError, phoneNumberError, operationError,
     selectedCountry, selectedCountryOption, selectedCountryDisplayLabel, countryQuery, countryInputValue, countryComboboxOpen,
     filteredCountryOptions, localPhoneNumber, mobileNumberLengthRange, suppressNextCountryFocusOpenRef,
     setCountryComboboxOpen, setCountryQuery, handleCountrySelection, handlePhoneNumberChange, handlePhoneNumberPaste,
@@ -1168,6 +1169,15 @@ export function PhoneVerificationForm({ model, className, style, onCancel, codeP
             {helperText ??
               "Choose your country code and enter your phone number. We’ll send you a verification code."}
           </FieldDescription>
+          {operationError && operationError !== phoneNumberError ? (
+            <p
+              id="phone-flow-operation-error"
+              role="alert"
+              className="text-sm font-medium text-destructive"
+            >
+              {operationError}
+            </p>
+          ) : null}
           <div className="grid gap-3">
             <Button
               type="submit"
@@ -1281,6 +1291,15 @@ export function PhoneVerificationForm({ model, className, style, onCancel, codeP
                 {codeError}
               </p>
             )}
+            {operationError && operationError !== codeError ? (
+              <p
+                id="phone-flow-operation-error"
+                role="alert"
+                className="text-center text-sm font-semibold text-destructive"
+              >
+                {operationError}
+              </p>
+            ) : null}
           </Field>
 
           <Button

@@ -3,6 +3,7 @@ import {
   type ComputerUseTransport, type ManualBrowserInput, isComputerUseTerminal,
   manualBrowserInputAllowed, sameComputerUseBinding,
 } from "./contracts";
+import { invalidateFilesMutationCache } from "@/lib/files/files-cache";
 
 export type ComputerUseViewState = Readonly<{
   snapshot: ComputerUseSnapshot | null;
@@ -116,6 +117,7 @@ export class ComputerUseTaskController {
       return this.transport.read(this.binding, signal);
     });
     if (!savedReceipt) throw new Error("BROWSER_DOWNLOAD_REFUSED");
+    invalidateFilesMutationCache(this.binding.ownerId);
     return savedReceipt;
   };
 

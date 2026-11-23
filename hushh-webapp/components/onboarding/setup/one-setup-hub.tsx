@@ -235,6 +235,31 @@ export function OneSetupHub() {
       const revision = ++verification;
       const snapshot = project(state);
       setPrereqSnapshot(snapshot);
+      if (
+        snapshot.cloud === "complete" &&
+        snapshot.runtime === "required" &&
+        typeof ApiService?.getPersonalAgentStatus === "function"
+      ) {
+        void ApiService.getPersonalAgentStatus()
+          .then(async (status) => {
+            if (!active || revision !== verification) return;
+            if (
+              status?.hostingMode === "hussh_pods" &&
+              (status.deploymentTarget === "ace" || status.state === "active")
+            ) {
+              const updated =
+                typeof PreVaultUserStateService.markOneRuntimeChoice === "function"
+                  ? await PreVaultUserStateService.markOneRuntimeChoice(
+                      ownerId,
+                      "hushh_managed_vertex",
+                    ).catch(() => null)
+                  : null;
+              if (!active || revision !== verification) return;
+              setPrereqSnapshot(project(updated ?? state, true));
+            }
+          })
+          .catch(() => undefined);
+      }
       if (snapshot.runtime !== "loading") return;
       void hasReadyRuntimeChoice({ userId: ownerId, state, vaultKey, vaultOwnerToken })
         .then(ready => {

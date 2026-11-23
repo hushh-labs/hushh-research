@@ -16,6 +16,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { useFilesConnection } from "@/lib/files/use-files-connection";
 import { ApiService } from "@/lib/services/api-service";
+import { FILES_MIGRATION_COMPLETED_EVENT } from "@/lib/services/shared-to-ace-migration-service";
 import { captureProductAttempt } from "@/lib/observability/product-activity-client";
 import { FilesLocalError, transientFilesRead } from "@/lib/files/local-error";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -243,6 +244,19 @@ export function FilesWorkspace({
         });
     return () => work.current.abort();
   }, [available, userId, vaultKey, vaultUnlocked, load, hosting, parent, trash]);
+
+  useEffect(() => {
+    if (!available || !userId || typeof window === "undefined") return;
+    const onMigrationCompleted = (event: Event) => {
+      const detail = (event as CustomEvent<{ userId?: string }>).detail;
+      if (detail?.userId && detail.userId !== userId) return;
+      void load("").catch(() => undefined);
+    };
+    window.addEventListener(FILES_MIGRATION_COMPLETED_EVENT, onMigrationCompleted);
+    return () => {
+      window.removeEventListener(FILES_MIGRATION_COMPLETED_EVENT, onMigrationCompleted);
+    };
+  }, [available, userId, load]);
 
   useEffect(() => {
     setFolders(routeFolder === "personal-wiki" ? WIKI_FOLDERS : ROOT_FOLDERS);

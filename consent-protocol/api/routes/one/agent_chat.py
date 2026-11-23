@@ -13,12 +13,13 @@ from typing import Any, cast
 from ag_ui.core import RunAgentInput
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from google.adk.apps import App, ResumabilityConfig
 from google.adk.sessions import InMemorySessionService
 from pydantic import BaseModel, Field, model_validator
 from starlette.concurrency import run_in_threadpool
 
-from api.middleware import require_vault_owner_token
+from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.middlewares.chat_key import CHAT_KEY_REQUIRED_DETAIL, log_chat_key_refusal
 from api.routes.one.agent_context import sanitize_agent_context
 from api.routes.one.command_proposals import require_pod_process
@@ -920,6 +921,59 @@ async def record_information_request_submission(
         )
     except InformationRequestError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get("/api/one/agent-chat/migration/sessions")
+async def export_migration_sessions(
+    user_id: str = Depends(require_firebase_auth),
+) -> JSONResponse:
+    """Export sealed owner-encrypted Shared chat rows for ACE migration without Hub decryption."""
+    from datetime import datetime, timezone
+
+    from hushh_mcp.one_adk.adk_session_repository import PostgresAdkSessionRepository
+    from hushh_mcp.services.chat_key import CHAT_CIPHERTEXT_LIKE
+
+    sessions_service = _shared_sessions()
+    repo = PostgresAdkSessionRepository(lambda sql, params: sessions_service._execute(sql, params))
+    result = await repo.list_sealed_for_migration(
+        app=ONE_APP_NAME, user=user_id, chat_marker=CHAT_CIPHERTEXT_LIKE
+    )
+    exported: list[dict[str, Any]] = []
+    for raw in result.data or []:
+        row = dict(raw)
+        row_user = str(row.get("user_id") or user_id).strip()
+        session_id = str(row.get("session_id") or "").strip()
+        ciphertext = str(row.get("payload_ciphertext") or "")
+        if row_user != user_id or not session_id or not ciphertext:
+            continue
+        updated_raw = row.get("updated_at")
+        if isinstance(updated_raw, datetime):
+            if updated_raw.tzinfo is None:
+                updated_raw = updated_raw.replace(tzinfo=timezone.utc)
+            updated_at = updated_raw.isoformat()
+        else:
+            updated_at = str(updated_raw or "")
+        exported.append(
+            {
+                "app_name": str(row.get("app_name") or ONE_APP_NAME),
+                "user_id": row_user,
+                "session_id": session_id,
+                "payload_ciphertext": ciphertext,
+                "payload_iv": str(row.get("payload_iv") or ""),
+                "payload_tag": str(row.get("payload_tag") or ""),
+                "payload_algorithm": str(row.get("payload_algorithm") or ""),
+                "revision": int(row.get("revision") or 1),
+                "updated_at": updated_at,
+            }
+        )
+    return JSONResponse(
+        {
+            "status": "ready" if exported else "empty",
+            "sessions": exported,
+            "count": len(exported),
+        },
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.get("/api/one/agent-chat/conversations/{user_id}", dependencies=HUB_CHAT_GUARD)

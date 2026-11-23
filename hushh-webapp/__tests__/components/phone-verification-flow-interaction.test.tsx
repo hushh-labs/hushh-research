@@ -861,4 +861,29 @@ describe("phone conflict recovery", () => {
     act(() => { expect(result.current.returnToPhoneNumber()).toBe(true); });
     expect(result.current.conflict).toBeNull(); expect(result.current.step).toBe("phone");
   });
+
+  it.each([
+    ["auth/operation-not-allowed", "Phone verification is temporarily unavailable for this configuration. Please try again later."],
+    ["sms-region-not-allowed", "SMS verification is not currently available for this country or region."],
+    ["auth/invalid-phone-number", "Enter a valid phone number with your country code and try again."],
+    ["phone-verification-start-timeout", "Sending the verification code took too long. Request a new code."],
+  ])("renders inline role=alert on phone step when startVerification rejects with %s", async (code, expected) => {
+    const startVerification = vi.fn().mockRejectedValue(Object.assign(new Error("Firebase error"), { code }));
+    renderPhoneVerificationFlow({ startVerification });
+    const input = screen.getByRole("textbox", { name: "Phone number" });
+    fireEvent.change(input, { target: { value: "6505550101" } });
+    fireEvent.submit(input.closest("form")!);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(expected);
+  });
+
+  it("renders inline operationError role=alert on code step when confirmVerification rejects", async () => {
+    const confirmVerification = vi.fn().mockRejectedValue(Object.assign(new Error("Too many attempts"), { code: "auth/too-many-requests" }));
+    const { startVerification } = renderPhoneVerificationFlow({ confirmVerification });
+    const codeInput = await reachCodeStep(startVerification);
+    fireEvent.change(codeInput, { target: { value: "123456" } });
+    fireEvent.submit(codeInput.closest("form")!);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Too many attempts. Wait a moment before trying again.");
+  });
 });

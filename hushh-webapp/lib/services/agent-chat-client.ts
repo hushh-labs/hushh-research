@@ -87,6 +87,7 @@ import {
 } from "@/lib/files/wiki/active-shared-wiki";
 import { SharedWikiOwnerMigrator } from "@/lib/files/wiki/migration-and-maintenance";
 import type { SharedWikiLibrary } from "@/lib/files/wiki/library";
+import { invalidateFilesMutationCache } from "@/lib/files/files-cache";
 import { LIVE_MIRROR_PACKET_HEADER } from "@/lib/pkm/live-mirror-agent-facts";
 import { PENDING_CHAT_TURNS_HEADER } from "@/lib/pkm/live-activity/live-activity-agent-context";
 import { managedChatRunErrorMessage, MODEL_CAPACITY_MESSAGE } from "@/lib/agent/managed-chat-run-errors";
@@ -835,6 +836,36 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Google Calendar",
     message: "Preparing a cancellation for your confirmation.",
     activity: "Preparing a cancellation",
+  },
+  files: {
+    label: "Private Files",
+    message: "Working with your private files.",
+    activity: "Checking Private Files",
+  },
+  search_files: {
+    label: "Private Files",
+    message: "Searching your private files.",
+    activity: "Searching Private Files",
+  },
+  read_file: {
+    label: "Private Files",
+    message: "Reading a private file.",
+    activity: "Reading a private file",
+  },
+  write_file: {
+    label: "Private Files",
+    message: "Saving a private file.",
+    activity: "Saving a private file",
+  },
+  create_folder: {
+    label: "Private Files",
+    message: "Creating a private folder.",
+    activity: "Creating a folder",
+  },
+  organize_file: {
+    label: "Private Files",
+    message: "Organizing your private files.",
+    activity: "Organizing a file",
   },
   propose_file_schedule: {
     label: "Private Files",
@@ -1682,20 +1713,99 @@ async function streamAgentChatAttempt(input: {
     handlers.onError?.(failure.message);
     finishTerminalRun();
   };
+  const POD_CHAT_BUSY_RETRY_DELAYS_MS = [150, 350, 750] as const;
+  const isPodChatBusySignal = (candidate: unknown): boolean => {
+    if (!candidate) return false;
+    if (typeof candidate === "string") {
+      return (
+        refusalCode(parseRecord(candidate)) === "POD_CHAT_BUSY" ||
+        /\bPOD_CHAT_BUSY\b/.test(candidate)
+      );
+    }
+    if (typeof candidate !== "object") return false;
+    const record = candidate as { code?: unknown; message?: unknown; payload?: unknown };
+    if (record.code === "POD_CHAT_BUSY") return true;
+    if (refusalCode(asRecord(record.payload) ?? parseRecord(record.payload)) === "POD_CHAT_BUSY") {
+      return true;
+    }
+    if (typeof record.message === "string") {
+      if (
+        refusalCode(parseRecord(record.message)) === "POD_CHAT_BUSY" ||
+        /\bPOD_CHAT_BUSY\b/.test(record.message)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const sleepWithSignals = (delayMs: number, ...signals: Array<AbortSignal | undefined>): Promise<void> =>
+    new Promise((resolve, reject) => {
+      if (signals.some((sig) => sig?.aborted)) {
+        reject(new DOMException("Agent turn cancelled", "AbortError"));
+        return;
+      }
+      let settled = false;
+      const cleanup = () => {
+        for (const sig of signals) {
+          sig?.removeEventListener("abort", onAbort);
+        }
+      };
+      const onAbort = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        cleanup();
+        reject(new DOMException("Agent turn cancelled", "AbortError"));
+      };
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve();
+      }, delayMs);
+      for (const sig of signals) {
+        sig?.addEventListener("abort", onAbort, { once: true });
+      }
+    });
+  let suppressTransientPodBusy = false;
+  let transientPodBusy = false;
+  let attemptProducedOutput = false;
   const runUntilTerminal = async (parameters: Parameters<HttpAgent["runAgent"]>[0], resumeSignal?: AbortSignal) => {
-    if (input.signal?.aborted || resumeSignal?.aborted) {
-      throw new DOMException("Agent turn cancelled", "AbortError");
+    for (let retryIndex = 0; ; retryIndex += 1) {
+      if (input.signal?.aborted || resumeSignal?.aborted) {
+        throw new DOMException("Agent turn cancelled", "AbortError");
+      }
+      assertTurnSessionCurrent();
+      runTerminal = false;
+      streamLost = false;
+      transientPodBusy = false;
+      attemptProducedOutput = false;
+      suppressTransientPodBusy = retryIndex < POD_CHAT_BUSY_RETRY_DELAYS_MS.length;
+      liveness.start();
+      try {
+        await agent.runAgent(parameters, subscriber);
+      } catch (err) {
+        if (
+          suppressTransientPodBusy &&
+          !attemptProducedOutput &&
+          (transientPodBusy || isPodChatBusySignal(err))
+        ) {
+          transientPodBusy = true;
+        } else {
+          throw err;
+        }
+      } finally {
+        liveness.stop();
+        suppressTransientPodBusy = false;
+      }
+      if (transientPodBusy) {
+        const delayMs = POD_CHAT_BUSY_RETRY_DELAYS_MS[retryIndex] ?? 750;
+        await sleepWithSignals(delayMs, input.signal, resumeSignal);
+        continue;
+      }
+      if (!runTerminal) loseStream();
+      return;
     }
-    assertTurnSessionCurrent();
-    runTerminal = false;
-    streamLost = false;
-    liveness.start();
-    try {
-      await agent.runAgent(parameters, subscriber);
-    } finally {
-      liveness.stop();
-    }
-    if (!runTerminal) loseStream();
   };
   const stopAfterConfirmation = () => {
     if (intentionallyStoppedAtConfirmation) return;
@@ -1938,7 +2048,14 @@ async function streamAgentChatAttempt(input: {
       // not evidence that the server task ended; reconnect must discover it.
       if (detached || streamLost || input.signal?.aborted) return { stopPropagation: true };
       serverEvents += 1;
-      if (event.type === "RUN_FINISHED" || event.type === "RUN_ERROR") serverTerminal = true;
+      const isSuppressedTransientBusyEvent =
+        suppressTransientPodBusy &&
+        !attemptProducedOutput &&
+        event.type === "RUN_ERROR" &&
+        (event as { code?: unknown }).code === "POD_CHAT_BUSY";
+      if ((event.type === "RUN_FINISHED" || event.type === "RUN_ERROR") && !isSuppressedTransientBusyEvent) {
+        serverTerminal = true;
+      }
       if (event.type === "TOOL_CALL_END") {
         const id = event.toolCallId;
         const name = typeof id === "string" ? toolNames.get(id) : undefined;
@@ -1983,7 +2100,10 @@ async function streamAgentChatAttempt(input: {
       return publicOutputSubscriber.onMessagesSnapshotEvent?.(snapshot);
     },
     onTextMessageContentEvent: ({ event }) => {
-      if (event.delta.length > 0) markTiming("first-text");
+      if (event.delta.length > 0) {
+        attemptProducedOutput = true;
+        markTiming("first-text");
+      }
       text += event.delta;
       handlers.onToken?.(event.delta);
     },
@@ -2004,6 +2124,7 @@ async function streamAgentChatAttempt(input: {
       if (notice) handlers.onQueuedInput?.(notice);
     },
     onToolCallStartEvent: ({ event }) => {
+      attemptProducedOutput = true;
       toolNames.set(event.toolCallId, event.toolCallName);
       // Follow-ups are chips under the answer, not a step the person waits on.
       if (event.toolCallName === FOLLOW_UP_TOOL_NAME || event.toolCallName === REACTION_TOOL_NAME) return;
@@ -2264,6 +2385,19 @@ async function streamAgentChatAttempt(input: {
         toolArgs.get(event.toolCallId) || {},
       );
       payload.raw.result = event.content;
+      if (
+        toolName === "files" ||
+        toolName === "create_folder" ||
+        toolName === "organize_file" ||
+        toolName === "write_file" ||
+        toolName === "optimize_personal_memory"
+      ) {
+        const parsedResult = parseRecord(event.content);
+        const resultStatus = typeof parsedResult?.status === "string" ? parsedResult.status : "";
+        if (resultStatus !== "error" && resultStatus !== "failed" && resultStatus !== "blocked") {
+          invalidateFilesMutationCache(input.userId);
+        }
+      }
       handlers.onToolResult?.(payload);
       const pendingIds = parsePendingConsentRequestIds(toolName, event.content);
       if (pendingIds.length > 0) {
@@ -2524,6 +2658,15 @@ async function streamAgentChatAttempt(input: {
     },
     onRunErrorEvent: ({ event }) => {
       if (runTerminal || streamLost || failure || detached) return;
+      if (
+        suppressTransientPodBusy &&
+        !attemptProducedOutput &&
+        event.code === "POD_CHAT_BUSY"
+      ) {
+        runTerminal = true;
+        transientPodBusy = true;
+        return;
+      }
       runTerminal = true;
       if (intentionallyStoppedAtConfirmation) {
         finishTerminalRun();
@@ -2545,6 +2688,14 @@ async function streamAgentChatAttempt(input: {
       // was reported once; its abort must not replace that with a second error.
       if (runTerminal || failure || intentionallyStoppedAtConfirmation || detached || streamLost || input.signal?.aborted) {
         finishTerminalRun();
+        return;
+      }
+      if (
+        suppressTransientPodBusy &&
+        !attemptProducedOutput &&
+        isPodChatBusySignal(error)
+      ) {
+        transientPodBusy = true;
         return;
       }
       const refusal = chatKeyRefusalCode((error as Error & { payload?: unknown }).payload)

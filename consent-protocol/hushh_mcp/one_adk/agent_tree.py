@@ -1022,7 +1022,19 @@ def _compose_one_instruction_parts(
         if drive_admitted
         else "\n\nDRIVE READ ADMISSION: disabled. Do not call ask_documents_agent or inspect_selected_drive_files. Do not claim Drive is disconnected or a file is absent without a current status check."
     )
-    static_prefix = ONE_IDENTITY_INSTRUCTION + mail_core_instruction + drive_instruction
+    pod_files_instruction = (
+        "\n\nPRIVATE FILES LIBRARY (/one/files): The `files` tool is active for this owner's "
+        "private encrypted /one/files library. When the owner asks about uploaded files, "
+        "/one/files, or a named private file, document, or key (such as 'hushh recovery key') "
+        "without specifying Google Drive, call `files` first with their request. Never route "
+        "/one/files queries to `ask_documents_agent` (Google Drive) or `/workspace` (ephemeral "
+        "sandbox terminal)."
+        if pod_mode() and os.getenv("POD_FILES_ENABLED", "").lower() in {"1", "true"}
+        else ""
+    )
+    static_prefix = (
+        ONE_IDENTITY_INSTRUCTION + mail_core_instruction + drive_instruction + pod_files_instruction
+    )
     selected_drive_ref = (
         state_getter(STATE_DRIVE_SEARCH_SELECTION) if callable(state_getter) else None
     )
@@ -1801,12 +1813,44 @@ async def _specialist_turn(
             "availability": availability_payload,
             "message": "Unlock the vault before asking this specialist to use protected information.",
         }
+    from hushh_mcp.services.pod_specialist_runtime import PodSpecialistAdapterUnavailable
+
     trace = _new_dependency_trace()
     # Every managed surface inherits the shared project configuration.
     chat_project = None
     try:
         with _dependency_scope(trace), bind_managed_vertex_project(chat_project):
             result = await dispatch(agent_id, task)
+    except PodSpecialistAdapterUnavailable:
+        logger.info("one_adk.specialist_adapter_unavailable agent_id=%s", agent_id)
+        if agent_id == "agent_documents":
+            unavailable_msg = (
+                "Google Drive isn't connected in this private sandbox right now. "
+                "If you meant a file you uploaded in Files (/one/files), check your private "
+                "Files library instead, or connect Google Drive in Connectors."
+            )
+            return _with_dependency(
+                {
+                    "status": "unavailable",
+                    "reason": "adapter_unavailable",
+                    "availability": availability_payload,
+                    "structured": {"connector": "drive", "status": "unavailable"},
+                    "text": unavailable_msg,
+                    "message": unavailable_msg,
+                    "is_complete": True,
+                },
+                trace,
+            )
+        return _with_dependency(
+            {
+                "status": "unavailable",
+                "reason": "adapter_unavailable",
+                "availability": availability_payload,
+                "message": f"{specialist_label(agent_id)} is not available in this private sandbox right now.",
+                "is_complete": True,
+            },
+            trace,
+        )
     except PuppyCapabilityUnsupported as exc:
         return _with_dependency(
             {
@@ -2837,7 +2881,9 @@ def _one_roster_tools(
         from hushh_mcp.one_adk.wiki_recall_tools import pod_wiki_recall_tools
 
         files_manifest = _load_product_agent_manifest("agent_files")
-        tools.append(AgentTool(agent=build_files_agent(files_manifest, model=text_model)))
+        tools.append(
+            AgentTool(agent=build_files_agent(files_manifest, model=text_model, mode="chat"))
+        )
         tools.extend(pod_wiki_recall_tools())
         from hushh_mcp.services.pod_session_authority import active_session_authority
 

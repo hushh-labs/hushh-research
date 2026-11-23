@@ -225,7 +225,7 @@ class SandboxEdgeGatewayManager:
         claim_timeout_s: float = 180.0,
         health_poll_timeout_s: float = 25.0,
         proxy_connect_timeout_s: float = 2.5,
-        proxy_read_timeout_s: float = 160.0,
+        proxy_read_timeout_s: float = 240.0,
         clock_s: Callable[[], float] | None = None,
     ) -> None:
         if len(master_seed) < 32:
@@ -1218,6 +1218,9 @@ def create_edge_gateway_from_env() -> FastAPI:
         claim_timeout_s=float(os.environ.get("HUSSH_SANDBOX_CLAIM_TIMEOUT_SECONDS") or "180"),
         proxy_connect_timeout_s=float(
             os.environ.get("HUSSH_SANDBOX_PROXY_CONNECT_TIMEOUT_SECONDS") or "2.5"
+        ),
+        proxy_read_timeout_s=float(
+            os.environ.get("HUSSH_SANDBOX_PROXY_READ_TIMEOUT_SECONDS") or "240.0"
         ),
     )
     return create_sandbox_edge_gateway_app(manager)
