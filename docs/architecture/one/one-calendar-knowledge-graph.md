@@ -97,6 +97,10 @@ updates can add verified guests or reminders with times omitted; PATCH preserves
 unnamed fields, attendee responses and event ETags. Reminder additions preserve
 verified defaults/overrides, with the resulting explicit settings visible in review.
 Extended proposals require the shipping client's Calendar review contract.
+Their sealed storage format omits the legacy execution-binding field. Older
+backends therefore reject pending newer reviews during rollback; the versioned
+consumer restores the binding only after validating the exact stored contract.
+Ordinary legacy reviews retain their existing format.
 
 Whole-series edits, arbitrary invitee availability, ICS import/export/download,
 continuous sync and bulk cross-calendar copy remain unavailable. Clarify genuinely

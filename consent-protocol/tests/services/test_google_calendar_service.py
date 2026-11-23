@@ -1447,6 +1447,71 @@ def test_creator_identity_uses_selected_connection_and_rechecks_binding() -> Non
 
 
 @pytest.mark.parametrize(
+    "options", [{"repeat_weekly": True, "repeat_count": 3}, {"reminder_minutes": [15]}]
+)
+def test_extended_review_storage_refuses_legacy_consumers_and_retains_exact_effect(options) -> None:
+    service, requests, stored = _reschedule_harness(_event())
+    review = asyncio.run(
+        service.propose(
+            user_id="user-1",
+            action="create",
+            payload={
+                "title": "Planning",
+                "start_at": "2026-12-01T10:00:00Z",
+                "end_at": "2026-12-01T10:30:00Z",
+                "time_zone": "UTC",
+                **options,
+            },
+        )
+    )
+    sealed = json.loads(stored["payload_json"])
+    assert sealed["review_contract"] == 1 and "connection_binding" not in sealed
+    assert sealed["review_connection_binding"] == list(service.connections.binding)
+    assert review["plan"] == sealed
+    asyncio.run(service.execute(user_id="user-1", proposal_id=review["proposal_id"]))
+    post = next(call for call in requests if call["method"] == "POST")
+    if "repeat_weekly" in options:
+        assert post["payload"]["recurrence"] == ["RRULE:FREQ=WEEKLY;COUNT=3"]
+    else:
+        assert post["payload"]["reminders"]["overrides"] == [{"method": "popup", "minutes": 15}]
+
+
+@pytest.mark.parametrize(
+    "damage",
+    ["legacy_binding", "missing_version", "unknown_version", "boolean_version", "missing_binding"],
+)
+def test_ambiguous_or_unversioned_extended_review_never_reaches_provider(damage) -> None:
+    service, requests, stored = _reschedule_harness(_event())
+    review = asyncio.run(
+        service.propose(
+            user_id="user-1",
+            action="reschedule",
+            payload={
+                "event_id": "evt-1",
+                "add_attendees": ["new@example.com"],
+            },
+        )
+    )
+    sealed = json.loads(stored["payload_json"])
+    assert sealed["preserve_time"] is True and "connection_binding" not in sealed
+    if damage == "legacy_binding":
+        sealed["connection_binding"] = sealed["review_connection_binding"]
+    elif damage == "missing_version":
+        sealed.pop("review_contract")
+    elif damage == "unknown_version":
+        sealed["review_contract"] = 2
+    elif damage == "boolean_version":
+        sealed["review_contract"] = True
+    else:
+        sealed.pop("review_connection_binding")
+    stored["payload_json"] = json.dumps(sealed)
+    requests.clear()
+    with pytest.raises(GoogleConnectionError, match="review needs a new version"):
+        asyncio.run(service.execute(user_id="user-1", proposal_id=review["proposal_id"]))
+    assert requests == []
+
+
+@pytest.mark.parametrize(
     "options",
     [
         {"repeat_weekly": True},

@@ -1374,6 +1374,7 @@ class GoogleCalendarService:
             ]
             plan["conflicts"] = [*plan["conflicts"], *extra]
         await self._check_read_binding(user_id, binding)
+        plan = proposal_options.seal_review_plan(action=action, plan=plan)
         proposal_id, expires_at = await self.proposals.issue(
             user_id=user_id, action=action, plan=plan, expected_etag=expected_etag
         )
@@ -1618,6 +1619,7 @@ class GoogleCalendarService:
         value_epoch = await capture_value_epoch(user_id)
         plan = proposal["plan"]
         try:
+            plan = proposal_options.open_review_plan(action=proposal["action"], plan=plan)
             if (
                 not all(key in plan for key in ("account_id", "calendar_id", "connection_binding"))
                 or not plan["connection_binding"]
