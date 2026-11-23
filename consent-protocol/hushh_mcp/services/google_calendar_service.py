@@ -1607,7 +1607,12 @@ class GoogleCalendarService:
         ]
 
     async def execute(
-        self, *, user_id: str, proposal_id: str, account_id: str = "default"
+        self,
+        *,
+        user_id: str,
+        proposal_id: str,
+        account_id: str = "default",
+        client_review_contract: int | None = None,
     ) -> dict[str, Any]:
         await self._purge_expired_proposals(user_id=user_id)
         proposal = await self.proposals.claim(user_id=user_id, proposal_id=proposal_id)
@@ -1619,7 +1624,9 @@ class GoogleCalendarService:
         value_epoch = await capture_value_epoch(user_id)
         plan = proposal["plan"]
         try:
-            plan = proposal_options.open_review_plan(action=proposal["action"], plan=plan)
+            plan = proposal_options.open_review_plan(
+                action=proposal["action"], plan=plan, client_review_contract=client_review_contract
+            )
             if (
                 not all(key in plan for key in ("account_id", "calendar_id", "connection_binding"))
                 or not plan["connection_binding"]

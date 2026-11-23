@@ -62,14 +62,18 @@ def seal_review_plan(*, action: str, plan: dict[str, Any]) -> dict[str, Any]:
     return sealed
 
 
-def open_review_plan(*, action: str, plan: dict[str, Any]) -> dict[str, Any]:
+def open_review_plan(
+    *, action: str, plan: dict[str, Any], client_review_contract: object = None
+) -> dict[str, Any]:
     """Decode exactly one stored format before any grant or provider effect."""
     if "review_contract" not in plan:
         if _extended_review(action, plan) or "review_connection_binding" in plan:
             raise _review_version_error()
         return plan
     if (
-        type(plan["review_contract"]) is not int
+        type(client_review_contract) is not int
+        or client_review_contract != 1
+        or type(plan["review_contract"]) is not int
         or plan["review_contract"] != 1
         or "connection_binding" in plan
         or not _binding(plan.get("review_connection_binding"))

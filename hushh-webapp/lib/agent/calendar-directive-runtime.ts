@@ -34,6 +34,7 @@ export async function runCalendarDirective(
     userId,
     proposalId,
     accountId: String(payload.accountId),
+    ...(payload.reviewContract === 1 ? { reviewContract: 1 as const } : {}),
   });
 
   notifyCalendarChanged(userId);
