@@ -522,6 +522,15 @@ and rollback target before accepting the source. Roll back through the
 governed release path to the prior source-off revision, or remove the
 version file from the next qualified UAT deployment.
 
+For the canonical Production backend in `hushh-pda`, the separate opt-in file
+is `deploy/metrics-production-secret-versions.txt`. After independent
+closed-day reconciliation and runtime qualification, pin two positive version
+numbers on one line, signing first and binding second. The secrets are
+`ONE_METRICS_ADOPTION_SECRET` and `ONE_METRICS_ADOPTION_BINDING_JSON`.
+The collector needs the matching Production signing key. The binding carries
+the revision of the existing Production PLG population policy. Omitting the
+file keeps this source off on the next normal release.
+
 ## Verification model
 
 Every hosted deployment must prove:
