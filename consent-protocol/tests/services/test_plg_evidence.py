@@ -1413,8 +1413,8 @@ def metrics_aggregate_database(metrics_aggregate_setup, monkeypatch):
 
     before = (
         {
-            "customer": {"emails": ("person@outside.invalid",)},
-            "staff": {"emails": ("staff@company.invalid",)},
+            "customer": {"firebase_uid": "customer", "emails": ("person@outside.invalid",)},
+            "staff": {"firebase_uid": "staff", "emails": ("staff@company.invalid",)},
         },
         {
             "customer": {"email": "person@outside.invalid"},
@@ -1422,6 +1422,7 @@ def metrics_aggregate_database(metrics_aggregate_setup, monkeypatch):
         },
         {},
     )
+    read_identity = _metrics_source._identity
     identity = AsyncMock(return_value=before)
     monkeypatch.setattr(_metrics_source, "_identity", identity)
     monkeypatch.setattr(
@@ -1438,6 +1439,7 @@ def metrics_aggregate_database(metrics_aggregate_setup, monkeypatch):
         guard=guard,
         data=data,
         identity=identity,
+        read_identity=read_identity,
         summaries=summaries,
     )
 
@@ -1473,8 +1475,95 @@ async def test_metrics_aggregate_aggregate_uses_one_snapshot_and_source_owned_ef
 
 
 @pytest.mark.asyncio
+async def test_metrics_generation_owner_activity_and_original_identity_exclusions(
+    metrics_aggregate_setup, metrics_aggregate_database, monkeypatch
+):
+    db = metrics_aggregate_database
+    replacement = "acct_" + "a" * 32
+    staff_replacement = "acct_" + "b" * 32
+    unmapped = "acct_" + "c" * 32
+    owners = [replacement, "original", "legacy", staff_replacement, unmapped]
+    mapping = {replacement: "original", "legacy": "legacy", staff_replacement: "staff"}
+    db.guard.ids = db.data.ids = owners
+    monkeypatch.setattr(_metrics_source, "_identity", db.read_identity)
+    monkeypatch.setattr(
+        _metrics_source.AccountDeletionLifecycleService,
+        "active_projection_user_ids",
+        AsyncMock(return_value=set(owners) - {"original"}),
+    )
+
+    async def guard_fetch(query, ids, *rest, **options):
+        if query == _metrics_source.CANDIDATES_SQL:
+            return [{"user_id": owner} for owner in owners]
+        assert query == _metrics_source.EXACT_OWNER_IDENTITIES_SQL and ids == owners
+        return [{"owner": owner, "identity_uid": uid} for owner, uid in mapping.items()]
+
+    async def data_fetch(query, ids, *rest, **options):
+        if query == _metrics_source.CANDIDATES_SQL:
+            return [{"user_id": owner} for owner in owners]
+        assert query == _metrics_source.MEANINGFUL_REPLIES_SQL
+        assert set(ids) == {replacement, "legacy"}
+        return [{"user_id": replacement}, {"user_id": replacement}, {"user_id": "legacy"}]
+
+    monkeypatch.setattr(db.guard, "fetch", guard_fetch)
+    monkeypatch.setattr(db.data, "fetch", data_fetch)
+    provider = AsyncMock(return_value={uid: {"emails": ()} for uid in mapping.values()})
+    monkeypatch.setattr(_metrics_source.plg_reporting, "current_reporting_records", provider)
+    canonical = {owner: {"email": "owner@example.test"} for owner in mapping}
+    identity = SimpleNamespace(
+        get_many=AsyncMock(return_value=canonical),
+        get_many_verified_email_aliases=AsyncMock(return_value={}),
+    )
+    monkeypatch.setattr(_metrics_source, "ActorIdentityService", lambda: identity)
+    db.summaries.return_value = {
+        replacement: {"supported": True, "limited": False, "count": 2},
+        "legacy": {"supported": True, "limited": False, "count": 0},
+    }
+    result = await _metrics_source.adoption_aggregate(
+        _metrics_source.AdoptionRequest.model_validate(metrics_aggregate_setup.body),
+        metrics_aggregate_setup.binding,
+        pool=db.pool,
+    )
+    assert result["metrics"]["activeAccounts"]["value"] == 2
+    assert result["metrics"]["confirmedOutcomes"]["value"] == 2
+    assert provider.await_count == 2
+    for call in provider.await_args_list:
+        assert set(call.args[0]) == {"original", "legacy", "staff"}
+    for call in (
+        identity.get_many.await_args_list + identity.get_many_verified_email_aliases.await_args_list
+    ):
+        assert call.kwargs["conn"] is db.guard and set(call.args[0]) == set(mapping)
+    assert set(db.summaries.await_args.args[1]) == {replacement, "legacy"}
+
+
+@pytest.mark.asyncio
+async def test_metrics_generation_mapping_legacy_schema_and_ambiguous_authority(monkeypatch):
+    replacement = "acct_" + "1" * 32
+    conn = AsyncMock()
+    conn.fetchval.return_value = None
+    monkeypatch.delenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", raising=False)
+    assert await _metrics_source._owner_identities(["legacy"], conn) == {"legacy": "legacy"}
+    with pytest.raises(_metrics_source.AggregateUnavailable):
+        await _metrics_source._owner_identities([replacement], conn)
+    monkeypatch.setenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "true")
+    with pytest.raises(_metrics_source.AggregateUnavailable):
+        await _metrics_source._owner_identities(["legacy"], conn)
+    conn.fetchval.return_value = True
+    with pytest.raises(_metrics_source.AggregateUnavailable):
+        await _metrics_source._owner_identities([replacement], conn)
+    conn.fetch.assert_not_awaited()
+    conn.fetchval.return_value = False
+    conn.fetch.return_value = [
+        {"owner": owner, "identity_uid": "original"} for owner in ["legacy", replacement]
+    ]
+    with pytest.raises(_metrics_source.AggregateUnavailable):
+        await _metrics_source._owner_identities(["legacy", replacement], conn)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "fault", ["rls", "overflow", "cohort-change", "revocation", "outcome-limit"]
+    "fault",
+    ["rls", "overflow", "cohort-change", "revocation", "identity-remapped", "outcome-limit"],
 )
 async def test_metrics_aggregate_incomplete_or_revoked_source_never_returns_zero_counts(
     metrics_aggregate_setup, metrics_aggregate_database, fault
@@ -1490,6 +1579,11 @@ async def test_metrics_aggregate_incomplete_or_revoked_source_never_returns_zero
             metrics_aggregate_database.identity.return_value,
             ({}, {}, {}),
         ]
+    elif fault == "identity-remapped":
+        before = metrics_aggregate_database.identity.return_value
+        records = dict(before[0])
+        records["customer"] = {**records["customer"], "firebase_uid": "another-uid"}
+        metrics_aggregate_database.identity.side_effect = [before, (records, *before[1:])]
     else:
         metrics_aggregate_database.summaries.return_value["customer"]["limited"] = True
     with pytest.raises(_metrics_source.AggregateUnavailable):
