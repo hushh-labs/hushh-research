@@ -119,7 +119,11 @@ CAPABILITY_PACKS_BY_ID: dict[str, frozenset[str]] = {
     "receipts": RECEIPT_CLIENT_LEAF_TOOLS,
 }
 
-ALL_SCOPED_LEAF_TOOLS: frozenset[str] = frozenset().union(*CAPABILITY_PACKS_BY_ID.values())
+# Calendar stays with One's semantic planner, including implicit follow-ups.
+# Keep the existing named pack API and other domain activation behavior.
+ALL_SCOPED_LEAF_TOOLS: frozenset[str] = (
+    frozenset().union(*CAPABILITY_PACKS_BY_ID.values()) - CALENDAR_LEAF_TOOLS
+)
 
 # Pod private /one/files tools stay always-on (outside ALL_SCOPED_LEAF_TOOLS)
 # so queries about uploaded private documents never fail recall or collide with Drive.
@@ -137,35 +141,7 @@ _PACK_KEYWORDS: tuple[tuple[str, frozenset[str], tuple[str, ...]], ...] = (
     (
         "calendar",
         CALENDAR_LEAF_TOOLS,
-        (
-            "calendar",
-            "schedule",
-            "meeting",
-            "event",
-            "invite",
-            "invitation",
-            "rsvp",
-            "availability",
-            "available",
-            "free slot",
-            "open slot",
-            "reschedule",
-            "move my ",
-            "push back",
-            "cancel",
-            "appointment",
-            "busy",
-            "today",
-            "tomorrow",
-            "this week",
-            "next week",
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday",
-            "/calendar",
-        ),
+        (),
     ),
     (
         "location",

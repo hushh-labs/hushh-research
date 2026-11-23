@@ -1405,6 +1405,7 @@ describe("AG-UI Agent One client", () => {
     expect(mockTransport.runAgent.mock.calls[1]?.[0].forwardedProps).not.toHaveProperty("pendingEmailDraft");
     // Every typed turn names the draft card version it reads, with or without a draft on screen.
     expect(mockTransport.runAgent.mock.calls.map(([run]) => run.forwardedProps.emailDraftContract)).toEqual([2, 2]);
+    expect(mockTransport.runAgent.mock.calls.map(([run]) => run.forwardedProps.calendarReviewContract)).toEqual([1, 1]);
   });
 
   it("never forwards a legacy receipt index, including receipt questions", async () => {

@@ -113,7 +113,7 @@
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "6c5ff1cdec94b7ebb762196a1f49221a12efaf426625d4584752b70c696f5d9c",
+      "system_instruction_sha256": "be8cff3866d6b807c3c8d0d1eb38d556d7d9afc51310c515823d03c6768cf76a",
       "telemetry_namespace": "agent.calendar",
       "tools": [
         {
@@ -135,7 +135,7 @@
           "required_scope": "cap.one.invoke"
         },
         {
-          "description": "List a bounded page of events in an exact time interval on the primary calendar or a previously offered subscribed calendar selected by calendar_ordinal; optionally match search text. A next-page token means more exist.",
+          "description": "List a bounded native page in an exact interval, optionally with search text or a verified connected-account creator filter; retain truncation and unknown creators. Select subscribed calendars by offered ordinal and continue the same search with next_page.",
           "name": "calendar_events",
           "py_func": "hushh_mcp.agents.calendar.tools.calendar_events",
           "required_scope": "cap.one.invoke"
@@ -165,13 +165,13 @@
           "required_scope": "cap.one.invoke"
         },
         {
-          "description": "Prepare a new Google Meet event for explicit owner confirmation; Calendar shares the invite with guests after confirmation.",
+          "description": "Prepare a timed or all-day event, optionally with bounded weekly recurrence and reminders, for explicit owner confirmation; invitations and requested Google Meet are created only after confirmation.",
           "name": "propose_calendar_event",
           "py_func": "hushh_mcp.agents.calendar.tools.propose_calendar_event",
           "required_scope": "cap.one.invoke"
         },
         {
-          "description": "Prepare an existing event change for explicit owner confirmation; only named fields change, and the review lists every attendee added or removed.",
+          "description": "Prepare an exact existing occurrence change, including guest/reminder additions with times omitted; only named fields change and every attendee addition/removal is reviewed before confirmation.",
           "name": "propose_calendar_reschedule",
           "py_func": "hushh_mcp.agents.calendar.tools.propose_calendar_reschedule",
           "required_scope": "cap.one.invoke"
@@ -5053,7 +5053,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "981579b76e8398c1081df4ef0f52f270e37c8edc583d9f233146e43571b5e369",
+      "system_instruction_sha256": "7e101b40e7828b325be416f0f0e936de3f4c842f0924f5985a5e6448d738b643",
       "telemetry_namespace": "agent.one",
       "tools": [
         {

@@ -42,10 +42,16 @@ export async function disconnectPrivateGoogle(connector: GoogleConnector): Promi
   if (!response.ok) throw new Error('Your private agent could not disconnect Google.');
 }
 
-export async function confirmPrivateGoogleAction(proposalId: string, kind: 'calendar' | 'gmail_mailbox'): Promise<Record<string, unknown>> {
+export async function confirmPrivateGoogleAction(proposalId: string, kind: 'calendar' | 'gmail_mailbox', reviewContract?: 1): Promise<Record<string, unknown>> {
   const prefix = kind === 'calendar' ? 'gcal' : 'gmod';
   if (!new RegExp(`^${prefix}_[A-Za-z0-9_-]{16,64}$`).test(proposalId)) throw new Error('This action belongs to a different agent. Ask your private agent again.');
-  const response = await ApiService.ownerPodRequest(`actions/${proposalId}/confirm`, { method: 'POST' });
+  const response = await ApiService.ownerPodRequest(`actions/${proposalId}/confirm`, {
+    method: 'POST',
+    ...(kind === 'calendar' && reviewContract === 1 ? {
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ review_contract: 1 }),
+    } : {}),
+  });
   if (!response.ok) throw new Error('Your private agent could not confirm this change. Check the provider before trying again.');
   const value = await response.json() as { proposalId?: string; kind?: string; result?: unknown };
   if (value.proposalId !== proposalId || value.kind !== kind || !value.result || typeof value.result !== 'object' || Array.isArray(value.result))

@@ -1,5 +1,5 @@
 "use client";
-import { calendarProposalReviewError } from "@/lib/agent/calendar-proposal-review";
+import { calendarProposalReviewError, calendarProposalReviewExtras } from "@/lib/agent/calendar-proposal-review";
 import { useChatMemory } from "@/lib/agent/use-chat-memory";
 import { AgentPromptSuggestions, AgentWelcomePanel } from "./agent-welcome-panel";
 import { CalendarInsightsService, type MeetingContext, type MeetingSelection } from "@/lib/services/calendar-insights-service";
@@ -11080,6 +11080,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           accountId={typeof payload.accountId === "string" ? payload.accountId : null}
                           locationCleared={payload.locationCleared === true}
                           descriptionCleared={payload.descriptionCleared === true}
+                          {...calendarProposalReviewExtras(payload)}
                           attendeesRemoved={Array.isArray(payload.attendeesRemoved) ? payload.attendeesRemoved.filter((email): email is string => typeof email === "string") : []}
                           title={typeof payload.title === "string" ? payload.title : null}
                           startAt={typeof payload.startAt === "string" ? payload.startAt : null}
