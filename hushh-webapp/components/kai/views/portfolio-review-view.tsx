@@ -26,7 +26,6 @@ import {
   Wallet,
 } from "@/components/icons";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
-import { cn } from "@/lib/utils";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
