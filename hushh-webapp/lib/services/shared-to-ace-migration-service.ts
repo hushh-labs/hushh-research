@@ -807,6 +807,21 @@ async function migrateSharedFilesAndWiki(params: {
       migratedFiles += fallback.migratedFiles;
       migratedWikiPages += fallback.migratedWikiPages;
     }
+    const hasOpaqueLibraryData =
+      (manifest.objects?.length ?? 0) > 0 || Boolean(manifest.keyEnvelope?.ciphertext);
+    const hasFallbackItems =
+      (manifest.folders?.length ?? 0) > 0 ||
+      (manifest.files?.length ?? 0) > 0 ||
+      (manifest.wiki_pages?.length ?? 0) > 0;
+    if (
+      manifest.status === "ready" &&
+      !libraryResult.hadLibrary &&
+      hasOpaqueLibraryData &&
+      !hasFallbackItems
+    ) {
+      // Transient storage read failure in readyIfInitialized() must retry rather than marking 0/0 complete.
+      throw new Error("SHARED_LIBRARY_UNAVAILABLE");
+    }
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
       throw error;

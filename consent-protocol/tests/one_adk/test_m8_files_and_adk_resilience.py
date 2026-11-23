@@ -882,3 +882,70 @@ async def test_active_non_terminal_turn_still_returns_pod_chat_busy_and_charset_
     assert huge_res["status"] == "ok"
     assert huge_res["extracted"] is False
     assert huge_res["code"] == "FILES_SIZE_PREVIEW_ONLY"
+
+
+async def test_files_tools_exact_extension_disambiguates_same_stem_and_stem_only_triggers_multiple(
+    files_lib: FilesLibrary,
+) -> None:
+    # Root collision: upload .pdf first, then wait briefly and upload newer .txt with the same stem.
+    pdf_root = await _upload(
+        files_lib,
+        "hushh-recovery-key.pdf",
+        _make_pdf_bytes("ROOT-PDF-KEY-111"),
+        request_id="upload-stem-root-pdf",
+    )
+    await asyncio.sleep(0.02)
+    txt_root = await _upload(
+        files_lib,
+        "hushh-recovery-key.txt",
+        b"ROOT-TXT-KEY-222",
+        request_id="upload-stem-root-txt",
+    )
+    assert (
+        files_tools._match_score("hushh-recovery-key.pdf", txt_root, "hushh-recovery-key.txt") < 90
+    )
+
+    exact_root_pdf = await files_tools.read_file("hushh-recovery-key.pdf")
+    assert exact_root_pdf["status"] == "ok"
+    assert exact_root_pdf["file"]["id"] == pdf_root["id"]
+    assert "ROOT-PDF-KEY-111" in exact_root_pdf["untrusted_content"]
+
+    stem_root = await files_tools.read_file("hushh recovery key")
+    assert stem_root["status"] == "ambiguous"
+    assert stem_root["code"] == "FILES_MULTIPLE_MATCHES"
+    assert {m["id"] for m in stem_root["matches"]} == {pdf_root["id"], txt_root["id"]}
+
+    # Nested folder collision: exact name+ext resolves deterministically, stem-only stays ambiguous.
+    nested_dir = await files_lib.create(
+        name="Keys", parent="root", size=0, request_id="folder-stem-nested", folder=True
+    )
+    pdf_nested = await _upload(
+        files_lib,
+        "nested-recovery-key.pdf",
+        _make_pdf_bytes("NESTED-PDF-KEY-333"),
+        parent=nested_dir["id"],
+        request_id="upload-stem-nested-pdf",
+    )
+    await asyncio.sleep(0.02)
+    txt_nested = await _upload(
+        files_lib,
+        "nested-recovery-key.txt",
+        b"NESTED-TXT-KEY-444",
+        parent=nested_dir["id"],
+        request_id="upload-stem-nested-txt",
+    )
+
+    exact_nested_pdf = await files_tools.read_file("Keys/nested-recovery-key.pdf")
+    assert exact_nested_pdf["status"] == "ok"
+    assert exact_nested_pdf["file"]["id"] == pdf_nested["id"]
+    assert "NESTED-PDF-KEY-333" in exact_nested_pdf["untrusted_content"]
+
+    stem_nested = await files_tools.read_file("nested recovery key")
+    assert stem_nested["status"] == "ambiguous"
+    assert stem_nested["code"] == "FILES_MULTIPLE_MATCHES"
+    assert {m["id"] for m in stem_nested["matches"]} == {pdf_nested["id"], txt_nested["id"]}
+
+    stem_nested_path = await files_tools.read_file("Keys/nested recovery key")
+    assert stem_nested_path["status"] == "ambiguous"
+    assert stem_nested_path["code"] == "FILES_MULTIPLE_MATCHES"
+    assert {m["id"] for m in stem_nested_path["matches"]} == {pdf_nested["id"], txt_nested["id"]}

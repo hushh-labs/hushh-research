@@ -89,10 +89,12 @@ def _match_score(query: str, entry: dict[str, Any], rel_path: str) -> int:
     if not q_raw:
         return 0
     if q_raw == entry.get("id"):
-        return 120
+        return 125
     q_norm = _normalize_text(q_raw)
     q_stem = _normalize_stem(q_raw)
+    q_path_stem = _normalize_text(str(Path(q_raw).with_suffix("")))
     q_compact = _compact_alnum(q_raw)
+    q_ext = Path(q_raw).suffix.lower()
     if not q_norm:
         return 0
 
@@ -104,20 +106,30 @@ def _match_score(query: str, entry: dict[str, Any], rel_path: str) -> int:
 
     best = 0
     path_norm = _normalize_text(rel_path)
+    path_ext = Path(rel_path).suffix.lower()
     path_stem_norm = _normalize_text(str(Path(rel_path).with_suffix("")))
-    if q_norm == path_norm or (q_stem and q_stem == path_stem_norm):
-        best = max(best, 115)
+    path_suffix_compatible = not q_ext or q_ext == path_ext
+    if q_norm == path_norm:
+        best = max(best, 120)
+    elif (
+        path_suffix_compatible and "/" in rel_path and q_path_stem and q_path_stem == path_stem_norm
+    ):
+        best = max(best, 105)
 
     for candidate in candidates:
         c_norm = _normalize_text(candidate)
+        c_ext = Path(candidate).suffix.lower()
         c_stem = _normalize_stem(candidate)
         c_compact = _compact_alnum(candidate)
         c_stem_compact = _compact_alnum(Path(candidate).stem or candidate)
+        suffix_compatible = not q_ext or q_ext == c_ext
         if q_norm == c_norm:
-            best = max(best, 110)
-        elif q_norm == c_stem or (q_stem and q_stem == c_stem):
+            best = max(best, 115)
+        elif suffix_compatible and (q_norm == c_stem or (q_stem and q_stem == c_stem)):
             best = max(best, 100)
-        elif q_compact and (q_compact == c_compact or q_compact == c_stem_compact):
+        elif q_compact and (
+            q_compact == c_compact or (suffix_compatible and q_compact == c_stem_compact)
+        ):
             best = max(best, 95)
         elif q_norm in c_norm or q_norm in path_norm:
             best = max(best, 80)

@@ -395,4 +395,57 @@ describe("Shared to ACE client migration bridge", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(hasCompletedSharedToAceMigration(OWNER_ID)).toBe(false);
   });
+
+  it("aborts without marking migration complete when opaque Shared library hits transient 503", async () => {
+    const rawMasterKey = new Uint8Array(32).fill(5);
+    const wrapKey = await cipher.wrappingKey(VAULT_KEY, OWNER_ID);
+    const keyEnvelopeCiphertext = await cipher.seal(
+      wrapKey,
+      rawMasterKey,
+      `hussh/shared-files/key/v1/${OWNER_ID}/${LIBRARY_ID}`,
+    );
+
+    const completeCalls: string[] = [];
+    vi.spyOn(ApiService, "apiFetch").mockImplementation(async (url) => {
+      const pathStr = String(url);
+      if (pathStr === "/api/one/agent-chat/migration/sessions") {
+        return Response.json({ status: "empty", sessions: [] });
+      }
+      if (pathStr === "/api/one/files/migration/manifest") {
+        return Response.json({
+          status: "ready",
+          libraryId: LIBRARY_ID,
+          keyEnvelope: { ciphertext: keyEnvelopeCiphertext, generation: "1" },
+          folders: [],
+          files: [],
+          wiki_pages: [],
+          objects: [`${"c".repeat(64)}/${"d".repeat(64)}`],
+        });
+      }
+      if (pathStr === "/api/one/files/storage") {
+        return Response.json({ detail: "storage temporarily unavailable" }, { status: 503 });
+      }
+      if (pathStr === "/api/one/files/migration/complete") {
+        completeCalls.push(pathStr);
+        return Response.json({ status: "migrated" });
+      }
+      return Response.json({ detail: "not found" }, { status: 404 });
+    });
+
+    const result = await ensureSharedToAceMigration({
+      userId: OWNER_ID,
+      vaultKey: VAULT_KEY,
+      vaultOwnerToken: VAULT_TOKEN,
+      getIdToken: async () => "firebase-id-token",
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      migratedSessions: 0,
+      migratedFiles: 0,
+      migratedWikiPages: 0,
+    });
+    expect(completeCalls).toEqual([]);
+    expect(hasCompletedSharedToAceMigration(OWNER_ID)).toBe(false);
+  });
 });
