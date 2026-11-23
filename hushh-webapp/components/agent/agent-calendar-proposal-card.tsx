@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import calendarPresentation from "@/components/calendar/calendar-presentation.module.css";
 import { calendarTimeZoneOffset, calendarTimeZoneOffsetRange } from "@/lib/calendar/calendar-time-zone";
+import { isCalendarCivilDate, type CalendarReminderReview, type CalendarWeeklyReview } from "@/lib/agent/calendar-proposal-review";
 
 export type CalendarProposalAction = "create" | "reschedule" | "cancel";
 export type CalendarGmailReplyPreview = { to: string[]; subject: string; body: string };
@@ -28,6 +29,11 @@ export type AgentCalendarProposalCardProps = {
   locationCleared?: boolean;
   descriptionCleared?: boolean;
   attendeesRemoved?: string[];
+  attendeesAdded?: string[];
+  metadataOnly?: boolean;
+  weeklyRecurrence?: CalendarWeeklyReview;
+  reminders?: CalendarReminderReview;
+  remindersReplacesDefaults?: boolean;
   title: string | null;
   startAt: string | null;
   endAt: string | null;
@@ -57,6 +63,7 @@ const VERB_LABEL: Record<CalendarProposalAction, string> = {
 
 function formatDateTime(value: string | null, timeZone?: string): string {
   if (!value) return "";
+  if (isCalendarCivilDate(value)) return formatCivilDate(value) + " · All day";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString(undefined, {
@@ -93,6 +100,19 @@ function attendeeSummary(attendees: string[]): string {
   return attendees.join(", ");
 }
 
+function formatCivilDate(value: string): string {
+  if (!isCalendarCivilDate(value)) return value;
+  return new Date(value + "T12:00:00Z").toLocaleDateString(undefined, {
+    timeZone: "UTC", weekday: "short", month: "short", day: "numeric", year: "numeric",
+  });
+}
+
+function formatAllDayRange(start: string | null, end: string | null): string {
+  if (!isCalendarCivilDate(start) || !isCalendarCivilDate(end)) return "";
+  const last = new Date(Date.parse(end) - 86400000).toISOString().slice(0, 10);
+  return formatCivilDate(start) + (last !== start ? " – " + formatCivilDate(last) : "") + " · All day";
+}
+
 /**
  * A structured, "One"-styled confirmation card for a Calendar
  * create/reschedule/cancel proposal (delegateAgentId "agent_calendar", type
@@ -109,6 +129,11 @@ export function AgentCalendarProposalCard({
   locationCleared,
   descriptionCleared,
   attendeesRemoved = [],
+  attendeesAdded = [],
+  metadataOnly = false,
+  weeklyRecurrence,
+  reminders,
+  remindersReplacesDefaults = false,
   title,
   startAt,
   endAt,
@@ -134,10 +159,11 @@ export function AgentCalendarProposalCard({
   let displayZone = timeZone;
   try { new Intl.DateTimeFormat(undefined, { timeZone: displayZone }).format(); }
   catch { displayZone = undefined; }
-  const seconds = startAt && endAt ? Math.round((Date.parse(endAt) - Date.parse(startAt)) / 1000) : 0;
+  const allDay = isCalendarCivilDate(startAt) && isCalendarCivilDate(endAt);
+  const seconds = !allDay && startAt && endAt ? Math.round((Date.parse(endAt) - Date.parse(startAt)) / 1000) : 0;
   const duration = seconds > 0 ? `${Math.floor(seconds / 60)} min${seconds % 60 ? ` ${seconds % 60} sec` : ""}` : "";
-  const offset = displayZone && startAt ? endAt ? calendarTimeZoneOffsetRange(displayZone, startAt, endAt) : calendarTimeZoneOffset(displayZone, startAt) : undefined;
-  const range = [formatRange(startAt, endAt, displayZone), offset, duration].filter(Boolean).join(" · ");
+  const offset = !allDay && displayZone && startAt ? endAt ? calendarTimeZoneOffsetRange(displayZone, startAt, endAt) : calendarTimeZoneOffset(displayZone, startAt) : undefined;
+  const range = allDay ? formatAllDayRange(startAt, endAt) : [formatRange(startAt, endAt, displayZone), offset, duration].filter(Boolean).join(" · ");
   const attendeeText = attendeeSummary(attendees);
   const reviewError = validationError || (!title || !startAt || !endAt || !accountId ? "This Calendar review is incomplete. Ask One to show the meeting again." : null);
 
@@ -169,7 +195,7 @@ export function AgentCalendarProposalCard({
           <p className={`${calendarPresentation.chatStatus} text-muted-foreground`}>
             {isCancel
               ? "Ready to cancel"
-              : `Ready to ${VERB_LABEL[action].toLowerCase()}`}
+              : metadataOnly ? "Ready to update" : "Ready to " + VERB_LABEL[action].toLowerCase()}
           </p>
           <p className={`${calendarPresentation.chatPrimary} mt-1 break-words text-foreground`}>
             {title || "Untitled event"}
@@ -185,6 +211,17 @@ export function AgentCalendarProposalCard({
         {locationCleared ? <p>Location will be cleared.</p> : null}
         {descriptionCleared ? <p>Description will be removed.</p> : null}
         {attendeesRemoved.length ? <p>Guests to remove: {attendeesRemoved.join(", ")}</p> : null}
+        {attendeesAdded.length ? <p>Guests to add: {attendeesAdded.join(", ")}</p> : null}
+        {metadataOnly ? <p>Event time stays unchanged.</p> : null}
+        {weeklyRecurrence ? <div>
+          <p>Weekly · {weeklyRecurrence.count} occurrences · last on {formatCivilDate(weeklyRecurrence.lastDate)}{displayZone ? " (" + displayZone + ")" : ""}</p>
+          <p className="text-muted-foreground">Conflicts checked for all {weeklyRecurrence.count} occurrences.</p>
+        </div> : null}
+        {reminders ? <div>
+          <p className={calendarPresentation.sectionLabel}>Reminders after this change</p>
+          {reminders.overrides.length ? <ul>{reminders.overrides.map(item => <li key={item.method + ":" + item.minutes}>{item.method === "email" ? "Email" : "Popup"}: {item.minutes === 0 ? "at event time" : item.minutes + " minutes before"}</li>)}</ul> : <p>No reminders.</p>}
+          {remindersReplacesDefaults ? <p className="text-muted-foreground">Calendar defaults become the custom reminders shown above.</p> : null}
+        </div> : null}
         {googleMeet ? (
           <div className="flex items-start gap-2.5 text-foreground">
             <CameraIcon className="mt-0.5 size-4 shrink-0 text-[color:var(--app-accent)]" />

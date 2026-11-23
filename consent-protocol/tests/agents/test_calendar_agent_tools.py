@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -701,6 +702,51 @@ def test_a_reschedule_review_counts_the_events_real_guests(monkeypatch) -> None:
     }
 
 
+def test_extended_calendar_review_requires_a_capable_client_and_shows_every_field(monkeypatch):
+    plan = {
+        "account_id": "default",
+        "calendar_id": "primary",
+        "title": "Day off",
+        "start_at": "2026-11-01T07:00:00Z",
+        "end_at": "2026-11-02T08:00:00Z",
+        "time_zone": "America/Los_Angeles",
+        "all_day": True,
+        "start_date": "2026-11-01",
+        "end_date": "2026-11-02",
+        "review_contract": 1,
+        "weekly_recurrence": {"count": 3},
+        "recurrence_last_date": "2026-11-15",
+        "attendees": [],
+        "send_updates": False,
+        "reminders": {"useDefault": False, "overrides": [{"method": "popup", "minutes": 30}]},
+    }
+    context, calendar = _review(monkeypatch, plan)
+    arguments = dict(
+        title="Day off",
+        start_date="2026-11-01",
+        end_date="2026-11-02",
+        repeat_weekly=True,
+        repeat_count=3,
+        reminder_minutes=[30],
+    )
+    refused = asyncio.run(tools.propose_calendar_event(context, **arguments))
+    assert refused["reason_code"] == "calendar_review_upgrade_required"
+    assert calendar.proposal_payload is None
+    context.state["temp:one_calendar_review_contract"] = True
+    result = asyncio.run(tools.propose_calendar_event(context, **arguments))
+    payload = result["directive"]["payload"]
+    assert payload["startAt"] == "2026-11-01" and payload["endAt"] == "2026-11-02"
+    assert payload["allDay"] is True and payload["reviewContract"] == 1
+    assert payload["weeklyRecurrence"] == {
+        "count": 3,
+        "lastDate": "2026-11-15",
+        "conflictCoverage": "all_occurrences",
+    }
+    assert payload["reminders"] == plan["reminders"]
+    assert calendar.proposal_payload["review_contract"] == 1
+    assert calendar.proposal_payload["start_at"] == ""
+
+
 def test_a_reschedule_review_names_every_attendee_it_removes(monkeypatch) -> None:  # noqa: ANN001
     plan = {
         "event_id": "evt-1",
@@ -804,6 +850,88 @@ async def test_calendar_next_page_retains_exact_search_and_refuses_a_foreign_con
     assert (await tools.calendar_events(context, next_page=True))[
         "reason_code"
     ] == "calendar_page_required"
+
+
+async def test_creator_filter_retains_exact_paging_and_84_results_without_model_assessment(
+    monkeypatch,
+):
+    calls = []
+    assess = AsyncMock(side_effect=AssertionError("A list must not assess each event"))
+    monkeypatch.setattr("hushh_mcp.hushh_adk.single_turn.run_single_turn", assess)
+    proposal = AsyncMock(side_effect=AssertionError("A list must not prepare an action"))
+
+    class Listing(_Calendar):
+        async def creator_account_email(self, **kwargs):
+            return "owner@example.com"
+
+        async def list_events(self, **kwargs):
+            calls.append(kwargs)
+            if len(calls) == 1:
+                return {
+                    "events": [
+                        {"id": "other", "creator": {"self": True, "email": "other@example.com"}},
+                        {"id": "unknown", "creator": None},
+                    ],
+                    "truncated": True,
+                    "next_page_token": "creator-page",
+                }
+            return {
+                "events": [
+                    {"id": "mine-" + str(i), "creator": {"email": "OWNER@example.com"}}
+                    for i in range(84)
+                ],
+                "truncated": False,
+            }
+
+    service = Listing()
+    service.propose = proposal
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: service)
+    context = _context()
+    context.state["temp:one_execution_surface"] = "typed_chat"
+    await tools.calendar_calendars(context)
+    first = await tools.calendar_events(
+        context,
+        start_at="2026-11-01T00:00:00",
+        end_at="2026-12-01T00:00:00",
+        query="planning",
+        created_by_me=True,
+        calendar_ordinal=1,
+    )
+    assert first["events"] == [] and first["creator_unknown_count"] == 1
+    assert first["provider_returned_count"] == 2 and first["next_page_available"] is True
+    assert first["truncated"] is True  # No matching first-page rows is not no results.
+    next_result = await tools.calendar_events(context, next_page=True)
+    assert next_result["returned_count"] == 84 and next_result["truncated"] is False
+    assert calls[1] == {**calls[0], "page_token": "creator-page"}
+    assert calls[0]["calendar_id"] == "team@example.com"
+    assert datetime.fromisoformat(calls[0]["start_at"]) == datetime.fromisoformat(
+        "2026-10-31T18:30:00+00:00"
+    )
+    assert datetime.fromisoformat(calls[0]["end_at"]) == datetime.fromisoformat(
+        "2026-11-30T18:30:00+00:00"
+    )
+    assess.assert_not_called()
+    proposal.assert_not_called()
+
+
+async def test_creator_filter_reports_unknown_when_connection_identity_is_unavailable(monkeypatch):
+    service = _Calendar()
+    service.creator_account_email = AsyncMock(return_value=None)
+    service.list_events = AsyncMock(
+        return_value={
+            "events": [{"id": "copy", "creator": {"self": True, "email": "other@example.com"}}],
+            "truncated": False,
+        }
+    )
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: service)
+    result = await tools.calendar_events(
+        _context(),
+        start_at="2026-11-01T00:00:00Z",
+        end_at="2026-11-02T00:00:00Z",
+        created_by_me=False,
+    )
+    assert result["events"] == [] and result["creator_unknown_count"] == 1
+    assert result["creator_identity_available"] is False
 
 
 @pytest.mark.parametrize("value", ["Friday", "2026-03-08", "2026-03-08T02:30:00"])

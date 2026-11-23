@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import ValidationError
 
+from hushh_mcp.services import calendar_proposal_options as options
 from hushh_mcp.services.calendar_opening_selection import (
     CalendarOpeningSelection,
     CalendarSharedOpeningSelection,
@@ -303,9 +304,6 @@ def validate_plan(
         }
     if (action == "create" and not title) or len(title) > 512:
         raise GoogleConnectionError("Calendar event title is required", status_code=422)
-    start, end = calendar._read_window(
-        str(payload.get("start_at") or ""), str(payload.get("end_at") or "")
-    )
     booking_source = payload.get("booking_source")
     account_id = str(payload.get("account_id") or "default")
     provided_zone = str(payload.get("time_zone") or "")
@@ -315,6 +313,38 @@ def validate_plan(
     board_zone = normalize_time_zone(
         provided_zone, default="" if booking_source == "board" else "UTC"
     )
+    civil = {}
+    if payload.get("start_date") is not None or payload.get("end_date") is not None:
+        if action != "create" or payload.get("start_at") or payload.get("end_at"):
+            raise options.invalid(
+                "Use either exact timed boundaries or all-day dates for a new event."
+            )
+        civil = options.all_day_window(
+            payload.get("start_date"), payload.get("end_date"), board_zone
+        )
+    preserve_time = (
+        action == "reschedule" and not payload.get("start_at") and not payload.get("end_at")
+    )
+    if preserve_time:
+        if not any(
+            payload.get(key) is not None
+            for key in (
+                "title",
+                "description",
+                "location",
+                "attendees",
+                "add_attendees",
+                "reminder_minutes",
+                "add_reminder_minutes",
+            )
+        ):
+            raise options.invalid("Choose what to change, or provide the new event time.")
+        start, end = "", ""
+    else:
+        start, end = calendar._read_window(
+            str(civil.get("start_at") or payload.get("start_at") or ""),
+            str(civil.get("end_at") or payload.get("end_at") or ""),
+        )
     if booking_source == "board":
         validate_board_request(
             action=action,
@@ -341,7 +371,39 @@ def validate_plan(
         "end_at": end,
         "time_zone": board_zone,
         "send_updates": bool(payload.get("send_updates", True)),
+        **civil,
+        **({"review_contract": 1} if payload.get("review_contract") == 1 else {}),
     }
+    if preserve_time:
+        plan["preserve_time"] = True
+    if payload.get("reminder_minutes") is not None:
+        plan["reminders"] = options.popup_reminders(payload["reminder_minutes"])
+    if payload.get("add_reminder_minutes") is not None:
+        if action != "reschedule" or "reminders" in plan:
+            raise options.invalid("Choose either additional reminders or replacement reminders.")
+        plan["add_reminder_minutes"] = options.reminder_minutes(payload["add_reminder_minutes"])
+    if payload.get("add_attendees") is not None:
+        raw_additions = payload["add_attendees"]
+        if (
+            action != "reschedule"
+            or payload.get("attendees") is not None
+            or (
+                not isinstance(raw_additions, list)
+                or len(raw_additions) > 100
+                or any(not isinstance(item, str) or "@" not in item for item in raw_additions)
+            )
+        ):
+            raise options.invalid(
+                "Add verified guest addresses without replacing the existing guest list."
+            )
+        plan["add_attendees"] = list(dict.fromkeys(item.strip().lower() for item in raw_additions))
+    if action != "create" and any(
+        payload.get(key) is not None and payload.get(key) is not False
+        for key in ("repeat_weekly", "repeat_count", "repeat_until")
+    ):
+        raise options.invalid(
+            "Weekly recurrence is available for a new series; select one occurrence to edit."
+        )
     if action == "create":
         meeting_type = str(payload.get("meeting_type") or "google_meet")
         meeting_link = str(payload.get("meeting_link") or "").strip()
@@ -377,6 +439,7 @@ def validate_plan(
         from hushh_mcp.services.advisor_calendar_binding import bind_plan
 
         bind_plan(plan, payload)
+        options.weekly_options(payload, plan)
         return plan
     changes = {"title": title, "description": description, "location": location}
     plan.update(
@@ -391,6 +454,16 @@ def validate_plan(
     if "attendees" in payload and payload["attendees"] is not None:
         plan["attendees"] = list(dict.fromkeys(attendees))
     return plan
+
+
+async def plan_conflicts(calendar: GoogleCalendarService, *, plan: dict[str, Any], **kwargs):
+    start, end = (
+        options.conflict_window(plan)
+        if plan.get("weekly_recurrence")
+        else (plan["start_at"], plan["end_at"])
+    )
+    events = await calendar._find_conflicts(start_at=start, end_at=end, **kwargs)
+    return options.series_conflicts(plan, events)
 
 
 def validate_board_request(
@@ -517,10 +590,10 @@ async def execute_create(
     if plan.get("booking_source") != "board" and not plan.get("shared_opening_selection"):
         calendar._reject_new_conflicts(
             planned=plan.get("primary_conflicts", plan.get("conflicts")),
-            current=await calendar._find_conflicts(
+            current=await plan_conflicts(
+                calendar,
+                plan=plan,
                 user_id=user_id,
-                start_at=plan["start_at"],
-                end_at=plan["end_at"],
                 expected_binding=binding,
             ),
         )
@@ -574,6 +647,13 @@ def event_payload(plan: dict[str, Any]) -> dict[str, Any]:
         "end": {"dateTime": plan["end_at"], "timeZone": plan["time_zone"]},
         "attendees": [{"email": email} for email in plan["attendees"]],
     }
+    if plan.get("all_day"):
+        body["start"] = {"date": plan["start_date"]}
+        body["end"] = {"date": plan["end_date"]}
+    if plan.get("recurrence"):
+        body["recurrence"] = plan["recurrence"]
+    if "reminders" in plan:
+        body["reminders"] = plan["reminders"]
     if plan.get("meeting_type", "google_meet") == "google_meet":
         body["conferenceData"] = {
             "createRequest": {

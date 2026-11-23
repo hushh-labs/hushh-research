@@ -26,7 +26,9 @@ import httpx
 
 from db.db_client import get_db
 from hushh_mcp.consent.audit_logger import get_trace_id
+from hushh_mcp.services import calendar_proposal_options as proposal_options
 from hushh_mcp.services import google_calendar_booking as booking
+from hushh_mcp.services.calendar_time_zone import normalize_time_zone
 from hushh_mcp.services.google_calendar_proposals import (
     CalendarProposalStore,
     CalendarTokens,
@@ -661,6 +663,13 @@ class GoogleCalendarService:
             "status": event.get("status"),
             "event_type": event.get("eventType"),
             "organizer": event.get("organizer"),
+            "creator": event.get("creator") if isinstance(event.get("creator"), dict) else None,
+            "reminders": event.get("reminders")
+            if isinstance(event.get("reminders"), dict)
+            else None,
+            "recurrence": event.get("recurrence")
+            if isinstance(event.get("recurrence"), list)
+            else [],
             "can_decline": not _mapping(event.get("organizer")).get("self")
             and not event.get("attendeesOmitted")
             and any(
@@ -794,6 +803,28 @@ class GoogleCalendarService:
             "truncated": bool(next_token),
             **({"next_page_token": next_token} if isinstance(next_token, str) else {}),
         }
+
+    async def creator_account_email(
+        self, *, user_id: str, expected_binding: tuple[str, ...] | None
+    ) -> str | None:
+        """Verified identity of this connection, never the selected calendar's owner."""
+        status = await self.connections.status(user_id=user_id, service="calendar")
+        email = status.get("google_email") if status.get("connected") is True else None
+        if not email and await self.connections.has_service_scope(
+            user_id=user_id, service="calendar", scope=CALENDAR_LIST_READ_SCOPE
+        ):
+            primary = await self._request(
+                user_id=user_id,
+                method="GET",
+                path="/users/me/calendarList/primary",
+                access="read",
+                required_scope=CALENDAR_LIST_READ_SCOPE,
+                expected_binding=expected_binding,
+                params={"fields": "id"},
+            )
+            email = primary.get("id")
+        await self._check_read_binding(user_id, expected_binding)
+        return email.strip().casefold() if isinstance(email, str) and "@" in email else None
 
     async def event_colors(
         self, *, user_id: str, expected_binding: tuple[str, ...] | None = None
@@ -1230,7 +1261,14 @@ class GoogleCalendarService:
             if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
                 raise self._invalid_response()
             conflicts.extend(
-                self._event_summary(event)
+                {
+                    **self._event_summary(event),
+                    **(
+                        {"calendar_time_zone": response.get("timeZone")}
+                        if _mapping(event.get("start")).get("date")
+                        else {}
+                    ),
+                }
                 for event in items
                 if event.get("status") != "cancelled"
                 and event.get("transparency") != "transparent"
@@ -1254,6 +1292,23 @@ class GoogleCalendarService:
     ) -> list[dict[str, Any]]:
         return await booking.board_booking_state(self, user_id=user_id, plan=plan)
 
+    async def calendar_metadata(self, *, user_id, calendar_id="primary", binding=None):
+        # Calendar's native list metadata needs only the existing event grant.
+        # Partial fields return no event bodies and avoid an unrelated new scope.
+        result = await self._request(
+            user_id=user_id,
+            method="GET",
+            path=f"/calendars/{quote(calendar_id, safe='')}/events",
+            access="manage",
+            expected_binding=binding,
+            params={"maxResults": 1, "fields": "timeZone,defaultReminders"},
+        )
+        try:
+            zone = normalize_time_zone(result.get("timeZone"), default="")
+        except (ValueError, GoogleConnectionError) as exc:
+            raise self._invalid_response() from exc
+        return {**result, "timeZone": zone}
+
     async def propose(
         self,
         *,
@@ -1266,6 +1321,13 @@ class GoogleCalendarService:
         linked_reply: dict[str, Any] | None = None,
         chat_conversation_id: str | None = None,
     ) -> dict[str, Any]:
+        if action == "reschedule" and contact_selection is not None:
+            additions = payload.get("add_attendees", [])
+            if payload.get("attendees") is not None or not isinstance(additions, list):
+                raise proposal_options.invalid(
+                    "Add the selected contacts without replacing other guests."
+                )
+            payload = {**payload, "add_attendees": [*additions, *contact_selection[0]]}
         plan = self._validate_plan(action=action, payload=payload)
         if (
             action == "create"
@@ -1312,17 +1374,19 @@ class GoogleCalendarService:
                 )
             plan["linked_gmail_reply"] = linked_reply
             await self._preflight_linked_reply(user_id, plan)
-        if action == "create" and contact_selection is not None:
+        if action in {"create", "reschedule"} and contact_selection is not None:
             emails, contact_binding = contact_selection
-            plan["attendees"] = list(dict.fromkeys([*plan["attendees"], *emails]))
-            if len(plan["attendees"]) > 100:
+            if action == "reschedule" and "attendees" in plan:
+                raise proposal_options.invalid(
+                    "Add the selected contacts without replacing other guests."
+                )
+            field = "attendees" if action == "create" else "add_attendees"
+            plan[field] = list(dict.fromkeys([*plan.get(field, []), *emails]))
+            if len(plan[field]) > 100:
                 raise GoogleConnectionError("Too many Calendar attendees", status_code=422)
             plan["attendee_grant_binding"] = list(contact_binding)
             self._check_attendee_grant(plan)
         await booking.prepare_proposal_account(self, user_id=user_id, plan=plan, binding=binding)
-        await booking.prepare_included_conflicts(
-            self, user_id=user_id, action=action, plan=plan, binding=binding
-        )
         expected_etag: str | None = None
         if action != "create":
             await self._check_secondary_event_target(user_id, plan, binding)
@@ -1339,15 +1403,33 @@ class GoogleCalendarService:
             plan["current_event"] = self._event_summary(event)
             if action == "reschedule":
                 self._stage_reschedule(plan, event)
+                await self._stage_reminders(user_id, plan, event, binding)
+        if plan.get("all_day"):
+            metadata = await self.calendar_metadata(
+                user_id=user_id,
+                calendar_id=plan["calendar_id"],
+                binding=binding,
+            )
+            plan["calendar_time_zone"] = metadata["timeZone"]
+            plan.update(
+                proposal_options.all_day_window(
+                    plan["start_date"],
+                    plan["end_date"],
+                    metadata["timeZone"],
+                )
+            )
+        await booking.prepare_included_conflicts(
+            self, user_id=user_id, action=action, plan=plan, binding=binding
+        )
         if (
             action in {"create", "reschedule"}
             and plan.get("booking_source") != "board"
             and not plan.get("shared_opening_selection")
         ):
-            plan["conflicts"] = await self._find_conflicts(
+            plan["conflicts"] = await booking.plan_conflicts(
+                self,
+                plan=plan,
                 user_id=user_id,
-                start_at=plan["start_at"],
-                end_at=plan["end_at"],
                 exclude_event_id=plan.get("event_id"),
                 expected_binding=binding,
                 **(
@@ -1433,16 +1515,52 @@ class GoogleCalendarService:
     def _stage_reschedule(self, plan: dict[str, Any], event: dict[str, Any]) -> None:
         """Record what the reviewed reschedule changes on the fetched event."""
         start = _mapping(event.get("start"))
+        if plan.get("preserve_time"):
+            end = _mapping(event.get("end"))
+            if start.get("date"):
+                plan.update(
+                    proposal_options.all_day_window(
+                        start.get("date"), end.get("date"), plan["time_zone"]
+                    )
+                )
+            else:
+                plan["start_at"], plan["end_at"] = self._read_window(
+                    start.get("dateTime") or "", end.get("dateTime") or ""
+                )
         plan["all_day"] = bool(start.get("date")) and not start.get("dateTime")
         if plan["all_day"]:
             start_date, end_date = self._all_day_dates(plan)
             plan["start_date"], plan["end_date"] = start_date, end_date
         kept, added, removed = self._attendee_change(plan, event)
+        if added and len(kept) + len(added) > 100:
+            raise GoogleConnectionError("Too many Calendar attendees", status_code=422)
         plan["attendee_change"] = {
             "added": added,
             "removed": removed,
             "result_count": len(kept) + len(added),
         }
+
+    async def _stage_reminders(self, user_id, plan, event, binding) -> None:
+        if "add_reminder_minutes" not in plan:
+            return
+        current = event.get("reminders")
+        if not isinstance(current, dict) or type(current.get("useDefault")) is not bool:
+            raise proposal_options.invalid(
+                "The current reminders could not be verified. Open the event again."
+            )
+        if current["useDefault"]:
+            source = await self.calendar_metadata(
+                user_id=user_id,
+                calendar_id=plan["calendar_id"],
+                binding=binding,
+            )
+            current_overrides = source.get("defaultReminders", [])
+            plan["reminders_replaces_defaults"] = True
+        else:
+            current_overrides = current.get("overrides", [])
+        plan["reminders"] = proposal_options.merge_reminders(
+            current_overrides, plan["add_reminder_minutes"]
+        )
 
     @staticmethod
     def _all_day_dates(plan: dict[str, Any]) -> tuple[str, str]:
@@ -1475,9 +1593,14 @@ class GoogleCalendarService:
             for item in event.get("attendees", [])
             if isinstance(item, dict) and str(item.get("email") or "").strip()
         ]
-        if "attendees" not in plan:
+        if "attendees" not in plan and "add_attendees" not in plan:
             return current, [], []
-        wanted = [str(email).strip().lower() for email in plan["attendees"]]
+        requested = plan.get("attendees", [item["email"] for item in current])
+        wanted = list(
+            dict.fromkeys(
+                str(email).strip().lower() for email in [*requested, *plan.get("add_attendees", [])]
+            )
+        )
         wanted_set = set(wanted)
         kept = [
             item
@@ -1500,7 +1623,9 @@ class GoogleCalendarService:
         conference data. events.patch leaves every unnamed field untouched
         (https://developers.google.com/workspace/calendar/api/v3/reference/events/patch).
         """
-        if plan.get("all_day"):
+        if plan.get("preserve_time"):
+            body: dict[str, Any] = {}
+        elif plan.get("all_day"):
             body: dict[str, Any] = {
                 "start": {"date": plan["start_date"]},
                 "end": {"date": plan["end_date"]},
@@ -1532,6 +1657,8 @@ class GoogleCalendarService:
                 {key: value for key, value in item.items() if key in _WRITABLE_ATTENDEE_FIELDS}
                 for item in kept
             ] + [{"email": email} for email in added]
+        if "reminders" in plan:
+            body["reminders"] = plan["reminders"]
         return body
 
     @staticmethod
@@ -1573,8 +1700,9 @@ class GoogleCalendarService:
                 status_code=409,
                 reason_code="calendar_selection_changed",
             )
-        start = datetime.fromisoformat(plan["start_at"].replace("Z", "+00:00"))
-        end = datetime.fromisoformat(plan["end_at"].replace("Z", "+00:00"))
+        lower, upper = proposal_options.conflict_window(plan)
+        start = datetime.fromisoformat(lower)
+        end = datetime.fromisoformat(upper)
         busy = await schedule._busy_intervals(
             user_id=user_id,
             start=start,
@@ -1582,6 +1710,14 @@ class GoogleCalendarService:
             calendar_ids=selected_ids,
             binding=binding,
         )
+        if plan.get("weekly_recurrence"):
+            windows = proposal_options.occurrence_windows(plan)
+            busy = [
+                (max(left, begin), min(right, finish))
+                for left, right in busy
+                for begin, finish in windows
+                if left < finish and right > begin
+            ]
         return [
             {
                 "id": f"busy:{self._utc_iso(left)}:{self._utc_iso(right)}",
@@ -1720,6 +1856,18 @@ class GoogleCalendarService:
             binding = tuple(plan["connection_binding"]) if plan.get("connection_binding") else None
             if binding is not None:
                 await self._check_read_binding(user_id, binding)
+            if plan.get("all_day") and plan.get("calendar_time_zone"):
+                metadata = await self.calendar_metadata(
+                    user_id=user_id,
+                    calendar_id=plan["calendar_id"],
+                    binding=binding,
+                )
+                if metadata["timeZone"] != plan["calendar_time_zone"]:
+                    raise GoogleConnectionError(
+                        "The calendar timezone changed. Review the all-day event again.",
+                        status_code=409,
+                        reason_code="calendar_selection_changed",
+                    )
             action = proposal["action"]
             if action == "create" and plan.get("booking_source") == "board":
                 await booking.verify_board_execution(self, user_id=user_id, plan=plan)
@@ -1767,10 +1915,10 @@ class GoogleCalendarService:
                 if action == "reschedule":
                     self._reject_new_conflicts(
                         planned=plan.get("primary_conflicts", plan.get("conflicts")),
-                        current=await self._find_conflicts(
+                        current=await booking.plan_conflicts(
+                            self,
+                            plan=plan,
                             user_id=user_id,
-                            start_at=plan["start_at"],
-                            end_at=plan["end_at"],
                             expected_binding=binding,
                             exclude_event_id=plan["event_id"],
                             **(
@@ -1789,6 +1937,10 @@ class GoogleCalendarService:
                             "Calendar event changed; review it again before confirming",
                             status_code=409,
                         )
+
+                    async def check_guest_grant() -> None:
+                        self._check_attendee_grant(plan)
+
                     response = await self._request(
                         user_id=user_id,
                         method="PATCH",
@@ -1798,6 +1950,11 @@ class GoogleCalendarService:
                         params={"sendUpdates": "all" if plan["send_updates"] else "none"},
                         headers=headers,
                         payload=self._reschedule_patch(plan, current),
+                        **(
+                            {"before_write": check_guest_grant}
+                            if plan.get("attendee_grant_binding")
+                            else {}
+                        ),
                     )
                 else:
                     await self._request(

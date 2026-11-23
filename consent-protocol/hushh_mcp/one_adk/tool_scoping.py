@@ -12,22 +12,6 @@ from typing import Any
 
 from google.genai import types as genai_types
 
-CALENDAR_LEAF_TOOLS: frozenset[str] = frozenset(
-    {
-        "calendar_summary",
-        "calendar_invitations",
-        "open_calendar_invitation",
-        "calendar_calendars",
-        "calendar_events",
-        "calendar_event_detail",
-        "calendar_availability",
-        "calendar_free_slots",
-        "propose_calendar_event",
-        "propose_calendar_reschedule",
-        "propose_calendar_cancellation",
-    }
-)
-
 LOCATION_LEAF_TOOLS: frozenset[str] = frozenset(
     {
         "list_my_location_circles",
@@ -65,32 +49,14 @@ SHARING_LIST_LEAF_TOOLS: frozenset[str] = frozenset(
 _MIN_DECLARATIONS_TO_SCOPE = 26
 
 ALL_SCOPED_LEAF_TOOLS: frozenset[str] = (
-    CALENDAR_LEAF_TOOLS | LOCATION_LEAF_TOOLS | DRIVE_LEAF_TOOLS | SHARING_LIST_LEAF_TOOLS
+    LOCATION_LEAF_TOOLS | DRIVE_LEAF_TOOLS | SHARING_LIST_LEAF_TOOLS
 )
 
+# Calendar stays available to One's semantic planner. Fixed words cannot
+# recognize requests such as "Am I free Friday?", Hindi or an implicit follow-up.
+# Tool availability grants neither provider access nor mutation authority.
+
 _PACK_KEYWORDS: tuple[tuple[frozenset[str], tuple[str, ...]], ...] = (
-    (
-        CALENDAR_LEAF_TOOLS,
-        (
-            "calendar",
-            "schedule",
-            "meeting",
-            "event",
-            "invite",
-            "invitation",
-            "availability",
-            "available",
-            "free slot",
-            "reschedule",
-            "cancel",
-            "appointment",
-            "busy",
-            "today",
-            "tomorrow",
-            "this week",
-            "/calendar",
-        ),
-    ),
     (
         LOCATION_LEAF_TOOLS,
         (
