@@ -17,7 +17,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from hushh_mcp.services import metrics_uat_authority, plg_outcomes, plg_reporting
 from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionLifecycleService
+from hushh_mcp.services.account_generation_service import EXACT_OWNER_IDENTITIES_SQL
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.metrics_adoption_sql import (
+    CANDIDATES_SQL,
+    MEANINGFUL_REPLIES_SQL,
+    SOURCE_TABLES,
+)
 
 
 class AggregateUnavailable(RuntimeError):
@@ -124,11 +130,13 @@ def period_bounds(
         and binding.get("provisionalUtcDay") == end.isoformat()
     )
     if (
-        start > end
+        environment not in {"production", "uat"}
+        or start > end
         or (end - start).days >= 7
         or start.isoformat() < binding["coverageFrom"]
         or (end >= local_day and not provisional)
-        or first < now - timedelta(days=7)
+        or (environment == "uat" and first < now - timedelta(days=7))
+        or (environment == "production" and start < local_day - timedelta(days=7))
         or any(
             getattr(request, key) != binding[key]
             for key in ("definitionVersion", "sourceGeneration", "scopeDigest")
@@ -138,49 +146,6 @@ def period_bounds(
     # Existing effect adapters use inclusive bounds. Preserve the half-open day
     # contract at the boundary, including 23/25-hour source days.
     return first, now if provisional else exclusive - timedelta(microseconds=1)
-
-
-# Overinclusive candidates are safe: proof/eligibility is applied before counts.
-# LIMIT 51 is an overflow sentinel, never a truncated global measurement. Fifty
-# is the existing lifecycle/identity contract, not a new production capacity.
-CANDIDATES_SQL = """
-WITH candidates AS (
- SELECT user_id FROM agent_chat_messages WHERE completed_at >= $1 AND completed_at <= $2
- UNION SELECT user_id FROM pkm_domain_commits WHERE created_at >= $1 AND created_at <= $2
- UNION SELECT user_id FROM gmail_owner_send_actions WHERE sent_at >= $1 AND sent_at <= $2
- UNION SELECT user_id FROM one_product_value_receipts WHERE occurred_at >= $1 AND occurred_at <= $2
- UNION SELECT user_id FROM one_action_directive_ledger WHERE settled_at >= $1 AND settled_at <= $2
- UNION SELECT user_id FROM connected_system_audit_events WHERE created_at >= $1 AND created_at <= $2
- UNION SELECT user_id FROM drive_share_permission_operations WHERE settled_at >= $1 AND settled_at <= $2
-)
-SELECT user_id FROM candidates ORDER BY user_id LIMIT 51
-"""
-MEANINGFUL_REPLIES_SQL = """
-SELECT DISTINCT a.user_id FROM agent_chat_messages a
-WHERE a.user_id=ANY($1::text[]) AND a.role='assistant' AND a.status='complete'
- AND a.error_code IS NULL AND a.completed_at >= $2 AND a.completed_at <= $3
- AND EXISTS(SELECT 1 FROM agent_chat_messages u WHERE u.user_id=a.user_id
-   AND u.conversation_id=a.conversation_id AND u.role='user' AND u.status='complete'
-   AND u.created_at <= a.created_at)
-"""
-SOURCE_TABLES = (
-    "actor_identity_cache",
-    "actor_verified_email_aliases",
-    "account_deletion_tombstones",
-    "agent_chat_messages",
-    "pkm_domain_commits",
-    "pkm_events",
-    "gmail_owner_send_actions",
-    "gmail_personal_information_requests",
-    "one_product_value_receipts",
-    "one_product_activity_epochs",
-    "one_action_directive_ledger",
-    "connected_system_intents",
-    "connected_system_audit_events",
-    "drive_share_permission_operations",
-    "drive_share_reviews",
-    "wallet_card_registrations",
-)
 
 
 async def _assert_global_read(conn):
@@ -207,17 +172,50 @@ async def _candidates(conn, since, through):
     return ids
 
 
+async def _owner_identities(ids, conn):
+    # NULL means the table is genuinely absent on a pre-generation installation.
+    # Active row security could hide a retired row and manufacture a legacy match.
+    restricted = await conn.fetchval(
+        "SELECT row_security_active(to_regclass('public.account_generations'))", timeout=5
+    )
+    if restricted is None:
+        if os.getenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "").strip().lower() == "true" or any(
+            re.fullmatch(r"acct_[0-9a-f]{32}", owner) for owner in ids
+        ):
+            raise AggregateUnavailable("Metrics generation authority unavailable")
+        return {owner: owner for owner in ids}
+    if restricted is not False:
+        raise AggregateUnavailable("Metrics generation authority unavailable")
+    rows = await conn.fetch(EXACT_OWNER_IDENTITIES_SQL, ids, timeout=5)
+    identities = {row["owner"]: row["identity_uid"] for row in rows}
+    if (
+        len(identities) != len(rows)
+        or not identities.keys() <= set(ids)
+        or len(set(identities.values())) != len(identities)
+    ):
+        raise AggregateUnavailable("Ambiguous Metrics owner identity")
+    return identities
+
+
 async def _identity(ids, conn, environment="production"):
     if not ids:
         return {}, {}, {}
-    records = await (
-        metrics_uat_authority.current_records(ids)
+    identities = await _owner_identities(ids, conn)
+    firebase_uids = list(identities.values())
+    firebase_records = await (
+        metrics_uat_authority.current_records(firebase_uids)
         if environment == "uat"
-        else plg_reporting.current_reporting_records(ids)
+        else plg_reporting.current_reporting_records(firebase_uids)
     )
+    records = {
+        owner: {**firebase_records[uid], "firebase_uid": uid}
+        for owner, uid in identities.items()
+        if uid in firebase_records
+    }
     identity = ActorIdentityService()
-    canonical = await identity.get_many(ids, conn=conn)
-    aliases = await identity.get_many_verified_email_aliases(ids, conn=conn)
+    owners = list(records)
+    canonical = await identity.get_many(owners, conn=conn)
+    aliases = await identity.get_many_verified_email_aliases(owners, conn=conn)
     return records, canonical, aliases
 
 
@@ -237,12 +235,15 @@ def _identity_authority(environment="production"):
 def _eligible(ids, active, identity, policy):
     records, canonical, aliases = identity
     return [
-        uid
-        for uid in ids
-        if uid in active
-        and uid in records
+        owner
+        for owner in ids
+        if owner in active
+        and owner in records
+        and owner not in policy.account_ids
         and policy.eligible(
-            uid, canonical.get(uid), (*records[uid]["emails"], *aliases.get(uid, []))
+            records[owner]["firebase_uid"],
+            canonical.get(owner),
+            (*records[owner]["emails"], *aliases.get(owner, [])),
         )
     ]
 
