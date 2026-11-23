@@ -14,7 +14,48 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 STATE_EVENT_OFFER = "hussh:calendar_event_read_offer"
 STATE_INVITATION_OFFER = "hussh:calendar_invitation_read_offer"
 STATE_CALENDAR_OFFER = "hussh:calendar_list_read_offer"
+STATE_EVENTS_PAGE = "hussh:calendar_events_page"
 _OFFER_TTL_MS = 5 * 60 * 1000
+
+
+class CalendarOfferIdentity(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    owner_id: str = Field(min_length=1, max_length=256)
+    conversation_id: str = Field(min_length=1, max_length=256)
+    # Older offers were produced only by the default-account read port.
+    account_id: str = Field(default="default", min_length=1, max_length=128)
+    # Hub, additional-account and owner-cloud ports have different opaque
+    # binding shapes. Preserve and compare every component, including scopes.
+    grant_binding: list[str] = Field(min_length=6, max_length=64)
+    created_at_ms: int = Field(ge=1)
+
+    def current(
+        self,
+        *,
+        owner_id: str,
+        conversation_id: str,
+        grant_binding: tuple[str, ...] | None,
+        now_ms: int | None = None,
+    ) -> bool:
+        now = int(time.time() * 1000) if now_ms is None else now_ms
+        return bool(
+            self.owner_id == owner_id
+            and self.conversation_id == conversation_id
+            and grant_binding
+            and tuple(self.grant_binding) == tuple(grant_binding)
+            and 0 <= now - self.created_at_ms <= _OFFER_TTL_MS
+        )
+
+
+class CalendarEventsPage(CalendarOfferIdentity):
+    calendar_id: str = Field(min_length=1, max_length=1024)
+    start_at: str = Field(min_length=1, max_length=64)
+    end_at: str = Field(min_length=1, max_length=64)
+    query: str | None = Field(max_length=256)
+    limit: int = Field(ge=1, le=250)
+    page_token: str = Field(min_length=1, max_length=2048)
+    created_by_me: bool | None = None
 
 
 class CalendarReadOffer(BaseModel):

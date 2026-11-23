@@ -185,8 +185,34 @@ def test_scope_leaf_tools_prunes_unrelated_domains_and_keeps_history(monkeypatch
     generic_req = make_request("analyze NVDA stock price")
     scope_leaf_tools_before_model(None, generic_req)
     kept_generic = {d.name for d in generic_req.config.tools[0].function_declarations}
-    assert kept_generic == {*core_padding, "run_app_action", "ask_consent_agent"}
-    assert set(generic_req.tools_dict) == {*core_padding, "run_app_action", "ask_consent_agent"}
+    expected = {
+        *core_padding,
+        "run_app_action",
+        "ask_consent_agent",
+        "calendar_summary",
+        "propose_calendar_event",
+    }
+    assert kept_generic == expected
+    assert set(generic_req.tools_dict) == expected
+    # Calendar interpretation belongs to One, including fresh turns with no
+    # lexical calendar marker and short same-conversation references.
+    for wording in (
+        "Am I free Friday afternoon?",
+        "What calls do I have Monday?",
+        "Block 30 minutes Friday",
+        "kal khaali hoon?",
+        "move that one",
+        "shfit the 2nd one",
+        "मेरे पास सोमवार को क्या है?",
+    ):
+        request = make_request(wording)
+        scope_leaf_tools_before_model(None, request)
+        kept = {
+            decl.name for tool in request.config.tools for decl in tool.function_declarations or []
+        }
+        assert {"calendar_summary", "propose_calendar_event"} <= kept
+        assert {"calendar_summary", "propose_calendar_event"} <= set(request.tools_dict)
+        assert "create_drive_file" not in kept
 
     cal_req = make_request("what meetings are on my calendar tomorrow?")
     scope_leaf_tools_before_model(None, cal_req)

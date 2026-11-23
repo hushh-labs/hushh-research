@@ -34,6 +34,7 @@ export async function runCalendarDirective(
     userId,
     proposalId,
     accountId: String(payload.accountId),
+    ...(payload.reviewContract === 1 ? { reviewContract: 1 as const } : {}),
   });
 
   notifyCalendarChanged(userId);
@@ -66,7 +67,7 @@ export async function runCalendarDirective(
           : result.event.conference_url
             ? `Scheduled ${eventTitle} with a Google Meet link. It is ready in the Calendar invite.`
             : `Scheduled ${eventTitle}. Google Meet is being added to the Calendar invite.`
-        : `Rescheduled ${eventTitle}.`;
+        : payload.metadataOnly === true ? `Updated ${eventTitle}.` : `Rescheduled ${eventTitle}.`;
 
   return {
     delegate_agent_id: "agent_calendar",

@@ -335,13 +335,14 @@ async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(
     )
     data = incoming(
         state={STATE_USER_ID: "forged-owner"},
-        forwarded_props={"pkmContext": "synthetic-scoped-context"},
+        forwarded_props={"pkmContext": "synthetic-scoped-context", "calendarReviewContract": 1},
     )
     assert await select(request({"x-hushh-consent": "HCT:synthetic"}), data) is agent_chat._agent
     assert data.state[STATE_USER_ID] == "owner-a"
     assert data.state[STATE_CONSENT_TOKEN] != "synthetic-owner-capability"
     assert resolve_request_secret(data.state[STATE_CONSENT_TOKEN]) == "synthetic-owner-capability"
     assert resolve_request_secret(data.state[STATE_PKM_CONTEXT]) == "synthetic-scoped-context"
+    assert data.state["temp:one_calendar_review_contract"] is True
 
 
 async def test_shared_owner_selected_gmail_request_is_refetched_and_sealed(
