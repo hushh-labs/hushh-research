@@ -18,6 +18,8 @@ import {
   isProductionVisitorPostureEnabled,
 } from '@/lib/agent/production-visitor-posture';
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from '@/lib/auth/session-owner';
+import { calendarPermissionRows } from '@/lib/calendar/calendar-permissions';
+import { CalendarPermissionList } from '@/components/calendar/calendar-permission-list';
 
 const LABELS: Record<GoogleConnector, string> = { gmail: 'Gmail', calendar: 'Google Calendar', drive: 'Google Drive', contacts: 'Google Contacts' };
 type Status = 'connected' | 'needs_reauth' | 'absent' | 'unavailable';
@@ -94,6 +96,8 @@ export function usePrivateGoogleConnectorsModel({ open, visitKey }: { open: bool
     const status = statuses[connector] === 'connected' ? ((connector === 'gmail' || connector === 'calendar') ? managed[connector] ? 'Connected · changes allowed after your confirmation' : readable[connector] ? 'Connected · reading only' : 'Connected · permissions need verification' : 'Connected to Agent One') :
       statuses[connector] === 'needs_reauth' ? 'Sign in again' : statuses[connector] === 'unavailable' ? 'Your agent could not verify this connection' : statuses[connector] ? 'Not connected' : 'Checking connection…';
     return { connector, label: LABELS[connector], status, purpose: connectorAccessPurpose(connector), connected: statuses[connector] === 'connected',
+      permissions: connector === 'calendar' && statuses[connector] === 'connected'
+        ? calendarPermissionRows({ read: readable[connector] === true, manage: managed[connector] === true }) : [],
       allowChanges: statuses[connector] === 'connected' && (connector === 'gmail' || connector === 'calendar') && !managed[connector],
       allowOtherContacts: statuses[connector] === 'connected' && connector === 'contacts' && !readsOtherContacts };
   });
@@ -120,9 +124,10 @@ function PrivateGoogleConnectorsView({ open, onBack, onClose, surface, showAcces
     {isProductionVisitorPostureEnabled() ? <p role="note" data-testid="connector-google-clearance-note" className="text-xs leading-5 text-muted-foreground">{GOOGLE_APPS_CLEARANCE_NOTE}</p> : null}
     {!enabled && <p role="status" className="text-sm">Sign in and unlock your vault to connect Google.</p>}
     <SettingsGroup>
-      {entries.map(({ connector, status, connected, allowChanges, allowOtherContacts }) => {
+      {entries.map(({ connector, status, connected, allowChanges, allowOtherContacts, permissions }) => {
         return <SettingsRow key={connector} title={LABELS[connector]}
-        description={showAccessDetails ? <><span>{status}</span><span className="block pt-1">{connectorAccessPurpose(connector)}</span></> : status}
+        description={<><span>{status}</span>{showAccessDetails && <span className="block pt-1">{connectorAccessPurpose(connector)}</span>}
+          {permissions.length > 0 && <div className="pt-3"><CalendarPermissionList permissions={permissions} /></div>}</>}
         trailing={<div className="flex gap-2">
           {allowChanges && <Button variant="outline" disabled={!enabled || busy !== null} onClick={() => void run(connector, false)}>Allow changes</Button>}
           {allowOtherContacts && <Button variant="outline" disabled={!enabled || busy !== null} onClick={() => void run(connector, false, true)}>Allow Other Contacts</Button>}
