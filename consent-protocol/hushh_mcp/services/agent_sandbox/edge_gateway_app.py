@@ -66,6 +66,10 @@ class SandboxActivationError(RuntimeError):
         self.phase = phase
 
 
+class SandboxStandbyUnreachableError(RuntimeError):
+    """Claimed standby pod vanished or refused TCP before accepting lease activation."""
+
+
 def sign_sandbox_edge_placement_headers(
     master_seed: bytes,
     hushh_id: str,
@@ -449,9 +453,10 @@ class SandboxEdgeGatewayManager:
         if self._activation_guard:
             headers["X-Sandbox-Activation-Token"] = self._activation_guard
 
+        inspect_termination = getattr(self.claim_client, "inspect_pod_termination", None)
         async with httpx.AsyncClient(timeout=15.0, trust_env=False) as client:
             last_exc: Exception | None = None
-            for _ in range(30):
+            for act_attempt in range(30):
                 try:
                     resp = await client.post(
                         f"{base_url}/internal/v1/activate-lease",
@@ -476,13 +481,23 @@ class SandboxEdgeGatewayManager:
                     raise
                 except httpx.HTTPError as exc:
                     last_exc = exc
+                    if callable(inspect_termination) and act_attempt >= 1:
+                        pre_term = await asyncio.to_thread(
+                            inspect_termination, endpoint.sandbox_name
+                        )
+                        if pre_term:
+                            raise SandboxStandbyUnreachableError(pre_term) from exc
                 await asyncio.sleep(0.15)
             if last_exc is not None:
+                if isinstance(last_exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+                    raise SandboxStandbyUnreachableError(str(last_exc)) from last_exc
                 raise last_exc
 
+            last_pod_check_s = 0.0
             health_timeout = httpx.Timeout(2.5, connect=0.20)
             deadline = time.monotonic() + max(2.0, self.health_poll_timeout_s)
             while time.monotonic() < deadline:
+                health_connect_failed = False
                 try:
                     h_resp = await client.get(f"{base_url}/health", timeout=health_timeout)
                     try:
@@ -519,7 +534,23 @@ class SandboxEdgeGatewayManager:
                 except SandboxActivationError:
                     raise
                 except httpx.HTTPError:
-                    pass
+                    health_connect_failed = True
+
+                now_mono = time.monotonic()
+                if callable(inspect_termination) and (
+                    (health_connect_failed and (now_mono - last_pod_check_s) >= 0.30)
+                    or (now_mono - last_pod_check_s) >= 0.75
+                ):
+                    last_pod_check_s = now_mono
+                    term_reason = await asyncio.to_thread(
+                        inspect_termination, endpoint.sandbox_name
+                    )
+                    if term_reason:
+                        raise SandboxActivationError(
+                            f"Sandbox exited during startup ({term_reason})",
+                            code=SANDBOX_HYDRATION_FAILED_CODE,
+                            phase="unlocking",
+                        )
                 await asyncio.sleep(0.03)
         raise TimeoutError(f"Sandbox {endpoint.sandbox_name} /health did not turn Ready after bind")
 
@@ -629,42 +660,55 @@ class SandboxEdgeGatewayManager:
                     existing.last_activity_s = now_s
                     return existing
 
-            claim_name = f"claim-{secrets.token_hex(6)}"
-            lease_id = f"lease_{secrets.token_hex(12)}"
             claim_shutdown_s = self._claim_shutdown_seconds()
-            claim_created_at_s = self._clock_s()
             surrogate_ttl = (
                 max(3600, min(7200, int(self.idle_timeout_s * 2)))
                 if self.sentinel_control is not None
                 and hasattr(self.sentinel_control, "mint_model_surrogate")
                 else 0
             )
-            endpoint, placement_epoch = await asyncio.gather(
-                asyncio.to_thread(
-                    self.claim_client.create_and_wait_claim,
-                    claim_name=claim_name,
-                    billing_space_id=clean_id,
-                    warm_pool_name=self.warm_pool_name,
-                    idle_shutdown_seconds=claim_shutdown_s,
-                    timeout_s=self.claim_timeout_s,
-                ),
-                self._resolve_owner_placement_epoch(clean_id),
-            )
-            try:
-                pub_b64, pod_key_id = await self._activate_claimed_sandbox(
-                    hushh_id=clean_id,
-                    lease_id=lease_id,
-                    endpoint=endpoint,
-                    placement_epoch=placement_epoch,
+            claim_name = ""
+            lease_id = ""
+            claim_created_at_s = 0.0
+            endpoint: ClaimedSandboxEndpoint | None = None
+            pub_b64 = ""
+            pod_key_id = ""
+            for claim_attempt in range(2):
+                claim_name = f"claim-{secrets.token_hex(6)}"
+                lease_id = f"lease_{secrets.token_hex(12)}"
+                claim_created_at_s = self._clock_s()
+                endpoint, placement_epoch = await asyncio.gather(
+                    asyncio.to_thread(
+                        self.claim_client.create_and_wait_claim,
+                        claim_name=claim_name,
+                        billing_space_id=clean_id,
+                        warm_pool_name=self.warm_pool_name,
+                        idle_shutdown_seconds=claim_shutdown_s,
+                        timeout_s=self.claim_timeout_s,
+                    ),
+                    self._resolve_owner_placement_epoch(clean_id),
                 )
-            except Exception:
-                if self.sentinel_control is not None and hasattr(
-                    self.sentinel_control, "delete_lease"
-                ):
-                    with contextlib.suppress(Exception):
-                        await asyncio.to_thread(self.sentinel_control.delete_lease, lease_id)
-                await asyncio.to_thread(self.claim_client.delete_claim, claim_name)
-                raise
+                try:
+                    pub_b64, pod_key_id = await self._activate_claimed_sandbox(
+                        hushh_id=clean_id,
+                        lease_id=lease_id,
+                        endpoint=endpoint,
+                        placement_epoch=placement_epoch,
+                    )
+                    break
+                except Exception as exc:
+                    if self.sentinel_control is not None and hasattr(
+                        self.sentinel_control, "delete_lease"
+                    ):
+                        with contextlib.suppress(Exception):
+                            await asyncio.to_thread(self.sentinel_control.delete_lease, lease_id)
+                    await asyncio.to_thread(self.claim_client.delete_claim, claim_name)
+                    if claim_attempt == 0 and isinstance(exc, SandboxStandbyUnreachableError):
+                        continue
+                    raise
+
+            if endpoint is None:
+                raise RuntimeError("Sandbox claim failed to resolve endpoint")
 
             activated_at_s = self._clock_s()
             lease = ActiveOwnerLease(

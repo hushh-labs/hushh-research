@@ -1760,6 +1760,7 @@ tests/services/test_agent_sandbox_process_and_adk_terminal.py
 tests/services/test_agent_sandbox_phase2_routing_and_proxy.py
 tests/services/test_agent_sandbox_phase3_edge_and_puppy.py
 tests/test_personal_sandbox_harness_parity.py
+tests/test_dev_ace_deploy_parity.py
 
 # Paid scope sharing UX, live incoming consent cards, and Pod consent continuation/history parity.
 tests/test_paid_scope_chat_ux_and_live_cards.py

@@ -38,6 +38,7 @@ import {
   type FilesSettings,
 } from "@/lib/files/service";
 import {
+  hydrateFilesCacheFromEncryptedCache,
   isPreviewableTextFilename,
   peekFilesListCache,
   peekFilesSettingsCache,
@@ -162,6 +163,29 @@ export function FilesWorkspace({
     setBusy(false);
     actionPending.current = false;
     const signal = work.current.signal;
+    let hasRenderedCachedList = Boolean(warmList);
+    if (
+      !warmList &&
+      canPeekWarm &&
+      parent === "root" &&
+      !trash &&
+      typeof hydrateFilesCacheFromEncryptedCache === "function"
+    ) {
+      void hydrateFilesCacheFromEncryptedCache(userId!, vaultKey)
+        .then((hydrated) => {
+          if (signal.aborted || !hydrated.rootList) return;
+          hasRenderedCachedList = true;
+          setEntries((current) =>
+            current.length > 0 ? current : hydrated.rootList!.entries,
+          );
+          setCursor((current) => current || hydrated.rootList!.cursor);
+          if (hydrated.settings) {
+            setSettings((current) => current ?? hydrated.settings);
+          }
+          setLoading(false);
+        })
+        .catch(() => undefined);
+    }
     if (available)
       void (async () => {
         for (const delay of [600, 1800, 0]) {
@@ -178,7 +202,7 @@ export function FilesWorkspace({
         }
       })()
         .catch((error: unknown) => {
-          if (!signal.aborted && !warmList)
+          if (!signal.aborted && !hasRenderedCachedList)
             setMessage(
               error instanceof Error && error.message === "FILES_NOT_ENABLED"
                 ? "Files is not enabled on this pod. Review setup below."
@@ -191,7 +215,7 @@ export function FilesWorkspace({
           if (!signal.aborted) setLoading(false);
         });
     return () => work.current.abort();
-  }, [available, connectionError, userId, vaultUnlocked, load, hosting, parent, trash]);
+  }, [available, connectionError, userId, vaultKey, vaultUnlocked, load, hosting, parent, trash]);
 
   useEffect(() => {
     setFolders(routeFolder === "personal-wiki" ? WIKI_FOLDERS : ROOT_FOLDERS);

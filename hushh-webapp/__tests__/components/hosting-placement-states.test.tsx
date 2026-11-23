@@ -333,14 +333,15 @@ describe("cloud step placement states", () => {
     expect(await screen.findByTestId("hussh-pods-migration-route")).toBeInTheDocument();
   });
 
-  it("shows multi-cloud dual marks on active ACE Personal Sandbox without a switch card", async () => {
+  it("shows Google Cloud mark on active ACE Confidential Sandbox without false Azure claim", async () => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
     given({ hostingMode: "hussh_pods", state: "active", deploymentTarget: "ace" });
     render(<ByocCloudSetupPage />);
     const card = await screen.findByTestId("hussh-pods-connected");
     expect(card).toHaveAttribute("data-provider", "ace");
-    expect(card).toHaveTextContent("Isolated Personal Sandbox across Google Cloud and Microsoft Azure");
-    expect(screen.getByTestId("hussh-pods-active-dual-cloud")).toBeInTheDocument();
+    expect(card).toHaveTextContent("Isolated Confidential Sandbox on Google Cloud");
+    expect(card).not.toHaveTextContent("Microsoft Azure");
+    expect(screen.getByTestId("hussh-pods-active-gcp-cloud")).toBeInTheDocument();
     expect(screen.queryByTestId("pooled-sandbox-switch-card")).toBeNull();
   });
 
