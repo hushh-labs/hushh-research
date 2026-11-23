@@ -182,6 +182,7 @@ _ACTIVITY_TOOLS = frozenset(
         "finance",
         "show_market_gainers",
         "show_portfolio_card",
+        "show_portfolio_upload",
         "show_stock_preview",
         "wallet",
         "ask_memory_agent",

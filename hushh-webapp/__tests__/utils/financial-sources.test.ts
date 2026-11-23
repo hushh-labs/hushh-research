@@ -41,6 +41,7 @@ describe("financial statement snapshots", () => {
             id: "stmt_b",
             imported_at: "2026-04-20T00:00:00.000Z",
             source: {
+              file_name: "April statement.pdf",
               brokerage: "Broker B",
               statement_period_end: "2026-04-20",
             },
@@ -74,6 +75,8 @@ describe("financial statement snapshots", () => {
     expect(options).toHaveLength(2);
     expect(options.map((option) => option.id)).toEqual(["stmt_b", "stmt_a"]);
     expect(options[0].label).toContain("Broker B");
+    expect(options[0].fileName).toBe("April statement.pdf");
+    expect(options[1].fileName).toBeNull();
   });
 
   it("returns the active statement portfolio from the selected snapshot", () => {
@@ -216,9 +219,13 @@ describe("financial statement snapshots", () => {
     const edited = await computeStatementImportId({ ...statement, holdings: [] });
     expect(edited).toBe(id);
 
-    const once = upsertStatementSnapshot([], { id, imported_at: "a" });
+    const once = upsertStatementSnapshot([], {
+      id,
+      imported_at: "a",
+      source: { file_name: "August statement.pdf" },
+    });
     const twice = upsertStatementSnapshot(once, { id, imported_at: "b" });
-    expect(twice).toEqual([{ id, imported_at: "b" }]);
+    expect(twice).toEqual([{ id, imported_at: "b", source: { file_name: "August statement.pdf" } }]);
 
     // Negative control: without an account number or period, holdings decide,
     // so two unlabeled statements never collapse into one.
@@ -227,7 +234,7 @@ describe("financial statement snapshots", () => {
       holdings: [{ symbol: "MSFT", quantity: 1, market_value: 400 }],
     });
     expect(unlabeledA).not.toBe(unlabeledB);
-    expect(upsertStatementSnapshot(twice, { id: unlabeledA })).toHaveLength(2);
+    expect(upsertStatementSnapshot(twice, { id: unlabeledA })).toEqual([{ id: unlabeledA }, ...twice]);
   });
 });
 

@@ -221,6 +221,23 @@ async def test_provider_failure_never_becomes_partial_success_or_retry(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_incremental_deadline_uses_whole_statement_once(monkeypatch):
+    from hushh_mcp.hushh_adk.events import AdkEventTimeoutError
+    from hushh_mcp.hushh_adk.turn import SpecialistAdkTurn, SpecialistAdkTurnError
+
+    turn_failed = SpecialistAdkTurnError(SpecialistAdkTurn("", (), (), {}, 1, 45_000))
+    turn_failed.__cause__ = AdkEventTimeoutError(phase="total", elapsed_seconds=45)
+    stream, _, fallback = extract(monkeypatch, [page(), turn_failed])
+
+    partial, reset, complete = [event async for event in stream]
+    assert partial["kind"] == "partial"
+    assert reset == {"kind": "reset", "reason": "incremental_model_deadline"}
+    assert complete["kind"] == "complete"
+    assert complete["parsed"]["detailed_holdings"][0]["symbol"] == "FULL"
+    fallback.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_revoked_authority_after_model_never_publishes_unit(monkeypatch):
     permitted = True
 

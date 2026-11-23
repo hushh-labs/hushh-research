@@ -600,6 +600,11 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Opening the portfolio card.",
     activity: "Opening portfolio",
   },
+  show_portfolio_upload: {
+    label: "Portfolio upload",
+    message: "Opening the portfolio upload card.",
+    activity: "Opening portfolio upload",
+  },
   show_stock_preview: {
     label: "Stock analysis preview",
     message: "Opening the stock analysis preview.",

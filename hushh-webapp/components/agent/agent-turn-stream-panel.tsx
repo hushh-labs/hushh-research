@@ -503,6 +503,7 @@ export function AgentTurnStreamPanel({
               return <AgentStructuredExperienceView
                 key={id}
                 experience={experience}
+                  allowPortfolioUpload={!isStreaming && !isError}
                 allowFinancePreviewStart={allowFinancePreviewStart && !isStreaming && !isError}
                 onConfirmFinanceAnalysis={onConfirmFinanceAnalysis}
                 onOpenConnections={onOpenConnections}

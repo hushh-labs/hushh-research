@@ -216,6 +216,7 @@ export interface PortfolioReviewViewProps {
   /** Callback to go back */
   onBack?: () => void;
   importFileName?: string;
+  publishOptimistically?: boolean;
   preserveScroll?: boolean;
   /** Additional CSS classes */
   className?: string;
@@ -696,6 +697,7 @@ export function PortfolioReviewView({
   onBack: _onBack,
   className,
   importFileName,
+  publishOptimistically = true,
   preserveScroll = false,
 }: PortfolioReviewViewProps) {
   useMarketCurrency();
@@ -1364,8 +1366,10 @@ export function PortfolioReviewView({
           account_holder: savePayload.account_info?.holder_name,
         },
       };
-      setCachePortfolioData(userId, optimisticCachePortfolioData);
-      CacheSyncService.onPortfolioUpserted(userId, optimisticCachePortfolioData);
+      if (publishOptimistically) {
+        setCachePortfolioData(userId, optimisticCachePortfolioData);
+        CacheSyncService.onPortfolioUpserted(userId, optimisticCachePortfolioData);
+      }
 
       saveTaskId = AppBackgroundTaskService.startTask({
         userId,
@@ -1519,6 +1523,7 @@ export function PortfolioReviewView({
           updated_at: nowIso,
         },
         source: {
+          file_name: importFileName?.trim().slice(0, 255) || null,
           brokerage: accountInfo.brokerage || null,
           statement_period_start: accountInfo.statement_period_start || null,
           statement_period_end: accountInfo.statement_period_end || null,

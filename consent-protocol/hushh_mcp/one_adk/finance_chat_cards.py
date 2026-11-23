@@ -1,6 +1,7 @@
 """Finance chat card offers and display-only history receipts."""
 
 from typing import Any
+from uuid import uuid4
 
 from google.adk.tools import ToolContext
 
@@ -28,6 +29,18 @@ def show_portfolio_card(section: str, tool_context: ToolContext) -> dict[str, An
 
 
 TOP_GAINERS_CARD_TYPE = "one.finance_top_gainers.v1"
+PORTFOLIO_UPLOAD_CARD_TYPE = "one.finance_portfolio_upload.v1"
+
+
+def show_portfolio_upload(tool_context: ToolContext) -> dict[str, Any]:
+    """Offer the statement picker for a portfolio import in signed-in typed Chat."""
+    state = tool_context.state
+    if state.get(STATE_EXECUTION_SURFACE) != "typed_chat" or not state.get(STATE_USER_ID):
+        return {"status": "unavailable"}
+    return {
+        "status": "card_offered",
+        "structured": {"type": PORTFOLIO_UPLOAD_CARD_TYPE, "offerId": uuid4().hex},
+    }
 
 
 def show_market_gainers(tool_context: ToolContext) -> dict[str, Any]:
@@ -97,6 +110,27 @@ def _safe_gainers_descriptor(part: Any) -> dict[str, Any] | None:
 
 
 def finance_card_history_descriptor(part: Any) -> dict[str, Any] | None:
+    response_part = getattr(part, "function_response", None)
+    if getattr(response_part, "name", None) == "show_portfolio_upload":
+        response = _record(getattr(response_part, "response", None)) or {}
+        structured = _record(response.get("structured")) or {}
+        offer_id = structured.get("offerId")
+        if (
+            response.get("status") == "card_offered"
+            and structured.get("type") == PORTFOLIO_UPLOAD_CARD_TYPE
+            and isinstance(offer_id, str)
+            and len(offer_id) == 32
+            and all(char in "0123456789abcdef" for char in offer_id)
+        ):
+            return {
+                "activityType": PORTFOLIO_UPLOAD_CARD_TYPE,
+                "content": {
+                    "type": PORTFOLIO_UPLOAD_CARD_TYPE,
+                    "offerId": offer_id,
+                    "historical": True,
+                },
+            }
+        return None
     return (
         _safe_stock_preview_descriptor(part)
         or _safe_portfolio_descriptor(part)
