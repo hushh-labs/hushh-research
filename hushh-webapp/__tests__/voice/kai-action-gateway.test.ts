@@ -76,6 +76,11 @@ const ALLOWED_DELEGATE_AGENT_IDS = [
 ];
 
 describe("kai-action-gateway", () => {
+  it("does not offer the retired network discovery preference", () => {
+    expect(getKaiActionById("profile.network_visibility.choose")).toBeNull();
+    expect(getKaiActionsForControlId("network-share-connection-list")).toEqual([]);
+  });
+
   it("publishes the bounded Siri catalog and locked-vault review fallback", () => {
     const direct = KAI_ACTION_GATEWAY.actions.filter(
       (action) => action.siri_mode === "direct",

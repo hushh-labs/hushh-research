@@ -41,14 +41,30 @@ def test_network_routes_bind_viewer_and_validate_private_read_contract():
             {"page": 0},
         ):
             assert client.get("/api/one/connections/network", params=params).status_code == 422
-        service.return_value.set_preference.return_value = {"shareConnectionList": True}
-        response = client.patch(
-            "/api/one/connections/network/visibility",
-            json={"share_connection_list": True, "user_id": "someone-else"},
-        )
-        assert response.status_code == 200
+        automatic = {"shareConnectionList": True, "automaticDiscovery": True}
+        service.return_value.preference.return_value = automatic
+        service.return_value.set_preference.return_value = automatic
+        response = client.get("/api/one/connections/network/visibility")
+        assert response.json() == automatic
         assert response.headers["cache-control"] == "private, no-store"
-        service.return_value.set_preference.assert_called_once_with("user-a", True)
+        service.return_value.preference.assert_called_once_with("user-a")
+        for enabled in (False, True):
+            response = client.patch(
+                "/api/one/connections/network/visibility",
+                json={"share_connection_list": enabled, "user_id": "someone-else"},
+            )
+            assert response.status_code == 200
+            assert response.json() == automatic
+            assert response.headers["cache-control"] == "private, no-store"
+            service.return_value.set_preference.assert_called_with("user-a", enabled)
+        for invalid in ("false", 0, None):
+            assert (
+                client.patch(
+                    "/api/one/connections/network/visibility",
+                    json={"share_connection_list": invalid},
+                ).status_code
+                == 422
+            )
 
 
 def test_network_routes_require_auth_and_return_neutral_permission_failure():
