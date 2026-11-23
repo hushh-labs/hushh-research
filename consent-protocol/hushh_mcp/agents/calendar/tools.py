@@ -21,7 +21,9 @@ from pydantic import ValidationError
 from hushh_mcp.agents.calendar.read_offer import (
     STATE_CALENDAR_OFFER,
     STATE_EVENT_OFFER,
+    STATE_EVENTS_PAGE,
     STATE_INVITATION_OFFER,
+    CalendarEventsPage,
     CalendarReadOffer,
     current_calendar_read_offer,
     make_calendar_read_offer,
@@ -547,10 +549,18 @@ async def _event_calendar_id(
         )
 
 
+def _creator_email(event: dict[str, Any]) -> str | None:
+    creator = event.get("creator")
+    if not isinstance(creator, dict):
+        return None
+    email = creator.get("email")
+    return email.strip().casefold() if isinstance(email, str) and "@" in email else None
+
+
 async def calendar_events(
     tool_context: ToolContext,
-    start_at: str,
-    end_at: str,
+    start_at: str = "",
+    end_at: str = "",
     query: str | None = None,
     limit: int = 100,
     calendar_id: str = "primary",
@@ -558,6 +568,8 @@ async def calendar_events(
     page_token: str | None = None,
     account_id: str | None = None,
     time_zone: str | None = None,
+    next_page: bool = False,
+    created_by_me: bool | None = None,
 ) -> dict[str, Any]:
     """List events in an exact ISO-8601, time-zone-qualified interval.
 
@@ -565,26 +577,125 @@ async def calendar_events(
     location, attendees and organizer. ``limit`` is 1-250 events. When the
     result says ``truncated``, more events exist than were returned: say so,
     never claim the list is complete. Use this before rescheduling or
-    cancelling so you use the event id returned by Google rather than
-    guessing one.
+    cancelling so you select the returned event by its ordinal, never a raw
+    or guessed provider id.
+    For more of the same search, pass only next_page=true.
+    created_by_me compares creator.email with the verified connected account email,
+    never creator.self, organizer or calendar ownership.
+    Filtering is deterministic over this provider page; unknown creators are reported
+    separately and a partial page never proves a complete matching count.
+    Pass the person's explicit IANA ``time_zone``. Render ``local_start_at`` /
+    ``local_end_at`` in ``display_time_zone``; retain their dates and source instants.
+    Use the exact returned account_id for a named account.
     """
 
     async def _call(user_id: str, service: Any, account_id: str) -> dict[str, Any]:
-        tool_context.state[STATE_EVENT_OFFER] = None
-        selected_id = await _event_calendar_id(
-            tool_context, service, user_id, calendar_id, calendar_ordinal
-        )
         before = await _read_binding(service, user_id)
+        conversation_id = _conversation_id(tool_context)
+        if next_page:
+            try:
+                page = CalendarEventsPage.model_validate(tool_context.state.get(STATE_EVENTS_PAGE))
+            except ValidationError:
+                page = None
+            if (
+                start_at
+                or end_at
+                or query is not None
+                or calendar_id != "primary"
+                or calendar_ordinal is not None
+                or page_token is not None
+                or limit != 100
+                or created_by_me is not None
+                or page is None
+                or page.account_id != account_id
+                or not page.current(
+                    owner_id=user_id, conversation_id=conversation_id, grant_binding=before
+                )
+            ):
+                raise GoogleConnectionError(
+                    "The Calendar page is no longer available. Run the search again.",
+                    status_code=422,
+                    reason_code="calendar_page_required",
+                )
+            selected_id, lower, upper = page.calendar_id, page.start_at, page.end_at
+            selected_query, selected_limit, cursor = page.query, page.limit, page.page_token
+            selected_creator = page.created_by_me
+        else:
+            tool_context.state[STATE_EVENTS_PAGE] = None
+            tool_context.state[STATE_EVENT_OFFER] = None
+            selected_id = await _event_calendar_id(
+                tool_context, service, user_id, calendar_id, calendar_ordinal
+            )
+            lower, upper = (
+                _calendar_iso(start_at, tool_context, time_zone),
+                _calendar_iso(end_at, tool_context, time_zone),
+            )
+            selected_query, selected_limit, cursor = query, _bounded_limit(limit), page_token
+            if created_by_me is not None and type(created_by_me) is not bool:
+                raise GoogleConnectionError("Choose a valid creator filter.", status_code=422)
+            selected_creator = created_by_me
+        creator_email = (
+            await service.creator_account_email(user_id=user_id, expected_binding=before)
+            if selected_creator is not None
+            else None
+        )
         result = await service.list_events(
             user_id=user_id,
-            start_at=_calendar_iso(start_at, tool_context, time_zone),
-            end_at=_calendar_iso(end_at, tool_context, time_zone),
-            max_results=_bounded_limit(limit),
-            query=query,
+            start_at=lower,
+            end_at=upper,
+            max_results=selected_limit,
+            query=selected_query,
             calendar_id=selected_id,
-            page_token=page_token,
+            page_token=cursor,
         )
         await _check_stable_binding(service, user_id, before)
+        if selected_creator is not None:
+            events = result.get("events", [])
+            known = [event for event in events if creator_email and _creator_email(event)]
+            matching = [
+                event
+                for event in known
+                if (_creator_email(event) == creator_email) == selected_creator
+            ]
+            result.update(
+                {
+                    "events": matching,
+                    "provider_returned_count": len(events),
+                    "returned_count": len(matching),
+                    "creator_unknown_count": len(events) - len(known),
+                    "created_by_me": selected_creator,
+                    "creator_identity_available": creator_email is not None,
+                }
+            )
+        following = result.get("next_page_token")
+        tool_context.state[STATE_EVENTS_PAGE] = None
+        if (
+            tool_context.state.get("temp:one_execution_surface") == "typed_chat"
+            and before
+            and conversation_id
+            and isinstance(following, str)
+            and following != cursor
+        ):
+            try:
+                tool_context.state[STATE_EVENTS_PAGE] = CalendarEventsPage(
+                    owner_id=user_id,
+                    conversation_id=conversation_id,
+                    account_id=account_id,
+                    grant_binding=list(before),
+                    created_at_ms=int(datetime.now(UTC).timestamp() * 1000),
+                    calendar_id=selected_id,
+                    start_at=lower,
+                    end_at=upper,
+                    query=selected_query,
+                    limit=selected_limit,
+                    page_token=following,
+                    created_by_me=selected_creator,
+                ).model_dump(mode="json")
+            except ValidationError:
+                pass
+        if tool_context.state.get("temp:one_execution_surface") == "typed_chat":
+            result.pop("next_page_token", None)
+            result["next_page_available"] = tool_context.state.get(STATE_EVENTS_PAGE) is not None
         _remember_offer(
             tool_context,
             key=STATE_EVENT_OFFER,
@@ -600,20 +711,33 @@ async def calendar_events(
             **result,
         }
 
+    if next_page and account_id is None:
+        try:
+            saved = CalendarEventsPage.model_validate(tool_context.state.get(STATE_EVENTS_PAGE))
+            if saved.owner_id == tool_context.state.get(
+                _STATE_USER_ID
+            ) and saved.conversation_id == _conversation_id(tool_context):
+                account_id = saved.account_id
+        except ValidationError:
+            pass
     return await _run_calendar_read(
         tool_context,
         _call,
         account_id=account_id,
-        display_time_zone=time_zone,
         source=(STATE_CALENDAR_OFFER, "calendars") if calendar_ordinal is not None else None,
-        calendar_read=lambda: {
+        display_time_zone=time_zone,
+        calendar_read=None
+        if next_page
+        else lambda: {
             "operation": "events",
             "query": query,
             "event_limit": _bounded_limit(limit),
             "start_at": _calendar_iso(start_at, tool_context, time_zone),
             "end_at": _calendar_iso(end_at, tool_context, time_zone),
         },
-        owner_local_only=calendar_ordinal is not None
+        owner_local_only=next_page
+        or created_by_me is not None
+        or calendar_ordinal is not None
         or calendar_id != "primary"
         or page_token is not None,
     )
@@ -783,14 +907,21 @@ async def calendar_free_slots(
 async def propose_calendar_event(
     tool_context: ToolContext,
     title: str,
-    start_at: str,
-    end_at: str,
+    start_at: str = "",
+    end_at: str = "",
     attendees: list[str] | None = None,
     description: str | None = None,
     location: str | None = None,
     send_updates: bool = True,
     account_id: str | None = None,
     calendar_id: str | None = None,
+    time_zone: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    repeat_weekly: bool = False,
+    repeat_count: int | None = None,
+    repeat_until: str | None = None,
+    reminder_minutes: list[int] | None = None,
 ) -> dict[str, Any]:
     """Prepare a meeting for review. It is not created until the owner confirms.
 
@@ -799,6 +930,10 @@ async def propose_calendar_event(
     or "Meeting with <verified inviter name>" (not the guest's own name), and
     briefly identify the inviter, date, time range, and timezone in the
     description. If the inviter's name is unavailable, do not guess one.
+    For all-day creation, use start_date/end_date (exclusive) and omit times.
+    Weekly creation requires repeat_weekly plus repeat_count (1-52) or repeat_until;
+    ask for a missing bound. Every occurrence is checked before confirmation.
+    reminder_minutes sets up to five popup reminders, 0-40320 minutes before.
     """
     return await _propose(
         action="create",
@@ -808,11 +943,28 @@ async def propose_calendar_event(
             "title": title,
             "start_at": start_at,
             "end_at": end_at,
-            "time_zone": _timezone(tool_context) if tool_context else "UTC",
+            "time_zone": time_zone
+            if time_zone is not None
+            else tool_context.state.get(_STATE_TIMEZONE),
             "attendees": attendees or [],
             "description": description or "",
             "location": location or "",
             "send_updates": send_updates,
+            **(
+                {"start_date": start_date, "end_date": end_date}
+                if start_date is not None or end_date is not None
+                else {}
+            ),
+            **(
+                {
+                    "repeat_weekly": repeat_weekly,
+                    "repeat_count": repeat_count,
+                    "repeat_until": repeat_until,
+                }
+                if repeat_weekly or repeat_count is not None or repeat_until is not None
+                else {}
+            ),
+            **({"reminder_minutes": reminder_minutes} if reminder_minutes is not None else {}),
         },
         tool_context=tool_context,
     )
@@ -820,9 +972,9 @@ async def propose_calendar_event(
 
 async def propose_calendar_reschedule(
     tool_context: ToolContext,
-    event_id: str,
-    start_at: str,
-    end_at: str,
+    event_id: str = "",
+    start_at: str = "",
+    end_at: str = "",
     title: str | None = None,
     attendees: list[str] | None = None,
     description: str | None = None,
@@ -830,6 +982,11 @@ async def propose_calendar_reschedule(
     send_updates: bool = True,
     account_id: str | None = None,
     calendar_id: str | None = None,
+    event_ordinal: int | None = None,
+    time_zone: str | None = None,
+    add_attendees: list[str] | None = None,
+    reminder_minutes: list[int] | None = None,
+    add_reminder_minutes: list[int] | None = None,
 ) -> dict[str, Any]:
     """Prepare a reschedule for a real event id. It is not changed until confirmed.
 
@@ -837,14 +994,21 @@ async def propose_calendar_reschedule(
     location out to keep them exactly as they are. ``attendees`` replaces the
     whole guest list, so pass it only to change who is invited; the review
     shows every attendee it adds or removes. An all-day event stays all-day.
+    Select a listed event by event_ordinal; never guess an event id.
+    Omit BOTH times for metadata-only changes. add_attendees preserves existing
+    guests; use verified exact addresses. add_reminder_minutes preserves existing
+    effective reminders; reminder_minutes explicitly replaces them.
     """
     payload: dict[str, Any] = {
         "account_id": account_id,
         **({"calendar_id": calendar_id} if calendar_id is not None else {}),
         "event_id": event_id,
+        "event_ordinal": event_ordinal,
         "start_at": start_at,
         "end_at": end_at,
-        "time_zone": _timezone(tool_context) if tool_context else "UTC",
+        "time_zone": time_zone
+        if time_zone is not None
+        else tool_context.state.get(_STATE_TIMEZONE),
         "send_updates": send_updates,
     }
     changes = {
@@ -852,6 +1016,9 @@ async def propose_calendar_reschedule(
         "attendees": attendees,
         "description": description,
         "location": location,
+        "add_attendees": add_attendees,
+        "reminder_minutes": reminder_minutes,
+        "add_reminder_minutes": add_reminder_minutes,
     }
     payload.update({key: value for key, value in changes.items() if value is not None})
     return await _propose(action="reschedule", payload=payload, tool_context=tool_context)
@@ -859,10 +1026,11 @@ async def propose_calendar_reschedule(
 
 async def propose_calendar_cancellation(
     tool_context: ToolContext,
-    event_id: str,
+    event_id: str = "",
     send_updates: bool = True,
     account_id: str | None = None,
     calendar_id: str | None = None,
+    event_ordinal: int | None = None,
 ) -> dict[str, Any]:
     """Prepare cancellation of a real event id. It is not cancelled until confirmed."""
     return await _propose(
@@ -871,6 +1039,7 @@ async def propose_calendar_cancellation(
             "account_id": account_id,
             **({"calendar_id": calendar_id} if calendar_id is not None else {}),
             "event_id": event_id,
+            "event_ordinal": event_ordinal,
             "send_updates": send_updates,
         },
         tool_context=tool_context,
@@ -903,8 +1072,44 @@ async def _propose(
         if refused is not None:
             return refused
         if action != "cancel":
-            payload["start_at"] = _calendar_iso(payload.get("start_at", ""), tool_context)
-            payload["end_at"] = _calendar_iso(payload.get("end_at", ""), tool_context)
+            payload["time_zone"] = normalize_time_zone(payload.get("time_zone"))
+        extended = (
+            any(
+                key in payload
+                for key in (
+                    "start_date",
+                    "end_date",
+                    "repeat_weekly",
+                    "reminder_minutes",
+                    "add_reminder_minutes",
+                    "add_attendees",
+                )
+            )
+            or action == "reschedule"
+            and not payload.get("start_at")
+            and not payload.get("end_at")
+        )
+        if extended and tool_context.state.get("temp:one_calendar_review_contract") is not True:
+            return {
+                "status": "runtime_unavailable",
+                "reason_code": "calendar_review_upgrade_required",
+                "message": "Update or reopen the app to review all-day, recurring, reminder or guest changes.",
+            }
+        if extended:
+            payload["review_contract"] = 1
+        if (
+            action != "cancel"
+            and not payload.get("start_date")
+            and not (
+                action == "reschedule" and not payload.get("start_at") and not payload.get("end_at")
+            )
+        ):
+            payload["start_at"] = _calendar_iso(
+                payload.get("start_at", ""), tool_context, payload.get("time_zone")
+            )
+            payload["end_at"] = _calendar_iso(
+                payload.get("end_at", ""), tool_context, payload.get("time_zone")
+            )
         account_id = payload.get("account_id")
         if action != "create":
             account_id = _source_account(
@@ -926,6 +1131,13 @@ async def _propose(
                 conversation_id=_conversation_id(tool_context),
                 grant_binding=binding,
             )
+            ordinal = payload.pop("event_ordinal", None)
+            if ordinal is not None:
+                if payload.get("event_id") or offer is None:
+                    raise GoogleConnectionError(
+                        "Show the meeting again and choose its position.", status_code=422
+                    )
+                payload["event_id"] = offer.id_at(ordinal)
             if offer is None or payload["event_id"] not in offer.ids:
                 raise GoogleConnectionError(
                     "Show the events again, then choose the exact meeting to change.",
@@ -990,7 +1202,11 @@ async def _propose(
             "status": "failed",
             "message": "Could not prepare that calendar change. Try again in a moment.",
         }
-    verb = {"create": "Schedule", "reschedule": "Reschedule", "cancel": "Cancel"}[action]
+    verb = (
+        "Update"
+        if plan.get("preserve_time")
+        else {"create": "Schedule", "reschedule": "Reschedule", "cancel": "Cancel"}[action]
+    )
 
     raw_conflicts = plan.get("conflicts")
     conflicts: list[object] = raw_conflicts if isinstance(raw_conflicts, list) else []
@@ -1003,11 +1219,16 @@ async def _propose(
     # Presentation belongs to the active chat session, not to the provider's
     # event payload.  A proposal can legitimately contain UTC instants while
     # the person is using One in another local timezone.
+    display_zone = (
+        plan.get("calendar_time_zone", plan.get("time_zone", _timezone(tool_context)))
+        if plan.get("all_day")
+        else _timezone(tool_context)
+    )
     summary = _proposal_summary(
         action=action,
         plan=plan,
         conflicts=conflicts,
-        display_time_zone=_timezone(tool_context),
+        display_time_zone=display_zone,
     )
     event_fields = _directive_event_fields(action=action, plan=plan)
     # New events always request a unique Google Meet conference after the
@@ -1036,13 +1257,38 @@ async def _propose(
             "title": event_fields["title"],
             "startAt": event_fields["startAt"],
             "endAt": event_fields["endAt"],
-            "timeZone": _timezone(tool_context),
+            "timeZone": display_zone,
             "attendees": event_fields["attendees"],
             "location": event_fields["location"],
             "description": event_fields["description"],
             "locationCleared": action == "reschedule" and plan.get("location") == "",
             "descriptionCleared": action == "reschedule" and plan.get("description") == "",
             "googleMeet": google_meet,
+            **(
+                {"reviewContract": 1, "metadataOnly": bool(plan.get("preserve_time"))}
+                if plan.get("review_contract") == 1
+                else {}
+            ),
+            **({"allDay": True} if plan.get("all_day") else {}),
+            **(
+                {
+                    "weeklyRecurrence": {
+                        "count": plan["weekly_recurrence"]["count"],
+                        "lastDate": plan["recurrence_last_date"],
+                        "conflictCoverage": "all_occurrences",
+                    }
+                }
+                if plan.get("weekly_recurrence")
+                else {}
+            ),
+            **(
+                {
+                    "reminders": plan["reminders"],
+                    "remindersReplacesDefaults": bool(plan.get("reminders_replaces_defaults")),
+                }
+                if "reminders" in plan
+                else {}
+            ),
             **(
                 {
                     "attendeesAdded": event_fields["attendeesAdded"],
@@ -1087,7 +1333,11 @@ def _proposal_summary(
     conflicts: list[object],
     display_time_zone: str,
 ) -> str:
-    verb = {"create": "Schedule", "reschedule": "Reschedule", "cancel": "Cancel"}[action]
+    verb = (
+        "Update"
+        if plan.get("preserve_time")
+        else {"create": "Schedule", "reschedule": "Reschedule", "cancel": "Cancel"}[action]
+    )
     current = plan.get("current_event")
     current = current if isinstance(current, dict) else {}
 
@@ -1104,6 +1354,20 @@ def _proposal_summary(
     else:
         attendee_note = f" and notify {_attendees(count)}" if count else ""
     change_note = _attendee_change_note(plan) if action == "reschedule" else ""
+    if plan.get("weekly_recurrence"):
+        change_note += f" Repeats weekly for {plan['weekly_recurrence']['count']} occurrences through {plan['recurrence_last_date']}."
+    if "reminders" in plan:
+        reminders = plan["reminders"]["overrides"]
+        change_note += (
+            " Reminders: "
+            + (
+                ", ".join(
+                    f"{item['method']} {item['minutes']} minutes before" for item in reminders
+                )
+                or "none"
+            )
+            + "."
+        )
     details = [
         _conflict_detail(item, time_zone=display_time_zone)
         for item in conflicts
@@ -1223,8 +1487,10 @@ def _directive_event_fields(*, action: str, plan: dict[str, Any]) -> dict[str, A
         }
     return {
         "title": plan.get("title"),
-        "startAt": _flat_iso(plan.get("start_at")),
-        "endAt": _flat_iso(plan.get("end_at")),
+        "startAt": plan.get("start_date")
+        if plan.get("all_day")
+        else _flat_iso(plan.get("start_at")),
+        "endAt": plan.get("end_date") if plan.get("all_day") else _flat_iso(plan.get("end_at")),
         "attendees": [str(item) for item in plan.get("attendees", [])],
         "location": plan.get("location") or None,
         "description": plan.get("description") or None,

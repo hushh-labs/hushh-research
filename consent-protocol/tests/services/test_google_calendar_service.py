@@ -1003,7 +1003,14 @@ def _reschedule_harness(event: dict[str, object]):
     requests: list[dict[str, object]] = []
 
     async def request(**kwargs: object) -> dict[str, object]:
+        if kwargs.get("before_write"):
+            await kwargs["before_write"]()
         requests.append(kwargs)
+        if kwargs.get("params", {}).get("fields") == "timeZone,defaultReminders":
+            return {
+                "timeZone": "America/Los_Angeles",
+                "defaultReminders": [{"method": "email", "minutes": 60}],
+            }
         return copy.deepcopy(event) if kwargs["method"] in {"GET", "PATCH", "POST"} else {}
 
     service._request = request  # type: ignore[method-assign]
@@ -1101,7 +1108,16 @@ def test_event_listing_is_bounded_searchable_and_honest_about_truncation() -> No
 
     async def request(**kwargs: object) -> dict[str, object]:
         seen.append(kwargs)
-        return {"items": [_event()], "nextPageToken": "more", "timeZone": "UTC"}
+        return {
+            "items": [
+                _event(
+                    creator={"email": "author@example.com", "self": False},
+                    recurrence=["RRULE:FREQ=WEEKLY;COUNT=3"],
+                )
+            ],
+            "nextPageToken": "more",
+            "timeZone": "UTC",
+        }
 
     service._request = request  # type: ignore[method-assign]
     result = asyncio.run(
@@ -1120,6 +1136,345 @@ def test_event_listing_is_bounded_searchable_and_honest_about_truncation() -> No
     assert result["truncated"] is True
     assert result["has_more"] is True
     assert "more exist" in str(result["more_events_exist"])
+    assert result["events"][0]["creator"] == {"email": "author@example.com", "self": False}
+    assert result["events"][0]["reminders"] == _event()["reminders"]
+    assert result["events"][0]["recurrence"] == ["RRULE:FREQ=WEEKLY;COUNT=3"]
+
+
+@pytest.mark.parametrize("weekly", [False, True])
+def test_all_day_create_reviews_civil_dates_and_posts_date_only_across_dst(weekly) -> None:
+    from hushh_mcp.services.calendar_proposal_options import occurrence_windows
+
+    service, requests, _ = _reschedule_harness(_event())
+    review = asyncio.run(
+        service.propose(
+            user_id="user-1",
+            action="create",
+            payload={
+                "title": "Day off",
+                "start_date": "2026-11-01",
+                "end_date": "2026-11-02",
+                "time_zone": "Asia/Kolkata",
+                "reminder_minutes": [30],
+                **({"repeat_weekly": True, "repeat_count": 3} if weekly else {}),
+            },
+        )
+    )
+    assert all(call["method"] == "GET" for call in requests)
+    assert datetime.fromisoformat(review["plan"]["start_at"]) == datetime(
+        2026, 11, 1, 7, tzinfo=UTC
+    )
+    assert datetime.fromisoformat(review["plan"]["end_at"]) == datetime(2026, 11, 2, 8, tzinfo=UTC)
+    assert review["plan"]["calendar_time_zone"] == "America/Los_Angeles"
+    windows = occurrence_windows(review["plan"])
+    assert [(right - left).total_seconds() / 3600 for left, right in windows] == (
+        [25, 24, 24] if weekly else [25]
+    )
+    if weekly:
+        assert review["plan"]["recurrence_last_date"] == "2026-11-15"
+    asyncio.run(service.execute(user_id="user-1", proposal_id=review["proposal_id"]))
+    post = next(call for call in requests if call["method"] == "POST")
+    assert post["payload"]["start"] == {"date": "2026-11-01"}
+    assert post["payload"]["end"] == {"date": "2026-11-02"}
+    assert post["payload"]["reminders"] == {
+        "useDefault": False,
+        "overrides": [{"method": "popup", "minutes": 30}],
+    }
+
+
+def test_weekly_review_checks_later_occurrences_and_blocks_new_conflicts() -> None:
+    service, requests, _ = _reschedule_harness(_event())
+    second = _event(
+        id="busy-second",
+        start={"dateTime": "2026-03-08T16:00:00Z"},
+        end={"dateTime": "2026-03-08T16:30:00Z"},
+    )
+    unrelated = _event(
+        id="between",
+        start={"dateTime": "2026-03-05T16:00:00Z"},
+        end={"dateTime": "2026-03-05T16:30:00Z"},
+    )
+    scans = []
+
+    async def conflicts(**kwargs):
+        scans.append(kwargs)
+        return (
+            [second, unrelated]
+            if len(scans) == 1
+            else [
+                second,
+                _event(
+                    id="new-third",
+                    start={"dateTime": "2026-03-15T16:00:00Z"},
+                    end={"dateTime": "2026-03-15T16:30:00Z"},
+                ),
+            ]
+        )
+
+    service._find_conflicts = conflicts
+    review = asyncio.run(
+        service.propose(
+            user_id="user-1",
+            action="create",
+            payload={
+                "title": "Weekly planning",
+                "start_at": "2026-03-01T09:00:00-08:00",
+                "end_at": "2026-03-01T09:30:00-08:00",
+                "time_zone": "America/Los_Angeles",
+                "repeat_weekly": True,
+                "repeat_count": 3,
+            },
+        )
+    )
+    assert [event["id"] for event in review["plan"]["conflicts"]] == ["busy-second"]
+    assert scans[0]["start_at"] == "2026-03-01T17:00:00+00:00"
+    assert scans[0]["end_at"] == "2026-03-15T16:30:00+00:00"
+    assert review["plan"]["recurrence"] == ["RRULE:FREQ=WEEKLY;COUNT=3"]
+    with pytest.raises(GoogleConnectionError, match="availability changed"):
+        asyncio.run(service.execute(user_id="user-1", proposal_id=review["proposal_id"]))
+    assert not requests
+
+
+def test_weekly_create_retains_zone_and_exact_count_in_provider_payload() -> None:
+    from hushh_mcp.services.calendar_proposal_options import occurrence_windows
+
+    service, requests, _ = _reschedule_harness(_event())
+    review = asyncio.run(
+        service.propose(
+            user_id="user-1",
+            action="create",
+            payload={
+                "title": "Planning",
+                "start_at": "2026-03-01T09:00:00-08:00",
+                "end_at": "2026-03-01T09:30:00-08:00",
+                "time_zone": "America/Los_Angeles",
+                "repeat_weekly": True,
+                "repeat_until": "2026-03-15",
+            },
+        )
+    )
+    assert [left.isoformat() for left, _ in occurrence_windows(review["plan"])] == [
+        "2026-03-01T17:00:00+00:00",
+        "2026-03-08T16:00:00+00:00",
+        "2026-03-15T16:00:00+00:00",
+    ]
+    asyncio.run(service.execute(user_id="user-1", proposal_id=review["proposal_id"]))
+    post = next(call for call in requests if call["method"] == "POST")
+    assert post["payload"]["recurrence"] == ["RRULE:FREQ=WEEKLY;COUNT=3"]
+    assert post["payload"]["start"]["timeZone"] == "America/Los_Angeles"
+
+
+def test_metadata_only_guest_and_reminder_additions_preserve_current_records() -> None:
+    event = _event()
+    service, requests, _ = _reschedule_harness(event)
+    review = asyncio.run(
+        service.propose(
+            user_id="user-1",
+            action="reschedule",
+            payload={
+                "event_id": "evt-1",
+                "time_zone": "Asia/Kolkata",
+                "add_attendees": ["NEW@example.com", "new@example.com", "a@example.com"],
+                "add_reminder_minutes": [15],
+            },
+        )
+    )
+    assert review["plan"]["preserve_time"] is True
+    assert review["plan"]["attendee_change"]["removed"] == []
+    assert review["plan"]["attendee_change"]["added"] == ["new@example.com"]
+    assert all(call["method"] == "GET" for call in requests)
+    asyncio.run(service.execute(user_id="user-1", proposal_id=review["proposal_id"]))
+    patch = next(call for call in requests if call["method"] == "PATCH")
+    assert "start" not in patch["payload"] and "end" not in patch["payload"]
+    assert patch["payload"]["attendees"][:-1] == [
+        {
+            key: value
+            for key, value in guest.items()
+            if key
+            in {
+                "email",
+                "responseStatus",
+                "comment",
+                "additionalGuests",
+                "optional",
+                "resource",
+                "displayName",
+            }
+        }
+        for guest in event["attendees"]
+    ]
+    assert patch["payload"]["attendees"][-1] == {"email": "new@example.com"}
+    assert patch["payload"]["reminders"]["overrides"] == [
+        {"method": "popup", "minutes": 10},
+        {"method": "popup", "minutes": 15},
+    ]
+    assert patch["headers"] == {"If-Match": '"etag-1"'}
+
+
+def test_reminder_addition_retains_verified_calendar_defaults() -> None:
+    service, requests, _ = _reschedule_harness(_event(reminders={"useDefault": True}))
+    original = service._request
+
+    async def request(**kwargs):
+        if kwargs.get("params", {}).get("fields") == "timeZone,defaultReminders":
+            assert kwargs["access"] == "manage" and "required_scope" not in kwargs
+        return await original(**kwargs)
+
+    service._request = request
+    review = asyncio.run(
+        service.propose(
+            user_id="user-1",
+            action="reschedule",
+            payload={
+                "event_id": "evt-1",
+                "add_reminder_minutes": [10],
+            },
+        )
+    )
+    assert review["plan"]["reminders_replaces_defaults"] is True
+    assert review["plan"]["reminders"]["overrides"] == [
+        {"method": "email", "minutes": 60},
+        {"method": "popup", "minutes": 10},
+    ]
+    assert all(call["method"] == "GET" for call in requests)
+
+
+def test_all_day_coverage_uses_calendar_zone_and_refuses_a_changed_zone() -> None:
+    service, requests, _ = _reschedule_harness(_event())
+    service.connections.list_scope = True
+    scanned = []
+
+    async def included(**kwargs):
+        plan = kwargs["plan"]
+        scanned.append((plan["start_at"], plan["end_at"]))
+        plan["availability_calendar_ids"] = ["primary"]
+        return []
+
+    service._creation_conflicts = included
+    review = asyncio.run(
+        service.propose(
+            user_id="user-1",
+            action="create",
+            payload={
+                "title": "Leave",
+                "start_date": "2026-11-01",
+                "end_date": "2026-11-02",
+                "time_zone": "Asia/Kolkata",
+            },
+        )
+    )
+    assert tuple(datetime.fromisoformat(value) for value in scanned[0]) == (
+        datetime(2026, 11, 1, 7, tzinfo=UTC),
+        datetime(2026, 11, 2, 8, tzinfo=UTC),
+    )
+    original = service._request
+
+    async def changed(**kwargs):
+        if kwargs.get("params", {}).get("fields") == "timeZone,defaultReminders":
+            return {"timeZone": "Asia/Kolkata"}
+        return await original(**kwargs)
+
+    service._request = changed
+    with pytest.raises(GoogleConnectionError, match="timezone changed"):
+        asyncio.run(service.execute(user_id="user-1", proposal_id=review["proposal_id"]))
+    assert len(scanned) == 1 and all(call["method"] == "GET" for call in requests)
+
+
+def test_weekly_conflicts_use_source_calendar_zone_for_date_only_events() -> None:
+    from hushh_mcp.services.calendar_proposal_options import series_conflicts
+
+    plan = {
+        "start_at": "2026-11-02T02:00:00Z",
+        "end_at": "2026-11-02T03:00:00Z",
+        "time_zone": "UTC",
+        "weekly_recurrence": {"count": 2},
+    }
+    event = {
+        "start": {"date": "2026-11-01"},
+        "end": {"date": "2026-11-02"},
+        "calendar_time_zone": "America/Los_Angeles",
+    }
+    assert series_conflicts(plan, [event]) == [event]
+    with pytest.raises(GoogleConnectionError, match="timing could not be verified"):
+        series_conflicts(plan, [{**event, "calendar_time_zone": None}])
+
+
+def test_metadata_update_keeps_large_existing_guest_lists(
+    monkeypatch,
+) -> None:
+    service, requests, _ = _reschedule_harness(
+        _event(
+            attendees=[
+                {"email": f"person-{i}@example.com", "responseStatus": "accepted"}
+                for i in range(101)
+            ]
+        )
+    )
+    review = asyncio.run(
+        service.propose(
+            user_id="user-1",
+            action="reschedule",
+            payload={
+                "event_id": "evt-1",
+                "title": "Updated title",
+            },
+        )
+    )
+    asyncio.run(service.execute(user_id="user-1", proposal_id=review["proposal_id"]))
+    patch = next(call for call in requests if call["method"] == "PATCH")
+    assert patch["payload"] == {"summary": "Updated title"}
+
+
+def test_creator_identity_uses_selected_connection_and_rechecks_binding() -> None:
+    service = GoogleCalendarService(db=_Db(), connections=_Connections())
+
+    async def status(**kwargs):
+        return {"connected": True, "google_email": "OWNER@example.com"}
+
+    service.connections.status = status
+    assert (
+        asyncio.run(
+            service.creator_account_email(
+                user_id="user-1", expected_binding=service.connections.binding
+            )
+        )
+        == "owner@example.com"
+    )
+    old = service.connections.binding
+    service.connections.binding = (*old, "changed")
+    with pytest.raises(GoogleConnectionError, match="changed"):
+        asyncio.run(service.creator_account_email(user_id="user-1", expected_binding=old))
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"repeat_weekly": True},
+        {"repeat_weekly": True, "repeat_count": 53},
+        {"repeat_weekly": True, "repeat_count": True},
+        {"repeat_weekly": True, "repeat_count": 3, "repeat_until": "2026-12-01"},
+        {"reminder_minutes": [40321]},
+        {"reminder_minutes": [True]},
+        {"start_date": "2026-11-01", "end_date": "2026-11-02"},
+    ],
+)
+def test_invalid_optional_fields_never_issue_a_review_or_provider_write(options) -> None:
+    service, requests, stored = _reschedule_harness(_event())
+    with pytest.raises(GoogleConnectionError):
+        asyncio.run(
+            service.propose(
+                user_id="user-1",
+                action="create",
+                payload={
+                    "title": "Planning",
+                    "start_at": "2026-11-01T09:00:00Z",
+                    "end_at": "2026-11-01T10:00:00Z",
+                    "time_zone": "UTC",
+                    **options,
+                },
+            )
+        )
+    assert requests == [] and stored == {}
 
 
 @pytest.mark.parametrize(

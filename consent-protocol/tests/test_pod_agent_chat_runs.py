@@ -669,3 +669,13 @@ async def test_main_chat_forwarded_prop_sets_canonical_one_title():
 
     side_state, _ = pod_agent_chat.trusted_state(_turn(), _owner())
     assert "hussh:thread_title" not in side_state
+
+
+@pytest.mark.parametrize(
+    "contract, admitted", [(1, True), (True, False), ("1", False), (None, False), (2, False)]
+)
+async def test_calendar_review_contract_requires_the_exact_supported_client_version(
+    contract, admitted
+):
+    state, _ = pod_agent_chat.trusted_state(_turn(calendarReviewContract=contract), _owner())
+    assert state["temp:one_calendar_review_contract"] is admitted
