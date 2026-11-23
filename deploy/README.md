@@ -503,6 +503,44 @@ provider and deploy service account. Production WIF setup is owned by
 `deploy/iam/setup_production_github_wif.sh`; never provision a parallel provider
 or restore a JSON service-account key.
 
+### One adoption pilot source
+
+The normal `hushh-pda-uat` backend deployment keeps the adoption source off
+unless the reviewed UAT application revision contains
+`deploy/metrics-uat-secret-versions.txt`. After the source owner approves the
+pilot population, reconciliation, identity and capacity, commit one line of
+three space-separated positive Secret Manager version numbers, in this order:
+`ONE_METRICS_UAT_ADOPTION_SECRET`, `ONE_METRICS_UAT_ADOPTION_BINDING_JSON`, and
+`ONE_METRICS_UAT_REPORTING_POLICY_JSON`. Store the values in Secret Manager and
+grant the UAT backend identity access to those resources. Use the matching UAT
+signing key in the Metrics collector's separate Secret Manager binding.
+
+Land the backend deploy wiring on Main and sync the same tooling into UAT
+before exact-source qualification. Verify the selected revision's secret
+references, Firebase and Cloud SQL authorities, signed collector request,
+and rollback target before accepting the source. Roll back through the
+governed release path to the prior source-off revision, or remove the
+version file from the next qualified UAT deployment.
+
+For the canonical Production backend in `hushh-pda`, the separate opt-in file
+is `deploy/metrics-production-secret-versions.txt`. After independent
+closed-day reconciliation and runtime qualification, pin two positive version
+numbers on one line, signing first and binding second. The secrets are
+`ONE_METRICS_ADOPTION_SECRET` and `ONE_METRICS_ADOPTION_BINDING_JSON`.
+The collector needs the matching Production signing key. The binding carries
+the revision of the existing Production PLG population policy. Omitting the
+file keeps this source off on the next normal release.
+
+For the independent closed-day reference, the One database owner runs
+`consent-protocol/.venv/bin/python consent-protocol/scripts/ops/one_adoption_reference.py --day YYYY-MM-DD --population-revision DIGEST`
+from a clean, reviewed checkout in the existing authorized Production operator
+session. The session supplies the source's effective population and Firebase
+settings and the normal libpq connection. The operation verifies the connected
+Production cluster and role, uses one read-only repeatable-read snapshot, and
+enumerates confirmed effects per eligible owner. Return the aggregate receipt to
+Metrics with the population rules. An incomplete or unauthorized read produces
+no totals. Keep the collector held until the independent reference is accepted.
+
 ## Verification model
 
 Every hosted deployment must prove:
