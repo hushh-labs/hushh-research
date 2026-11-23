@@ -1257,7 +1257,11 @@ def test_all_day_create_reviews_civil_dates_and_posts_date_only_across_dst(weekl
     )
     if weekly:
         assert review["plan"]["recurrence_last_date"] == "2026-11-15"
-    asyncio.run(service.execute(user_id="user-1", proposal_id=review["proposal_id"]))
+    asyncio.run(
+        service.execute(
+            user_id="user-1", proposal_id=review["proposal_id"], client_review_contract=1
+        )
+    )
     post = next(call for call in requests if call["method"] == "POST")
     assert post["payload"]["start"] == {"date": "2026-11-01"}
     assert post["payload"]["end"] == {"date": "2026-11-02"}
@@ -1316,7 +1320,11 @@ def test_weekly_review_checks_later_occurrences_and_blocks_new_conflicts() -> No
     assert scans[0]["end_at"] == "2026-03-15T16:30:00+00:00"
     assert review["plan"]["recurrence"] == ["RRULE:FREQ=WEEKLY;COUNT=3"]
     with pytest.raises(GoogleConnectionError, match="availability changed"):
-        asyncio.run(service.execute(user_id="user-1", proposal_id=review["proposal_id"]))
+        asyncio.run(
+            service.execute(
+                user_id="user-1", proposal_id=review["proposal_id"], client_review_contract=1
+            )
+        )
     assert not requests
 
 
@@ -1343,7 +1351,11 @@ def test_weekly_create_retains_zone_and_exact_count_in_provider_payload() -> Non
         "2026-03-08T16:00:00+00:00",
         "2026-03-15T16:00:00+00:00",
     ]
-    asyncio.run(service.execute(user_id="user-1", proposal_id=review["proposal_id"]))
+    asyncio.run(
+        service.execute(
+            user_id="user-1", proposal_id=review["proposal_id"], client_review_contract=1
+        )
+    )
     post = next(call for call in requests if call["method"] == "POST")
     assert post["payload"]["recurrence"] == ["RRULE:FREQ=WEEKLY;COUNT=3"]
     assert post["payload"]["start"]["timeZone"] == "America/Los_Angeles"
@@ -1368,7 +1380,11 @@ def test_metadata_only_guest_and_reminder_additions_preserve_current_records() -
     assert review["plan"]["attendee_change"]["removed"] == []
     assert review["plan"]["attendee_change"]["added"] == ["new@example.com"]
     assert all(call["method"] == "GET" for call in requests)
-    asyncio.run(service.execute(user_id="user-1", proposal_id=review["proposal_id"]))
+    asyncio.run(
+        service.execute(
+            user_id="user-1", proposal_id=review["proposal_id"], client_review_contract=1
+        )
+    )
     patch = next(call for call in requests if call["method"] == "PATCH")
     assert "start" not in patch["payload"] and "end" not in patch["payload"]
     assert patch["payload"]["attendees"][:-1] == [
@@ -1461,7 +1477,11 @@ def test_all_day_coverage_uses_calendar_zone_and_refuses_a_changed_zone() -> Non
 
     service._request = changed
     with pytest.raises(GoogleConnectionError, match="timezone changed"):
-        asyncio.run(service.execute(user_id="user-1", proposal_id=review["proposal_id"]))
+        asyncio.run(
+            service.execute(
+                user_id="user-1", proposal_id=review["proposal_id"], client_review_contract=1
+            )
+        )
     assert len(scanned) == 1 and all(call["method"] == "GET" for call in requests)
 
 
@@ -1505,7 +1525,11 @@ def test_metadata_update_keeps_large_existing_guest_lists_and_contacts_authority
             },
         )
     )
-    asyncio.run(service.execute(user_id="user-1", proposal_id=review["proposal_id"]))
+    asyncio.run(
+        service.execute(
+            user_id="user-1", proposal_id=review["proposal_id"], client_review_contract=1
+        )
+    )
     patch = next(call for call in requests if call["method"] == "PATCH")
     assert patch["payload"] == {"summary": "Updated title"}
 
@@ -1533,7 +1557,11 @@ def test_metadata_update_keeps_large_existing_guest_lists_and_contacts_authority
 
     monkeypatch.setattr(service, "_check_attendee_grant", revoked)
     with pytest.raises(GoogleConnectionError, match="Contacts connection changed"):
-        asyncio.run(service.execute(user_id="user-1", proposal_id=review["proposal_id"]))
+        asyncio.run(
+            service.execute(
+                user_id="user-1", proposal_id=review["proposal_id"], client_review_contract=1
+            )
+        )
     assert all(call["method"] == "GET" for call in requests)
 
 
@@ -1580,12 +1608,38 @@ def test_extended_review_storage_refuses_legacy_consumers_and_retains_exact_effe
     assert sealed["review_contract"] == 1 and "connection_binding" not in sealed
     assert sealed["review_connection_binding"] == list(service.connections.binding)
     assert review["plan"] == sealed
-    asyncio.run(service.execute(user_id="user-1", proposal_id=review["proposal_id"]))
+    asyncio.run(
+        service.execute(
+            user_id="user-1", proposal_id=review["proposal_id"], client_review_contract=1
+        )
+    )
     post = next(call for call in requests if call["method"] == "POST")
     if "repeat_weekly" in options:
         assert post["payload"]["recurrence"] == ["RRULE:FREQ=WEEKLY;COUNT=3"]
     else:
         assert post["payload"]["reminders"]["overrides"] == [{"method": "popup", "minutes": 15}]
+
+
+@pytest.mark.parametrize("client_version", [None, True, False, "1", 1.0, 2])
+def test_extended_review_requires_current_confirming_screen_before_provider(client_version) -> None:
+    service, requests, _ = _reschedule_harness(_event())
+    review = asyncio.run(
+        service.propose(
+            user_id="user-1",
+            action="reschedule",
+            payload={"event_id": "evt-1", "add_attendees": ["new@example.com"]},
+        )
+    )
+    requests.clear()
+    with pytest.raises(GoogleConnectionError, match="review needs a new version"):
+        asyncio.run(
+            service.execute(
+                user_id="user-1",
+                proposal_id=review["proposal_id"],
+                client_review_contract=client_version,
+            )
+        )
+    assert requests == []
 
 
 @pytest.mark.parametrize(
@@ -1619,7 +1673,11 @@ def test_ambiguous_or_unversioned_extended_review_never_reaches_provider(damage)
     stored["payload_json"] = json.dumps(sealed)
     requests.clear()
     with pytest.raises(GoogleConnectionError, match="review needs a new version"):
-        asyncio.run(service.execute(user_id="user-1", proposal_id=review["proposal_id"]))
+        asyncio.run(
+            service.execute(
+                user_id="user-1", proposal_id=review["proposal_id"], client_review_contract=1
+            )
+        )
     assert requests == []
 
 

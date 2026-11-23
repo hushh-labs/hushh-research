@@ -10,6 +10,7 @@ before anything is sent, so a repeat confirmation runs nothing.
 from __future__ import annotations
 
 import base64
+import json
 from datetime import UTC, datetime, timedelta
 from email import policy
 from email.parser import BytesParser
@@ -258,6 +259,45 @@ async def test_a_calendar_change_runs_once_on_the_owners_own_confirmation(agent)
     assert len(google.calls("POST", EVENTS)) == 1, "a repeat confirmation sends nothing"
     assert ("calendar", "manage") in tokens.asks
     assert _Session.held >= 2, "every confirmation requires a held incarnation"
+
+
+@pytest.mark.parametrize("version", [None, 1, True, "1", 1.0, 2])
+async def test_extended_calendar_review_requires_supported_confirming_screen(agent, version):
+    _log, _tokens, google = agent
+    context = h.tool_context()
+    context.state["temp:one_calendar_review_contract"] = True
+    result = await calendar_tools.propose_calendar_event(
+        context,
+        title="Lunch",
+        start_at="2026-10-07T12:00:00Z",
+        end_at="2026-10-07T13:00:00Z",
+        reminder_minutes=[15],
+    )
+    assert result["status"] == "confirmation_required", result
+    with _client() as client:
+        response = client.post(
+            f"/api/one/pod/actions/{result['proposal_id']}/confirm",
+            headers=OWNER_SESSION,
+            **({"json": {"review_contract": version}} if version is not None else {}),
+        )
+    if type(version) is int and version == 1:
+        assert response.status_code == 200, response.text
+        [write] = google.calls("POST", EVENTS)
+        assert json.loads(write.content)["reminders"]["overrides"] == [
+            {"method": "popup", "minutes": 15}
+        ]
+    else:
+        assert response.status_code == (409 if version is None else 422), response.text
+        assert google.calls("POST", EVENTS) == []
+
+
+async def test_calendar_confirmation_requires_authority_before_parsing_body(agent):
+    _log, _tokens, google = agent
+    proposal_id = await _propose_lunch()
+    with _client() as client:
+        response = client.post(f"/api/one/pod/actions/{proposal_id}/confirm", content=b"not-json")
+    assert response.status_code == 401
+    assert google.calls("POST", EVENTS) == []
 
 
 def _contact_response(request):

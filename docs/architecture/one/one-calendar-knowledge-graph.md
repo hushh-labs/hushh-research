@@ -97,6 +97,10 @@ updates can add verified guests or reminders with times omitted; PATCH preserves
 unnamed fields, attendee responses and event ETags. Reminder additions preserve
 verified defaults/overrides, with the resulting explicit settings visible in review.
 Extended proposals require the shipping client's Calendar review contract.
+Confirmation must also carry strict integer `review_contract: 1` from the screen
+that displayed the v1 review. Both shared and owner-cloud transports preserve it;
+resuming a pending review on an older screen requires a fresh review. Legacy
+ordinary confirmations retain their existing bodyless or unversioned shape.
 Their sealed storage format omits the legacy execution-binding field. Older
 backends therefore reject pending newer reviews during rollback; the versioned
 consumer restores the binding only after validating the exact stored contract.

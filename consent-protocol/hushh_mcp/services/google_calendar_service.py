@@ -1827,6 +1827,7 @@ class GoogleCalendarService:
         user_id: str,
         proposal_id: str,
         account_id: str = "default",
+        client_review_contract: int | None = None,
         before_create: Callable[[], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         await self._purge_expired_proposals(user_id=user_id)
@@ -1840,7 +1841,9 @@ class GoogleCalendarService:
         plan = proposal["plan"]
         gmail_reply = None
         try:
-            plan = proposal_options.open_review_plan(action=proposal["action"], plan=plan)
+            plan = proposal_options.open_review_plan(
+                action=proposal["action"], plan=plan, client_review_contract=client_review_contract
+            )
             if (
                 not all(key in plan for key in ("account_id", "calendar_id", "connection_binding"))
                 or not plan["connection_binding"]
