@@ -76,7 +76,7 @@
         "device_cache": false,
         "secure_cache": false,
         "cache_sync": true,
-        "resource_wrapper": false,
+        "resource_wrapper": true,
         "direct_fetch": false,
         "api_service": true,
         "hushh_loader": true,
@@ -7381,5 +7381,5 @@
       ]
     }
   ],
-  "content_sha256": "a59fb8190428494475622fde892d06b2ca6bb263457562a0164dd691826e755e"
+  "content_sha256": "4dab382a3a03592e15ba83ff232d9a2c18ede05db5278820da12f578012940b7"
 }

@@ -41,12 +41,14 @@ import { PodSessionLockdownControl } from "@/components/connections/pod-session-
 import { ROUTES } from "@/lib/navigation/routes";
 import {
   HOST_LABELS,
+  hostModeLabel,
   agentSettingsSummary,
   useAgentSettingsController,
   type AgentSettingsController,
 } from "./use-agent-settings-controller";
 export {
   HOST_LABELS,
+  hostModeLabel,
   agentSettingsSummary,
   useAgentSettingsController,
 } from "./use-agent-settings-controller";
@@ -182,7 +184,7 @@ function AgentSettingsBody({
       ? "Checking hosting…"
       : mode === "hussh_pods"
         ? hostedPodDisplayLabel(status.deploymentTarget)
-        : HOST_LABELS[mode];
+        : hostModeLabel(mode);
     const showPooledSandboxSwitch =
       pooledSwitchAvailable &&
       (mode === "byoc" ||
@@ -342,7 +344,7 @@ function AgentSettingsBody({
         ) : null}
 
         {showPooledSandboxSwitch ? (
-          <SettingsGroup title="Personal Sandbox" density="compact" headingClassName="!mt-5">
+          <SettingsGroup title="Confidential Sandbox" density="compact" headingClassName="!mt-5">
             <PooledSandboxSwitchCard
               hasAssignedCloudPod={mode === "byoc" || mode === "hussh_pods"}
               isOwnerCloud={mode === "byoc"}
@@ -448,7 +450,7 @@ function AgentSettingsBody({
             testId="hosting-choice-own-cloud"
           />
           <SettingsRow
-            title={pooledSwitchAvailable ? "Hussh Personal Sandbox" : "Hussh Pods"}
+            title={pooledSwitchAvailable ? "Hussh Confidential Sandbox" : "Hussh Pods"}
             description={
               isPersonalSandboxActive || pooledSwitchAvailable
                 ? "Isolated Confidential Sandbox on Google Cloud."
@@ -559,7 +561,7 @@ function AgentSettingsBody({
         >
           <AlertDialogContent size="default">
             <AlertDialogHeader>
-              <AlertDialogTitle>Switch to Hussh Personal Sandbox?</AlertDialogTitle>
+              <AlertDialogTitle>Switch to Hussh Confidential Sandbox?</AlertDialogTitle>
               <AlertDialogDescription>
                 Move Agent One into an isolated Hussh Confidential Sandbox on Google Cloud with built-in AI. Your encrypted Vault stays intact.
               </AlertDialogDescription>
@@ -591,7 +593,7 @@ function AgentSettingsBody({
                   });
                 }}
               >
-                {busy ? "Switching…" : "Switch to Personal Sandbox"}
+                {busy ? "Switching…" : "Switch to Confidential Sandbox"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

@@ -30,6 +30,7 @@ import {
   hostedPodDisplayLabel,
   hostedPodProvider,
   isHostedAzureMigrationAvailable,
+  isPooledSandboxSwitchAvailable,
   ownerCloudProvider,
   podCloudProvider,
   type OwnerCloudProvider,
@@ -163,8 +164,8 @@ export function SandboxCutoverStatusPill() {
   if (!notice) return null;
 
   const label = notice.backgroundCleanupQueued
-    ? "Personal Sandbox ready · Prior cloud cleanup running in background"
-    : "Personal Sandbox ready";
+    ? "Confidential Sandbox ready · Prior cloud cleanup running in background"
+    : "Confidential Sandbox ready";
 
   return (
     <div className="pointer-events-none fixed inset-x-0 top-[calc(var(--app-top-bar-height,3.5rem)+0.75rem)] z-40 flex justify-center px-4">
@@ -223,6 +224,7 @@ export function HusshPodsActiveCard({
   const confirmBusyRef = useRef(false);
 
   const canInspectSourceRetirement =
+    !isPooledSandboxSwitchAvailable() &&
     (provider === "azure" || isPersonalSandbox) &&
     isHostedAzureMigrationAvailable() &&
     typeof ApiService.getHostedSourceRetirementStatus === "function";
@@ -393,7 +395,7 @@ export function HusshPodsActiveCard({
                 <p className="text-xs text-[var(--app-text-secondary)]">
                   {activeGraceItem.graceExpired
                     ? `3-day safety window complete · Confirm comfort on ${
-                        isPersonalSandbox ? "Personal Sandbox" : "Azure"
+                        isPersonalSandbox ? "Confidential Sandbox" : "Azure"
                       } to retire the prior pod.`
                     : `${activeGraceItem.daysRemaining}d left in 3-day safety window`}
                 </p>
@@ -420,7 +422,7 @@ export function HusshPodsActiveCard({
           <AlertDialogContent size="default">
             <AlertDialogHeader>
               <AlertDialogTitle>
-                {isPersonalSandbox ? "Confirm your Personal Sandbox?" : "Confirm your new Azure pod?"}
+                {isPersonalSandbox ? "Confirm your Confidential Sandbox?" : "Confirm your new Azure pod?"}
               </AlertDialogTitle>
               <AlertDialogDescription>
                 Your prior setup ({activeGraceItem.sourceLabel}) stays untouched until its 3-day
@@ -768,24 +770,24 @@ export function PooledSandboxSwitchCard({
 
   const switchSteps = [
     hasAssignedCloudPod ? "Locking prior pod" : "Preparing workspace",
-    "Waking Personal Sandbox",
+    "Waking Confidential Sandbox",
     "Syncing encrypted history",
     "Opening live session",
   ] as const;
 
   const title = hasAssignedCloudPod
-    ? "Switch to Hussh Personal Sandbox"
-    : "Start in Hussh Personal Sandbox";
+    ? "Switch to Hussh Confidential Sandbox"
+    : "Start in Hussh Confidential Sandbox";
   const body = hasAssignedCloudPod
     ? "Switch to an instant Hussh-managed Confidential Sandbox on Google Cloud with built-in AI. Encrypted conversations sync automatically when your previous pod is reachable (or start fresh automatically if it is offline), while your encrypted Vault stays intact."
     : "Skip custom cloud setup and start right away in an isolated Confidential Sandbox on Google Cloud with built-in AI.";
   const buttonLabel = hasAssignedCloudPod
     ? busy
-      ? "Switching to Personal Sandbox…"
-      : "Switch to Personal Sandbox"
+      ? "Switching to Confidential Sandbox…"
+      : "Switch to Confidential Sandbox"
     : busy
-      ? "Starting Personal Sandbox…"
-      : "Start in Personal Sandbox";
+      ? "Starting Confidential Sandbox…"
+      : "Start in Confidential Sandbox";
 
   const performSwitch = async () => {
     if (busyRef.current || typeof ApiService.adoptPooledSandbox !== "function") return;
@@ -819,13 +821,13 @@ export function PooledSandboxSwitchCard({
       });
       toastHandle = morphyToast.promiseText(request, {
         loading: hasAssignedCloudPod
-          ? "Switching to Hussh Personal Sandbox…"
-          : "Starting Hussh Personal Sandbox…",
-        success: "Your Hussh Personal Sandbox is ready.",
+          ? "Switching to Hussh Confidential Sandbox…"
+          : "Starting Hussh Confidential Sandbox…",
+        success: "Your Hussh Confidential Sandbox is ready.",
         error: (err) =>
           err instanceof Error && err.message
             ? err.message
-            : "Could not switch to Hussh Personal Sandbox right now. Your existing setup is unchanged.",
+            : "Could not switch to Hussh Confidential Sandbox right now. Your existing setup is unchanged.",
         isCurrent: isEffectCurrent,
       });
       const adopted = (await toastHandle.unwrap()) as Awaited<typeof request> | undefined;
@@ -872,7 +874,7 @@ export function PooledSandboxSwitchCard({
         setErrorMessage(
           err instanceof Error && err.message
             ? err.message
-            : "Could not switch to Hussh Personal Sandbox right now. Your existing setup is unchanged.",
+            : "Could not switch to Hussh Confidential Sandbox right now. Your existing setup is unchanged.",
         );
       }
     } finally {
@@ -1014,7 +1016,7 @@ export function PooledSandboxSwitchCard({
         <AlertDialog open={confirmOpen} onOpenChange={(open) => !busy && setConfirmOpen(open)}>
           <AlertDialogContent size="default">
             <AlertDialogHeader>
-              <AlertDialogTitle>Switch to Hussh Personal Sandbox?</AlertDialogTitle>
+              <AlertDialogTitle>Switch to Hussh Confidential Sandbox?</AlertDialogTitle>
               <AlertDialogDescription>
                 {sourceCloudLabel
                   ? `Switch from ${sourceCloudLabel} to an isolated Hussh Confidential Sandbox on Google Cloud with built-in AI.`

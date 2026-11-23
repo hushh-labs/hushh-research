@@ -59,12 +59,13 @@ describe("useAiPlacement", () => {
     failed.unmount();
   });
 
-  it("maps Personal Sandbox (ace) states cleanly so active sandboxes enable Use Hussh AI", async () => {
+  it("maps Personal Sandbox (ace) non-failed states to shared so Setup > Cloud never locks during cold wake", async () => {
     for (const [state, expected] of [
       ["active", "shared"],
+      ["connecting", "shared"],
+      ["reserved", "shared"],
+      ["provisioning", "shared"],
       ["failed", "unknown"],
-      ["connecting", "pending"],
-      ["reserved", "pending"],
     ] as const) {
       const guard = () => () => true;
       const reset = vi.fn();

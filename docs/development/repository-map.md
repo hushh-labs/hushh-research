@@ -32,4 +32,7 @@ flowchart LR
 | Product and technical knowledge | `docs/` | [Documentation hub](../README.md) |
 
 Preserve identity, vault, consent, owner fencing and recovery contracts across
-surfaces. Package-local instructions refine the root operating contract.
+surfaces. Package-local instructions refine the root operating contract. For
+cloud storage, KMS custody, capability-prefix, and sandbox or BYOC adapters, run
+`./bin/hushh protocol floci` and read
+[Floci multi-cloud wire verification](quality/floci-multicloud-wire-verification.md).

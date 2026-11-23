@@ -18,6 +18,10 @@ vi.mock("@/lib/observability/client", () => ({
 }));
 
 import {
+  publishPendingAuthSessionIdentity,
+  publishValidatedAuthSessionPrincipal,
+} from "@/lib/auth/session-owner";
+import {
   clearAgentChatHistoryCache,
   evictInMemoryAgentChatHistoryForTests,
   hydrateAgentChatHistoryFromEncryptedCache,
@@ -242,11 +246,66 @@ describe("agent chat history memory cache", () => {
     expect(hydrated!.conversations).toEqual([conversation]);
     expect(hydrated!.latestMessages).toEqual(messages);
 
-    // Vault lock / sign-out wipes encrypted replica.
-    clearAgentChatHistoryCache("user-enc-1");
+    // Idle/vault lock (includeDevice: false) drops RAM while preserving encrypted IDB replica.
+    clearAgentChatHistoryCache("user-enc-1", { includeDevice: false });
+    expect(peekAgentChatHistoryCache("user-enc-1")).toBeNull();
+    expect(inspectRawMemoryUiCacheForTests().has("user-enc-1::chat-history:v1")).toBe(true);
+    const restoredAfterLock = await hydrateAgentChatHistoryFromEncryptedCache({
+      userId: "user-enc-1",
+      vaultKey: realVaultKey,
+    });
+    expect(restoredAfterLock?.conversations).toEqual([conversation]);
+
+    // Explicit sign-out (includeDevice: true) wipes encrypted replica.
+    clearAgentChatHistoryCache("user-enc-1", { includeDevice: true });
     await vi.waitFor(() => {
       expect(inspectRawMemoryUiCacheForTests().has("user-enc-1::chat-history:v1")).toBe(false);
     });
+  });
+
+  it("retains encrypted chat history across pending auth reload and wipes on confirmed owner switch", async () => {
+    await deleteEncryptedOwnerUiRecords();
+    const realVaultKey = "d4".repeat(32);
+    publishValidatedAuthSessionPrincipal({
+      firebaseUid: "firebase-a",
+      ownerId: "owner-a",
+      accountGeneration: 1,
+    });
+    const input = { userId: "owner-a", vaultOwnerToken: "token", vaultKey: realVaultKey };
+    await warmAgentChatHistoryCache(input);
+    await loadAgentChatConversationHistory({ ...input, conversationId: conversation.id });
+    await flushEncryptedOwnerUiWritesForTests();
+    expect(inspectRawMemoryUiCacheForTests().has("owner-a::chat-history:v1")).toBe(true);
+
+    // Reload: RAM is empty and auth enters pending state before principal validation.
+    evictInMemoryAgentChatHistoryForTests("owner-a");
+    publishPendingAuthSessionIdentity("firebase-a");
+    expect(inspectRawMemoryUiCacheForTests().has("owner-a::chat-history:v1")).toBe(true);
+
+    publishValidatedAuthSessionPrincipal({
+      firebaseUid: "firebase-a",
+      ownerId: "owner-a",
+      accountGeneration: 1,
+    });
+    const hydrated = await hydrateAgentChatHistoryFromEncryptedCache({
+      userId: "owner-a",
+      vaultKey: realVaultKey,
+    });
+    expect(hydrated).not.toBeNull();
+    expect(hydrated!.isFresh).toBe(false);
+    expect(hydrated!.conversations).toEqual([conversation]);
+    expect(hydrated!.latestMessages).toEqual(messages);
+
+    // Confirmed switch to a different validated owner wipes prior owner encrypted IDB.
+    publishValidatedAuthSessionPrincipal({
+      firebaseUid: "firebase-b",
+      ownerId: "owner-b",
+      accountGeneration: 1,
+    });
+    await vi.waitFor(() => {
+      expect(inspectRawMemoryUiCacheForTests().has("owner-a::chat-history:v1")).toBe(false);
+    });
+    publishValidatedAuthSessionPrincipal(null);
   });
 
   it("fences encrypted owner UI records against cross-owner or cross-namespace AAD substitution", async () => {
@@ -276,5 +335,38 @@ describe("agent chat history memory cache", () => {
       namespace: "files:list:root:live",
     });
     expect(genuine?.value.entries[0]?.name).toBe("tax-return.pdf");
+  });
+
+  it("purges stale non-current owner IDB records after a cold reload when a different owner validates", async () => {
+    await deleteEncryptedOwnerUiRecords();
+    const vaultKeyA = "a9".repeat(32);
+    publishValidatedAuthSessionPrincipal({
+      firebaseUid: "firebase-a",
+      ownerId: "owner-a",
+      accountGeneration: 1,
+    });
+    await warmAgentChatHistoryCache({
+      userId: "owner-a",
+      vaultOwnerToken: "token-a",
+      vaultKey: vaultKeyA,
+    });
+    await flushEncryptedOwnerUiWritesForTests();
+    expect(inspectRawMemoryUiCacheForTests().has("owner-a::chat-history:v1")).toBe(true);
+
+    // Simulate cold reload where RAM maps are cleared without calling sign-out.
+    evictInMemoryAgentChatHistoryForTests("owner-a");
+    publishPendingAuthSessionIdentity("firebase-b");
+    expect(inspectRawMemoryUiCacheForTests().has("owner-a::chat-history:v1")).toBe(true);
+
+    // Validating owner-b must still purge owner-a::chat-history:v1 from encrypted IDB.
+    publishValidatedAuthSessionPrincipal({
+      firebaseUid: "firebase-b",
+      ownerId: "owner-b",
+      accountGeneration: 2,
+    });
+    await vi.waitFor(() => {
+      expect(inspectRawMemoryUiCacheForTests().has("owner-a::chat-history:v1")).toBe(false);
+    });
+    publishValidatedAuthSessionPrincipal(null);
   });
 });

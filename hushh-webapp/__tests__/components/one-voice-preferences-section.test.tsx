@@ -92,7 +92,7 @@ describe("describeOneVoiceLiveStatus", () => {
     });
   });
 
-  it("explains Personal Sandbox private commands and Azure unavailability clearly", () => {
+  it("explains Confidential Sandbox private commands and Azure unavailability clearly", () => {
     expect(
       describeOneVoiceLiveStatus(
         resolved({
@@ -104,7 +104,7 @@ describe("describeOneVoiceLiveStatus", () => {
     ).toMatchObject({
       status: "ready",
       label: "Private commands",
-      description: "Recorded commands run privately on your Personal Sandbox.",
+      description: "Recorded commands run privately on your Confidential Sandbox.",
     });
 
     expect(
@@ -119,7 +119,7 @@ describe("describeOneVoiceLiveStatus", () => {
       status: "unavailable",
       label: "Unavailable",
       description:
-        "Voice is not supported on Azure hosting yet. Switch to Personal Sandbox, Google Cloud, or Shared in Hosting to use voice.",
+        "Voice is not supported on Azure hosting yet. Switch to Confidential Sandbox, Google Cloud, or Shared in Hosting to use voice.",
     });
   });
 });

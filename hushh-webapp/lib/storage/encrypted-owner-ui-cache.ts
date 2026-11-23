@@ -344,6 +344,53 @@ export async function deleteEncryptedOwnerUiRecords(
   }
 }
 
+/** Purge all encrypted UI cache records belonging to any owner other than `activeOwnerId`. */
+export async function deleteEncryptedOwnerUiRecordsExceptOwner(
+  activeOwnerId: string,
+): Promise<void> {
+  const cleanActive = String(activeOwnerId || "").trim();
+  if (!cleanActive) return;
+
+  for (const [key, entry] of memoryRecords.entries()) {
+    if (entry.ownerId !== cleanActive) {
+      writeSeqByKey.set(key, (writeSeqByKey.get(key) ?? 0) + 1);
+      memoryRecords.delete(key);
+    }
+  }
+  for (const key of writeSeqByKey.keys()) {
+    const [recOwner = ""] = key.split("::");
+    if (recOwner !== cleanActive) {
+      writeSeqByKey.set(key, (writeSeqByKey.get(key) ?? 0) + 1);
+    }
+  }
+
+  const db = await openDb();
+  if (!db) return;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(RECORD_STORE, "readwrite");
+      const store = tx.objectStore(RECORD_STORE);
+      const cursorReq = store.openCursor();
+      cursorReq.onsuccess = () => {
+        const cursor = cursorReq.result;
+        if (!cursor) return;
+        const val = cursor.value as StoredEncryptedUiRecord;
+        if (val.ownerId !== cleanActive) {
+          cursor.delete();
+        }
+        cursor.continue();
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error("UI_CACHE_DELETE_FAILED"));
+      tx.onabort = () => reject(tx.error ?? new Error("UI_CACHE_DELETE_ABORTED"));
+    });
+  } catch {
+    // Best-effort cleanup.
+  } finally {
+    db.close();
+  }
+}
+
 /** Test-only helper to inspect raw stored records and reset in-memory fallback. */
 export function inspectRawMemoryUiCacheForTests(): ReadonlyMap<string, StoredEncryptedUiRecord> {
   return memoryRecords;

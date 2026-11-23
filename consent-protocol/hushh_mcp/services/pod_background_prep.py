@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from collections.abc import Iterable, Mapping
 from datetime import datetime, timezone
@@ -43,7 +44,10 @@ from hushh_mcp.services.pod_config import (
 logger = logging.getLogger(__name__)
 
 WAKE_BUDGET_RECORD_KIND = "pod_background_wake_budget_v1"
+GOAL_PREP_RECORD_KIND = "pod_background_goal_prep_v1"
+SCHEDULED_GOAL_SURFACE = "scheduled_goal"
 MAX_CANDIDATES_PER_WAKE = 16
+_GOAL_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 
 
 def _utc_day_key(now_s: float) -> str:
@@ -90,6 +94,57 @@ async def record_wake_budget_spend(
     )
 
 
+async def stage_scheduled_goal_prep(
+    log: Any,
+    *,
+    hushh_id: str,
+    candidates: Iterable[Mapping[str, Any]],
+    now_s: float,
+) -> int:
+    """Stage bounded, DEK-sealed scheduled Goal prep items without a chat key.
+
+    Fails closed if the sealed commit log is missing, owned by another HusshID,
+    or fenced for erasure. Zero plaintext touches disk or central Hub.
+    """
+    clean_hushh_id = str(hushh_id or "").strip()
+    if log is None or not clean_hushh_id or getattr(log, "_owner_id", None) != clean_hushh_id:
+        raise PermissionError("GOAL_PREP_CUSTODY_UNAVAILABLE")
+    await log.require_open()
+
+    entries: list[dict[str, Any]] = []
+    for cand in candidates:
+        goal_id = str(cand.get("goal_id") or cand.get("goalId") or "").strip()
+        summary = str(cand.get("summary_text") or "").strip()
+        if not _GOAL_ID_RE.fullmatch(goal_id) or len(summary) < 4:
+            continue
+        entries.append(
+            {
+                "goalId": goal_id,
+                "summary": summary[:1000],
+                "provenance": {
+                    "provenance_kind": "scheduled_goal_prep",
+                    "trust_tier": "pod_dek_sealed",
+                    "requires_owner_review": True,
+                    "chat_key_required": False,
+                },
+            }
+        )
+    if not entries:
+        return 0
+
+    await log.append(
+        GOAL_PREP_RECORD_KIND,
+        {
+            "hushh_id": clean_hushh_id,
+            "surface": SCHEDULED_GOAL_SURFACE,
+            "preparedAtMs": int(now_s * 1000),
+            "entries": entries,
+        },
+    )
+    await log.require_open()
+    return len(entries)
+
+
 def enabled_background_surfaces(config: PodConfig) -> tuple[str, ...]:
     """Return the subset of connector surfaces currently enabled on ``config``."""
     if config.session_only_lockdown or not config.background_prep_enabled:
@@ -134,6 +189,7 @@ async def run_pod_background_prep(
             "wikiUpdatesCurated": 0,
             "vaultProposalsStaged": 0,
             "droppedLowSignal": 0,
+            "goalsPrepared": 0,
         }
 
     if not cfg.background_prep_enabled:
@@ -146,33 +202,47 @@ async def run_pod_background_prep(
             "wikiUpdatesCurated": 0,
             "vaultProposalsStaged": 0,
             "droppedLowSignal": 0,
+            "goalsPrepared": 0,
         }
 
     allowed_surfaces = enabled_background_surfaces(cfg)
     payload = dict(wake_payload or {})
     raw_signals = payload.get("signals")
     requested_surfaces: list[str] = []
+    goal_wake_requested = False
     if isinstance(raw_signals, list):
         for item in raw_signals[:32]:
             raw_surface = item.get("surface") if isinstance(item, Mapping) else str(item or "")
+            clean_surface = str(raw_surface or "").strip().lower()
+            if clean_surface == SCHEDULED_GOAL_SURFACE:
+                goal_wake_requested = True
+                continue
             try:
-                norm = normalize_background_surface(str(raw_surface or ""))
+                norm = normalize_background_surface(clean_surface)
             except ValueError:
                 continue
             if norm == "information_exchange_and_browser" or norm in allowed_surfaces:
                 requested_surfaces.append(norm)
 
     candidate_list = list(candidates or [])[:MAX_CANDIDATES_PER_WAKE]
+    goal_candidates: list[Mapping[str, Any]] = []
+    connector_candidates: list[Mapping[str, Any]] = []
     for cand in candidate_list:
+        clean_surface = str(cand.get("surface") or "").strip().lower()
+        if clean_surface == SCHEDULED_GOAL_SURFACE:
+            goal_wake_requested = True
+            goal_candidates.append(cand)
+            continue
         try:
-            norm = normalize_background_surface(str(cand.get("surface") or ""))
+            norm = normalize_background_surface(clean_surface)
         except ValueError:
             continue
         if norm == "information_exchange_and_browser" or norm in allowed_surfaces:
             requested_surfaces.append(norm)
+            connector_candidates.append(cand)
 
     active_surfaces = tuple(dict.fromkeys(requested_surfaces))
-    if not active_surfaces and not candidate_list:
+    if not active_surfaces and not connector_candidates and not goal_wake_requested:
         return {
             "status": "idle",
             "enabledSurfaces": list(allowed_surfaces),
@@ -182,6 +252,7 @@ async def run_pod_background_prep(
             "wikiUpdatesCurated": 0,
             "vaultProposalsStaged": 0,
             "droppedLowSignal": 0,
+            "goalsPrepared": 0,
         }
 
     if log is None:
@@ -207,13 +278,20 @@ async def run_pod_background_prep(
             "wikiUpdatesCurated": 0,
             "vaultProposalsStaged": 0,
             "droppedLowSignal": 0,
+            "goalsPrepared": 0,
         }
 
+    if (goal_candidates or goal_wake_requested) and log is not None:
+        if not hushh_id or getattr(log, "_owner_id", None) != hushh_id:
+            raise PermissionError("GOAL_PREP_CUSTODY_UNAVAILABLE")
+        await log.require_open()
+
+    budget_surfaces = active_surfaces + ((SCHEDULED_GOAL_SURFACE,) if goal_wake_requested else ())
     await record_wake_budget_spend(
         log,
         hushh_id=hushh_id,
         day_key=day_key,
-        surfaces=active_surfaces or UNTRUSTED_BACKGROUND_SURFACES,
+        surfaces=budget_surfaces or UNTRUSTED_BACKGROUND_SURFACES,
         now_s=now_s,
     )
 
@@ -221,6 +299,15 @@ async def run_pod_background_prep(
         candidate_tools or {},
         active_surfaces=active_surfaces or UNTRUSTED_BACKGROUND_SURFACES,
     )
+
+    goals_prepared = 0
+    if goal_candidates:
+        goals_prepared = await stage_scheduled_goal_prep(
+            log,
+            hushh_id=hushh_id,
+            candidates=goal_candidates,
+            now_s=now_s,
+        )
 
     drafts_prepared = 0
     memory_curated = 0
@@ -230,7 +317,7 @@ async def run_pod_background_prep(
     blocked_overrides = 0
     existing_map = dict(existing_facts_by_key or {})
 
-    for cand in candidate_list:
+    for cand in connector_candidates:
         raw_surface = str(cand.get("surface") or "")
         try:
             norm_surface = normalize_background_surface(raw_surface)
@@ -287,14 +374,20 @@ async def run_pod_background_prep(
         "vaultProposalsStaged": vault_staged,
         "droppedLowSignal": dropped_low_signal,
         "blockedOwnerOverrides": blocked_overrides,
+        "goalsPrepared": goals_prepared,
+        "scheduledGoalActive": goal_wake_requested,
+        "goalCustodyMode": "pod_dek_sealed",
     }
 
 
 __all__ = [
+    "GOAL_PREP_RECORD_KIND",
     "MAX_CANDIDATES_PER_WAKE",
+    "SCHEDULED_GOAL_SURFACE",
     "WAKE_BUDGET_RECORD_KIND",
     "count_wakes_for_day",
     "enabled_background_surfaces",
     "record_wake_budget_spend",
     "run_pod_background_prep",
+    "stage_scheduled_goal_prep",
 ]

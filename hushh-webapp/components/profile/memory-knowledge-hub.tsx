@@ -4,7 +4,10 @@ import { useContext, useEffect, useState } from "react";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { useAuth } from "@/hooks/use-auth";
-import { peekFilesWikiOverviewCache } from "@/lib/files/files-cache";
+import {
+  hydrateFilesCacheFromEncryptedCache,
+  peekFilesWikiOverviewCache,
+} from "@/lib/files/files-cache";
 import { FilesService, type WikiOverview } from "@/lib/files/service";
 import { useFilesConnection } from "@/lib/files/use-files-connection";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -44,9 +47,38 @@ export function MemoryKnowledgeHub({
   );
 
   useEffect(() => {
-    if (!filesAvailable) {
+    if (!userId || !vaultKey) {
       setWikiOverview(null);
       return;
+    }
+    const warm = peekFilesWikiOverviewCache(userId);
+    if (warm) {
+      setWikiOverview(warm);
+      return;
+    }
+    if (typeof hydrateFilesCacheFromEncryptedCache !== "function") {
+      return;
+    }
+    let active = true;
+    void hydrateFilesCacheFromEncryptedCache(userId, vaultKey)
+      .then((hydrated) => {
+        if (active && hydrated.wikiOverview) {
+          setWikiOverview(hydrated.wikiOverview);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [userId, vaultKey]);
+
+  useEffect(() => {
+    if (!filesAvailable) {
+      return;
+    }
+    if (userId) {
+      const warm = peekFilesWikiOverviewCache(userId);
+      if (warm) setWikiOverview(warm);
     }
     const controller = new AbortController();
     void FilesService.wikiOverview(controller.signal)
@@ -57,7 +89,7 @@ export function MemoryKnowledgeHub({
         // Keep cached summary when background refresh fails.
       });
     return () => controller.abort();
-  }, [filesAvailable]);
+  }, [filesAvailable, userId]);
 
   const pageCount = wikiOverview?.pages.length ?? 0;
   const pendingCount = wikiOverview?.candidateReceipts.length ?? 0;

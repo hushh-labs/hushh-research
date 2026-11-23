@@ -11,6 +11,7 @@ def active_scheduled_tasks() -> ScheduledTasks:
     from hushh_mcp.services.pod_scheduled_authority import ScheduledGrantAuthority
     from hushh_mcp.services.pod_scheduled_delivery import GcpScheduledDelivery
     from hushh_mcp.services.pod_scheduled_files import ScheduledFileOrganization
+    from hushh_mcp.services.pod_scheduled_one import ScheduledOneTask
     from hushh_mcp.services.pod_session_authority import active_session_authority
     from hushh_mcp.services.pod_upgrade_admission import ADMISSION, pod_incarnation
 
@@ -39,7 +40,10 @@ def active_scheduled_tasks() -> ScheduledTasks:
     runtime = ScheduledTasks(
         access=ScheduleAccess(owner, authority.hushh_id, incarnation, check),
         log=log,
-        capabilities={"agent_files.organize_file.v1": ScheduledFileOrganization(check)},
+        capabilities={
+            "agent_files.organize_file.v1": ScheduledFileOrganization(check),
+            "agent_one.execute_task.v1": ScheduledOneTask(grants, log, check),
+        },
         delivery=GcpScheduledDelivery(log._store),
         admission=ADMISSION,
         check_grant=grants.check_grant,

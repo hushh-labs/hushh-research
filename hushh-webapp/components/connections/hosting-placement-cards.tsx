@@ -32,7 +32,7 @@ const ACTION = "min-h-11 self-start text-sm underline underline-offset-4 disable
 /** How often a connecting agent is re-checked while this screen is open. */
 export const CONNECTING_POLL_MS = 5_000;
 
-/** Tier cards. On Confidential Sandbox cutover lanes, Hussh Shared is retired in favor of Personal Sandbox + BYOC. */
+/** Tier cards. On Confidential Sandbox cutover lanes, Hussh Shared is retired in favor of Confidential Sandbox + BYOC. */
 export function hostingOptionsFor({
   azureSelectable,
   hostedUnderMaintenance,
@@ -68,7 +68,7 @@ export function hostingOptionsFor({
       {
         value: "hosted",
         icon: DedicatedHostingRowIcon,
-        title: "Hussh Personal Sandbox",
+        title: "Hussh Confidential Sandbox",
         description: "Isolated Confidential Sandbox managed by Hussh on Google Cloud.",
         supporting: <GoogleCloudLogo decorative className="h-4 w-auto" />,
         supportingDecorative: true,
@@ -118,15 +118,17 @@ export function ConsentPendingCard({
   entry: ConsentPendingEntry;
   busy: boolean;
   onContinue: (() => void) | null;
-  onChooseShared: () => void;
+  onChooseShared?: (() => void) | null;
 }) {
   const cloud = entry.provider === "azure" ? "Microsoft" : "Google";
+  const pooledSandboxAvailable = isPooledSandboxSwitchAvailable();
+  const showSharedFallback = !pooledSandboxAvailable && Boolean(onChooseShared);
   return (
     <div className={CARD} data-testid="hosting-consent-pending" aria-live="polite">
       <p className="text-sm font-semibold">Finish signing in to set up your cloud</p>
       <p className={BODY}>
-        Your setup starts once {cloud} sends you back here. Nothing runs on Hussh Shared in
-        the meantime.
+        Your setup starts once {cloud} sends you back here.
+        {showSharedFallback ? " Nothing runs on Hussh Shared in the meantime." : ""}
       </p>
       <div className="flex flex-wrap gap-x-5">
         {onContinue ? (
@@ -135,10 +137,12 @@ export function ConsentPendingCard({
             Sign in again
           </button>
         ) : null}
-        <button type="button" className={ACTION} disabled={busy} onClick={onChooseShared}
-          data-testid="hosting-consent-choose-shared">
-          Use Hussh Shared instead
-        </button>
+        {showSharedFallback && onChooseShared ? (
+          <button type="button" className={ACTION} disabled={busy} onClick={onChooseShared}
+            data-testid="hosting-consent-choose-shared">
+            Use Hussh Shared instead
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -217,6 +221,7 @@ export function HusshPodsPausedCard({
   // No move buttons: the hub refuses both moves while a Hussh Pods place is held
   // (POD_ASSIGNMENT_PRESERVED). Offering them would be a button that always fails.
   const provider = hostedPodProvider(deploymentTarget);
+  const pooledSandboxAvailable = isPooledSandboxSwitchAvailable();
   return (
     <div className={CARD} data-testid="hussh-pods-paused">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -224,9 +229,9 @@ export function HusshPodsPausedCard({
         {provider ? <PodCloudBadge provider={provider} testId="hussh-pods-paused-cloud" /> : null}
       </div>
       <p className={BODY}>
-        Your Hussh Pods agent and its information stay where they are. Moving it to your own
-        cloud or to Hussh Shared needs the Hussh team to release your Hussh Pods place first.
-        Once they do, this screen shows the choice.
+        {pooledSandboxAvailable
+          ? "Your Hussh agent and its information stay where they are. Moving it to your own cloud needs the Hussh team to release your current place first. Once they do, this screen shows the choice."
+          : "Your Hussh Pods agent and its information stay where they are. Moving it to your own cloud or to Hussh Shared needs the Hussh team to release your Hussh Pods place first. Once they do, this screen shows the choice."}
       </p>
     </div>
   );

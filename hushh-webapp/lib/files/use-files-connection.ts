@@ -37,6 +37,9 @@ export function useFilesConnection(
       ? peekFilesHostingCache(userId, vaultKey)
       : null,
   );
+  const [hydratingCache, setHydratingCache] = useState<boolean>(() =>
+    Boolean(userId && vaultKey && vaultOwnerToken && !peekFilesHostingCache(userId, vaultKey)),
+  );
   const [connectionError, setConnectionError] = useState("");
   const boundOwner = useRef<string | null>(null);
   const activeRelease = useRef<(() => void) | undefined>(undefined);
@@ -79,6 +82,7 @@ export function useFilesConnection(
   useEffect(() => {
     if (!userId || !vaultKey || !vaultOwnerToken) {
       setHosting(null);
+      setHydratingCache(false);
       return;
     }
     const identity = snapshotValidatedAuthSessionOwner();
@@ -109,11 +113,16 @@ export function useFilesConnection(
     boundOwner.current = nextOwner;
     setConnectionError("");
     let statusSettled = false;
+    let authoritativeUnplaced = false;
+    let cachedHosting: "shared" | "pod" | null = warmHosting;
+    let hydrationPromise: Promise<void> | null = null;
     if (!warmHosting && typeof hydrateFilesCacheFromEncryptedCache === "function") {
-      void hydrateFilesCacheFromEncryptedCache(userId, vaultKey)
+      setHydratingCache(true);
+      hydrationPromise = hydrateFilesCacheFromEncryptedCache(userId, vaultKey)
         .then((hydrated) => {
-          if (statusSettled || !hydrated.hosting) return;
+          if (statusSettled || authoritativeUnplaced || !hydrated.hosting) return;
           check();
+          cachedHosting = hydrated.hosting;
           activeRelease.current?.();
           activeRelease.current = bindFilesConnection(
             { owner: userId, vaultKey, ownerToken: vaultOwnerToken, check },
@@ -121,7 +130,14 @@ export function useFilesConnection(
           );
           setHosting(hydrated.hosting);
         })
-        .catch(() => undefined);
+        .catch(() => undefined)
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            setHydratingCache(false);
+          }
+        });
+    } else {
+      setHydratingCache(false);
     }
     const readStatus =
       ApiService.getPersonalAgentStatusForRouting ??
@@ -134,14 +150,25 @@ export function useFilesConnection(
       .then((status) => {
         check();
         statusSettled = true;
+        if (status.hostingMode === "unplaced" || status.hostingMode === "pending") {
+          authoritativeUnplaced = true;
+          cachedHosting = null;
+          clearFilesHostingCache(userId, { includeDevice: true });
+          activeRelease.current?.();
+          activeRelease.current = undefined;
+          setHosting(null);
+          throw new Error("FILES_HOSTING_REQUIRED");
+        }
         if (
           status.hostingMode !== "shared" &&
           status.hostingMode !== "byoc" &&
           status.hostingMode !== "hussh_pods"
-        )
-          throw new Error("FILES_HOSTING_REQUIRED");
+        ) {
+          throw new Error("FILES_HOSTING_TRANSIENT");
+        }
         const resolvedHosting =
           status.hostingMode === "shared" ? "shared" : "pod";
+        cachedHosting = resolvedHosting;
         activeRelease.current?.();
         activeRelease.current = bindFilesConnection(
           { owner: userId, vaultKey, ownerToken: vaultOwnerToken, check },
@@ -150,9 +177,11 @@ export function useFilesConnection(
         setFilesHostingCache(userId, vaultKey, resolvedHosting);
         setHosting(resolvedHosting);
       })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          clearFilesHostingCache(userId);
+      .catch(async () => {
+        if (hydrationPromise && !authoritativeUnplaced) {
+          await hydrationPromise.catch(() => undefined);
+        }
+        if (!controller.signal.aborted && (!cachedHosting || authoritativeUnplaced)) {
           activeRelease.current?.();
           activeRelease.current = undefined;
           setHosting(null);
@@ -167,7 +196,7 @@ export function useFilesConnection(
       activeRelease.current = undefined;
     };
   }, [userId, vaultKey, vaultOwnerToken]);
-  return { hosting, connectionError };
+  return { hosting, connectionError, hydratingCache };
 }
 
 /**

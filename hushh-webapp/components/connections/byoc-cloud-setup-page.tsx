@@ -513,15 +513,17 @@ function OwnerCloudSetupPage({ user, owner }: {
     reservedProjectId && setupStatusReadOk && job?.status === "recorded" &&
       job.projectId === reservedProjectId,
   );
-  // Shared is the confirmed default when the server says so or this session chose it.
-  const sharedConfirmed = hostingMode === "shared" || sharedChosen;
+  const pooledSwitchAvailable = isPooledSandboxSwitchAvailable();
+  // Shared is the confirmed default when the server says so or this session chose it (outside cutover lanes).
+  const sharedConfirmed =
+    !pooledSwitchAvailable && (hostingMode === "shared" || sharedChosen);
   const selectedHosting: HostingChoice | null =
     choice ?? (sharedConfirmed ? "shared" : null);
   const authorized =
     connectedBefore ||
     recordedReservedProject ||
     hostedChosen ||
-    (sharedChosen && selectedHosting === "shared" && hostingMode === "shared" && job === null) ||
+    (!pooledSwitchAvailable && sharedChosen && selectedHosting === "shared" && hostingMode === "shared" && job === null) ||
     hostingMode === "hussh_pods";
   const hostingSaving = saving || sharedSaving || hostedSaving || azureSignIn.starting;
   // One alert, whichever cloud's authorization refused.
@@ -531,7 +533,6 @@ function OwnerCloudSetupPage({ user, owner }: {
   const hostingOptions = hostingOptionsFor({ azureSelectable, hostedUnderMaintenance, ownCloudAvailable });
   const consentIntent = consentPendingEntry(job);
   const attachBlocked = (job as { attachBlocked?: string | null } | null)?.attachBlocked ?? null;
-  const pooledSwitchAvailable = isPooledSandboxSwitchAvailable();
   const ownerCloudSourceLabel =
     ownerProvider === "azure"
       ? "Microsoft Azure"
@@ -570,7 +571,7 @@ function OwnerCloudSetupPage({ user, owner }: {
   // The one commit under the cards. Shared keeps its two ids: the confirm on a
   // confirmed Shared state, and the plain pick where Shared is not yet the default.
   const hostingCommit =
-    selectedHosting === "shared"
+    selectedHosting === "shared" && !pooledSwitchAvailable
       ? {
           label: sharedChosen
             ? "Hussh Shared selected"
@@ -583,7 +584,11 @@ function OwnerCloudSetupPage({ user, owner }: {
         }
       : selectedHosting === "hosted" && !hostedUnderMaintenance
         ? {
-            label: hostedSaving ? "Setting that up…" : "Set up Hussh Pods",
+            label: hostedSaving
+              ? "Setting that up…"
+              : pooledSwitchAvailable
+                ? "Start Hussh Confidential Sandbox"
+                : "Set up Hussh Pods",
             onClick: () => void chooseHosted(),
             disabled: hostedSaving,
             testId: "cloud-tier-hosted-continue",
@@ -594,9 +599,24 @@ function OwnerCloudSetupPage({ user, owner }: {
   // edge swipes cannot strand the owner before hosting placement commits.
   useBackLayer(ROUTES.ONE_SETUP_CLOUD, saving || hostingSaving ? 2 : 0, () => true);
 
-  const finish = useCallback(() => {
+  const finish = useCallback(async () => {
     if (!ownerCurrent() || !authorized || !aiReady || hostingSaving) {
       return { status: "blocked" as const, summary: "Finish your hosting and AI selection first." };
+    }
+    if (
+      ownerId &&
+      typeof PreVaultUserStateService.markOneRuntimeChoice === "function" &&
+      !PreVaultUserStateService.hasOneRuntimeChoice(
+        PreVaultUserStateService.getCachedBootstrapState(ownerId),
+      )
+    ) {
+      await PreVaultUserStateService.markOneRuntimeChoice(
+        ownerId,
+        "hushh_managed_vertex",
+      ).catch(() => undefined);
+      if (!ownerCurrent()) {
+        return { status: "blocked" as const, summary: "Session changed." };
+      }
     }
     const rawReturnTo = searchParams.get("return_to");
     const isProfilePaneHostingReturn =
@@ -656,7 +676,9 @@ function OwnerCloudSetupPage({ user, owner }: {
         {hostingStatusChecked && !ownCloudAvailable && hostingMode !== "unknown" ? (
           <p role="status" className="text-sm text-[var(--app-text-secondary)]" data-testid="byoc-setup-unavailable">
             Cloud setup is unavailable in this environment. Your existing setup is unchanged.
-            {hostingMode === "shared" || hostingMode === "unplaced" ? " You can continue with Hussh Shared." : " Your saved progress is kept."}
+            {!pooledSwitchAvailable && (hostingMode === "shared" || hostingMode === "unplaced")
+              ? " You can continue with Hussh Shared."
+              : " Your saved progress is kept."}
           </p>
         ) : null}
         {reservedProjectId && job && job.projectId !== reservedProjectId ? (
@@ -715,7 +737,7 @@ function OwnerCloudSetupPage({ user, owner }: {
             busy={saving || azureSignIn.starting || sharedSaving}
             onContinue={!ownCloudAvailable ? null : consentIntent.provider === "azure" ? () => void startAzureSetup()
               : consentIntent.project ? () => void handleProjectNamed(consentIntent.project) : null}
-            onChooseShared={() => void chooseShared()}
+            onChooseShared={pooledSwitchAvailable ? null : () => void chooseShared()}
           />
         ) : (!checked || !hostingStatusChecked) && !checkTimedOut && !authorized ? (
           <p
@@ -947,6 +969,7 @@ function OwnerCloudSetupPage({ user, owner }: {
                   subtleAction
                 />
               ) : null}
+              {openHomeFallback}
             </div>
           )
         ) : hostingMode === "unknown" || hostingMode === null ? (
@@ -1085,7 +1108,7 @@ function OwnerCloudSetupPage({ user, owner }: {
       </AppPageContentRegion>
       {authorized && aiReady ? <SetupCompletionFooter
         label="Finish agent setup"
-        onComplete={finish}
+        onComplete={() => void finish()}
         busy={hostingSaving}
         // The existing AI selector acknowledges only a saved, verified choice.
         // Keeping both prerequisites here avoids a second setup trip from the hub.

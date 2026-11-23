@@ -2095,7 +2095,7 @@ export class ApiService {
       throw new Error(
         extractHostedMigrationErrorMessage(
           payload,
-          "Could not switch to Hussh Personal Sandbox right now. Your existing setup is unchanged.",
+          "Could not switch to Hussh Confidential Sandbox right now. Your existing setup is unchanged.",
         ),
       );
     }
@@ -3995,6 +3995,55 @@ export class ApiService {
         throw new Error("This Gemini key cannot access the model One uses.");
       }
       throw new Error("Gemini could not be reached to validate this key.");
+    }
+    return response.json() as Promise<{ status: "ready" }>;
+  }
+
+  /**
+   * Bounded pre-save probe for an OpenAI key when no enrolled pod is reachable yet.
+   * Throws `OPENAI_VALIDATE_ROUTE_UNAVAILABLE` on 404/405 so callers can fall back to pod checks.
+   */
+  static async validateOpenAiRuntimeCredential(input: {
+    credential: string;
+    model?: string | null;
+  }): Promise<{ status: "ready" }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      "/api/one/runtime/openai/validate",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+        body: JSON.stringify({
+          credential: input.credential,
+          ...(input.model ? { model: input.model } : {}),
+        }),
+      },
+    );
+    if (response.status === 404 || response.status === 405) {
+      throw new Error("OPENAI_VALIDATE_ROUTE_UNAVAILABLE");
+    }
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as {
+        detail?: { status?: string; code?: string };
+      } | null;
+      const status = payload?.detail?.status ?? payload?.detail?.code;
+      if (status === "invalid_key" || status === "KEY_REFUSED") {
+        throw new Error("OpenAI could not accept that API key.");
+      }
+      if (status === "quota_exhausted" || status === "QUOTA_EXCEEDED") {
+        throw new Error(
+          "This OpenAI key has no available quota or is currently rate limited.",
+        );
+      }
+      if (status === "unsupported_model" || status === "MODEL_UNAVAILABLE") {
+        throw new Error("This OpenAI key cannot access the model One uses.");
+      }
+      throw new Error("OpenAI could not be reached to validate this key.");
     }
     return response.json() as Promise<{ status: "ready" }>;
   }
