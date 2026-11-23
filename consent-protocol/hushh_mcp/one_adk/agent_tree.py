@@ -166,6 +166,10 @@ from hushh_mcp.one_adk.one_persona import build_one_persona_grounding
 from hushh_mcp.one_adk.owner_style import owner_style_instruction, propose_style_settings
 from hushh_mcp.one_adk.pending_email_draft import pending_email_draft_instruction
 from hushh_mcp.one_adk.pod_connector_tools import owner_cloud_agent, pod_connector_roster
+from hushh_mcp.one_adk.portfolio_context_contract import (
+    PORTFOLIO_CONTEXT_TOOL,
+    STATE_PORTFOLIO_CONTEXT_ENABLED,
+)
 from hushh_mcp.one_adk.queued_input import club_queued_input
 from hushh_mcp.one_adk.registered_mcp_toolset import (
     RegisteredMcpToolset,
@@ -878,6 +882,16 @@ def _compose_one_runtime_instruction(context: Any) -> str:
             "show_stock_preview with its ticker and say it is ready for review. The person "
             "confirms in the card before the debate starts."
         )
+        if state_getter(STATE_PORTFOLIO_CONTEXT_ENABLED):
+            identity_instruction += (
+                " For a question about facts in the owner's saved portfolio or a follow-up to "
+                "a portfolio card, call read_portfolio_context before answering. Select holdings, "
+                "allocation, or saved performance based on the question. Select active by "
+                "default. Use last_card if the person refers to the card or its earlier snapshot. "
+                "Use a ticker filter only when asking about a named holding. End the first pass "
+                "at the device call and answer only after it returns. An explicit request to show "
+                "the UI still uses show_portfolio_card. Live prices and news use the market tools."
+            )
 
     mail_admitted = (
         callable(state_getter)
@@ -2716,6 +2730,9 @@ def _one_roster_tools(
         from hushh_mcp.one_adk.receipt_client_tools import RECEIPT_TOOL_NAMES
 
         tools.append(AGUIToolset(tool_filter=sorted(RECEIPT_TOOL_NAMES)))
+        # The typed hub advertises this separate contract only to compatible,
+        # owner-authorized browsers. Offline receipt evaluations omit it.
+        tools.append(AGUIToolset(tool_filter=[PORTFOLIO_CONTEXT_TOOL]))
     return tools
 
 

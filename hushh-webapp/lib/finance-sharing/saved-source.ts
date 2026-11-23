@@ -1,34 +1,13 @@
 import { selectProfileFromFinancialDomain } from "@/lib/services/kai-profile-service";
 import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
-import type { PortfolioData } from "@/components/kai/types/portfolio";
-import { getActiveSource, getActiveStatementSnapshotId, getStatementPortfolio, getPlaidPortfolio, getStatementSnapshots } from "@/lib/kai/brokerage/financial-sources";
-import { normalizeStatementPortfolio } from "@/lib/kai/brokerage/statement-portfolio";
+import { getStatementSnapshots } from "@/lib/kai/brokerage/financial-sources";
+import { resolveFinancePortfolio } from "@/lib/kai/brokerage/resolve-portfolio-source";
 import { loadFinancialForVault } from "@/lib/kai/plaid-vault/vault-sync";
 import { financeDigest, type FinanceSource } from "./contract";
 import { assertAdvisorSourceIntegrity } from "./advisor-source-integrity";
 import { requireFinanceSession, type FinanceShareContext } from "@/lib/services/finance-sharing-service";
 
-/** Source pinning is local only. A UI tab change never redirects a live share. */
-export function resolveFinancePortfolio(financial: Record<string, unknown>, source: FinanceSource): PortfolioData | null {
-  if (source.representation === "current-v7") {
-    if (getActiveSource(financial) !== source.kind || (source.kind === "statement" && getActiveStatementSnapshotId(financial) !== source.snapshotId)) return null;
-    return source.kind === "plaid" ? getPlaidPortfolio(financial) : getStatementPortfolio(financial);
-  }
-  if (source.kind === "plaid") return getPlaidPortfolio(financial);
-  if (source.snapshotId) {
-    const snapshot = getStatementSnapshots(financial).find(s => s.id === source.snapshotId);
-    if (!snapshot) return null;
-    // V7 artifacts may only reference a sealed document. Never substitute the active core.
-    if (snapshot.canonical_v2 && typeof snapshot.canonical_v2 === "object") {
-      return normalizeStatementPortfolio(snapshot.canonical_v2 as Record<string, unknown>, snapshot);
-    }
-    if (Array.isArray(snapshot.holdings)) return normalizeStatementPortfolio(snapshot, snapshot);
-    return null;
-  }
-  // Legacy sources without a snapshot stay legacy; an import requires new approval.
-  if (getStatementSnapshots(financial).length) return null;
-  return getStatementPortfolio(financial);
-}
+export { resolveFinancePortfolio };
 
 export async function readSavedFinance(context: FinanceShareContext, source: FinanceSource, allowCashOnly = false) {
   requireFinanceSession(context);

@@ -81,6 +81,7 @@ export interface AccountSummary {
 export interface PortfolioData {
   account_info?: {
     account_number?: string;
+    currency?: string;
     brokerage_name?: string;
     institution_name?: string;
     statement_period?: string;

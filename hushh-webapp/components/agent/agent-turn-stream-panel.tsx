@@ -200,6 +200,7 @@ export function isInformativeActivityEvent(
 
 export type AgentTurnStreamPanelProps = {
   allowFinancePreviewStart?: boolean;
+  conversationId?: string | null;
   onConfirmFinanceAnalysis?: (confirmation: string) => Promise<void>;
   streamEvents: AgentVisibleStreamEvent[];
   responseText: string;
@@ -382,6 +383,7 @@ export const CONSENT_ASK_EXPERIENCE_TYPES: ReadonlySet<string> = new Set([
 
 export function AgentTurnStreamPanel({
   allowFinancePreviewStart,
+  conversationId,
   onConfirmFinanceAnalysis,
   streamEvents = [],
   responseText,
@@ -503,6 +505,7 @@ export function AgentTurnStreamPanel({
               return <AgentStructuredExperienceView
                 key={id}
                 experience={experience}
+                conversationId={conversationId}
                   allowPortfolioUpload={!isStreaming && !isError}
                 allowFinancePreviewStart={allowFinancePreviewStart && !isStreaming && !isError}
                 onConfirmFinanceAnalysis={onConfirmFinanceAnalysis}
