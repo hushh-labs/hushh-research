@@ -43,7 +43,11 @@ describe("Files form submission", () => {
     publishValidatedAuthSessionPrincipal({ firebaseUid: "synthetic-owner", ownerId: session.ownerId, accountGeneration: 1 });
     render(<FilesWorkspace />);
     await waitFor(() => expect(files.list).toHaveBeenCalled());
-    expect(await screen.findByRole("button", { name: "New folder", exact: true })).toBeEnabled();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "New folder", exact: true }),
+      ).toBeEnabled(),
+    );
   });
 
   it("waits for the initial library read before enabling file actions", async () => {

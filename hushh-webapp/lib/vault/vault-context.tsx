@@ -41,7 +41,11 @@ import { clearActiveAgentTurnSession } from "@/lib/agent/active-agent-turn-sessi
 import { clearCoreAgentMarkdownCache } from "@/lib/pkm/agent-core-markdown-files";
 import { clearFilesCache } from "@/lib/files/files-cache";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
-import { clearAgentChatHistoryCache, warmAgentChatHistoryCache } from "@/lib/agent/agent-chat-history-cache";
+import {
+  clearAgentChatHistoryCache,
+  hydrateAgentChatHistoryFromEncryptedCache,
+  warmAgentChatHistoryCache,
+} from "@/lib/agent/agent-chat-history-cache";
 import { clearGeminiRuntimeConnectionCache } from "@/lib/connections/gemini-runtime-configuration";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
@@ -976,6 +980,15 @@ export function VaultProvider({ children }: VaultProviderProps) {
       // Connect without ever opening Location. Start strict, session-fenced
       // recovery here, before optional Firebase-token reads or route deferrals.
       UnlockWarmOrchestrator.queueLocationRecipientKeyBootstrap({ userId: unlockingUserId, vaultOwnerToken: token, vaultKey: key });
+
+      // Start encrypted IndexedDB chat history hydration synchronously on unlock
+      // so decryption overlaps unlock modal dismissal without network latency.
+      if (typeof hydrateAgentChatHistoryFromEncryptedCache === "function") {
+        void hydrateAgentChatHistoryFromEncryptedCache({
+          userId: unlockingUserId,
+          vaultKey: key,
+        }).catch(() => undefined);
+      }
 
       // Notify listeners (e.g. Siri handoff) that the vault is now unlocked
       // so they can resume any pending actions that were blocked by vault.

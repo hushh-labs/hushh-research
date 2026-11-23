@@ -31,6 +31,7 @@ import {
   isAgentChatHistorySnapshotCurrent,
 } from "@/lib/agent/agent-chat-history-cache";
 import { AGENT_CHAT_HISTORY_INVALIDATED_EVENT } from "@/lib/agent/agent-chat-history-events";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
   deleteEncryptedOwnerUiRecords,
   flushEncryptedOwnerUiWritesForTests,
@@ -368,5 +369,75 @@ describe("agent chat history memory cache", () => {
       expect(inspectRawMemoryUiCacheForTests().has("owner-a::chat-history:v1")).toBe(false);
     });
     publishValidatedAuthSessionPrincipal(null);
+  });
+
+  it("preserves encrypted IDB chat-history:v1 across invalidation events and CacheSyncService.onConsentMutated", async () => {
+    await deleteEncryptedOwnerUiRecords();
+    const realVaultKey = "e6".repeat(32);
+    const userId = "user-invalidate-preserve";
+    const input = { userId, vaultOwnerToken: "token", vaultKey: realVaultKey };
+
+    await warmAgentChatHistoryCache(input);
+    await loadAgentChatConversationHistory({ ...input, conversationId: conversation.id });
+    await flushEncryptedOwnerUiWritesForTests();
+    expect(inspectRawMemoryUiCacheForTests().has(`${userId}::chat-history:v1`)).toBe(true);
+
+    window.dispatchEvent(
+      new CustomEvent(AGENT_CHAT_HISTORY_INVALIDATED_EVENT, {
+        detail: { userId },
+      }),
+    );
+    expect(peekAgentChatHistoryCache(userId)).toBeNull();
+    expect(inspectRawMemoryUiCacheForTests().has(`${userId}::chat-history:v1`)).toBe(true);
+
+    CacheSyncService.onConsentMutated(userId);
+    await flushEncryptedOwnerUiWritesForTests();
+    expect(peekAgentChatHistoryCache(userId)).toBeNull();
+    expect(inspectRawMemoryUiCacheForTests().has(`${userId}::chat-history:v1`)).toBe(true);
+
+    const hydrated = await hydrateAgentChatHistoryFromEncryptedCache({
+      userId,
+      vaultKey: realVaultKey,
+    });
+    expect(hydrated).not.toBeNull();
+    expect(hydrated!.isFresh).toBe(false);
+    expect(hydrated!.conversations).toEqual([conversation]);
+    expect(hydrated!.latestMessages).toEqual(messages);
+  });
+
+  it("preserves persisted messagesByConversation in RAM and IDB when warmAgentChatHistoryCache races with hydration", async () => {
+    await deleteEncryptedOwnerUiRecords();
+    const realVaultKey = "f7".repeat(32);
+    const userId = "user-warm-hydrate-race";
+    const input = { userId, vaultOwnerToken: "token", vaultKey: realVaultKey };
+
+    await warmAgentChatHistoryCache(input);
+    await loadAgentChatConversationHistory({ ...input, conversationId: conversation.id });
+    await flushEncryptedOwnerUiWritesForTests();
+
+    evictInMemoryAgentChatHistoryForTests(userId);
+    mocks.list.mockResolvedValueOnce([conversation]);
+    // Do not pre-resolve history during warm; force any message retention to come from IDB.
+    mocks.history.mockResolvedValueOnce([]);
+
+    const [warmResult, hydratedResult] = await Promise.all([
+      warmAgentChatHistoryCache(input),
+      hydrateAgentChatHistoryFromEncryptedCache({ userId, vaultKey: realVaultKey }),
+    ]);
+    await flushEncryptedOwnerUiWritesForTests();
+
+    expect(hydratedResult).not.toBeNull();
+    expect(warmResult.conversations).toEqual([conversation]);
+    expect(warmResult.latestMessages).toEqual(messages);
+    expect(peekAgentChatHistoryCache(userId)?.latestMessages).toEqual(messages);
+
+    // Re-evict RAM and verify IDB still holds the full transcript.
+    evictInMemoryAgentChatHistoryForTests(userId);
+    const reloaded = await hydrateAgentChatHistoryFromEncryptedCache({
+      userId,
+      vaultKey: realVaultKey,
+    });
+    expect(reloaded?.conversations).toEqual([conversation]);
+    expect(reloaded?.latestMessages).toEqual(messages);
   });
 });

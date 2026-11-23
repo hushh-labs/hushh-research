@@ -418,4 +418,54 @@ describe("PersonalWikiPanel in FilesWorkspace (Phase 5 #9370)", () => {
       });
     }
   });
+
+  it("keeps PersonalWikiPanel AbortSignal non-aborted when switching from empty root and aborts its own signal on unwind", async () => {
+    files.list.mockResolvedValue({ entries: [], cursor: "" });
+    const observedSignals: Array<AbortSignal | undefined> = [];
+    const baseOverview = {
+      captureOptIn: false,
+      migrationState: "wiki_primary_with_v1_rollback" as const,
+      migrationRevision: 2,
+      pages: [
+        {
+          pageId: "wpg_1111222233334444",
+          title: "Travel Preferences",
+          folder: "topics",
+          tldr: "Prefers morning flights",
+          revision: 3,
+          updatedAt: 1_760_000_000_000,
+        },
+      ],
+      candidateReceipts: [],
+    };
+    files.wikiOverview.mockImplementation(async (signal?: AbortSignal) => {
+      observedSignals.push(signal);
+      if (signal?.aborted) {
+        throw new DOMException("Aborted synchronously", "AbortError");
+      }
+      // Yield a microtask so any parent effect cleanup would already have aborted a stale ref signal.
+      await Promise.resolve();
+      if (signal?.aborted) {
+        throw new DOMException("Aborted after parent cleanup", "AbortError");
+      }
+      return baseOverview;
+    });
+
+    render(<FilesWorkspace />);
+    const wikiFolderButton = await screen.findByRole("button", {
+      name: "Personal wiki",
+    });
+    fireEvent.click(wikiFolderButton);
+
+    await screen.findByText("Travel Preferences");
+    expect(observedSignals.length).toBeGreaterThanOrEqual(1);
+    expect(observedSignals.every((sig) => sig !== undefined && !sig.aborted)).toBe(true);
+
+    // Unmounting back to root must abort PersonalWikiPanel's own signal cleanly.
+    expect(unwindBackLayer("/one/files")).toBe(true);
+    await waitFor(() =>
+      expect(screen.queryByTestId("files-personal-wiki-view")).toBeNull(),
+    );
+    expect(observedSignals[0]?.aborted).toBe(true);
+  });
 });

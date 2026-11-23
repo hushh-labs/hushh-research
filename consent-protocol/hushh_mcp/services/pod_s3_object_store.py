@@ -41,7 +41,11 @@ PREFIX_BEARER_TOKEN_ENV = "POD_STORAGE_PREFIX_BEARER_TOKEN"  # noqa: S105 - env 
 
 _S3_BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
 _ETAG_RE = re.compile(r'^"?[A-Za-z0-9._:-]{1,254}"?$')
-_TIMEOUT_SECONDS = 60
+_CONNECT_TIMEOUT_SECONDS = 3.0
+_READ_TIMEOUT_SECONDS = 4.0
+_PUT_READ_TIMEOUT_SECONDS = 10.0
+_TRANSIENT_RETRY_STATUSES = frozenset({502, 503, 504})
+_TRANSIENT_RETRY_BACKOFF_SECONDS = 0.15
 _FORBIDDEN_EMULATOR_ENVS = frozenset({"production", "prod", "uat", "staging"})
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
@@ -133,11 +137,22 @@ class S3ObjectStore:
             return self._client
         try:
             import boto3  # type: ignore[import-not-found]
+            from botocore.config import Config  # type: ignore[import-not-found]
         except ImportError as exc:
             raise PodMultiCloudStorageError(
                 "boto3 is required for live S3 pod object storage"
             ) from exc
-        self._client = boto3.client("s3", **resolve_aws_boto3_client_kwargs("s3"))
+        kwargs = resolve_aws_boto3_client_kwargs("s3")
+        client_config = Config(
+            connect_timeout=_CONNECT_TIMEOUT_SECONDS,
+            read_timeout=_READ_TIMEOUT_SECONDS,
+            retries={"max_attempts": 2, "mode": "standard"},
+        )
+        existing_config = kwargs.get("config")
+        if existing_config is not None:
+            client_config = client_config.merge(existing_config)
+        kwargs["config"] = client_config
+        self._client = boto3.client("s3", **kwargs)
         return self._client
 
     def _key(self, key: str) -> str:
@@ -443,18 +458,37 @@ class PrefixTokenObjectStore:
         return f"{self._origin}/{quoted}"
 
     def _request(self, method: str, url: str, extra: dict[str, str], **kwargs: Any) -> Any:
+        request_timeout = (
+            _CONNECT_TIMEOUT_SECONDS,
+            _PUT_READ_TIMEOUT_SECONDS if method == "put" else _READ_TIMEOUT_SECONDS,
+        )
+        max_attempts = 2 if method == "get" else 1
+
         def send_once() -> Any:
-            headers = {"Authorization": f"Bearer {self._current_token()}", **extra}
-            try:
-                return getattr(self._session, method)(
-                    url,
-                    headers=headers,
-                    timeout=_TIMEOUT_SECONDS,
-                    allow_redirects=False,
-                    **kwargs,
-                )
-            except Exception:  # noqa: BLE001
-                raise PodMultiCloudStorageError("prefix object store unreachable") from None
+            for attempt in range(1, max_attempts + 1):
+                headers = {"Authorization": f"Bearer {self._current_token()}", **extra}
+                try:
+                    resp = getattr(self._session, method)(
+                        url,
+                        headers=headers,
+                        timeout=request_timeout,
+                        allow_redirects=False,
+                        **kwargs,
+                    )
+                except Exception:  # noqa: BLE001
+                    if attempt < max_attempts:
+                        time.sleep(_TRANSIENT_RETRY_BACKOFF_SECONDS)
+                        continue
+                    raise PodMultiCloudStorageError("prefix object store unreachable") from None
+                if (
+                    getattr(resp, "status_code", 0) in _TRANSIENT_RETRY_STATUSES
+                    and attempt < max_attempts
+                ):
+                    resp.close()
+                    time.sleep(_TRANSIENT_RETRY_BACKOFF_SECONDS)
+                    continue
+                return resp
+            raise PodMultiCloudStorageError("prefix object store unreachable")
 
         response = send_once()
         if getattr(response, "status_code", 0) in {401, 403} and self._token_provider is not None:
