@@ -20,7 +20,7 @@ vi.mock("@/lib/cache/request-audit-log", () => ({ logRequestAudit: vi.fn() }));
 
 import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
 import { KaiFinancialResourceService } from "@/lib/kai/kai-financial-resource";
-import { readPortfolioContext, rememberPortfolioCard } from "@/lib/kai/portfolio-chat-context";
+import { activePortfolioChatView, readPortfolioContext, rememberPortfolioCard } from "@/lib/kai/portfolio-chat-context";
 import { CacheService } from "@/lib/services/cache-service";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
@@ -89,6 +89,36 @@ describe("a Kai finance read that races a write", () => {
     bumpPkmInvalidationEpoch("owner");
     release(BEFORE);
     await expect(pending).resolves.toEqual({ status: "unavailable", reason: "portfolio_changed" });
+  });
+
+  it("reads and ranks fresh holdings in an existing thread without an open card", async () => {
+    const domainData = {
+      portfolio: {
+        account_info: { currency: "CAD", statement_period_end: "2026-10-31" },
+        holdings: [
+          { symbol: "SMALL", name: "Small holding", market_value: 25 },
+          { symbol: "BIG", name: "Largest holding", market_value: 100 },
+          { symbol: "NOQUOTE", name: "Unpriced holding" },
+        ],
+      },
+    };
+    const cached = KaiFinancialResourceService.primeFromFinancialDomain({
+      userId: PARAMS.userId,
+      financialDomain: BEFORE,
+    });
+    expect(cached?.activePortfolio?.holdings?.[0]?.name).toBe("Old Shares");
+    mocks.prepareDomainWriteContext
+      .mockResolvedValueOnce({ domainData, baseFullBlob: {} })
+      .mockResolvedValueOnce({ domainData, baseFullBlob: {} });
+    const cardRead = await KaiFinancialResourceService.readForAnswer(PARAMS, () => true);
+    const card = activePortfolioChatView(cardRead!.resource);
+    const answer = await readPortfolioContext({ ...PARAMS, threadId: "restored-thread" },
+      { section: "holdings", source: "active" }, () => true);
+    expect(answer).toMatchObject({
+      status: "ok", as_of: "2026-10-31", currency: "CAD",
+      holdings: { total_count: 3, positions: card?.positions.map(({ facts }) => facts) },
+    });
+    expect(card?.positions.map(({ facts }) => facts.market_value)).toEqual([100, 25, null]);
   });
 
   it("reads current facts but refuses a changed card or another vault session", async () => {

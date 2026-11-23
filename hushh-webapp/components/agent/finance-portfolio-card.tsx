@@ -1,33 +1,37 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useState, useSyncExternalStore } from "react";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import { BriefcaseBusiness, ChevronDown } from "@/components/icons";
 import { PortfolioAllocationBar } from "@/components/kai/charts/portfolio-allocation-bar";
 import { PortfolioHistoryChart } from "@/components/kai/charts/portfolio-history-chart";
 import { PerformanceStrip } from "@/components/kai/performance/performance-strip";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
-import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
-import { overviewFacts } from "@/components/kai/views/portfolio-display-facts";
 import { useAuth } from "@/hooks/use-auth";
 import type { FinancePortfolioSection } from "@/lib/agent/finance-chat-experiences";
-import { useKaiFinancialResource } from "@/lib/kai/kai-financial-resource";
-import { groupHoldingPositions, type HoldingPosition } from "@/lib/kai/holding-positions";
+import { KaiFinancialResourceService, type KaiFinancialResource } from "@/lib/kai/kai-financial-resource";
 import { normalizeMarketSymbol } from "@/lib/kai/market-symbol";
-import { formatCurrency } from "@/lib/kai/market-value-format";
-import { rememberPortfolioCard } from "@/lib/kai/portfolio-chat-context";
-import { sinceBought } from "@/lib/kai/portfolio-performance";
+import { formatMoney } from "@/lib/kai/market-value-format";
+import { activePortfolioChatView, rememberPortfolioCard } from "@/lib/kai/portfolio-chat-context";
 import { Button } from "@/lib/morphy-ux/button";
+import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 const titles: Record<FinancePortfolioSection, string> = {
   holdings: "Holdings", allocation: "Allocation", performance: "Performance", sources: "Portfolio sources",
 };
 
 const HOLDINGS_PREVIEW_COUNT = 5;
+type PortfolioView = NonNullable<ReturnType<typeof activePortfolioChatView>>;
 
-function HoldingsList({ positions }: { positions: HoldingPosition[] }) {
+const savedMoney = (value: number, currency: string, compact = false) =>
+  formatMoney(value, { region: "US", rate: null }, {
+    source: currency, notation: compact ? "compact" : "standard",
+  });
+
+function HoldingsList({ positions, singleCurrency }: Pick<PortfolioView, "positions" | "singleCurrency">) {
   const [showAll, setShowAll] = useState(false);
   const listId = useId();
   if (positions.length === 0) return <p className="ui-text-row-description">No holdings in this snapshot.</p>;
@@ -42,18 +46,18 @@ function HoldingsList({ positions }: { positions: HoldingPosition[] }) {
     <div>
       <div className="flex justify-between gap-2 border-b border-border/60 pb-2 ui-text-row-description text-muted-foreground">
         <span>{countLabel}</span>
-        <span>Market value</span>
+        <span>{singleCurrency ? "Market value" : "Market value by currency"}</span>
       </div>
       <ul id={listId} aria-label="Portfolio holdings" className="divide-y divide-border/60">
-        {visible.map(holding => {
-          const name = holding.name || holding.symbol;
+        {visible.map(({ position: holding, facts }) => {
+          const { name, currency, market_value: value } = facts;
           const symbol = holding.symbol !== name ? holding.symbol : null;
           const ticker = normalizeMarketSymbol(holding.symbol);
           const hasPublicTicker = holding.identifier_type === "ticker" ||
             (holding.identifier_type === undefined && holding.is_sec_common_equity_ticker === true);
           const useCompanyLogo = hasPublicTicker && !holding.is_cash_equivalent &&
             ticker !== "CASH" && /^[A-Z]{1,5}(?:[.-][A-Z])?$/.test(ticker);
-          const unavailable = holding.entries.some(entry => entry.market_value_unavailable);
+          const unavailable = value === null;
           return (
             <li key={holding.client_id} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 py-2.5 sm:gap-3">
               <SymbolAvatar
@@ -71,7 +75,8 @@ function HoldingsList({ positions }: { positions: HoldingPosition[] }) {
                 "whitespace-nowrap text-right tabular-nums",
                 unavailable ? "ui-text-row-description text-muted-foreground" : "ui-text-row-label-emphasized text-foreground",
               )}>
-                {unavailable ? "Unavailable" : formatCurrency(holding.market_value, holding.currency || holding.iso_currency_code)}
+                {unavailable ? "Unavailable" : currency ? savedMoney(value, currency) :
+                  `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value)} (currency unknown)`}
               </span>
             </li>
           );
@@ -93,26 +98,49 @@ function HoldingsList({ positions }: { positions: HoldingPosition[] }) {
 function PortfolioContent({ section, conversationId }: { section: FinancePortfolioSection; conversationId?: string | null }) {
   const { userId } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
-  const enabled = Boolean(userId && isVaultUnlocked && vaultKey && vaultOwnerToken);
-  const { data, loading, error } = useKaiFinancialResource({
-    userId: userId || "", vaultKey, vaultOwnerToken, enabled, backgroundRefresh: false,
-  });
-  const capturedScope = useRef<string | null>(null);
+  const epoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
+  const [sourceRevision, setSourceRevision] = useState(0);
+  useEffect(() => subscribeToPkmDomainChanges(change => {
+    if (change.userId === userId && change.domain === "financial") {
+      setSourceRevision(revision => revision + 1);
+    }
+  }), [userId]);
+  if (!userId || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
+    return <p>Sign in and unlock your vault to view your portfolio.</p>;
+  }
+  return <OpenPortfolioSnapshot key={JSON.stringify([userId, conversationId, epoch, sourceRevision])}
+    {...{ section, conversationId, userId, vaultKey, vaultOwnerToken, epoch }} />;
+}
+
+function OpenPortfolioSnapshot({ section, conversationId, userId, vaultKey, vaultOwnerToken, epoch }: {
+  section: FinancePortfolioSection;
+  conversationId?: string | null;
+  userId: string;
+  vaultKey: string;
+  vaultOwnerToken: string;
+  epoch: number;
+}) {
+  const [data, setData] = useState<KaiFinancialResource | null>();
   useEffect(() => {
-    if (!enabled || !conversationId || section === "sources" || !data?.activePortfolio || data.userId !== userId) return;
-    const scope = JSON.stringify([userId, conversationId]);
-    if (capturedScope.current === scope) return;
-    // Resource updates can redraw an open card. Only a new card opening changes
-    // the snapshot that a subsequent reference to this observation can resolve.
-    capturedScope.current = scope;
+    let mounted = true;
+    const isCurrent = () => mounted && isVaultSessionEpochCurrent(epoch);
+    void KaiFinancialResourceService.readForAnswer({ userId, vaultKey, vaultOwnerToken }, isCurrent)
+      .then(read => {
+        if (isCurrent()) setData(read?.isCurrent() ? read.resource : null);
+      })
+      .catch(() => {
+        if (isCurrent()) setData(null);
+      });
+    return () => { mounted = false; };
+  }, [userId, vaultKey, vaultOwnerToken, epoch]);
+  useEffect(() => {
+    if (!conversationId || section === "sources" || !data?.activePortfolio) return;
     void rememberPortfolioCard(conversationId, data).catch(() => {
       // A card can render when the device cannot capture a safe reference.
     });
-  }, [conversationId, data, enabled, section, userId]);
-  if (!enabled) return <p>Sign in and unlock your vault to view your portfolio.</p>;
-  if (loading && !data) return <p role="status">Loading portfolio…</p>;
-  if (error && !data) return <p role="status">Portfolio information is unavailable.</p>;
-  if (!data) return <p>No portfolio is available yet.</p>;
+  }, [conversationId, data, section]);
+  if (data === undefined) return <p role="status">Loading portfolio…</p>;
+  if (!data) return <p role="status">Portfolio information is unavailable.</p>;
   if (section === "sources") {
     if (data.activeSource === "plaid") return <p>Linked Plaid account</p>;
     const statement = data.statementSnapshots.find(item => item.id === data.activeStatementSnapshotId);
@@ -135,33 +163,36 @@ function PortfolioContent({ section, conversationId }: { section: FinancePortfol
       </div>
     );
   }
-  if (!data.activePortfolio) return <p>No portfolio is available yet.</p>;
-
-  const portfolio = data.activePortfolio;
-  const model = mapPortfolioToDashboardViewModel(portfolio);
-  const period = model.hero.statementPeriod || "Current portfolio snapshot";
+  const view = activePortfolioChatView(data);
+  if (!view) return <p>No portfolio is available yet.</p>;
+  const { as_of: asOf, currency, performance, allocation, gain } = view;
   const source = data.activeSource === "plaid" ? "Linked accounts" : "Statement";
-  const performance = sinceBought(model.canonicalModel.positions);
+  const asOfLabel = asOf ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeZone: "UTC" })
+    .format(new Date(asOf)) : null;
+  const period = asOfLabel ? `${view.date_kind === "last_synced" ? "Last synced" : "Statement date"} ${asOfLabel}` : "Saved portfolio";
+  const formatValue = (value: number) => currency ? savedMoney(value, currency) : "Unavailable";
   return (
     <div className="space-y-3">
-      <p className="ui-text-row-description text-muted-foreground">{source} · {period}</p>
+      <p className="ui-text-row-description text-muted-foreground">{source} · {period}{currency ? ` · ${currency}` : ""}</p>
       {section === "holdings" ? (
-        <HoldingsList positions={groupHoldingPositions(portfolio.holdings || []).filter(position => !position.pending_delete)} />
+        <HoldingsList positions={view.positions} singleCurrency={view.singleCurrency} />
       ) : null}
       {section === "allocation" ? (
-        model.quality.allocationReady
-          ? <SurfaceCard><PortfolioAllocationBar embedded data={model.allocation} totalValue={model.hero.totalValue} /></SurfaceCard>
+        allocation?.length && performance.value !== null
+          ? <SurfaceCard><PortfolioAllocationBar embedded data={allocation} totalValue={performance.value} formatValue={formatValue} /></SurfaceCard>
           : <p>Allocation is unavailable for this snapshot.</p>
       ) : null}
       {section === "performance" ? (
         <>
-          <PerformanceStrip value={model.hero.totalValue} sinceBought={performance}
-            invested={overviewFacts(model, portfolio).invested} cash={overviewFacts(model, portfolio).cash} period={period} />
-          {performance && performance.covered < performance.eligible ? (
+          {performance.value !== null || gain ? <PerformanceStrip value={performance.value} sinceBought={gain}
+            invested={view.invested} cash={view.cash} period={period} formatValue={formatValue} />
+            : <p>Performance summary is unavailable for this snapshot.</p>}
+          {gain && performance.covered < performance.eligible ? (
             <p className="text-sm">Unrealized gain or loss covers {performance.covered} of {performance.eligible} positions.</p>
           ) : null}
-          {model.quality.historyReady && model.history.length >= 2
-            ? <SurfaceCard><SurfaceCardContent className="p-4"><PortfolioHistoryChart data={model.history} height={220} /></SurfaceCardContent></SurfaceCard>
+          {performance.history_available && currency
+            ? <SurfaceCard><SurfaceCardContent className="p-4"><PortfolioHistoryChart data={view.history} height={220}
+              currency={currency} formatValue={(value, compact) => savedMoney(value, currency, compact)} /></SurfaceCardContent></SurfaceCard>
             : <p className="text-sm">History is unavailable for this snapshot.</p>}
         </>
       ) : null}

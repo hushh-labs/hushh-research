@@ -1,5 +1,6 @@
 import type { PortfolioData } from "@/components/kai/types/portfolio";
 import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
+import { overviewFacts } from "@/components/kai/views/portfolio-display-facts";
 import { resolveFinancePortfolio } from "@/lib/kai/brokerage/resolve-portfolio-source";
 import { groupHoldingPositions } from "@/lib/kai/holding-positions";
 import { KaiFinancialResourceService, type KaiFinancialResource } from "@/lib/kai/kai-financial-resource";
@@ -67,7 +68,7 @@ const currencyCode = (value: unknown) => {
   return code && /^[A-Z]{3}$/.test(code) ? code : null;
 };
 
-function portfolioFacts(resource: KaiFinancialResource, source: PortfolioSource, portfolio: PortfolioData) {
+function portfolioChatView(resource: KaiFinancialResource, source: PortfolioSource, portfolio: PortfolioData) {
   const asOf = observationDate(resource, source, portfolio);
   const statementCurrency = source.kind === "statement" ? currencyCode(portfolio.account_info?.currency) : null;
   const positions = groupHoldingPositions(portfolio.holdings || [])
@@ -83,40 +84,68 @@ function portfolioFacts(resource: KaiFinancialResource, source: PortfolioSource,
         currencyCode(entry.currency || entry.iso_currency_code) ?? statementCurrency));
       const valueUnavailable = entries.some(entry =>
         entry.market_value_unavailable || knownNumber(entry.market_value) === null);
-      return {
-        ticker,
-        name: name || "Holding",
+      return { position, facts: {
+        ticker, name: name || "Holding",
         currency: currencies.size === 1 ? currencies.values().next().value ?? null : null,
         market_value: valueUnavailable || currencies.size > 1 ? null : knownNumber(position.market_value),
-      };
-    });
-  const currencies = new Set(positions.map(position => position.currency));
+      } };
+    })
+    .sort(({ facts: a }, { facts: b }) =>
+      Number(a.currency === null) - Number(b.currency === null) ||
+      (a.currency ?? "").localeCompare(b.currency ?? "") ||
+      (a.currency && b.currency && a.market_value !== b.market_value
+        ? (b.market_value ?? -Infinity) - (a.market_value ?? -Infinity)
+        : 0));
+  const currencies = new Set(positions.map(({ facts }) => facts.currency));
   const currency = currencies.size === 1 ? currencies.values().next().value ?? null : null;
   const model = mapPortfolioToDashboardViewModel(portfolio);
   const gain = sinceBought(model.canonicalModel.positions);
-  const observedValue = positions.some(position => position.market_value !== null) ||
+  const observedValue = positions.some(({ facts }) => facts.market_value !== null) ||
     knownNumber(portfolio.account_summary?.ending_value) !== null || model.hero.totalValue > 0;
   // Match the chart's saved allocation rows, including an authored allocation
   // mix supplied with the statement, and its portfolio-value denominator.
   const allocation = currency && model.quality.allocationReady &&
       model.allocation.length <= 6 && model.hero.totalValue > 0
     ? model.allocation.filter(row => Number.isFinite(row.value) && row.value > 0)
-      .map(row => ({ bucket: row.name, percent: row.value / model.hero.totalValue * 100 }))
+      .map(row => ({ ...row, percent: row.value / model.hero.totalValue * 100 }))
     : null;
+  const { invested, cash } = overviewFacts(model, portfolio);
   return {
     as_of: asOf,
     date_kind: asOf ? (source.kind === "plaid" ? "last_synced" : "statement_end") : "unknown",
     currency,
+    singleCurrency: currency !== null,
     positions,
     allocation,
+    gain: currency ? gain : null,
+    invested: currency ? invested : null,
+    cash: currency ? cash : null,
+    history: model.history,
     performance: {
       value: currency && observedValue ? knownNumber(model.hero.totalValue) : null,
       unrealized_gain: currency ? knownNumber(gain?.gain) : null,
       unrealized_percent: currency ? knownNumber(gain?.pct) : null,
       covered: currency ? gain?.covered ?? 0 : 0,
       eligible: currency ? gain?.eligible ?? 0 : 0,
-      history_available: model.quality.historyReady && model.history.length >= 2,
+      history_available: currency !== null && model.quality.historyReady && model.history.length >= 2,
     },
+  };
+}
+
+export function activePortfolioChatView(resource: KaiFinancialResource) {
+  return resource.activePortfolio
+    ? portfolioChatView(resource, activeSource(resource), resource.activePortfolio)
+    : null;
+}
+
+function portfolioFacts(resource: KaiFinancialResource, source: PortfolioSource, portfolio: PortfolioData) {
+  const { as_of, date_kind, currency, positions, allocation, performance } =
+    portfolioChatView(resource, source, portfolio);
+  return {
+    as_of, date_kind, currency,
+    positions: positions.map(({ facts }) => facts),
+    allocation: allocation?.map(({ name, percent }) => ({ bucket: name, percent })) ?? null,
+    performance,
   };
 }
 
@@ -178,14 +207,12 @@ export async function readPortfolioContext(
     return allocation?.length ? { ...result, allocation } : unavailable("section_unavailable");
   }
   if (request.section === "performance") {
-    return performance.value !== null || performance.history_available
+    return performance.value !== null || performance.unrealized_gain !== null || performance.history_available
       ? { ...result, performance } : unavailable("section_unavailable");
   }
   const matched = request.ticker ? positions.filter(position => position.ticker === request.ticker) : positions;
-  const ranked = [...matched].sort((a, b) => (a.currency ?? "").localeCompare(b.currency ?? "") ||
-    (a.currency && b.currency ? (b.market_value ?? -Infinity) - (a.market_value ?? -Infinity) : 0));
   return {
     ...result,
-    holdings: { positions: ranked.slice(0, MAX_ANSWER_POSITIONS), total_count: positions.length, matched_count: matched.length },
+    holdings: { positions: matched.slice(0, MAX_ANSWER_POSITIONS), total_count: positions.length, matched_count: matched.length },
   };
 }

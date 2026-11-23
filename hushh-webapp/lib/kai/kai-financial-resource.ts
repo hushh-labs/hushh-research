@@ -259,7 +259,7 @@ async function loadNetworkResource(
 }
 
 export class KaiFinancialResourceService {
-  /** A fresh, vault-fenced read for one answer, with no portfolio cache publication. */
+  /** A fresh, vault-fenced snapshot for a chat card or answer, with no cache publication. */
   static async readForAnswer(params: KaiFinancialResourceRequest, isCurrent: () => boolean) {
     if (!isCurrent()) return null;
     const generation = readGeneration(params.userId);
