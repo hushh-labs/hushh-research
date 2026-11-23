@@ -976,6 +976,25 @@ Typed read fixed failures: **Calendar took too long. Please try again.**;
 Final model narration can vary; these are tool-authored messages, not a
 guarantee that every answer reproduces them verbatim.
 
+### Connector permission details
+
+Calendar connection details show the active grant as **Read events**, **Check
+availability**, **View calendars**, **Create events**, **Reschedule events**,
+**Cancel events** and **Respond to invitations**. Read permissions show
+**Allowed**; event changes show **Allowed · review required** only with the
+active management grant. Missing permissions show **Not enabled**. A missing
+or stale grant never becomes allowed merely because a connection attempt finished.
+
+**Enable calendar changes** reuses the existing Google consent flow for a
+management upgrade. Rendering the list requests no additional permission.
+The person still approves every subsequent event change. Web and native
+connection details consume the same permission presentation.
+
+Private-agent connections derive **Read events** and the create/reschedule/cancel
+rows from the authenticated pod's read/manage capabilities. They retain the
+existing **Allow changes** action and omit availability, calendar-list and
+invitation claims that the private status contract does not attest to.
+
 ### Voice and generated-action coverage
 
 Generated route actions are exactly `calendar.read` (**Read Calendar**) and

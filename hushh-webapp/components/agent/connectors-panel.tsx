@@ -42,6 +42,8 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import { CONNECTOR_ARTWORK, connectorArtworkId } from "@/lib/profile/connector-artwork";
 import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connection-status";
+import { googleCalendarPermissions, type CalendarPermission } from "@/lib/calendar/calendar-permissions";
+import { CalendarPermissionList } from "@/components/calendar/calendar-permission-list";
 import { usePkmDomainResource } from "@/lib/pkm/pkm-domain-resource";
 import { disconnectVaultPlaid, vaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
 import {
@@ -172,7 +174,7 @@ export type ConnectorDetailAction = { label: string; disabled: boolean; run: () 
 /** Feature facts and existing commands, not a native UI schema or service port. */
 export type ConnectorDetailPresentation =
   | { kind: "private-google" | "private-stripe"; status: string; purpose: string; message: string; notes: readonly string[];
-      busy: boolean; actions: readonly ConnectorDetailAction[] }
+      busy: boolean; actions: readonly ConnectorDetailAction[]; permissions?: readonly CalendarPermission[] }
   | { kind: "social"; network: "instagram" | "linkedin"; link: string; current: () => boolean; inputRevision: () => number; changeLink: (link: string, expectedRevision?: number) => boolean }
   | { kind: "drive"; account: string; status: string; message: string; notes: readonly string[]; connected: boolean; busy: boolean; mutationPending: () => boolean;
       actions: readonly ConnectorDetailAction[]; background: { enabled: boolean | null; description: string; busy: boolean; change: (next: boolean) => void; retry?: ConnectorDetailAction } | null;
@@ -184,6 +186,7 @@ export type ConnectorDetailPresentation =
       sendAllowed: boolean; draftsAllowed: boolean; connect?: ConnectorDetailAction; disconnect?: ConnectorDetailAction;
       retry?: ConnectorDetailAction; enableDrafts?: ConnectorDetailAction; cancelSignIn?: ConnectorDetailAction }
   | { kind: "calendar"; description: string; status: string; message: string; helper: string | null;
+      permissions: readonly CalendarPermission[]; enableChanges?: ConnectorDetailAction;
       connection: ConnectorDetailAction; retry?: ConnectorDetailAction; cancelSignIn?: ConnectorDetailAction }
   | { kind: "plaid"; status: string; message: string; banks: readonly { key: string; name: string; status: string; disconnect: ConnectorDetailAction }[];
       connect?: ConnectorDetailAction }
@@ -2433,12 +2436,17 @@ function OwnerConnectorsPanel({
     ...(gmail.status?.connected && !gmail.status.compose_permission_granted ? { enableDrafts: detailAction("Enable Gmail drafts", mailBusy || gmail.loadingStatus, () => { void connectMail("compose"); }) } : {}),
     ...(mailPopupPending ? { cancelSignIn: detailAction("Cancel sign-in", false, () => mailPopupCancel.current?.abort()) } : {}),
   };
+  const calendarPermissions = googleCalendarPermissions(calendar.status);
   const calendarDetail: Extract<ConnectorDetailPresentation, { kind: "calendar" }> = {
     kind: "calendar", description: calendarDescription, status: calendarStatusLabel,
     message: calendarPopupPending ? "Finish signing in with Google in the window that opened." : calendarBusy ? "Updating Calendar…" : calendarMessage,
     helper: !calendar.error && !calendar.connected && !calendarNeedsReconnect ? "Private by default. Disconnect anytime." : calendar.connected ? "Disconnect anytime." : null,
     connection: calendar.connected ? detailAction("Disconnect Calendar", calendarBusy, () => setConfirm("calendar"), true) :
       detailAction(calendarConnectLabel, calendarBusy, () => { void connectCalendar(); }),
+    permissions: calendar.connected ? calendarPermissions.rows : [],
+    ...(calendar.connected && !calendarPermissions.manage ? {
+      enableChanges: detailAction("Enable calendar changes", calendarBusy || calendar.loading, () => { void connectCalendar("manage"); }),
+    } : {}),
     ...(calendar.error ? { retry: detailAction("Retry", false, () => { void calendar.refresh(); }) } : {}),
     ...(calendarPopupPending ? { cancelSignIn: detailAction("Cancel sign-in", false, () => calendarPopupCancel.current?.abort()) } : {}),
   };
@@ -3006,6 +3014,18 @@ function OwnerConnectorsPanel({
                     >
                       {calendarConnectLabel}
                     </Button>
+                  )}
+                  {calendarDetail.permissions.length > 0 && (
+                    <div className="space-y-3">
+                      <CalendarPermissionList permissions={calendarDetail.permissions} />
+                      {calendarDetail.enableChanges && (
+                        <Button size="compact" variant="outline" disabled={calendarDetail.enableChanges.disabled}
+                          data-voice-control-id="enable_calendar_changes"
+                          onClick={calendarDetail.enableChanges.run}>
+                          {calendarDetail.enableChanges.label}
+                        </Button>
+                      )}
+                    </div>
                   )}
                   {!calendar.error && !calendar.connected && !calendarNeedsReconnect ? (
                     <p className="text-sm text-muted-foreground">

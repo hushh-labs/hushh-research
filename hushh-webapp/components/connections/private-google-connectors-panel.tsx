@@ -14,6 +14,8 @@ import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from '@/lib/vau
 import { useGoogleConnectorTransitionReview } from './google-connector-transition-review';
 import { connectorAccessPurpose } from '@/lib/agent/connector-access-copy';
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from '@/lib/auth/session-owner';
+import { calendarPermissionRows } from '@/lib/calendar/calendar-permissions';
+import { CalendarPermissionList } from '@/components/calendar/calendar-permission-list';
 
 const LABELS: Record<GoogleConnector, string> = { gmail: 'Gmail', calendar: 'Google Calendar', drive: 'Google Drive', contacts: 'Google Contacts' };
 type Status = 'connected' | 'needs_reauth' | 'absent' | 'unavailable';
@@ -88,6 +90,8 @@ export function usePrivateGoogleConnectorsModel({ open, visitKey }: { open: bool
     const status = statuses[connector] === 'connected' ? ((connector === 'gmail' || connector === 'calendar') ? managed[connector] ? 'Connected · changes allowed after your confirmation' : readable[connector] ? 'Connected · reading only' : 'Connected · permissions need verification' : 'Connected to Agent One') :
       statuses[connector] === 'needs_reauth' ? 'Sign in again' : statuses[connector] === 'unavailable' ? 'Your agent could not verify this connection' : statuses[connector] ? 'Not connected' : 'Checking connection…';
     return { connector, label: LABELS[connector], status, purpose: connectorAccessPurpose(connector), connected: statuses[connector] === 'connected',
+      permissions: connector === 'calendar' && statuses[connector] === 'connected'
+        ? calendarPermissionRows({ read: readable[connector] === true, manage: managed[connector] === true }) : [],
       allowChanges: statuses[connector] === 'connected' && (connector === 'gmail' || connector === 'calendar') && !managed[connector] };
   });
   return { open, enabled, entries, busy, message, handoff, refresh, run, transition, isCurrent };
@@ -112,9 +116,10 @@ function PrivateGoogleConnectorsView({ open, onBack, onClose, surface, showAcces
     <p className="text-sm text-muted-foreground">Connect Google directly to Agent One. Gmail includes reading, drafts, sending and mailbox changes; your agent asks you to confirm changes.</p>
     {!enabled && <p role="status" className="text-sm">Sign in and unlock your vault to connect Google.</p>}
     <SettingsGroup>
-      {entries.map(({ connector, status, connected, allowChanges }) => {
+      {entries.map(({ connector, status, connected, allowChanges, permissions }) => {
         return <SettingsRow key={connector} title={LABELS[connector]}
-        description={showAccessDetails ? <><span>{status}</span><span className="block pt-1">{connectorAccessPurpose(connector)}</span></> : status}
+        description={<><span>{status}</span>{showAccessDetails && <span className="block pt-1">{connectorAccessPurpose(connector)}</span>}
+          {permissions.length > 0 && <div className="pt-3"><CalendarPermissionList permissions={permissions} /></div>}</>}
         trailing={<div className="flex gap-2">
           {allowChanges && <Button variant="outline" disabled={!enabled || busy !== null} onClick={() => void run(connector, false)}>Allow changes</Button>}
           <Button variant="outline" disabled={!enabled || busy !== null}
