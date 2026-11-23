@@ -285,7 +285,7 @@ export function AgentCalendarProposalCard({
               >
                 {conflict.title || "Untitled event"}
                 {conflict.startAt
-                  ? ` · ${formatDateTime(conflict.startAt)}`
+                  ? ` · ${formatDateTime(conflict.startAt, displayZone)}`
                   : ""}
               </li>
             ))}

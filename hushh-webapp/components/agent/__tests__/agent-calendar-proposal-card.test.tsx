@@ -125,6 +125,7 @@ describe("AgentCalendarProposalCard", () => {
         title="Client call"
         startAt="2026-08-11T10:00:00Z"
         endAt="2026-08-11T10:30:00Z"
+        timeZone="America/Los_Angeles"
         attendees={[]}
         location={null}
         sendUpdates
@@ -139,6 +140,7 @@ describe("AgentCalendarProposalCard", () => {
 
     expect(screen.getByText(/Conflicts with an existing event/)).toBeTruthy();
     expect(screen.getByText(/Design review/)).toBeTruthy();
+    expect(screen.getByText(/Design review/).textContent).toMatch(/3:00\s*AM/);
     expect(screen.getByText("Schedule anyway")).toBeTruthy();
   });
 
