@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { bindFilesConnection } from "@/lib/files/connection";
 import {
   clearFilesHostingCache,
+  hydrateFilesCacheFromEncryptedCache,
   peekFilesHostingCache,
   setFilesHostingCache,
 } from "@/lib/files/files-cache";
@@ -107,6 +108,21 @@ export function useFilesConnection(
     }
     boundOwner.current = nextOwner;
     setConnectionError("");
+    let statusSettled = false;
+    if (!warmHosting && typeof hydrateFilesCacheFromEncryptedCache === "function") {
+      void hydrateFilesCacheFromEncryptedCache(userId, vaultKey)
+        .then((hydrated) => {
+          if (statusSettled || !hydrated.hosting) return;
+          check();
+          activeRelease.current?.();
+          activeRelease.current = bindFilesConnection(
+            { owner: userId, vaultKey, ownerToken: vaultOwnerToken, check },
+            hydrated.hosting === "shared",
+          );
+          setHosting(hydrated.hosting);
+        })
+        .catch(() => undefined);
+    }
     const readStatus =
       ApiService.getPersonalAgentStatusForRouting ??
       ApiService.getPersonalAgentStatus;
@@ -117,6 +133,7 @@ export function useFilesConnection(
       })
       .then((status) => {
         check();
+        statusSettled = true;
         if (
           status.hostingMode !== "shared" &&
           status.hostingMode !== "byoc" &&

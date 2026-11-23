@@ -283,6 +283,7 @@ import {
 import { isChatKeyRefusal } from "@/lib/vault/one-chat-key";
 import { recoverMcpReviews } from "@/lib/agent/mcp-review-recovery";
 import {
+  hydrateAgentChatHistoryFromEncryptedCache,
   loadAgentChatConversationHistory,
   loadOlderAgentChatConversationHistory,
   peekAgentChatConversationHasMore,
@@ -3878,11 +3879,20 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setSlotHistoryFailed(false);
       let retainedCache = false;
       try {
-        if (cached) {
-          const needsRefresh = !cached.isFresh || isAgentTurnWatched(applicationOwnerId, selectedInAppChat(applicationOwnerId) || "");
-          await applySnapshot(cached);
+        const effectiveCached =
+          cached ??
+          (typeof hydrateAgentChatHistoryFromEncryptedCache === "function"
+            ? await hydrateAgentChatHistoryFromEncryptedCache({
+                userId: applicationOwnerId,
+                vaultKey: vaultKeyRef.current ?? "",
+              })
+            : null);
+        if (!restoreCurrent()) return;
+        if (effectiveCached) {
+          const needsRefresh = !effectiveCached.isFresh || isAgentTurnWatched(applicationOwnerId, selectedInAppChat(applicationOwnerId) || "");
+          await applySnapshot(effectiveCached);
           if (!restoreCurrent()) return;
-          if (!isAgentChatHistorySnapshotCurrent(applicationOwnerId, cached)) throw new Error("Chat history was invalidated.");
+          if (!isAgentChatHistorySnapshotCurrent(applicationOwnerId, effectiveCached)) throw new Error("Chat history was invalidated.");
           retainedCache = true;
           setHistoryReadyForSlot(true);
           setIsLoadingHistory(false);
@@ -3894,11 +3904,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           userId: applicationOwnerId,
           vaultOwnerToken,
           vaultKey: vaultKeyRef.current ?? "",
-          force: Boolean(cached),
+          force: Boolean(effectiveCached),
         });
         // List warming may finish before its transcript fetch. Join that
         // service-owned flight so background reconciliation publishes new text.
-        await applySnapshot(next, Boolean(cached));
+        await applySnapshot(next, Boolean(effectiveCached));
         if (restoreCurrent() && isAgentChatHistorySnapshotCurrent(applicationOwnerId, next)) setHistoryReadyForSlot(true);
       } catch {
         if (restoreCurrent() && !retainedCache) {
@@ -4211,6 +4221,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         pkmCaptureReadinessRef.current.isVaultUnlocked;
       setIsLoadingHistory(true);
       try {
+        if (!peekAgentChatHistoryCache(applicationOwnerId) && typeof hydrateAgentChatHistoryFromEncryptedCache === "function") {
+          const hydrated = await hydrateAgentChatHistoryFromEncryptedCache({
+            userId: applicationOwnerId,
+            vaultKey: vaultKeyRef.current ?? "",
+          });
+          if (hydrated && stillCurrent()) {
+            historyListOwner.current = { auth: owner, epoch };
+            setConversations(hydrated.conversations);
+            setIsLoadingHistory(false);
+          }
+        }
         const next = await warmAgentChatHistoryCache({
           userId: applicationOwnerId,
           vaultOwnerToken: token,
@@ -5780,6 +5801,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           title: isMainChatTurn
             ? "One"
             : userMessages[0]?.text?.trim().slice(0, 64) || undefined,
+          vaultKey: vaultKeyRef.current ?? undefined,
         });
       }
       if (isMainChatTurn && finalConversationId) {

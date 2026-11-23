@@ -16,10 +16,18 @@ import {
   snapshotValidatedAuthSessionOwner,
   subscribeAuthSessionGeneration,
 } from "@/lib/auth/session-owner";
+import {
+  canSealOwnerUiCache,
+  deleteEncryptedOwnerUiRecords,
+  readEncryptedOwnerUiRecord,
+  writeEncryptedOwnerUiRecord,
+} from "@/lib/storage/encrypted-owner-ui-cache";
 
 const HISTORY_CACHE_TTL_MS = 5 * 60 * 1000;
 const CONVERSATION_LIMIT = 20;
 const MESSAGE_LIMIT = 30;
+const PERSISTED_MESSAGE_CAP = MESSAGE_LIMIT * 2;
+const CHAT_HISTORY_IDB_NAMESPACE = "chat-history:v1";
 
 type ConversationPaginationState = {
   hasMore: boolean;
@@ -33,6 +41,12 @@ type AgentChatHistoryCacheEntry = {
   cachedAt: number;
 };
 
+type PersistedAgentChatHistoryEntry = {
+  conversations: AgentChatConversation[];
+  messagesByConversation: Record<string, AgentChatMessage[]>;
+  paginationByConversation?: Record<string, ConversationPaginationState>;
+};
+
 export type AgentChatHistorySnapshot = {
   ownerId: string;
   cacheGeneration: string;
@@ -44,6 +58,7 @@ export type AgentChatHistorySnapshot = {
 
 const entriesByUser = new Map<string, AgentChatHistoryCacheEntry>();
 const warmupsByUser = new Map<string, Promise<AgentChatHistorySnapshot>>();
+const hydrationsByUser = new Map<string, Promise<AgentChatHistorySnapshot | null>>();
 const historyLoadsByKey = new Map<string, Promise<AgentChatMessage[]>>();
 const generationByUser = new Map<string, number>();
 let globalGeneration = 0;
@@ -96,6 +111,107 @@ function snapshot(entry: AgentChatHistoryCacheEntry, userId: string): AgentChatH
   };
 }
 
+function persistEntryToEncryptedCache(
+  userId: string,
+  vaultKey: string | undefined,
+  entry: AgentChatHistoryCacheEntry,
+): void {
+  if (!userId || !canSealOwnerUiCache(vaultKey)) return;
+  const boundedConversations = entry.conversations.slice(0, CONVERSATION_LIMIT);
+  const allowedIds = new Set(boundedConversations.map((item) => item.id));
+  const messagesByConversation: Record<string, AgentChatMessage[]> = {};
+  for (const [convId, msgs] of entry.messagesByConversation.entries()) {
+    if (!allowedIds.has(convId) && boundedConversations.length > 0) continue;
+    messagesByConversation[convId] = msgs.slice(-PERSISTED_MESSAGE_CAP);
+  }
+  const paginationByConversation: Record<string, ConversationPaginationState> = {};
+  if (entry.paginationByConversation) {
+    for (const [convId, state] of entry.paginationByConversation.entries()) {
+      if (convId in messagesByConversation) {
+        paginationByConversation[convId] = state;
+      }
+    }
+  }
+  const payload: PersistedAgentChatHistoryEntry = {
+    conversations: boundedConversations,
+    messagesByConversation,
+    paginationByConversation,
+  };
+  void writeEncryptedOwnerUiRecord({
+    ownerId: userId,
+    vaultKey,
+    namespace: CHAT_HISTORY_IDB_NAMESPACE,
+    value: payload,
+    updatedAt: entry.cachedAt,
+  });
+}
+
+export function hydrateAgentChatHistoryFromEncryptedCache(input: {
+  userId: string;
+  vaultKey: string;
+}): Promise<AgentChatHistorySnapshot | null> {
+  const existingMem = entriesByUser.get(input.userId);
+  if (existingMem) {
+    return Promise.resolve(snapshot(existingMem, input.userId));
+  }
+  if (!input.userId || !canSealOwnerUiCache(input.vaultKey)) {
+    return Promise.resolve(null);
+  }
+  const inFlight = hydrationsByUser.get(input.userId);
+  if (inFlight) return inFlight;
+
+  const generation = generationFor(input.userId);
+  const task = readEncryptedOwnerUiRecord<PersistedAgentChatHistoryEntry>({
+    ownerId: input.userId,
+    vaultKey: input.vaultKey,
+    namespace: CHAT_HISTORY_IDB_NAMESPACE,
+  })
+    .then((stored) => {
+      if (generationFor(input.userId) !== generation) {
+        return peekAgentChatHistoryCache(input.userId);
+      }
+      const alreadyWarm = entriesByUser.get(input.userId);
+      if (alreadyWarm) {
+        return snapshot(alreadyWarm, input.userId);
+      }
+      if (!stored?.value || !Array.isArray(stored.value.conversations)) {
+        return null;
+      }
+      const messagesMap = new Map<string, AgentChatMessage[]>();
+      const rawMessages = stored.value.messagesByConversation ?? {};
+      for (const [convId, msgs] of Object.entries(rawMessages)) {
+        if (Array.isArray(msgs)) {
+          messagesMap.set(convId, msgs);
+        }
+      }
+      const paginationMap = new Map<string, ConversationPaginationState>();
+      const rawPagination = stored.value.paginationByConversation ?? {};
+      for (const [convId, pageState] of Object.entries(rawPagination)) {
+        if (pageState && typeof pageState.hasMore === "boolean") {
+          paginationMap.set(convId, pageState);
+        }
+      }
+      const hydrated: AgentChatHistoryCacheEntry = {
+        conversations: stored.value.conversations,
+        messagesByConversation: messagesMap,
+        paginationByConversation: paginationMap,
+        // Mark hydrated replica stale so UI renders in <10ms while background
+        // pod revalidation silently reconciles any new turns or proactive briefs.
+        cachedAt: 0,
+      };
+      entriesByUser.set(input.userId, hydrated);
+      return snapshot(hydrated, input.userId);
+    })
+    .finally(() => {
+      if (hydrationsByUser.get(input.userId) === task) {
+        hydrationsByUser.delete(input.userId);
+      }
+    });
+
+  hydrationsByUser.set(input.userId, task);
+  return task;
+}
+
 export function peekAgentChatHistoryCache(
   userId: string,
 ): AgentChatHistorySnapshot | null {
@@ -116,6 +232,7 @@ export function upsertAgentChatHistoryConversation(input: {
   conversationId: string;
   messages: AgentChatMessage[];
   title?: string;
+  vaultKey?: string;
 }): void {
   const existing = entriesByUser.get(input.userId) ?? {
     conversations: [],
@@ -144,11 +261,14 @@ export function upsertAgentChatHistoryConversation(input: {
   ];
   const nextMessagesByConversation = new Map(existing.messagesByConversation);
   nextMessagesByConversation.set(input.conversationId, [...input.messages]);
-  entriesByUser.set(input.userId, {
+  const nextEntry: AgentChatHistoryCacheEntry = {
     conversations: nextConversations,
     messagesByConversation: nextMessagesByConversation,
+    paginationByConversation: existing.paginationByConversation,
     cachedAt: Date.now(),
-  });
+  };
+  entriesByUser.set(input.userId, nextEntry);
+  persistEntryToEncryptedCache(input.userId, input.vaultKey, nextEntry);
 }
 
 /** Presentation liveness only; cached history never grants request authority. */
@@ -161,15 +281,32 @@ export function clearAgentChatHistoryCache(userId?: string): void {
     generationByUser.set(userId, (generationByUser.get(userId) || 0) + 1);
     entriesByUser.delete(userId);
     warmupsByUser.delete(userId);
+    hydrationsByUser.delete(userId);
     for (const key of historyLoadsByKey.keys()) {
       if (key.startsWith(`${userId}:`)) historyLoadsByKey.delete(key);
     }
+    void deleteEncryptedOwnerUiRecords(userId, "chat-history:");
     return;
   }
   globalGeneration += 1;
   entriesByUser.clear();
   warmupsByUser.clear();
+  hydrationsByUser.clear();
   historyLoadsByKey.clear();
+  void deleteEncryptedOwnerUiRecords(undefined, "chat-history:");
+}
+
+/** Test-only helper simulating tab reload by dropping RAM maps without wiping encrypted storage. */
+export function evictInMemoryAgentChatHistoryForTests(userId?: string): void {
+  if (userId) {
+    entriesByUser.delete(userId);
+    warmupsByUser.delete(userId);
+    hydrationsByUser.delete(userId);
+    return;
+  }
+  entriesByUser.clear();
+  warmupsByUser.clear();
+  hydrationsByUser.clear();
 }
 
 export function warmAgentChatHistoryCache(input: {
@@ -214,9 +351,11 @@ export function warmAgentChatHistoryCache(input: {
       const next: AgentChatHistoryCacheEntry = {
         conversations,
         messagesByConversation,
+        paginationByConversation: previous?.paginationByConversation,
         cachedAt: Date.now(),
       };
       entriesByUser.set(input.userId, next);
+      persistEntryToEncryptedCache(input.userId, input.vaultKey, next);
       trackWarmupCompleted({
         result: "success",
         resourceClass: "realtime_stream",
@@ -308,6 +447,7 @@ export async function loadAgentChatConversationHistory(input: {
       );
       current.paginationByConversation = paginationMap;
       entriesByUser.set(input.userId, current);
+      persistEntryToEncryptedCache(input.userId, input.vaultKey, current);
       return [...messages];
     })
     .finally(() => {
@@ -374,6 +514,7 @@ export async function loadOlderAgentChatConversationHistory(input: {
       );
       current.paginationByConversation = paginationMap;
       entriesByUser.set(input.userId, current);
+      persistEntryToEncryptedCache(input.userId, input.vaultKey, current);
       return uniqueOlder;
     })
     .finally(() => {

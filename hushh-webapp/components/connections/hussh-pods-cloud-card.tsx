@@ -125,15 +125,6 @@ export function PodCloudBadge({
   );
 }
 
-export function HostedPodDualCloudMarks({ className }: { className?: string }) {
-  return (
-    <span className={cn("inline-flex items-center gap-1.5", className)}>
-      <GoogleCloudLogo decorative className="h-4 w-auto" />
-      <MicrosoftAzureLogo decorative className="h-4 w-4" />
-    </span>
-  );
-}
-
 function formatSafetyWindowDate(iso: string | null | undefined): string {
   if (!iso) return "3 days";
   const parsed = Date.parse(iso);
@@ -336,17 +327,17 @@ export function HusshPodsActiveCard({
             ) : isPersonalSandbox ? (
               <span
                 aria-hidden="true"
-                data-testid="hussh-pods-active-dual-cloud"
-                className="flex h-9 shrink-0 items-center justify-center rounded-xl border border-[var(--app-border)] bg-background px-2"
+                data-testid="hussh-pods-active-gcp-cloud"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[var(--app-border)] bg-background"
               >
-                <HostedPodDualCloudMarks />
+                <PodCloudProviderMark provider="gcp" className="h-5 w-5" />
               </span>
             ) : null}
             <div className="min-w-0">
               <p className="text-sm font-semibold text-foreground">{title}</p>
               <p className="text-xs text-[var(--app-text-secondary)]">
                 {isPersonalSandbox
-                  ? "Isolated Personal Sandbox across Google Cloud and Microsoft Azure"
+                  ? "Isolated Confidential Sandbox on Google Cloud"
                   : "Dedicated private agent managed by Hussh"}
               </p>
             </div>
@@ -365,7 +356,7 @@ export function HusshPodsActiveCard({
             : provider === "gcp"
               ? "Your agent runs on Google Cloud in a dedicated pod managed by Hussh."
               : isPersonalSandbox
-                ? "Your isolated Personal Sandbox runs across Google Cloud and Microsoft Azure with built-in AI."
+                ? "Your isolated Confidential Sandbox runs on Google Cloud with built-in AI."
                 : "Your dedicated private agent is active on Hussh Pods."}
         </p>
 
@@ -786,8 +777,8 @@ export function PooledSandboxSwitchCard({
     ? "Switch to Hussh Personal Sandbox"
     : "Start in Hussh Personal Sandbox";
   const body = hasAssignedCloudPod
-    ? "Switch to an instant Hussh-managed Personal Sandbox (Google Cloud and Microsoft Azure) with built-in AI. Encrypted conversations sync automatically when your previous pod is reachable (or start fresh automatically if it is offline), while your encrypted Vault stays intact."
-    : "Skip custom cloud setup and start right away in an isolated Personal Sandbox (Google Cloud and Microsoft Azure) with built-in AI.";
+    ? "Switch to an instant Hussh-managed Confidential Sandbox on Google Cloud with built-in AI. Encrypted conversations sync automatically when your previous pod is reachable (or start fresh automatically if it is offline), while your encrypted Vault stays intact."
+    : "Skip custom cloud setup and start right away in an isolated Confidential Sandbox on Google Cloud with built-in AI.";
   const buttonLabel = hasAssignedCloudPod
     ? busy
       ? "Switching to Personal Sandbox…"
@@ -922,12 +913,7 @@ export function PooledSandboxSwitchCard({
               </p>
             ) : null}
           </div>
-          <span
-            aria-hidden="true"
-            className="flex h-8 shrink-0 items-center justify-center rounded-xl border border-[var(--app-border)] bg-background px-2"
-          >
-            <HostedPodDualCloudMarks />
-          </span>
+          <PodCloudBadge provider="gcp" label="Google Cloud" />
         </div>
 
         <p className="text-sm text-[var(--app-text-secondary)]">{body}</p>
@@ -1031,8 +1017,8 @@ export function PooledSandboxSwitchCard({
               <AlertDialogTitle>Switch to Hussh Personal Sandbox?</AlertDialogTitle>
               <AlertDialogDescription>
                 {sourceCloudLabel
-                  ? `Switch from ${sourceCloudLabel} to an isolated Hussh Personal Sandbox across Google Cloud and Microsoft Azure with built-in AI.`
-                  : "Switch to an isolated Hussh Personal Sandbox across Google Cloud and Microsoft Azure with built-in AI."}
+                  ? `Switch from ${sourceCloudLabel} to an isolated Hussh Confidential Sandbox on Google Cloud with built-in AI.`
+                  : "Switch to an isolated Hussh Confidential Sandbox on Google Cloud with built-in AI."}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <p className="text-sm text-[var(--app-text-secondary)]">

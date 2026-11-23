@@ -5,8 +5,8 @@ import { useEffect } from "react";
 import { GoogleCloudLogo } from "@/components/brand/google-cloud-logo";
 import { MicrosoftAzureLogo } from "@/components/brand/microsoft-azure-logo";
 import type { HostingChoiceOption } from "@/components/connections/hosting-choice-cards";
-import { HostedPodDualCloudMarks, PodCloudBadge } from "@/components/connections/hussh-pods-cloud-card";
-import { hostedPodProvider } from "@/lib/one/owner-cloud";
+import { PodCloudBadge } from "@/components/connections/hussh-pods-cloud-card";
+import { hostedPodProvider, isPooledSandboxSwitchAvailable } from "@/lib/one/owner-cloud";
 import {
   DedicatedHostingRowIcon,
   OwnCloudRowIcon,
@@ -32,34 +32,54 @@ const ACTION = "min-h-11 self-start text-sm underline underline-offset-4 disable
 /** How often a connecting agent is re-checked while this screen is open. */
 export const CONNECTING_POLL_MS = 5_000;
 
-/** The three tier cards. Your own cloud leads: it is the agent Hussh is built around. */
+/** Tier cards. On Confidential Sandbox cutover lanes, Hussh Shared is retired in favor of Personal Sandbox + BYOC. */
 export function hostingOptionsFor({
   azureSelectable,
   hostedUnderMaintenance,
   ownCloudAvailable,
+  pooledSandboxAvailable = isPooledSandboxSwitchAvailable(),
 }: {
   azureSelectable: boolean;
   hostedUnderMaintenance: boolean;
   ownCloudAvailable: boolean;
+  pooledSandboxAvailable?: boolean;
 }): HostingChoiceOption[] {
+  const ownOption: HostingChoiceOption = {
+    value: "own",
+    icon: OwnCloudRowIcon,
+    title: "Bring your own cloud",
+    description: azureSelectable
+      ? "Your agent runs in your own Google Cloud Platform or Microsoft Azure account. You own it and pay for it."
+      : "Your agent runs in your own Google Cloud Platform account. You own it and pay for it.",
+    supporting: !ownCloudAvailable ? "Cloud setup is unavailable in this environment." : (
+      <>
+        <GoogleCloudLogo decorative className="h-4" />
+        {azureSelectable ? <MicrosoftAzureLogo decorative className="h-4 w-4" /> : null}
+      </>
+    ),
+    supportingDecorative: ownCloudAvailable,
+    unavailable: !ownCloudAvailable,
+    testId: "cloud-tier-own",
+  };
+
+  if (pooledSandboxAvailable) {
+    return [
+      ownOption,
+      {
+        value: "hosted",
+        icon: DedicatedHostingRowIcon,
+        title: "Hussh Personal Sandbox",
+        description: "Isolated Confidential Sandbox managed by Hussh on Google Cloud.",
+        supporting: <GoogleCloudLogo decorative className="h-4 w-auto" />,
+        supportingDecorative: true,
+        unavailable: false,
+        testId: "cloud-tier-hosted",
+      },
+    ];
+  }
+
   return [
-    {
-      value: "own",
-      icon: OwnCloudRowIcon,
-      title: "Bring your own cloud",
-      description: azureSelectable
-        ? "Your agent runs in your own Google Cloud Platform or Microsoft Azure account. You own it and pay for it."
-        : "Your agent runs in your own Google Cloud Platform account. You own it and pay for it.",
-      supporting: !ownCloudAvailable ? "Cloud setup is unavailable in this environment." : (
-        <>
-          <GoogleCloudLogo decorative className="h-4" />
-          {azureSelectable ? <MicrosoftAzureLogo decorative className="h-4 w-4" /> : null}
-        </>
-      ),
-      supportingDecorative: ownCloudAvailable,
-      unavailable: !ownCloudAvailable,
-      testId: "cloud-tier-own",
-    },
+    ownOption,
     {
       value: "shared",
       icon: SharedHostingRowIcon,
@@ -79,7 +99,7 @@ export function hostingOptionsFor({
           Paused for maintenance
         </>
       ) : (
-        <HostedPodDualCloudMarks />
+        <GoogleCloudLogo decorative className="h-4 w-auto" />
       ),
       supportingDecorative: !hostedUnderMaintenance,
       unavailable: hostedUnderMaintenance,

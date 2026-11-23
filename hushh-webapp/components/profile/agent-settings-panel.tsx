@@ -31,7 +31,6 @@ import {
   podCloudProvider,
 } from "@/lib/one/owner-cloud";
 import {
-  HostedPodDualCloudMarks,
   HusshPodsActiveCard,
   HusshPodsMigrationCard,
   PodCloudBadge,
@@ -299,7 +298,11 @@ function AgentSettingsBody({
             testId="current-hosting-cloud-badge"
           />
         ) : mode === "hussh_pods" && status?.deploymentTarget === "ace" ? (
-          <HostedPodDualCloudMarks />
+          <PodCloudBadge
+            provider="gcp"
+            label="Google Cloud"
+            testId="current-hosting-cloud-badge"
+          />
         ) : null}
       </span>
     );
@@ -380,34 +383,36 @@ function AgentSettingsBody({
         ) : null}
 
         <SettingsGroup title="Hosting choices" density="compact" headingClassName="!mt-5">
-          <SettingsRow
-            title="Hussh Shared"
-            description={
-              mode === "byoc"
-                ? "Remove your current cloud below to switch."
-                : "Managed shared service with automatic updates."
-            }
-            textOverflow="truncate"
-            trailing={
-              mode === "shared"
-                ? "Current"
-                : mode === "unplaced"
-                  ? "Choose"
+          {!pooledSwitchAvailable ? (
+            <SettingsRow
+              title="Hussh Shared"
+              description={
+                mode === "byoc"
+                  ? "Remove your current cloud below to switch."
+                  : "Managed shared service with automatic updates."
+              }
+              textOverflow="truncate"
+              trailing={
+                mode === "shared"
+                  ? "Current"
+                  : mode === "unplaced"
+                    ? "Choose"
+                    : canSwitchToShared
+                      ? "Switch"
+                      : undefined
+              }
+              disabled={busy && canSwitchToShared}
+              onClick={
+                mode === "unplaced"
+                  ? chooseHosting
                   : canSwitchToShared
-                    ? "Switch"
+                    ? () => setConfirmSwitch("shared")
                     : undefined
-            }
-            disabled={busy && canSwitchToShared}
-            onClick={
-              mode === "unplaced"
-                ? chooseHosting
-                : canSwitchToShared
-                  ? () => setConfirmSwitch("shared")
-                  : undefined
-            }
-            chevron={mode === "unplaced" || canSwitchToShared}
-            testId="hosting-choice-shared"
-          />
+              }
+              chevron={mode === "unplaced" || canSwitchToShared}
+              testId="hosting-choice-shared"
+            />
+          ) : null}
           <SettingsRow
             title="Bring your own cloud"
             description={
@@ -443,19 +448,17 @@ function AgentSettingsBody({
             testId="hosting-choice-own-cloud"
           />
           <SettingsRow
-            title="Hussh Pods"
+            title={pooledSwitchAvailable ? "Hussh Personal Sandbox" : "Hussh Pods"}
             description={
-              isPersonalSandboxActive
-                ? "Isolated Personal Sandbox across Google Cloud and Microsoft Azure."
+              isPersonalSandboxActive || pooledSwitchAvailable
+                ? "Isolated Confidential Sandbox on Google Cloud."
                 : mode === "hussh_pods"
                   ? activeHostedProvider
                     ? `Dedicated pod on ${HOSTED_POD_PROVIDER_LABELS[activeHostedProvider]}.`
                     : "Dedicated Hussh-hosted pod."
-                  : pooledSwitchAvailable
-                    ? "Isolated Personal Sandbox across Google Cloud and Microsoft Azure."
-                    : hostedUnderMaintenance
-                      ? "Unavailable for new setups."
-                      : "Dedicated pod on Google Cloud or Azure."
+                  : hostedUnderMaintenance
+                    ? "Unavailable for new setups."
+                    : "Dedicated pod on Google Cloud."
             }
             textOverflow="truncate"
             trailing={
@@ -467,13 +470,13 @@ function AgentSettingsBody({
                 "Unavailable"
               ) : canSwitchToSandboxFromRow ? (
                 <span className="inline-flex items-center gap-2">
-                  <HostedPodDualCloudMarks />
+                  <PodCloudBadge provider="gcp" label="Google Cloud" />
                   <span className="text-xs font-medium text-[var(--app-text-secondary)]">
                     Switch
                   </span>
                 </span>
               ) : (
-                <HostedPodDualCloudMarks />
+                <PodCloudBadge provider="gcp" label="Google Cloud" />
               )
             }
             disabled={busy && canChooseHosted}
@@ -558,7 +561,7 @@ function AgentSettingsBody({
             <AlertDialogHeader>
               <AlertDialogTitle>Switch to Hussh Personal Sandbox?</AlertDialogTitle>
               <AlertDialogDescription>
-                Move Agent One into an isolated Hussh Personal Sandbox across Google Cloud and Microsoft Azure with built-in AI. Your encrypted Vault stays intact.
+                Move Agent One into an isolated Hussh Confidential Sandbox on Google Cloud with built-in AI. Your encrypted Vault stays intact.
               </AlertDialogDescription>
             </AlertDialogHeader>
             {mode === "byoc" ? (

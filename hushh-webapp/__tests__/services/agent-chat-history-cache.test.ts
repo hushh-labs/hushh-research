@@ -19,12 +19,21 @@ vi.mock("@/lib/observability/client", () => ({
 
 import {
   clearAgentChatHistoryCache,
+  evictInMemoryAgentChatHistoryForTests,
+  hydrateAgentChatHistoryFromEncryptedCache,
   loadAgentChatConversationHistory,
   peekAgentChatHistoryCache,
   warmAgentChatHistoryCache,
   isAgentChatHistorySnapshotCurrent,
 } from "@/lib/agent/agent-chat-history-cache";
 import { AGENT_CHAT_HISTORY_INVALIDATED_EVENT } from "@/lib/agent/agent-chat-history-events";
+import {
+  deleteEncryptedOwnerUiRecords,
+  flushEncryptedOwnerUiWritesForTests,
+  inspectRawMemoryUiCacheForTests,
+  readEncryptedOwnerUiRecord,
+  writeEncryptedOwnerUiRecord,
+} from "@/lib/storage/encrypted-owner-ui-cache";
 
 const conversation = {
   id: "conversation-1",
@@ -194,5 +203,78 @@ describe("agent chat history memory cache", () => {
     // Main chat is already cached; force-refreshing the sidebar list must not
     // fan out parallel GET /history calls across conversations.
     expect(mocks.history).not.toHaveBeenCalled();
+  });
+
+  it("seals chat history into encrypted owner UI storage with zero plaintext on disk and hydrates across reload", async () => {
+    await deleteEncryptedOwnerUiRecords();
+    const realVaultKey = "a1".repeat(32);
+    const wrongVaultKey = "b2".repeat(32);
+    const input = { userId: "user-enc-1", vaultOwnerToken: "token", vaultKey: realVaultKey };
+
+    await warmAgentChatHistoryCache(input);
+    await loadAgentChatConversationHistory({ ...input, conversationId: conversation.id });
+    await flushEncryptedOwnerUiWritesForTests();
+    expect(inspectRawMemoryUiCacheForTests().has("user-enc-1::chat-history:v1")).toBe(true);
+
+    const rawRecord = inspectRawMemoryUiCacheForTests().get("user-enc-1::chat-history:v1")!;
+    const serializedRaw = JSON.stringify(rawRecord);
+    expect(serializedRaw).not.toContain("Portfolio review");
+    expect(serializedRaw).not.toContain("Review my portfolio");
+
+    // Simulate browser reload: RAM map is empty, encrypted replica remains.
+    evictInMemoryAgentChatHistoryForTests("user-enc-1");
+    expect(peekAgentChatHistoryCache("user-enc-1")).toBeNull();
+
+    // Negative control: wrong vault key refuses authenticated decryption.
+    const refusedWrongKey = await hydrateAgentChatHistoryFromEncryptedCache({
+      userId: "user-enc-1",
+      vaultKey: wrongVaultKey,
+    });
+    expect(refusedWrongKey).toBeNull();
+
+    // Positive hydration: restores conversations + latest messages with isFresh=false for background sync.
+    const hydrated = await hydrateAgentChatHistoryFromEncryptedCache({
+      userId: "user-enc-1",
+      vaultKey: realVaultKey,
+    });
+    expect(hydrated).not.toBeNull();
+    expect(hydrated!.isFresh).toBe(false);
+    expect(hydrated!.conversations).toEqual([conversation]);
+    expect(hydrated!.latestMessages).toEqual(messages);
+
+    // Vault lock / sign-out wipes encrypted replica.
+    clearAgentChatHistoryCache("user-enc-1");
+    await vi.waitFor(() => {
+      expect(inspectRawMemoryUiCacheForTests().has("user-enc-1::chat-history:v1")).toBe(false);
+    });
+  });
+
+  it("fences encrypted owner UI records against cross-owner or cross-namespace AAD substitution", async () => {
+    await deleteEncryptedOwnerUiRecords();
+    const vaultKey = "c3".repeat(32);
+    await writeEncryptedOwnerUiRecord({
+      ownerId: "owner-a",
+      vaultKey,
+      namespace: "files:list:root:live",
+      value: { entries: [{ id: "file-secret", name: "tax-return.pdf" }], cursor: "", chunkBytes: 65536 },
+    });
+
+    const raw = inspectRawMemoryUiCacheForTests().get("owner-a::files:list:root:live")!;
+    expect(JSON.stringify(raw)).not.toContain("tax-return.pdf");
+
+    // Attempt to read under another owner or namespace fails AEAD authentication even if copied.
+    const forged = await readEncryptedOwnerUiRecord({
+      ownerId: "owner-b",
+      vaultKey,
+      namespace: "files:list:root:live",
+    });
+    expect(forged).toBeNull();
+
+    const genuine = await readEncryptedOwnerUiRecord<{ entries: Array<{ name: string }> }>({
+      ownerId: "owner-a",
+      vaultKey,
+      namespace: "files:list:root:live",
+    });
+    expect(genuine?.value.entries[0]?.name).toBe("tax-return.pdf");
   });
 });
