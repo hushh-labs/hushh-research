@@ -240,7 +240,16 @@ private struct NativeFinanceBalanceHistory: View {
                     if let selected, visible.indices.contains(selected) { RuleMark(x: .value("Date", selected)).foregroundStyle(.secondary); PointMark(x: .value("Date", selected), y: .value("Balance", visible[selected].value)).foregroundStyle(.primary) }
                 }.chartYScale(domain: max(0, (visible.map(\.value).min() ?? 0) * 0.999)...max((visible.map(\.value).max() ?? 0) * 1.001, 0.01))
                     .chartXAxis { AxisMarks(values: [0, visible.count - 1]) { value in if let index = value.as(Int.self), visible.indices.contains(index) { AxisValueLabel(label(visible[index].date, short: true)) } } }
-                    .chartYAxis { AxisMarks(position: .trailing, values: .automatic(desiredCount: 4)) { value in AxisGridLine(); if let number = value.as(Double.self) { AxisValueLabel(number.formatted(.currency(code: "USD").notation(.compactName))) } } }
+                    .chartYAxis {
+                        AxisMarks(position: .trailing, values: .automatic(desiredCount: 4)) { value in
+                            AxisGridLine()
+                            if let amount = value.as(Double.self) {
+                                let currency = FloatingPointFormatStyle<Double>.Currency(code: "USD")
+                                let style = amount >= 10_000 ? currency.notation(.compactName).precision(.fractionLength(0...1)) : currency
+                                AxisValueLabel(amount.formatted(style))
+                            }
+                        }
+                    }
                     .chartOverlay { proxy in GeometryReader { geometry in Color.clear.contentShape(Rectangle()).onTapGesture { location in guard let plot = proxy.plotFrame else { return }; let x = location.x - geometry[plot].minX; if let value: Double = proxy.value(atX: x) { selected = min(visible.count - 1, max(0, Int(value.rounded()))) } } } }
                     .frame(height: 220).accessibilityLabel("Dated portfolio balances")
                 if let selected, visible.indices.contains(selected) { Text("\(label(visible[selected].date)) · \(visible[selected].value.formatted(.currency(code: "USD")))").font(.caption).monospacedDigit() }
