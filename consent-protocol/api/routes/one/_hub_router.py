@@ -47,6 +47,7 @@ from .location_settings import router as location_settings_router
 from .marketplace_catalog import router as marketplace_catalog_router
 from .marketplace_requests import router as marketplace_requests_router
 from .messages import router as messages_router
+from .metrics import router as metrics_router
 from .models import router as models_router
 from .opportunity_signals import router as opportunity_signals_router
 from .packet_orders import router as packet_orders_router
@@ -145,6 +146,7 @@ router.include_router(payout_balance_router)
 router.include_router(career_router)
 router.include_router(opportunity_signals_router)
 router.include_router(personal_agent_router)
+router.include_router(metrics_router)
 router.include_router(plg_router)
 router.include_router(places_router)
 router.include_router(profile_discovery_router)
