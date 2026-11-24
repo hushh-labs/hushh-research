@@ -16,6 +16,8 @@ flowchart LR
     Native -->|Registered action events|React
 ```
 
+**Local simulator review, 2026-11-24.** On iPhone 17 Pro with iOS 26.5, the existing Capacitor guest journey passed through all four introduction cards to sign-in. Research, Blog, article Back to the selected tab, Developers, and Terms and Privacy with return to sign-in were visually checked on the November 23 build. Apple reached its system account prompt. Google Cancel incorrectly showed a sign-in failure. On the corrected local build from Dev base `486c53da07`, two Google sheet cancellations returned to usable sign-in with zero failure notices. No provider credentials were submitted. Anonymous SwiftUI presentation and authenticated provider success remain open.
+
 **Status · 2026-11-23** The experimental interface is Off by default. The shared shell correction was verified on iPhone 17 Pro, iOS 26.5, UAT Debug 1.4.1 (69). The same banner and inset rules ship on all 120 required route entry pages. This is package coverage. Each nested journey retains its own runtime result below.
 
 | Changed surface | Verified outcome | Evidence boundary |

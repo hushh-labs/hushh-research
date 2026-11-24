@@ -1066,6 +1066,13 @@ export class AuthService {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
 
+      // Capawesome drops Google's non-Firebase error code (-5) on iOS.
+      // GIDSignIn supplies this exact SDK message for a user dismissal.
+      if (Capacitor.getPlatform() === "ios" && errorMessage === "The user canceled the sign-in flow.") {
+        toast.dismiss(toastId);
+        throw Object.assign(new Error(errorMessage), { code: "auth/user-cancelled" });
+      }
+
       this.debugError("❌ [AuthService] nativeGoogleSignIn error");
 
       if (Capacitor.getPlatform() === "android") {
