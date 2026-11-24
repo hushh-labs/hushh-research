@@ -299,7 +299,7 @@ KNOWN_ROOTS = frozenset(
 )
 KNOWN_ROOT_FILES = frozenset(
     {
-        ".gitignore", "AGENTS.md", "LICENSE", "LICENSES", "Makefile", "NOTICE", "README.md",
+        ".gitignore", "AGENTS.md", "LICENSE", "LICENSES", "Makefile", "NOTICE", "README.md", "llms.txt",
         # Recognize removal of retired, tracked documentation generators.
         "hussh-mega-map.gen.py", "hussh-mega-map-v2.gen.py",
         "hussh-mega-map.dark.svg", "hussh-mega-map.light.svg",
