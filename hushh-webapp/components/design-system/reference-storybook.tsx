@@ -20,6 +20,7 @@ import {
   OneStreamEventCard,
   type OneStreamEventItem,
 } from "@/components/agent/specialist-directive-card";
+import { SharedWithYouCardView } from "@/components/agent/consent/shared-with-you-card-view";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -186,6 +187,7 @@ export function ReferenceStorybook() {
           {lastAction ? (
             <div
               role="status"
+              data-testid="storybook-last-action"
               className="rounded-xl border border-black/[0.08] bg-[color:var(--app-card-surface-default-solid)] px-3.5 py-2 text-xs text-muted-foreground dark:border-white/[0.09]"
             >
               Interactive check: <span className="font-medium text-foreground">{lastAction}</span>
@@ -386,6 +388,30 @@ export function ReferenceStorybook() {
                     onDecline={(item) => setLastAction(`Declined ${item.actorLabel}`)}
                   />
                 ))}
+                <SharedWithYouCardView
+                  person={{ displayName: "Kushal Trivedi" }}
+                  status="ready"
+                  variant="chat"
+                  items={[
+                    {
+                      key: "spec-portfolio",
+                      label: "Portfolio",
+                      sharedAt: "2026-11-24T11:46:00Z",
+                      accessEndsAt: "2026-12-01T11:46:00Z",
+                      purpose: "To review their investment portfolio",
+                      sensitive: true,
+                      fieldOutline: ["Institution name", "Ending value", "Cash balance"],
+                      state: "ready",
+                      data: {
+                        institution_name: "First Platypus Bank",
+                        ending_value: "$76,339.20",
+                        cash_balance: "$37,383.75",
+                        equities_value: "$38,955.45",
+                        account_name: "Plaid IRA, Plaid 401k",
+                      },
+                    },
+                  ]}
+                />
               </div>
             </SpecimenSection>
 

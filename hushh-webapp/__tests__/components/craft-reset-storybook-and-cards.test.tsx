@@ -79,6 +79,10 @@ describe("Core design system craft reset & Reference-Design Storybook", () => {
     fireEvent.click(screen.getByRole("button", { name: "360px phone" }));
     fireEvent.click(screen.getByRole("button", { name: "Dark" }));
     fireEvent.click(screen.getByRole("button", { name: "Optimize memory" }));
-    expect(screen.getByRole("status")).toHaveTextContent("Optimize memory");
+    expect(screen.getByTestId("storybook-last-action")).toHaveTextContent("Optimize memory");
+    expect(screen.getByTestId("shared-with-you-chat-summary")).toBeVisible();
+    expect(screen.queryByTestId("shared-with-you-values")).toBeNull();
+    fireEvent.click(screen.getByTestId("shared-with-you-view-details"));
+    expect(screen.getByTestId("shared-with-you-detail-modal")).toBeVisible();
   });
 });

@@ -43,4 +43,5 @@ Reject any UI diff that introduces:
 4. **Hardcoded local button overrides** (`min-h-10 rounded-full text-sm font-semibold`) fighting the core `<Button>` primitive.
 5. **Truncated product or hosting tier titles** (`...` ellipsis on `Hussh Confidential Sandbox` or `Bring your own cloud`).
 6. **Synthetic chat continuation bubbles** echoing internal harness/connector state strings as fake user messages.
-7. **Unverified layout claims:** verify every new or restyled surface at `360px` mobile and desktop in both Light and Dark themes on `/design-system` or the live route before calling it done.
+7. **Inline chat flooding with raw shared records:** Decrypted shared-with-you data received in Chat must always render as a compact summary card with a `View details` trigger opening a bounded scrollable Detailed View Modal (`Dialog`), never dumping dozens of flat key-value rows directly into the transcript.
+8. **Unverified layout claims:** verify every new or restyled surface at `360px` mobile and desktop in both Light and Dark themes on `/design-system` or the live route before calling it done.
