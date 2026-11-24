@@ -567,6 +567,7 @@ describe("owner hosting and software settings", () => {
       status("byoc", { deploymentTarget: "user_azure", state: "active" });
       render(<AgentSettingsPanel userId="owner" kind="hosting" />);
 
+      fireEvent.click(screen.getByRole("button", { name: /hosting details/i }));
       fireEvent.click(screen.getByRole("button", { name: "Check hosting" }));
       await waitFor(() => expect(mocks.inspectHosting).toHaveBeenCalledOnce());
       const [request, copy] = mocks.promiseToast.mock.calls[0];

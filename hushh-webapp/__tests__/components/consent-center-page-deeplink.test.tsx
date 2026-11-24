@@ -2340,8 +2340,8 @@ describe("ConsentCenterPage requestId deep links", () => {
     );
     // The Active pane shows the new access with its status, named the same
     // way the request was.
-    const status = await screen.findByText("active");
-    const activePane = status.closest('[role="tabpanel"]');
+    const activePane = document.getElementById("top-shell-consent-panel-active")!;
+    await within(activePane).findByText("Active");
     expect(activePane).toHaveTextContent("Kushal Trivedi");
     expect(activePane).toHaveTextContent("Food preferences");
     expect(screen.queryByText("No one currently has active access.")).toBeNull();
@@ -2548,8 +2548,9 @@ describe("ConsentCenterPage requestId deep links", () => {
       });
       mocks.search = "tab=active";
       rerender(<ConsentCenterPage />);
-      const status = await screen.findByText("active");
-      expect(status.closest('[role="tabpanel"]')).toHaveTextContent("Kushal Trivedi");
+      const activePane = document.getElementById("top-shell-consent-panel-active")!;
+      await within(activePane).findByText("Active");
+      expect(activePane).toHaveTextContent("Kushal Trivedi");
     });
 
     it("opens the unlock before ✓ allows on a locked vault, and sends nothing meanwhile", async () => {

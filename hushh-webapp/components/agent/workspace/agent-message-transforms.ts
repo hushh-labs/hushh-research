@@ -1138,11 +1138,39 @@ export function stagePendingConsentRequestDirectiveDuration(
   };
 }
 
+export function insertMessageChronologically(
+  messages: readonly AgentMessage[],
+  candidate: AgentMessage,
+): AgentMessage[] {
+  const candidateMs =
+    typeof candidate.sentAtMs === "number" && Number.isFinite(candidate.sentAtMs) && candidate.sentAtMs > 0
+      ? candidate.sentAtMs
+      : null;
+  if (candidateMs === null || messages.length === 0) {
+    return [...messages, candidate];
+  }
+  const next = [...messages];
+  let insertAt = next.length;
+  for (let i = 0; i < next.length; i += 1) {
+    const existingMs = next[i]?.sentAtMs;
+    if (
+      typeof existingMs === "number" &&
+      Number.isFinite(existingMs) &&
+      existingMs > candidateMs
+    ) {
+      insertAt = i;
+      break;
+    }
+  }
+  next.splice(insertAt, 0, candidate);
+  return next;
+}
+
 export function mergePendingConsentMessages(
   restored: AgentMessage[],
   current: readonly AgentMessage[],
 ): AgentMessage[] {
-  const merged = [...restored];
+  let merged = [...restored];
 
   for (const candidate of current) {
     const payload = getPendingConsentRequestPayload(
@@ -1163,7 +1191,7 @@ export function mergePendingConsentMessages(
       if (existingIndex >= 0) {
         merged[existingIndex] = candidate;
       } else {
-        merged.push(candidate);
+        merged = insertMessageChronologically(merged, candidate);
       }
       continue;
     }
@@ -1181,7 +1209,7 @@ export function mergePendingConsentMessages(
     if (existingStreamIndex >= 0) {
       merged[existingStreamIndex] = candidate;
     } else {
-      merged.push(candidate);
+      merged = insertMessageChronologically(merged, candidate);
     }
   }
 

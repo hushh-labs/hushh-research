@@ -195,6 +195,8 @@ class ConsentDBService:
             return True
         if normalized_agent in {"self", "agent_kai", "kai"}:
             return True
+        if normalized_agent == "personal_agent" and normalized_action == "POD_ACCESS_ALLOWED":
+            return True
         if normalized_scope == "vault.owner" and (
             normalized_agent in {"", "system"} or normalized_agent.startswith("device:")
         ):
@@ -1560,6 +1562,29 @@ class ConsentDBService:
             "reason": None,
             "active_count": 0,
         }
+
+    async def clear_system_pod_access_logs(
+        self,
+        user_id: str,
+        *,
+        user_ids: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Safely delete non-binding routine personal_agent POD_ACCESS_ALLOWED noise rows.
+
+        Never touches consent_audit_receipts (cryptographic ledger), active grants,
+        POD_ACCESS_DENIED refusals, or third-party consent trails.
+        """
+        db = self._get_db()
+        delete_query = (
+            db.table("consent_audit")
+            .delete()
+            .eq("agent_id", "personal_agent")
+            .eq("action", "POD_ACCESS_ALLOWED")
+        )
+        delete_query = self._apply_user_filter(delete_query, user_id, user_ids)
+        response = await asyncio.to_thread(delete_query.execute)
+        deleted = len(response.data or [])
+        return {"deleted": deleted, "ok": True}
 
     # =========================================================================
     # Event Insertion
