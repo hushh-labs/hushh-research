@@ -67,7 +67,10 @@ import {
   AgentTranscriptRevealContext,
   type AgentConsentContinuationHandler,
 } from "@/components/agent/agent-structured-experience";
-import { AgentConnectorContinuationContext } from "@/components/agent/connector-read-receipt";
+import {
+  AgentConnectorContinuationContext,
+  isSilentConnectorContinuationPrompt,
+} from "@/components/agent/connector-read-receipt";
 import { CustomConnectorChatContext } from "@/components/agent/custom-connector-probe-card";
 import { vaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
 import type { FinancialDomain } from "@/lib/kai/plaid-vault/types";
@@ -10168,7 +10171,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 </div>
               ) : null}
 
-              {visibleMessages.map((message) => (
+              {visibleMessages.map((message) => {
+                if (
+                  message.role === "user" &&
+                  !message.attachments?.length &&
+                  isSilentConnectorContinuationPrompt(message.text)
+                ) {
+                  return null;
+                }
+                return (
                 <Fragment key={message.id}>
                   {renderChatOnboarding({ kind: "before", messageId: message.id, visibleMessageIds })}
                   {timeSeparators.has(message.id) ? (
@@ -10598,7 +10609,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     ? renderEmailDraftCard()
                     : null}
                 </Fragment>
-              ))}
+                );
+              })}
               {renderChatOnboarding({ kind: "end", visibleMessageIds })}
               {(handoff?.calendarSlot || handoff?.calendarInvitation || handoff?.calendarRequest || handoff?.calendarAttendance)?.ownerId === applicationOwnerId && slotHistoryFailed ? <div role="alert" className="space-y-2 text-sm">
                 <p>Your conversation could not be restored. Your Calendar selection is retained.</p>

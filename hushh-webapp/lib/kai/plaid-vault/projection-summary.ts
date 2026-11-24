@@ -22,9 +22,24 @@ export interface PlaidItemProjectionSummary {
   summaryLabel: string;
 }
 
+export interface PlaidVaultMetricItem {
+  key: "net_worth" | "liquid_cash" | "investable";
+  label: string;
+  formatted: string;
+}
+
+export interface PlaidVaultShareableScopeItem {
+  key: "summary" | "accounts" | "liabilities" | "portfolio" | "cashflow";
+  label: string;
+  valueLabel: string | null;
+  machineScope: string;
+}
+
 export interface PlaidVaultProjectionSummary {
   byItemId: Record<string, PlaidItemProjectionSummary>;
   hasData: boolean;
+  metrics: PlaidVaultMetricItem[];
+  scopes: PlaidVaultShareableScopeItem[];
   totalsLine: string | null;
   projectedScopesLine: string | null;
 }
@@ -55,6 +70,8 @@ export function summarizePlaidVaultProjection(
     return {
       byItemId: {},
       hasData: false,
+      metrics: [],
+      scopes: [],
       totalsLine: null,
       projectedScopesLine: null,
     };
@@ -120,12 +137,26 @@ export function summarizePlaidVaultProjection(
       ? fallbackInvestable
       : null;
 
+  const metrics: PlaidVaultMetricItem[] = [];
   const totalParts: string[] = [];
-  if (netWorth !== null) totalParts.push(`Net worth ${formatPlaidUsd(netWorth)}`);
-  if (liquidCash !== null) totalParts.push(`Liquid cash ${formatPlaidUsd(liquidCash)}`);
-  if (investable !== null) totalParts.push(`Investable ${formatPlaidUsd(investable)}`);
+  if (netWorth !== null) {
+    const formatted = formatPlaidUsd(netWorth);
+    metrics.push({ key: "net_worth", label: "Net worth", formatted });
+    totalParts.push(`Net worth ${formatted}`);
+  }
+  if (liquidCash !== null) {
+    const formatted = formatPlaidUsd(liquidCash);
+    metrics.push({ key: "liquid_cash", label: "Liquid cash", formatted });
+    totalParts.push(`Liquid cash ${formatted}`);
+  }
+  if (investable !== null) {
+    const formatted = formatPlaidUsd(investable);
+    metrics.push({ key: "investable", label: "Investable", formatted });
+    totalParts.push(`Investable ${formatted}`);
+  }
   const totalsLine = totalParts.length > 0 ? totalParts.join(" · ") : null;
 
+  const scopes: PlaidVaultShareableScopeItem[] = [];
   const scopeLabels: string[] = [];
   const rawSummary = isRecord(financialData.summary)
     ? (financialData.summary as unknown as Partial<ShareableSummaryV1>)
@@ -135,7 +166,14 @@ export function summarizePlaidVaultProjection(
     typeof rawSummary.net_worth_band === "string" &&
     rawSummary.net_worth_band.trim().length > 0
   ) {
-    scopeLabels.push(`Financial Summary (${rawSummary.net_worth_band})`);
+    const band = rawSummary.net_worth_band.trim();
+    scopes.push({
+      key: "summary",
+      label: "Financial Summary",
+      valueLabel: band,
+      machineScope: "attr.financial.summary.*",
+    });
+    scopeLabels.push(`Financial Summary (${band})`);
   }
 
   const rawAccounts = isRecord(financialData.accounts)
@@ -143,9 +181,14 @@ export function summarizePlaidVaultProjection(
     : null;
   if (rawAccounts?.schema === "plaid-accounts-v1") {
     const bankBalance = finiteNumber(rawAccounts.total_depository_balance) ?? finiteNumber(rawAccounts.cash_in_bank);
-    scopeLabels.push(
-      bankBalance !== null ? `Bank Accounts (${formatPlaidUsd(bankBalance)})` : "Bank Accounts",
-    );
+    const valueLabel = bankBalance !== null ? formatPlaidUsd(bankBalance) : null;
+    scopes.push({
+      key: "accounts",
+      label: "Bank Accounts",
+      valueLabel,
+      machineScope: "attr.financial.accounts.*",
+    });
+    scopeLabels.push(valueLabel ? `Bank Accounts (${valueLabel})` : "Bank Accounts");
   }
 
   const rawLiabilities = isRecord(financialData.liabilities)
@@ -153,9 +196,14 @@ export function summarizePlaidVaultProjection(
     : null;
   if (rawLiabilities?.schema === "plaid-liabilities-v1") {
     const owed = finiteNumber(rawLiabilities.total_owed);
-    scopeLabels.push(
-      owed !== null ? `Credit & Loans (${formatPlaidUsd(owed)})` : "Credit & Loans",
-    );
+    const valueLabel = owed !== null ? formatPlaidUsd(owed) : null;
+    scopes.push({
+      key: "liabilities",
+      label: "Credit & Loans",
+      valueLabel,
+      machineScope: "attr.financial.liabilities.*",
+    });
+    scopeLabels.push(valueLabel ? `Credit & Loans (${valueLabel})` : "Credit & Loans");
   }
 
   const computedPortfolio = toPortfolioData(financialData as FinancialDomain);
@@ -173,10 +221,15 @@ export function summarizePlaidVaultProjection(
       finiteNumber(portfolio.account_summary?.ending_value);
     const hasHoldings = Array.isArray(portfolio.holdings) && portfolio.holdings.length > 0;
     if (totalValue !== null || hasHoldings) {
+      const valueLabel = totalValue !== null ? formatPlaidUsd(totalValue) : null;
+      scopes.push({
+        key: "portfolio",
+        label: "Investment Portfolio",
+        valueLabel,
+        machineScope: "attr.financial.portfolio.*",
+      });
       scopeLabels.push(
-        totalValue !== null
-          ? `Investment Portfolio (${formatPlaidUsd(totalValue)})`
-          : "Investment Portfolio",
+        valueLabel ? `Investment Portfolio (${valueLabel})` : "Investment Portfolio",
       );
     }
   }
@@ -186,10 +239,15 @@ export function summarizePlaidVaultProjection(
     : null;
   if (rawCashFlow?.schema === "plaid-cashflow-v1") {
     const billsCount = finiteNumber(rawCashFlow.recurring_bill_count);
+    const valueLabel = billsCount !== null && billsCount > 0 ? `${billsCount} bills` : null;
+    scopes.push({
+      key: "cashflow",
+      label: "Cash Flow & Recurring",
+      valueLabel,
+      machineScope: "attr.financial.cashflow.*",
+    });
     scopeLabels.push(
-      billsCount !== null && billsCount > 0
-        ? `Cash Flow & Recurring (${billsCount} bills)`
-        : "Cash Flow & Recurring",
+      valueLabel ? `Cash Flow & Recurring (${valueLabel})` : "Cash Flow & Recurring",
     );
   }
 
@@ -201,6 +259,8 @@ export function summarizePlaidVaultProjection(
     hasData: Boolean(
       Object.keys(byItemId).length > 0 || totalsLine || projectedScopesLine,
     ),
+    metrics,
+    scopes,
     totalsLine,
     projectedScopesLine,
   };

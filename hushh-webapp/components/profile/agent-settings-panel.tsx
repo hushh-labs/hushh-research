@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ChevronRight } from "@/components/icons";
 import { CloudHostingHealth } from "./cloud-hosting-health";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import {
@@ -34,6 +35,7 @@ import {
   HusshPodsActiveCard,
   HusshPodsMigrationCard,
   PodCloudBadge,
+  PodCloudProviderMark,
   PooledSandboxSwitchCard,
 } from "@/components/connections/hussh-pods-cloud-card";
 import { CircleAutoApprovePanel } from "@/components/connections/circle-auto-approve-panel";
@@ -275,76 +277,174 @@ function AgentSettingsBody({
       );
     }
 
-    const hasCurrentHostingBadges = Boolean(
-      activeCloudProvider ||
-        (mode === "hussh_pods" && status?.deploymentTarget === "ace") ||
-        (mode === "hussh_pods" && status?.state === "active"),
+    const resolvedHeroProvider =
+      activeCloudProvider ??
+      (mode === "hussh_pods" && status?.deploymentTarget === "ace" ? "gcp" : null);
+    const showLivingHeroCard = Boolean(
+      isPersonalSandboxActive ||
+        (mode === "hussh_pods" && status?.state === "active") ||
+        (mode === "byoc" && status?.state === "active"),
     );
-
-    const currentHostingBadges = hasCurrentHostingBadges ? (
-      <span className="flex flex-wrap items-center gap-1.5 pt-1">
-        {mode === "hussh_pods" && status?.state === "active" ? (
-          <span
-            data-testid="current-hosting-status-signal"
-            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--app-border)] bg-black/[0.03] px-2 py-0.5 text-[11px] font-semibold text-foreground dark:bg-white/[0.06]"
-          >
-            <span
-              aria-hidden="true"
-              className="h-1.5 w-1.5 rounded-full bg-[color:var(--app-accent)]"
-            />
-            Connected
-          </span>
-        ) : null}
-        {activeCloudProvider ? (
-          <PodCloudBadge
-            provider={activeCloudProvider}
-            label={
-              mode === "hussh_pods" && activeHostedProvider
-                ? HOSTED_POD_PROVIDER_LABELS[activeHostedProvider]
-                : undefined
-            }
-            testId="current-hosting-cloud-badge"
-          />
-        ) : mode === "hussh_pods" && status?.deploymentTarget === "ace" ? (
-          <PodCloudBadge
-            provider="gcp"
-            label="Google Cloud"
-            testId="current-hosting-cloud-badge"
-          />
-        ) : null}
-      </span>
-    ) : null;
+    const heroSubtitle = isPersonalSandboxActive
+      ? "Isolated memory · Auto-sleep · Built-in AI"
+      : mode === "byoc"
+        ? [status?.cloudProject, status?.cloudRegion].filter(Boolean).join(" · ") ||
+          "Private pod in your own cloud"
+        : "Dedicated private pod managed by Hussh";
+    const heroCloudLabel =
+      mode === "hussh_pods" && activeHostedProvider
+        ? HOSTED_POD_PROVIDER_LABELS[activeHostedProvider]
+        : resolvedHeroProvider === "azure"
+          ? "Microsoft Azure"
+          : "Google Cloud";
 
     return (
       <div className="space-y-5">
-        <SettingsGroup density="compact">
-          <SettingsRow
-            title="Current hosting"
-            voicePurpose={currentHostingDescription}
-            description={
-              currentHostingBadges ? (
-                <span className="flex flex-col gap-0.5">
-                  <span className="text-foreground/90">{currentHostingDescription}</span>
-                  {currentHostingBadges}
-                </span>
+        {showLivingHeroCard ? (
+          <section
+            data-testid="current-hosting-row"
+            aria-label="Current hosting"
+            className="overflow-hidden rounded-[20px] border border-[color:var(--app-border)] bg-[color:var(--app-card-surface-default)] shadow-[0_1px_2px_rgba(0,0,0,0.03)]"
+          >
+            <div className="bg-gradient-to-b from-[color:var(--app-accent)]/[0.045] to-transparent">
+              {hasHostingDetails ? (
+                <button
+                  type="button"
+                  onClick={() => openDetail("hosting-details")}
+                  aria-label={`${currentHostingDescription}, hosting details`}
+                  className="group flex w-full items-start gap-3.5 px-4 pb-4 pt-4 text-left transition-[background-color,transform] duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none active:scale-[0.99] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-foreground/[0.025] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-focus-ring)]"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="relative mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-[14px] border border-[color:var(--app-accent)]/20 bg-background/90 shadow-xs"
+                  >
+                    <PodCloudProviderMark
+                      provider={resolvedHeroProvider ?? "gcp"}
+                      className="h-5 w-5"
+                    />
+                    <span className="absolute -bottom-0.5 -right-0.5 flex size-3 items-center justify-center rounded-full bg-[color:var(--app-card-surface-default)]">
+                      <span className="absolute inline-flex size-2.5 rounded-full bg-emerald-500/45 motion-safe:animate-ping" />
+                      <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
+                    </span>
+                  </span>
+                  <span className="min-w-0 flex-1 space-y-1">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--app-text-secondary)]">
+                        Current hosting
+                      </span>
+                      <span
+                        data-testid="current-hosting-status-signal"
+                        className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300"
+                      >
+                        <span aria-hidden="true" className="size-1.5 rounded-full bg-emerald-500" />
+                        Connected
+                      </span>
+                    </span>
+                    <span
+                      data-slot="settings-row-title"
+                      className="block text-[16px] font-semibold leading-snug tracking-[-0.015em] text-foreground"
+                    >
+                      {currentHostingDescription}
+                    </span>
+                    <span
+                      data-slot="settings-row-description"
+                      className="block text-[13px] leading-relaxed text-[var(--app-text-secondary)]"
+                    >
+                      {heroSubtitle}
+                    </span>
+                  </span>
+                  <ChevronRight
+                    aria-hidden="true"
+                    className="mt-1 size-4 shrink-0 text-[var(--app-text-secondary)]/70 transition-transform duration-[140ms] ease-[var(--ease-out)] group-hover:translate-x-0.5"
+                  />
+                </button>
               ) : (
-                currentHostingDescription
-              )
-            }
-            onClick={hasHostingDetails ? () => openDetail("hosting-details") : undefined}
-            chevron={hasHostingDetails}
-            testId="current-hosting-row"
-          />
-          {mode === "byoc" && status?.cloudProject ? (
+                <div className="flex items-start gap-3.5 px-4 pb-4 pt-4">
+                  <span
+                    aria-hidden="true"
+                    className="relative mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-[14px] border border-[color:var(--app-accent)]/20 bg-background/90 shadow-xs"
+                  >
+                    <PodCloudProviderMark
+                      provider={resolvedHeroProvider ?? "gcp"}
+                      className="h-5 w-5"
+                    />
+                    <span className="absolute -bottom-0.5 -right-0.5 flex size-3 items-center justify-center rounded-full bg-[color:var(--app-card-surface-default)]">
+                      <span className="absolute inline-flex size-2.5 rounded-full bg-emerald-500/45 motion-safe:animate-ping" />
+                      <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
+                    </span>
+                  </span>
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--app-text-secondary)]">
+                        Current hosting
+                      </span>
+                      <span
+                        data-testid="current-hosting-status-signal"
+                        className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300"
+                      >
+                        <span aria-hidden="true" className="size-1.5 rounded-full bg-emerald-500" />
+                        Connected
+                      </span>
+                    </div>
+                    <p
+                      data-slot="settings-row-title"
+                      className="text-[16px] font-semibold leading-snug tracking-[-0.015em] text-foreground"
+                    >
+                      {currentHostingDescription}
+                    </p>
+                    <p
+                      data-slot="settings-row-description"
+                      className="text-[13px] leading-relaxed text-[var(--app-text-secondary)]"
+                    >
+                      {heroSubtitle}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[color:var(--app-separator)] bg-foreground/[0.02] px-4 py-2.5">
+              {resolvedHeroProvider ? (
+                <PodCloudBadge
+                  provider={resolvedHeroProvider}
+                  label={heroCloudLabel}
+                  testId="current-hosting-cloud-badge"
+                />
+              ) : (
+                <span className="text-xs text-[var(--app-text-secondary)]">Managed runtime</span>
+              )}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void checkStatus()}
+                className="inline-flex min-h-8 items-center rounded-full px-2.5 text-xs font-semibold text-[color:var(--app-accent)] transition-[background-color,opacity] duration-[120ms] ease-[var(--ease-out)] hover:bg-[color:var(--app-accent)]/[0.08] active:opacity-75 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]"
+              >
+                Check hosting
+              </button>
+            </div>
+            <CloudHostingHealth inspection={inspection} />
+          </section>
+        ) : (
+          <SettingsGroup density="compact">
             <SettingsRow
-              title="Your cloud project"
-              description={[status.cloudProject, status.cloudRegion]
-                .filter(Boolean)
-                .join(" · ")}
+              title="Current hosting"
+              voicePurpose={currentHostingDescription}
+              description={currentHostingDescription}
+              onClick={hasHostingDetails ? () => openDetail("hosting-details") : undefined}
+              chevron={hasHostingDetails}
+              testId="current-hosting-row"
             />
-          ) : null}
-          <CloudHostingHealth inspection={inspection} />
-        </SettingsGroup>
+            {mode === "byoc" && status?.cloudProject ? (
+              <SettingsRow
+                title="Your cloud project"
+                description={[status.cloudProject, status.cloudRegion]
+                  .filter(Boolean)
+                  .join(" · ")}
+              />
+            ) : null}
+            <CloudHostingHealth inspection={inspection} />
+          </SettingsGroup>
+        )}
 
         {mode === "byoc" && ownerCloudProvider(status?.deploymentTarget) === "azure" ? (
           <AzureHostingNotice model={azureHosting} />
@@ -391,7 +491,11 @@ function AgentSettingsBody({
           </SettingsGroup>
         ) : null}
 
-        <SettingsGroup title="Hosting choices" density="compact" headingClassName="!mt-5">
+        <SettingsGroup
+          title={isPersonalSandboxActive ? "Switch hosting" : "Hosting choices"}
+          density="compact"
+          headingClassName="!mt-5"
+        >
           {!pooledSwitchAvailable ? (
             <SettingsRow
               title="Hussh Shared"
@@ -400,7 +504,6 @@ function AgentSettingsBody({
                   ? "Remove your current cloud below to switch."
                   : "Managed shared service with automatic updates."
               }
-              textOverflow="truncate"
               trailing={
                 mode === "shared"
                   ? "Current"
@@ -427,9 +530,8 @@ function AgentSettingsBody({
             description={
               status && !status.featureEnabled
                 ? "Temporarily unavailable for new setups."
-                : "Your own Google Cloud or Azure project. You approve updates."
+                : "Run in your own Google Cloud or Microsoft Azure project."
             }
-            textOverflow="truncate"
             trailing={
               mode === "byoc"
                 ? "Current"
@@ -456,52 +558,48 @@ function AgentSettingsBody({
             chevron={canManageCloud}
             testId="hosting-choice-own-cloud"
           />
-          <SettingsRow
-            title={pooledSwitchAvailable ? "Hussh Confidential Sandbox" : "Hussh Pods"}
-            description={
-              isPersonalSandboxActive || pooledSwitchAvailable
-                ? "Isolated Confidential Sandbox on Google Cloud."
-                : mode === "hussh_pods"
-                  ? activeHostedProvider
-                    ? `Dedicated pod on ${HOSTED_POD_PROVIDER_LABELS[activeHostedProvider]}.`
-                    : "Dedicated Hussh-hosted pod."
-                  : hostedUnderMaintenance
-                    ? "Unavailable for new setups."
-                    : "Dedicated pod on Google Cloud."
-            }
-            textOverflow="truncate"
-            trailing={
-              isPersonalSandboxActive || (mode === "hussh_pods" && !pooledSwitchAvailable) ? (
-                "Current"
-              ) : mode === "hussh_pods" && pooledSwitchAvailable ? (
-                "Switch"
-              ) : !pooledSwitchAvailable && hostedUnderMaintenance ? (
-                "Unavailable"
-              ) : canSwitchToSandboxFromRow ? (
-                <span className="inline-flex items-center gap-2">
+          {!isPersonalSandboxActive ? (
+            <SettingsRow
+              title={pooledSwitchAvailable ? "Hussh Confidential Sandbox" : "Hussh Pods"}
+              description={
+                pooledSwitchAvailable
+                  ? "Isolated Confidential Sandbox on Google Cloud."
+                  : mode === "hussh_pods"
+                    ? activeHostedProvider
+                      ? `Dedicated pod on ${HOSTED_POD_PROVIDER_LABELS[activeHostedProvider]}.`
+                      : "Dedicated Hussh-hosted pod."
+                    : hostedUnderMaintenance
+                      ? "Unavailable for new setups."
+                      : "Dedicated pod on Google Cloud."
+              }
+              trailing={
+                mode === "hussh_pods" && !pooledSwitchAvailable ? (
+                  "Current"
+                ) : mode === "hussh_pods" && pooledSwitchAvailable ? (
+                  "Switch"
+                ) : !pooledSwitchAvailable && hostedUnderMaintenance ? (
+                  "Unavailable"
+                ) : canSwitchToSandboxFromRow ? (
+                  "Switch"
+                ) : (
                   <PodCloudBadge provider="gcp" label="Google Cloud" />
-                  <span className="text-xs font-medium text-[var(--app-text-secondary)]">
-                    Switch
-                  </span>
-                </span>
-              ) : (
-                <PodCloudBadge provider="gcp" label="Google Cloud" />
-              )
-            }
-            disabled={busy && canChooseHosted}
-            onClick={
-              !canChooseHosted
-                ? undefined
-                : canSwitchToSandboxFromRow
-                  ? () => {
-                      setRemovePriorCloudOnSandboxSwitch(false);
-                      setConfirmSwitch("sandbox");
-                    }
-                  : chooseHosting
-            }
-            chevron={canChooseHosted && !(isPersonalSandboxActive || (mode === "hussh_pods" && !pooledSwitchAvailable))}
-            testId="hosting-choice-pods"
-          />
+                )
+              }
+              disabled={busy && canChooseHosted}
+              onClick={
+                !canChooseHosted
+                  ? undefined
+                  : canSwitchToSandboxFromRow
+                    ? () => {
+                        setRemovePriorCloudOnSandboxSwitch(false);
+                        setConfirmSwitch("sandbox");
+                      }
+                    : chooseHosting
+              }
+              chevron={canChooseHosted && !(mode === "hussh_pods" && !pooledSwitchAvailable)}
+              testId="hosting-choice-pods"
+            />
+          ) : null}
         </SettingsGroup>
 
         <AlertDialog
@@ -612,35 +710,42 @@ function AgentSettingsBody({
           </p>
         ) : null}
 
-        <div className="flex flex-wrap gap-2">
-          {isOwnerCloudTarget(status?.deploymentTarget) ? (
-            <CloudRemovalControl
-              provider={
-                ownerCloudProvider(status?.deploymentTarget) === "azure" ? "azure" : "gcp"
-              }
-            />
-          ) : null}
-          <Button
-            variant="muted"
-            disabled={busy}
-            onClick={() => void checkStatus()}
-            className="min-h-10 rounded-full px-4 text-sm font-semibold"
-          >
-            Check hosting
-          </Button>
-          {mode === "byoc" || needsLinkRecovery ? (
-            <Button
-              variant="muted"
-              disabled={busy}
-              onClick={() =>
-                void (needsLinkRecovery ? recoverExistingPod() : reconnectDirectPod())
-              }
-              className="min-h-10 rounded-full px-4 text-sm font-semibold"
-            >
-              {needsLinkRecovery ? "Link existing pod" : "Reconnect your pod"}
-            </Button>
-          ) : null}
-        </div>
+        {isOwnerCloudTarget(status?.deploymentTarget) ||
+        !showLivingHeroCard ||
+        mode === "byoc" ||
+        needsLinkRecovery ? (
+          <div className="flex flex-wrap gap-2">
+            {isOwnerCloudTarget(status?.deploymentTarget) ? (
+              <CloudRemovalControl
+                provider={
+                  ownerCloudProvider(status?.deploymentTarget) === "azure" ? "azure" : "gcp"
+                }
+              />
+            ) : null}
+            {!showLivingHeroCard ? (
+              <Button
+                variant="muted"
+                disabled={busy}
+                onClick={() => void checkStatus()}
+                className="min-h-10 rounded-full px-4 text-sm font-semibold"
+              >
+                Check hosting
+              </Button>
+            ) : null}
+            {mode === "byoc" || needsLinkRecovery ? (
+              <Button
+                variant="muted"
+                disabled={busy}
+                onClick={() =>
+                  void (needsLinkRecovery ? recoverExistingPod() : reconnectDirectPod())
+                }
+                className="min-h-10 rounded-full px-4 text-sm font-semibold"
+              >
+                {needsLinkRecovery ? "Link existing pod" : "Reconnect your pod"}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     );
   }

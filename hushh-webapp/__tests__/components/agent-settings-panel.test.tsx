@@ -758,9 +758,7 @@ describe("owner hosting and software settings", () => {
       currentHostingRow.querySelector('[data-slot="settings-row-description"]'),
     ).not.toHaveClass("truncate");
     expect(
-      currentHostingRow
-        .querySelector('[data-slot="settings-row-trailing"]')
-        ?.querySelector('[data-testid="current-hosting-cloud-badge"]'),
+      currentHostingRow.querySelector('[data-slot="settings-row-trailing"]'),
     ).toBeNull();
     expect(screen.getByTestId("current-hosting-status-signal")).toHaveTextContent("Connected");
     expect(screen.getByTestId("current-hosting-cloud-badge")).toHaveTextContent("Google Cloud");
@@ -801,7 +799,10 @@ describe("owner hosting and software settings", () => {
     status("hussh_pods", { state: "active", deploymentTarget: "ace", featureEnabled: true });
 
     render(<AgentSettingsPanel userId="owner" kind="hosting" />);
-    expect(screen.getByTestId("hosting-choice-pods")).toHaveTextContent("Current");
+    expect(screen.getByTestId("current-hosting-row")).toHaveTextContent("Hussh Confidential Sandbox");
+    expect(screen.getByTestId("current-hosting-status-signal")).toHaveTextContent("Connected");
+    expect(screen.getByTestId("current-hosting-cloud-badge")).toHaveTextContent("Google Cloud");
+    expect(screen.queryByTestId("hosting-choice-pods")).toBeNull();
     expect(screen.queryByTestId("hosting-choice-shared")).toBeNull();
 
     fireEvent.click(screen.getByTestId("hosting-choice-own-cloud").querySelector("button")!);
