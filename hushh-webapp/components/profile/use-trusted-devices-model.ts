@@ -13,6 +13,7 @@ import { puppyAccessError } from "@/lib/trusted-device/puppy-access-error";
 import { useVault } from "@/lib/vault/vault-context";
 import { ApiService } from "@/lib/services/api-service";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
+import { readCurrentBrowserSubjectId } from "@/lib/services/owner-pod-endpoint";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import type { DeviceSyncFields } from "@/lib/trusted-device/sync-display";
 
@@ -56,7 +57,8 @@ export function useTrustedDevicesModel(ownerId: string | null, enabled: boolean,
   const cacheKey = CACHE_KEYS.TRUSTED_DEVICES(ownerId || "anonymous");
   const emptyStatus = useCallback(() => ({ scope, confirmation: null as string | null, busy: false, error: "", uncertain: false,
     unlinked: [] as readonly string[], puppyAccess: {} as Record<string, boolean>, byocReady: false,
-    changingPuppy: null as string | null, puppyNotice: "", pendingPuppyWithdrawal: [] as string[], pendingPodRevocations: [] as string[] }), [scope]);
+    changingPuppy: null as string | null, puppyNotice: "", pendingPuppyWithdrawal: [] as string[], pendingPodRevocations: [] as string[],
+    currentBrowserDeviceId: null as string | null, pruningWeb: false, pruneWebConfirmOpen: false, pruneNotice: "" }), [scope]);
   const [local, setLocal] = useState(emptyStatus);
   const status = local.scope === scope ? local : emptyStatus();
   const patch = useCallback((next: Partial<typeof local>) => {
@@ -86,6 +88,17 @@ export function useTrustedDevicesModel(ownerId: string | null, enabled: boolean,
   const devices = useMemo(() => enabled ? (resource.data ?? []).map(device => status.unlinked.includes(device.device_id)
     ? { ...device, status: "revoked" as const } : device) : [], [enabled, resource.data, status.unlinked]);
   const puppyDeviceIds = devices.filter(device => device.platform === "macos" && device.status === "active").map(device => device.device_id).join(",");
+  useEffect(() => {
+    if (!current() || !ownerId) return;
+    let cancelled = false;
+    void readCurrentBrowserSubjectId(ownerId).then((subjectId) => {
+      if (!cancelled && current()) patch({ currentBrowserDeviceId: subjectId });
+    }).catch(() => {
+      if (!cancelled && current()) patch({ currentBrowserDeviceId: null });
+    });
+    return () => { cancelled = true; };
+  }, [current, ownerId, patch]);
+
   useEffect(() => {
     if (!current() || !vaultOwnerToken) return;
     let cancelled = false;
@@ -204,8 +217,58 @@ export function useTrustedDevicesModel(ownerId: string | null, enabled: boolean,
       patch({ busy: false });
     }
   };
+  const openPruneWebConfirm = () => {
+    if (!canAct() || scope.pending || status.uncertain || status.pruningWeb) return;
+    patch({ pruneWebConfirmOpen: true, pruneNotice: "", error: "" });
+  };
+  const closePruneWebConfirm = () => {
+    if (status.pruningWeb) return;
+    patch({ pruneWebConfirmOpen: false });
+  };
+  const confirmPruneWebBrowsers = async () => {
+    if (!canAct() || scope.pending || status.uncertain || status.pruningWeb) return;
+    const request = Symbol();
+    scope.pending = request;
+    scope.mutation += 1;
+    scope.actionGeneration += 1;
+    patch({ pruningWeb: true, error: "", pruneNotice: "" });
+    try {
+      const admittedGeneration = scope.actionGeneration;
+      const admittedCurrent = () => current() && scope.actionGeneration === admittedGeneration &&
+        (!Capacitor.isNativePlatform() || !!nativePrivacyObservation().state?.appIsActive && !nativePrivacyObservation().state?.shielded);
+      const response = await ApiService.pruneWebTrustedDevices(
+        status.currentBrowserDeviceId,
+        admittedCurrent,
+      );
+      if (!admittedCurrent()) return;
+      if (!response.ok) {
+        patch({ error: "Could not sign out other browsers right now.", pruneWebConfirmOpen: false });
+        return;
+      }
+      const payload = await response.json().catch(() => ({}));
+      const revokedCount = Number(payload?.revoked_count ?? 0);
+      await refreshAfterCurrentReads();
+      if (!admittedCurrent()) return;
+      patch({
+        pruneWebConfirmOpen: false,
+        pruneNotice:
+          revokedCount > 0
+            ? `Signed out ${revokedCount} ${revokedCount === 1 ? "browser" : "browsers"}.`
+            : "No other active browsers to sign out.",
+      });
+    } catch {
+      if (current()) {
+        patch({ error: "Could not sign out other browsers right now.", pruneWebConfirmOpen: false });
+      }
+    } finally {
+      if (scope.pending === request) scope.pending = null;
+      patch({ pruningWeb: false });
+    }
+  };
   return { puppyAccess: status.puppyAccess, byocReady: status.byocReady, changingPuppy: status.changingPuppy, puppyNotice: status.puppyNotice,
     pendingPuppyWithdrawal: status.pendingPuppyWithdrawal, pendingPodRevocations: status.pendingPodRevocations, changePuppyAccess, devices, confirmation, busy: status.busy, uncertain: status.uncertain,
+    currentBrowserDeviceId: status.currentBrowserDeviceId, pruningWeb: status.pruningWeb, pruneWebConfirmOpen: status.pruneWebConfirmOpen, pruneNotice: status.pruneNotice,
+    openPruneWebConfirm, closePruneWebConfirm, confirmPruneWebBrowsers,
     cancellableVerification: status.uncertain && scope.receipts.some(value => value.state === "prepared" && scope.attemptedOperations.has(value.operation_id)),
     verificationUnfinished: scope.receipts.some(receipt => receipt.state === "prepared"),
     revocationConfirmed: status.unlinked.length > 0 && !status.uncertain && status.pendingPodRevocations.length === 0,

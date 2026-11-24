@@ -339,3 +339,87 @@ def test_invalid_signature_is_rejected() -> None:
             nonce=challenge["nonce"],
             signature_b64=base64.b64encode(signature).decode("ascii"),
         )
+
+
+def test_self_enroll_is_idempotent_by_public_key_and_caps_active_web_sessions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = MemoryStore()
+    service = TrustedDeviceService(store=store)
+    clock = [1_700_000_000_000]
+    monkeypatch.setattr("hushh_mcp.services.trusted_device_service._now_ms", lambda: clock[0])
+
+    # Add a macOS linked computer that must NEVER be pruned by web cap or bulk prune.
+    _mac_priv, mac_pub = _keypair()
+    store.upsert_device(
+        {
+            "device_id": "tdv_macos_linked_device_12345678",
+            "user_id": "user-1",
+            "device_public_key": mac_pub,
+            "device_name": "Kushal's MacBook Pro",
+            "platform": "macos",
+            "created_at": clock[0] - 10_000,
+            "last_used_at": clock[0] - 10_000,
+        }
+    )
+
+    # First browser enrolls twice with the same public key -> reuses same device_id & updates name.
+    _b1_priv, b1_pub = _keypair()
+    first = service.self_enroll(
+        user_id="user-1",
+        device_public_key=b1_pub,
+        device_name="This browser",
+        platform="web",
+    )
+    clock[0] += 1_000
+    refreshed = service.self_enroll(
+        user_id="user-1",
+        device_public_key=b1_pub,
+        device_name="Chrome on macOS",
+        platform="web",
+    )
+    assert refreshed["device_id"] == first["device_id"]
+    assert refreshed["device_name"] == "Chrome on macOS"
+    assert refreshed["created_at"] == first["created_at"]
+
+    # Enroll 6 additional distinct web browsers (total 7) -> cap enforces 5 active web rows max.
+    web_ids = [first["device_id"]]
+    for idx in range(6):
+        clock[0] += 1_000
+        _priv, pub = _keypair()
+        enrolled = service.self_enroll(
+            user_id="user-1",
+            device_public_key=pub,
+            device_name=f"Chrome profile {idx + 2}",
+            platform="web",
+        )
+        web_ids.append(enrolled["device_id"])
+
+    active_web = [
+        d
+        for d in store.list_devices(user_id="user-1")
+        if d["platform"] == "web" and d["status"] == "active"
+    ]
+    assert len(active_web) == service.MAX_ACTIVE_WEB_BROWSERS
+    active_web_ids = {d["device_id"] for d in active_web}
+    assert web_ids[-1] in active_web_ids
+    assert web_ids[0] not in active_web_ids
+    assert (
+        store.get_active_device(user_id="user-1", device_id="tdv_macos_linked_device_12345678")
+        is not None
+    )
+
+    # Bulk prune keeps only the current browser and leaves macOS untouched.
+    result = service.prune_web_devices(user_id="user-1", keep_device_id=web_ids[-1])
+    assert result["revoked_count"] == service.MAX_ACTIVE_WEB_BROWSERS - 1
+    assert result["kept_device_id"] == web_ids[-1]
+    remaining_active_web = [
+        d
+        for d in store.list_devices(user_id="user-1")
+        if d["platform"] == "web" and d["status"] == "active"
+    ]
+    assert [d["device_id"] for d in remaining_active_web] == [web_ids[-1]]
+    assert (
+        store.get_active_device(user_id="user-1", device_id="tdv_macos_linked_device_12345678")
+        is not None
+    )
