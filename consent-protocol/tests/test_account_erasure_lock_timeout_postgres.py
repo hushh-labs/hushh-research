@@ -2583,6 +2583,19 @@ async def test_isolated_firebase_erasure_survives_lost_ack_and_database_rollback
                 "account_owner_id": None,
             }
             assert legacy.generation(conn, owner)["cleanup_confirmed"] is True
+            # Replaying 418/419/437 AFTER an isolated Firebase erasure settles
+            # must preserve settled generation rows without firing BEFORE INSERT
+            # with pre-987 cleanup_confirmed=false against qualified=true.
+            for predecessor in build_manifest_entries(
+                ROOT / "db/migrations",
+                [
+                    "418_account_provider_cleanup_staging.sql",
+                    "419_account_generations.sql",
+                    legacy.CANONICAL,
+                ],
+            ):
+                legacy.run(conn, replay_sql(predecessor))
+            assert legacy.generation(conn, owner)["cleanup_confirmed"] is True
             assert (
                 "hussh.account_legacy_settlement"
                 in legacy.run(
