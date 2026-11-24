@@ -408,10 +408,12 @@ listed in `config/ci-governance.json` under `main.protected_pipeline_paths`:
 
 ### The three enforcement layers
 
-1. **Native protected review.** CODEOWNERS defaults to the maintainer Team and
-   overrides protected files with `@hushh-labs/pipeline-editors`. The
+1. **Native protected review.** CODEOWNERS is reserved exclusively for protected
+   files owned by `@hushh-labs/pipeline-editors` (with no catch-all `*` rule) so
+   mixed protected PRs never attach a second approval team. The
    [CLI routing procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#review-routing-on-every-destination)
-   reconciles mixed and content-based protected PRs to the editor Team only.
+   routes ordinary PRs to `allowed-maintainers-to-approve` and enforces
+   `pipeline-editors` exclusivity on protected and content-based protected PRs.
    Native protected-path rules remain independent on Main, Dev and UAT. The
    owner Team retains the repository access required by GitHub for its rules.
 2. **CI protected-authority guard (fails closed).**

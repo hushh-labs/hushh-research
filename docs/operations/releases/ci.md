@@ -2325,13 +2325,15 @@ for the canonical commands and live-policy activation. Do not ask a self-approvi
 owner for another person just to satisfy GitHub's native self-review restriction.
 Do not grant ordinary contributors broader bypass to solve an owner-only problem.
 
-CODEOWNERS visibly defaults ordinary PRs to `allowed-maintainers-to-approve`
-and overrides protected files with `pipeline-editors`. After PR creation, source
-updates or retargeting, run `./bin/hushh agents review-route --pr <number> --apply`.
-It requests **pipeline-editors** for mixed and content-based protected changes,
-preserving explicit individual requests and completed current-head reviews.
-Main's native code-owner requests may remain and are reported after verification;
-the CLI adds no Actions run. See the [routing procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#review-routing-on-every-destination).
+CODEOWNERS is reserved exclusively for protected files owned by
+`pipeline-editors` (no catch-all `*` entry), preventing mixed protected PRs from
+attaching `allowed-maintainers-to-approve` alongside `pipeline-editors`. After
+PR creation, source updates or retargeting, run
+`./bin/hushh agents review-route --pr <number> --apply`. It routes ordinary PRs
+to `allowed-maintainers-to-approve` and enforces `pipeline-editors`-only routing
+on protected and content-based protected changes, preserving explicit individual
+requests and completed current-head reviews without adding an Actions run. See
+the [routing procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#review-routing-on-every-destination).
 This is notification only: ordinary maintainers retain existing self-service;
 outside contributors still need independent authorized review. Labels never waive
 required checks, combined-result admission or protected approval.
