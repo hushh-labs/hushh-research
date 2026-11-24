@@ -18,7 +18,11 @@ import type {
 } from "@/lib/computer-use/contracts";
 
 type Admission = { ownerId: string; podId: string; environment: string };
-export type ComputerUseCapability = { available: boolean; code: string };
+export type ComputerUseCapability = {
+  available: boolean;
+  code: string;
+  publicResearchOnly?: boolean;
+};
 export type DiscoveredBrowserTask = {
   binding: ComputerUseBinding;
   phase: ComputerUsePhase;
@@ -193,6 +197,7 @@ export class ComputerUseClient {
       pod_id?: unknown;
       incarnation?: unknown;
       environment?: unknown;
+      public_research_only?: unknown;
     };
     if (signal.aborted) throw new Error("BROWSER_REQUEST_CANCELLED");
     if (body.owner_id !== undefined || body.available === true) {
@@ -215,6 +220,7 @@ export class ComputerUseClient {
         typeof body.code === "string"
           ? body.code
           : "BROWSER_CLOUD_GATE_UNAVAILABLE",
+      publicResearchOnly: body.public_research_only === true,
     };
   }
 

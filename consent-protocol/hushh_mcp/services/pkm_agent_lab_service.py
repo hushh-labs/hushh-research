@@ -1901,15 +1901,24 @@ class PKMAgentLabService:
         if not isinstance(simulated_state, dict):
             return {"domains": [], "recent_memories": []}
         soul = memory_profile == "soul_markdown_v1"
+        wiki_projection = memory_profile == "wiki_claim_projection_v1"
         supplied = simulated_state.get("memories") or []
         if soul and (
             len(supplied) > 256
             or sum(
                 len(str(item.get("message") or "")) for item in supplied if isinstance(item, dict)
             )
-            > 18000
+            > 96000
         ):
             raise ValueError("Soul reconciliation snapshot exceeds its bound")
+        if wiki_projection and (
+            len(supplied) > 64
+            or sum(
+                len(str(item.get("message") or "")) for item in supplied if isinstance(item, dict)
+            )
+            > 24000
+        ):
+            raise ValueError("Wiki claim projection snapshot exceeds its bound")
         recent_memories = []
         for memory in simulated_state.get("memories") or []:
             if not isinstance(memory, dict):
@@ -1922,16 +1931,18 @@ class PKMAgentLabService:
                     "intent_class": cls._normalize_segment(str(memory.get("intent_class") or "")),
                     "message": cls._safe_excerpt(
                         str(memory.get("message") or ""),
-                        limit=18000
+                        limit=96000
                         if soul
                         else 4000
                         if memory_profile == "business_directory_v1"
+                        else 1000
+                        if wiki_projection
                         else 200,
                     ),
                     "active": bool(memory.get("active", True)),
                 }
             )
-            if len(recent_memories) >= (256 if soul else 10):
+            if len(recent_memories) >= (256 if soul else 64 if wiki_projection else 10):
                 break
         domains = [
             cls._normalize_segment(str(domain))
@@ -5345,6 +5356,8 @@ class PKMAgentLabService:
                 # request; until now only the strict intent prompt carried it.
                 "reserved_branches": [
                     [row["reserved_branch"], row["agent_memory_sibling"]]
+                    if row["agent_memory_sibling"]
+                    else [row["reserved_branch"]]
                     for row in reserved_table_for_prompt()
                 ],
             },

@@ -11,8 +11,15 @@ from typing import Any
 
 from hushh_mcp.services.pod_files.library import FilesLibrary, FilesRefused
 from hushh_mcp.services.pod_files.storage import FilesGcsStore, FilesPrefixStore
+from hushh_mcp.services.pod_workspace import (
+    WorkspaceCheckpointLibrary,
+    WorkspaceCliRuntime,
+)
+from hushh_mcp.services.wiki_memory import WikiLibrary
 
 _library: FilesLibrary | None = None
+_wiki_library: WikiLibrary | None = None
+_workspace_runtime: WorkspaceCliRuntime | None = None
 _condition = asyncio.Condition()
 _mutation = asyncio.Lock()
 _active = 0
@@ -87,6 +94,26 @@ def active_library() -> FilesLibrary:
     return _library
 
 
+def active_wiki_library() -> WikiLibrary:
+    """Return the Pod's encrypted Personal Wiki library under the same custody fence."""
+    global _wiki_library
+    files = active_library()
+    if _wiki_library is None:
+        from hushh_mcp.services.byoc_key_custody import resolve_pod_log_key
+
+        generation = int(os.getenv("POD_ACCOUNT_GENERATION", "0") or "0")
+        library_id = os.getenv("POD_WIKI_LIBRARY_ID", "default") or "default"
+        _wiki_library = WikiLibrary(
+            owner=files.owner,
+            key=resolve_pod_log_key(),
+            store=files.store,
+            check=files.check,
+            account_generation=generation,
+            library_id=library_id,
+        )
+    return _wiki_library
+
+
 def _resolve_pod_root_workspace_store(files_store: Any) -> Any:
     """Place `workspaces/v1/<ws_id>` under the pod root prefix rather than `files/v1/workspaces/v1`."""
     from hushh_mcp.services.pod_platform import workload_platform
@@ -118,6 +145,90 @@ def _resolve_pod_root_workspace_store(files_store: Any) -> Any:
                 root_url, account_id=os.environ["POD_FILES_AZURE_STORAGE_RESOURCE_ID"]
             )
     return files_store
+
+
+def active_workspace_runtime() -> WorkspaceCliRuntime:
+    """Return the Pod's encrypted CLI workspace runtime under the same custody fence (#9511)."""
+    global _workspace_runtime
+    files = active_library()
+    if _workspace_runtime is None:
+        from hushh_mcp.services.byoc_key_custody import resolve_pod_log_key
+
+        generation = int(os.getenv("POD_ACCOUNT_GENERATION", "0") or "0")
+        ws_store = _resolve_pod_root_workspace_store(files.store)
+        checkpoints = WorkspaceCheckpointLibrary(
+            owner=files.owner,
+            key=resolve_pod_log_key(),
+            store=ws_store,
+            check=files.check,
+            account_generation=generation,
+        )
+        _workspace_runtime = WorkspaceCliRuntime(checkpoints)
+    return _workspace_runtime
+
+
+@asynccontextmanager
+async def workspace_operation(*, mutation: bool = False):
+    """Admit a Pod CLI workspace read or mutation under single-worker drain fencing."""
+    global _active
+    from hushh_mcp.services.pod_upgrade_admission import ADMISSION, pod_incarnation
+
+    async with _condition:
+        if _draining:
+            raise FilesRefused("FILES_DRAINING", 503)
+        _active += 1
+    permit: Any = None
+    try:
+        permit = await ADMISSION.acquire_turn(incarnation=pod_incarnation())
+        ws = active_workspace_runtime()
+        await ws.checkpoints.check()
+        await ws.checkpoints.store.verify_bucket(custody_key_reference())
+        if mutation:
+            async with _mutation:
+                await require_files_access(manage=True)
+                yield ws
+        else:
+            yield ws
+    finally:
+        try:
+            if permit is not None:
+                await permit.release()
+        finally:
+            async with _condition:
+                _active -= 1
+                _condition.notify_all()
+
+
+@asynccontextmanager
+async def wiki_operation(*, mutation: bool = False):
+    """Admit a Pod Personal Wiki read or mutation under single-worker fencing."""
+    global _active
+    from hushh_mcp.services.pod_upgrade_admission import ADMISSION, pod_incarnation
+
+    async with _condition:
+        if _draining:
+            raise FilesRefused("FILES_DRAINING", 503)
+        _active += 1
+    permit: Any = None
+    try:
+        permit = await ADMISSION.acquire_turn(incarnation=pod_incarnation())
+        wiki = active_wiki_library()
+        await wiki.check()
+        await wiki.store.verify_bucket(custody_key_reference())
+        if mutation:
+            async with _mutation:
+                await require_files_access(manage=True)
+                yield wiki
+        else:
+            yield wiki
+    finally:
+        try:
+            if permit is not None:
+                await permit.release()
+        finally:
+            async with _condition:
+                _active -= 1
+                _condition.notify_all()
 
 
 @asynccontextmanager
@@ -189,3 +300,23 @@ async def require_files_access(*, manage: bool = False) -> None:
     if check is None:
         raise FilesRefused("FILES_AUTHORITY_REQUIRED", 403)
     await check()
+
+
+async def run_wiki_maintenance_tick(
+    *,
+    idempotency_key: str,
+    reference_date: str | None = None,
+    max_pages_per_tick: int = 8,
+) -> dict[str, Any]:
+    """Execute one bounded, drain-fenced Personal Wiki maintenance tick on the owner pod."""
+    from hushh_mcp.services.wiki_memory import WikiMaintenanceRunner
+
+    async with wiki_operation(mutation=True) as wiki:
+        runner = WikiMaintenanceRunner(wiki)
+        return dict(
+            await runner.run_tick(
+                idempotency_key=idempotency_key,
+                reference_date=reference_date,
+                max_pages_per_tick=max_pages_per_tick,
+            )
+        )

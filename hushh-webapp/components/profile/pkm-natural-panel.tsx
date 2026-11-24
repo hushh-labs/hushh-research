@@ -39,6 +39,7 @@ import { describePkmCaptureSection } from "@/lib/pkm/pkm-capture-sections";
 import { pkmMemoryCardBreadcrumb } from "@/lib/pkm/pkm-memory-level";
 
 import { SoulMemoryPanelBody } from "./soul-memory-panel";
+import { MemoryKnowledgeHub } from "./memory-knowledge-hub";
 import {
   MEMORY_WORKSPACE_TABS,
   cardImpactKey,
@@ -465,6 +466,7 @@ export function PkmNaturalPanelBody({
           heightMode="active"
         >
           <div className="space-y-5 pb-1 pr-px" data-pkm-saved-panel="true">
+            <MemoryKnowledgeHub />
             <SoulMemoryPanelBody model={soul} />
             <div className="relative">
               <Input

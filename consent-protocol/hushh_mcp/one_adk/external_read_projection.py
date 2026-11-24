@@ -29,6 +29,12 @@ from hushh_mcp.one_adk.receipt_client_tools import (
     STATE_RECEIPT_PRIVATE,
     STATE_RECEIPT_RESULT,
 )
+from hushh_mcp.one_adk.wiki_recall_tools import (
+    STATE_WIKI_CLIENT_READY,
+    STATE_WIKI_HOT_DIGEST,
+    STATE_WIKI_RESULT,
+    WIKI_TOOL_NAMES,
+)
 from hushh_mcp.pod_connectors.contacts_tool import STATE_CONTACT_CALENDAR_READ
 
 _EPHEMERAL = frozenset(
@@ -44,6 +50,9 @@ _EPHEMERAL = frozenset(
         STATE_MAIL_DRILLDOWN_USED,
         STATE_SELECTED_DRIVE_SHARE,
         STATE_RECEIPT_RESULT,
+        STATE_WIKI_CLIENT_READY,
+        STATE_WIKI_HOT_DIGEST,
+        STATE_WIKI_RESULT,
         STATE_PORTFOLIO_CONTEXT_ENABLED,
         "temp:hussh:workspace_chat_admission",
         "temp:hussh:drive_search_selection",
@@ -159,10 +168,19 @@ def durable_external_read_projection(session: Session) -> Session:
         if (part.function_call and part.function_call.name in _PRIVATE_DRAFT_TOOLS)
         or (part.function_response and part.function_response.name in _PRIVATE_DRAFT_TOOLS)
     }
+    wiki_invocations = {
+        event.invocation_id
+        for event in session.events
+        if event.content
+        for part in (event.content.parts or [])
+        if (part.function_call and part.function_call.name in WIKI_TOOL_NAMES)
+        or (part.function_response and part.function_response.name in WIKI_TOOL_NAMES)
+    }
     if (
         not read_invocations
         and not receipt_invocations
         and not private_draft_invocations
+        and not wiki_invocations
         and not any(key in session.state for key in _EPHEMERAL)
         and not any(
             key in event.actions.state_delta for event in session.events for key in _EPHEMERAL
@@ -209,6 +227,21 @@ def durable_external_read_projection(session: Session) -> Session:
                 part.function_response.response = redacted_read_receipt(
                     part.function_response.response
                 )
+            if part.function_call and part.function_call.name in WIKI_TOOL_NAMES:
+                part.function_call.args = {}
+            if part.function_response and part.function_response.name in WIKI_TOOL_NAMES:
+                raw_resp = part.function_response.response
+                wiki_status = (
+                    raw_resp.get("status")
+                    if isinstance(raw_resp, dict)
+                    and raw_resp.get("status")
+                    in {"ok", "absent", "stale", "conflicted", "unavailable"}
+                    else "ok"
+                )
+                part.function_response.response = {
+                    "content_redacted": True,
+                    "status": wiki_status,
+                }
             if event.invocation_id in private_draft_invocations and (
                 (part.function_call and part.function_call.name in _PRIVATE_DRAFT_TOOLS)
                 or (part.function_response and part.function_response.name in _PRIVATE_DRAFT_TOOLS)

@@ -1,6 +1,7 @@
 import { projectWalletConsent } from "@/lib/wallet/card-consent-projection";
 import { pkmStorageSegmentId } from "./segmentation";
 import { sensitiveTopicLabel, valueIsIdentifierShaped } from "@/lib/consent/field-sensitivity";
+import { isNonExternalizablePkmDomain } from "@/lib/consent/pkm-scope-policy";
 import { isInternalManifestPath } from "@/lib/pkm/internal-path-keys";
 import {
   CURRENT_PKM_CONTRACT_VERSION,
@@ -35,6 +36,8 @@ export type PathDescriptor = {
   segment_id?: string | null;
   scope_handle?: string | null;
   source_agent?: string | null;
+  projection_state?: PkmScopeMaterializationState | null;
+  projection_receipt_id?: string | null;
 };
 
 export class PkmMetadataReviewRequired extends Error {
@@ -103,7 +106,7 @@ export type PkmScopeRegistryEntry = {
   owner_consent_override?: boolean;
   summary_projection?: Record<string, unknown> & {
     top_level_scope_path?: string;
-    materialization_state?: "materialized" | "empty" | "unknown";
+    materialization_state?: PkmScopeMaterializationState;
     materialized_leaf_count?: number;
     source_manifest_revision?: number;
     consumer_visible?: boolean;
@@ -113,8 +116,18 @@ export type PkmScopeRegistryEntry = {
   };
 };
 
+export type PkmScopeMaterializationState =
+  | "materialized"
+  | "private_candidate"
+  | "empty"
+  | "unknown"
+  | "failed"
+  | "pending"
+  | "stale"
+  | "conflicted";
+
 export type PkmScopeMaterialization = {
-  state: "materialized" | "empty" | "unknown";
+  state: PkmScopeMaterializationState;
   materialized_leaf_count: number;
 };
 
@@ -275,10 +288,13 @@ const BLOCKED_EXTERNAL_PATH_PARTS = new Set([
  * whose quarantine has an exposable path or a scope
  * (`pkm_quarantine_must_be_private`, migration 098).
  */
+export const WIKI_PROJECTIONS_BRANCH = "_wiki_projections";
+
 const VAULT_PRIVATE_BRANCHES: ReadonlySet<string> = new Set([
   ...PLAID_VAULT_RECORD_BRANCHES,
   LINKED_ACCOUNTS_BRANCH,
   PKM_QUARANTINE_SEGMENT_ID,
+  WIKI_PROJECTIONS_BRANCH,
 ]);
 
 /**
@@ -537,6 +553,14 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
   /** Oldest first; metadata only, never path/exposure authority. */
   semanticManifests?: DomainManifest[];
   semanticDecision?: Record<string, unknown>;
+  /** Optional revision-bound wiki projection states keyed by normalized json_path. */
+  wikiProjectionStates?: Record<
+    string,
+    {
+      state: PkmScopeMaterializationState;
+      receipt_id?: string | null;
+    }
+  >;
 }): {
   structureDecision: StructureDecision;
   manifest: DomainManifest;
@@ -615,20 +639,61 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
   const paths = [...descriptors.values()].sort((a, b) =>
     a.json_path.localeCompare(b.json_path)
   );
+  const rawWikiProvenance =
+    params.domainData[WIKI_PROJECTIONS_BRANCH] &&
+    typeof params.domainData[WIKI_PROJECTIONS_BRANCH] === "object" &&
+    !Array.isArray(params.domainData[WIKI_PROJECTIONS_BRANCH])
+      ? (params.domainData[WIKI_PROJECTIONS_BRANCH] as Record<string, unknown>)
+      : null;
+  const effectiveWikiStates: Record<
+    string,
+    { state: PkmScopeMaterializationState; receipt_id?: string | null }
+  > = {};
+  if (rawWikiProvenance) {
+    for (const [provPath, provEntry] of Object.entries(rawWikiProvenance)) {
+      if (provEntry && typeof provEntry === "object" && !Array.isArray(provEntry)) {
+        const recId = (provEntry as Record<string, unknown>).receipt_id;
+        effectiveWikiStates[provPath] = {
+          state: "materialized",
+          receipt_id: typeof recId === "string" ? recId : null,
+        };
+      }
+    }
+  }
+  if (params.wikiProjectionStates) {
+    Object.assign(effectiveWikiStates, params.wikiProjectionStates);
+  }
+  if (Object.keys(effectiveWikiStates).length > 0) {
+    for (const descriptor of paths) {
+      const proj = effectiveWikiStates[descriptor.json_path];
+      if (!proj) continue;
+      descriptor.projection_state = proj.state;
+      descriptor.projection_receipt_id = proj.receipt_id ?? null;
+      if (proj.state !== "materialized" && proj.state !== "unknown") {
+        descriptor.exposure_eligibility = false;
+      }
+    }
+  }
   const jsonPaths = paths.map((path) => path.json_path);
-  const privateAgentMemory = normalizedDomain === "one_memory";
+  const privateAgentMemory = isNonExternalizablePkmDomain(normalizedDomain);
   if (privateAgentMemory) {
     for (const path of paths) path.exposure_eligibility = false;
   }
   const externalizablePaths = paths
     .filter((path) => path.exposure_eligibility && path.path_type === "leaf")
     .map((path) => path.json_path);
+  const explicitWikiTopScopes = privateAgentMemory
+    ? []
+    : Object.keys(effectiveWikiStates)
+        .map((p) => p.split(".")[0])
+        .filter((s): s is string => typeof s === "string" && s.length > 0 && !s.startsWith("_"));
   const topLevelScopePaths = privateAgentMemory ? [] : [
-    ...new Set(
-      paths
+    ...new Set([
+      ...paths
         .map((path) => path.json_path.split(".")[0])
-        .filter((path): path is string => typeof path === "string" && path.length > 0)
-    ),
+        .filter((path): path is string => typeof path === "string" && path.length > 0 && !path.startsWith("_")),
+      ...explicitWikiTopScopes,
+    ]),
   ];
   const previousPaths = new Set((params.previousManifest?.paths || []).map((path) => path.json_path));
   const hasNewPaths = jsonPaths.some((path) => !previousPaths.has(path));
@@ -649,12 +714,66 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
   const scopeMaterialization: Record<string, PkmScopeMaterialization> = {};
   for (const [rawScope, value] of Object.entries(params.domainData)) {
     const scope = normalizePathSegment(rawScope);
-    if (!scope || BLOCKED_EXTERNAL_PATH_PARTS.has(scope)) continue;
-    const materializedLeafCount = countMaterializedLeaves(value, [scope]);
+    if (!scope || scope.startsWith("_") || BLOCKED_EXTERNAL_PATH_PARTS.has(scope)) continue;
+    const scopeLeafDescriptors = paths.filter(
+      (p) =>
+        p.path_type === "leaf" &&
+        (p.json_path === scope || p.json_path.startsWith(`${scope}.`)),
+    );
+    const wikiTrackedLeaves = scopeLeafDescriptors.filter(
+      (p) => p.projection_state != null,
+    );
+    if (wikiTrackedLeaves.length > 0 && wikiTrackedLeaves.length === scopeLeafDescriptors.length) {
+      const matCount = wikiTrackedLeaves.filter(
+        (p) => p.projection_state === "materialized",
+      ).length;
+      if (matCount > 0) {
+        scopeMaterialization[scope] = {
+          state: "materialized",
+          materialized_leaf_count: matCount,
+        };
+      } else {
+        const statePriority: PkmScopeMaterializationState[] = [
+          "conflicted",
+          "private_candidate",
+          "stale",
+          "pending",
+          "failed",
+          "empty",
+          "unknown",
+        ];
+        const chosen =
+          statePriority.find((st) =>
+            wikiTrackedLeaves.some((p) => p.projection_state === st),
+          ) ?? "empty";
+        scopeMaterialization[scope] = {
+          state: chosen,
+          materialized_leaf_count: 0,
+        };
+      }
+      continue;
+    }
+    const nonMaterializedWikiCount = wikiTrackedLeaves.filter(
+      (p) => p.projection_state !== "materialized" && p.projection_state !== "unknown",
+    ).length;
+    const materializedLeafCount = Math.max(
+      0,
+      countMaterializedLeaves(value, [scope]) - nonMaterializedWikiCount,
+    );
     scopeMaterialization[scope] = {
       state: materializedLeafCount > 0 ? "materialized" : "empty",
       materialized_leaf_count: materializedLeafCount,
     };
+  }
+  for (const [projPath, proj] of Object.entries(effectiveWikiStates)) {
+    const topScope = normalizePathSegment(projPath.split(".")[0] ?? "");
+    if (!topScope || topScope.startsWith("_") || BLOCKED_EXTERNAL_PATH_PARTS.has(topScope)) continue;
+    if (!scopeMaterialization[topScope]) {
+      scopeMaterialization[topScope] = {
+        state: proj.state === "materialized" ? "empty" : proj.state,
+        materialized_leaf_count: 0,
+      };
+    }
   }
   const summaryProjection = {
     manifest_version: nextManifestVersion,
