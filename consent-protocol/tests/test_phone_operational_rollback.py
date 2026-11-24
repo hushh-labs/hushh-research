@@ -633,6 +633,7 @@ def test_main_fallback_is_rechecked_before_promotion(release_plan, monkeypatch):
         ("tests/\n", 1, False),
         ("tests/\n", 2, None),
         ("tests/\n!tests/**\n", 0, None),
+        ("tests/\n !tests/**\n", 0, None),
         ("tests/\n!**\n", 0, None),
         ("", 0, None),
     ],

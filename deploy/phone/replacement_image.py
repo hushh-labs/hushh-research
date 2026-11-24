@@ -33,6 +33,7 @@ def same_backend(fallback: str, primary: str) -> bool:
         .decode()
         .splitlines()
     )
+    ignored = [line.strip() for line in ignored]
     allowed_negations = {"!hushh_mcp/agents/*.md", "!hushh_mcp/agents/**/*.md"}
     if "tests/" not in ignored or any(
         line.startswith("!") and line not in allowed_negations for line in ignored
