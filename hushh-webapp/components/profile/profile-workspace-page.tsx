@@ -30,6 +30,7 @@ import accountStyles from "@/components/profile/profile-your-account.module.css"
 import auxiliaryTabStyles from "@/components/profile/profile-auxiliary-tabs.module.css";
 import secondaryTypographyStyles from "@/components/profile/profile-secondary-typography.module.css";
 import { AgentSettingsPanel } from "@/components/profile/agent-settings-panel";
+import { ByocCloudSetupPage } from "@/components/connections/byoc-cloud-setup-page";
 import { useNativeProfileFeatures } from "./use-native-profile-features";
 import { NativeProfilePresentation } from "./native-profile-menu";
 import { AccountConfirmationPreparation } from "./account-confirmation-preparation";
@@ -4324,6 +4325,17 @@ function ProfilePageContent({
           />
         ),
         typeScale: "connect",
+      });
+    } else if (activePanel === "hosting" && activeDetail === "hosting-own-cloud") {
+      profileStackEntries.push({
+        key: "detail:hosting-own-cloud",
+        title: "Bring your own cloud",
+        description: "Run Agent One in your own Google Cloud or Microsoft Azure project.",
+        content: (
+          <Suspense fallback={null}>
+            <ByocCloudSetupPage embedded initialIntent="own" />
+          </Suspense>
+        ),
       });
     } else if (activePanel === "software-updates" && activeDetail === "update-details") {
       profileStackEntries.push({

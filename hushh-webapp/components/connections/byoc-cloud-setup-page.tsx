@@ -80,15 +80,36 @@ import { useCloudSetupManagementReturn } from "./use-cloud-setup-management-retu
 /** How long "Checking your cloud..." may stay on screen before the form shows. */
 export const CLOUD_CHECK_TIMEOUT_MS = 15_000;
 
-export function ByocCloudSetupPage() {
+export function ByocCloudSetupPage({
+  embedded = false,
+  initialIntent,
+}: {
+  embedded?: boolean;
+  initialIntent?: "own" | "hussh_pods";
+} = {}) {
   const { user } = useAuth();
   const owner = snapshotValidatedAuthSessionPrincipal();
-  return <OwnerCloudSetupPage key={`${user?.uid ?? "signed-out"}:${owner?.generation ?? "unresolved"}`} user={user} owner={owner} />;
+  return (
+    <OwnerCloudSetupPage
+      key={`${user?.uid ?? "signed-out"}:${owner?.generation ?? "unresolved"}`}
+      user={user}
+      owner={owner}
+      embedded={embedded}
+      initialIntent={initialIntent}
+    />
+  );
 }
 
-function OwnerCloudSetupPage({ user, owner }: {
+function OwnerCloudSetupPage({
+  user,
+  owner,
+  embedded = false,
+  initialIntent,
+}: {
   user: ReturnType<typeof useAuth>["user"];
   owner: ReturnType<typeof snapshotValidatedAuthSessionPrincipal>;
+  embedded?: boolean;
+  initialIntent?: "own" | "hussh_pods";
 }) {
   const ownerId = owner?.ownerId ?? null;
   const router = useRouter();
@@ -110,7 +131,9 @@ function OwnerCloudSetupPage({ user, owner }: {
     rationale: string;
   } | null>(null);
   // Which hosting card is picked. Null falls back to the confirmed Shared state.
-  const [choice, setChoice] = useState<HostingChoice | null>(null);
+  const [choice, setChoice] = useState<HostingChoice | null>(() =>
+    initialIntent === "own" || searchParams.get("intent") === "own" ? "own" : null,
+  );
   // The hosted door is closed for maintenance (founder direction, 2026-09-02):
   // the card stays visible so the choice is still honest, but it cannot be
   // taken. Lift it with NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE=0; no code
@@ -525,24 +548,9 @@ function OwnerCloudSetupPage({ user, owner }: {
   }, [aiReady, authorized, hostingSaving, ownerCurrent, router, searchParams, ownerId]);
   useLocalOnboardingActionHandler("setup.finish_cloud", finish);
 
-  return (
-    <AppPageShell
-      as="main"
-      width="reading"
-      nativeTest={{
-        routeId: "/one/setup/cloud",
-        marker: "native-route-one-setup-cloud",
-        authState: "authenticated",
-        dataState: saving ? "loading" : "loaded",
-      }}
-    >
-      <AppPageHeaderRegion>
-        <PageHeader
-          title="Where your agent lives"
-          description="Choose where Agent One runs. Your existing setup stays in place."
-          accent="neutral"
-        />
-        {checkTimedOut && !authorized ? (
+  const contentBody = (
+    <div className="space-y-5">
+        {embedded && checkTimedOut && !authorized ? (
           <p
             className="text-sm text-[var(--app-text-secondary)]"
             data-testid="byoc-cloud-check-timed-out"
@@ -552,8 +560,6 @@ function OwnerCloudSetupPage({ user, owner }: {
             refresh to check before choosing a hosting option.
           </p>
         ) : null}
-      </AppPageHeaderRegion>
-      <AppPageContentRegion className="space-y-6">
         {hostingStatusChecked && !ownCloudAvailable && hostingMode !== "unknown" ? (
           <p role="status" className="text-sm text-[var(--app-text-secondary)]" data-testid="byoc-setup-unavailable">
             Cloud setup is unavailable in this environment. Your existing setup is unchanged.
@@ -820,7 +826,11 @@ function OwnerCloudSetupPage({ user, owner }: {
             onSetupReadyChange={setAiReady}
           />
         ) : null}
-      </AppPageContentRegion>
+    </div>
+  );
+
+  const footerAndDialogs = (
+    <>
       {authorized && aiReady ? <SetupCompletionFooter
         label="Finish agent setup"
         onComplete={finish}
@@ -832,6 +842,50 @@ function OwnerCloudSetupPage({ user, owner }: {
         actionId="setup.finish_cloud"
         purpose="Keep the verified hosting and AI choice, then return to setup."
       /> : null}
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <div data-testid="byoc-cloud-setup-embedded" className="space-y-5">
+        {contentBody}
+        {footerAndDialogs}
+      </div>
+    );
+  }
+
+  return (
+    <AppPageShell
+      as="main"
+      width="reading"
+      nativeTest={{
+        routeId: "/one/setup/cloud",
+        marker: "native-route-one-setup-cloud",
+        authState: "authenticated",
+        dataState: saving ? "loading" : "loaded",
+      }}
+    >
+      <AppPageHeaderRegion>
+        <PageHeader
+          title="Where your agent lives"
+          description="Choose where Agent One runs. Your existing setup stays in place."
+          accent="neutral"
+        />
+        {checkTimedOut && !authorized ? (
+          <p
+            className="text-sm text-[var(--app-text-secondary)]"
+            data-testid="byoc-cloud-check-timed-out"
+            aria-live="polite"
+          >
+            We couldn&rsquo;t confirm your agent home. Your existing setup is unchanged;
+            refresh to check before choosing a hosting option.
+          </p>
+        ) : null}
+      </AppPageHeaderRegion>
+      <AppPageContentRegion className="space-y-6">
+        {contentBody}
+      </AppPageContentRegion>
+      {footerAndDialogs}
     </AppPageShell>
   );
 }

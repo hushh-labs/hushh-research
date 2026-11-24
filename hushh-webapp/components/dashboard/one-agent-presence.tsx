@@ -60,9 +60,9 @@ const COPY: Record<AgentState, { badge: string; dotClass: string }> = {
   reserved: { badge: "Reserved", dotClass: "bg-amber-500" },
   provisioning: { badge: "Setting up", dotClass: "bg-amber-500" },
   connecting: { badge: "Connecting", dotClass: "bg-amber-500" },
-  // NOT "always on". The default tier is economy: the pod sleeps between sessions
-  // and wakes on demand (`gcp_backend.py`, minScale 0 by founder directive).
-  active: { badge: "Active", dotClass: "bg-muted-foreground" },
+  // Clear owner-facing ready state matching Agent Chat ("Ready" when active
+  // and waiting, "Online" when actively answering, "Asleep" when hibernated).
+  active: { badge: "Ready", dotClass: "bg-emerald-500" },
   failed: { badge: "Not ready", dotClass: "bg-amber-500" },
 };
 

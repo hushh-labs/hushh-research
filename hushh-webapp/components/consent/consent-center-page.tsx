@@ -275,15 +275,33 @@ function resolveConsentTab(
 }
 
 function formatStatus(status?: string | null) {
-  const normalized = String(status || "pending").toLowerCase();
+  const normalized = String(status || "pending").trim().toLowerCase();
   const labels: Record<string, string> = {
-    revoked: "Ended",
+    approved: "Approved",
+    active: "Active",
+    granted: "Shared",
+    shared: "Shared",
+    allowed: "Allowed",
+    consent_granted: "Approved",
+    answered: "Answered",
+    completed: "Completed",
+    revoked: "Access ended",
+    ended: "Access ended",
     cancelled: "Withdrawn",
+    withdrawn: "Withdrawn",
+    denied: "Declined",
+    declined: "Declined",
+    expired: "Expired",
+    timeout: "Expired",
     pending: "Waiting",
     request_pending: "Waiting",
     accepted: "Accepted",
+    pod_access_allowed: "System check",
+    pod_access_denied: "Blocked",
   };
-  return labels[normalized] || normalized.replaceAll("_", " ");
+  if (labels[normalized]) return labels[normalized];
+  const spaced = normalized.replaceAll("_", " ");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
 /**
@@ -392,19 +410,34 @@ function isAuthConsentLoadError(error?: string | null) {
 }
 
 function badgeClassName(status?: string | null) {
-  switch (String(status || "").toLowerCase()) {
+  switch (String(status || "").trim().toLowerCase()) {
     case "approved":
     case "active":
-      return "border-transparent bg-emerald-500/10 text-emerald-800 dark:text-emerald-200";
+    case "granted":
+    case "shared":
+    case "allowed":
+    case "consent_granted":
+      return "border-transparent bg-emerald-500/12 text-emerald-700 dark:text-emerald-300";
+    case "answered":
+    case "completed":
+      return "border-transparent bg-sky-500/12 text-sky-700 dark:text-sky-300";
     case "pending":
     case "request_pending":
-      return "border-transparent bg-amber-500/10 text-amber-800 dark:text-amber-200";
+    case "waiting":
+    case "requested":
+      return "border-transparent bg-amber-500/12 text-amber-700 dark:text-amber-300";
     case "denied":
+    case "declined":
+    case "pod_access_denied":
+      return "border-transparent bg-rose-500/12 text-rose-700 dark:text-rose-300";
     case "revoked":
+    case "ended":
+    case "stopped":
     case "cancelled":
-      return "border-transparent bg-[color:var(--app-secondary-surface)] text-[color:var(--app-secondary-label)]";
+    case "withdrawn":
     case "expired":
-      return "border-transparent bg-[color:var(--app-secondary-surface)] text-[color:var(--app-secondary-label)]";
+    case "timeout":
+    case "pod_access_allowed":
     default:
       return "border-transparent bg-[color:var(--app-secondary-surface)] text-[color:var(--app-secondary-label)]";
   }
@@ -824,7 +857,7 @@ function ConsentEntryRow({
         entry.kind === "connection" ? null : (
           <Badge data-consent-role="status"
             variant="outline"
-            className={cn("shrink-0 lowercase", badgeClassName(entry.status))}
+            className={cn("shrink-0 font-medium", badgeClassName(entry.status))}
           >
             {formatStatus(entry.status)}
           </Badge>
@@ -1272,7 +1305,7 @@ function ConsentEntryDetail({
     setRevokeDialogOpen(false);
   }, [disarmDeny, entry?.id, requestedProposalKey]);
 
-  const { userId: previewUserId } = useAuth();
+  const { user: authUser, userId: previewUserId } = useAuth();
   const {
     vaultKey: previewVaultKey,
     getVaultOwnerToken: getPreviewVaultOwnerToken,
@@ -1649,7 +1682,7 @@ function ConsentEntryDetail({
             <label data-consent-role="disclosure" className="flex w-full items-start gap-3 pb-2 text-sm text-muted-foreground">
               <Checkbox checked={modelProcessingApproved()} disabled={requestBusy}
                 onCheckedChange={(checked) => setModelApproval(checked === true ? { review: modelReviewBinding, epoch: snapshotVaultSessionEpoch() } : null)} />
-              <span>Allow this recipient’s Agent One and selected model to use these approved details for the stated purpose, including personal identifiers. This does not allow further sharing.</span>
+              <span>Let this recipient&rsquo;s Agent One and selected model read these approved details to help with their request. Leave unchecked if only the person should view sensitive details. Never allows further sharing.</span>
             </label>
           ) : null}
           {showDurationChoice ? (
@@ -1813,12 +1846,43 @@ function ConsentEntryDetail({
       ) : null}
 
       {hasGroupedHistory ? (
-        <ConsentHistoryLifecycleDetails
-          entry={entry}
-          onRevokeScope={onRevokeScope}
-          activeAction={activeAction}
-          isScopeBusy={isScopeBusy}
-        />
+        <div className="space-y-3">
+          {String(entry.counterpart_id || "").toLowerCase() === "personal_agent" ||
+          entry.status === "pod_access_allowed" ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-[16px] border border-black/[0.08] bg-[color:var(--app-secondary-surface)] px-4 py-3 dark:border-white/[0.10]">
+              <p className="text-xs leading-5 text-muted-foreground">
+                Automatic agent check-ins are non-binding diagnostics and can be cleared without affecting your consent records.
+              </p>
+              <Button
+                type="button"
+                variant="none"
+                effect="fade"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    const idToken = await authUser?.getIdToken?.();
+                    if (!idToken) return;
+                    await ConsentCenterService.clearSystemLogs({
+                      idToken,
+                      userId: previewUserId,
+                    });
+                    window.location.reload();
+                  } catch {
+                    // Non-blocking cleanup action
+                  }
+                }}
+              >
+                Clear system logs
+              </Button>
+            </div>
+          ) : null}
+          <ConsentHistoryLifecycleDetails
+            entry={entry}
+            onRevokeScope={onRevokeScope}
+            activeAction={activeAction}
+            isScopeBusy={isScopeBusy}
+          />
+        </div>
       ) : null}
 
       {entry.kind === "history" &&
@@ -4045,7 +4109,10 @@ export function ConsentCenterPage() {
                       : selectedEntry.kind === "active_grant"
                         ? "Active access"
                         : selectedEntry.kind === "history"
-                          ? `${formatStatus(selectedEntry.status)} access`
+                          ? selectedEntry.status === "pod_access_allowed" ||
+                              String(selectedEntry.counterpart_id || "").toLowerCase() === "personal_agent"
+                            ? "Automatic agent check-in"
+                            : formatStatus(selectedEntry.status)
                           : selectedEntry.status === "pending"
                             ? "Request awaiting your decision"
                             : `${formatStatus(selectedEntry.status)} request`

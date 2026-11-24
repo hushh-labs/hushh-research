@@ -20,6 +20,7 @@ def _is_internal_event(agent_id: str, action: str, scope: str) -> bool:
     return (
         normalized_action == "OPERATION_PERFORMED"
         or normalized_agent in {"self", "agent_kai", "kai"}
+        or (normalized_agent == "personal_agent" and normalized_action == "POD_ACCESS_ALLOWED")
         or (normalized_scope == "vault.owner" and normalized_agent in {"", "system"})
     )
 

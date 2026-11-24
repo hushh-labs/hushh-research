@@ -57,7 +57,7 @@ async def test_device_owner_capability_is_bound_to_firebase_user_and_device(
         assert kwargs == {
             "user_id": "user-1",
             "agent_id": f"device:{device_id}",
-            "expires_in_ms": 15 * 60 * 1000,
+            "expires_in_ms": 24 * 60 * 60 * 1000,
         }
         return {
             "token": "opaque-owner-token",
