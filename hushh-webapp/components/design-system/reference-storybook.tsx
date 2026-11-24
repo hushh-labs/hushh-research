@@ -286,15 +286,11 @@ export function ReferenceStorybook() {
               description="Matches Agent Chat's signature progressive blur and raised-cosine dissolve across every screen (Files, Connect, One, Feed, Profile). Scroll inside this preview or scroll this page to inspect the fade."
             >
               <div className="relative h-48 overflow-y-auto rounded-[14px] border border-black/[0.08] bg-[color:var(--app-layout-surface,var(--background))] dark:border-white/[0.09]">
-                <div
-                  className="sticky top-0 z-10 flex h-12 items-center justify-between px-4"
-                  style={{
-                    background:
-                      "linear-gradient(to bottom, color-mix(in srgb, var(--background) 92%, transparent) 0%, color-mix(in srgb, var(--background) 78%, transparent) 55%, color-mix(in srgb, var(--background) 32%, transparent) 82%, transparent 100%)",
-                    backdropFilter: "blur(20px) saturate(180%)",
-                    WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                  }}
-                >
+                <div className="sticky top-0 z-10 relative flex h-14 items-center justify-between px-4">
+                  <div
+                    aria-hidden
+                    className="ambient-chrome-mask ambient-chrome-mask--top pointer-events-none absolute inset-x-0 top-0 -z-10 h-20"
+                  />
                   <span className="text-[13.5px] font-semibold tracking-[-0.01em] text-foreground">
                     Files · Personal wiki
                   </span>
