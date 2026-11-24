@@ -77,6 +77,7 @@ function PuppyPlacement({ ownerId, ...props }: PuppySurfaceProps & { ownerId?: s
     : checking ? "Checking your agent…"
     : failed ? "Couldn’t check your agent."
     : status?.hostingMode === "shared" ? "Puppy needs your own cloud."
+    : status?.hostingMode === "hussh_pods" ? "Puppy connects when Agent One runs in Bring Your Own Cloud."
     : status?.hostingMode === "pending" ? "Finish setting up Agent One to connect Puppy."
     : "Set up your own cloud to connect Puppy.";
   return (

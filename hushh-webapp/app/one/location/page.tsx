@@ -1,5 +1,6 @@
 "use client";
 
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { prepareCircleManagement, verifyCircleManagementReceipt, circleManagementResult,
   type CircleManagementAction, type CircleManagementBinding } from "@/lib/one-location/command-circle-management";
 import { OwnerOperationGate, SosOperationGate, stopSosShares } from "@/lib/one-location/command-sos";
@@ -3884,7 +3885,7 @@ export function OneLocationAgentPageContent({
       if (cancelled || index >= delays.length) return;
       timer = setTimeout(async () => {
         if (cancelled) return;
-        if (document.visibilityState === "visible" && navigator.onLine !== false) {
+        if (document.visibilityState === "visible" && isNetworkOnline()) {
           await refreshSmsRoster();
         }
         schedule(index + 1);

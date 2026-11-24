@@ -20,6 +20,7 @@ loaded into this runtime.
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
@@ -140,7 +141,11 @@ from hushh_mcp.one_adk.finance_market_tools import (
     get_ticker_news,
 )
 from hushh_mcp.one_adk.follow_up_suggestions import follow_up_instruction, suggest_follow_ups
-from hushh_mcp.one_adk.mail_instruction import legacy_draft_addressing, mail_admission_instruction
+from hushh_mcp.one_adk.mail_instruction import (
+    legacy_draft_addressing,
+    mail_admission_instruction,
+    owner_clock_line,
+)
 from hushh_mcp.one_adk.message_reactions import react_to_message, reaction_instruction
 from hushh_mcp.one_adk.nws_turn_context import STATE_NWS_REPORT
 from hushh_mcp.one_adk.one_persona import build_one_persona_grounding
@@ -199,6 +204,7 @@ from hushh_mcp.services.agent_task_context import (
     specialist_directive_fingerprint,
 )
 from hushh_mcp.services.crm_product_availability import crm_product_available
+from hushh_mcp.services.pod_owner_cloud import hosted_ace_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -516,8 +522,9 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "- Calendar: use tools. Ask missing date, zone, times, duration, guests; keep supplied title. "
     "Else use 'Meeting with <verified owner name>' or 'Meeting invitation'; never guest name. "
     "Describe inviter and exact date/time/zone. Never invent; 'at 8pm' is not today. "
-    "Resolve relative dates with get_current_time. Reschedule by listed event id/times; "
-    "preserve title/attendees. Cancellation needs event id. Name schedule conflicts. "
+    "Resolve relative dates from the current turn clock or get_current_time. Select "
+    "listed events by event_ordinal, never a guessed id; preserve unnamed fields. "
+    "Name conflicts. "
     "Confirm actions in browser; connect Calendar for missing access.\n"
     "- Location: live sharing with trusted people and local context.\n"
     "- Memory: 'what you know about me' means their memory: answer from CONSENTED TURN "
@@ -556,18 +563,17 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "first: when an answer depends on where they are now (weather, what is nearby, "
     "local time), call get_my_location and use that approximate location with "
     "google_search. If it returns needs_location_permission, relay its message once "
-    "and briefly. Describe that location only as approximate. Answer general "
+    "and briefly so the person can use the inline location card below; never tell "
+    "them to leave chat or open another screen. Describe that location only as approximate. Answer general "
     "questions yourself. Call at most ONE action-producing tool per turn "
     "(run_app_action, start_app_goal, or a specialist ask_ tool); wait for its settlement "
     "before starting another action. This limit is about not starting a SECOND, "
     "DIFFERENT action before the first one settles -- it does not mean one "
     "person per call. Several named people going into the SAME action (one "
     "'person' slot carrying every name the person said, e.g. share/ask/connect/ "
-    "add-to-circle below) is still exactly one call; naming three people and "
-    "calling the tool once is compliant with this rule, not a violation of it. "
-    "Never read this rule as a reason to split a multi-person request into "
-    "several turns or to ask who to do first -- that is the opposite of what "
-    "it means. If a tool reports 'settling', the "
+    "add-to-circle below) is still exactly one call; naming three people "
+    "in one call complies; never split across turns or ask who first. "
+    "If a tool reports 'settling', the "
     "previous action has not finished; briefly tell the user you are waiting, "
     "then retry after the settlement note arrives. Do not call a tool again "
     "for the same action while it is still pending, confirming, or settling; "
@@ -591,14 +597,8 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "slot. It does NOT mean two calls, one per name. There is no order and "
     "no sequence: never ask 'who first', 'which one first', or what order "
     "to do them in, never wait for one name to finish before naming the "
-    "next, and never split a multi-person request across turns. If you "
-    "are about to ask who to do first -- stop. That question has no right "
-    "answer, because there is no first; put every name in the one call "
-    "instead, then let the result say what happened to each. This is what "
-    "the 'at most ONE action-producing tool per turn' rule above already "
-    "means for these: one call naming three people IS one action-producing "
-    "tool call, fully within that rule, not three calls squeezed into one "
-    "turn.\n\n"
+    "next, and never split across turns -- stop and put every name in the "
+    "one call, then let the result say what happened to each.\n\n"
     # Sharing a location with named people. Resolution and ambiguity checking
     # happen in one canonical action call, but execution remains bounded by
     # the current executable surface. If the action is not in that inventory,
@@ -852,11 +852,23 @@ def _strip_dynamic_turn_context(parts: list[Any]) -> list[Any]:
     return kept
 
 
+_STEP_DYNAMIC_CONTEXT: contextvars.ContextVar[tuple[str, str] | None] = contextvars.ContextVar(
+    "one_step_dynamic_context", default=None
+)
+
+
 def _one_dynamic_turn_context(context: Any) -> str:
     """Volatile per-turn screen, memory, draft, and clock notes for model tail injection."""
     from hushh_mcp.agents.calendar.read_projection import turn_clock
 
-    _, legacy_draft_instruction, dynamic_tail = _compose_one_instruction_parts(context)
+    cached = _STEP_DYNAMIC_CONTEXT.get()
+    if cached is not None:
+        _STEP_DYNAMIC_CONTEXT.set(None)
+        legacy_draft_instruction, dynamic_tail = cached
+    else:
+        _, legacy_draft_instruction, dynamic_tail = _compose_one_instruction_parts(
+            context, split_clock=True
+        )
     return (legacy_draft_instruction + dynamic_tail + str(turn_clock(context))).strip()
 
 
@@ -890,10 +902,13 @@ def inject_dynamic_turn_context_before_model(callback_context: Any, llm_request:
         text=f"{_DYNAMIC_TURN_CONTEXT_MARKER}\n{dynamic_text}\n{_DYNAMIC_TURN_CONTEXT_END}"
     )
     for content in reversed(contents):
-        if getattr(content, "role", None) == "user" and isinstance(
-            getattr(content, "parts", None), list
+        parts = getattr(content, "parts", None)
+        if (
+            getattr(content, "role", None) == "user"
+            and isinstance(parts, list)
+            and not any(getattr(existing, "function_response", None) for existing in parts)
         ):
-            content.parts.append(part)
+            parts.append(part)
             return None
     contents.append(genai_types.Content(role="user", parts=[part]))
     return None
@@ -915,12 +930,16 @@ def _one_runtime_instruction(context: Any) -> str:
 
         state_getter = getattr(getattr(context, "state", None), "get", None)
         if callable(state_getter) and state_getter("temp:hussh:split_dynamic_context") is True:
-            static_prefix, _, _ = _compose_one_instruction_parts(context)
+            static_prefix, legacy_draft_instruction, dynamic_tail = _compose_one_instruction_parts(
+                context, split_clock=True
+            )
+            _STEP_DYNAMIC_CONTEXT.set((legacy_draft_instruction, dynamic_tail))
             return (
                 static_prefix
                 + follow_up_instruction(state_getter)
                 + reaction_instruction(state_getter)
             )
+        _STEP_DYNAMIC_CONTEXT.set(None)
         return (
             _compose_one_runtime_instruction(context)
             + str(turn_clock(context))
@@ -932,11 +951,15 @@ def _one_runtime_instruction(context: Any) -> str:
 
 
 def _compose_one_runtime_instruction(context: Any) -> str:
-    static_prefix, legacy_draft_instruction, dynamic_tail = _compose_one_instruction_parts(context)
+    static_prefix, legacy_draft_instruction, dynamic_tail = _compose_one_instruction_parts(
+        context, split_clock=False
+    )
     return static_prefix + legacy_draft_instruction + dynamic_tail
 
 
-def _compose_one_instruction_parts(context: Any) -> tuple[str, str, str]:
+def _compose_one_instruction_parts(
+    context: Any, *, split_clock: bool = False
+) -> tuple[str, str, str]:
     state = getattr(context, "state", None)
     state_getter = getattr(state, "get", None)
     from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
@@ -946,11 +969,15 @@ def _compose_one_instruction_parts(context: Any) -> tuple[str, str, str]:
         and state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
         and connector_feature_enabled("gmail_chat_reads", str(state_getter(STATE_USER_ID) or ""))
     )
+    timezone_val = state_getter(STATE_TIMEZONE) if callable(state_getter) else None
     mail_core_instruction = mail_admission_instruction(
         admitted=mail_admitted,
-        mailbox_changes=mail_admitted and (not pod_mode() or owner_cloud_agent()),
-        timezone=state_getter(STATE_TIMEZONE) if callable(state_getter) else None,
+        mailbox_changes=mail_admitted
+        and (not pod_mode() or owner_cloud_agent() or hosted_ace_runtime()),
+        timezone=timezone_val,
+        include_clock=not split_clock,
     )
+    split_mail_clock = owner_clock_line(timezone_val) if (split_clock and mail_admitted) else ""
     legacy_draft_instruction = legacy_draft_addressing(state_getter)
     drive_admitted = (
         callable(state_getter)
@@ -989,7 +1016,16 @@ def _compose_one_instruction_parts(context: Any) -> tuple[str, str, str]:
         if drive_admitted
         else "\n\nDRIVE READ ADMISSION: disabled. Do not call ask_documents_agent or inspect_selected_drive_files. Do not claim Drive is disconnected or a file is absent without a current status check."
     )
-    static_prefix = ONE_IDENTITY_INSTRUCTION + mail_core_instruction + drive_instruction
+    pod_files_instruction = (
+        "\n\nPRIVATE FILES LIBRARY (/one/files): Call `files` first for uploaded files, "
+        "/one/files, or named private files/keys unless Google Drive is specified. Never "
+        "route /one/files queries to `ask_documents_agent` (Drive) or `/workspace`."
+        if pod_mode() and os.getenv("POD_FILES_ENABLED", "").lower() in {"1", "true"}
+        else ""
+    )
+    static_prefix = (
+        ONE_IDENTITY_INSTRUCTION + mail_core_instruction + drive_instruction + pod_files_instruction
+    )
     selected_drive_ref = (
         state_getter(STATE_DRIVE_SEARCH_SELECTION) if callable(state_getter) else None
     )
@@ -1084,6 +1120,10 @@ def _compose_one_instruction_parts(context: Any) -> tuple[str, str, str]:
     consent_continuation_block = consent_continuation_instruction(state_getter)
     # A push tap about one feed update: grounded only in that item, no tools.
     consent_continuation_block += feed_attention_instruction(state_getter)
+    # Incoming consent cards already popped inline above in Main Chat (dynamic tail only).
+    from hushh_mcp.one_adk.live_consent_cards import visible_incoming_consent_cards_instruction
+
+    consent_continuation_block += visible_incoming_consent_cards_instruction(state_getter)
     pending_draft_instruction = pending_email_draft_instruction(state_getter)
     memory_instruction = (  # pod only; restored after 0d514ebe2 left memory write-only
         agent_memory_instruction(
@@ -1127,7 +1167,8 @@ def _compose_one_instruction_parts(context: Any) -> tuple[str, str, str]:
     voice_context = state_getter(STATE_VOICE_CONTEXT) if callable(state_getter) else None
     if not isinstance(voice_context, dict):
         dynamic_tail = (
-            selected_drive_instruction
+            split_mail_clock
+            + selected_drive_instruction
             + pkm_instruction
             + memory_instruction
             + owner_identity_instruction
@@ -1320,7 +1361,8 @@ def _compose_one_instruction_parts(context: Any) -> tuple[str, str, str]:
     playbook = voice_context.get("route_playbook")
     if not isinstance(playbook, dict):
         dynamic_tail = (
-            selected_drive_instruction
+            split_mail_clock
+            + selected_drive_instruction
             + layer_instruction
             + action_inventory
             + screen_state_instruction
@@ -1351,7 +1393,8 @@ def _compose_one_instruction_parts(context: Any) -> tuple[str, str, str]:
         "inventory, and runtime guards " + "remain the only execution authority."
     )
     dynamic_tail = (
-        selected_drive_instruction
+        split_mail_clock
+        + selected_drive_instruction
         + layer_instruction
         + playbook_instruction
         + action_inventory
@@ -1761,12 +1804,44 @@ async def _specialist_turn(
             "availability": availability_payload,
             "message": "Unlock the vault before asking this specialist to use protected information.",
         }
+    from hushh_mcp.services.pod_specialist_runtime import PodSpecialistAdapterUnavailable
+
     trace = _new_dependency_trace()
     # Every managed surface inherits the shared project configuration.
     chat_project = None
     try:
         with _dependency_scope(trace), bind_managed_vertex_project(chat_project):
             result = await dispatch(agent_id, task)
+    except PodSpecialistAdapterUnavailable:
+        logger.info("one_adk.specialist_adapter_unavailable agent_id=%s", agent_id)
+        if agent_id == "agent_documents":
+            unavailable_msg = (
+                "Google Drive isn't connected in this private sandbox right now. "
+                "If you meant a file you uploaded in Files (/one/files), check your private "
+                "Files library instead, or connect Google Drive in Connectors."
+            )
+            return _with_dependency(
+                {
+                    "status": "unavailable",
+                    "reason": "adapter_unavailable",
+                    "availability": availability_payload,
+                    "structured": {"connector": "drive", "status": "unavailable"},
+                    "text": unavailable_msg,
+                    "message": unavailable_msg,
+                    "is_complete": True,
+                },
+                trace,
+            )
+        return _with_dependency(
+            {
+                "status": "unavailable",
+                "reason": "adapter_unavailable",
+                "availability": availability_payload,
+                "message": f"{specialist_label(agent_id)} is not available in this private sandbox right now.",
+                "is_complete": True,
+            },
+            trace,
+        )
     except PuppyCapabilityUnsupported as exc:
         return _with_dependency(
             {
@@ -2201,7 +2276,7 @@ async def ask_email_agent(request: str, tool_context: ToolContext) -> dict[str, 
         "gmail_chat_reads", str(tool_context.state.get(STATE_USER_ID) or "")
     ):
         return {"status": "unavailable", "message": "Mail chat reads are not available here."}
-    if private_pod_runtime() and not owner_cloud_agent():
+    if private_pod_runtime() and not (owner_cloud_agent() or hosted_ace_runtime()):
         grants = tool_context.state.get(STATE_DATA_DOOR_GRANTS)
         email_grant = (
             resolve_request_secret(grants.get("email")) if isinstance(grants, dict) else ""
@@ -2241,7 +2316,7 @@ async def ask_documents_agent(request: str, tool_context: ToolContext) -> dict[s
         "google_drive_chat_reads", str(tool_context.state.get(STATE_USER_ID) or "")
     ):
         return {"status": "unavailable", "message": "Drive chat reads are not available here."}
-    if private_pod_runtime() and not owner_cloud_agent():
+    if private_pod_runtime() and not (owner_cloud_agent() or hosted_ace_runtime()):
         message = (
             "Google Drive isn’t connected inside a Hussh-hosted pod. Switch to Shared or "
             "an owner-cloud pod to connect Google Drive."
@@ -2797,7 +2872,9 @@ def _one_roster_tools(
         from hushh_mcp.one_adk.wiki_recall_tools import pod_wiki_recall_tools
 
         files_manifest = _load_product_agent_manifest("agent_files")
-        tools.append(AgentTool(agent=build_files_agent(files_manifest, model=text_model)))
+        tools.append(
+            AgentTool(agent=build_files_agent(files_manifest, model=text_model, mode="chat"))
+        )
         tools.extend(pod_wiki_recall_tools())
         from hushh_mcp.services.pod_session_authority import active_session_authority
 
@@ -2939,6 +3016,7 @@ def build_one_text_agent(
     from hushh_mcp.one_adk.finance_share_context import finance_model_callbacks
     from hushh_mcp.one_adk.plaid_connector_tools import plaid_after_model, plaid_before_model
     from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
+    from hushh_mcp.one_adk.rolling_horizon import compact_horizon_before_model
     from hushh_mcp.one_adk.tool_scoping import scope_leaf_tools_before_model
     from hushh_mcp.one_adk.wiki_recall_tools import wiki_after_model, wiki_before_model
 
@@ -2987,6 +3065,7 @@ def build_one_text_agent(
             plaid_before_model,
             document_period_before_model,
             scope_leaf_tools_before_model,
+            compact_horizon_before_model,
             timed_one_before_model,
             inject_dynamic_turn_context_before_model,
             club_queued_input,

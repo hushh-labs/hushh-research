@@ -6,6 +6,7 @@ import {
   AppStreamPanel,
   type AppStreamProgressItem,
 } from "@/components/app-ui/stream-progress-panel";
+import { OneThinkingIndicator, type OneTurnPendingPhase } from "@/components/agent/one-thinking-indicator";
 import { AgentStructuredExperienceView, type InformationRequestSubmissionReceipt } from "@/components/agent/agent-structured-experience";
 import type {
   AgentStructuredExperience,
@@ -19,6 +20,7 @@ import {
 import { driveOwnerCompileKey, type DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
 import type { AgentChatToolEvent, AgentSource } from "@/lib/services/agent-chat-client";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
+import { resolveProductionTurnGoogleNote } from "@/lib/agent/production-visitor-posture";
 import { ConnectorBrandMark, connectorBrandFor, type ConnectorBrand } from "@/components/agent/connector-brand-mark";
 import { Activity, AccountProfileIcon, ConnectedSystemsAgentIcon, ConsentAgentIcon, FinanceAgentIcon, Globe, LocationAgentIcon, MemoryAgentIcon, WalletAgentIcon } from "@/components/icons";
 
@@ -197,6 +199,9 @@ export type AgentTurnStreamPanelProps = {
   responseText: string;
   isStreaming: boolean;
   isError?: boolean;
+  pendingPhase?: OneTurnPendingPhase;
+  pendingLabel?: string | null;
+  pendingTrailingAction?: ReactNode;
   opportunities?: ReactNode;
   response?: ReactNode;
   className?: string;
@@ -395,10 +400,13 @@ export function onePerPersonSharedCard<T extends { id: string; experience: Agent
 }
 
 export function AgentTurnStreamPanel({
-  streamEvents,
+  streamEvents = [],
   responseText,
   isStreaming,
   isError = false,
+  pendingPhase = "thinking",
+  pendingLabel = null,
+  pendingTrailingAction,
   opportunities,
   response,
   className,
@@ -508,7 +516,7 @@ export function AgentTurnStreamPanel({
       // and a completed answer must look the same live and restored.
       statusMessage={checkingMail
         ? "Checking your email…"
-        : isStreaming && timingPhase === "running" && elapsedMs !== null
+        : isStreaming && timingPhase === "running" && elapsedMs !== null && (progressItems.length > 0 || specialistItems.length > 0 || responseText.trim().length > 0)
           ? `Working for ${Math.floor(elapsedMs / 1000)}s`
         : undefined}
       responseText={responseText}
@@ -538,12 +546,26 @@ export function AgentTurnStreamPanel({
       }
       responsePendingLabel={
         checkingMail || preparingPrivateMemory || currentBatchProgress
-          ? undefined
-          : "One is preparing your response."
+          ? pendingTrailingAction
+            ? (
+                <div className="flex w-full items-center justify-end">
+                  {pendingTrailingAction}
+                </div>
+              )
+            : undefined
+          : pendingTrailingAction
+            ? (
+                <div className="flex w-full items-center justify-between gap-2">
+                  <OneThinkingIndicator phase={pendingPhase} label={pendingLabel} />
+                  {pendingTrailingAction}
+                </div>
+              )
+            : <OneThinkingIndicator phase={pendingPhase} label={pendingLabel} />
       }
       isStreaming={isStreaming}
       isError={isError}
       opportunities={opportunities}
+      footerNote={resolveProductionTurnGoogleNote({ isStreaming, streamEvents, sources, experienceItems, responseText, isError })}
       className={className}
     />
   );

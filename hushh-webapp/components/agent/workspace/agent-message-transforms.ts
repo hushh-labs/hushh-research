@@ -11,6 +11,9 @@ import {
 } from "@/lib/consent/consent-scope-items";
 import {
   normalizePendingConsentCardStatus,
+  type OneStreamEventItem,
+  type OneStreamEventKind,
+  type OneStreamEventStatus,
   type PendingConsentCardStatus,
   type SpecialistConsentActionItem,
   type SpecialistPendingConsentRequestItem,
@@ -35,6 +38,7 @@ import type { McpReviewActivityOutcome } from "@/components/agent/mcp-call-revie
 import type { PendingConsent } from "@/lib/consent/use-consent-actions";
 import { ConsentCenterService, type PendingConsentLookupItem } from "@/lib/services/consent-center-service";
 import { trackEvent } from "@/lib/observability/client";
+import { getAgentThoughtSummary } from "@/lib/agent/agent-thought-summary-store";
 import { OwnerPodError } from "@/lib/services/owner-pod-crypto";
 import {
   AGENT_CHAT_STREAM_LOST_ERROR,
@@ -97,6 +101,10 @@ export type AgentMessage = {
   structuredExperience?: AgentStructuredExperience | null;
   structuredExperiences?: AgentStructuredExperienceEntry[];
   driveCompilation?: DriveCompilationUiState;
+  /** Provider-authored thought summary (`husshThoughtSummary: true`) when generated. */
+  thinkingSummary?: string;
+  /** True while the model is actively streaming thought summary chunks. */
+  isThinkingStreaming?: boolean;
   /** Why a partial answer stopped, shown below the text that did arrive. */
   errorNotice?: string;
   /** The stream was lost, not the turn: Retry checks history before resending. */
@@ -199,6 +207,7 @@ export function settleAssistantMessageError<T extends AgentMessage>(
       : {}),
     ...(lostTurn ? { lostTurn } : {}),
     status: "error",
+    isThinkingStreaming: false,
     streamEvents: settleVisibleStreamEvents(current.streamEvents, "error"),
   };
 }
@@ -435,6 +444,11 @@ export type PendingConsentRequestDirectivePayload = {
   item: SpecialistPendingConsentRequestItem;
 };
 
+export type OneStreamEventDirectivePayload = {
+  kind: "one_stream_event";
+  item: OneStreamEventItem;
+};
+
 /**
  * Which agent this workspace is showing.
  *
@@ -486,7 +500,7 @@ export function isSilentMemoryToolEvent(event: AgentChatToolEvent): boolean {
   return event.actionId === "pkm.add" || event.raw?.toolName === "add_to_pkm";
 }
 
-export const AGENT_STREAM_RENDER_FRAME_MS = 32;
+export const AGENT_STREAM_RENDER_FRAME_MS = 16;
 
 export function getConsentRequiredPayload(
   event: SpecialistDirectiveEvent | null,
@@ -999,6 +1013,131 @@ export function agentMessagePendingConsentRequestId(
  * win over an older transcript copy. This merges only safe card descriptors;
  * it never merges decrypted information or replays an action.
  */
+export function getOneStreamEventPayload(
+  event: SpecialistDirectiveEvent | null,
+): OneStreamEventDirectivePayload | null {
+  if (!event || event.directive.kind !== "prompt") return null;
+  const payload = event.directive.payload as Record<string, unknown>;
+  if (payload.kind !== "one_stream_event") return null;
+  const rawItem =
+    payload.item && typeof payload.item === "object"
+      ? (payload.item as Record<string, unknown>)
+      : null;
+  if (!rawItem) return null;
+  const id = typeof rawItem.id === "string" ? rawItem.id.trim() : "";
+  const eventKind = typeof rawItem.eventKind === "string" ? rawItem.eventKind : "";
+  if (
+    !id ||
+    (eventKind !== "incoming_connection" &&
+      eventKind !== "shared_access_unlocked" &&
+      eventKind !== "commerce_settlement")
+  ) {
+    return null;
+  }
+  const statusRaw = typeof rawItem.status === "string" ? rawItem.status : "pending";
+  const status: OneStreamEventStatus =
+    statusRaw === "accepted" ||
+    statusRaw === "declined" ||
+    statusRaw === "acknowledged"
+      ? statusRaw
+      : "pending";
+  return {
+    kind: "one_stream_event",
+    item: {
+      id,
+      eventKind: eventKind as OneStreamEventKind,
+      actorLabel:
+        typeof rawItem.actorLabel === "string" && rawItem.actorLabel.trim()
+          ? rawItem.actorLabel
+          : "Someone",
+      actorPhotoUrl:
+        typeof rawItem.actorPhotoUrl === "string" ? rawItem.actorPhotoUrl : null,
+      headline:
+        typeof rawItem.headline === "string" ? rawItem.headline : "Update",
+      detail: typeof rawItem.detail === "string" ? rawItem.detail : null,
+      href: typeof rawItem.href === "string" ? rawItem.href : null,
+      requiresScopeReview: rawItem.requiresScopeReview === true,
+      status,
+    },
+  };
+}
+
+export function markOneStreamEventDirectiveStatus(
+  event: SpecialistDirectiveEvent | null | undefined,
+  itemId: string,
+  status: OneStreamEventStatus,
+): SpecialistDirectiveEvent | null | undefined {
+  if (!event || event.directive.kind !== "prompt") return event;
+  const payload = event.directive.payload as Record<string, unknown>;
+  if (payload.kind !== "one_stream_event") return event;
+  const item =
+    payload.item && typeof payload.item === "object"
+      ? (payload.item as Record<string, unknown>)
+      : null;
+  if (!item || item.id !== itemId) return event;
+  return {
+    ...event,
+    directive: {
+      ...event.directive,
+      payload: {
+        ...payload,
+        item: {
+          ...item,
+          status,
+        },
+      },
+    },
+  };
+}
+
+export function stagePendingConsentRequestDirectiveDuration(
+  event: SpecialistDirectiveEvent | null | undefined,
+  requestIds: readonly string[],
+  expiryHours: number,
+): SpecialistDirectiveEvent | null | undefined {
+  if (!event || event.directive.kind !== "prompt") return event;
+  const payload = event.directive.payload as Record<string, unknown>;
+  if (payload.kind !== "pending_consent_request") return event;
+  const item =
+    payload.item && typeof payload.item === "object"
+      ? (payload.item as Record<string, unknown>)
+      : null;
+  if (!item) return event;
+  const targetSet = new Set(requestIds.map((id) => id.trim()).filter(Boolean));
+  if (!targetSet.size) return event;
+  const headId = typeof item.id === "string" ? item.id.trim() : "";
+  const bundledIds = Array.isArray(item.bundledRequestIds)
+    ? item.bundledRequestIds.filter(
+        (entry): entry is string => typeof entry === "string",
+      )
+    : [];
+  const matches =
+    (headId && targetSet.has(headId)) ||
+    bundledIds.some((entry) => targetSet.has(entry.trim()));
+  if (!matches) return event;
+  const existingMetadata =
+    item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
+      ? (item.metadata as Record<string, unknown>)
+      : {};
+  return {
+    ...event,
+    directive: {
+      ...event.directive,
+      payload: {
+        ...payload,
+        item: {
+          ...item,
+          expiryHours,
+          metadata: {
+            ...existingMetadata,
+            staged_by_agent: true,
+          },
+        },
+      },
+    },
+  };
+}
+
 export function mergePendingConsentMessages(
   restored: AgentMessage[],
   current: readonly AgentMessage[],
@@ -1009,20 +1148,38 @@ export function mergePendingConsentMessages(
     const payload = getPendingConsentRequestPayload(
       candidate.specialistDirective ?? null,
     );
-    if (!payload) continue;
-    const candidateIds = new Set(pendingConsentCardRequestIds(payload.item));
-    const existingIndex = merged.findIndex((message) => {
-      const existing = getPendingConsentRequestPayload(
+    if (payload) {
+      const candidateIds = new Set(pendingConsentCardRequestIds(payload.item));
+      const existingIndex = merged.findIndex((message) => {
+        const existing = getPendingConsentRequestPayload(
+          message.specialistDirective ?? null,
+        );
+        if (!existing) return false;
+        return pendingConsentCardRequestIds(existing.item).some((id) =>
+          candidateIds.has(id),
+        );
+      });
+
+      if (existingIndex >= 0) {
+        merged[existingIndex] = candidate;
+      } else {
+        merged.push(candidate);
+      }
+      continue;
+    }
+
+    const streamPayload = getOneStreamEventPayload(
+      candidate.specialistDirective ?? null,
+    );
+    if (!streamPayload) continue;
+    const existingStreamIndex = merged.findIndex((message) => {
+      const existing = getOneStreamEventPayload(
         message.specialistDirective ?? null,
       );
-      if (!existing) return false;
-      return pendingConsentCardRequestIds(existing.item).some((id) =>
-        candidateIds.has(id),
-      );
+      return existing?.item.id === streamPayload.item.id;
     });
-
-    if (existingIndex >= 0) {
-      merged[existingIndex] = candidate;
+    if (existingStreamIndex >= 0) {
+      merged[existingStreamIndex] = candidate;
     } else {
       merged.push(candidate);
     }
@@ -1042,6 +1199,7 @@ export function markPendingConsentRequestDirectiveStatus(
   itemId: string,
   // "pending" puts a card back after Undo on a decline.
   status: PendingConsentCardStatus,
+  expiryHoursOverride?: number,
 ): SpecialistDirectiveEvent | null | undefined {
   if (!event || event.directive.kind !== "prompt") return event;
   const payload = event.directive.payload as Record<string, unknown>;
@@ -1050,7 +1208,13 @@ export function markPendingConsentRequestDirectiveStatus(
     payload.item && typeof payload.item === "object"
       ? (payload.item as Record<string, unknown>)
       : null;
-  if (!item || item.id !== itemId) return event;
+  if (!item) return event;
+  const bundledIds = Array.isArray(item.bundledRequestIds)
+    ? item.bundledRequestIds.filter(
+        (entry): entry is string => typeof entry === "string",
+      )
+    : [];
+  if (item.id !== itemId && !bundledIds.includes(itemId)) return event;
 
   return {
     ...event,
@@ -1061,6 +1225,9 @@ export function markPendingConsentRequestDirectiveStatus(
         item: {
           ...item,
           status,
+          ...(expiryHoursOverride !== undefined
+            ? { expiryHours: expiryHoursOverride }
+            : {}),
         },
       },
     },
@@ -1290,10 +1457,22 @@ export function storedMessageToAgentMessage(
   const attachments = message.role === "user"
     ? parseStoredTextAttachments(message.metadata?.attachments)
     : [];
+  const restoredThinkingSummary =
+    message.role === "assistant" &&
+    message.status !== "error" &&
+    !message.metadata?.consentBundleId &&
+    !message.metadata?.consentAccessEnded
+      ? getAgentThoughtSummary({
+          conversationId: message.conversation_id,
+          messageId: message.id,
+        })
+      : undefined;
   return {
     id: message.id,
+    serverMessageId: message.role === "assistant" ? message.id : undefined,
     role: message.role,
     text: displayText,
+    ...(restoredThinkingSummary ? { thinkingSummary: restoredThinkingSummary } : {}),
     ...(attachments.length ? { attachments } : {}),
     structuredExperience: connectorRead,
     timestamp:

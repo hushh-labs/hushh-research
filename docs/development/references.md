@@ -7,6 +7,7 @@ Use a module overview first, then the contract needed for your change.
 | Contract | Owner |
 | --- | --- |
 | API requests and responses | [API reference](contracts/api-contracts.md) |
+| Cache coherence and performance | [Cache coherence contract](contracts/cache-coherence.md), [Render performance charter](mobile/render-performance-charter.md) |
 | Navigation and generated UI boundaries | [Routes](contracts/route-contracts.md), [UI contribution](contracts/ui-contract-contributor-guide.md) |
 | Persistence and schema changes | [Runtime database](../architecture/runtime-db-fact-sheet.md), [migration governance](../operations/releases/migration-governance.md) |
 | Identity and consent | [Identity contracts](../architecture/identity/README.md) |

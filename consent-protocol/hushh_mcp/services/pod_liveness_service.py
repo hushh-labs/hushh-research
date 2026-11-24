@@ -133,7 +133,15 @@ def evaluate(
     ``now`` is injected rather than read here so the whole ladder -- boot grace,
     staleness, heal backoff -- is exercisable at any point in time without waiting.
     """
-    mode = str(row.get("liveness_mode") or MODE_WARM).strip() or MODE_WARM
+    raw_target = str(row.get("deployment_target") or "").strip()
+    raw_backend = str(row.get("backend") or "").strip()
+    # Disposable Personal Sandboxes (`ace`) reap idle leases by design; treating
+    # them as warm makes the sweep hammer the edge gateway and mark idle owners
+    # unreachable (`Not responding`).
+    if raw_target == "ace" or raw_backend == "ace":
+        mode = MODE_ECONOMY
+    else:
+        mode = str(row.get("liveness_mode") or MODE_WARM).strip() or MODE_WARM
     failures = int(row.get("liveness_failures") or 0)
     last_beat = _parse_ts(row.get("last_heartbeat_at"))
     created = _parse_ts(row.get("created_at"))

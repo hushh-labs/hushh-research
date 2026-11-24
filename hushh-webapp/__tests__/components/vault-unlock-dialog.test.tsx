@@ -256,6 +256,7 @@ describe("VaultUnlockDialog", () => {
     expect(document.documentElement.hasAttribute("data-vault-unlock-active")).toBe(true);
     expect(document.documentElement.hasAttribute("data-vault-unlock-hard-gate")).toBe(true);
     expect(document.body.hasAttribute("data-vault-unlock-active")).toBe(true);
+    expect(document.documentElement.hasAttribute("data-session-check-active")).toBe(true);
     expect(document.body.hasAttribute("data-vault-unlock-hard-gate")).toBe(true);
     expect(document.querySelectorAll('[data-vault-unlock-surface]').length).toBe(1);
     expect(onStandardOpenChange).toHaveBeenCalledWith(false);
@@ -267,5 +268,6 @@ describe("VaultUnlockDialog", () => {
     second.unmount();
     expect(document.documentElement.hasAttribute("data-vault-unlock-active")).toBe(false);
     expect(document.body.hasAttribute("data-vault-unlock-active")).toBe(false);
+    expect(document.documentElement.hasAttribute("data-session-check-active")).toBe(false);
   });
 });

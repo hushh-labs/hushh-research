@@ -455,23 +455,82 @@ class PersonProfileService:
         raise ValueError("The information catalog is too large to load safely.")
 
     @staticmethod
-    def _scope_projection(public_person_ref: str, item: dict[str, Any]) -> dict[str, Any] | None:
+    async def _subject_tariff_map(subject_user_id: str) -> dict[str, tuple[int, int]]:
+        """Map machine_scope -> (price_cents, base_duration_hours) for paid tariffs."""
+        if not subject_user_id:
+            return {}
+        try:
+            from hushh_mcp.services.scope_commerce import ScopeCommerceService
+
+            tariffs = await ScopeCommerceService().list_tariffs(owner_user_id=subject_user_id)
+        except Exception:  # noqa: BLE001 - catalog remains readable if commerce lookup is unavailable
+            return {}
+        mapping: dict[str, tuple[int, int]] = {}
+        for tariff in tariffs or []:
+            if not isinstance(tariff, dict):
+                continue
+            raw_price = tariff.get("priceCents", tariff.get("price_cents"))
+            price_cents = (
+                int(raw_price)
+                if isinstance(raw_price, (int, float)) and not isinstance(raw_price, bool)
+                else 0
+            )
+            if price_cents <= 0:
+                continue
+            machine_scope = str(
+                tariff.get("machineScope") or tariff.get("machine_scope") or ""
+            ).strip()
+            if not machine_scope:
+                continue
+            raw_duration = tariff.get("baseDurationSeconds", tariff.get("base_duration_seconds"))
+            base_seconds = (
+                int(raw_duration)
+                if isinstance(raw_duration, (int, float))
+                and not isinstance(raw_duration, bool)
+                and int(raw_duration) >= 3600
+                else 604800
+            )
+            mapping[machine_scope] = (price_cents, max(1, round(base_seconds / 3600)))
+        return mapping
+
+    @staticmethod
+    def _scope_projection(
+        public_person_ref: str,
+        item: dict[str, Any],
+        tariff_by_scope: dict[str, tuple[int, int]] | None = None,
+    ) -> dict[str, Any] | None:
         """The only shape a viewer sees for one requestable row: no raw scope, no value."""
+        from hushh_mcp.consent.scope_icons import normalize_or_infer_scope_icon
+
         scope = str(item.get("scope") or "")
         if not scope:
             return None
         domain = str(item.get("domain") or "") or None
-        return {
+        label = human_scope_label(scope, str(item.get("label") or ""))
+        description = item.get("description")
+        pricing = (tariff_by_scope or {}).get(scope)
+        projection: dict[str, Any] = {
             "scopeRef": _scope_ref(public_person_ref, scope),
-            "label": human_scope_label(scope, str(item.get("label") or "")),
-            "description": item.get("description"),
+            "label": label,
+            "description": description,
             "domain": domain,
             "domainLabel": human_domain_label(domain),
+            "iconName": normalize_or_infer_scope_icon(
+                icon_name=str(item.get("icon_name") or item.get("iconName") or "") or None,
+                domain=domain,
+                scope=scope,
+                label=label,
+                description=str(description or "") or None,
+            ),
             # C7: the one server-side authority; a stored tag only escalates.
             "sensitivity": scope_sensitivity(scope, [item.get("sensitivity")]),
             "wildcard": bool(item.get("wildcard")),
             "pathSegments": [part for part in scope.split(".")[2:] if part != "*"],
         }
+        if pricing is not None:
+            projection["priceCents"] = pricing[0]
+            projection["baseDurationHours"] = pricing[1]
+        return projection
 
     async def get_requestable_catalog(
         self, *, viewer_user_id: str, public_person_ref: str
@@ -487,13 +546,15 @@ class PersonProfileService:
         subject_user_id = str(row.get("user_id") or "")
         if not subject_user_id or subject_user_id == viewer_user_id:
             raise PersonProfileNotFoundError("Person profile was not found.")
-        scope_items = await asyncio.to_thread(
-            self._requestable_scope_entries, viewer_user_id, subject_user_id
+        scope_items, tariff_map = await asyncio.gather(
+            asyncio.to_thread(self._requestable_scope_entries, viewer_user_id, subject_user_id),
+            self._subject_tariff_map(subject_user_id),
         )
         scopes = [
             projection
             for item in presentable_scope_entries(scope_items)
-            if (projection := self._scope_projection(public_person_ref, item)) is not None
+            if (projection := self._scope_projection(public_person_ref, item, tariff_map))
+            is not None
         ]
         return {**self._public_projection(row), "requestableScopes": scopes}
 
@@ -569,15 +630,16 @@ class PersonProfileService:
         if not subject_user_id or subject_user_id == viewer_user_id:
             raise PersonProfileNotFoundError("Person profile was not found.")
 
-        scope_items = await asyncio.to_thread(
-            self._requestable_scope_entries, viewer_user_id, subject_user_id
+        scope_items, tariff_map = await asyncio.gather(
+            asyncio.to_thread(self._requestable_scope_entries, viewer_user_id, subject_user_id),
+            self._subject_tariff_map(subject_user_id),
         )
         scope_by_name: dict[str, dict[str, Any]] = {}
         for item in scope_items:
             scope = str(item.get("scope") or "")
             if not scope:
                 continue
-            projection = self._scope_projection(public_person_ref, item)
+            projection = self._scope_projection(public_person_ref, item, tariff_map)
             if projection is None:
                 continue
             scope_by_name[scope] = projection
@@ -671,16 +733,40 @@ class PersonProfileService:
                     and str(grant.get("request_id") or "") in bundle_by_request
                 ),
             )
+            from hushh_mcp.consent.scope_icons import normalize_or_infer_scope_icon
+
             for grant in active:
-                scope_projection = scope_by_name.get(str(grant.get("scope") or ""))
+                raw_grant_scope = str(grant.get("scope") or "")
+                scope_projection = scope_by_name.get(raw_grant_scope)
                 token_id = str(grant.get("token_id") or "")
+                grant_label = (scope_projection or {}).get("label") or (
+                    human_scope_label(raw_grant_scope, None)
+                    if raw_grant_scope
+                    else "Shared information"
+                )
+                grant_domain = (scope_projection or {}).get("domain") or (
+                    raw_grant_scope.split(".")[1]
+                    if raw_grant_scope.startswith("attr.") and len(raw_grant_scope.split(".")) >= 2
+                    else None
+                )
                 grants.append(
                     {
-                        "scopeRef": (scope_projection or {}).get("scopeRef"),
-                        "label": (scope_projection or {}).get("label") or "Shared information",
-                        "domain": (scope_projection or {}).get("domain"),
+                        "scopeRef": (scope_projection or {}).get("scopeRef")
+                        or (
+                            _scope_ref(public_person_ref, raw_grant_scope)
+                            if raw_grant_scope
+                            else None
+                        ),
+                        "label": grant_label,
+                        "domain": grant_domain,
+                        "iconName": (scope_projection or {}).get("iconName")
+                        or normalize_or_infer_scope_icon(
+                            domain=grant_domain,
+                            scope=raw_grant_scope,
+                            label=grant_label,
+                        ),
                         "sensitivity": scope_sensitivity(
-                            str(grant.get("scope") or ""),
+                            raw_grant_scope,
                             [(scope_projection or {}).get("sensitivity")],
                         ),
                         "requestId": grant.get("request_id"),

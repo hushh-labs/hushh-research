@@ -87,6 +87,7 @@ import {
 } from "@/lib/files/wiki/active-shared-wiki";
 import { SharedWikiOwnerMigrator } from "@/lib/files/wiki/migration-and-maintenance";
 import type { SharedWikiLibrary } from "@/lib/files/wiki/library";
+import { invalidateFilesMutationCache } from "@/lib/files/files-cache";
 import { LIVE_MIRROR_PACKET_HEADER } from "@/lib/pkm/live-mirror-agent-facts";
 import { PENDING_CHAT_TURNS_HEADER } from "@/lib/pkm/live-activity/live-activity-agent-context";
 import { managedChatRunErrorMessage, MODEL_CAPACITY_MESSAGE } from "@/lib/agent/managed-chat-run-errors";
@@ -211,6 +212,8 @@ export function buildAgentUserMessageContent(
 export type AgentChatConversation = {
   id: string;
   title: string;
+  category?: string | null;
+  category_source?: "auto" | "custom" | string | null;
   status: string;
   model?: string | null;
   message_count: number;
@@ -542,15 +545,7 @@ export function parseParkedAppActionDirective(content: unknown): ParkedAppAction
  */
 export function parsePendingConsentRequestIds(toolName: string, content: unknown): string[] {
   if (toolName !== "list_pending_information_requests") return [];
-  let result: unknown = content;
-  if (typeof result === "string") {
-    try {
-      result = JSON.parse(result);
-    } catch {
-      return [];
-    }
-  }
-  const record = asRecord(result);
+  const record = unwrapParkedActionResult(content);
   if (!record || record.status !== "ok") return [];
   const ids = Array.isArray(record.pendingRequestIds) ? record.pendingRequestIds : [];
   return ids
@@ -707,6 +702,11 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Checking note sources and updates.",
     activity: "Checking note sources",
   },
+  optimize_personal_memory: {
+    label: "Memory optimization",
+    message: "Consolidating and optimizing your personal memory.",
+    activity: "Optimizing memory",
+  },
   read_my_profile_status: {
     label: "Profile",
     message: "Checking your profile.",
@@ -836,6 +836,36 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Google Calendar",
     message: "Preparing a cancellation for your confirmation.",
     activity: "Preparing a cancellation",
+  },
+  files: {
+    label: "Private Files",
+    message: "Working with your private files.",
+    activity: "Checking Private Files",
+  },
+  search_files: {
+    label: "Private Files",
+    message: "Searching your private files.",
+    activity: "Searching Private Files",
+  },
+  read_file: {
+    label: "Private Files",
+    message: "Reading a private file.",
+    activity: "Reading a private file",
+  },
+  write_file: {
+    label: "Private Files",
+    message: "Saving a private file.",
+    activity: "Saving a private file",
+  },
+  create_folder: {
+    label: "Private Files",
+    message: "Creating a private folder.",
+    activity: "Creating a folder",
+  },
+  organize_file: {
+    label: "Private Files",
+    message: "Organizing your private files.",
+    activity: "Organizing a file",
   },
   propose_file_schedule: {
     label: "Private Files",
@@ -1305,6 +1335,8 @@ async function streamAgentChatAttempt(input: {
   screenContext?: Record<string, unknown> | null;
   /** The specialist tab this turn came from; steers One's first choice, grants nothing. */
   specialistFocus?: "email" | "location" | "information" | "finance";
+  /** True when this turn belongs to the user's canonical rolling Main chat stream. */
+  mainChat?: boolean;
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
   /** A keyed native interrupt recovered from the pod; never a new user turn. */
@@ -1423,17 +1455,20 @@ async function streamAgentChatAttempt(input: {
     }];
   });
   tools.push(...RECEIPT_TOOL_DECLARATIONS);
-  const plaidEligible = Boolean(
+  // Keep client-declared Plaid tool schemas byte-identical across normal turns
+  // and consent continuations so Gemini 4 implicit prefix caching stays hot
+  // (~90% reuse instead of dropping to 0% on a 2-tool schema hash shift).
+  const plaidToolsEligible = Boolean(
     input.vaultKey &&
       input.vaultOwnerToken &&
-      !input.consentContinuation &&
       !input.financeShare &&
       !input.feedAttention &&
       !recovered,
   );
-  if (plaidEligible) {
+  if (plaidToolsEligible) {
     tools.push(...(PLAID_TOOL_DECLARATIONS as unknown as Tool[]));
   }
+  const plaidEligible = Boolean(plaidToolsEligible && !input.consentContinuation);
   const wikiEligible = plaidEligible;
   const resolveTurnSharedWiki = async (): Promise<{
     wiki: SharedWikiLibrary | null;
@@ -1538,7 +1573,17 @@ async function streamAgentChatAttempt(input: {
     }
     throw error;
   }
-  const sharedWikiSession = turnWiki.wiki;
+  // Reuse an already-bound Wiki session synchronously on consent continuations
+  // so client-declared Wiki tool schemas stay byte-identical with normal turns
+  // (keeping Gemini 4 implicit prefix caching hot without adding a pre-turn fetch).
+  const warmContinuationWiki =
+    !turnWiki.wiki &&
+    plaidToolsEligible &&
+    Boolean(input.consentContinuation) &&
+    mcpSessionCurrent()
+      ? peekActiveSharedWiki()
+      : null;
+  const sharedWikiSession = turnWiki.wiki ?? warmContinuationWiki;
   if (sharedWikiSession) {
     tools.push(...(WIKI_TOOL_DECLARATIONS as unknown as Tool[]));
   }
@@ -1668,20 +1713,99 @@ async function streamAgentChatAttempt(input: {
     handlers.onError?.(failure.message);
     finishTerminalRun();
   };
+  const POD_CHAT_BUSY_RETRY_DELAYS_MS = [150, 350, 750] as const;
+  const isPodChatBusySignal = (candidate: unknown): boolean => {
+    if (!candidate) return false;
+    if (typeof candidate === "string") {
+      return (
+        refusalCode(parseRecord(candidate)) === "POD_CHAT_BUSY" ||
+        /\bPOD_CHAT_BUSY\b/.test(candidate)
+      );
+    }
+    if (typeof candidate !== "object") return false;
+    const record = candidate as { code?: unknown; message?: unknown; payload?: unknown };
+    if (record.code === "POD_CHAT_BUSY") return true;
+    if (refusalCode(asRecord(record.payload) ?? parseRecord(record.payload)) === "POD_CHAT_BUSY") {
+      return true;
+    }
+    if (typeof record.message === "string") {
+      if (
+        refusalCode(parseRecord(record.message)) === "POD_CHAT_BUSY" ||
+        /\bPOD_CHAT_BUSY\b/.test(record.message)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const sleepWithSignals = (delayMs: number, ...signals: Array<AbortSignal | undefined>): Promise<void> =>
+    new Promise((resolve, reject) => {
+      if (signals.some((sig) => sig?.aborted)) {
+        reject(new DOMException("Agent turn cancelled", "AbortError"));
+        return;
+      }
+      let settled = false;
+      const cleanup = () => {
+        for (const sig of signals) {
+          sig?.removeEventListener("abort", onAbort);
+        }
+      };
+      const onAbort = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        cleanup();
+        reject(new DOMException("Agent turn cancelled", "AbortError"));
+      };
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve();
+      }, delayMs);
+      for (const sig of signals) {
+        sig?.addEventListener("abort", onAbort, { once: true });
+      }
+    });
+  let suppressTransientPodBusy = false;
+  let transientPodBusy = false;
+  let attemptProducedOutput = false;
   const runUntilTerminal = async (parameters: Parameters<HttpAgent["runAgent"]>[0], resumeSignal?: AbortSignal) => {
-    if (input.signal?.aborted || resumeSignal?.aborted) {
-      throw new DOMException("Agent turn cancelled", "AbortError");
+    for (let retryIndex = 0; ; retryIndex += 1) {
+      if (input.signal?.aborted || resumeSignal?.aborted) {
+        throw new DOMException("Agent turn cancelled", "AbortError");
+      }
+      assertTurnSessionCurrent();
+      runTerminal = false;
+      streamLost = false;
+      transientPodBusy = false;
+      attemptProducedOutput = false;
+      suppressTransientPodBusy = retryIndex < POD_CHAT_BUSY_RETRY_DELAYS_MS.length;
+      liveness.start();
+      try {
+        await agent.runAgent(parameters, subscriber);
+      } catch (err) {
+        if (
+          suppressTransientPodBusy &&
+          !attemptProducedOutput &&
+          (transientPodBusy || isPodChatBusySignal(err))
+        ) {
+          transientPodBusy = true;
+        } else {
+          throw err;
+        }
+      } finally {
+        liveness.stop();
+        suppressTransientPodBusy = false;
+      }
+      if (transientPodBusy) {
+        const delayMs = POD_CHAT_BUSY_RETRY_DELAYS_MS[retryIndex] ?? 750;
+        await sleepWithSignals(delayMs, input.signal, resumeSignal);
+        continue;
+      }
+      if (!runTerminal) loseStream();
+      return;
     }
-    assertTurnSessionCurrent();
-    runTerminal = false;
-    streamLost = false;
-    liveness.start();
-    try {
-      await agent.runAgent(parameters, subscriber);
-    } finally {
-      liveness.stop();
-    }
-    if (!runTerminal) loseStream();
   };
   const stopAfterConfirmation = () => {
     if (intentionallyStoppedAtConfirmation) return;
@@ -1798,7 +1922,7 @@ async function streamAgentChatAttempt(input: {
               personSelectionHandle: input.personSelectionHandle,
               gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
               ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
-              ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}), emailDraftContract: 2,
+              ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}), emailDraftContract: 2, calendarReviewContract: 1,
               screenContext: input.screenContext,
             },
             resume: [{ interruptId, status, payload }],
@@ -1924,7 +2048,14 @@ async function streamAgentChatAttempt(input: {
       // not evidence that the server task ended; reconnect must discover it.
       if (detached || streamLost || input.signal?.aborted) return { stopPropagation: true };
       serverEvents += 1;
-      if (event.type === "RUN_FINISHED" || event.type === "RUN_ERROR") serverTerminal = true;
+      const isSuppressedTransientBusyEvent =
+        suppressTransientPodBusy &&
+        !attemptProducedOutput &&
+        event.type === "RUN_ERROR" &&
+        (event as { code?: unknown }).code === "POD_CHAT_BUSY";
+      if ((event.type === "RUN_FINISHED" || event.type === "RUN_ERROR") && !isSuppressedTransientBusyEvent) {
+        serverTerminal = true;
+      }
       if (event.type === "TOOL_CALL_END") {
         const id = event.toolCallId;
         const name = typeof id === "string" ? toolNames.get(id) : undefined;
@@ -1969,7 +2100,10 @@ async function streamAgentChatAttempt(input: {
       return publicOutputSubscriber.onMessagesSnapshotEvent?.(snapshot);
     },
     onTextMessageContentEvent: ({ event }) => {
-      if (event.delta.length > 0) markTiming("first-text");
+      if (event.delta.length > 0) {
+        attemptProducedOutput = true;
+        markTiming("first-text");
+      }
       text += event.delta;
       handlers.onToken?.(event.delta);
     },
@@ -1990,6 +2124,7 @@ async function streamAgentChatAttempt(input: {
       if (notice) handlers.onQueuedInput?.(notice);
     },
     onToolCallStartEvent: ({ event }) => {
+      attemptProducedOutput = true;
       toolNames.set(event.toolCallId, event.toolCallName);
       // Follow-ups are chips under the answer, not a step the person waits on.
       if (event.toolCallName === FOLLOW_UP_TOOL_NAME || event.toolCallName === REACTION_TOOL_NAME) return;
@@ -2250,6 +2385,25 @@ async function streamAgentChatAttempt(input: {
         toolArgs.get(event.toolCallId) || {},
       );
       payload.raw.result = event.content;
+      if (toolName === "get_my_location") {
+        const parsedLocation = parseRecord(event.content);
+        if (parsedLocation?.status === "needs_location_permission") {
+          payload.message = "Location permission needed.";
+        }
+      }
+      if (
+        toolName === "files" ||
+        toolName === "create_folder" ||
+        toolName === "organize_file" ||
+        toolName === "write_file" ||
+        toolName === "optimize_personal_memory"
+      ) {
+        const parsedResult = parseRecord(event.content);
+        const resultStatus = typeof parsedResult?.status === "string" ? parsedResult.status : "";
+        if (resultStatus !== "error" && resultStatus !== "failed" && resultStatus !== "blocked") {
+          invalidateFilesMutationCache(input.userId);
+        }
+      }
       handlers.onToolResult?.(payload);
       const pendingIds = parsePendingConsentRequestIds(toolName, event.content);
       if (pendingIds.length > 0) {
@@ -2476,7 +2630,7 @@ async function streamAgentChatAttempt(input: {
                     personSelectionHandle: input.personSelectionHandle,
                     gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
                     ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
-                    ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}), emailDraftContract: 2,
+                    ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}), emailDraftContract: 2, calendarReviewContract: 1,
                     screenContext: input.screenContext,
                     ...(approval ? { mcpApproval: {
                       directiveId: approval.directiveId, connectorId: approval.connectorId,
@@ -2510,6 +2664,15 @@ async function streamAgentChatAttempt(input: {
     },
     onRunErrorEvent: ({ event }) => {
       if (runTerminal || streamLost || failure || detached) return;
+      if (
+        suppressTransientPodBusy &&
+        !attemptProducedOutput &&
+        event.code === "POD_CHAT_BUSY"
+      ) {
+        runTerminal = true;
+        transientPodBusy = true;
+        return;
+      }
       runTerminal = true;
       if (intentionallyStoppedAtConfirmation) {
         finishTerminalRun();
@@ -2533,16 +2696,38 @@ async function streamAgentChatAttempt(input: {
         finishTerminalRun();
         return;
       }
+      if (
+        suppressTransientPodBusy &&
+        !attemptProducedOutput &&
+        isPodChatBusySignal(error)
+      ) {
+        transientPodBusy = true;
+        return;
+      }
       const refusal = chatKeyRefusalCode((error as Error & { payload?: unknown }).payload)
         ?? chatKeyRefusalCode(error.message || "");
       // @ag-ui/client puts a refused request's HTTP status on the error.
       const httpStatus = (error as Error & { status?: unknown }).status;
       const strain = classifyBackendStrain({ httpStatus: typeof httpStatus === "number" ? httpStatus : null });
       if (strain && !refusal) handlers.onStreamHealth?.({ kind: "backend_strain", strain });
-      failure = refusal
-        ? routeChatKeyRefusal(refusal, mcpVaultEpoch,
-            !runStarted && (error as Error & { status?: number }).status === 403)
-        : new Error(formatAgentChatErrorMessage(error.message || "", (error as Error & { code?: string }).code));
+      if (refusal) {
+        failure = routeChatKeyRefusal(
+          refusal,
+          mcpVaultEpoch,
+          !runStarted && (error as Error & { status?: number }).status === 403,
+        );
+      } else {
+        const nextFailure = new Error(
+          formatAgentChatErrorMessage(
+            error.message || "",
+            (error as Error & { code?: string }).code,
+          ),
+        );
+        if (typeof httpStatus === "number") {
+          Object.assign(nextFailure, { status: httpStatus });
+        }
+        failure = nextFailure;
+      }
       handlers.onError?.(failure.message);
       finishTerminalRun();
     },
@@ -2593,7 +2778,7 @@ async function streamAgentChatAttempt(input: {
         ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
         ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}),
         // The mail draft envelope version this client reads. The server reads it per request, so resumed runs send it too.
-        emailDraftContract: 2,
+        emailDraftContract: 2, calendarReviewContract: 1,
         screenContext: input.screenContext,
         ...(input.consentContinuation ? { consentContinuation: input.consentContinuation } : {}),
         ...(input.financeShare ? { financeShare: input.financeShare } : {}),
@@ -2606,6 +2791,7 @@ async function streamAgentChatAttempt(input: {
           receipt: input.resumeMcpReview.approval.receipt,
         } } : {}),
         ...(input.specialistFocus ? { specialistFocus: input.specialistFocus } : {}),
+        ...(input.mainChat ? { mainChat: true } : {}),
         // Only the native app asks the server for a "One replied" push when it
         // stops reading; a web tab's closed stream must not wake a phone.
         notifyOnDetach: Capacitor.isNativePlatform(),
@@ -2622,7 +2808,7 @@ async function streamAgentChatAttempt(input: {
       agent.setMessages(receiptToolResults.map(item => ({ id: crypto.randomUUID(), role: "tool" as const, toolCallId: item.toolCallId,
         content: JSON.stringify({ schema: "receipt_result.v1", operation: item.toolName, ephemeral_result: true }) })));
       await runUntilTerminal({ tools, context: [], forwardedProps: {
-        timezone, screenContext: input.screenContext, communicationPreferences, receiptToolResults, emailDraftContract: 2,
+        timezone, screenContext: input.screenContext, communicationPreferences, receiptToolResults, emailDraftContract: 2, calendarReviewContract: 1,
       } });
       if (!receiptSessionCurrent()) throw new Error("Receipt authority changed. Ask again.");
     }
@@ -2671,7 +2857,7 @@ async function streamAgentChatAttempt(input: {
           ...(plaidEligible ? { plaidClientReady: true } : {}),
           ...(plaidPosture ? { plaidPosture } : {}),
           wikiToolResults,
-          emailDraftContract: 2,
+          emailDraftContract: 2, calendarReviewContract: 1,
         },
       });
       if (!receiptSessionCurrent()) {
@@ -2745,7 +2931,7 @@ async function streamAgentChatAttempt(input: {
           ...(plaidEligible ? { plaidClientReady: true } : {}),
           ...(plaidPosture ? { plaidPosture } : {}),
           plaidToolResults,
-          emailDraftContract: 2,
+          emailDraftContract: 2, calendarReviewContract: 1,
         },
       });
       if (!receiptSessionCurrent()) {
@@ -2869,7 +3055,7 @@ export async function streamAgentIntro(input: {
     await agent.runAgent({
       tools: [],
       context: [],
-      forwardedProps: { screenContext: input.screenContext, timezone: browserTimeZone() },
+      forwardedProps: { screenContext: input.screenContext, timezone: browserTimeZone(), calendarReviewContract: 1 },
     }, subscriber);
   } finally {
     liveness.stop();
@@ -2904,12 +3090,22 @@ export async function listAgentChatConversations(input: {
   return Array.isArray(payload.conversations) ? payload.conversations : [];
 }
 
+export type AgentChatHistoryPageMeta = {
+  hasMore: boolean;
+  oldestCursor: string | null;
+};
+
+export type AgentChatHistoryList = AgentChatMessage[] & {
+  _pageMeta?: AgentChatHistoryPageMeta;
+};
+
 export async function getAgentChatHistory(input: {
   conversationId: string;
   vaultOwnerToken: string;
   vaultKey: string;
   limit?: number;
-}): Promise<AgentChatMessage[]> {
+  before?: string;
+}): Promise<AgentChatHistoryList> {
   const response = await sendWithChatKey(() => ApiService.getAgentChatHistory(input));
   if (!response.ok) {
     const error = new Error(await readError(response)) as Error & { status?: number };
@@ -2935,15 +3131,39 @@ export async function getAgentChatHistory(input: {
         consentAccess?: unknown;
       } | null;
     }>;
+    has_more?: boolean;
+    oldest_cursor?: string | null;
     /** Shared requests whose access has ended: {bundle_id: "revoked" | "expired"}. */
     consentAccessEnded?: unknown;
   };
-  if (!Array.isArray(payload.messages)) return [];
+  if (!Array.isArray(payload.messages)) {
+    const empty: AgentChatHistoryList = [];
+    Object.defineProperty(empty, "_pageMeta", {
+      value: { hasMore: false, oldestCursor: null },
+      enumerable: false,
+    });
+    return empty;
+  }
+  const limitUsed = input.limit ?? 50;
+  const inferredHasMore =
+    typeof payload.has_more === "boolean"
+      ? payload.has_more
+      : payload.messages.length >= limitUsed;
+  const inferredCursor =
+    typeof payload.oldest_cursor === "string" && payload.oldest_cursor.trim()
+      ? payload.oldest_cursor.trim()
+      : inferredHasMore && payload.messages[0]?.id
+        ? String(payload.messages[0].id)
+        : null;
+  const pageMeta: AgentChatHistoryPageMeta = {
+    hasMore: Boolean(inferredHasMore && inferredCursor),
+    oldestCursor: inferredCursor,
+  };
   const endedByBundle = payload.consentAccessEnded && typeof payload.consentAccessEnded === "object"
     && !Array.isArray(payload.consentAccessEnded)
     ? payload.consentAccessEnded as Record<string, unknown>
     : {};
-  return payload.messages
+  const mapped: AgentChatHistoryList = payload.messages
     .filter((message) => ["user", "assistant", "system", "tool"].includes(message.role))
     .map((message) => {
       const attachments = message.role === "user"
@@ -2983,6 +3203,11 @@ export async function getAgentChatHistory(input: {
           : message.metadata,
       };
     });
+  Object.defineProperty(mapped, "_pageMeta", {
+    value: pageMeta,
+    enumerable: false,
+  });
+  return mapped;
 }
 
 /**
@@ -3236,9 +3461,10 @@ export async function setAgentChatFeedback(input: {
   }
 }
 
-export async function renameAgentChatConversation(input: {
+export async function updateAgentChatConversation(input: {
   conversationId: string;
-  title: string;
+  title?: string;
+  category?: string | null;
   vaultOwnerToken: string;
   vaultKey: string;
 }): Promise<AgentChatConversation> {
@@ -3247,6 +3473,15 @@ export async function renameAgentChatConversation(input: {
     throw new Error(await readError(response));
   }
   return (await response.json()) as AgentChatConversation;
+}
+
+export async function renameAgentChatConversation(input: {
+  conversationId: string;
+  title: string;
+  vaultOwnerToken: string;
+  vaultKey: string;
+}): Promise<AgentChatConversation> {
+  return updateAgentChatConversation(input);
 }
 
 export async function deleteAgentChatConversation(input: {

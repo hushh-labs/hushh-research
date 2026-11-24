@@ -169,10 +169,12 @@ export function consentInformationLabel(input: {
   if (scope === "pkm.write") return "Updates to your memory";
   if (scope) return toSentenceCase(humanizeConsentScope(scope));
   // Every sentence that uses a label already says "your", so a stored name
-  // that opens with it would read "your Your work email".
+  // that opens with it would read "your Your work email". Also strip trailing
+  // record-timestamp suffixes ("Financial liabilities as of") from legacy rows.
   const label = String(input.label || "")
     .trim()
-    .replace(/^your\s+/i, "");
+    .replace(/^your\s+/i, "")
+    .replace(/\s+as\s+of$/i, "");
   return label ? toSentenceCase(label) : "Information";
 }
 

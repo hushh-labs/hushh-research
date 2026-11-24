@@ -150,7 +150,7 @@ The action opens the existing picker; its final confirmation retains its primary
 | **Cancel** on outgoing request | Withdraws the still-pending request; busy feedback remains in the same action slot. |
 | **Respond** on incoming request | Opens pending Consent Center review; does not accept merely by navigating. |
 | **Connected** | Relationship status, not a second connection mutation. |
-| **Explore your network** | Appears below directory search in **Find people** and opens the **Your network** dialog. Closing the dialog returns focus to the trigger without switching connection views. |
+| **Explore your network** | Appears below directory search in **Find people** and opens the **Your network** dialog. Multi-degree network preview and discovery preload run only while **Find people** (discovery) is active, not on **My connections**. Closing the dialog returns focus to the trigger without switching connection views. |
 | Mutual connections | One mutual opens its public profile directly. More than one opens the paginated shared-connections list through `?mutuals=<public person reference>`, including when the preview is unavailable. Every visible mutual has an independent profile control. Back from that profile restores the same mutual list, loaded pages and scroll; Back again restores Find people with its query, directory filter, loaded rows and scroll. Memory is scoped to the signed-in account and authentication session, expires after 15 minutes, and is never persisted. Refresh rechecks current graph and identity eligibility; a visited list remains a list if relationships change, and failed refreshes retain useful rows with Retry. Graph totals can include identities unavailable to view; the list explains that difference. |
 | **Load more people / Retry loading people** | Automatic scroll loading with manual fallback, 20 per page; preserves rows during retry. |
 | **Invite them to One** | Empty People search only, with a usable invite URL: native/Web Share or clipboard fallback. Cancellation is silent. Not offered in RIAs; an empty search does not prove someone lacks an account. |
@@ -903,7 +903,8 @@ available profile (resolving a missing preview through one mutual page), and mor
 than one opens a list. An unavailable single profile explains that state.
 
 **Extended network** shows people whose shortest eligible connection path has
-three active edges. Both intermediaries must allow discovery. Search and
+three active edges between eligible profiles. Discovery is automatic; no separate
+intermediary toggle is required. Search and
 pagination stay within this third-degree set. Each result carries its degree
 and uses the existing profile preview and connection request controls.
 An empty list explains how connecting with people grows the network.
@@ -921,9 +922,10 @@ Signed-in profiles show network details under the hero's contact details. The
 connection count opens the paginated list after the server confirms that
 the viewer is an accepted active direct connection, without a separate owner opt-in. It
 uses **500+ connections** above 500. Rows show **Connected**, **Connect**, or
-the applicable pending state for the viewer. **Extended network discovery** starts
-off, controls anonymous third-degree discovery rather than direct list visibility, and confirms only
-server-acknowledged changes. It grants no access to private contacts or information.
+the applicable pending state for the viewer. There is no **Extended network discovery**
+toggle. Accepted connections and existing profile visibility determine anonymous
+degrees automatically. Legacy stored sharing flags no longer control discovery.
+This grants no access to private contacts, graph paths or information.
 Anonymous public profile projections do not fetch network information.
 
 Every profile or list may open the next profile or list inside the same shared

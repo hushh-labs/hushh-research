@@ -1,5 +1,6 @@
 "use client";
 
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { useNativeWorkspaceEvent } from "@/lib/capacitor/use-native-workspace-handoff";
 
 import {
@@ -812,7 +813,7 @@ function OwnerVaultFlow({
         if (isRetryableVaultReadError(err) && readAttempt < VAULT_READ_RETRY_DELAYS_MS.length) {
           const retry = () => {
             if (!isCurrent()) return;
-            if (!navigator.onLine || document.visibilityState === "hidden") {
+            if (!isNetworkOnline() || document.visibilityState === "hidden") {
               retryTimer = setTimeout(retry, VAULT_READ_RETRY_DELAYS_MS[readAttempt]);
               return;
             }

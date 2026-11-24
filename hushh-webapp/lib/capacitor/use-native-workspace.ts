@@ -19,7 +19,7 @@ import { workspaceChoiceDomainAllowed, nativeWorkspaceFrameFromAnchors, sameNati
 import type { PrivateProfileEditorModel } from "./native-profile-private-editor";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "./native-navigation";
 
-export type NativeWorkspaceContent = Pick<NativeWorkspaceProjection, "workspace" | "navigation" | "page" | "title" | "enabled" | "backEnabled" | "sections" | "tabs" | "secondaryTabs" | "search" | "wallet" | "launcher" | "calendarDate">;
+export type NativeWorkspaceContent = Pick<NativeWorkspaceProjection, "workspace" | "navigation" | "page" | "title" | "enabled" | "backEnabled" | "sections" | "tabs" | "secondaryTabs" | "search" | "wallet" | "launcher" | "calendarDate" | "calendarWeek">;
 type WorkspaceDraft = NativeWorkspaceTextDraft | NativeWorkspaceCircleDraft | NativeWalletProfileDraft | NativeWorkspaceMemoryDraft | NativeWorkspaceTaskDraft;
 export type WorkspaceEditor<D extends WorkspaceDraft> = PrivateProfileEditorModel<D> & { destinationId: string; onSaved?: () => void; readDraft?: () => D; finalCurrent?: () => boolean; reconcileFinal?: (draft: D, expectedRevision: number) => boolean; onCancel: () => void; customTypes?: readonly string[]; canToggleIdentifier?: boolean; reviewing?: boolean; onReview?: () => Promise<void>; textLabels?: Pick<NonNullable<NativeWorkspaceProjection["textEditor"]>, "label" | "placeholder" | "maximum" | "submitLabel" | "cancelLabel" | "format"> };
 let nextRevision = 0, nextLayout = 0;

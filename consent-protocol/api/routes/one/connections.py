@@ -135,6 +135,7 @@ def connections_directory(
     name_only: bool = Query(default=False),
     # The interactive Find people field uses the typed matching contract.
     typed_search: bool = Query(default=False),
+    exclude_connected: bool = Query(default=False),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     del request
@@ -147,6 +148,7 @@ def connections_directory(
             audience=audience,
             name_only=name_only,
             typed_search=typed_search,
+            **({"exclude_connected": True} if exclude_connected else {}),
         )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
@@ -176,7 +178,7 @@ def list_mutual_connections(
         raise _handle(exc) from exc
 
 
-@router.get("/connections/network/visibility")
+@router.get("/connections/network/visibility", deprecated=True)
 def network_visibility(response: Response, firebase_uid: str = Depends(require_firebase_auth)):
     response.headers["Cache-Control"] = "private, no-store"
     try:
@@ -186,7 +188,7 @@ def network_visibility(response: Response, firebase_uid: str = Depends(require_f
         raise _handle(exc) from exc
 
 
-@router.patch("/connections/network/visibility")
+@router.patch("/connections/network/visibility", deprecated=True)
 def update_network_visibility(
     body: UpdateNetworkVisibilityBody,
     response: Response,

@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FilesMarkdownDocumentSheet,
   type FilesMarkdownDocumentTarget,
@@ -17,14 +16,33 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { FileText } from "@/components/icons";
-import { peekFilesWikiOverviewCache } from "@/lib/files/files-cache";
+import {
+  ChevronDown,
+  ChevronRight,
+  FileText,
+  FolderLock,
+  RefreshCw,
+  Upload,
+} from "@/components/icons";
+import {
+  hydrateFilesCacheFromEncryptedCache,
+  hydrateFilesWikiPageFromEncryptedCache,
+  peekFilesWikiOverviewCache,
+  peekFilesWikiPageCache,
+} from "@/lib/files/files-cache";
 import {
   FilesService,
   type FileEntry,
+  type WikiOptimizationResult,
   type WikiOverview,
+  type WikiSummaryPage,
 } from "@/lib/files/service";
+import {
+  resolveWikiPageFolder,
+  wikiPageSlugFilename,
+} from "@/lib/files/wiki/migration-and-maintenance";
 import {
   CORE_AGENT_MARKDOWN_IDS,
   CORE_AGENT_MARKDOWN_META,
@@ -34,13 +52,46 @@ import {
   saveCoreAgentMarkdownFile,
   type CoreAgentMarkdownId,
 } from "@/lib/pkm/agent-core-markdown-files";
-import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import {
+  isVaultSessionEpochCurrent,
+  snapshotVaultSessionEpoch,
+} from "@/lib/vault/session-epoch";
 import { useVault } from "@/lib/vault/vault-context";
 import type { FilesAction } from "./files-settings-panel";
 
+function formatIsoDate(statusAsOf?: string, updatedAt?: number): string {
+  if (statusAsOf && /^\d{4}-\d{2}-\d{2}/.test(statusAsOf)) {
+    return statusAsOf.slice(0, 10);
+  }
+  if (updatedAt && Number.isFinite(updatedAt) && updatedAt > 0) {
+    try {
+      return new Date(updatedAt).toISOString().slice(0, 10);
+    } catch {
+      return "—";
+    }
+  }
+  return "—";
+}
+
+function formatFolderLabel(folder: string): string {
+  return folder
+    .split("/")
+    .map((part) =>
+      part
+        .replace(/[-_]+/g, " ")
+        .replace(/\b\w/g, (ch) => ch.toUpperCase()),
+    )
+    .join(" / ");
+}
+
+type EnrichedWikiFile = WikiSummaryPage & {
+  resolvedFolder: string;
+  filename: string;
+  modifiedDate: string;
+};
+
 export function PersonalWikiPanel({
   ownerId,
-  signal,
   busy,
   unavailable,
   act,
@@ -49,7 +100,6 @@ export function PersonalWikiPanel({
   onInitialSelectionConsumed,
 }: {
   ownerId: string | undefined;
-  signal: AbortSignal;
   busy: boolean;
   unavailable: boolean;
   act: FilesAction;
@@ -62,14 +112,33 @@ export function PersonalWikiPanel({
     ownerId ? peekFilesWikiOverviewCache(ownerId) : null,
   );
   const [savedArchives, setSavedArchives] = useState<FileEntry[]>([]);
-  const [docTarget, setDocTarget] = useState<FilesMarkdownDocumentTarget | null>(null);
-  const [loading, setLoading] = useState(() => !(ownerId && peekFilesWikiOverviewCache(ownerId)));
+  const [docTarget, setDocTarget] =
+    useState<FilesMarkdownDocumentTarget | null>(null);
+  const [loading, setLoading] = useState(
+    () => !(ownerId && peekFilesWikiOverviewCache(ownerId)),
+  );
+  const [hydratingWiki, setHydratingWiki] = useState<boolean>(() =>
+    Boolean(ownerId && vaultKey && !peekFilesWikiOverviewCache(ownerId)),
+  );
   const [loadError, setLoadError] = useState("");
   const [confirmRollback, setConfirmRollback] = useState(false);
+  const [filterQuery, setFilterQuery] = useState("");
+  const [collapsedFolders, setCollapsedFolders] = useState<
+    Record<string, boolean>
+  >({});
+  const [focusedFolder, setFocusedFolder] = useState<string | null>(null);
+  const [optimizationReceipt, setOptimizationReceipt] =
+    useState<WikiOptimizationResult | null>(null);
+  const [optimizing, setOptimizing] = useState(false);
   const localAbort = useRef<AbortController | null>(null);
+  const getActiveSignal = useCallback(
+    () => (localAbort.current ?? (localAbort.current = new AbortController())).signal,
+    [],
+  );
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const initialHandledRef = useRef<string | null>(null);
   const lastOwnerRef = useRef<string | undefined>(ownerId);
+  const hasRenderedOverviewRef = useRef<boolean>(Boolean(overview));
 
   useEffect(() => {
     if (!ownerId || !vaultKey || !vaultOwnerToken) {
@@ -77,54 +146,52 @@ export function PersonalWikiPanel({
     }
   }, [ownerId, vaultKey, vaultOwnerToken]);
 
-  const loadOverview = useCallback(
-    async (activeSignal: AbortSignal) => {
-      const [next, rootList] = await Promise.all([
-        FilesService.wikiOverview(activeSignal),
-        FilesService.list("root", "", false, activeSignal).catch(() => ({
-          entries: [] as FileEntry[],
-          cursor: "",
-          chunkBytes: 4 * 1024 * 1024,
-        })),
-      ]);
-      activeSignal.throwIfAborted();
-      setOverview(next);
-      setSavedArchives(
-        rootList.entries
-          .filter(
-            (entry) =>
-              entry.kind === "file" &&
-              entry.state === "ready" &&
-              /\.(zip|json)$/i.test(entry.name),
-          )
-          .slice(0, 5),
-      );
-      setLoadError("");
-      return next;
-    },
-    [],
-  );
+  const loadOverview = useCallback(async (activeSignal: AbortSignal) => {
+    const next = await FilesService.wikiOverview(activeSignal);
+    activeSignal.throwIfAborted();
+    setOverview(next);
+    setLoadError("");
+    setLoading(false);
+    void FilesService.list("root", "", false, activeSignal)
+      .then((rootList) => {
+        if (activeSignal.aborted) return;
+        setSavedArchives(
+          rootList.entries
+            .filter(
+              (entry) =>
+                entry.kind === "file" &&
+                entry.state === "ready" &&
+                /\.(zip|json)$/i.test(entry.name),
+            )
+            .slice(0, 5),
+        );
+      })
+      .catch(() => undefined);
+    return next;
+  }, []);
 
   useEffect(() => {
     localAbort.current?.abort();
     const controller = new AbortController();
     localAbort.current = controller;
-    const onParentAbort = () => controller.abort();
-    signal.addEventListener("abort", onParentAbort, { once: true });
 
     if (lastOwnerRef.current !== ownerId) {
       lastOwnerRef.current = ownerId;
       setDocTarget(null);
       initialHandledRef.current = null;
-    } else if (unavailable) {
+      setFocusedFolder(null);
+      setCollapsedFolders({});
+      hasRenderedOverviewRef.current = false;
+    } else if (unavailable && !hasRenderedOverviewRef.current) {
       setDocTarget((prev) => (prev?.kind === "core" ? prev : null));
     }
     setConfirmRollback(false);
-    if (!ownerId || unavailable) {
+    if (!ownerId) {
       setOverview(null);
+      hasRenderedOverviewRef.current = false;
       setLoading(false);
+      setHydratingWiki(false);
       return () => {
-        signal.removeEventListener("abort", onParentAbort);
         controller.abort();
       };
     }
@@ -132,26 +199,76 @@ export function PersonalWikiPanel({
     const warmOverview = peekFilesWikiOverviewCache(ownerId);
     if (warmOverview) {
       setOverview(warmOverview);
+      hasRenderedOverviewRef.current = true;
       setLoading(false);
-    } else {
-      setLoading(true);
+      setHydratingWiki(false);
     }
-    setLoadError("");
-    void loadOverview(controller.signal)
-      .catch(() => {
-        if (!controller.signal.aborted && !warmOverview) {
+
+    let canceled = false;
+    void (async () => {
+      let currentOverview = warmOverview;
+      if (
+        !currentOverview &&
+        vaultKey &&
+        typeof hydrateFilesCacheFromEncryptedCache === "function"
+      ) {
+        setHydratingWiki(true);
+        try {
+          const hydrated = await hydrateFilesCacheFromEncryptedCache(ownerId, vaultKey);
+          if (controller.signal.aborted || canceled) return;
+          if (hydrated.wikiOverview) {
+            currentOverview = hydrated.wikiOverview;
+            hasRenderedOverviewRef.current = true;
+            setOverview(hydrated.wikiOverview);
+            setLoading(false);
+          }
+        } catch {
+          // Best-effort encrypted IDB hydration.
+        } finally {
+          if (!controller.signal.aborted && !canceled) {
+            setHydratingWiki(false);
+          }
+        }
+      } else {
+        setHydratingWiki(false);
+      }
+
+      if (controller.signal.aborted || canceled) return;
+
+      if (unavailable) {
+        if (currentOverview) {
+          setOverview(currentOverview);
+          hasRenderedOverviewRef.current = true;
+        }
+        setLoading(false);
+        return;
+      }
+
+      if (!currentOverview) {
+        setLoading(true);
+      }
+      setLoadError("");
+      try {
+        const next = await loadOverview(controller.signal);
+        if (!controller.signal.aborted && !canceled && next) {
+          hasRenderedOverviewRef.current = true;
+        }
+      } catch {
+        if (!controller.signal.aborted && !canceled && !currentOverview) {
           setLoadError("Could not open your personal wiki right now.");
         }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
+      } finally {
+        if (!controller.signal.aborted && !canceled) {
+          setLoading(false);
+        }
+      }
+    })();
 
     return () => {
-      signal.removeEventListener("abort", onParentAbort);
+      canceled = true;
       controller.abort();
     };
-  }, [ownerId, unavailable, signal, loadOverview]);
+  }, [ownerId, unavailable, vaultKey, loadOverview]);
 
   const disabled = busy || unavailable || loading;
 
@@ -195,8 +312,37 @@ export function PersonalWikiPanel({
   );
 
   const openPage = useCallback(
-    (pageId: string) => {
-      const activeSignal = localAbort.current?.signal ?? signal;
+    async (pageId: string, expectedRevision?: number) => {
+      let cachedPage = ownerId
+        ? peekFilesWikiPageCache(ownerId, pageId)
+        : null;
+      if (
+        !cachedPage &&
+        ownerId &&
+        vaultKey &&
+        typeof hydrateFilesWikiPageFromEncryptedCache === "function"
+      ) {
+        cachedPage = await hydrateFilesWikiPageFromEncryptedCache(
+          ownerId,
+          vaultKey,
+          pageId,
+        ).catch(() => null);
+      }
+      const activeSignal = getActiveSignal();
+      if (activeSignal.aborted) return;
+      if (
+        cachedPage &&
+        (unavailable ||
+          expectedRevision === undefined ||
+          cachedPage.revision >= expectedRevision)
+      ) {
+        setDocTarget({ kind: "wiki", page: cachedPage });
+        return;
+      }
+      if (cachedPage && !unavailable) {
+        setDocTarget({ kind: "wiki", page: cachedPage });
+      }
+      if (unavailable) return;
       void act(
         async () => {
           const detail = await FilesService.wikiPage(pageId, activeSignal);
@@ -207,7 +353,7 @@ export function PersonalWikiPanel({
         false,
       );
     },
-    [act, signal],
+    [act, getActiveSignal, ownerId, unavailable, vaultKey],
   );
 
   useEffect(() => {
@@ -222,7 +368,7 @@ export function PersonalWikiPanel({
       });
       return;
     }
-    if (unavailable || !initialPageId) return;
+    if (!initialPageId || (unavailable && !overview && !vaultKey)) return;
     const pageKey = `page:${ownerId}:${initialPageId}`;
     if (initialHandledRef.current === pageKey) return;
     initialHandledRef.current = pageKey;
@@ -231,6 +377,7 @@ export function PersonalWikiPanel({
   }, [
     ownerId,
     unavailable,
+    overview,
     vaultKey,
     vaultOwnerToken,
     initialDocId,
@@ -240,45 +387,461 @@ export function PersonalWikiPanel({
     onInitialSelectionConsumed,
   ]);
 
+  const groupedFolders = useMemo(() => {
+    const pages = overview?.pages ?? [];
+    const seenSlugInFolder = new Map<string, number>();
+    const enriched: EnrichedWikiFile[] = pages.map((page) => {
+      const resolvedFolder = resolveWikiPageFolder(page);
+      const baseName = wikiPageSlugFilename(page.title, page.pageId);
+      const dedupeKey = `${resolvedFolder}/${baseName}`;
+      const count = (seenSlugInFolder.get(dedupeKey) ?? 0) + 1;
+      seenSlugInFolder.set(dedupeKey, count);
+      const filename =
+        count === 1 ? baseName : baseName.replace(/\.md$/i, `-${count}.md`);
+      return {
+        ...page,
+        resolvedFolder,
+        filename,
+        modifiedDate: formatIsoDate(page.statusAsOf, page.updatedAt),
+      };
+    });
+
+    const normalizedQuery = filterQuery.trim().toLowerCase();
+    const filtered = enriched.filter((file) => {
+      if (focusedFolder && file.resolvedFolder !== focusedFolder) return false;
+      if (!normalizedQuery) return true;
+      return (
+        file.filename.toLowerCase().includes(normalizedQuery) ||
+        file.title.toLowerCase().includes(normalizedQuery) ||
+        file.resolvedFolder.toLowerCase().includes(normalizedQuery) ||
+        file.tldr.toLowerCase().includes(normalizedQuery)
+      );
+    });
+
+    const map = new Map<string, EnrichedWikiFile[]>();
+    for (const item of filtered) {
+      const list = map.get(item.resolvedFolder) ?? [];
+      list.push(item);
+      map.set(item.resolvedFolder, list);
+    }
+
+    return Array.from(map.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([folder, files]) => {
+        const sortedFiles = [...files].sort((a, b) =>
+          a.filename.localeCompare(b.filename),
+        );
+        const latestModified =
+          sortedFiles
+            .map((f) => f.modifiedDate)
+            .filter((d) => d !== "—")
+            .sort()
+            .at(-1) ?? "—";
+        return { folder, files: sortedFiles, latestModified };
+      });
+  }, [overview?.pages, filterQuery, focusedFolder]);
+
+  const visibleCoreDocs = useMemo(() => {
+    if (focusedFolder) return [];
+    const normalizedQuery = filterQuery.trim().toLowerCase();
+    return CORE_AGENT_MARKDOWN_IDS.filter((docId) => {
+      if (!normalizedQuery) return true;
+      const meta = CORE_AGENT_MARKDOWN_META[docId];
+      return (
+        meta.title.toLowerCase().includes(normalizedQuery) ||
+        meta.subtitle.toLowerCase().includes(normalizedQuery)
+      );
+    });
+  }, [filterQuery, focusedFolder]);
+
   return (
-    <div className="space-y-4">
-      <SettingsGroup title="Core agent files" embedded headingClassName="mt-0">
-        {CORE_AGENT_MARKDOWN_IDS.map((docId) => {
-          const meta = CORE_AGENT_MARKDOWN_META[docId];
-          const warm = ownerId ? peekCoreAgentMarkdownFile(ownerId, docId) : null;
+    <div className="space-y-3">
+      {/* Compact 1-row Explorer Control Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-muted/20 px-3 py-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1 text-xs font-medium text-muted-foreground">
+            <button
+              type="button"
+              className="font-mono hover:text-foreground hover:underline"
+              onClick={() => setFocusedFolder(null)}
+            >
+              wiki/
+            </button>
+            {focusedFolder ? (
+              <>
+                <ChevronRight className="size-3" aria-hidden="true" />
+                <span className="font-mono text-foreground">
+                  {focusedFolder}/
+                </span>
+              </>
+            ) : null}
+          </div>
+          <Input
+            aria-label="Filter wiki files"
+            placeholder="Quick open or filter .md files…"
+            value={filterQuery}
+            onChange={(e) => setFilterQuery(e.target.value)}
+            className="h-8 min-w-[10rem] flex-1 bg-background text-xs sm:max-w-xs"
+          />
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2.5">
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".zip,.json,application/zip,application/json"
+            aria-label="Choose ChatGPT or Claude export file"
+            className="hidden"
+            disabled={disabled}
+            onChange={(event) => {
+              const chosen = event.target.files?.[0];
+              event.target.value = "";
+              if (!chosen || disabled) return;
+              const activeSignal = getActiveSignal();
+              void act(
+                async () => {
+                  const uploaded = await FilesService.upload(
+                    chosen,
+                    "root",
+                    () => undefined,
+                    activeSignal,
+                  );
+                  await FilesService.wikiImportArchive(
+                    { fileId: uploaded.id, sourceProvider: "auto" },
+                    activeSignal,
+                  );
+                  await loadOverview(activeSignal);
+                },
+                "History imported into wiki",
+                false,
+              );
+            }}
+          />
+          {overview ? (
+            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+              <span>Auto-save</span>
+              <Switch
+                size="ios"
+                aria-label="Remember from conversations"
+                checked={Boolean(overview.captureOptIn)}
+                disabled={disabled}
+                onCheckedChange={(enabled) => {
+                  const activeSignal = getActiveSignal();
+                  void act(
+                    async () => {
+                      await FilesService.wikiSetOptIn(enabled, activeSignal);
+                      await loadOverview(activeSignal);
+                    },
+                    enabled
+                      ? "Conversation memory on"
+                      : "Conversation memory off",
+                    false,
+                  );
+                }}
+              />
+            </label>
+          ) : null}
+          {!unavailable && !loadError ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="compact"
+                data-testid="wiki-optimize-memory-button"
+                disabled={disabled || optimizing}
+                onClick={() => {
+                  const activeSignal = getActiveSignal();
+                  setOptimizing(true);
+                  void act(
+                    async () => {
+                      try {
+                        const result = await FilesService.wikiOptimize(activeSignal);
+                        activeSignal.throwIfAborted();
+                        setOptimizationReceipt(result);
+                        await loadOverview(activeSignal);
+                      } finally {
+                        setOptimizing(false);
+                      }
+                    },
+                    "Memory optimized",
+                    false,
+                  );
+                }}
+              >
+                <RefreshCw
+                  className={`mr-1.5 size-3.5 ${optimizing ? "animate-spin" : ""}`}
+                  aria-hidden="true"
+                />
+                {optimizing ? "Optimizing…" : "Optimize memory"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="compact"
+                disabled={disabled}
+                onClick={() => importInputRef.current?.click()}
+              >
+                <Upload className="mr-1.5 size-3.5" aria-hidden="true" />
+                Import archive
+              </Button>
+            </>
+          ) : null}
+        </div>
+      </div>
+
+      {optimizationReceipt ? (
+        <div
+          role="status"
+          data-testid="wiki-optimize-memory-receipt"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-muted/25 px-3.5 py-2 text-xs text-muted-foreground"
+        >
+          <span>
+            Optimized {optimizationReceipt.inspectedPageCount}{" "}
+            {optimizationReceipt.inspectedPageCount === 1 ? "page" : "pages"} ·{" "}
+            {optimizationReceipt.deduplicatedClaimCount} duplicates merged ·{" "}
+            {optimizationReceipt.staleRetiredCount} stale retired ·{" "}
+            {optimizationReceipt.structureRepairsCount} structure{" "}
+            {optimizationReceipt.structureRepairsCount === 1 ? "fix" : "fixes"}
+            {optimizationReceipt.protectedGrantScopes.length > 0
+              ? ` · ${optimizationReceipt.protectedGrantScopes.length} shared/paid ${
+                  optimizationReceipt.protectedGrantScopes.length === 1
+                    ? "scope"
+                    : "scopes"
+                } protected`
+              : ""}
+            {optimizationReceipt.contradictions.length > 0
+              ? ` · ${optimizationReceipt.contradictions.length} ${
+                  optimizationReceipt.contradictions.length === 1
+                    ? "conflict needs"
+                    : "conflicts need"
+                } review`
+              : ""}
+          </span>
+          <button
+            type="button"
+            className="text-xs font-medium text-foreground/75 hover:text-foreground"
+            onClick={() => setOptimizationReceipt(null)}
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
+
+      {/* Unified Nested Wiki File-System Explorer Table */}
+      <div
+        className="divide-y overflow-hidden rounded-2xl border"
+        aria-label="Personal wiki files"
+      >
+        <div
+          aria-hidden="true"
+          className="hidden sm:flex items-center gap-3 bg-muted/30 px-4 py-2 text-xs font-medium text-muted-foreground"
+        >
+          <span className="min-w-0 flex-1">Name</span>
+          <span className="w-24 shrink-0">Type</span>
+          <span className="w-28 shrink-0">Last modified</span>
+          <span className="w-16 shrink-0 text-right">Size</span>
+        </div>
+
+        {/* Nested Scope / Domain Folders + Distinct .md Files */}
+        {groupedFolders.map(({ folder, files, latestModified }) => {
+          const isCollapsed =
+            Boolean(collapsedFolders[folder]) &&
+            !filterQuery.trim() &&
+            !focusedFolder;
           return (
-            <SettingsRow
-              key={docId}
-              title={meta.title}
-              description={warm?.updatedAt ? `${meta.subtitle} · Saved` : meta.subtitle}
-              leading={<FileText className="size-4 text-muted-foreground" aria-hidden="true" />}
-              chevron
-              disabled={busy || !vaultKey || !vaultOwnerToken}
-              testId={`wiki-core-doc-${docId}`}
-              onClick={() => void openCoreDoc(docId)}
-            />
+            <div key={folder} className="divide-y">
+              <div className="flex min-w-0 items-center gap-2.5 bg-muted/10 px-3 py-2 hover:bg-muted/30 transition-colors sm:gap-3 sm:px-4">
+                <button
+                  type="button"
+                  aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${folder} folder`}
+                  className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                  onClick={() =>
+                    setCollapsedFolders((prev) => ({
+                      ...prev,
+                      [folder]: !prev[folder],
+                    }))
+                  }
+                >
+                  {isCollapsed ? (
+                    <ChevronRight className="size-3.5" aria-hidden="true" />
+                  ) : (
+                    <ChevronDown className="size-3.5" aria-hidden="true" />
+                  )}
+                </button>
+                <FolderLock
+                  className="size-4 shrink-0 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 truncate text-left text-sm font-medium hover:underline"
+                  onClick={() =>
+                    setFocusedFolder((prev) =>
+                      prev === folder ? null : folder,
+                    )
+                  }
+                >
+                  <span className="font-mono">{folder}/</span>
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    {formatFolderLabel(folder)}
+                  </span>
+                </button>
+                <span className="hidden sm:inline-block w-24 shrink-0 text-xs text-muted-foreground">
+                  Folder
+                </span>
+                <span className="hidden sm:inline-block w-28 shrink-0 font-mono text-xs text-muted-foreground">
+                  {latestModified}
+                </span>
+                <span className="w-16 shrink-0 text-right text-xs text-muted-foreground">
+                  {files.length} {files.length === 1 ? "file" : "files"}
+                </span>
+              </div>
+
+              {!isCollapsed
+                ? files.map((page) => (
+                    <button
+                      key={page.pageId}
+                      type="button"
+                      aria-label={`Open ${page.title}`}
+                      disabled={busy || (unavailable && !overview) || (loading && !overview)}
+                      onClick={() => openPage(page.pageId, page.revision)}
+                      className="flex w-full min-w-0 items-center gap-2.5 py-2 pl-9 pr-3 text-left hover:bg-muted/30 transition-colors disabled:opacity-50 sm:gap-3 sm:pl-11 sm:pr-4"
+                    >
+                      <FileText
+                        className="size-4 shrink-0 text-muted-foreground"
+                        aria-hidden="true"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+                          <span className="truncate font-mono text-xs font-medium text-foreground">
+                            {page.filename}
+                          </span>
+                          <span className="truncate text-xs text-muted-foreground">
+                            {page.title}
+                          </span>
+                        </div>
+                        {page.tldr ? (
+                          <p className="truncate text-[11px] text-muted-foreground/80">
+                            {page.tldr}
+                          </p>
+                        ) : null}
+                      </div>
+                      <span className="hidden sm:inline-block w-24 shrink-0 text-xs text-muted-foreground">
+                        Markdown
+                      </span>
+                      <span className="hidden sm:inline-block w-28 shrink-0 font-mono text-xs text-muted-foreground">
+                        {page.modifiedDate}
+                      </span>
+                      <span className="w-16 shrink-0 text-right font-mono text-xs text-muted-foreground">
+                        r{page.revision}
+                      </span>
+                    </button>
+                  ))
+                : null}
+            </div>
           );
         })}
-      </SettingsGroup>
 
-      {unavailable ? (
-        <p role="status" className="text-sm text-muted-foreground">
+        {/* Root Core Agent Markdown Files (memory.md, identity.md, soul.md) */}
+        {visibleCoreDocs.map((docId) => {
+          const meta = CORE_AGENT_MARKDOWN_META[docId];
+          const warm = ownerId ? peekCoreAgentMarkdownFile(ownerId, docId) : null;
+          const modified = warm?.updatedAt
+            ? formatIsoDate(warm.updatedAt)
+            : warm?.persisted
+              ? "Saved"
+              : "Core";
+          const sizeLabel = warm?.markdown
+            ? `${Math.max(1, Math.round(warm.markdown.length / 1024))} KB`
+            : "Core";
+          return (
+            <button
+              key={docId}
+              type="button"
+              data-testid={`wiki-core-doc-${docId}`}
+              disabled={busy || !vaultKey || !vaultOwnerToken}
+              onClick={() => void openCoreDoc(docId)}
+              className="flex w-full min-w-0 items-center gap-2.5 px-3 py-2.5 text-left hover:bg-muted/30 transition-colors disabled:opacity-50 sm:gap-3 sm:px-4"
+            >
+              <FileText
+                className="size-4 shrink-0 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+                  <span className="truncate font-mono text-xs font-medium text-foreground">
+                    {meta.title}
+                  </span>
+                  <span className="truncate text-xs text-muted-foreground">
+                    {meta.subtitle}
+                  </span>
+                </div>
+              </div>
+              <span className="hidden sm:inline-block w-24 shrink-0 text-xs text-muted-foreground">
+                Markdown
+              </span>
+              <span className="hidden sm:inline-block w-28 shrink-0 font-mono text-xs text-muted-foreground">
+                {modified}
+              </span>
+              <span className="w-16 shrink-0 text-right font-mono text-xs text-muted-foreground">
+                {sizeLabel}
+              </span>
+            </button>
+          );
+        })}
+
+        {!loading &&
+        !hydratingWiki &&
+        !unavailable &&
+        !loadError &&
+        groupedFolders.length === 0 &&
+        visibleCoreDocs.length === 0 ? (
+          <p className="p-5 text-sm text-muted-foreground">
+            {filterQuery.trim()
+              ? "No matching markdown files in your personal wiki."
+              : "No saved notes in this folder yet."}
+          </p>
+        ) : null}
+      </div>
+
+      {/* Inline Status / Error Feedback */}
+      {unavailable && !overview && !hydratingWiki ? (
+        <p role="status" className="px-1 text-xs text-muted-foreground">
           Checking your Personal wiki connection…
         </p>
-      ) : loading ? (
-        <p role="status" className="text-sm text-muted-foreground">
-          Opening personal wiki…
-        </p>
+      ) : loading && !overview && !hydratingWiki ? (
+        <div
+          role="status"
+          aria-label="Loading personal wiki"
+          data-testid="personal-wiki-cold-skeleton"
+          className="overflow-hidden rounded-xl border border-border/60"
+        >
+          <span className="sr-only">Opening personal wiki…</span>
+          <div className="divide-y divide-border/50">
+            {[0, 1, 2].map((row) => (
+              <div
+                key={row}
+                className="grid h-10 grid-cols-[minmax(0,1fr)_5.5rem] items-center gap-3 px-3.5 sm:grid-cols-[minmax(0,1fr)_6.5rem_7.5rem_4.5rem]"
+              >
+                <div className="h-3.5 w-44 animate-pulse rounded bg-muted/70 motion-reduce:animate-none" />
+                <div className="hidden h-3 w-14 animate-pulse rounded bg-muted/60 motion-reduce:animate-none sm:block" />
+                <div className="hidden h-3 w-20 animate-pulse rounded bg-muted/60 motion-reduce:animate-none sm:block" />
+                <div className="ml-auto h-3 w-10 animate-pulse rounded bg-muted/60 motion-reduce:animate-none" />
+              </div>
+            ))}
+          </div>
+        </div>
       ) : loadError ? (
-        <div className="space-y-3">
-          <p role="alert" className="text-sm text-muted-foreground">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2">
+          <p role="alert" className="text-xs text-muted-foreground">
             {loadError}
           </p>
           <Button
             variant="outline"
+            size="compact"
             disabled={busy || unavailable}
             onClick={() => {
-              const activeSignal = localAbort.current?.signal ?? signal;
+              const activeSignal = getActiveSignal();
               void act(
                 () => loadOverview(activeSignal),
                 "Personal wiki refreshed",
@@ -289,87 +852,17 @@ export function PersonalWikiPanel({
             Try again
           </Button>
         </div>
-      ) : (
-        <>
-          <SettingsGroup title="Preferences" embedded>
-        <SettingsRow
-          title="Remember from conversations"
-          description="Saves durable notes to your private wiki. Never shares with anyone or connects external accounts."
-          trailing={
-            <Switch
-              size="ios"
-              aria-label="Remember from conversations"
-              checked={Boolean(overview?.captureOptIn)}
-              disabled={disabled || !overview}
-              onCheckedChange={(enabled) => {
-                const activeSignal = localAbort.current?.signal ?? signal;
-                void act(
-                  async () => {
-                    await FilesService.wikiSetOptIn(enabled, activeSignal);
-                    await loadOverview(activeSignal);
-                  },
-                  enabled ? "Conversation memory on" : "Conversation memory off",
-                  false,
-                );
-              }}
-            />
-          }
-        />
-      </SettingsGroup>
+      ) : null}
 
-      <SettingsGroup title="Import history" embedded>
-        <input
-          ref={importInputRef}
-          type="file"
-          accept=".zip,.json,application/zip,application/json"
-          aria-label="Choose ChatGPT or Claude export file"
-          className="hidden"
-          disabled={disabled}
-          onChange={(event) => {
-            const chosen = event.target.files?.[0];
-            event.target.value = "";
-            if (!chosen || disabled) return;
-            const activeSignal = localAbort.current?.signal ?? signal;
-            void act(
-              async () => {
-                const uploaded = await FilesService.upload(
-                  chosen,
-                  "root",
-                  () => undefined,
-                  activeSignal,
-                );
-                await FilesService.wikiImportArchive(
-                  { fileId: uploaded.id, sourceProvider: "auto" },
-                  activeSignal,
-                );
-                await loadOverview(activeSignal);
-              },
-              "History imported into wiki",
-              false,
-            );
-          }}
-        />
-        <SettingsRow
-          title="Import ChatGPT or Claude history"
-          description="Saves your .zip or .json export into encrypted Files and compiles notes into your private wiki. Updates wait for your confirmation."
-          trailing={
-            <Button
-              type="button"
-              variant="outline"
-              size="compact"
-              disabled={disabled}
-              onClick={() => importInputRef.current?.click()}
+      {/* Un-imported Archives Found in Root Blobstorage */}
+      {savedArchives.length > 0 ? (
+        <div className="divide-y rounded-xl border">
+          {savedArchives.map((archive) => (
+            <div
+              key={archive.id}
+              className="flex min-w-0 items-center justify-between gap-2 px-3 py-2 text-xs"
             >
-              Import archive
-            </Button>
-          }
-        />
-        {savedArchives.map((archive) => (
-          <SettingsRow
-            key={archive.id}
-            title={archive.name}
-            description="Saved in Files — compile into your private wiki"
-            trailing={
+              <span className="min-w-0 truncate font-mono">{archive.name}</span>
               <Button
                 type="button"
                 variant="ghost"
@@ -377,7 +870,7 @@ export function PersonalWikiPanel({
                 aria-label={`Add ${archive.name} to wiki`}
                 disabled={disabled}
                 onClick={() => {
-                  const activeSignal = localAbort.current?.signal ?? signal;
+                  const activeSignal = getActiveSignal();
                   void act(
                     async () => {
                       await FilesService.wikiImportArchive(
@@ -393,93 +886,77 @@ export function PersonalWikiPanel({
               >
                 Add to wiki
               </Button>
-            }
-          />
-        ))}
-      </SettingsGroup>
-
-      {overview && overview.candidateReceipts.length > 0 ? (
-        <SettingsGroup title="Review updates" embedded>
-          {overview.candidateReceipts.map((item) => (
-            <SettingsRow
-              key={item.receiptId}
-              title={item.statement || `Pending update in ${item.domain}`}
-              description={
-                item.state === "private_candidate"
-                  ? (item.activeRecipientCount ?? 0) > 0
-                    ? `Confirm before adding to ${item.domain} (shared with ${item.activeRecipientCount} active ${item.activeRecipientCount === 1 ? "recipient" : "recipients"})`
-                    : `Confirm before adding to ${item.domain}`
-                  : `Differs from verified ${item.domain} details`
-              }
-              trailing={
-                item.state === "private_candidate" ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="compact"
-                    disabled={disabled}
-                    onClick={() => {
-                      const activeSignal = localAbort.current?.signal ?? signal;
-                      void act(
-                        async () => {
-                          await FilesService.wikiConfirmCandidate(
-                            item.receiptId,
-                            activeSignal,
-                          );
-                          await loadOverview(activeSignal);
-                        },
-                        "Update confirmed",
-                        false,
-                      );
-                    }}
-                  >
-                    Confirm
-                  </Button>
-                ) : (
-                  <span className="text-xs text-muted-foreground">
-                    Needs review
-                  </span>
-                )
-              }
-            />
+            </div>
           ))}
-        </SettingsGroup>
+        </div>
       ) : null}
 
-      <SettingsGroup title="Notes" embedded>
-        {!overview || overview.pages.length === 0 ? (
-          <p className="py-2 text-sm text-muted-foreground">
-            No saved notes yet.
-          </p>
-        ) : (
-          overview.pages.map((page) => (
-            <SettingsRow
-              key={page.pageId}
-              title={page.title}
-              description={page.tldr || "Open to view or edit"}
-              trailing={
+      {/* Compact Pending Memory Candidate Confirmations (Only When Non-Empty) */}
+      {overview && overview.candidateReceipts.length > 0 ? (
+        <div className="divide-y overflow-hidden rounded-xl border">
+          <div className="flex items-center justify-between bg-muted/20 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+            <span>
+              Pending memory updates ({overview.candidateReceipts.length})
+            </span>
+            <span>Confirm to sync</span>
+          </div>
+          {overview.candidateReceipts.map((item) => (
+            <div
+              key={item.receiptId}
+              className="flex min-w-0 items-center justify-between gap-3 px-3 py-2"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-medium">
+                  {item.statement || `Pending update in ${item.domain}`}
+                </p>
+                <p className="truncate text-[11px] text-muted-foreground">
+                  {item.state === "private_candidate"
+                    ? (item.activeRecipientCount ?? 0) > 0
+                      ? `${item.domain}/ · shared with ${item.activeRecipientCount} active ${item.activeRecipientCount === 1 ? "recipient" : "recipients"}`
+                      : `${item.domain}/`
+                    : `Differs from verified ${item.domain} details`}
+                </p>
+              </div>
+              {item.state === "private_candidate" ? (
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="outline"
                   size="compact"
-                  aria-label={`Open ${page.title}`}
                   disabled={disabled}
-                  onClick={() => openPage(page.pageId)}
+                  onClick={() => {
+                    const activeSignal = getActiveSignal();
+                    void act(
+                      async () => {
+                        await FilesService.wikiConfirmCandidate(
+                          item.receiptId,
+                          activeSignal,
+                        );
+                        await loadOverview(activeSignal);
+                      },
+                      "Update confirmed",
+                      false,
+                    );
+                  }}
                 >
-                  Open
+                  Confirm
                 </Button>
-              }
-            />
-          ))
-        )}
-      </SettingsGroup>
+              ) : (
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  Needs review
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : null}
 
+      {/* Secondary Migration & Recovery Disclosure */}
       {overview ? (
-        <details className="text-sm">
-          <summary className="min-h-11 cursor-pointer py-2 font-medium">
+        <details className="px-1 text-xs text-muted-foreground">
+          <summary className="cursor-pointer py-1.5 font-medium hover:text-foreground">
             Migration and recovery
           </summary>
-          <div className="space-y-2 pb-1 text-muted-foreground">
+          <div className="space-y-2 pb-1 pt-1">
             {overview.migrationState === "v1_markdown_only" ? (
               <>
                 <p>
@@ -492,13 +969,14 @@ export function PersonalWikiPanel({
                   size="compact"
                   disabled={disabled}
                   onClick={() => {
-                    const activeSignal = localAbort.current?.signal ?? signal;
+                    const activeSignal = getActiveSignal();
                     void act(
                       async () => {
                         await FilesService.wikiMigrateCohort(
                           {
                             action: "compile_and_verify",
-                            expectedMigrationRevision: overview.migrationRevision,
+                            expectedMigrationRevision:
+                              overview.migrationRevision,
                           },
                           activeSignal,
                         );
@@ -529,8 +1007,7 @@ export function PersonalWikiPanel({
                       size="compact"
                       disabled={disabled}
                       onClick={() => {
-                        const activeSignal =
-                          localAbort.current?.signal ?? signal;
+                        const activeSignal = getActiveSignal();
                         void act(
                           async () => {
                             await FilesService.wikiMigrateCohort(
@@ -557,8 +1034,7 @@ export function PersonalWikiPanel({
                       size="compact"
                       disabled={disabled}
                       onClick={() => {
-                        const activeSignal =
-                          localAbort.current?.signal ?? signal;
+                        const activeSignal = getActiveSignal();
                         void act(
                           async () => {
                             await FilesService.wikiMigrateCohort(
@@ -606,8 +1082,7 @@ export function PersonalWikiPanel({
                       size="compact"
                       disabled={disabled}
                       onClick={() => {
-                        const activeSignal =
-                          localAbort.current?.signal ?? signal;
+                        const activeSignal = getActiveSignal();
                         void act(
                           async () => {
                             await FilesService.wikiMigrateCohort(
@@ -650,8 +1125,6 @@ export function PersonalWikiPanel({
           </div>
         </details>
       ) : null}
-        </>
-      )}
 
       <FilesMarkdownDocumentSheet
         open={docTarget !== null}
@@ -680,7 +1153,10 @@ export function PersonalWikiPanel({
                 expectedPersisted,
                 beforeEffect: async () => {
                   if (!isVaultSessionEpochCurrent(epoch)) {
-                    throw new DOMException("Vault locked before save", "AbortError");
+                    throw new DOMException(
+                      "Vault locked before save",
+                      "AbortError",
+                    );
                   }
                 },
               });
@@ -707,7 +1183,7 @@ export function PersonalWikiPanel({
           return savedOk;
         }}
         onSaveWiki={async ({ pageId, expectedRevision, title, tldr, body }) => {
-          const activeSignal = localAbort.current?.signal ?? signal;
+          const activeSignal = getActiveSignal();
           let savedOk = false;
           await act(
             async () => {
@@ -715,7 +1191,10 @@ export function PersonalWikiPanel({
                 { pageId, expectedRevision, title, tldr, body },
                 activeSignal,
               );
-              const refreshed = await FilesService.wikiPage(pageId, activeSignal);
+              const refreshed = await FilesService.wikiPage(
+                pageId,
+                activeSignal,
+              );
               await loadOverview(activeSignal);
               activeSignal.throwIfAborted();
               setDocTarget({ kind: "wiki", page: refreshed });
@@ -727,11 +1206,17 @@ export function PersonalWikiPanel({
           return savedOk;
         }}
         onForgetWikiClaim={async ({ pageId, claimId }) => {
-          const activeSignal = localAbort.current?.signal ?? signal;
+          const activeSignal = getActiveSignal();
           await act(
             async () => {
-              await FilesService.wikiForgetClaim({ pageId, claimId }, activeSignal);
-              const refreshed = await FilesService.wikiPage(pageId, activeSignal);
+              await FilesService.wikiForgetClaim(
+                { pageId, claimId },
+                activeSignal,
+              );
+              const refreshed = await FilesService.wikiPage(
+                pageId,
+                activeSignal,
+              );
               await loadOverview(activeSignal);
               activeSignal.throwIfAborted();
               setDocTarget({ kind: "wiki", page: refreshed });
@@ -761,7 +1246,7 @@ export function PersonalWikiPanel({
             <AlertDialogAction
               disabled={busy}
               onClick={() => {
-                const activeSignal = localAbort.current?.signal ?? signal;
+                const activeSignal = getActiveSignal();
                 setConfirmRollback(false);
                 void act(
                   async () => {

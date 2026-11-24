@@ -5224,9 +5224,9 @@ final class AppUITests: XCTestCase {
                 continue
             }
             if id == "my-data", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
-                let live = app.buttons.matching(NSPredicate(format: "label == %@", "Live memory")).firstMatch
+                let browseMemory = app.buttons.matching(NSPredicate(format: "label == %@", "Browse all memory")).firstMatch
                 let sharing = app.buttons.matching(NSPredicate(format: "label == %@", "Manage sharing")).firstMatch
-                guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(live), waitForAdmittedControl(sharing) else {
+                guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(browseMemory), waitForAdmittedControl(sharing) else {
                     XCTFail("PROFILE_NATIVE_MEMORY_NOT_ADMITTED"); return
                 }
                 XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0,
@@ -5240,16 +5240,12 @@ final class AppUITests: XCTestCase {
                     guard waitForAdmittedControl(clear) else { XCTFail("PROFILE_NATIVE_MEMORY_SEARCH_NOT_SUBMITTED"); return }
                     clear.tap()
                 }
-                guard waitForAdmittedControl(live) else { XCTFail("PROFILE_NATIVE_MEMORY_SEARCH_NOT_SETTLED"); return }
-                live.tap()
                 let memoryBack = nativeProfileBack(app, parent: "Memory")
-                guard waitForAdmittedControl(memoryBack) else { XCTFail("PROFILE_NATIVE_MEMORY_SOURCE_RETURN_UNAVAILABLE"); return }
-                memoryBack.tap()
-                guard waitForAdmittedControl(sharing) else { XCTFail("PROFILE_NATIVE_MEMORY_ROOT_NOT_RESTORED"); return }
+                guard waitForAdmittedControl(sharing) else { XCTFail("PROFILE_NATIVE_MEMORY_SEARCH_NOT_SETTLED"); return }
                 sharing.tap()
                 guard waitForAdmittedControl(memoryBack) else { XCTFail("PROFILE_NATIVE_MEMORY_SHARING_NOT_ADMITTED"); return }
                 memoryBack.tap()
-                guard waitForAdmittedControl(live), waitForAdmittedControl(nativeAccountBack) else {
+                guard waitForAdmittedControl(browseMemory), waitForAdmittedControl(nativeAccountBack) else {
                     XCTFail("PROFILE_NATIVE_MEMORY_SHARING_RETURN_FAILED"); return
                 }
                 // Cover new private sub-pages through their authored entry,
@@ -5261,7 +5257,7 @@ final class AppUITests: XCTestCase {
                     guard waitForAdmittedControl(memoryBack) else { XCTFail("PROFILE_NATIVE_MEMORY_PRIVATE_BACK_UNAVAILABLE"); return }
                     XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0, "PROFILE_NATIVE_MEMORY_PRIVATE_BODY_NOT_NATIVE")
                     memoryBack.tap()
-                    guard waitForAdmittedControl(live) else { XCTFail("PROFILE_NATIVE_MEMORY_PRIVATE_RETURN_FAILED"); return }
+                    guard waitForAdmittedControl(browseMemory) else { XCTFail("PROFILE_NATIVE_MEMORY_PRIVATE_RETURN_FAILED"); return }
                 }
                 print("PROFILE_NATIVE_MEMORY_PRIVATE shared=true drive=true secrets=true returned=true mutated=false")
                 // A disposable financial record is not invented on the shared
@@ -5282,14 +5278,14 @@ final class AppUITests: XCTestCase {
                     cancel.tap()
                     guard waitForAdmittedControl(add), waitForAdmittedControl(memoryBack) else { XCTFail("PROFILE_NATIVE_MEMORY_CONTEXT_RETURN_FAILED"); return }
                     memoryBack.tap()
-                    guard waitForAdmittedControl(live), waitForAdmittedControl(nativeAccountBack) else { XCTFail("PROFILE_NATIVE_MEMORY_CONTEXT_ROOT_RETURN_FAILED"); return }
+                    guard waitForAdmittedControl(browseMemory), waitForAdmittedControl(nativeAccountBack) else { XCTFail("PROFILE_NATIVE_MEMORY_CONTEXT_ROOT_RETURN_FAILED"); return }
                     print("PROFILE_NATIVE_MEMORY_EDITOR available=true keyboard=true cancelled=true mutated=false")
                 } else { print("PROFILE_NATIVE_MEMORY_EDITOR available=false keyboard=false cancelled=false mutated=false") }
                 nativeAccountBack.tap()
                 guard revealRosterRow(destination), waitForAdmittedControl(close) else {
                     XCTFail("PROFILE_NATIVE_MEMORY_PROFILE_RETURN_FAILED"); return
                 }
-                print("PROFILE_NATIVE_MEMORY sources=true sharing=true returned=true mutated=false")
+                print("PROFILE_NATIVE_MEMORY browse=true sharing=true returned=true mutated=false")
                 continue
             }
             if id == "payouts", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {

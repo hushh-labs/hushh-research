@@ -56,6 +56,28 @@ const drawerSources = new Map<NativePanelIdentity["group"], {
   identity: NativePanelIdentity; sample: (privacyGeneration: number) => NativePanelPose | undefined;
 }>();
 
+const shellInsetListeners = new Set<() => void>();
+
+export function subscribeNativeShellInset(remeasure: () => void): () => void {
+  shellInsetListeners.add(remeasure);
+  return () => { shellInsetListeners.delete(remeasure); };
+}
+
+/** Move controls with their DOM seats even on hosts without legacy region receipts. */
+export function setNetworkStatusBannerHeight(height: number) {
+  const root = document.documentElement;
+  const value = height > 0 ? `${Math.ceil(height)}px` : "";
+  if (root.style.getPropertyValue("--network-status-height") === value) return;
+  if (value) {
+    // perf-lint: allow root-custom-property-write -- The shell and its portals share the measured notice height, updated only on a size change.
+    root.style.setProperty("--network-status-height", value);
+  } else {
+    root.style.removeProperty("--network-status-height");
+  }
+  shellInsetListeners.forEach(remeasure => remeasure());
+  void syncNativePresentationRegions().catch(() => undefined);
+}
+
 /** Authored presentation only. Dormant registration changes no admission. */
 export function registerNativeDrawerPose(identity: NativePanelIdentity,
   sample: (privacyGeneration: number) => NativePanelPose | undefined) {
@@ -99,7 +121,8 @@ function measureRegions(): Omit<NativePresentationRegions, "revision"> {
   const topShell = document.querySelector<HTMLElement>("[data-app-top-bar]");
   const history = document.querySelector<HTMLElement>('[data-native-chrome-slot="chat-history-toggle"]');
   const bottomShell = document.querySelector<HTMLElement>("[data-app-bottom-shell]");
-  const top = Math.ceil(Math.max(topShell?.getBoundingClientRect().bottom ?? 0,
+  const banner = document.querySelector<HTMLElement>("[data-network-status-banner]");
+  const top = Math.ceil(Math.max(banner?.getBoundingClientRect().bottom ?? 0, topShell?.getBoundingClientRect().bottom ?? 0,
     history?.getBoundingClientRect().bottom ?? 0));
   const bottom = Math.ceil(Math.max(bottomShell ? viewport.height - bottomShell.getBoundingClientRect().top : 0,
     dockFrame?.documentId === nativeDocumentId() ? viewport.height - dockFrame.y : 0));

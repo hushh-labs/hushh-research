@@ -384,7 +384,7 @@ describe("PersonProfilePage native profile route", () => {
     );
   });
 
-  it("renders Review request after History without sticky viewport positioning", async () => {
+  it("renders Review request inside Available to request before History without sticky viewport positioning", async () => {
     mocks.user = {
       uid: "viewer",
       getIdToken: vi.fn().mockResolvedValue("viewer-token"),
@@ -406,10 +406,12 @@ describe("PersonProfilePage native profile route", () => {
     const reviewButton = await screen.findByRole("button", {
       name: "Review request",
     });
+    const availableSection = screen.getByTestId("person-profile-available");
     const historyHeading = screen.getByRole("heading", {
       name: "Request history",
     });
     expect(reviewButton).toBeDisabled();
+    expect(availableSection).toContainElement(reviewButton);
     const actions = document.querySelectorAll(
       '[aria-label="Relationship actions"] button',
     );
@@ -423,7 +425,7 @@ describe("PersonProfilePage native profile route", () => {
     expect(reviewButton.parentElement).not.toHaveClass("sticky");
     expect(reviewButton.parentElement).not.toHaveClass("bottom-4");
     expect(
-      historyHeading.compareDocumentPosition(reviewButton) &
+      reviewButton.compareDocumentPosition(historyHeading) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
@@ -868,6 +870,11 @@ describe("PersonProfilePage request catalog tools", () => {
         />,
       );
 
+      const summaryRow = await screen.findByTestId("person-profile-shared-summary-row");
+      expect(summaryRow).toHaveTextContent("1 item shared");
+      expect(screen.queryByTestId("shared-with-you-values")).toBeNull();
+      fireEvent.click(within(summaryRow).getByRole("button"));
+
       const value = await screen.findByTestId("shared-with-you-values");
       expect(value).toHaveTextContent("Pune");
       expect(
@@ -1009,6 +1016,7 @@ describe("PersonProfilePage request catalog tools", () => {
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
 
+    fireEvent.click(within(await screen.findByTestId("person-profile-shared-summary-row")).getByRole("button"));
     expect(
       await screen.findByTestId("shared-with-you-values"),
     ).toHaveTextContent("Synthetic approved detail");
@@ -1054,6 +1062,7 @@ describe("PersonProfilePage request catalog tools", () => {
     render(
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
+    fireEvent.click(within(await screen.findByTestId("person-profile-shared-summary-row")).getByRole("button"));
     expect(
       await screen.findByTestId("shared-with-you-values"),
     ).toHaveTextContent("Synthetic reviewer");
@@ -1127,6 +1136,7 @@ describe("PersonProfilePage request catalog tools", () => {
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
 
+    fireEvent.click(within(await screen.findByTestId("person-profile-shared-summary-row")).getByRole("button"));
     expect(
       await screen.findByTestId("shared-with-you-values"),
     ).toHaveTextContent("Synthetic nested detail");
@@ -1187,6 +1197,7 @@ describe("PersonProfilePage request catalog tools", () => {
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
 
+    fireEvent.click(within(await screen.findByTestId("person-profile-shared-summary-row")).getByRole("button"));
     await waitFor(() =>
       expect(screen.getByTestId("shared-with-you-card")).toHaveAttribute(
         "data-status",
@@ -1262,6 +1273,7 @@ describe("PersonProfilePage request catalog tools", () => {
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
 
+    fireEvent.click(within(await screen.findByTestId("person-profile-shared-summary-row")).getByRole("button"));
     await waitFor(() =>
       expect(screen.getByTestId("shared-with-you-card")).toHaveAttribute(
         "data-status",
@@ -1334,6 +1346,7 @@ describe("PersonProfilePage request catalog tools", () => {
     render(
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
+    fireEvent.click(within(await screen.findByTestId("person-profile-history-summary-row")).getByRole("button"));
     fireEvent.click(
       await screen.findByRole("button", {
         name: "Details for Employment status",
@@ -1367,12 +1380,18 @@ describe("PersonProfilePage request catalog tools", () => {
     render(
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
-    expect(await screen.findByText("Tax record")).toBeInTheDocument();
-    expect(screen.getByText("Shared")).toBeInTheDocument();
+    const summaryRow = await screen.findByTestId("person-profile-history-summary-row");
+    expect(summaryRow).toHaveTextContent("Latest: Tax record");
+    expect(summaryRow).toHaveTextContent("Shared");
     const history = screen
       .getByRole("heading", { name: "Request history" })
       .closest("section")!;
     expect(history.textContent).not.toMatch(/domain|granted/i);
+    fireEvent.click(within(summaryRow).getByRole("button"));
+    const sheet = await screen.findByTestId("person-profile-history-sheet");
+    expect(within(sheet).getByText("Tax record")).toBeInTheDocument();
+    expect(within(sheet).getByText("Shared")).toBeInTheDocument();
+    expect(sheet.textContent).not.toMatch(/domain|granted/i);
   });
 
   it("groups a multi-field request into one history row with one action", async () => {
@@ -1396,6 +1415,7 @@ describe("PersonProfilePage request catalog tools", () => {
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
 
+    fireEvent.click(within(await screen.findByTestId("person-profile-history-summary-row")).getByRole("button"));
     expect(
       await screen.findByText("Professional detail 1 and 11 more"),
     ).toBeInTheDocument();
@@ -1428,11 +1448,13 @@ describe("PersonProfilePage request catalog tools", () => {
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
 
-    expect(await screen.findByText("History item 1")).toBeInTheDocument();
-    expect(screen.queryByText("History item 9")).toBeNull();
+    fireEvent.click(within(await screen.findByTestId("person-profile-history-summary-row")).getByRole("button"));
+    const sheet = await screen.findByTestId("person-profile-history-sheet");
+    expect(within(sheet).getByText("History item 1")).toBeInTheDocument();
+    expect(within(sheet).queryByText("History item 9")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText("History item 9")).toBeInTheDocument();
-    expect(screen.queryByText("History item 1")).toBeNull();
+    expect(within(sheet).getByText("History item 9")).toBeInTheDocument();
+    expect(within(sheet).queryByText("History item 1")).toBeNull();
   });
 
   it("uses server bundle pages so a large request is never truncated into smaller history rows", async () => {
@@ -1470,11 +1492,13 @@ describe("PersonProfilePage request catalog tools", () => {
     render(
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
-    expect(await screen.findByText("150 items")).toBeInTheDocument();
-    expect(screen.getByText("Check status")).toBeInTheDocument();
+    fireEvent.click(within(await screen.findByTestId("person-profile-history-summary-row")).getByRole("button"));
+    const sheet = await screen.findByTestId("person-profile-history-sheet");
+    expect(within(sheet).getByText("150 items")).toBeInTheDocument();
+    expect(within(sheet).getByText("Check status")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(await screen.findByText("2 items")).toBeInTheDocument();
-    expect(screen.queryByText("150 items")).toBeNull();
+    await waitFor(() => expect(within(sheet).getByText("2 items")).toBeInTheDocument());
+    expect(within(sheet).queryByText("150 items")).toBeNull();
     expect(mocks.getRequestHistory).toHaveBeenLastCalledWith({
       personRef: "actual-public-ref",
       idToken: "id-token",
@@ -1513,11 +1537,13 @@ describe("PersonProfilePage request catalog tools", () => {
     render(
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
+    fireEvent.click(within(await screen.findByTestId("person-profile-history-summary-row")).getByRole("button"));
+    const sheet = await screen.findByTestId("person-profile-history-sheet");
     expect(
-      await screen.findByText("Tax record and Portfolio"),
+      within(sheet).getByText("Tax record and Portfolio"),
     ).toBeInTheDocument();
-    expect(screen.queryByText("2 items")).toBeNull();
-    expect(screen.getByText("3 items")).toBeInTheDocument();
+    expect(within(sheet).queryByText("2 items")).toBeNull();
+    expect(within(sheet).getByText("3 items")).toBeInTheDocument();
   });
 
   it("does not display details returned for another person", async () => {
@@ -1548,6 +1574,7 @@ describe("PersonProfilePage request catalog tools", () => {
     render(
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
+    fireEvent.click(within(await screen.findByTestId("person-profile-history-summary-row")).getByRole("button"));
     fireEvent.click(
       await screen.findByRole("button", {
         name: "Details for Employment status",
@@ -1557,8 +1584,8 @@ describe("PersonProfilePage request catalog tools", () => {
     expect(screen.queryByTestId("person-profile-bundle-details")).toBeNull();
   });
 
-  it("marks already-granted scopes as preselected, locked with Granted badge, and excludes them from review count", async () => {
-    const scopes = manyScopes(3);
+  it("marks already-granted and pending scopes as unchecked, locked with Shared/Waiting badges, and excludes them from category toggle and review count", async () => {
+    const scopes = manyScopes(5);
     mocks.getViewer.mockResolvedValue(
       viewerProfile({
         requestableScopes: scopes,
@@ -1573,24 +1600,46 @@ describe("PersonProfilePage request catalog tools", () => {
             status: "granted",
           },
         ],
+        requestHistory: [
+          {
+            bundleId: "bundle-pending",
+            requestId: "req-pending",
+            scopeRef: scopes[2].scopeRef,
+            label: scopes[2].label,
+            sensitivity: "standard",
+            purpose: "Pending request",
+            durationSeconds: 24 * 3600,
+            createdAt: null,
+            expiresAt: null,
+            status: "pending",
+          },
+        ],
       }),
     );
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
     fireEvent.click(await screen.findByRole("button", { name: "Open Professional" }));
 
-    // Look for Granted badge for the already-granted scope
-    expect(await screen.findByTestId(`person-profile-scope-badge-granted-${scopes[0].scopeRef}`)).toHaveTextContent("Granted");
+    // Granted scope renders unchecked + disabled with "Shared" badge
+    expect(await screen.findByTestId(`person-profile-scope-badge-granted-${scopes[0].scopeRef}`)).toHaveTextContent("Shared");
     const grantedCheckbox = screen.getByTestId(`person-profile-scope-toggle-${scopes[0].scopeRef}`) as HTMLInputElement;
-    expect(grantedCheckbox.checked).toBe(true);
+    expect(grantedCheckbox.checked).toBe(false);
     expect(grantedCheckbox.disabled).toBe(true);
 
-    // Review request button should be disabled because 0 ungranted scopes are selected
+    // Pending scope renders unchecked + disabled with "Waiting" badge
+    expect(screen.getByTestId(`person-profile-scope-badge-pending-${scopes[2].scopeRef}`)).toHaveTextContent("Waiting");
+    const pendingCheckbox = screen.getByTestId(`person-profile-scope-toggle-${scopes[2].scopeRef}`) as HTMLInputElement;
+    expect(pendingCheckbox.checked).toBe(false);
+    expect(pendingCheckbox.disabled).toBe(true);
+
+    // Review request button should be disabled because 0 available scopes are selected
     const reviewBtn = screen.getByRole("button", { name: /^Review request/ });
     expect(reviewBtn).toBeDisabled();
 
-    // Selecting an ungranted scope (scope-2 is also in Professional) enables Review request with count 1
-    const ungrantedCheckbox = screen.getByTestId(`person-profile-scope-toggle-${scopes[2].scopeRef}`);
-    fireEvent.click(ungrantedCheckbox);
+    // Category bulk-select only selects unlocked scopes (scope-4 in Professional), keeping granted & pending unchecked
+    fireEvent.click(screen.getByTestId("person-profile-scope-group-toggle-professional"));
+    expect(grantedCheckbox.checked).toBe(false);
+    expect(pendingCheckbox.checked).toBe(false);
+    expect((screen.getByTestId(`person-profile-scope-toggle-${scopes[4].scopeRef}`) as HTMLInputElement).checked).toBe(true);
     expect(screen.getByRole("button", { name: "Review request (1)" })).toBeEnabled();
   });
 

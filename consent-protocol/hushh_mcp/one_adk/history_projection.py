@@ -177,6 +177,37 @@ def _safe_workspace_connector_setup_descriptor(
     return None
 
 
+_TURN_LOCATION_PERMISSIONS = frozenset({"not_granted", "denied", "unavailable", "not_provided"})
+
+
+def _safe_turn_location_permission_descriptor(
+    event: Any,
+    selected_parts: list[Any] | None = None,
+) -> dict[str, Any] | None:
+    """Project the inline device-location toggle card when get_my_location lacked permission."""
+    parts = (
+        selected_parts
+        if selected_parts is not None
+        else (getattr(getattr(event, "content", None), "parts", None) or [])
+    )
+    for part in parts:
+        response = getattr(part, "function_response", None)
+        name = getattr(response, "name", "") if response is not None else ""
+        if name != "get_my_location":
+            continue
+        result = _status_result(getattr(response, "response", None))
+        if result.get("status") != "needs_location_permission":
+            continue
+        permission = str(result.get("permission") or "not_provided")
+        if permission not in _TURN_LOCATION_PERMISSIONS:
+            permission = "not_provided"
+        return {
+            "activityType": "one.turn_location_permission.v1",
+            "content": {"permission": permission},
+        }
+    return None
+
+
 # App-owned tool identities the browser already labels in the live Activity
 # panel. Anything else (sub-agent transfers, confirmation plumbing) is not a
 # step the owner saw by name, so it is not restored.
@@ -209,6 +240,7 @@ _ACTIVITY_TOOLS = frozenset(
         "search_wiki",
         "read_wiki_page",
         "trace_claim",
+        "optimize_personal_memory",
         "read_my_profile_status",
         "ask_location_agent",
         "list_my_location_circles",
@@ -235,6 +267,12 @@ _ACTIVITY_TOOLS = frozenset(
         "propose_calendar_event",
         "propose_calendar_reschedule",
         "propose_calendar_cancellation",
+        "files",
+        "search_files",
+        "read_file",
+        "write_file",
+        "create_folder",
+        "organize_file",
         "propose_file_schedule",
         "propose_goal_plan",
         "open_gmail_email_draft",
@@ -397,6 +435,7 @@ def project_conversation_history(
     session_state: dict | None = None,
     consent_by_invocation: dict[str, str] | None = None,
     consent_ended: dict[str, str] | None = None,
+    before_id: str | None = None,
 ) -> dict[str, Any]:
     messages: list[dict[str, object]] = []
     state = session_state or {}
@@ -495,4 +534,19 @@ def project_conversation_history(
                 "metadata": metadata,
             }
         )
-    return {"conversation_id": conversation_id, "messages": messages[-limit:]}
+    pool = messages
+    if isinstance(before_id, str) and before_id.strip():
+        normalized_before = before_id.strip()
+        for pos, entry in enumerate(messages):
+            if str(entry.get("id") or "") == normalized_before:
+                pool = messages[:pos]
+                break
+    sliced = pool[-limit:] if limit > 0 else []
+    has_more = len(pool) > len(sliced)
+    oldest_cursor = str(sliced[0]["id"]) if (has_more and sliced and sliced[0].get("id")) else None
+    return {
+        "conversation_id": conversation_id,
+        "messages": sliced,
+        "has_more": has_more,
+        "oldest_cursor": oldest_cursor,
+    }

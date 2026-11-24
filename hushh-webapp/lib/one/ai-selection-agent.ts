@@ -6,6 +6,7 @@
  * through `ApiService.ownerPodRequest`, which seals a PUT body to the agent's
  * hub-signed key (`pod-app-access.ts`), so no plaintext key reaches the hub.
  */
+import { isAgentStillWaking } from "@/lib/agent/owner-pod-wake";
 import { readUpdateStatus } from "@/lib/feed/agent-update-status";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { ApiService } from "@/lib/services/api-service";
@@ -18,6 +19,40 @@ import {
   recordSelectedAiProvider,
   type AiSelectionVault,
 } from "./ai-selection-vault";
+
+const AI_WAKE_RETRY_DELAYS_MS = [800, 1500, 2500] as const;
+
+async function waitAiWakeDelay(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function retryWhilePodWakes(
+  run: () => Promise<Response>,
+  isCurrent: () => boolean,
+  delaysMs: readonly number[] = AI_WAKE_RETRY_DELAYS_MS,
+): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= delaysMs.length; attempt += 1) {
+    if (!isCurrent()) throw new Error("OWNER_CHANGED");
+    try {
+      const response = await run();
+      if (!response) {
+        throw new Error("AGENT_UNREACHABLE");
+      }
+      if (!isAgentStillWaking(response) || attempt === delaysMs.length) {
+        return response;
+      }
+      void response.body?.cancel().catch(() => undefined);
+    } catch (error) {
+      lastError = error;
+      if (!isAgentStillWaking(error) || attempt === delaysMs.length) {
+        throw error;
+      }
+    }
+    await waitAiWakeDelay(delaysMs[attempt] ?? 1500);
+  }
+  throw lastError ?? new Error("AGENT_UNREACHABLE");
+}
 
 type AgentStatus = Awaited<
   ReturnType<typeof ApiService.getPersonalAgentStatus>
@@ -120,6 +155,9 @@ export function agentAiReadiness(
   if (mode === "pending") return { kind: "agent_pending" };
   if (mode === "shared" || !mode) return { kind: "no_agent" };
   if (mode !== "byoc" && mode !== "hussh_pods") return { kind: "unknown" };
+  if (mode === "hussh_pods" && status.deploymentTarget === "ace") {
+    return status.state === "failed" ? { kind: "unknown" } : { kind: "ready" };
+  }
   if (advertisedAiProviders(status)?.includes(provider))
     return { kind: "ready" };
   if (status.state === "failed")
@@ -183,10 +221,14 @@ export function parseAgentAiSelection(body: unknown): AgentAiSelection | null {
 
 export async function readAgentAiSelection(isCurrent = captureAiOwner()): Promise<AgentAiSelection | null> {
   if (!isCurrent()) throw new Error("OWNER_CHANGED");
-  const response = await ApiService.ownerPodRequest("ai-selection", {
-    method: "GET",
-    cache: "no-store",
-  }, false, undefined, undefined, isCurrent);
+  const response = await retryWhilePodWakes(
+    () =>
+      ApiService.ownerPodRequest("ai-selection", {
+        method: "GET",
+        cache: "no-store",
+      }, false, undefined, undefined, isCurrent),
+    isCurrent,
+  );
   if (!isCurrent()) throw new Error("OWNER_CHANGED");
   if (!response.ok) return null;
   const body = await response.json().catch(() => null);
@@ -205,6 +247,9 @@ export async function loadAgentAiState(provider: AiSelectionProvider): Promise<{
   const readiness = agentAiReadiness(status, provider);
   if (advertisedAiProviders(status) === null)
     return { readiness, selection: null };
+  if (status?.deploymentTarget === "ace" && status.state !== "active") {
+    return { readiness, selection: null };
+  }
   const selection = await readAgentAiSelection(isCurrent).catch(() => null);
   return isCurrent() ? { readiness, selection } : { readiness: { kind: "unknown" }, selection: null };
 }
@@ -248,12 +293,16 @@ export async function sendAiSelectionToAgent(
   if (!isCurrent()) return { ok: false, code: "AGENT_UNREACHABLE" };
   let response: Response;
   try {
-    response = await ApiService.ownerPodRequest("ai-selection", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      // pod-app-access seals this body to the agent's hub-signed key before dispatch.
-      body: JSON.stringify(selection),
-    }, false, undefined, undefined, isCurrent);
+    response = await retryWhilePodWakes(
+      () =>
+        ApiService.ownerPodRequest("ai-selection", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          // pod-app-access seals this body to the agent's hub-signed key before dispatch.
+          body: JSON.stringify(selection),
+        }, false, undefined, undefined, isCurrent),
+      isCurrent,
+    );
   } catch (error) {
     return { ok: false, code: refusalFromError(error) };
   }
@@ -280,9 +329,13 @@ export async function clearAgentAiSelection(
 ): Promise<boolean> {
   if (!isCurrent()) return false;
   try {
-    const response = await ApiService.ownerPodRequest("ai-selection", {
-      method: verifyDefault ? "PATCH" : "DELETE",
-    }, false, undefined, undefined, isCurrent);
+    const response = await retryWhilePodWakes(
+      () =>
+        ApiService.ownerPodRequest("ai-selection", {
+          method: verifyDefault ? "PATCH" : "DELETE",
+        }, false, undefined, undefined, isCurrent),
+      isCurrent,
+    );
     if (!isCurrent() || !response.ok) return false;
     if (!verifyDefault) return true;
     const body = await response.json().catch(() => null);
@@ -297,6 +350,124 @@ export async function clearAgentAiSelection(
     );
   } catch {
     return false;
+  }
+}
+
+/** Switch active BYOK config on the pod, falling back to sealed PUT on older pod images. */
+export async function activateAgentAiSelection(
+  input: { configId?: string; selection: AiSelectionPlaintext },
+  visitIsCurrent: () => boolean = () => true,
+): Promise<AiSelectionOutcome> {
+  const ownerIsCurrent = captureAiOwner();
+  const isCurrent = () => ownerIsCurrent() && visitIsCurrent();
+  if (!isCurrent()) return { ok: false, code: "AGENT_UNREACHABLE" };
+  try {
+    const response = await retryWhilePodWakes(
+      () =>
+        ApiService.ownerPodRequest("ai-selection/activate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            provider: input.selection.provider,
+            ...(input.configId ? { configId: input.configId } : {}),
+          }),
+        }, false, undefined, undefined, isCurrent),
+      isCurrent,
+    );
+    if (response.status === 404 || response.status === 405) {
+      return await sendAiSelectionToAgent(input.selection, isCurrent);
+    }
+    const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!isCurrent()) return { ok: false, code: "AGENT_UNREACHABLE" };
+    if (response.ok && (body?.status === "active" || body?.status === "activated")) {
+      return {
+        ok: true,
+        provider: textOrNull(body.provider) ?? input.selection.provider,
+        model: textOrNull(body.model),
+        checkedAtMs: finiteOrNull(body.checkedAtMs),
+      };
+    }
+    return { ok: false, code: refusalFromResponse(response.status, body) };
+  } catch (error) {
+    return { ok: false, code: refusalFromError(error) };
+  }
+}
+
+/** Deactivate active custom AI on the pod, returning cleanly when already on built-in AI. */
+export async function deactivateAgentAiSelection(
+  visitIsCurrent: () => boolean = () => true,
+): Promise<"cleared" | "not_needed" | "failed"> {
+  const ownerIsCurrent = captureAiOwner();
+  const isCurrent = () => ownerIsCurrent() && visitIsCurrent();
+  if (!isCurrent()) return "failed";
+  const status = await readAgentStatus();
+  if (!isCurrent()) return "failed";
+  if (advertisedAiProviders(status) === null) return "not_needed";
+  if (status?.deploymentTarget === "ace" && status.state !== "active") {
+    return "not_needed";
+  }
+  const current = await readAgentAiSelection(isCurrent).catch(() => undefined);
+  if (!isCurrent() || current === undefined) return "failed";
+  if (current && current.configured === false) return "not_needed";
+  try {
+    const response = await retryWhilePodWakes(
+      () =>
+        ApiService.ownerPodRequest("ai-selection/deactivate", {
+          method: "POST",
+        }, false, undefined, undefined, isCurrent),
+      isCurrent,
+    );
+    if (response.status === 404 || response.status === 405) {
+      const expectedProvider = status?.deploymentTarget === "user_azure" ? "azure_openai" : "gemini";
+      return (await clearAgentAiSelection(false, expectedProvider, isCurrent))
+        ? "cleared"
+        : "failed";
+    }
+    return isCurrent() && response.ok ? "cleared" : "failed";
+  } catch {
+    return "failed";
+  }
+}
+
+/** Remove a single provider's selection from the pod via DELETE /ai-selection?provider=... */
+export async function clearAgentAiSelectionProvider(
+  provider: AiSelectionProvider,
+  visitIsCurrent: () => boolean = () => true,
+  options: { clearInactiveSlot?: boolean } = {},
+): Promise<"cleared" | "not_needed" | "failed"> {
+  const ownerIsCurrent = captureAiOwner();
+  const isCurrent = () => ownerIsCurrent() && visitIsCurrent();
+  if (!isCurrent()) return "failed";
+  const status = await readAgentStatus();
+  if (!isCurrent()) return "failed";
+  if (advertisedAiProviders(status) === null) return "not_needed";
+  // Note: `status.state !== "active"` only occurs before initial pod activation
+  // (`reserved`/`provisioning`/`connecting`), whereas an idle-to-zero `ace` pod
+  // retains `status.state === "active"` in Hub and is woken via `retryWhilePodWakes`.
+  if (status?.deploymentTarget === "ace" && status.state !== "active") {
+    return "not_needed";
+  }
+  const current = await readAgentAiSelection(isCurrent).catch(() => undefined);
+  if (!isCurrent() || current === undefined) return "failed";
+  if (!options.clearInactiveSlot && (!current?.configured || current.provider !== provider)) {
+    return "not_needed";
+  }
+  try {
+    const response = await retryWhilePodWakes(
+      () =>
+        ApiService.ownerPodRequest(
+          `ai-selection?provider=${encodeURIComponent(provider)}`,
+          { method: "DELETE" },
+          false,
+          undefined,
+          undefined,
+          isCurrent,
+        ),
+      isCurrent,
+    );
+    return isCurrent() && response.ok ? "cleared" : "failed";
+  } catch {
+    return "failed";
   }
 }
 
@@ -416,11 +587,18 @@ export async function clearAgentAiSelectionFor(
   if (!isCurrent()) return "failed";
   if (advertisedAiProviders(status) === null)
     return verifyDefault ? "failed" : "not_needed";
+  if (!verifyDefault && status?.deploymentTarget === "ace" && status.state !== "active") {
+    return "not_needed";
+  }
   if (onlyProvider) {
     const current = await readAgentAiSelection(isCurrent).catch(() => undefined);
     if (!isCurrent() || current === undefined) return "failed";
     if (!current?.configured || current.provider !== onlyProvider)
       return "not_needed";
+  } else if (!verifyDefault) {
+    const current = await readAgentAiSelection(isCurrent).catch(() => undefined);
+    if (!isCurrent() || current === undefined) return "failed";
+    if (current && current.configured === false) return "not_needed";
   }
   if (verifyDefault && status?.aiSelection?.defaultVerification !== true)
     return "failed";

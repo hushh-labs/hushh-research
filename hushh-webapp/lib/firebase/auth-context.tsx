@@ -14,6 +14,7 @@
 
 "use client";
 
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { resolveAccountLifecycleRecovery } from "@/lib/auth/account-lifecycle-recovery";
 import { rememberPendingAccountDeviceDeparture, purgeConfirmedAccountDeviceDeparture, purgeDepartedAccountDevice, pendingAccountCleanupOperationId } from "@/lib/auth/account-departure-device";
 
@@ -591,7 +592,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const isCurrent = () => !disposed && userRef.current?.uid === expectedUid &&
       getAuthSessionGeneration() === generation;
-    const canReachBackend = () => document.visibilityState === "visible" && navigator.onLine !== false &&
+    const canReachBackend = () => document.visibilityState === "visible" && isNetworkOnline() &&
       appInteractionCoordinator.getLifecycleSnapshot().state === "active";
     const clearRetry = () => {
       if (retryTimer !== null) globalThis.clearTimeout(retryTimer);
@@ -1400,7 +1401,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (cancelled) return;
 
         const canReachBackend =
-          document.visibilityState === "visible" && navigator.onLine !== false;
+          document.visibilityState === "visible" && isNetworkOnline();
         if (!canReachBackend) {
           scheduleRetry(); // Hidden or offline ticks re-arm without counting as checks.
           return;
@@ -1913,11 +1914,59 @@ export function AuthProvider({ children }: AuthProviderProps) {
           }
         }
 
+        const prepareRecaptchaWithTimeout = async () => {
+          const timeoutMs = 15_000;
+          return new Promise<Awaited<ReturnType<typeof prepareRecaptchaVerifier>>>((resolve, reject) => {
+            if (signal?.aborted) {
+              reject(Object.assign(new Error("Phone verification was cancelled."), { code: "aborted" }));
+              return;
+            }
+            let settled = false;
+            const onAbort = () => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              resetRecaptcha();
+              reject(Object.assign(new Error("Phone verification was cancelled."), { code: "aborted" }));
+            };
+            const timer = setTimeout(() => {
+              if (settled) return;
+              settled = true;
+              signal?.removeEventListener("abort", onAbort);
+              resetRecaptcha();
+              reject(
+                Object.assign(
+                  new Error("Sending the verification code took too long. Request a new code."),
+                  { code: "phone-verification-start-timeout" },
+                ),
+              );
+            }, timeoutMs);
+            signal?.addEventListener("abort", onAbort, { once: true });
+            (async () => prepareRecaptchaVerifier("recaptcha-container"))().then(
+              (verifier) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                signal?.removeEventListener("abort", onAbort);
+                resolve(verifier);
+              },
+              (err) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                signal?.removeEventListener("abort", onAbort);
+                resetRecaptcha();
+                reject(err);
+              },
+            );
+          });
+        };
+
         // Only explicit recovery may use the existing proof-only SMS transport.
         // Ordinary linking never falls back to an isolated sign-in.
         if (options?.transport === "sms" && currentUser.phoneNumber === phone) {
           const context = { expectedUserId: uid, attemptId: crypto.randomUUID(), signal, resendCode: options.resendCode };
-          const verifier = isNative ? undefined : await prepareRecaptchaVerifier("recaptcha-container");
+          const verifier = isNative ? undefined : await prepareRecaptchaWithTimeout();
           requirePhoneVerificationOwner(uid, epoch);
           const result = await AuthService.startPhoneDeletionVerification(phone, verifier, context);
           requirePhoneVerificationOwner(uid, epoch);
@@ -1965,7 +2014,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             ? AuthService.startPhoneLinkVerification
             : AuthService.startPhoneReplacementVerification;
           const recaptchaVerifier = isNative || localFixture
-            ? undefined : await prepareRecaptchaVerifier("recaptcha-container");
+            ? undefined : await prepareRecaptchaWithTimeout();
           requirePhoneVerificationOwner(uid, epoch);
           const result = await start.call(AuthService, phone, {
             expectedUserId: uid, resendCode: options?.resendCode, signal, recaptchaVerifier,

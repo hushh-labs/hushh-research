@@ -208,4 +208,41 @@ describe("AuthService phone proof integration", () => {
     expect(mockPhoneAuthProvider).not.toHaveBeenCalled();
     expect(linkWithCredential).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["auth/operation-not-allowed", "operation-not-allowed", /temporarily unavailable/i],
+    ["auth/sms-region-not-allowed", "sms-region-not-allowed", /country or region/i],
+    ["auth/invalid-phone-number", "invalid-phone-number", /valid phone number/i],
+  ])("maps %s to a clear user-facing phone verification error", async (rawCode, expectedCode, pattern) => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    mockAuth.currentUser = { uid: "web-user", phoneNumber: null };
+    const rejectedVerify = vi.fn().mockRejectedValue(Object.assign(new Error(rawCode), { code: rawCode }));
+    mockPhoneAuthProvider.mockImplementation(function () {
+      return { verifyPhoneNumber: rejectedVerify };
+    });
+    await expect(AuthService.startPhoneLinkVerification("+16505550101")).rejects.toMatchObject({
+      code: expectedCode,
+      message: expect.stringMatching(pattern),
+    });
+  });
+
+  it("times out a stalled web verifyPhoneNumber call and clears the verifier", async () => {
+    vi.useFakeTimers();
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    mockAuth.currentUser = { uid: "web-user", phoneNumber: null };
+    const clear = vi.fn();
+    mockPhoneAuthProvider.mockImplementation(function () {
+      return { verifyPhoneNumber: vi.fn().mockReturnValue(new Promise(() => {})) };
+    });
+    let caught: unknown;
+    const pending = AuthService.startPhoneLinkVerification("+16505550101", {
+      recaptchaVerifier: { type: "recaptcha", verify: vi.fn(), clear } as any,
+    }).catch((err) => {
+      caught = err;
+    });
+    await vi.advanceTimersByTimeAsync(25_000);
+    await pending;
+    expect(clear).toHaveBeenCalledOnce();
+    expect(caught).toMatchObject({ code: "phone-verification-start-timeout" });
+  });
 });

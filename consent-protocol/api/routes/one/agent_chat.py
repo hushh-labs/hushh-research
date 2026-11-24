@@ -13,12 +13,13 @@ from typing import Any, cast
 from ag_ui.core import RunAgentInput
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from google.adk.apps import App, ResumabilityConfig
 from google.adk.sessions import InMemorySessionService
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from starlette.concurrency import run_in_threadpool
 
-from api.middleware import require_vault_owner_token
+from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.middlewares.chat_key import CHAT_KEY_REQUIRED_DETAIL, log_chat_key_refusal
 from api.routes.one.agent_context import sanitize_agent_context
 from api.routes.one.command_proposals import require_pod_process
@@ -90,6 +91,9 @@ from hushh_mcp.one_adk.history_descriptors import (
 )
 from hushh_mcp.one_adk.history_descriptors import (
     _safe_submitted_information_request_descriptor as _safe_submitted_information_request_descriptor,
+)
+from hushh_mcp.one_adk.history_descriptors import (
+    _session_category_projection,
 )
 from hushh_mcp.one_adk.history_descriptors import (
     _session_title as _session_title,
@@ -621,6 +625,8 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     owner_display_name = await _owner_display_name_for_turn(user_id) if token and user_id else ""
     return {
         STATE_EXECUTION_SURFACE: "typed_chat",
+        "temp:one_calendar_review_contract": type(forwarded.get("calendarReviewContract")) is int
+        and forwarded.get("calendarReviewContract") == 1,
         "temp:hussh:turn_started_at": turn_started_at,
         STATE_TURN_LOCATION: turn_location,
         STATE_MCP_CONFIGURATION: mcp_configuration,
@@ -672,6 +678,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_PLAID_POSTURE: plaid_posture,
         STATE_PLAID_CLIENT_READY: plaid_client_ready,
         STATE_PLAID_RESULT: plaid_result,
+        **({"hussh:thread_title": "One"} if forwarded.get("mainChat") is True else {}),
     }
 
 
@@ -791,6 +798,7 @@ def _one_head() -> TimedADKAgent:
         user_id_extractor=_user_id,
     )
     agent.detached_turn_hook = _notify_detached_turn
+    agent.post_turn_hook = _persist_hub_rolling_horizon
     return agent
 
 
@@ -827,6 +835,18 @@ def __getattr__(name: str) -> Any:
     if name == "_intro_agent":
         return _intro_head()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+async def _persist_hub_rolling_horizon(owner_id: str, conversation_id: str) -> None:
+    """Silently persist encrypted rolling-horizon digest after RUN_FINISHED (zero turn pause)."""
+    from hushh_mcp.one_adk.rolling_horizon import persist_rolling_horizon_post_turn
+
+    await persist_rolling_horizon_post_turn(
+        _shared_sessions(),
+        app_name=ONE_APP_NAME,
+        user_id=owner_id,
+        session_id=conversation_id,
+    )
 
 
 async def _notify_detached_turn(owner_id: str, conversation_id: str) -> None:
@@ -868,7 +888,14 @@ mark_inline_routes(router, "/api/one/agent-chat", "agent_chat")  # _extract_stat
 
 
 class RenameConversation(BaseModel):
-    title: str = Field(min_length=1, max_length=160)
+    title: str | None = Field(default=None, min_length=1, max_length=160)
+    category: str | None = Field(default=None, max_length=32)
+
+    @model_validator(mode="after")
+    def _require_mutation(self) -> RenameConversation:
+        if self.title is None and "category" not in self.model_fields_set:
+            raise ValueError("Provide title or category.")
+        return self
 
 
 @router.post("/api/one/agent-chat/history/{conversation_id}/information-requests")
@@ -898,6 +925,59 @@ async def record_information_request_submission(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
+@router.get("/api/one/agent-chat/migration/sessions")
+async def export_migration_sessions(
+    user_id: str = Depends(require_firebase_auth),
+) -> JSONResponse:
+    """Export sealed owner-encrypted Shared chat rows for ACE migration without Hub decryption."""
+    from datetime import datetime, timezone
+
+    from hushh_mcp.one_adk.adk_session_repository import PostgresAdkSessionRepository
+    from hushh_mcp.services.chat_key import CHAT_CIPHERTEXT_LIKE
+
+    sessions_service = _shared_sessions()
+    repo = PostgresAdkSessionRepository(lambda sql, params: sessions_service._execute(sql, params))
+    result = await repo.list_sealed_for_migration(
+        app=ONE_APP_NAME, user=user_id, chat_marker=CHAT_CIPHERTEXT_LIKE
+    )
+    exported: list[dict[str, Any]] = []
+    for raw in result.data or []:
+        row = dict(raw)
+        row_user = str(row.get("user_id") or user_id).strip()
+        session_id = str(row.get("session_id") or "").strip()
+        ciphertext = str(row.get("payload_ciphertext") or "")
+        if row_user != user_id or not session_id or not ciphertext:
+            continue
+        updated_raw = row.get("updated_at")
+        if isinstance(updated_raw, datetime):
+            if updated_raw.tzinfo is None:
+                updated_raw = updated_raw.replace(tzinfo=timezone.utc)
+            updated_at = updated_raw.isoformat()
+        else:
+            updated_at = str(updated_raw or "")
+        exported.append(
+            {
+                "app_name": str(row.get("app_name") or ONE_APP_NAME),
+                "user_id": row_user,
+                "session_id": session_id,
+                "payload_ciphertext": ciphertext,
+                "payload_iv": str(row.get("payload_iv") or ""),
+                "payload_tag": str(row.get("payload_tag") or ""),
+                "payload_algorithm": str(row.get("payload_algorithm") or ""),
+                "revision": int(row.get("revision") or 1),
+                "updated_at": updated_at,
+            }
+        )
+    return JSONResponse(
+        {
+            "status": "ready" if exported else "empty",
+            "sessions": exported,
+            "count": len(exported),
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @router.get("/api/one/agent-chat/conversations/{user_id}", dependencies=HUB_CHAT_GUARD)
 async def list_conversations(
     user_id: str,
@@ -923,6 +1003,8 @@ async def list_conversations(
             {
                 "id": session.id,
                 "title": _session_title(session),
+                "category": category,
+                "category_source": category_source,
                 "status": "active",
                 "model": None,
                 "message_count": sum(1 for event in session.events if _event_text(event)),
@@ -931,6 +1013,7 @@ async def list_conversations(
                 "last_message_at": session.last_update_time,
             }
             for session in sessions
+            for category, category_source in [_session_category_projection(session)]
         ],
     }
 
@@ -968,6 +1051,7 @@ async def _consent_access_for_history(
 async def conversation_history(
     conversation_id: str,
     limit: int = Query(default=50, ge=1, le=100),
+    before: str | None = Query(default=None, max_length=160),
     token: dict = Depends(require_vault_owner_chat_key),
 ):
     user_id = str(token["user_id"])
@@ -985,6 +1069,7 @@ async def conversation_history(
         session.events,
         conversation_id,
         limit,
+        before_id=before,
         session_state=session.state,
         consent_by_invocation=consent_by_invocation,
         consent_ended=consent_ended,
@@ -1032,19 +1117,36 @@ async def rename_conversation(
     payload: RenameConversation,
     token: dict = Depends(require_vault_owner_chat_key),
 ):
-    session = await _shared_sessions().set_title(
-        app_name=ONE_APP_NAME,
-        user_id=str(token["user_id"]),
-        session_id=conversation_id,
-        title=payload.title,
-    )
+    sessions = _shared_sessions()
+    update_category = "category" in payload.model_fields_set
+    if update_category and hasattr(sessions, "update_conversation_metadata"):
+        session = await sessions.update_conversation_metadata(
+            app_name=ONE_APP_NAME,
+            user_id=str(token["user_id"]),
+            session_id=conversation_id,
+            title=payload.title,
+            category=payload.category,
+            update_category=True,
+        )
+    else:
+        session = await sessions.set_title(
+            app_name=ONE_APP_NAME,
+            user_id=str(token["user_id"]),
+            session_id=conversation_id,
+            title=payload.title or "",
+        )
     if session is None:
         raise HTTPException(status_code=404, detail="Conversation not found.")
+    category, category_source = _session_category_projection(session)
     return {
         "id": session.id,
         "title": _session_title(session),
+        "category": category,
+        "category_source": category_source,
         "status": "active",
         "message_count": len(session.events),
+        "updated_at": session.last_update_time,
+        "last_message_at": session.last_update_time,
     }
 
 

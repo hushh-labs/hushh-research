@@ -239,6 +239,18 @@ function resolveCapabilitySetupBackHref(
 export const BACK_NAVIGATION_RULES: BackRule[] = [
   ...ONE_LEAF_WORKSPACE_BACK_RULES,
   {
+    id: "reference-design-system",
+    resolve: (pathname) => {
+      if (pathname !== ROUTES.DESIGN_SYSTEM) return undefined;
+      return {
+        backHref: ROUTES.HOME,
+        width: "content",
+        align: "start",
+        items: [{ label: "Design System" }],
+      };
+    },
+  },
+  {
     id: "legal-terms-privacy",
     resolve: (pathname) => {
       if (pathname !== ROUTES.TERMS && pathname !== ROUTES.PRIVACY) return undefined;
@@ -592,9 +604,18 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         .split("/")
         .filter(Boolean)[0];
       const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
-      const managementReturn = pathname === ROUTES.ONE_SETUP_CLOUD
-        && searchParams?.get("return_to") === ROUTES.PROFILE_HOSTING
-        ? ROUTES.PROFILE_HOSTING : undefined;
+      const rawReturnTo = normalizeInternalRouteHref(searchParams?.get("return_to"));
+      const isHostingOrigin = (href: string | null | undefined) =>
+        Boolean(
+          href &&
+            (href === ROUTES.PROFILE_HOSTING ||
+              href.startsWith(`${ROUTES.PROFILE_HOSTING}?`) ||
+              href.includes("profile_panel=hosting")),
+        );
+      const managementReturn =
+        pathname === ROUTES.ONE_SETUP_CLOUD && isHostingOrigin(rawReturnTo)
+          ? rawReturnTo ?? undefined
+          : undefined;
       const setupBackHref = originHref || managementReturn || ROUTES.ONE_SETUP;
       return {
         backHref: setupBackHref,
@@ -603,7 +624,10 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         hideBack: false,
         items: [
           { label: "One", href: ROUTES.ONE_HOME },
-          { label: setupBackHref === ROUTES.PROFILE_HOSTING ? "Hosting" : "Setup", href: setupBackHref },
+          {
+            label: isHostingOrigin(setupBackHref) ? "Hosting" : "Setup",
+            href: setupBackHref,
+          },
           ...(capabilitySegment
             ? [
                 {
@@ -934,13 +958,16 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
   },
   {
     id: "one-tasks",
-    resolve: (pathname) => {
+    resolve: (pathname, searchParams) => {
       if (pathname !== ROUTES.ONE_TASKS) return undefined;
+      const fromGoals = searchParams?.get("from") === "goals";
       return {
-        backHref: ROUTES.ONE_HOME,
+        backHref: fromGoals ? ROUTES.ONE_GOALS : ROUTES.ONE_HOME,
         width: "profile",
         align: "center",
-        items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Tasks" }],
+        items: fromGoals
+          ? [{ label: "Goals", href: ROUTES.ONE_GOALS }, { label: "Tasks" }]
+          : [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Tasks" }],
       };
     },
   },

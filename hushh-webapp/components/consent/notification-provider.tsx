@@ -39,6 +39,11 @@ import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { Capacitor } from "@capacitor/core";
 import { useVault } from "@/lib/vault/vault-context";
 import { type PendingConsent } from "@/lib/consent";
+import { consentInformationLabel } from "@/lib/consent/consent-owner-copy";
+import {
+  IncomingConsentChatBanner,
+  type IncomingConsentBannerItem,
+} from "@/components/consent/incoming-consent-chat-banner";
 import { ApiService } from "@/lib/services/api-service";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -673,6 +678,12 @@ export function ConsentNotificationProvider({
   const isNativePlatform = Capacitor.isNativePlatform();
   const router = useRouter();
   const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  useEffect(() => {
+    pathnameRef.current = pathname;
+  }, [pathname]);
+  const [chatShortcutBanner, setChatShortcutBanner] =
+    useState<IncomingConsentBannerItem | null>(null);
   const searchParams = useSearchParams();
   const consentRouteRequestId = String(
     searchParams.get("requestId") || "",
@@ -1329,8 +1340,19 @@ export function ConsentNotificationProvider({
     };
   }, [fcmInitStatus, user, applicationOwnerId]);
 
+  const prioritizeConsentRealtime = shouldPrioritizeConsentRealtime(pathname);
+  const sseCapabilityRef = useRef<{
+    ownerId: string;
+    enabled: boolean;
+    checkedAt: number;
+  } | null>(null);
+
   useEffect(() => {
-    if (!user || !applicationOwnerId) { disabledSseUser.current = null; return; }
+    if (!user || !applicationOwnerId) {
+      disabledSseUser.current = null;
+      sseCapabilityRef.current = null;
+      return;
+    }
     if (Capacitor.isNativePlatform() || disabledSseUser.current === applicationOwnerId) return;
     const initStatus = fcmInitStatus;
     if (!initStatus || initStatus === "push_active") return;
@@ -1341,7 +1363,7 @@ export function ConsentNotificationProvider({
     let idleHandle: number | null = null;
     let delayedConnectTimer: ReturnType<typeof setTimeout> | null = null;
     const abortController = new AbortController();
-    const prioritizeRealtime = shouldPrioritizeConsentRealtime(pathname);
+    const prioritizeRealtime = prioritizeConsentRealtime;
 
     if (!prioritizeRealtime) {
       setDeliveryMode(
@@ -1354,24 +1376,41 @@ export function ConsentNotificationProvider({
       let connectedAt: number | null = null;
       try {
         const idToken = await user.getIdToken(reconnectAttempt > 0);
-        const availability = await ApiService.apiFetch(
-          `/api/consent/events/${encodeURIComponent(applicationOwnerId)}?capabilities=1`,
-          {
-            method: "GET",
-            headers: { Authorization: `Bearer ${idToken}` },
-            signal: abortController.signal,
-            cache: "no-store",
-          },
-        );
-        if (!availability.ok) {
-          throw new ConsentSseError("consent_delivery_discovery_failed", availability.status);
+        const cachedCapability = sseCapabilityRef.current;
+        const capabilityFresh =
+          reconnectAttempt === 0 &&
+          cachedCapability &&
+          cachedCapability.ownerId === applicationOwnerId &&
+          Date.now() - cachedCapability.checkedAt < 300_000;
+        let sseEnabled: boolean;
+        if (capabilityFresh) {
+          sseEnabled = cachedCapability.enabled;
+        } else {
+          const availability = await ApiService.apiFetch(
+            `/api/consent/events/${encodeURIComponent(applicationOwnerId)}?capabilities=1`,
+            {
+              method: "GET",
+              headers: { Authorization: `Bearer ${idToken}` },
+              signal: abortController.signal,
+              cache: "no-store",
+            },
+          );
+          if (!availability.ok) {
+            throw new ConsentSseError("consent_delivery_discovery_failed", availability.status);
+          }
+          const capability = await availability.json() as { enabled?: unknown };
+          if (cancelled || abortController.signal.aborted) return;
+          if (typeof capability.enabled !== "boolean") {
+            throw new ConsentSseError("consent_delivery_discovery_invalid", 502);
+          }
+          sseEnabled = capability.enabled;
+          sseCapabilityRef.current = {
+            ownerId: applicationOwnerId,
+            enabled: sseEnabled,
+            checkedAt: Date.now(),
+          };
         }
-        const capability = await availability.json() as { enabled?: unknown };
-        if (cancelled || abortController.signal.aborted) return;
-        if (typeof capability.enabled !== "boolean") {
-          throw new ConsentSseError("consent_delivery_discovery_invalid", 502);
-        }
-        if (!capability.enabled) {
+        if (!sseEnabled) {
           disabledSseUser.current = applicationOwnerId;
           setDeliveryMode(initStatus === "push_blocked" ? "push_blocked" : "inbox_only");
           return;
@@ -1571,7 +1610,7 @@ export function ConsentNotificationProvider({
         globalThis.clearTimeout(delayedConnectTimer);
       }
     };
-  }, [fcmInitStatus, pathname, user, applicationOwnerId]);
+  }, [fcmInitStatus, prioritizeConsentRealtime, user, applicationOwnerId]);
 
   useEffect(() => {
     if (!user || !isVaultUnlocked) return;
@@ -2089,6 +2128,38 @@ export function ConsentNotificationProvider({
         if (isNewPendingRequest) {
           setPendingCount((prev) => Math.max(prev, 0) + 1);
         }
+        const activePath = String(pathnameRef.current || "").trim().toLowerCase();
+        const showChatShortcut =
+          isNewPendingRequest &&
+          activePath !== ROUTES.HOME &&
+          !isConsentWorkspaceRoute(activePath) &&
+          activePath !== ROUTES.ONE_FEED;
+        if (showChatShortcut) {
+          const meta = consent.metadata ?? {};
+          const rawBundleCoins = Number(
+            meta.bundle_price_coins ?? data.bundle_price_coins ?? 0,
+          );
+          const rawRequestCoins = Number(
+            meta.request_price_coins ?? data.request_price_coins ?? 0,
+          );
+          const priceCoins =
+            Number.isFinite(rawBundleCoins) && rawBundleCoins > 0
+              ? Math.round(rawBundleCoins)
+              : Number.isFinite(rawRequestCoins) && rawRequestCoins > 0
+                ? Math.round(rawRequestCoins)
+                : 0;
+          setChatShortcutBanner({
+            requestId: consent.id,
+            bundleId: consent.bundleId ?? null,
+            requesterLabel:
+              String(consent.developer || data.requester_label || "Someone").trim() || "Someone",
+            scopeLabel: consentInformationLabel({
+              scope: consent.scope,
+              label: consent.scopeDescription || data.scope_description || data.human_label,
+            }),
+            ...(priceCoins > 0 ? { priceCoins } : {}),
+          });
+        }
         dispatchConsentStateChanged({
           source: "fcm_live",
           requestId: consent.id,
@@ -2114,6 +2185,13 @@ export function ConsentNotificationProvider({
         if (toastKey) {
           toast.dismiss(toastKey);
         }
+        setChatShortcutBanner((current) =>
+          current &&
+          (current.requestId === requestId ||
+            (bundleId && current.bundleId === bundleId))
+            ? null
+            : current,
+        );
         if (isNativePlatform) {
           void clearDeliveredConsentNotifications({
             requestId,
@@ -2143,6 +2221,13 @@ export function ConsentNotificationProvider({
           toast.dismiss(toastKey);
           setPendingCount((prev) => Math.max(0, prev - 1));
         }
+        setChatShortcutBanner((current) =>
+          current &&
+          (current.requestId === requestId ||
+            (data.bundle_id && current.bundleId === data.bundle_id))
+            ? null
+            : current,
+        );
         if (applicationOwnerId) {
           const queued = removeQueuedPendingConsent(
             applicationOwnerId,
@@ -2567,6 +2652,18 @@ export function ConsentNotificationProvider({
     };
   }, [deliveryMode, isVaultUnlocked, reconcilePendingConsents, applicationOwnerId]);
 
+  useEffect(() => {
+    const normalized = String(pathname || "").trim().toLowerCase();
+    if (
+      !isVaultUnlocked ||
+      normalized === ROUTES.HOME ||
+      isConsentWorkspaceRoute(normalized) ||
+      normalized === ROUTES.ONE_FEED
+    ) {
+      setChatShortcutBanner(null);
+    }
+  }, [isVaultUnlocked, pathname]);
+
   return (
     <ConsentNotificationStateContext.Provider
       value={{
@@ -2577,6 +2674,16 @@ export function ConsentNotificationProvider({
         isRetryingPushRegistration,
       }}
     >
+      <IncomingConsentChatBanner
+        item={chatShortcutBanner}
+        onReviewInChat={(banner) => {
+          setChatShortcutBanner(null);
+          router.push(
+            `${ROUTES.HOME}?focusConsentRequest=${encodeURIComponent(banner.requestId)}`,
+          );
+        }}
+        onDismiss={() => setChatShortcutBanner(null)}
+      />
       {children}
     </ConsentNotificationStateContext.Provider>
   );

@@ -5,6 +5,7 @@
     "analysis_stream_started": [],
     "analysis_stream_terminal_decision": [],
     "growth_funnel_step_completed": [],
+    "hushh_mail_signin_screen_view": [],
     "investor_activation_completed": [],
     "market_insights_loaded": [],
     "marketplace_profile_viewed": [
@@ -87,6 +88,6 @@
     "recommendation_viewed": [],
     "ria_activation_completed": []
   },
-  "sourceDigest": "8ee435cb515f221757bd044fdf12e770a99b8889ffe5945577b68b28aaf31b4f",
+  "sourceDigest": "0ca9367b77800e13ecfa01079a8cc8573ab2782bff9036f38782eb5d1c30f539",
   "version": 1
 }

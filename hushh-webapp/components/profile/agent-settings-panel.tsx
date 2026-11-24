@@ -1,7 +1,19 @@
 "use client";
 
+import { useState } from "react";
+import { ChevronRight } from "@/components/icons";
 import { CloudHostingHealth } from "./cloud-hosting-health";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { AgentUpdateActivity } from "./agent-update-activity";
 import { BrowserActivationPanel } from "@/components/computer-use/browser-activation-panel";
 import { AzureHostingNotice } from "./azure-hosting-notice";
@@ -20,49 +32,161 @@ import {
   podCloudProvider,
 } from "@/lib/one/owner-cloud";
 import {
-  HostedPodDualCloudMarks,
   HusshPodsActiveCard,
   HusshPodsMigrationCard,
   PodCloudBadge,
+  PodCloudProviderMark,
   PooledSandboxSwitchCard,
 } from "@/components/connections/hussh-pods-cloud-card";
+import { CircleAutoApprovePanel } from "@/components/connections/circle-auto-approve-panel";
+import { PodSessionLockdownControl } from "@/components/connections/pod-session-lockdown-row";
 import { ROUTES } from "@/lib/navigation/routes";
-import { HOST_LABELS, agentSettingsSummary, useAgentSettingsController, type AgentSettingsController } from "./use-agent-settings-controller";
-export { HOST_LABELS, agentSettingsSummary, useAgentSettingsController } from "./use-agent-settings-controller";
+import {
+  HOST_LABELS,
+  hostModeLabel,
+  agentSettingsSummary,
+  useAgentSettingsController,
+  type AgentSettingsController,
+} from "./use-agent-settings-controller";
+export {
+  HOST_LABELS,
+  hostModeLabel,
+  agentSettingsSummary,
+  useAgentSettingsController,
+} from "./use-agent-settings-controller";
 export type { AgentSettingsController } from "./use-agent-settings-controller";
 
-export function AgentSettingsPanel({ kind, userId, controller }: {
-  kind: "hosting" | "software-updates"; userId: string; controller?: AgentSettingsController;
+export type AgentSettingsDetailView = "hosting-details" | "update-details" | null;
+
+export function AgentSettingsPanel({
+  kind,
+  userId,
+  controller,
+  detail = null,
+  onOpenDetail,
+}: {
+  kind: "hosting" | "software-updates";
+  userId: string;
+  controller?: AgentSettingsController;
+  detail?: AgentSettingsDetailView;
+  onOpenDetail?: (detail: Exclude<AgentSettingsDetailView, null>) => void;
 }) {
-  return controller ? <AgentSettingsBody model={controller} /> : <OwnedAgentSettingsPanel kind={kind} userId={userId} />;
+  return controller ? (
+    <AgentSettingsBody model={controller} detail={detail} onOpenDetail={onOpenDetail} />
+  ) : (
+    <OwnedAgentSettingsPanel
+      kind={kind}
+      userId={userId}
+      detail={detail}
+      onOpenDetail={onOpenDetail}
+    />
+  );
 }
 
-function OwnedAgentSettingsPanel({ kind, userId }: { kind: "hosting" | "software-updates"; userId: string }) {
-  return <AgentSettingsBody model={useAgentSettingsController({ kind, userId })} />;
+function OwnedAgentSettingsPanel({
+  kind,
+  userId,
+  detail,
+  onOpenDetail,
+}: {
+  kind: "hosting" | "software-updates";
+  userId: string;
+  detail?: AgentSettingsDetailView;
+  onOpenDetail?: (detail: Exclude<AgentSettingsDetailView, null>) => void;
+}) {
+  return (
+    <AgentSettingsBody
+      model={useAgentSettingsController({ kind, userId })}
+      detail={detail}
+      onOpenDetail={onOpenDetail}
+    />
+  );
 }
 
-function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
-  const { kind, userId, status, update, refresh, azureUpdate, busy, inspection, mode, isPod,
-    needsLinkRecovery, awaitingMicrosoft, working, checkStatus, act, reconnectDirectPod,
-    sendFailureReport, recoverExistingPod, chooseHosting, browser, azureHosting } = model;
+function AgentSettingsBody({
+  model,
+  detail: controlledDetail = null,
+  onOpenDetail,
+}: {
+  model: AgentSettingsController;
+  detail?: AgentSettingsDetailView;
+  onOpenDetail?: (detail: Exclude<AgentSettingsDetailView, null>) => void;
+}) {
+  const [localDetail, setLocalDetail] = useState<AgentSettingsDetailView>(null);
+  const [confirmSwitch, setConfirmSwitch] = useState<
+    "shared" | "own_cloud" | "sandbox" | null
+  >(null);
+  const [removePriorCloudOnSandboxSwitch, setRemovePriorCloudOnSandboxSwitch] =
+    useState(false);
+  const activeDetail = onOpenDetail ? controlledDetail : localDetail;
+  const openDetail = (next: Exclude<AgentSettingsDetailView, null>) => {
+    if (onOpenDetail) {
+      onOpenDetail(next);
+      return;
+    }
+    setLocalDetail(next);
+  };
+  const closeLocalDetail = () => setLocalDetail(null);
+
+  const {
+    kind,
+    userId,
+    status,
+    update,
+    refresh,
+    azureUpdate,
+    busy,
+    inspection,
+    mode,
+    isPod,
+    needsLinkRecovery,
+    awaitingMicrosoft,
+    working,
+    checkStatus,
+    act,
+    reconnectDirectPod,
+    sendFailureReport,
+    recoverExistingPod,
+    chooseHosting,
+    switchToSharedHosting,
+    switchToOwnCloud,
+    switchToPersonalSandbox,
+    browser,
+    azureHosting,
+  } = model;
 
   if (kind === "hosting") {
+    const pooledSwitchAvailable = isPooledSandboxSwitchAvailable();
+    const isPersonalSandboxActive =
+      mode === "hussh_pods" && status?.deploymentTarget === "ace";
     const canManageCloud =
       status?.featureEnabled === true &&
-      (mode === "shared" || mode === "pending" || mode === "byoc" || mode === "unplaced");
+      (mode === "shared" ||
+        mode === "pending" ||
+        mode === "byoc" ||
+        mode === "unplaced" ||
+        mode === "hussh_pods");
+    const canSwitchToShared = mode === "hussh_pods";
     const hostedUnderMaintenance = isHostedPodTierUnderMaintenance();
+    const canSwitchToSandboxFromRow =
+      pooledSwitchAvailable &&
+      (mode === "shared" ||
+        mode === "unplaced" ||
+        mode === "pending" ||
+        mode === "byoc" ||
+        (mode === "hussh_pods" && status?.deploymentTarget !== "ace"));
     const canChooseHosted =
-      !hostedUnderMaintenance &&
-      status?.featureEnabled === true &&
-      (mode === "shared" || mode === "pending" || mode === "unplaced");
+      canSwitchToSandboxFromRow ||
+      (!hostedUnderMaintenance &&
+        status?.featureEnabled === true &&
+        (mode === "shared" || mode === "pending" || mode === "unplaced"));
     const activeHostedProvider = hostedPodProvider(status?.deploymentTarget);
     const activeCloudProvider = podCloudProvider(status?.deploymentTarget);
     const currentHostingDescription = !status
       ? "Checking hosting…"
       : mode === "hussh_pods"
         ? hostedPodDisplayLabel(status.deploymentTarget)
-        : HOST_LABELS[mode];
-    const pooledSwitchAvailable = isPooledSandboxSwitchAvailable();
+        : hostModeLabel(mode);
     const showPooledSandboxSwitch =
       pooledSwitchAvailable &&
       (mode === "byoc" ||
@@ -73,49 +197,261 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
       isHostedAzureMigrationAvailable() &&
       status?.state === "active" &&
       (mode === "byoc" || (mode === "hussh_pods" && activeHostedProvider === "gcp"));
+    const hasHostingDetails =
+      (mode === "hussh_pods" && !hostedUnderMaintenance) ||
+      (mode === "byoc" && status?.state === "active");
+
+    if (activeDetail === "hosting-details" && hasHostingDetails) {
+      return (
+        <div className="space-y-5" data-testid="hosting-details-view">
+          {!onOpenDetail ? (
+            <div>
+              <Button type="button" variant="muted" size="sm" onClick={closeLocalDetail}>
+                Back to Hosting
+              </Button>
+            </div>
+          ) : null}
+
+          {mode === "hussh_pods" && !hostedUnderMaintenance ? (
+            <SettingsGroup title="Active runtime" density="compact" headingClassName="!mt-0">
+              <HusshPodsActiveCard
+                deploymentTarget={status?.deploymentTarget}
+                embedded
+                showRetiredHistory
+              />
+            </SettingsGroup>
+          ) : null}
+
+          {mode === "byoc" && status?.state === "active" ? (
+            <>
+              <SettingsGroup title="Cloud runtime" density="compact" headingClassName="!mt-0">
+                <SettingsRow
+                  title="Current hosting"
+                  description={HOST_LABELS[mode]}
+                  trailing={
+                    activeCloudProvider ? (
+                      <PodCloudBadge
+                        provider={activeCloudProvider}
+                        testId="hosting-details-cloud-badge"
+                      />
+                    ) : undefined
+                  }
+                />
+                {status.cloudProject ? (
+                  <SettingsRow
+                    title="Your cloud project"
+                    description={[status.cloudProject, status.cloudRegion]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  />
+                ) : null}
+                <CloudHostingHealth inspection={inspection} />
+              </SettingsGroup>
+              <SettingsGroup title="Background activity" density="compact">
+                <PodSessionLockdownControl
+                  testId="byoc-session-only-lockdown"
+                  asSettingsRow
+                />
+              </SettingsGroup>
+              {ownerCloudProvider(status?.deploymentTarget) === "azure" ? (
+                <AzureHostingNotice model={azureHosting} />
+              ) : null}
+              {isOwnerCloudTarget(status?.deploymentTarget) ? (
+                <div className="flex flex-wrap gap-2">
+                  <CloudRemovalControl
+                    provider={
+                      ownerCloudProvider(status?.deploymentTarget) === "azure"
+                        ? "azure"
+                        : "gcp"
+                    }
+                  />
+                </div>
+              ) : null}
+            </>
+          ) : null}
+
+          {(mode === "hussh_pods" || mode === "byoc") && status?.state === "active" ? (
+            <CircleAutoApprovePanel />
+          ) : null}
+        </div>
+      );
+    }
+
+    const resolvedHeroProvider =
+      activeCloudProvider ??
+      (mode === "hussh_pods" && status?.deploymentTarget === "ace" ? "gcp" : null);
+    const showLivingHeroCard = Boolean(
+      isPersonalSandboxActive ||
+        (mode === "hussh_pods" && status?.state === "active") ||
+        (mode === "byoc" && status?.state === "active"),
+    );
+    const heroSubtitle = isPersonalSandboxActive
+      ? "Isolated memory · Auto-sleep · Built-in AI"
+      : mode === "byoc"
+        ? [status?.cloudProject, status?.cloudRegion].filter(Boolean).join(" · ") ||
+          "Private pod in your own cloud"
+        : "Dedicated private pod managed by Hussh";
+    const heroCloudLabel =
+      mode === "hussh_pods" && activeHostedProvider
+        ? HOSTED_POD_PROVIDER_LABELS[activeHostedProvider]
+        : resolvedHeroProvider === "azure"
+          ? "Microsoft Azure"
+          : "Google Cloud";
 
     return (
       <div className="space-y-5">
-        <SettingsGroup density="compact">
-          <SettingsRow
-            title="Current hosting"
-            description={currentHostingDescription}
-            trailing={
-              activeCloudProvider ? (
+        {showLivingHeroCard ? (
+          <section
+            data-testid="current-hosting-row"
+            aria-label="Current hosting"
+            className="overflow-hidden rounded-[20px] border border-[color:var(--app-border)] bg-[color:var(--app-card-surface-default)] shadow-[0_1px_2px_rgba(0,0,0,0.03)]"
+          >
+            <div className="bg-gradient-to-b from-[color:var(--app-accent)]/[0.045] to-transparent">
+              {hasHostingDetails ? (
+                <button
+                  type="button"
+                  onClick={() => openDetail("hosting-details")}
+                  aria-label={`${currentHostingDescription}, hosting details`}
+                  className="group flex w-full items-start gap-3.5 px-4 pb-4 pt-4 text-left transition-[background-color,opacity] duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none active:opacity-[0.92] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-foreground/[0.025] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-focus-ring)]"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="relative mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-[14px] border border-[color:var(--app-accent)]/20 bg-background/90 shadow-xs"
+                  >
+                    <PodCloudProviderMark
+                      provider={resolvedHeroProvider ?? "gcp"}
+                      className="h-5 w-5"
+                    />
+                    <span className="absolute -bottom-0.5 -right-0.5 flex size-3 items-center justify-center rounded-full bg-[color:var(--app-card-surface-default)]">
+                      <span className="absolute inline-flex size-2.5 rounded-full bg-emerald-500/45 motion-safe:animate-ping" />
+                      <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
+                    </span>
+                  </span>
+                  <span className="min-w-0 flex-1 space-y-1">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--app-text-secondary)]">
+                        Current hosting
+                      </span>
+                      <span
+                        data-testid="current-hosting-status-signal"
+                        className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300"
+                      >
+                        <span aria-hidden="true" className="size-1.5 rounded-full bg-emerald-500" />
+                        Connected
+                      </span>
+                    </span>
+                    <span
+                      data-slot="settings-row-title"
+                      className="block text-[16px] font-semibold leading-snug tracking-[-0.015em] text-foreground"
+                    >
+                      {currentHostingDescription}
+                    </span>
+                    <span
+                      data-slot="settings-row-description"
+                      className="block text-[13px] leading-relaxed text-[var(--app-text-secondary)]"
+                    >
+                      {heroSubtitle}
+                    </span>
+                  </span>
+                  <ChevronRight
+                    aria-hidden="true"
+                    className="mt-1 size-4 shrink-0 text-[var(--app-text-secondary)]/70 transition-transform duration-[140ms] ease-[var(--ease-out)] group-hover:translate-x-0.5"
+                  />
+                </button>
+              ) : (
+                <div className="flex items-start gap-3.5 px-4 pb-4 pt-4">
+                  <span
+                    aria-hidden="true"
+                    className="relative mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-[14px] border border-[color:var(--app-accent)]/20 bg-background/90 shadow-xs"
+                  >
+                    <PodCloudProviderMark
+                      provider={resolvedHeroProvider ?? "gcp"}
+                      className="h-5 w-5"
+                    />
+                    <span className="absolute -bottom-0.5 -right-0.5 flex size-3 items-center justify-center rounded-full bg-[color:var(--app-card-surface-default)]">
+                      <span className="absolute inline-flex size-2.5 rounded-full bg-emerald-500/45 motion-safe:animate-ping" />
+                      <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
+                    </span>
+                  </span>
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--app-text-secondary)]">
+                        Current hosting
+                      </span>
+                      <span
+                        data-testid="current-hosting-status-signal"
+                        className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300"
+                      >
+                        <span aria-hidden="true" className="size-1.5 rounded-full bg-emerald-500" />
+                        Connected
+                      </span>
+                    </div>
+                    <p
+                      data-slot="settings-row-title"
+                      className="text-[16px] font-semibold leading-snug tracking-[-0.015em] text-foreground"
+                    >
+                      {currentHostingDescription}
+                    </p>
+                    <p
+                      data-slot="settings-row-description"
+                      className="text-[13px] leading-relaxed text-[var(--app-text-secondary)]"
+                    >
+                      {heroSubtitle}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[color:var(--app-separator)] bg-foreground/[0.02] px-4 py-2.5">
+              {resolvedHeroProvider ? (
                 <PodCloudBadge
-                  provider={activeCloudProvider}
-                  label={
-                    mode === "hussh_pods" && activeHostedProvider
-                      ? HOSTED_POD_PROVIDER_LABELS[activeHostedProvider]
-                      : undefined
-                  }
+                  provider={resolvedHeroProvider}
+                  label={heroCloudLabel}
                   testId="current-hosting-cloud-badge"
                 />
-              ) : mode === "hussh_pods" && status?.deploymentTarget === "ace" ? (
-                <HostedPodDualCloudMarks />
-              ) : undefined
-            }
-          />
-          {mode === "byoc" && status?.cloudProject ? (
+              ) : (
+                <span className="text-xs text-[var(--app-text-secondary)]">Managed runtime</span>
+              )}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void checkStatus()}
+                className="inline-flex min-h-8 items-center rounded-full px-2.5 text-xs font-semibold text-[color:var(--app-accent)] transition-[background-color,opacity] duration-[120ms] ease-[var(--ease-out)] hover:bg-[color:var(--app-accent)]/[0.08] active:opacity-75 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]"
+              >
+                Check hosting
+              </button>
+            </div>
+            <CloudHostingHealth inspection={inspection} />
+          </section>
+        ) : (
+          <SettingsGroup density="compact">
             <SettingsRow
-              title="Your cloud project"
-              description={[status.cloudProject, status.cloudRegion]
-                .filter(Boolean)
-                .join(" · ")}
+              title="Current hosting"
+              voicePurpose={currentHostingDescription}
+              description={currentHostingDescription}
+              onClick={hasHostingDetails ? () => openDetail("hosting-details") : undefined}
+              chevron={hasHostingDetails}
+              testId="current-hosting-row"
             />
-          ) : null}
-          <CloudHostingHealth inspection={inspection} />
-        </SettingsGroup>
-        {mode === "hussh_pods" && !hostedUnderMaintenance ? (
-          <SettingsGroup title="Hussh Pods cloud" density="compact" headingClassName="!mt-5">
-            <HusshPodsActiveCard deploymentTarget={status?.deploymentTarget} embedded />
+            {mode === "byoc" && status?.cloudProject ? (
+              <SettingsRow
+                title="Your cloud project"
+                description={[status.cloudProject, status.cloudRegion]
+                  .filter(Boolean)
+                  .join(" · ")}
+              />
+            ) : null}
+            <CloudHostingHealth inspection={inspection} />
           </SettingsGroup>
-        ) : null}
+        )}
+
         {mode === "byoc" && ownerCloudProvider(status?.deploymentTarget) === "azure" ? (
           <AzureHostingNotice model={azureHosting} />
         ) : null}
+
         {showPooledSandboxSwitch ? (
-          <SettingsGroup title="Personal Sandbox" density="compact" headingClassName="!mt-5">
+          <SettingsGroup title="Confidential Sandbox" density="compact" headingClassName="!mt-5">
             <PooledSandboxSwitchCard
               hasAssignedCloudPod={mode === "byoc" || mode === "hussh_pods"}
               isOwnerCloud={mode === "byoc"}
@@ -137,6 +473,7 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
             />
           </SettingsGroup>
         ) : null}
+
         {showHostedMigration ? (
           <SettingsGroup title="Move to Hussh Pods" density="compact" headingClassName="!mt-5">
             <HusshPodsMigrationCard
@@ -155,23 +492,45 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
         ) : null}
 
         <SettingsGroup
-          title="Hosting choices"
+          title={isPersonalSandboxActive ? "Switch hosting" : "Hosting choices"}
           density="compact"
           headingClassName="!mt-5"
         >
-          <SettingsRow
-            title="Hussh Shared"
-            description={mode === "byoc" ? "To switch, review and remove your current cloud below. Your Hussh account stays." : "Hussh runs and updates the shared service automatically."}
-            trailing={mode === "shared" ? "Current" : mode === "unplaced" ? "Choose" : undefined}
-            onClick={mode === "unplaced" ? chooseHosting : undefined}
-            chevron={mode === "unplaced"}
-          />
+          {!pooledSwitchAvailable ? (
+            <SettingsRow
+              title="Hussh Shared"
+              description={
+                mode === "byoc"
+                  ? "Remove your current cloud below to switch."
+                  : "Managed shared service with automatic updates."
+              }
+              trailing={
+                mode === "shared"
+                  ? "Current"
+                  : mode === "unplaced"
+                    ? "Choose"
+                    : canSwitchToShared
+                      ? "Switch"
+                      : undefined
+              }
+              disabled={busy && canSwitchToShared}
+              onClick={
+                mode === "unplaced"
+                  ? chooseHosting
+                  : canSwitchToShared
+                    ? () => setConfirmSwitch("shared")
+                    : undefined
+              }
+              chevron={mode === "unplaced" || canSwitchToShared}
+              testId="hosting-choice-shared"
+            />
+          ) : null}
           <SettingsRow
             title="Bring your own cloud"
             description={
               status && !status.featureEnabled
-                ? "New cloud setup is temporarily unavailable. Your existing setup is unchanged."
-                : "Agent One and device relay. You approve updates."
+                ? "Temporarily unavailable for new setups."
+                : "Run in your own Google Cloud or Microsoft Azure project."
             }
             trailing={
               mode === "byoc"
@@ -180,119 +539,345 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
                   ? "Unavailable"
                   : mode === "pending"
                     ? "Continue"
-                    : undefined
+                    : canManageCloud && (mode === "shared" || mode === "hussh_pods")
+                      ? "Switch"
+                      : canManageCloud && mode === "unplaced"
+                        ? "Choose"
+                        : undefined
             }
+            disabled={busy && canManageCloud}
             onClick={
-              canManageCloud
-                ? chooseHosting
-                : undefined
+              !canManageCloud
+                ? undefined
+                : mode === "hussh_pods" && !(pooledSwitchAvailable && isPersonalSandboxActive)
+                  ? () => setConfirmSwitch("own_cloud")
+                  : mode === "shared" || (mode === "hussh_pods" && pooledSwitchAvailable && isPersonalSandboxActive)
+                    ? () => void switchToOwnCloud()
+                    : chooseHosting
             }
             chevron={canManageCloud}
+            testId="hosting-choice-own-cloud"
           />
-          <SettingsRow
-            title="Hussh Pods"
-            description={
-              mode === "hussh_pods"
-                ? status?.deploymentTarget === "ace"
-                  ? "Isolated Personal Sandbox across Google Cloud and Microsoft Azure."
-                  : activeHostedProvider
-                    ? `Dedicated pod on ${HOSTED_POD_PROVIDER_LABELS[activeHostedProvider]}. You approve updates.`
-                    : "Your dedicated Hussh-hosted pod. You approve updates."
-                : hostedUnderMaintenance
-                  ? "Dedicated hosting is unavailable for new setups."
-                  : "Dedicated pod on Google Cloud or Microsoft Azure."
-            }
-            trailing={
-              mode === "hussh_pods" ? (
-                "Current"
-              ) : hostedUnderMaintenance ? (
-                "Unavailable"
-              ) : (
-                <HostedPodDualCloudMarks />
-              )
-            }
-            onClick={canChooseHosted ? chooseHosting : undefined}
-            chevron={canChooseHosted}
-          />
+          {!isPersonalSandboxActive ? (
+            <SettingsRow
+              title={pooledSwitchAvailable ? "Hussh Confidential Sandbox" : "Hussh Pods"}
+              description={
+                pooledSwitchAvailable
+                  ? "Isolated Confidential Sandbox on Google Cloud."
+                  : mode === "hussh_pods"
+                    ? activeHostedProvider
+                      ? `Dedicated pod on ${HOSTED_POD_PROVIDER_LABELS[activeHostedProvider]}.`
+                      : "Dedicated Hussh-hosted pod."
+                    : hostedUnderMaintenance
+                      ? "Unavailable for new setups."
+                      : "Dedicated pod on Google Cloud."
+              }
+              trailing={
+                mode === "hussh_pods" && !pooledSwitchAvailable ? (
+                  "Current"
+                ) : mode === "hussh_pods" && pooledSwitchAvailable ? (
+                  "Switch"
+                ) : !pooledSwitchAvailable && hostedUnderMaintenance ? (
+                  "Unavailable"
+                ) : canSwitchToSandboxFromRow ? (
+                  "Switch"
+                ) : (
+                  <PodCloudBadge provider="gcp" label="Google Cloud" />
+                )
+              }
+              disabled={busy && canChooseHosted}
+              onClick={
+                !canChooseHosted
+                  ? undefined
+                  : canSwitchToSandboxFromRow
+                    ? () => {
+                        setRemovePriorCloudOnSandboxSwitch(false);
+                        setConfirmSwitch("sandbox");
+                      }
+                    : chooseHosting
+              }
+              chevron={canChooseHosted && !(mode === "hussh_pods" && !pooledSwitchAvailable)}
+              testId="hosting-choice-pods"
+            />
+          ) : null}
         </SettingsGroup>
 
+        <AlertDialog
+          open={confirmSwitch === "shared"}
+          onOpenChange={(open) => !busy && setConfirmSwitch(open ? "shared" : null)}
+        >
+          <AlertDialogContent size="default">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Switch to Hussh Shared?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Agent One will run on the managed Hussh Shared service with automatic updates. Your encrypted Vault stays intact, and your prior pod placement is retained safely in history.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={busy}
+                data-testid="hosting-switch-shared-confirm"
+                onClick={(event) => {
+                  event.preventDefault();
+                  void Promise.resolve(switchToSharedHosting()).then((switched) => {
+                    if (switched !== false) setConfirmSwitch(null);
+                  });
+                }}
+              >
+                {busy ? "Switching…" : "Switch to Hussh Shared"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog
+          open={confirmSwitch === "own_cloud"}
+          onOpenChange={(open) => !busy && setConfirmSwitch(open ? "own_cloud" : null)}
+        >
+          <AlertDialogContent size="default">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Switch to Bring your own cloud?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Your current Hussh Pod placement will be detached and retained safely in history so you can connect your own Google Cloud project or Microsoft Azure subscription next.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={busy}
+                data-testid="hosting-switch-own-cloud-confirm"
+                onClick={(event) => {
+                  event.preventDefault();
+                  void Promise.resolve(switchToOwnCloud()).then((switched) => {
+                    if (switched !== false) setConfirmSwitch(null);
+                  });
+                }}
+              >
+                {busy ? "Preparing…" : "Continue to cloud setup"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog
+          open={confirmSwitch === "sandbox"}
+          onOpenChange={(open) => !busy && setConfirmSwitch(open ? "sandbox" : null)}
+        >
+          <AlertDialogContent size="default">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Switch to Hussh Confidential Sandbox?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Move Agent One into an isolated Hussh Confidential Sandbox on Google Cloud with built-in AI. Your encrypted Vault stays intact.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            {mode === "byoc" ? (
+              <label className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-[var(--app-border)] bg-background p-3 text-xs text-foreground">
+                <input
+                  type="checkbox"
+                  checked={removePriorCloudOnSandboxSwitch}
+                  onChange={(e) => setRemovePriorCloudOnSandboxSwitch(e.target.checked)}
+                  data-testid="hosting-choice-sandbox-remove-cloud-checkbox"
+                  className="mt-0.5 h-4 w-4 rounded border-[var(--app-border)] accent-[color:var(--app-accent)]"
+                />
+                <span>Also remove Hussh pod resources from my cloud in the background</span>
+              </label>
+            ) : null}
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={busy}
+                data-testid="hosting-switch-sandbox-confirm"
+                onClick={(event) => {
+                  event.preventDefault();
+                  const removeCloud = mode === "byoc" && removePriorCloudOnSandboxSwitch;
+                  void Promise.resolve(
+                    switchToPersonalSandbox({ removePriorCloudResources: removeCloud }),
+                  ).then((switched) => {
+                    if (switched !== false) setConfirmSwitch(null);
+                  });
+                }}
+              >
+                {busy ? "Switching…" : "Switch to Confidential Sandbox"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
         {mode === "unknown" && status ? (
-          <p className="text-sm text-muted-foreground">
-            We couldn’t verify your hosting. Your existing setup has not
-            changed.
+          <p className="text-sm text-[var(--app-text-secondary)]">
+            We couldn’t verify your hosting. Your existing setup has not changed.
           </p>
         ) : null}
-        <div className="flex flex-wrap gap-2">
-          {isOwnerCloudTarget(status?.deploymentTarget) ? <CloudRemovalControl provider={ownerCloudProvider(status?.deploymentTarget) === "azure" ? "azure" : "gcp"} /> : null}
-          <Button
-            variant="muted"
-            disabled={busy}
-            onClick={() => void checkStatus()}
-          >
-            Check hosting
-          </Button>
-          {mode === "byoc" || needsLinkRecovery ? (
-            <Button
-              variant="muted"
-              disabled={busy}
-              onClick={() => void (needsLinkRecovery ? recoverExistingPod() : reconnectDirectPod())}
-            >
-              {needsLinkRecovery ? "Link existing pod" : "Reconnect your pod"}
-            </Button>
-          ) : null}
-        </div>
+
+        {isOwnerCloudTarget(status?.deploymentTarget) ||
+        !showLivingHeroCard ||
+        mode === "byoc" ||
+        needsLinkRecovery ? (
+          <div className="flex flex-wrap gap-2">
+            {isOwnerCloudTarget(status?.deploymentTarget) ? (
+              <CloudRemovalControl
+                provider={
+                  ownerCloudProvider(status?.deploymentTarget) === "azure" ? "azure" : "gcp"
+                }
+              />
+            ) : null}
+            {!showLivingHeroCard ? (
+              <Button
+                variant="muted"
+                disabled={busy}
+                onClick={() => void checkStatus()}
+                className="min-h-10 rounded-full px-4 text-sm font-semibold"
+              >
+                Check hosting
+              </Button>
+            ) : null}
+            {mode === "byoc" || needsLinkRecovery ? (
+              <Button
+                variant="muted"
+                disabled={busy}
+                onClick={() =>
+                  void (needsLinkRecovery ? recoverExistingPod() : reconnectDirectPod())
+                }
+                className="min-h-10 rounded-full px-4 text-sm font-semibold"
+              >
+                {needsLinkRecovery ? "Link existing pod" : "Reconnect your pod"}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     );
   }
 
-  const { stateLabel, release, versionLabel } = agentSettingsSummary(model);
+  const { stateLabel, release, versionLabel, rawBuildLabel, isPersonalSandbox } =
+    agentSettingsSummary(model);
+  const hasUpdateDetails = Boolean(
+    isPod &&
+      (rawBuildLabel ||
+        status?.releaseCheckedAt ||
+        status?.installedReleaseVerifiedAt ||
+        (release && update.available)),
+  );
+
+  if (activeDetail === "update-details" && hasUpdateDetails) {
+    return (
+      <div className="space-y-5" data-testid="update-details-view">
+        {!onOpenDetail ? (
+          <div>
+            <Button type="button" variant="muted" size="sm" onClick={closeLocalDetail}>
+              Back to Agent updates
+            </Button>
+          </div>
+        ) : null}
+
+        <SettingsGroup title="Version details" density="compact" headingClassName="!mt-0">
+          <SettingsRow title="Status" description={stateLabel} textOverflow="truncate" />
+          <SettingsRow
+            title="Current version"
+            description={versionLabel ?? "Unavailable"}
+            textOverflow="truncate"
+          />
+          {rawBuildLabel && rawBuildLabel !== versionLabel ? (
+            <SettingsRow title="Build" description={rawBuildLabel} />
+          ) : null}
+          {status?.releaseCheckedAt ? (
+            <SettingsRow
+              title="Last checked"
+              description={new Date(status.releaseCheckedAt).toLocaleString()}
+            />
+          ) : null}
+          {status?.installedReleaseVerifiedAt ? (
+            <SettingsRow
+              title="Installation verified"
+              description={new Date(status.installedReleaseVerifiedAt).toLocaleString()}
+            />
+          ) : null}
+        </SettingsGroup>
+
+        {release && update.available ? (
+          <SettingsGroup title="What’s in this update" density="compact">
+            <div className="space-y-3 p-4 text-sm">
+              <p className="text-[var(--app-text-secondary)]">{release.summary}</p>
+              {Object.entries(release.notes)
+                .filter(([, entries]) => entries.length > 0)
+                .map(([heading, entries]) => (
+                  <div key={heading} className="space-y-1">
+                    <h3 className="text-xs font-semibold capitalize text-foreground">
+                      {heading}
+                    </h3>
+                    <ul className="list-disc space-y-1 pl-5 text-xs text-[var(--app-text-secondary)]">
+                      {entries.map((text, index) => (
+                        <li key={index}>{text}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+            </div>
+          </SettingsGroup>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
       <SettingsGroup density="compact">
-        <SettingsRow title="Status" description={stateLabel} />
+        <SettingsRow title="Status" description={stateLabel} textOverflow="truncate" />
         {mode === "shared" || isPod ? (
           <SettingsRow
             title="Current version"
             description={versionLabel ?? "Unavailable"}
+            textOverflow="truncate"
+            onClick={hasUpdateDetails ? () => openDetail("update-details") : undefined}
+            chevron={hasUpdateDetails}
+            testId="agent-current-version-row"
           />
         ) : null}
         {release && update.available ? (
-          <SettingsRow title="New version" description={releaseLabel(release.version, release.releasedAt)} />
+          <SettingsRow
+            title="New version"
+            description={releaseLabel(release.version, release.releasedAt)}
+            textOverflow="truncate"
+            onClick={hasUpdateDetails ? () => openDetail("update-details") : undefined}
+            chevron={hasUpdateDetails}
+          />
         ) : null}
       </SettingsGroup>
 
-      {isPod ? <AgentUpdateActivity update={update} awaitingMicrosoft={awaitingMicrosoft} follow={azureUpdate}
-        retryWithMicrosoft={ownerCloudProvider(status?.deploymentTarget) === "azure" && update.failed &&
-          update.presentationState === "blocked" && Boolean(update.operationId)} /> : null}
-
-      {mode === "byoc" && isOwnerCloudTarget(status?.deploymentTarget) && status?.browserActivationAvailable ? (
-        <BrowserActivationPanel userId={userId} disabled={busy || working} onScheduled={refresh} model={browser} />
+      {isPod && !isPersonalSandbox ? (
+        <AgentUpdateActivity
+          update={update}
+          awaitingMicrosoft={awaitingMicrosoft}
+          follow={azureUpdate}
+          retryWithMicrosoft={
+            ownerCloudProvider(status?.deploymentTarget) === "azure" &&
+            update.failed &&
+            update.presentationState === "blocked" &&
+            Boolean(update.operationId)
+          }
+        />
       ) : null}
 
-      {release && update.available ? (
-        <details className="text-sm">
-          <summary className="cursor-pointer font-medium">
-            What’s in this update
-          </summary>
-          <p className="mt-2 text-muted-foreground">{release.summary}</p>
-          {Object.entries(release.notes)
-            .filter(([, entries]) => entries.length > 0)
-            .map(([heading, entries]) => (
-              <div key={heading} className="mt-3">
-                <h3 className="font-medium capitalize">{heading}</h3>
-                <ul className="mt-1 list-disc space-y-1 pl-5 text-muted-foreground">
-                  {entries.map((text, index) => (
-                    <li key={index}>{text}</li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-        </details>
+      {mode === "byoc" &&
+      isOwnerCloudTarget(status?.deploymentTarget) &&
+      status?.browserActivationAvailable ? (
+        <BrowserActivationPanel
+          userId={userId}
+          disabled={busy || working}
+          onScheduled={refresh}
+          model={browser}
+        />
       ) : null}
 
       <div className="flex flex-wrap gap-2">
         {needsLinkRecovery ? (
-          <Button variant="muted" disabled={busy} onClick={() => void recoverExistingPod()}>
+          <Button
+            variant="muted"
+            disabled={busy}
+            onClick={() => void recoverExistingPod()}
+            className="min-h-10 rounded-full px-4 text-sm font-semibold"
+          >
             Link existing pod
           </Button>
         ) : null}
@@ -302,7 +887,12 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
         !canInstallUpdate(status) &&
         !working &&
         status.updateBlockedReason === "INSTALLED_RELEASE_UNVERIFIED" ? (
-          <Button variant="muted" disabled={busy} onClick={() => void reconnectDirectPod()}>
+          <Button
+            variant="muted"
+            disabled={busy}
+            onClick={() => void reconnectDirectPod()}
+            className="min-h-10 rounded-full px-4 text-sm font-semibold"
+          >
             Reconnect your pod
           </Button>
         ) : null}
@@ -312,20 +902,31 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
         !working &&
         (status.updateBlockedReason === "PREDECESSOR_NOT_QUALIFIED" ||
           status.updateBlockedReason === "INSTALLED_RELEASE_UNVERIFIED") ? (
-          <Button variant="muted" disabled={busy} onClick={chooseHosting}>
+          <Button
+            variant="muted"
+            disabled={busy}
+            onClick={chooseHosting}
+            className="min-h-10 rounded-full px-4 text-sm font-semibold"
+          >
             Review cloud hosting
           </Button>
         ) : null}
         {isPod &&
+        !isPersonalSandbox &&
         canInstallUpdate(status) &&
         update.releaseId &&
         !working ? (
           <>
-            <Button disabled={busy} onClick={() => void act("approve")}>
+            <Button
+              size="compact"
+              disabled={busy}
+              onClick={() => void act("approve")}
+            >
               Update now
             </Button>
             <Button
               variant="muted"
+              size="compact"
               disabled={busy}
               onClick={() => void act("defer")}
             >
@@ -335,43 +936,29 @@ function AgentSettingsBody({ model }: { model: AgentSettingsController }) {
         ) : null}
         <Button
           variant="muted"
+          size="compact"
           disabled={busy}
           onClick={() => void checkStatus()}
         >
           Check for updates
         </Button>
         {isPod && update.failed && update.operationId ? (
-          <Button variant="muted" disabled={busy} onClick={() => void sendFailureReport()}>
+          <Button
+            variant="muted"
+            size="compact"
+            disabled={busy}
+            onClick={() => void sendFailureReport()}
+          >
             Send failure report
           </Button>
         ) : null}
       </div>
 
       {isPod && update.failed && update.operationId ? (
-        <p className="text-xs text-muted-foreground">
-          This sends the update ID, release ID, and up to 12 lifecycle events when you choose to report it. It does not send pod logs or your files.
+        <p className="text-xs text-[var(--app-text-secondary)]">
+          This sends the update ID, release ID, and up to 12 lifecycle events when you choose to
+          report it. It does not send pod logs or your files.
         </p>
-      ) : null}
-
-      {isPod &&
-      (status?.releaseCheckedAt || status?.installedReleaseVerifiedAt) ? (
-        <details className="text-sm text-muted-foreground">
-          <summary className="cursor-pointer">Verification details</summary>
-          <div className="mt-2 space-y-1">
-            {status.releaseCheckedAt ? (
-              <p>
-                Last checked:{" "}
-                {new Date(status.releaseCheckedAt).toLocaleString()}
-              </p>
-            ) : null}
-            {status.installedReleaseVerifiedAt ? (
-              <p>
-                Installation verified:{" "}
-                {new Date(status.installedReleaseVerifiedAt).toLocaleString()}
-              </p>
-            ) : null}
-          </div>
-        </details>
       ) : null}
     </div>
   );

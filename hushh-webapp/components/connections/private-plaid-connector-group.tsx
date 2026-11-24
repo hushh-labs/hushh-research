@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ConnectorVectorGlyph } from "@/components/agent/connector-brand-mark";
 import {
   ConnectorConfirm,
@@ -11,8 +11,10 @@ import type {
   ConnectorDetailPresentation,
   ConnectorsPanelPresentation,
 } from "@/components/agent/connectors-panel";
+import { ScopeTariffEditor } from "@/components/consent/scope-tariff-editor";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Button } from "@/components/ui/button";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { connectorAccessPurpose } from "@/lib/agent/connector-access-copy";
 import {
   isValidatedAuthSessionOwnerCurrent,
@@ -27,6 +29,7 @@ import {
   vaultConnections,
 } from "@/lib/kai/plaid-vault/vault-sync";
 import { usePkmDomainResource } from "@/lib/pkm/pkm-domain-resource";
+import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import {
   isVaultSessionEpochCurrent,
   snapshotVaultSessionEpoch,
@@ -45,7 +48,12 @@ function formatRefreshedTime(value: string | null | undefined): string | null {
   if (!value) return null;
   const parsed = Date.parse(value);
   if (!Number.isFinite(parsed)) return null;
-  return new Date(parsed).toLocaleString();
+  const date = new Date(parsed);
+  const now = new Date();
+  const sameYear = date.getFullYear() === now.getFullYear();
+  return date.toLocaleDateString("en-US", sameYear
+    ? { month: "short", day: "numeric" }
+    : { month: "short", day: "numeric", year: "numeric" });
 }
 
 export function usePrivatePlaidConnectorModel({
@@ -132,6 +140,68 @@ export function usePrivatePlaidConnectorModel({
     }),
   );
 
+  const [scopeHandlesByMachineScope, setScopeHandlesByMachineScope] = useState<
+    Record<string, string>
+  >(() => {
+    const userId = access?.userId;
+    if (!userId || typeof PersonalKnowledgeModelService?.peekAvailableScopes !== "function") {
+      return {};
+    }
+    const warm = PersonalKnowledgeModelService.peekAvailableScopes(userId);
+    if (!warm || warm.userId !== userId || !Array.isArray(warm.scopeEntries)) {
+      return {};
+    }
+    const next: Record<string, string> = {};
+    for (const entry of warm.scopeEntries) {
+      if (
+        entry &&
+        entry.domain === "financial" &&
+        typeof entry.scope === "string" &&
+        typeof entry.scope_handle === "string" &&
+        entry.scope_handle.trim()
+      ) {
+        next[entry.scope] = entry.scope_handle.trim();
+      }
+    }
+    return next;
+  });
+
+  useEffect(() => {
+    const userId = access?.userId;
+    const token = access?.vaultOwnerToken;
+    if (
+      !open ||
+      !userId ||
+      !token ||
+      banks.length === 0 ||
+      typeof PersonalKnowledgeModelService?.getAvailableScopes !== "function"
+    ) {
+      return;
+    }
+    let active = true;
+    void PersonalKnowledgeModelService.getAvailableScopes(userId, token)
+      .then((result) => {
+        if (!active || !isCurrent() || result.userId !== userId) return;
+        const next: Record<string, string> = {};
+        for (const entry of result.scopeEntries ?? []) {
+          if (
+            entry &&
+            entry.domain === "financial" &&
+            typeof entry.scope === "string" &&
+            typeof entry.scope_handle === "string" &&
+            entry.scope_handle.trim()
+          ) {
+            next[entry.scope] = entry.scope_handle.trim();
+          }
+        }
+        setScopeHandlesByMachineScope(next);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [open, access?.userId, access?.vaultOwnerToken, banks.length, isCurrent]);
+
   const runGuarded = async (
     kind: "connect" | "refresh" | "disconnect",
     work: (resolvedAccess: CustomConnectorAccess, stillCurrent: () => boolean) => Promise<void>,
@@ -180,26 +250,31 @@ export function usePrivatePlaidConnectorModel({
                 : financial.data?.data,
           });
           if (stillCurrent()) {
-            setMessage(
-              result.institutionName
-                ? `${result.institutionName} connected.`
-                : "Bank connected.",
-            );
+            const successText = result.institutionName
+              ? `${result.institutionName} connected.`
+              : "Bank connected.";
+            setMessage(successText);
+            morphyToast.success(successText);
           }
         } else if (result.status === "blocked") {
           setMessage(result.reason);
+          morphyToast.error(result.reason);
         } else {
           setMessage("");
         }
       } catch {
-        if (stillCurrent()) setMessage("Could not connect that bank. Try again.");
+        if (stillCurrent()) {
+          const errorText = "Could not connect that bank. Try again.";
+          setMessage(errorText);
+          morphyToast.error(errorText);
+        }
       }
     });
   };
 
   const refreshLive = async () => {
     await runGuarded("refresh", async (resolvedAccess, stillCurrent) => {
-      setMessage("Refreshing live bank data…");
+      setMessage("Refreshing bank balances…");
       try {
         const outcome = await refreshVaultConnections({
           userId: resolvedAccess.userId,
@@ -226,16 +301,26 @@ export function usePrivatePlaidConnectorModel({
         }
         if (!stillCurrent()) return;
         if (outcome.needsRelink.length > 0) {
-          setMessage("At least one bank needs re-authentication before refreshing.");
+          const relinkText = "Reconnect needed on at least one bank.";
+          setMessage(relinkText);
+          morphyToast.error(relinkText);
         } else if (outcome.refreshed > 0) {
-          setMessage("Live bank snapshot updated.");
+          const refreshedText = "Bank balances updated.";
+          setMessage(refreshedText);
+          morphyToast.success(refreshedText);
         } else if (outcome.failed > 0) {
-          setMessage("Could not refresh all bank records. Try again.");
+          const failText = "Could not refresh all bank records. Try again.";
+          setMessage(failText);
+          morphyToast.error(failText);
         } else {
-          setMessage("Bank records are already up to date.");
+          setMessage("Balances are up to date.");
         }
       } catch {
-        if (stillCurrent()) setMessage("Could not refresh live bank data. Try again.");
+        if (stillCurrent()) {
+          const errorText = "Could not refresh bank balances. Try again.";
+          setMessage(errorText);
+          morphyToast.error(errorText);
+        }
       }
     });
   };
@@ -342,6 +427,7 @@ export function usePrivatePlaidConnectorModel({
     access,
     banks,
     projectionSummary,
+    scopeHandlesByMachineScope,
     connected: banks.length > 0,
     loading: financial.loading,
     error: financial.error,
@@ -365,9 +451,11 @@ export type PrivatePlaidConnectorModel = ReturnType<typeof usePrivatePlaidConnec
 export function PrivatePlaidConnectorGroup({
   model,
   showAccessDetails = false,
+  onSelectConnector,
 }: {
   model: PrivatePlaidConnectorModel;
   showAccessDetails?: boolean;
+  onSelectConnector?: () => void;
 }) {
   const {
     access,
@@ -387,9 +475,36 @@ export function PrivatePlaidConnectorGroup({
     cancelDisconnect,
   } = model;
 
+  if (onSelectConnector) {
+    return (
+      <section className="space-y-2" data-testid="private-plaid-connectors" aria-label="Plaid bank connections">
+        <SettingsGroup title="Banking & Finance" separatorInset testId="private-plaid-settings-group">
+          <SettingsRow
+            testId="private-connector-row-plaid"
+            leading={<ConnectorVectorGlyph id="plaid" variant="profile" />}
+            title="Plaid"
+            description={
+              showAccessDetails ? (
+                <>
+                  <span>{statusLabel}</span>
+                  <span className="block pt-0.5">{connectorAccessPurpose("plaid")}</span>
+                </>
+              ) : (
+                statusLabel
+              )
+            }
+            textOverflow={showAccessDetails ? undefined : "truncate"}
+            onClick={onSelectConnector}
+            chevron
+          />
+        </SettingsGroup>
+      </section>
+    );
+  }
+
   return (
     <section className="space-y-2" data-testid="private-plaid-connectors" aria-label="Plaid bank connections">
-      <SettingsGroup title="Banking & Finance" testId="private-plaid-settings-group">
+      <SettingsGroup title="Banking & Finance" separatorInset testId="private-plaid-settings-group">
         <SettingsRow
           testId="private-connector-row-plaid"
           leading={<ConnectorVectorGlyph id="plaid" variant="profile" />}
@@ -404,13 +519,15 @@ export function PrivatePlaidConnectorGroup({
               statusLabel
             )
           }
+          textOverflow={showAccessDetails ? undefined : "truncate"}
           trailing={
             <div className="flex flex-wrap items-center gap-2">
               {banks.length > 0 ? (
                 <Button
                   type="button"
                   variant="outline"
-                  size="compact"
+                  size="row"
+                  data-connector-action="secondary"
                   disabled={!access || busy || loading}
                   onClick={() => void refreshLive()}
                 >
@@ -420,7 +537,8 @@ export function PrivatePlaidConnectorGroup({
               <Button
                 type="button"
                 variant="outline"
-                size="compact"
+                size="row"
+                data-connector-action="primary"
                 disabled={!access || busy || loading || Boolean(error)}
                 onClick={() => void connect()}
               >
@@ -437,19 +555,14 @@ export function PrivatePlaidConnectorGroup({
           <SettingsRow
             testId="private-plaid-projection-summary"
             leading={<ConnectorVectorGlyph id="plaid" variant="profile" />}
-            title="Live scope projection"
+            title="Account summary"
             description={
-              <>
-                {projectionSummary.totalsLine ? (
-                  <span>{projectionSummary.totalsLine}</span>
-                ) : null}
-                {projectionSummary.projectedScopesLine ? (
-                  <span className="block pt-0.5">{projectionSummary.projectedScopesLine}</span>
-                ) : null}
-                <span className="block pt-0.5">
-                  Active ongoing shares update automatically on sync.
-                </span>
-              </>
+              [
+                projectionSummary.totalsLine,
+                "Shared details update on sync",
+              ]
+                .filter(Boolean)
+                .join(" · ")
             }
           />
         ) : null}
@@ -473,6 +586,7 @@ export function PrivatePlaidConnectorGroup({
                 type="button"
                 variant="outline"
                 size="compact"
+                data-connector-action="destructive"
                 disabled={!access || busy}
                 onClick={() => requestDisconnect(bank.key)}
               >
@@ -494,5 +608,194 @@ export function PrivatePlaidConnectorGroup({
         onCancel={cancelDisconnect}
       />
     </section>
+  );
+}
+
+export function PrivatePlaidConnectorDetail({
+  model,
+  showAccessDetails = false,
+}: {
+  model: PrivatePlaidConnectorModel;
+  showAccessDetails?: boolean;
+}) {
+  const {
+    access,
+    banks,
+    projectionSummary,
+    scopeHandlesByMachineScope,
+    loading,
+    error,
+    busy,
+    busyAction,
+    message,
+    statusLabel,
+    confirmItemId,
+    connect,
+    refreshLive,
+    requestDisconnect,
+    confirmDisconnect,
+    cancelDisconnect,
+  } = model;
+
+  return (
+    <div className="space-y-4" aria-label="Plaid connection details">
+      <SettingsGroup title="Banking & Finance" separatorInset testId="private-plaid-detail-overview">
+        <div className="flex items-start gap-3 px-4 pb-3 pt-3.5">
+          <ConnectorVectorGlyph id="plaid" variant="profile" className="mt-0.5" />
+          <div className="min-w-0 flex-1 space-y-1">
+            <h3 className="text-sm font-semibold leading-tight text-foreground">Plaid</h3>
+            <p className="text-xs leading-relaxed text-muted-foreground">{statusLabel}</p>
+            {showAccessDetails ? (
+              <p className="text-xs leading-relaxed text-muted-foreground">{connectorAccessPurpose("plaid")}</p>
+            ) : null}
+          </div>
+        </div>
+        {banks.length > 0 && projectionSummary.hasData ? (
+          <div
+            data-testid="private-plaid-projection-summary"
+            className="space-y-2.5 border-t border-[color:var(--app-separator)] px-4 py-3.5 text-xs leading-relaxed text-muted-foreground"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+                Account summary
+              </p>
+              <span className="text-[11px] text-muted-foreground">Updates on sync</span>
+            </div>
+            {projectionSummary.metrics.length > 0 ? (
+              <dl className="grid grid-cols-3 gap-2">
+                {projectionSummary.metrics.map((metric) => (
+                  <div
+                    key={metric.key}
+                    className="rounded-xl border border-[color:var(--app-border)]/70 bg-foreground/[0.02] px-2.5 py-2"
+                  >
+                    <dt className="text-[11px] font-medium text-muted-foreground">
+                      {metric.label}{" "}
+                    </dt>
+                    <dd className="mt-0.5 text-[14px] font-semibold tabular-nums tracking-[-0.015em] text-foreground">
+                      {metric.formatted}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            ) : projectionSummary.totalsLine ? (
+              <p className="text-foreground/90 tabular-nums">{projectionSummary.totalsLine}</p>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="border-t border-[color:var(--app-separator)] px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2" data-connector-action-bar="true">
+            <Button
+              type="button"
+              variant="default"
+              size="compact"
+              data-connector-action="primary"
+              disabled={!access || busy || loading || Boolean(error)}
+              onClick={() => void connect()}
+            >
+              {busyAction === "connect"
+                ? "Connecting…"
+                : banks.length > 0
+                  ? "Add bank"
+                  : "Connect a bank"}
+            </Button>
+            {banks.length > 0 ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="compact"
+                data-connector-action="secondary"
+                disabled={!access || busy || loading}
+                onClick={() => void refreshLive()}
+              >
+                {busyAction === "refresh" ? "Refreshing…" : "Refresh live"}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </SettingsGroup>
+
+      {banks.length > 0 && projectionSummary.scopes.length > 0 ? (
+        <SettingsGroup
+          title="Shareable data & pricing"
+          separatorInset
+          testId="private-plaid-shareable-scopes-group"
+        >
+          {projectionSummary.scopes.map((scope) => {
+            const scopeHandle = scopeHandlesByMachineScope[scope.machineScope];
+            return (
+              <SettingsRow
+                key={scope.machineScope}
+                testId={`private-plaid-scope-${scope.key}`}
+                title={scope.label}
+                description={
+                  scope.valueLabel
+                    ? `${scope.valueLabel} · Ask first before sharing`
+                    : "Ask first before sharing"
+                }
+                trailingInteractive={Boolean(scopeHandle)}
+                stackTrailingOnMobile={Boolean(scopeHandle)}
+                trailing={
+                  scopeHandle ? (
+                    <ScopeTariffEditor
+                      scopeHandle={scopeHandle}
+                      machineScope={scope.machineScope}
+                      label={`Financial · ${scope.label}`}
+                      showSavedPrice
+                    />
+                  ) : (
+                    <span className="text-xs font-medium text-muted-foreground">Ask first</span>
+                  )
+                }
+              />
+            );
+          })}
+        </SettingsGroup>
+      ) : null}
+
+      {banks.length > 0 ? (
+        <SettingsGroup title="Connected banks" separatorInset testId="private-plaid-banks-group">
+          {banks.map((bank) => (
+            <SettingsRow
+              key={bank.key}
+              testId={`private-plaid-bank-${bank.key}`}
+              title={bank.name}
+              description={
+                [
+                  bank.status === "Connected" ? null : bank.status,
+                  bank.amountLabel,
+                  bank.lastRefreshedLabel ? `Updated ${bank.lastRefreshedLabel}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              }
+              trailing={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="compact"
+                  data-connector-action="destructive"
+                  disabled={!access || busy}
+                  onClick={() => requestDisconnect(bank.key)}
+                >
+                  Disconnect
+                </Button>
+              }
+            />
+          ))}
+        </SettingsGroup>
+      ) : null}
+
+      {message ? (
+        <p role="status" aria-live="polite" className="sr-only">
+          {message}
+        </p>
+      ) : null}
+      <ConnectorConfirm
+        target={confirmItemId ? `plaid:${confirmItemId}` : null}
+        busy={busyAction === "disconnect"}
+        onConfirm={() => void confirmDisconnect()}
+        onCancel={cancelDisconnect}
+      />
+    </div>
   );
 }

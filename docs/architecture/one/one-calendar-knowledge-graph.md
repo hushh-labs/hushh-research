@@ -1,8 +1,10 @@
 # One Calendar Knowledge Graph
 
-[One](README.md)
+[One](README.md) · [One Email Knowledge Graph](./one-email-knowledge-graph.md)
 
-Status: current-code graph updated by the second read-reliability audit on 2026-10-09; release evidence is tracked in the implementation plan. This graph describes the owner's Google Calendar connection and One surfaces. It is context for people and agents, not a permission grant or alternate runtime router. The [Email graph](./one-email-knowledge-graph.md) describes the parallel Gmail boundary. The [implementation plan](../../roadmap/implementation/plans/2026-10-09-one-email-calendar-read-voice-plan.md) tracks repairs and remaining scope.
+**Status:** Live | **Intent:** Reference | **Audience:** Backend, Frontend, Voice, and Security
+
+This graph describes the owner's Google Calendar connection and Hussh One surfaces (typed Chat, Calendar UI, and read-only Live Voice). It documents current capability boundaries, authority checks, and fail-closed availability invariants for people and coding agents.
 
 ## Visual Map
 
@@ -74,6 +76,45 @@ These are code-path findings, not measured production incident rates. The dispos
 
 ## Scope decision and invariants
 
+Typed Chat retains all declared Calendar tools even when the request uses an
+implicit phrase, Hinglish or a typo. One's existing planner interprets the request;
+there is no second Calendar router or per-event model assessment. The root manifest
+contains the task-to-tool context, as the Email instructions do for Mail.
+
+Native search retains the exact requested dates, zone, query and page bounds.
+Creator filtering compares `creator.email` with the verified selected connection
+identity, rather than `creator.self` or organizer. Unknown creators or unavailable
+identity stay unknown; a filtered page and its truncation never establish a full count.
+Typed pagination, calendar selection and list-to-detail follow-ups retain the
+existing fresh-owner-turn boundary after an external read.
+
+Reviewed creation supports timed and date-only all-day events, explicit weekly
+series bounded to 1–52 occurrences, and up to five popup reminders. Weekly conflicts
+are checked across every occurrence using native retrieval and deterministic interval
+checks, then checked again at confirmation. All-day coverage uses the selected
+calendar's timezone and rejects timezone changes during review. Existing occurrence
+updates can add verified guests or reminders with times omitted; PATCH preserves
+unnamed fields, attendee responses and event ETags. Reminder additions preserve
+verified defaults/overrides, with the resulting explicit settings visible in review.
+Extended proposals require the shipping client's Calendar review contract.
+Confirmation must also carry strict integer `review_contract: 1` from the screen
+that displayed the v1 review. Both shared and owner-cloud transports preserve it;
+resuming a pending review on an older screen requires a fresh review. Legacy
+ordinary confirmations retain their existing bodyless or unversioned shape.
+Their sealed storage format omits the legacy execution-binding field. Older
+backends therefore reject pending newer reviews during rollback; the versioned
+consumer restores the binding only after validating the exact stored contract.
+Ordinary legacy reviews retain their existing format.
+
+Whole-series edits, arbitrary invitee availability, ICS import/export/download,
+continuous sync and bulk cross-calendar copy remain unavailable. Clarify genuinely
+missing dates, targets, bounds or identities, and report access limitations precisely.
+No workbook example grants authority to create, cancel or send invitations.
+
+Source contracts and automated service/review tests qualify these behaviors;
+deployment and a real connected owner's journey are separate evidence. Updating the
+UAT hub does not update an already installed owner-cloud image.
+
 Google exposes several read-only Calendar scopes. This product read surface will use the narrow grants needed for subscribed-calendar discovery, event list/detail/search, and availability, with incremental consent for newly requested access. It will not request unrelated ACL or settings scopes solely because they are read-only. See [Google Calendar scopes](https://developers.google.com/workspace/calendar/api/auth). Existing grants must keep working during rollout.
 
 1. One chooses the tool from meaning; deterministic code validates exact arguments, owner, grant, account, bounds, and result freshness. Keyword matching is not a parallel semantic router.
@@ -106,9 +147,19 @@ The original UAT request reached Google FreeBusy HTTP 200 and then backend 502 b
 - Private cards show busy timestamps, correct all-day ranges, attendee responses and safe Meet links. Owner and request generations fence connection labels and results. Auth failures offer the Calendar recovery path.
 - A nine-scenario actual Live-model canary passed after correcting an instruction that allowed a preparatory read for an unsupported write. This is bounded routing evidence; complete paraphrase accuracy and deployed p95 are not established.
 
-## Second read-reliability audit
+## OAuth Scope & Voice Read-Continuity Invariants
 
-The [implementation plan and 64-case matrix](../../roadmap/implementation/plans/2026-10-09-one-email-calendar-read-voice-plan.md#second-audit-read-reliability-and-latency) records the current follow-up: stable authorization generations, strict availability validation, read cancellation/deadlines, owner-fenced cards, empty-Mail grounding, and private Calendar continuation. Implementation and release evidence are tracked there; baseline tests alone did not cover the reproduced gaps.
+| Google Scope | Provider Permission | Current Product Boundary |
+| --- | --- | --- |
+| `calendar.events.readonly` | Read events | Primary and selected-calendar list, search, and exact event detail. |
+| `calendar.events` | Read and edit events | Existing manage grant satisfies event reads; Live Voice never exposes Calendar write tools. |
+| `calendar.freebusy` | Read availability | Busy intervals and bounded openings; failed or malformed responses fail closed (never treated as free). |
+| `calendar.calendarlist.readonly` | List subscribed calendars | Incremental optional list capability; absence never blocks primary calendar reads. |
+| `calendar.readonly` | Broader Calendar read | Existing broad grants satisfy contained reads while new connections stay on narrower scopes. |
+
+- **Connected Read & Cancellation Fence:** Live Voice reads (`read_calendar`) keep query windows, cursors, and entity details private to the active session and render them on the owner-fenced private screen card while passing only status/count receipts to the operational voice model. New speech, typed input, or provider cancellation immediately supersedes pending reads and bounds receipt/transport settlement (3s settlement ceiling, 1s unhealthy-transport close).
+- **DST & Availability Precision:** Owner-local DST transitions validate nonexistent and ambiguous wall-clock times explicitly. FreeBusy rejects missing busy arrays, malformed timestamps, zero-length/reversed intervals, and incomplete group expansion.
+- **Explicit Remaining Scope:** Cross-calendar multi-page aggregation beyond bounded windows and measured live p50/p95 voice audio latency SLOs remain outside the baseline automated contract.
 
 
 ## Invitations (source implementation, 2026-10-16)
@@ -159,3 +210,5 @@ a memory-only handoff, without a second model decision or another send.
 Expired reviews retain entered terms but require renewed confirmation.
 Recognized Google holiday feeds follow the Free time exclusion consistently;
 other unreadable included calendars block availability instead of appearing free.
+
+Dev source parity retains its existing named capability packs, primary-only mutation boundary and Calendar request-scope implementation. Cursor identity is kept private in snapshot and state-delta projections. Dev guest additions use verified exact addresses; UAT's separate Contacts-ordinal and recent-booking seams are not introduced by this port.

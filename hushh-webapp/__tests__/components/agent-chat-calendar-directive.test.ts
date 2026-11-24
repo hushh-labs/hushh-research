@@ -8,7 +8,7 @@ import {
   getGmailEmailDraftPayload,
   getGmailInformationRequestReplyPayload,
 } from "@/components/agent/agent-chat-workspace";
-import { calendarProposalReviewError, legacyCalendarProposalPayload } from "@/lib/agent/calendar-proposal-review";
+import { calendarProposalReviewError, calendarProposalReviewExtras, legacyCalendarProposalPayload } from "@/lib/agent/calendar-proposal-review";
 import type { AgentChatToolEvent } from "@/lib/services/agent-chat-client";
 
 function makeToolEvent(
@@ -34,6 +34,30 @@ function makeToolEvent(
 }
 
 describe("getCalendarDirectiveFromToolEvent", () => {
+  it("rejects undisplayable new fields before Calendar confirmation", () => {
+    const payload = legacyCalendarProposalPayload({
+      proposal_id: "gcal_weekly", expires_at: "2099-12-02T16:00:00Z",
+      plan: { account_id: "default", calendar_id: "primary", title: "Planning",
+        start_at: "2026-11-01T17:00:00Z", end_at: "2026-11-01T17:30:00Z",
+        time_zone: "America/Los_Angeles", attendees: [], send_updates: false, conflicts: [],
+        review_contract: 1, weekly_recurrence: { count: 3 }, recurrence_last_date: "2026-11-15",
+        reminders: { useDefault: false, overrides: [{ method: "popup", minutes: 10 }] },
+      },
+    }, "create");
+    expect(calendarProposalReviewError(payload)).toBeNull();
+    expect(calendarProposalReviewExtras(payload).weeklyRecurrence?.count).toBe(3);
+    for (const broken of [
+      { ...payload, reviewContract: undefined },
+      { ...payload, weeklyRecurrence: { count: 53, lastDate: "2026-11-15" } },
+      { ...payload, reminders: { useDefault: false, overrides: [{ method: "popup", minutes: 40321 }] } },
+      { ...payload, reminders: "invalid" },
+      { ...payload, allDay: true },
+    ]) {
+      expect(calendarProposalReviewError(broken)).toContain("incomplete");
+      expect(calendarProposalReviewExtras(broken)).toEqual({});
+    }
+  });
+
   it("never navigates the chat window to connect Google", () => {
     // The vault key is memory-only: any chat OAuth redirect would drop it.
     const source = readFileSync(

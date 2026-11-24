@@ -298,6 +298,11 @@ GET,PUT /api/one/hosted-memory/pilot/envelope
 GET /api/one/files/storage
 GET /api/one/files/objects/{namespace}
 GET,PUT /api/one/files/objects/{namespace}/{object_id}
+GET /api/one/agent-chat/migration/sessions
+GET /api/one/files/migration/manifest
+GET /api/one/files/migration/wiki/{page_id}
+GET /api/one/files/migration/file/{file_id}/chunk/{index}
+POST /api/one/files/migration/complete
 POST /api/one/answer-requests/{request_id}/deliver
 GET /api/one/answer-requests/{request_id}/answer
 DELETE,PUT /api/one/circles/{circle}/chat/messages/{message}/reactions/{emoji}
@@ -354,6 +359,7 @@ POST /api/one/google/connect/transition/prepare
 POST /api/one/google/connect/transition/complete
 GET,POST /api/one/kyc/client-connector
 POST /api/one/runtime/gemini/validate
+POST /api/one/runtime/openai/validate
 [SUPPORT]
 GET /api/one/todos/suggestions/status
 GET /api/kai/market/company-facts/{user_id}
@@ -432,6 +438,8 @@ POST /api/one/pod/heartbeat
 GET /api/one/pod/lifecycle
 GET /api/one/pod/lifecycle/stream
 POST /api/one/pod/wake
+POST /api/one/pod/wake/signal
+POST /api/one/pod/wake/drain
 GET /api/one/puppy/status/{device_id}
 POST /api/one/runtime/byoc/authorize/begin
 POST /api/one/runtime/byoc/authorize/complete
@@ -452,6 +460,7 @@ POST /api/one/runtime/byoc/project/plan
 POST /api/one/runtime/byoc/project/save
 GET /api/one/runtime/byoc/project/suggest
 GET /api/one/runtime/byoc/setup/status
+POST /api/one/runtime/hosting/switch
 GET /api/one/runtime/managed/readiness
 POST /api/one/runtime/managed/select
 POST /api/one/runtime/pooled-sandbox/adopt

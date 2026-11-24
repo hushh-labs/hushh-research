@@ -27,6 +27,7 @@ from hushh_mcp.services.pod_emulator_endpoints import (
 )
 from hushh_mcp.services.pod_object_version import ABSENT
 from hushh_mcp.services.pod_s3_object_store import (
+    PodMultiCloudStorageError,
     PodMultiCloudStorageForbidden,
     PrefixTokenObjectStore,
 )
@@ -260,3 +261,115 @@ async def test_files_prefix_store_supports_subprefix_workspace_and_hub_broker_cu
             )
     finally:
         set_storage_gateway_overrides_for_tests()
+
+
+def test_prefix_store_bounded_timeouts_single_get_retry_and_no_put_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import requests
+
+    from hushh_mcp.services.pod_storage_transport import PodStorageTransport
+
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv(PREFIX_ALLOW_LOOPBACK_HTTP_ENV, "1")
+    monkeypatch.setattr("hushh_mcp.services.pod_s3_object_store.time.sleep", lambda _s: None)
+
+    base_url = "http://127.0.0.1:8080/api/one/pod/storage-gateway/pods/ha1_retry_01"
+    token_fn = lambda: ("synthetic_gateway_token", 600)  # noqa: E731
+
+    class _Resp:
+        def __init__(
+            self, status_code: int, content: bytes = b"", headers: dict[str, str] | None = None
+        ):
+            self.status_code = status_code
+            self.content = content
+            self.headers = headers or {}
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    # 1) GET recovers on attempt 2 after ReadTimeout and uses bounded (3.0, 4.0) tuple timeout.
+    calls: list[tuple[str, Any]] = []
+
+    class _ReadTimeoutThenOkSession:
+        def get(self, url: str, **kwargs: Any) -> Any:
+            calls.append(("get", kwargs.get("timeout")))
+            if len(calls) == 1:
+                raise requests.exceptions.ReadTimeout("simulated read timeout")
+            return _Resp(200, b"ok-bytes", {"ETag": '"v1"'})
+
+    store = PrefixTokenObjectStore(
+        base_url, token_provider=token_fn, session=_ReadTimeoutThenOkSession()
+    )
+    data, ver = store.get_with_generation_blocking("wiki/overview.json")
+    assert data == b"ok-bytes"
+    assert ver == '"v1"'
+    assert calls == [("get", (3.0, 4.0)), ("get", (3.0, 4.0))]
+
+    # 2) GET recovers on attempt 2 after transient 503 and closes the 503 response.
+    transient_503 = _Resp(503)
+    calls_503: list[str] = []
+
+    class _503ThenOkSession:
+        def get(self, url: str, **kwargs: Any) -> Any:
+            calls_503.append(url)
+            if len(calls_503) == 1:
+                return transient_503
+            return _Resp(200, b"recovered", {"ETag": '"v2"'})
+
+    store_503 = PrefixTokenObjectStore(
+        base_url, token_provider=token_fn, session=_503ThenOkSession()
+    )
+    data_503, ver_503 = store_503.get_with_generation_blocking("wiki/overview.json")
+    assert data_503 == b"recovered"
+    assert ver_503 == '"v2"'
+    assert transient_503.closed is True
+    assert len(calls_503) == 2
+
+    # 3) Two consecutive GET failures raise PodMultiCloudStorageError after exactly 2 attempts.
+    always_503_calls = 0
+
+    class _Always503Session:
+        def get(self, url: str, **kwargs: Any) -> Any:
+            nonlocal always_503_calls
+            always_503_calls += 1
+            return _Resp(503)
+
+    store_fail = PrefixTokenObjectStore(
+        base_url, token_provider=token_fn, session=_Always503Session()
+    )
+    with pytest.raises(PodMultiCloudStorageError):
+        store_fail.get_with_generation_blocking("wiki/overview.json")
+    assert always_503_calls == 2
+
+    # 4) PUT uses (3.0, 10.0) timeout and NEVER retries ReadTimeout (preserves CAS safety).
+    put_calls: list[Any] = []
+
+    class _PutTimeoutSession:
+        def put(self, url: str, **kwargs: Any) -> Any:
+            put_calls.append(kwargs.get("timeout"))
+            raise requests.exceptions.ReadTimeout("simulated put timeout")
+
+    store_put = PrefixTokenObjectStore(
+        base_url, token_provider=token_fn, session=_PutTimeoutSession()
+    )
+    with pytest.raises(PodMultiCloudStorageError):
+        store_put.put_if_generation_blocking("wiki/overview.json", b"payload", ABSENT)
+    assert put_calls == [(3.0, 10.0)]
+
+    # 5) PodStorageTransport excludes ConnectTimeout so ConnectTimeout attempts == 2 (not 2x2=4).
+    transport = PodStorageTransport(shared_pool=False)
+    connect_attempts = 0
+
+    class _ConnectTimeoutRawSession:
+        def request(self, method: str, url: str, **kwargs: Any) -> Any:
+            nonlocal connect_attempts
+            connect_attempts += 1
+            raise requests.exceptions.ConnectTimeout("simulated connect timeout")
+
+    monkeypatch.setattr(transport, "_session_for_worker", lambda: _ConnectTimeoutRawSession())
+    store_transport = PrefixTokenObjectStore(base_url, token_provider=token_fn, session=transport)
+    with pytest.raises(PodMultiCloudStorageError):
+        store_transport.get_with_generation_blocking("wiki/overview.json")
+    assert connect_attempts == 2

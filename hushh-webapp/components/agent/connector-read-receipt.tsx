@@ -19,7 +19,10 @@ import {
 } from "@/lib/kai/plaid-vault/vault-sync";
 import { openProfilePane } from "@/lib/navigation/profile-pane";
 import { ConnectorBrandMark, connectorBrandFor, type ConnectorBrand } from "@/components/agent/connector-brand-mark";
-import { ConnectedSystemsAgentIcon } from "@/components/icons";
+import { ConnectedSystemsAgentIcon, LocationAgentIcon } from "@/components/icons";
+import { Switch } from "@/components/ui/switch";
+import { LocationBus, type LocationBusState } from "@/lib/one-location/location-bus";
+import type { TurnLocationPermissionExperience } from "@/lib/agent/agui-structured-experiences";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import type {
   ConnectorReadExperience,
@@ -145,6 +148,29 @@ export type AgentConnectorContinuationHandler = {
   continueAfterConnectorSync: (prompt: string) => void;
 };
 
+export const SILENT_LOCATION_CONTINUATION_PROMPT =
+  "Location access is now allowed. Answer my previous question using my current location.";
+
+export function isSilentConnectorContinuationPrompt(text: string | null | undefined): boolean {
+  const normalized = (text ?? "").trim();
+  if (!normalized) return false;
+  if (normalized === SILENT_LOCATION_CONTINUATION_PROMPT) return true;
+  if (
+    /^I just connected .+ with Plaid\. Summarize my connected accounts, balances, and updated financial scopes\.$/i.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+  if (
+    normalized ===
+    "I just refreshed my Plaid bank accounts. Summarize my updated balances and confirm my shared scopes updated."
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export const AgentConnectorContinuationContext =
   createContext<AgentConnectorContinuationHandler | null>(null);
 
@@ -156,6 +182,7 @@ export const AgentConnectorContinuationContext =
 function ConnectorCardShell({
   ariaLabel,
   brand,
+  leadingIcon,
   title,
   detail,
   action,
@@ -164,6 +191,7 @@ function ConnectorCardShell({
 }: {
   ariaLabel: string;
   brand: ConnectorBrand | null;
+  leadingIcon?: ReactNode;
   title: ReactNode;
   detail?: ReactNode;
   action?: ReactNode;
@@ -178,7 +206,13 @@ function ConnectorCardShell({
     >
       <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center">
         <div className="flex min-w-0 flex-1 items-start gap-3">
-          {brand ? <ConnectorBrandMark brand={brand} /> : <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center"><ConnectedSystemsAgentIcon className="size-5" /></span>}
+          {brand ? (
+            <ConnectorBrandMark brand={brand} />
+          ) : (
+            <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center">
+              {leadingIcon ?? <ConnectedSystemsAgentIcon className="size-5" />}
+            </span>
+          )}
           <div className="min-w-0 flex-1">
             <p role="status" className="flex min-h-8 items-center font-medium text-foreground">{title}</p>
             {detail ? <p className="text-muted-foreground">{detail}</p> : null}
@@ -188,6 +222,137 @@ function ConnectorCardShell({
       </div>
       {children}
     </section>
+  );
+}
+
+export function TurnLocationPermissionCard({
+  experience,
+}: {
+  experience: TurnLocationPermissionExperience;
+}) {
+  const continuation = useContext(AgentConnectorContinuationContext);
+  const [busState, setBusState] = useState<LocationBusState>(() => LocationBus.getState());
+  const [requesting, setRequesting] = useState(false);
+  const [errorHint, setErrorHint] = useState<string | null>(null);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    const unsubscribe = LocationBus.subscribe((next) => {
+      if (mounted.current) setBusState(next);
+    });
+    void LocationBus.syncPermission();
+    return () => {
+      mounted.current = false;
+      unsubscribe();
+    };
+  }, []);
+
+  const isGranted =
+    busState.permission === "granted" ||
+    (busState.status === "ready" && Boolean(busState.snapshot));
+  const isDenied =
+    !isGranted &&
+    (busState.permission === "denied" ||
+      busState.permission === "restricted" ||
+      busState.status === "denied" ||
+      (busState.permission === null && experience.permission === "denied"));
+  const isUnavailable =
+    !isGranted &&
+    (busState.permission === "unavailable" ||
+      busState.status === "unavailable" ||
+      (busState.permission === null && experience.permission === "unavailable"));
+  const isBusy = requesting || busState.status === "locating";
+
+  const handleAllowLocation = async () => {
+    if (isBusy) return;
+    setRequesting(true);
+    setErrorHint(null);
+    try {
+      const fix = await LocationBus.request();
+      if (!mounted.current) return;
+      if (fix) {
+        setRequesting(false);
+        continuation?.continueAfterConnectorSync(SILENT_LOCATION_CONTINUATION_PROMPT);
+        return;
+      }
+      const latest = LocationBus.getState();
+      if (latest.error) {
+        setErrorHint(latest.error);
+      }
+    } catch {
+      if (mounted.current) {
+        setErrorHint("Could not read your device location right now. Try again.");
+      }
+    } finally {
+      if (mounted.current) {
+        setRequesting(false);
+      }
+    }
+  };
+
+  const title = isGranted
+    ? "Device location · Allowed"
+    : isDenied
+      ? "Location blocked on this device"
+      : isUnavailable
+        ? "Location unavailable right now"
+        : "Allow device location";
+
+  const detail = isGranted
+    ? "Approximate (~1 km) location is active for chat."
+    : isDenied
+      ? errorHint || "Allow location for this site or app in your settings, then check again."
+      : isUnavailable
+        ? errorHint || "This browser or device could not provide a position. Try again."
+        : errorHint || "Shares approximate (~1 km) location so One can answer for where you are.";
+
+  const action = isGranted ? (
+    <label className="inline-flex min-h-11 items-center gap-2 text-xs font-medium text-muted-foreground">
+      <span>On</span>
+      <Switch
+        aria-label="Allow device location"
+        data-testid="turn-location-permission-switch"
+        checked
+        disabled
+      />
+    </label>
+  ) : isDenied || isUnavailable ? (
+    <Button
+      type="button"
+      variant="muted"
+      size="compact"
+      data-testid="turn-location-check-again"
+      disabled={isBusy}
+      onClick={() => void handleAllowLocation()}
+    >
+      {isBusy ? "Checking…" : isDenied ? "Check again" : "Try again"}
+    </Button>
+  ) : (
+    <label className="inline-flex min-h-11 cursor-pointer items-center gap-2.5 text-xs font-medium text-foreground">
+      <span>{isBusy ? "Locating…" : "Allow"}</span>
+      <Switch
+        aria-label="Allow device location"
+        data-testid="turn-location-permission-switch"
+        checked={isGranted}
+        disabled={isBusy}
+        onCheckedChange={(checked) => {
+          if (checked) void handleAllowLocation();
+        }}
+      />
+    </label>
+  );
+
+  return (
+    <ConnectorCardShell
+      ariaLabel="Device location permission"
+      brand={null}
+      leadingIcon={<LocationAgentIcon className="size-5" />}
+      title={title}
+      detail={detail}
+      action={action}
+      testId="turn-location-permission-card"
+    />
   );
 }
 

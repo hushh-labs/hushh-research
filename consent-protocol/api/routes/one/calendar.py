@@ -6,7 +6,7 @@ import logging
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, Field, StrictBool
+from pydantic import BaseModel, Field, StrictBool, StrictInt
 
 from api.middleware import require_firebase_auth, verify_user_id_match
 from api.middlewares.rate_limit import limiter
@@ -100,6 +100,7 @@ class CalendarProposal(_UserRequest):
 class CalendarExecute(_UserRequest):
     proposal_id: str = Field(min_length=8, max_length=256)
     account_id: str = Field(default="default", min_length=1, max_length=128)
+    review_contract: StrictInt | None = Field(default=None, ge=1, le=1)
 
 
 def _selected_calendar(account_id: str):
@@ -321,6 +322,11 @@ async def execute(payload: CalendarExecute, token: dict = Depends(hub_content_ow
             user_id=token["user_id"],
             proposal_id=payload.proposal_id,
             account_id=payload.account_id,
+            **(
+                {"client_review_contract": payload.review_contract}
+                if payload.review_contract is not None
+                else {}
+            ),
         )
     except Exception as exc:
         raise _http(exc) from exc

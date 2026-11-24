@@ -121,29 +121,30 @@ describe("Gemini runtime admission", () => {
 
   it("does not show a native AI selection until saved settings are known", () => {
     const model = {
-      current: () => true, isSaving: false, isRemoving: false,
+      current: () => true, isSaving: false, isRemoving: false, privateCloud: false,
+      savedConfigurations: [], activeConfigId: null,
       credentialValidation: { status: "idle" }, mode: "hushh_managed_vertex",
     } as unknown as GeminiRuntimeSettingsModel;
     const hook = renderHook(({ hasSavedKey, loadFailed }) => useNativeRuntimeSettings(
       { ...model, hasSavedKey, loadFailed }, "synthetic-owner", true,
     ), { initialProps: { hasSavedKey: null as boolean | null, loadFailed: false } });
-    const managed = () => hook.result.current.page.sections[0].rows.find(row => row.id === "runtime-managed");
-    expect(managed()?.selected).toBe(false);
+    const builtin = () => hook.result.current.page.sections[0].rows.find(row => row.id === "runtime-builtin-status");
+    expect(hook.result.current.page.sections[0].rows.some(row => /Use Hussh/i.test(row.label))).toBe(false);
+    expect(builtin()?.selected).toBe(false);
     hook.rerender({ hasSavedKey: false, loadFailed: false });
-    expect(managed()?.selected).toBe(true);
+    expect(builtin()?.selected).toBe(true);
     hook.rerender({ hasSavedKey: false, loadFailed: true });
-    expect(managed()?.selected).toBe(false);
+    expect(builtin()?.selected).toBe(false);
   });
 
-  it("does not present or save managed AI while existing settings are unread", async () => {
+  it("does not present or save AI choices while existing settings are unread", async () => {
     loadRuntimeSecretMock.mockReturnValue(new Promise(() => {}));
     render(<GeminiRuntimeSettingsCard userId="fresh-user" vaultKey="fixture-key" vaultOwnerToken="fixture-token"
       needsVaultCreation={false} needsUnlock={false} onRequestVaultUnlock={vi.fn()} onRequestVaultCreation={vi.fn()} />);
     await waitFor(() => expect(getPersonalAgentStatusMock).toHaveBeenCalled());
-    const managed = runtimeChoice("profile-managed-runtime");
-    expect(managed).toBeDisabled();
-    expect(managed).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByText("Loading AI settings…")).toBeInTheDocument();
     expect(screen.queryByText("Selected")).toBeNull();
+    expect(screen.queryByText("Active")).toBeNull();
     expect(selectManagedGeminiRuntimeMock).not.toHaveBeenCalled();
     expect(storeRuntimeSecretMock).not.toHaveBeenCalled();
   });
@@ -165,23 +166,37 @@ describe("Gemini runtime admission", () => {
   });
 
   it("withdraws a managed selection guard when the Vault token expires without a render", async () => {
+    getPersonalAgentStatusMock.mockResolvedValue({
+      hostingMode: "byoc",
+      state: "active",
+      deploymentTarget: "user_gcp",
+    });
     let liveToken: string | null = "fixture-token";
-    let finish!: (value: { status: string; model: string; location: string; agentScheduled: boolean; agentReason: string }) => void;
-    selectManagedGeminiRuntimeMock.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    let finish!: (value: Response) => void;
+    ownerPodRequestMock.mockImplementation((_path: string, init?: RequestInit) => {
+      if (init?.method === "GET") {
+        return Promise.resolve(Response.json({ configured: false }));
+      }
+      return new Promise<Response>((resolve) => { finish = resolve; });
+    });
     const hook = renderHook(() => useGeminiRuntimeSettingsModel({
       userId: "fresh-user", vaultKey: "fixture-key", vaultOwnerToken: "fixture-token",
       getCurrentVaultOwnerToken: () => liveToken,
       needsVaultCreation: false, needsUnlock: false, onRequestVaultUnlock: vi.fn(), onRequestVaultCreation: vi.fn(),
     }));
     await waitFor(() => expect(hook.result.current.hasSavedKey).toBe(false));
+    await waitFor(() => expect(hook.result.current.privateCloud).toBe(true));
     let pending!: Promise<boolean>;
     act(() => { pending = hook.result.current.selectManaged(); });
-    await waitFor(() => expect(selectManagedGeminiRuntimeMock).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(ownerPodRequestMock.mock.calls.some((call) => call[1]?.method === "PATCH")).toBe(true),
+    );
+    const patchCall = ownerPodRequestMock.mock.calls.find((call) => call[1]?.method === "PATCH")!;
     liveToken = null;
-    const isCurrent = selectManagedGeminiRuntimeMock.mock.calls[0][0] as () => boolean;
+    const isCurrent = patchCall[5] as () => boolean;
     expect(isCurrent()).toBe(false);
     await act(async () => {
-      finish({ status: "ready", model: "fixture", location: "global", agentScheduled: false, agentReason: "" });
+      finish(Response.json({ status: "cleared", defaultProvider: "gemini", defaultModel: "fixture", checkedAtMs: 1 }));
       expect(await pending).toBe(false);
     });
     expect(storeRuntimeSecretMock).not.toHaveBeenCalled();
@@ -226,9 +241,8 @@ describe("Gemini runtime admission", () => {
     loadRuntimeSecretMock.mockReturnValue(new Promise(resolve => { finish = resolve; }));
     act(() => { void hook.result.current.model.refresh(); });
     expect(hook.result.current.model.loadFailed).toBe(false);
-    const managed = hook.result.current.native.page.sections[0].rows.find(row => row.id === "runtime-managed");
-    expect(managed?.selected).toBe(false);
-    expect(managed?.enabled).toBe(false);
+    const builtin = hook.result.current.native.page.sections[0].rows.find(row => row.id === "runtime-builtin-status");
+    expect(builtin?.selected).toBe(false);
     await act(async () => { finish(null); });
     await waitFor(() => expect(hook.result.current.model.hasSavedKey).toBe(false));
   });
@@ -294,7 +308,7 @@ describe("Gemini runtime admission", () => {
     expect(hook.result.current.placement).toBe("gcp");
   });
 
-  it("does not manufacture a selected choice before the fresh user confirms one", () => {
+  it("does not enable BYOK configuration before placement status resolves", () => {
     getPersonalAgentStatusMock.mockReturnValue(new Promise(() => {}));
     render(
       <GeminiRuntimeSettingsCard
@@ -312,7 +326,47 @@ describe("Gemini runtime admission", () => {
     );
 
     expect(screen.queryByText("Selected")).toBeNull();
-    expect(runtimeChoice("profile-managed-runtime")).toBeDisabled();
+    expect(runtimeChoice("profile-byok-runtime")).toBeDisabled();
+    expect(runtimeChoice("profile-openai-key-row")).toBeDisabled();
+  });
+
+  it("exposes Add OpenAI key and built-in fallback on native runtime settings", async () => {
+    const sessionPrivacy = await import("@/lib/capacitor/session-privacy");
+    const privacySpy = vi.spyOn(sessionPrivacy, "nativePrivacyObservation").mockReturnValue({
+      state: { appIsActive: true, shielded: false, generation: 1, cause: "inactive" },
+      epoch: 0,
+    });
+    try {
+      const startAddingProvider = vi.fn();
+      const model = {
+        current: () => true,
+        operationPending: () => false,
+        isSaving: false,
+        isRemoving: false,
+        privateCloud: false,
+        savedConfigurations: [],
+        activeConfigId: null,
+        hasSavedKey: false,
+        loadFailed: false,
+        credentialValidation: { status: "idle" },
+        mode: "byok",
+        startAddingProvider,
+        cancelEdit: vi.fn(),
+      } as unknown as GeminiRuntimeSettingsModel;
+
+      const hook = renderHook(() => useNativeRuntimeSettings(model, "synthetic-owner", true));
+      const rows = hook.result.current.page.sections[0].rows;
+      expect(rows.some((row) => row.id === "runtime-openai" && row.label === "Add OpenAI key")).toBe(true);
+      expect(rows.some((row) => row.id === "runtime-turn-off-byok" && row.label === "Use built-in sandbox AI")).toBe(true);
+
+      act(() => {
+        void hook.result.current.rows.get("runtime-openai")?.();
+      });
+      expect(startAddingProvider).toHaveBeenCalledWith("openai");
+      expect(hook.result.current.formScene).toBeNull();
+    } finally {
+      privacySpy.mockRestore();
+    }
   });
 
 });

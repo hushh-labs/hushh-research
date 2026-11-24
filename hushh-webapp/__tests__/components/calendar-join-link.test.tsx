@@ -1,8 +1,24 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { CalendarJoinLink } from "@/components/calendar/calendar-join-link";
 
 describe("Calendar-scoped Join", () => {
+  it("lets native handoff present the authored chooser and requires a real provider link gesture", () => {
+    const close = vi.fn();
+    const view = render(<CalendarJoinLink url="https://meet.google.com/abc-defg-hij" accountEmail="calendar@example.com" open onOpenChange={close} />);
+    const dialog = screen.getByRole("dialog", { name: "Check Google account" });
+    expect(within(dialog).getByRole("link", { name: "Open Meet" })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij?authuser=calendar%40example.com");
+    expect(screen.queryByRole("link", { name: "Join meeting" })).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalledWith(false);
+    view.rerender(<CalendarJoinLink url="https://zoom.us/j/123" accountEmail="calendar@example.com" open onOpenChange={close} />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("link", { name: "Join meeting" })).toHaveAttribute("href", "https://zoom.us/j/123");
+    view.rerender(<CalendarJoinLink url="javascript:alert(1)" open onOpenChange={close} />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("link")).toBeNull();
+  });
   it("opens the clicked event as its connected account and lets Google choose another session", () => {
     const url = "https://meet.google.com/meet/abc-defg-hij?foo=bar&authuser=0#details";
     const hintedUrl = "https://meet.google.com/meet/abc-defg-hij?foo=bar&authuser=account-b%40example.com#details";

@@ -1,10 +1,10 @@
-# Private Agent One — the architectural north star
+# Private Agent One: the architectural north star
 
 [Architecture](../../architecture/README.md)
 
 **Founder directive, 2026-08-06.** This is the single architectural source of truth for
 the Private Agent workstream. Every plan, persona, harness, diagram, wiki article and
-runbook inherits it **by pointer** — cite this file rather than restating it, so there is
+runbook inherits it **by pointer**: cite this file rather than restating it, so there is
 one place to change when the vision sharpens.
 
 Where an existing implementation diverges from what is written here, the implementation is
@@ -14,26 +14,27 @@ what moves. Do not optimise around the current implementation.
 
 ```mermaid
 flowchart TB
-  U0["Unplaced owner<br/>choose a hosting tier"]
-  subgraph WAS["Shared runtime — explicit owner choice"]
-    S1["Shared compute<br/>provided by Hussh"] --> S2["Owner-scoped sessions and<br/>consented information"]
+  U0["Unplaced owner<br/>choose a placement"]
+  subgraph LEGACY["Legacy Shared runtime (retired on Dev cutover lanes)"]
+    S1["Shared compute (UAT/Prod fallback)"] --> S2["Owner-scoped sessions and<br/>consented information"]
   end
-  U0 -->|"record Shared choice"| S1
-  subgraph IS["The end state — Private Agent One"]
-    P1["One isolated pod per person"] --> P2["Persistent memory<br/>that survives restarts"]
+  U0 -->|"legacy UAT/Prod Shared"| S1
+  subgraph IS["The end state: Unified Single-Owner Private Agent One"]
+    P1["One isolated namespace &amp; runtime per person"] --> P2["Persistent memory<br/>that survives restarts"]
     P1 --> P3["Orchestration + sub-agents<br/>running inside the boundary"]
-    P1 --> P4["Background services<br/>working between turns"]
+    P1 --> P4["Background services &amp; Goals<br/>working between turns"]
     P2 --> P5["Intelligence that<br/>compounds over time"]
+    R1["Encrypted Local Read Replica<br/>0ms - 150ms (hushh-owner-ui-cache)"] <-->|"Sealed sync"| P2
   end
-  subgraph HOW["Required trust properties — verify per deployment"]
+  subgraph HOW["Required trust properties: verify per deployment"]
     Z1["Encrypted custody boundary"] --- Z2["Consent-first"] --- Z3["Portable runtime contracts"]
   end
-  WAS -->|"evolve"| IS
+  LEGACY -->|"cutover"| IS
   IS --- HOW
-  HOW --> D1["Hussh Pods: provisioning disabled<br/>(dedicated instance direction)"]
-  HOW --> D2["the person's own<br/>GCP project"]
-  HOW --> D3["the person's own<br/>Azure subscription"]
-  D1 -->|"future: verified migration<br/>with owner approval"| D2
+  HOW --> D1["Hussh Confidential Sandbox<br/>(Google Cloud default, Dev Preview)"]
+  HOW --> D2["Bring Your Own Cloud<br/>(owner GCP or Azure)"]
+  HOW --> D3["Local Puppy<br/>(owner silicon)"]
+  D1 -->|"lossless verified cutover<br/>with owner approval"| D2
 ```
 
 ## The end state, stated plainly
@@ -41,7 +42,7 @@ flowchart TB
 The gated [Private Files library](../../operations/hosting/private-files-library.md) records
 the current owner-bucket implementation, consent boundaries and live acceptance gaps.
 
-**Every person owns an isolated pod.** Inside it runs their complete agent ecosystem —
+**Every person owns an isolated pod.** Inside it runs their complete agent ecosystem:
 Agent One, every sub-agent, the orchestration between them, and the background services
 that keep working between conversations. It holds **persistent memory** that survives
 restarts, and its intelligence **continuously evolves** as it learns that person's world.
@@ -55,7 +56,7 @@ the architecture exists to preserve, and no capability ships that weakens them.
 ### What the stateless environment was, and was not
 
 The shared stateless compute on `main` let agents execute workloads and reach an LLM. It
-was a scaffold — a way to make the product work before pods existed. **It was never the
+was a scaffold, a way to make the product work before pods existed. **It was never the
 destination.** Statelessness is precisely what a private agent cannot be: an agent with no
 memory cannot compound, cannot learn a person, cannot work between turns.
 
@@ -68,7 +69,7 @@ this document, however elegant its other properties.
 > **withdrawn**. Its one durable finding survives and is adopted below: **attestation and
 > statelessness are separable.** PCC bundles them; we need only the first. Per-person,
 > *stateful*, continuously-evolving pods with per-pod cryptographic identity is the
-> coherent architecture — and it is the one that closes the identity gap without giving up
+> coherent architecture, and it is the one that closes the identity gap without giving up
 > persistence.
 
 ## Simulation and production are different architectures (founder directive, 2026-08-06)
@@ -81,22 +82,22 @@ two production paths**, and the separation is the resolution rather than a narro
 
 **hussh-managed pod + hussh Vertex ADC.** Its purpose is to prove the machinery:
 
-- pod interaction and lifecycle behaviour — keep the pod alive across restarts;
+- pod interaction and lifecycle behaviour (keep the pod alive across restarts);
 - agent harness execution, grounding, orchestration, and **intelligence chaining**;
 - performance metrics, and how the agent **evolves over time**;
 - end-to-end connectivity with the front end and any connected surface.
 
 **This tier is not a production deployment path.** It runs in the dev project, on hussh's
-own model identity, with the HKDF master present — an environment where hussh genuinely can
+own model identity, with the HKDF master present: an environment where hussh genuinely can
 reach the pod's keys, which is exactly why it may only ever claim "the lifecycle works" and
 never "hussh cannot read that pod."
 
-> **Clarified 2026-08-25.** The sentence that used to follow — "and must never become one" —
+> **Clarified 2026-08-25.** The sentence that used to follow ("and must never become one")
 > was read as banning any hussh-operated pod from production. What it correctly bans is
 > *this configuration*: hussh's dev project, hussh's model identity, a master key from which
 > every pod's keys derive. The hosted production tier (path C below) is a different
-> configuration of the same image — dedicated hosting project, per-pod KMS with no master,
-> verified per-pod identity, turn-bounded model credentials — and it is held to conditions
+> configuration of the same image (dedicated hosting project, per-pod KMS with no master,
+> verified per-pod identity, turn-bounded model credentials) and it is held to conditions
 > the simulation tier is not asked to meet.
 
 ### The production paths
@@ -108,28 +109,35 @@ never "hussh cannot read that pod."
 | **C. Hussh-hosted (provisioning disabled)** | dedicated pod per person in a Hussh-funded per-owner GCP project | pod workload identity; explicit dev shared-inference exception, or owner-selected key |
 
 > **Superseded (founder directive, 2026-08-25).** This section previously read "**the
-> production paths — exactly two, both user-owned**" and closed with "**No hussh-hosted
+> production paths: exactly two, both user-owned**" and closed with "**No hussh-hosted
 > production tier, no exceptions**" (founder, 2026-08-06). That line is withdrawn, and
-> path C above is added. The original reasoning is not discarded — it is what the
+> path C above is added. The original reasoning is not discarded; it is what the
 > conditions below now carry. What changed is the recognition that "connect your Google
 > Cloud account" as the *only* door makes day zero unreachable for someone who arrives
 > with a Google account and nothing else, and a private agent nobody can start is not a
-> private agent. The separation that mattered was never *whose billing account pays* — it
+> private agent. The separation that mattered was never *whose billing account pays*: it
 > is **control plane ≠ custodian**, which is a cryptographic property and is stated as
 > testable conditions below.
 
-The current hosting choices are Shared, owner-project GCP (BYOC) and the person's own
-Azure subscription (owner-cloud Azure, founder decision 2026-10-02). Hussh Pods
-remains disabled. Existing assigned pods and pending provisioning must be preserved;
-new accounts without a current placement or setup intent are `unplaced`. Shared
-requires a recorded choice newer than the last detach; pending or unreadable
-placement never falls back to Shared. A one-time legacy continuity snapshot records
-eligible completed Shared accounts without changing assignments or pending setup.
-This is enforced by `personal_agent_hosting.py`, `owner_hosting_choice.py` and parked
-dev migrations 955/958. UAT/production lack the branch's cloud marker; 955 alone
-does not preserve their cohort. Production reader/schema graduation remains
-separate. Shared is a managed runtime, not a dedicated private pod; source checks
-do not prove that migration or placement behavior is deployed.
+The legacy hosting choices were Shared, owner-project GCP (BYOC) and the person's own
+Azure subscription (owner-cloud Azure, founder decision 2026-10-02). Existing assigned pods
+and pending provisioning must be preserved; new accounts without a current placement or
+setup intent are `unplaced`. Shared requires a recorded choice newer than the last detach;
+pending or unreadable placement never falls back to Shared. A one-time legacy continuity
+snapshot records eligible completed Shared accounts without changing assignments or pending
+setup. This is enforced by `personal_agent_hosting.py`, `owner_hosting_choice.py` and
+parked dev migrations 955/958. UAT/production lack the branch's cloud marker; 955 alone
+does not preserve their cohort. Production reader/schema graduation remains separate.
+Shared is a managed runtime, not a dedicated private pod; source checks do not prove that
+migration or placement behavior is deployed.
+
+**Cutover Update (2026-11-23):** On Dev cutover lanes, `Hussh Shared` and legacy hosted-pod
+GCP-to-Azure migration UI are retired in favor of one unified single-owner runtime across
+**Hussh Confidential Sandbox** (Google Cloud `gVisor` warm pool, `$0` idle compute, `<2s`
+Edge Gateway termination self-heal, compacted shutdown checkpoints, and 12-hour `pst1.`
+browser sessions), **Bring Your Own Cloud** (`user_gcp`, `user_azure`), and **Local Puppy**
+(owner silicon). UAT and Production retain existing Shared/BYOC separation until Phase 4
+acceptance ([#9744](https://github.com/hushh-labs/hushh-research/issues/9744)).
 
 The October 26 hosted pilot decision uses the same immutable runtime image as BYOC,
 with explicit hosting adapters and project-local custody. It supersedes the earlier
@@ -152,7 +160,8 @@ gate in `deployment-standard.md` gains live evidence
 second cloud holds a synced standby, never a second writer
 (`docs/roadmap/personal-agent/standby-sync.md`).
 
-### Owner-direct setup and Google connectors — qualified source status
+<a id="owner-direct-setup-and-google-connectors--qualified-source-status"></a>
+### Owner-direct setup and Google connectors: qualified source status
 
 Direct setup requires the exact owner/pod binding, the machine wall's exact denial
 body, health and origin-specific CORS checks before endpoint publication. Public
@@ -204,7 +213,7 @@ derived observations and model processing belong inside the owner pod, subject
 to their own consent. Neither a metadata feed nor an identifier-only Gmail ring
 authorizes a private read or model processing.
 
-### The hosted production tier — the conditions, each testable
+### The hosted production tier: the conditions, each testable
 
 Path C is legitimate **only** while all of these hold. Each names the code that enforces
 it, so a claim here can be checked rather than believed:
@@ -215,18 +224,18 @@ it, so a claim here can be checked rather than believed:
    and never accepts a pushed key. Direction is the security property.
 2. **No derivable master.** On the hosting lane the pod's seal key is a pod-minted DEK
    wrapped under a **per-pod KMS key** (`byoc_key_custody.resolve_pod_log_key`, the same
-   envelope BYOC uses). `HUSSH_POD_KEY_MASTER` — from which a holder could re-derive every
-   pod's keys — is **not set on that lane**; the HKDF-master mode remains the
+   envelope BYOC uses). `HUSSH_POD_KEY_MASTER` (from which a holder could re-derive every
+   pod's keys) is **not set on that lane**; the HKDF-master mode remains the
    dev-validation lane only. The hub holds `cloudkms.admin` on the keyring and provably
    **not** encrypt/decrypt on the keys.
 3. **No fallback seal key.** Half a configuration refuses: hosted provisioning with the
    KMS keyring or state bucket unset fails loudly rather than degrading to an ephemeral pod.
-4. **hussh holds public metadata only** — identifier, pod public key, lifecycle state. No
+4. **hussh holds public metadata only:** identifier, pod public key, lifecycle state. No
    hussh vault, no backup-of-record, no readable copy. Ciphertext left behind by a
    migration has a **declared expiry** rather than living indefinitely.
 5. **Identity is verified, not asserted.** The pod signs its hub calls with a key the hub
    pulled from it, so presenting one pod's transport cannot let a caller speak for another
-   person's agent — on either tier.
+   person's agent, on either tier.
 6. **The honesty clause, stated in exactly these words wherever the tier is described:**
    *hussh does **not** read this pod, and here is the migration path to where it
    structurally **cannot**.* The hosted tier never earns the sentence "hussh cannot read
@@ -235,8 +244,8 @@ it, so a claim here can be checked rather than believed:
 
 Where a condition is only partly held, it is named here rather than in a footnote: with the
 current fleet-shared pod service account, per-pod key isolation is enforced by KMS key
-bindings but **not** by workload identity — a pod that could read a sibling's storage prefix
-could ask KMS to unwrap it. Per-pod service accounts are the recorded fix, gated on the
+bindings but **not** by workload identity (a pod that could read a sibling's storage prefix
+could ask KMS to unwrap it). Per-pod service accounts are the recorded fix, gated on the
 measured 100-per-project ceiling below.
 
 Provisioning and model access must be verified for the selected GCP placement.
@@ -258,7 +267,7 @@ fails closed.
 
 *(Updated 2026-08-25.)* That guard now exists and is explicit rather than incidental:
 `hosted_tier_guard.py` permits a hussh-operated live pod create only when the lane
-affirmatively opts in, the lane is named, **and** the hosting project is explicitly aimed —
+affirmatively opts in, the lane is named, **and** the hosting project is explicitly aimed:
 a hosted fleet is never inherited from ambient credentials. The previous stand-in,
 `require_simulation_permitted`, was reused for two unrelated things (managed provisioning
 and the reviewer phone-verification bypass); those are now separate controls, so opening
@@ -269,22 +278,22 @@ exists and is the right one," citing `runtime_providers/factory.py`. That is **o
 off** and the error is worth keeping visible, because it would send an implementer to the
 one file that does not need changing.
 
-`factory.py`'s orthogonality is **provider × credential** — Gemini / Anthropic / OpenAI
-against ADC / BYOK — and it is genuine. The seam this matrix needs is **target ×
+`factory.py`'s orthogonality is **provider × credential** (Gemini / Anthropic / OpenAI
+against ADC / BYOK) and it is genuine. The seam this matrix needs is **target ×
 credential**, and it does not exist. Credential mode is currently *coupled* to deployment
 target: `_managed_genai_auth_mode` gates on `HUSHH_DEPLOY_ENV`, and `_vertex_project` falls
 back to `google.auth.default()`, which bakes in an ambient-Google-identity assumption.
 
 **The real gap is that neither axis is expressible per person.** Both are process-wide
-environment variables. `PodSpec` — the one per-user object that crosses the backend seam —
+environment variables. `PodSpec` (the one per-user object that crosses the backend seam)
 carries neither, and `resolve_compute_backend()` is called with no argument at all three
 production call sites. The registry column records what happened; it never decides
 anything. So the first change is not credentials or IAM: it is putting both axes on
 `PodSpec` and on a per-user column, after which the rest becomes possible.
 
 **This supersedes standing decision D1** ("pods are BYOK-only for now", bound to
-`pod_managed_model_enabled`). Managed-model pods are in scope. D1's reasoning — that BYOK
-keeps the pod service account zero-role — does not disappear, and it is now a *constraint
+`pod_managed_model_enabled`). Managed-model pods are in scope. D1's reasoning (that BYOK
+keeps the pod service account zero-role) does not disappear, and it is now a *constraint
 on how* a managed cell is built rather than a reason not to build it.
 
 Every cell must preserve the Private Agent properties: the person's holdings stay isolated
@@ -295,10 +304,10 @@ the person rather than an invisible operator setting.
 
 **Even in the simulation tier, do not grant `roles/aiplatform.user` to the pod service
 account.** Verified live in `hushh-pda-dev`: that account appears in **zero** project IAM
-bindings, and it is **fleet-shared** — a project-level grant hands every pod the same
-Vertex access at once. Per-pod service accounts do not rescue it: the measured ceiling is
+bindings, and it is **fleet-shared** (a project-level grant hands every pod the same
+Vertex access at once). Per-pod service accounts do not rescue it: the measured ceiling is
 **100 per project**, ten times tighter than the 1000-service Cloud Run ceiling, with a
-10/minute creation limit. The shape that works is a **turn-bounded credential** — the hub
+10/minute creation limit. The shape that works is a **turn-bounded credential**: the hub
 mints a short-lived Vertex access token and passes it through the relay exactly as a BYOK
 key travels today. This is now a dev-tier concern, but the isolation property is what the
 simulation is supposed to be validating, so spending it would make the simulation prove
@@ -312,7 +321,7 @@ the literal forms, and a base64 blob under a neutral key name would slip past it
 ## Deployment-agnostic is a first-class requirement
 
 The hussh **dev** GCP environment exists **purely to validate this architecture**. It is a
-simulator for the complete production environment — orchestration, deployment, scaling,
+simulator for the complete production environment: orchestration, deployment, scaling,
 synchronisation, upgrades, recovery, backups, performance, and end-to-end interaction.
 
 The dev environment is not the product. The deployment observations below are dated
@@ -323,7 +332,7 @@ health. Re-earn those observations for a release candidate:
 |---|---|---|
 | hussh **dev** GCP | validation and simulation only | live |
 | hussh **hosted** project | one instance per person; the zero-config door, under the conditions above | building |
-| the person's **own** GCP project | they own the compute | live — first BYOC pod served from the person's own registry |
+| the person's **own** GCP project | they own the compute | live (first BYOC pod served from the person's own registry) |
 
 The migration between rows two and three is a product feature, not an operations task: the
 same image, the same HusshID, the same commit log, re-sealed inside the destination pod.
@@ -335,14 +344,14 @@ setting values?* If it requires editing code, the design is wrong.
 Practical consequences that follow, and are therefore requirements rather than nice-to-haves:
 
 - No control-plane detail may be baked into a pod image. Configuration arrives at runtime.
-- Pod state is **portable** — encrypted, exportable, restorable into a different project.
+- Pod state is **portable**: encrypted, exportable, restorable into a different project.
 - Identity is derived from the workload, not borrowed from the hosting platform. A pod
   must be able to prove which pod it is somewhere hussh does not own the IAM.
 - Every backend seam (`ComputeBackend`, storage, key custody) stays substitutable.
 
 ## The seven requirements, restated against this vision
 
-Isolation, authority, identity, capability, **persistence**, portability, economics — the
+Isolation, authority, identity, capability, **persistence**, portability, economics: the
 same decomposition, now scored against persistent per-person pods rather than a stateless
 fleet.
 
@@ -573,7 +582,7 @@ preserves a distinct bootstrap account and rechecks disabled state after admissi
 An admitted retry only observes; it never submits another disable request. This draft
 is not deployed and does not prove that previously accepted uploads have drained.
 The hub reads inventory back before continuing. This preserves shared and unresolved inventory;
-it does not grant cleanup eligibility. Dev migrations 924–930 and the existing coordinator
+it does not grant cleanup eligibility. Dev migrations 924-930 and the existing coordinator
 connect KMS destruction, signing-secret deletion, runtime-account deletion, runtime project-grant
 revocation and repository-writer revocation to retained admission and outcome callbacks.
 Repository creation evidence comes from the completed provider operation; adopted repositories
@@ -684,17 +693,21 @@ remove an account. Rollback refuses retained receipts. The enumeration follows t
    proof of current information freshness.
 2. **Specialists must be re-homed into the pod**, not proxied to the hub indefinitely. A
    pod that forwards every specialist call to a central database is a thin client with a
-   local model — an acceptable *transitional* step, never the destination, and it must be
+   local model (an acceptable *transitional* step, never the destination), and it must be
    labelled as transitional wherever it appears.
 3. **Per-pod cryptographic identity replaces the fleet-shared account.** This is the gate
    on any cohort larger than the team, and on deployment into a project hussh does not own.
 4. **Economy tier becomes the default.** Persistence must not require a warm instance;
-   state lives outside the container so scale-to-zero costs nothing but a cold start.
+   state lives outside the container so scale-to-zero costs nothing but a cold start. On
+   the client, the encrypted IndexedDB Read Plane (`hushh-owner-ui-cache`) serves passive UI
+   reads in `0ms - 150ms` while sandboxes pre-warm silently, and offline `pod_mode()` Goals
+   ([#9517](https://github.com/hushh-labs/hushh-research/issues/9517)) share the same
+   DEK-sealed custody envelope.
 5. **The hussh dev environment is measured as a simulator.** Its job is to prove upgrades,
-   recovery, backup, sync and scale work — not to be the place the product lives.
+   recovery, backup, sync and scale work, not to be the place the product lives.
    *(Updated 2026-08-25: this said "the hussh GCP environment", which now needs the
    distinction. The **dev** project is the simulator. The **hosted** project is a
-   production tier under the stated conditions, and it is measured as production —
+   production tier under the stated conditions, and it is measured as production:
    per-pod KMS custody, verified identity, real cost per person from a billing export.)*
    Host-absence recovery now compares the registry snapshot captured before an
    external probe. A confirmed absent host clears cloud authorization only through
@@ -728,10 +741,12 @@ remove an account. Rollback refuses retained receipts. The enumeration follows t
    Missing acknowledgements still require independent reconciliation; never retry
    their provider mutation just because the worker disappeared. Unrelated writers can preserve template annotations, so a matching
    annotation alone is never a complete recovery proof.
-6. **Migration is a first-class product surface.** A person who started on the hosted tier
-   must be able to move their agent into their own project with one click, keeping the same
-   HusshID and everything the agent has learned, with the re-seal happening inside the
-   destination pod because hussh structurally cannot perform it.
+6. **Migration and lossless cutover are first-class product surfaces.** A person who started
+   on the hosted tier must be able to move their agent into their own project with one
+   click, keeping the same HusshID and everything the agent has learned, with the re-seal
+   happening inside the destination pod because hussh structurally cannot perform it.
+   Lossless cutover replaces multi-cloud hosted shuffling across `Hussh Confidential Sandbox`
+   (Google Cloud default), `BYOC`, and `Local Puppy`.
 
 ## Open questions this document does not yet answer
 
@@ -739,17 +754,17 @@ Raised by the lanes that inherit it, on the first cycle after it was written. Re
 here rather than resolved silently, because seven lanes each guessing differently is the
 drift this file exists to prevent.
 
-**Q1 — RESOLVED (founder, 2026-08-06). Can a hussh-managed pod hold a durable key at all?**
+**Q1: RESOLVED (founder, 2026-08-06). Can a hussh-managed pod hold a durable key at all?**
 `pod_self_registration.py` defines *durable* as storage only that pod's runtime can read,
-naming the **user's** project or attested sealed storage — neither of which exists on
-hussh-managed GCP. Read strictly, that made persistence unvalidatable on the exact
+naming the **user's** project or attested sealed storage (neither of which exists on
+hussh-managed GCP). Read strictly, that made persistence unvalidatable on the exact
 environment designated as the simulator.
 
 **The resolution is to simulate the full hussh-managed pod lifecycle: keep the pod alive,
 chain intelligence across turns and restarts, and validate how the agent evolves over
 time.** The simulator's job is to prove *evolution*, not merely that a key survives. So a
 hussh-managed pod holds a durable key to make that simulation real, and the thing being
-validated is the compounding — continuity across restart, knowledge from an early turn used
+validated is the compounding: continuity across restart, knowledge from an early turn used
 much later, and quality that does not decay over a long horizon.
 
 Two consequences worth stating, because they are what make this honest rather than a
@@ -760,10 +775,10 @@ loophole:
   customer-owned targets; the hussh tier proves the machinery.
 - **"The agent evolved" must be an assertion, not a vibe.** A long-horizon run that nobody
   measures is a soak test with good intentions. It needs a metric, negative controls, and
-  an observed recall *tool call* — a model can produce a plausible answer by guessing, and
+  an observed recall *tool call*: a model can produce a plausible answer by guessing, and
   only the tool call proves it remembered.
 
-**Q2 — Economy-tier-by-default and background-services-between-turns are in tension.** A
+**Q2: Economy-tier-by-default and background-services-between-turns are in tension.** A
 pod at `minScale=0` has no process to run background work in. Asserting both without
 reconciling them means one lane builds an always-on loop and another builds a scheduler,
 both citing this file.
@@ -771,10 +786,10 @@ both citing this file.
 *Working answer:* between-turn work is **event-woken**, not resident. The BYOC bootstrap
 already designs exactly this shape. An always-on loop is not the intended reading.
 
-**Q3 — Is "one isolated pod per person" a required implementation or a required
+**Q3: Is "one isolated pod per person" a required implementation or a required
 property?** The two readings differ by an order of magnitude in economics, because a
-service per person carries a hard platform ceiling that scale-to-zero does **not** relieve
-— the quota counts services, not instances, so a sleeping pod holds a slot exactly like a
+service per person carries a hard platform ceiling that scale-to-zero does **not** relieve:
+the quota counts services, not instances, so a sleeping pod holds a slot exactly like a
 warm one. The only lever that removes the ceiling is the person's own project, which
 reframes BYO-Compute from a sovereignty tier into **the scale path**.
 
@@ -794,12 +809,13 @@ hosting must remain explicit; it is distinct from an owner-controlled cloud.
 - **Any design review** asks two questions of the proposal: *does the agent still remember?*
   and *does this move to another project by configuration alone?*
 - **When something in the repo still reflects the stateless scaffold** where it should not,
-  evolve it and say so in the commit — the divergence is the finding.
+  evolve it and say so in the commit; the divergence is the finding.
 
 ## Sources
 
 - Founder directive, 2026-08-06, realigning execution with the intended architecture.
-- Companion records: the plan of record and the interface-to-agent routing map in this same directory; the dev fast-lane runbook in `docs/operations/`.
+- Companion records: [hosting module](../../architecture/modules/hosting.md), [Agent Sandbox microVM pool plan](../../roadmap/personal-agent/agent-sandbox-microvm-plan.md), the plan of record and the interface-to-agent routing map in `docs/architecture/`, and the dev fast-lane runbook in `docs/operations/`.
+- Tracking issues: [#9744](https://github.com/hushh-labs/hushh-research/issues/9744) · [#9511](https://github.com/hushh-labs/hushh-research/issues/9511) · [#9736](https://github.com/hushh-labs/hushh-research/issues/9736) · [#9517](https://github.com/hushh-labs/hushh-research/issues/9517) · [#9370](https://github.com/hushh-labs/hushh-research/issues/9370) · [#5507](https://github.com/hushh-labs/hushh-research/issues/5507).
 
 ## Consent freshness and lifecycle boundaries
 

@@ -21,6 +21,7 @@ from hushh_mcp.services.pod_files.runtime import (
     wiki_operation,
     workspace_operation,
 )
+from hushh_mcp.services.pod_s3_object_store import PodMultiCloudStorageError
 from hushh_mcp.services.pod_session_authority import ROLE_APP, PodSessionRefused
 from hushh_mcp.services.pod_workspace.checkpoint_store import WorkspaceRefused
 from hushh_mcp.services.wiki_memory.contracts import WikiRefused
@@ -72,7 +73,9 @@ class Mutation(EntryRequest):
     confirmed: bool = False
 
 
-def refusal(exc: FilesRefused) -> HTTPException:
+def refusal(exc: FilesRefused | PodMultiCloudStorageError) -> HTTPException:
+    if isinstance(exc, PodMultiCloudStorageError):
+        return HTTPException(status_code=503, detail={"code": "FILES_STORAGE_UNAVAILABLE"})
     return HTTPException(status_code=exc.status, detail={"code": exc.code})
 
 
@@ -81,7 +84,7 @@ async def list_files(owner: Owner, parent: str = "root", cursor: str = "", trash
     try:
         async with operation() as library:
             return await library.list_folder(parent, cursor, trash=trash)
-    except FilesRefused as exc:
+    except (FilesRefused, PodMultiCloudStorageError) as exc:
         raise refusal(exc) from exc
 
 
@@ -90,7 +93,7 @@ async def file_status(owner: Owner, file_id: str):
     try:
         async with operation() as library:
             return await library.stat(file_id)
-    except FilesRefused as exc:
+    except (FilesRefused, PodMultiCloudStorageError) as exc:
         raise refusal(exc) from exc
 
 
@@ -99,7 +102,7 @@ async def create_file(body: CreateFile, owner: Owner):
     try:
         async with operation(mutation=True) as library:
             return await library.create(**body.model_dump())
-    except FilesRefused as exc:
+    except (FilesRefused, PodMultiCloudStorageError) as exc:
         raise refusal(exc) from exc
 
 
@@ -118,7 +121,7 @@ async def upload_chunk(request: Request, owner: Owner, file_id: str, index: int)
                 return await library.put_chunk(file_id, index, bytes(data))
     except TimeoutError:
         raise HTTPException(408, detail={"code": "FILES_UPLOAD_TIMEOUT"}) from None
-    except FilesRefused as exc:
+    except (FilesRefused, PodMultiCloudStorageError) as exc:
         raise refusal(exc) from exc
 
 
@@ -130,7 +133,7 @@ async def download_chunk(owner: Owner, file_id: str, index: int):
             return Response(
                 data, media_type="application/octet-stream", headers={"Cache-Control": "no-store"}
             )
-    except FilesRefused as exc:
+    except (FilesRefused, PodMultiCloudStorageError) as exc:
         raise refusal(exc) from exc
 
 
@@ -141,7 +144,7 @@ async def complete_file(body: EntryRequest, owner: Owner):
     try:
         async with operation() as library:
             return await complete_upload(library, body.file_id, mutation=operation(mutation=True))
-    except FilesRefused as exc:
+    except (FilesRefused, PodMultiCloudStorageError) as exc:
         raise refusal(exc) from exc
 
 
@@ -150,7 +153,7 @@ async def mutate_file(body: Mutation, owner: Owner):
     try:
         async with operation(mutation=True) as library:
             return await library.mutate(**body.model_dump())
-    except FilesRefused as exc:
+    except (FilesRefused, PodMultiCloudStorageError) as exc:
         raise refusal(exc) from exc
 
 
@@ -173,7 +176,7 @@ async def read_settings(owner: Owner):
                 **organization_model_status(),
                 "retention": await library.store.verify_bucket(custody_key_reference()),
             }
-    except FilesRefused as exc:
+    except (FilesRefused, PodMultiCloudStorageError) as exc:
         raise refusal(exc) from exc
 
 
@@ -199,7 +202,7 @@ async def update_settings(body: AnalysisSettings, owner: Owner):
                 if not restrictive:
                     organization_model_binding()
             return await library.configure(**body.model_dump())
-    except FilesRefused as exc:
+    except (FilesRefused, PodMultiCloudStorageError) as exc:
         raise refusal(exc) from exc
 
 
@@ -208,7 +211,7 @@ async def read_usage(owner: Owner, cursor: str = ""):
     try:
         async with operation() as library:
             return await library.usage_page(cursor)
-    except FilesRefused as exc:
+    except (FilesRefused, PodMultiCloudStorageError) as exc:
         raise refusal(exc) from exc
 
 
@@ -226,7 +229,7 @@ async def repair_index(body: IndexRepairRequest, owner: Owner):
     try:
         async with operation(mutation=True) as library:
             return await library.rebuild_index_page(body.cursor)
-    except FilesRefused as exc:
+    except (FilesRefused, PodMultiCloudStorageError) as exc:
         raise refusal(exc) from exc
 
 
@@ -239,7 +242,7 @@ async def job_status(owner: Owner, file_id: str = "", cursor: str = ""):
             return (
                 await status(library, file_id) if file_id else await history_page(library, cursor)
             )
-    except FilesRefused as exc:
+    except (FilesRefused, PodMultiCloudStorageError) as exc:
         raise refusal(exc) from exc
 
 
@@ -256,7 +259,7 @@ async def organize(body: OrganizationRequest, owner: Owner):
                     library, file_id=body.file_id, request_id=body.request_id
                 )
             return await deliver(library, prepared)
-    except FilesRefused as exc:
+    except (FilesRefused, PodMultiCloudStorageError) as exc:
         raise refusal(exc) from exc
 
 
@@ -290,11 +293,15 @@ async def organization_worker(
         return await run_job(body.job_id, body.delivery)
     except SchedulerIdentityError:
         raise HTTPException(403, detail={"code": "FILES_WORKER_REFUSED"}) from None
-    except FilesRefused as exc:
+    except (FilesRefused, PodMultiCloudStorageError) as exc:
         raise refusal(exc) from exc
 
 
-def wiki_refusal(exc: WikiRefused | FilesRefused | WorkspaceRefused) -> HTTPException:
+def wiki_refusal(
+    exc: WikiRefused | FilesRefused | WorkspaceRefused | PodMultiCloudStorageError,
+) -> HTTPException:
+    if isinstance(exc, PodMultiCloudStorageError):
+        return HTTPException(status_code=503, detail={"code": "FILES_STORAGE_UNAVAILABLE"})
     return HTTPException(status_code=exc.status, detail={"code": exc.code})
 
 
@@ -304,9 +311,11 @@ class WikiOptInBody(BaseModel):
 
 class WikiSavePageBody(BaseModel):
     page_id: str = Field(min_length=4, max_length=64)
-    expected_revision: int = Field(ge=1)
+    expected_revision: int = Field(default=0, ge=0)
     title: str = Field(min_length=1, max_length=120)
+    folder: str = Field(default="root", min_length=1, max_length=120)
     tldr: str = Field(default="", max_length=600)
+    status_as_of: str = Field(default="2026-01-01", min_length=4, max_length=32)
     body: str = Field(default="", max_length=64000)
     request_id: str = Field(min_length=8, max_length=128)
 
@@ -380,10 +389,36 @@ async def read_wiki_overview(owner: Owner):
     try:
         async with wiki_operation() as wiki:
             migrator = WikiOwnerMigrator(wiki)
-            cp = await wiki.read_capture_checkpoint()
-            mig = await migrator.get_migration_status()
-            pages = await wiki.list_pages()
-            receipts = await wiki.list_projection_receipts()
+            cp, mig, pages, receipts = await asyncio.gather(
+                wiki.read_capture_checkpoint(),
+                migrator.get_migration_status(),
+                wiki.list_pages(),
+                wiki.list_projection_receipts(),
+            )
+            candidate_page_ids = sorted(
+                {
+                    str(rec["page_id"])
+                    for rec in receipts
+                    if rec["state"] in {"private_candidate", "conflicted"}
+                }
+            )
+            page_docs: dict[str, dict[str, object]] = {}
+            if candidate_page_ids:
+                sem = asyncio.Semaphore(8)
+
+                async def _read_candidate_page(pid: str) -> tuple[str, dict[str, object] | None]:
+                    async with sem:
+                        try:
+                            return pid, await wiki.read_page(pid)
+                        except WikiRefused:
+                            return pid, None
+
+                for pid, doc in await asyncio.gather(
+                    *(_read_candidate_page(pid) for pid in candidate_page_ids)
+                ):
+                    if doc is not None:
+                        page_docs[pid] = doc
+
             candidates: list[dict[str, object]] = []
             stale_receipts: list[dict[str, object]] = []
             projected_claim_keys: list[str] = []
@@ -407,14 +442,14 @@ async def read_wiki_overview(owner: Owner):
                 if rec["state"] not in {"private_candidate", "conflicted"}:
                     continue
                 stmt = ""
-                try:
-                    pdoc = await wiki.read_page(rec["page_id"])
-                    found = next(
-                        (c for c in pdoc["claims"] if c["claim_id"] == rec["claim_id"]), None
-                    )
-                    stmt = str(found["statement"]) if found else ""
-                except WikiRefused:
-                    stmt = ""
+                pdoc = page_docs.get(str(rec["page_id"]))
+                if pdoc is not None:
+                    claims_list = pdoc.get("claims")
+                    if isinstance(claims_list, list):
+                        found = next(
+                            (c for c in claims_list if c["claim_id"] == rec["claim_id"]), None
+                        )
+                        stmt = str(found["statement"]) if found else ""
                 candidates.append(
                     {
                         "receiptId": rec["receipt_id"],
@@ -442,6 +477,7 @@ async def read_wiki_overview(owner: Owner):
                         "title": p["title"],
                         "folder": p["folder"],
                         "tldr": str(p.get("tldr") or ""),
+                        "statusAsOf": str(p.get("status_as_of") or ""),
                         "revision": p["revision"],
                         "updatedAt": p["updated_at"],
                     }
@@ -451,7 +487,7 @@ async def read_wiki_overview(owner: Owner):
                 "staleReceipts": stale_receipts,
                 "projectedClaimKeys": projected_claim_keys,
             }
-    except (WikiRefused, FilesRefused) as exc:
+    except (WikiRefused, FilesRefused, PodMultiCloudStorageError) as exc:
         raise wiki_refusal(exc) from exc
 
 
@@ -460,15 +496,27 @@ async def read_wiki_page_detail(owner: Owner, page_id: str):
     try:
         async with wiki_operation() as wiki:
             page = await wiki.read_page(page_id)
+            unique_source_ids = list(dict.fromkeys(page["source_ids"]))
             source_labels: dict[str, str] = {}
-            for sid in page["source_ids"]:
-                try:
-                    src = await wiki.get_source(sid)
-                    label = _SOURCE_KIND_LABELS.get(str(src.get("kind") or ""), "Saved source")
-                    obs = str(src.get("observed_at") or "")[:10]
-                    source_labels[sid] = f"{label} · {obs}" if obs else label
-                except WikiRefused:
-                    source_labels[sid] = "Saved source"
+            if unique_source_ids:
+                sem = asyncio.Semaphore(8)
+
+                async def _read_src(sid: str) -> tuple[str, str]:
+                    async with sem:
+                        try:
+                            src = await wiki.get_source(sid)
+                            label = _SOURCE_KIND_LABELS.get(
+                                str(src.get("kind") or ""), "Saved source"
+                            )
+                            obs = str(src.get("observed_at") or "")[:10]
+                            return sid, (f"{label} · {obs}" if obs else label)
+                        except WikiRefused:
+                            return sid, "Saved source"
+
+                for sid, lbl in await asyncio.gather(
+                    *(_read_src(sid) for sid in unique_source_ids)
+                ):
+                    source_labels[sid] = lbl
             return {
                 "pageId": page["page_id"],
                 "title": page["title"],
@@ -491,7 +539,7 @@ async def read_wiki_page_detail(owner: Owner, page_id: str):
                     for c in page["claims"]
                 ],
             }
-    except (WikiRefused, FilesRefused) as exc:
+    except (WikiRefused, FilesRefused, PodMultiCloudStorageError) as exc:
         raise wiki_refusal(exc) from exc
 
 
@@ -504,7 +552,7 @@ async def update_wiki_opt_in(body: WikiOptInBody, owner: Owner):
             writer = WikiKnowledgeWriter(wiki)
             res = await writer.set_capture_opt_in(body.enabled)
             return {"captureOptIn": bool(res["capture_opt_in"])}
-    except (WikiRefused, FilesRefused) as exc:
+    except (WikiRefused, FilesRefused, PodMultiCloudStorageError) as exc:
         raise wiki_refusal(exc) from exc
 
 
@@ -514,6 +562,23 @@ async def save_wiki_page_detail(body: WikiSavePageBody, owner: Owner):
 
     try:
         async with wiki_operation(mutation=True) as wiki:
+            if body.expected_revision == 0:
+                created = await wiki.create_page(
+                    page_id=body.page_id,
+                    title=body.title,
+                    folder=body.folder,
+                    tldr=body.tldr,
+                    status_as_of=body.status_as_of,
+                    body=body.body,
+                    idempotency_key=body.request_id,
+                )
+                await wiki.rebuild_indexes()
+                await WikiKnowledgeWriter(wiki).refresh_hot_digest()
+                return {
+                    "pageId": created["page_id"],
+                    "revision": created["revision"],
+                    "staledReceipts": [],
+                }
             updated = await wiki.edit_page(
                 body.page_id,
                 expected_revision=body.expected_revision,
@@ -541,7 +606,7 @@ async def save_wiki_page_detail(body: WikiSavePageBody, owner: Owner):
                     for r in staled
                 ],
             }
-    except (WikiRefused, FilesRefused) as exc:
+    except (WikiRefused, FilesRefused, PodMultiCloudStorageError) as exc:
         raise wiki_refusal(exc) from exc
 
 
@@ -574,7 +639,7 @@ async def confirm_wiki_candidate(body: WikiConfirmCandidateBody, owner: Owner):
                 "sourceRevision": saved["source_revision"],
                 "statement": stmt,
             }
-    except (WikiRefused, FilesRefused) as exc:
+    except (WikiRefused, FilesRefused, PodMultiCloudStorageError) as exc:
         raise wiki_refusal(exc) from exc
 
 
@@ -630,7 +695,7 @@ async def derive_wiki_projection(body: WikiDeriveProjectionBody, owner: Owner):
                 "claimId": derived["claim_id"],
                 "sourceRevision": derived["source_revision"],
             }
-    except (WikiRefused, FilesRefused) as exc:
+    except (WikiRefused, FilesRefused, PodMultiCloudStorageError) as exc:
         raise wiki_refusal(exc) from exc
 
 
@@ -668,7 +733,7 @@ async def forget_wiki_claim(body: WikiForgetClaimBody, owner: Owner):
                     for r in res.get("staled_projection_receipts", ())
                 ],
             }
-    except (WikiRefused, FilesRefused) as exc:
+    except (WikiRefused, FilesRefused, PodMultiCloudStorageError) as exc:
         raise wiki_refusal(exc) from exc
 
 
@@ -775,7 +840,7 @@ async def migrate_wiki_cohort(body: WikiMigrateBody, owner: Owner):
                 "coldRecoveryQualified": bool(mig.get("cold_recovery_qualified")),
                 "classicWriterRetired": advanced["state"] == "wiki_primary",
             }
-    except (WikiRefused, FilesRefused) as exc:
+    except (WikiRefused, FilesRefused, PodMultiCloudStorageError) as exc:
         raise wiki_refusal(exc) from exc
 
 
@@ -797,7 +862,43 @@ async def rollback_wiki_to_classic(body: WikiRollbackBody, owner: Owner):
                 "v1Markdown": res["v1_markdown"],
                 "restoredClaimCount": int(res.get("restored_claim_count") or 0),
             }
-    except (WikiRefused, FilesRefused) as exc:
+    except (WikiRefused, FilesRefused, PodMultiCloudStorageError) as exc:
+        raise wiki_refusal(exc) from exc
+
+
+class WikiOptimizeBody(BaseModel):
+    request_id: str = Field(min_length=8, max_length=128)
+
+
+@router.post("/wiki/optimize")
+async def optimize_wiki_memory(body: WikiOptimizeBody, owner: Owner):
+    from hushh_mcp.services.wiki_memory import (
+        WikiMaintenanceRunner,
+        resolve_owner_protected_grant_scopes,
+    )
+
+    try:
+        owner_uid = str(owner.get("user_id") or "")
+        protected_scopes = await resolve_owner_protected_grant_scopes(owner_uid)
+        async with wiki_operation(mutation=True) as wiki:
+            res = await WikiMaintenanceRunner(wiki).optimize_knowledge_base(
+                idempotency_key=body.request_id,
+                protected_scopes=protected_scopes,
+            )
+            return {
+                "optimizationRunId": res["optimization_run_id"],
+                "inspectedPageCount": res["inspected_page_count"],
+                "deduplicatedClaimCount": res["deduplicated_claim_count"],
+                "staleRetiredCount": res["stale_retired_count"],
+                "structureRepairsCount": res["structure_repairs_count"],
+                "protectedGrantScopes": res["protected_grant_scopes"],
+                "protectedGrantPagesCount": res["protected_grant_pages_count"],
+                "protectedClaimsPreservedCount": res["protected_claims_preserved_count"],
+                "contradictions": res["contradictions"],
+                "hotDigestChars": res["hot_digest_chars"],
+                "hotDigestWithinBudget": res["hot_digest_within_budget"],
+            }
+    except (WikiRefused, FilesRefused, PodMultiCloudStorageError) as exc:
         raise wiki_refusal(exc) from exc
 
 
@@ -839,6 +940,22 @@ async def import_wiki_archive(body: WikiImportArchiveBody, owner: Owner):
                 source_provider=body.source_provider,
                 explicit_candidate_mappings=body.explicit_candidate_mappings,
             )
+            try:
+                from hushh_mcp.services.wiki_memory import (
+                    WikiMaintenanceRunner,
+                    resolve_owner_protected_grant_scopes,
+                )
+
+                protected = await resolve_owner_protected_grant_scopes(
+                    str(owner.get("user_id") or "")
+                )
+                await WikiMaintenanceRunner(wiki).run_tick(
+                    idempotency_key=f"{body.request_id}:hygiene"[:120],
+                    max_pages_per_tick=8,
+                    protected_scopes=protected,
+                )
+            except Exception:  # noqa: BLE001 - background hygiene is additive
+                pass
             return {
                 "provider": res["provider"],
                 "fileId": res["file_id"],
@@ -848,7 +965,7 @@ async def import_wiki_archive(body: WikiImportArchiveBody, owner: Owner):
                 "claimsSkippedTombstoned": res["claims_skipped_tombstoned"],
                 "candidateCount": len(res["candidate_receipt_ids"]),
             }
-    except (WikiRefused, FilesRefused) as exc:
+    except (WikiRefused, FilesRefused, PodMultiCloudStorageError) as exc:
         raise wiki_refusal(exc) from exc
 
 
@@ -880,7 +997,7 @@ async def read_workspace_status(owner: Owner, workspace_id: str | None = None):
                 await ws.checkpoints.list_execution_events(workspace_id) if workspace_id else []
             )
             return {**status, "events": events}
-    except (WorkspaceRefused, FilesRefused) as exc:
+    except (WorkspaceRefused, FilesRefused, PodMultiCloudStorageError) as exc:
         raise wiki_refusal(exc) from exc
 
 
@@ -895,7 +1012,7 @@ async def execute_workspace_command(body: WorkspaceExecuteBody, owner: Owner):
                 actor=body.actor,
                 timeout_seconds=body.timeout_seconds,
             )
-    except (WorkspaceRefused, FilesRefused) as exc:
+    except (WorkspaceRefused, FilesRefused, PodMultiCloudStorageError) as exc:
         raise wiki_refusal(exc) from exc
 
 
@@ -905,7 +1022,7 @@ async def control_workspace_session(body: WorkspaceControlBody, owner: Owner):
     try:
         async with workspace_operation(mutation=True) as ws:
             return ws.set_control_mode(body.workspace_id, body.action)
-    except (WorkspaceRefused, FilesRefused) as exc:
+    except (WorkspaceRefused, FilesRefused, PodMultiCloudStorageError) as exc:
         raise wiki_refusal(exc) from exc
 
 
@@ -915,5 +1032,5 @@ async def forget_workspace_state(body: WorkspaceForgetBody, owner: Owner):
     try:
         async with workspace_operation(mutation=True) as ws:
             return await ws.checkpoints.forget_workspace(body.workspace_id)
-    except (WorkspaceRefused, FilesRefused) as exc:
+    except (WorkspaceRefused, FilesRefused, PodMultiCloudStorageError) as exc:
         raise wiki_refusal(exc) from exc

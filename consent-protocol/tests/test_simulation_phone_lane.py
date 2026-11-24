@@ -324,11 +324,13 @@ def _resolve_runtime_environment(deploy_env: str, runtime_env: str = "uat") -> s
 
     script = backend_deploy_script()
     start = script.index('runtime_environment="${_RUNTIME_ENVIRONMENT}"')
-    dev_block = 'if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then\n  runtime_environment="dev"\nfi'
-    if dev_block not in script:
-        dev_block = 'if [[ "${_DEPLOY_ENV}" == "dev" ]]; then\n  runtime_environment="dev"\nfi'
-    end = script.index(dev_block)
-    slice_ = script[start : end + len(dev_block)]
+    target = (
+        'if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then\n'
+        '  runtime_environment="dev"\n'
+        "fi"
+    )
+    end = script.index(target)
+    slice_ = script[start : end + len(target)]
     slice_ = slice_.replace("${_RUNTIME_ENVIRONMENT}", runtime_env).replace(
         "${_DEPLOY_ENV}", deploy_env
     )

@@ -561,12 +561,21 @@ Rules:
    visible workspace. Keep the toolbar and pagination pinned within the group;
    the row rail, not the document, owns vertical scrolling. Consent request
    review uses the canonical adaptive detail surface with a flat definition
-   list and decision controls—no duplicate request heading, supporting copy,
+   list and decision controls, with no duplicate request heading, supporting copy,
    or nested detail card.
 10. A detail overlay is its own raised surface. Its evidence sections use flat
     headings and hairline-separated rows inside that surface; do not put a
     `SettingsGroup`, card, or rounded inset around each section unless it is a
     separately actionable task.
+11. Compact rows (`320-380px` drawer and phone widths) carry at most one compact
+    trailing control or short value beside a chevron. Never stack multiple pill
+    badges horizontally in `trailing` against a row's title or description, and
+    never apply `textOverflow="truncate"` to authored product, hosting tier, or
+    capability names; place secondary status/provider chips on a wrapping
+    sub-row beneath the untruncated description.
+12. Never place a standalone status card immediately beneath a selected radio or
+    choice card when it repeats the exact same product heading and descriptive
+    paragraph; render a single compact status line instead.
 
 ## Route Loading Contract
 

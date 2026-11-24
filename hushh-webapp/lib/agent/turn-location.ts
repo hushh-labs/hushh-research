@@ -40,9 +40,34 @@ function withinDeadline<T>(work: Promise<T>, ms: number): Promise<T | null> {
 export async function resolveTurnLocation(): Promise<TurnLocation> {
   const startedAt = Date.now();
   try {
+    const preSyncState = LocationBus.getState();
     const permission = await withinDeadline(LocationBus.syncPermission(), FRESH_FIX_WAIT_MS);
     if (permission === "denied" || permission === "restricted") return { status: "denied" };
-    if (permission === "prompt") return { status: "not_granted" };
+    // Safari/WebKit cannot query the geolocation descriptor in the Permissions
+    // API and reports `prompt` even right after an owner-initiated capture in
+    // this session succeeded. Reuse that fresh session measurement without
+    // prompting, while still treating an unmeasured `prompt` as `not_granted`.
+    if (permission === "prompt") {
+      const heldFresh =
+        preSyncState.status === "ready" &&
+        preSyncState.snapshotOrigin === "fresh" &&
+        preSyncState.snapshot &&
+        isUsableFixAge(preSyncState.snapshot.capturedAt)
+          ? preSyncState.snapshot
+          : null;
+      if (
+        heldFresh &&
+        Number.isFinite(heldFresh.latitude) &&
+        Number.isFinite(heldFresh.longitude)
+      ) {
+        return {
+          status: "available",
+          latitude: coarse(heldFresh.latitude),
+          longitude: coarse(heldFresh.longitude),
+        };
+      }
+      return { status: "not_granted" };
+    }
     if (permission !== "granted") return { status: "unavailable" };
     const held = LocationBus.getState().snapshot;
     const remainingMs = Math.max(0, FRESH_FIX_WAIT_MS - (Date.now() - startedAt));

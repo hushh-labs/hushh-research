@@ -266,6 +266,21 @@ if [[ "${_DEPLOY_ENV}" == "uat" && "$PROJECT_ID" == "hushh-pda-uat" &&
   secrets="${secrets},ONE_METRICS_UAT_REPORTING_POLICY_JSON=ONE_METRICS_UAT_REPORTING_POLICY_JSON:${BASH_REMATCH[3]}"
   metrics_uat_adoption="true"
 fi
+# Production reuses the canonical PLG population policy and pins its own signing and binding.
+metrics_prod_adoption=""
+if [[ "${_DEPLOY_ENV}" == "production" && "$PROJECT_ID" == "hushh-pda" &&
+      "${_BACKEND_SERVICE}" == "consent-protocol" && -z "${_SECRET_PREFIX}" &&
+      -f deploy/metrics-production-secret-versions.txt ]]; then
+  metrics_versions="$(< deploy/metrics-production-secret-versions.txt)"
+  metrics_versions_pattern='^([1-9][0-9]*) ([1-9][0-9]*)$'
+  if [[ ! "$metrics_versions" =~ $metrics_versions_pattern ]]; then
+    echo "One Production adoption requires two positive Secret Manager version numbers." >&2
+    exit 1
+  fi
+  secrets="${secrets},ONE_METRICS_ADOPTION_SECRET=ONE_METRICS_ADOPTION_SECRET:${BASH_REMATCH[1]}"
+  secrets="${secrets},ONE_METRICS_ADOPTION_BINDING_JSON=ONE_METRICS_ADOPTION_BINDING_JSON:${BASH_REMATCH[2]}"
+  metrics_prod_adoption="true"
+fi
 # Disabling new paid requests must not strand existing Checkout/refund work.
 # Bind configured secrets in either mode; enabled rollout requires both.
 if [[ "${_DRIVE_REQUEST_PAYMENTS_ENABLED}" == "true" || "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}" == "true" ]]; then
@@ -450,7 +465,7 @@ env_vars=(
   "GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"
   "GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}"
   "GOOGLE_CLOUD_LOCATION=global"
-  "HUSHH_VERTEX_LOCATIONS=global,us,eu"
+  "HUSHH_VERTEX_LOCATIONS=global"
   "CONSENT_API_PUBLIC_ORIGIN=${_CONSENT_API_PUBLIC_ORIGIN}"
   "DB_POOL_MIN_SIZE=${_DB_POOL_MIN_SIZE}"
   "DB_POOL_MAX_SIZE=${_DB_POOL_MAX_SIZE}"
@@ -526,6 +541,7 @@ append_optional_env "ONE_VOICE_CALENDAR_NARRATION_ENABLED" "${_ONE_VOICE_CALENDA
 append_optional_env "CALENDAR_EMAIL_FOLLOWUPS" "${calendar_followups_gate}"
 append_optional_env "CALENDAR_EMAIL_FOLLOWUP_DRAIN_ENABLED" "${calendar_followup_drain_gate}"
 append_optional_env "ONE_METRICS_UAT_ADOPTION_ENABLED" "${metrics_uat_adoption}"
+append_optional_env "ONE_METRICS_ADOPTION_ENABLED" "${metrics_prod_adoption}"
 append_optional_env "VERTEX_LIVE_MODEL_ID" "${_VERTEX_LIVE_MODEL_ID:-}"
 append_optional_env "VERTEX_LIVE_LOCATION" "${_VERTEX_LIVE_LOCATION:-}"
 append_optional_env "PUPPY_INFERENCE_RELAY_URL" "${_PUPPY_INFERENCE_RELAY_URL}"
@@ -672,6 +688,18 @@ pod_data_door=""
 consent_audit_chain=""
 trusted_device_enabled=""
 pod_files_enabled=""
+# Dev Confidential Sandbox (ACE) runtime parity. Pre-initialized for `set -u` and
+# assigned ONLY inside the shared-dev block when the Edge Gateway and both
+# custody/identity secrets exist, so UAT, production, and commerce preview
+# stay byte-identical by construction.
+agent_sandbox_cutover_enabled=""
+hub_storage_prefix_base_url=""
+hub_storage_token_provider=""
+pod_storage_gateway_gcs_bucket=""
+sandbox_edge_public_url=""
+source_pod_retirement_sweep_enabled=""
+dev_custody_broker_seal_key_secret=""
+dev_sandbox_identity_master_key_secret=""
 if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
   # The owner-pilot enrollment screen is a dev-only capability. Keep the
   # trusted-device gate explicit here; it is unrelated to Puppy inference
@@ -912,6 +940,28 @@ if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
   else
     echo "Owner feeds: independent signing secrets absent; feeds remain unavailable." >&2
   fi
+  # BEGIN DEV ACE SANDBOX PARITY
+  # Preserve Dev Confidential Sandbox (ACE) custody, storage-gateway, and edge-routing
+  # bindings across every Dev backend deploy. Existence-gated on the Edge Gateway
+  # URL and both Secret Manager keys so bootstrap deploys and non-dev lanes never
+  # fail or inherit Dev bindings.
+  _dev_ace_edge_url="$(gcloud run services describe "sandbox-edge-gateway" \
+    --project="$PROJECT_ID" --region="${_REGION}" --format='value(status.url)' 2>/dev/null || true)"
+  if [[ -n "${_dev_ace_edge_url}" ]] \
+    && gcloud secrets describe "hussh-custody-broker-seal-key" --project="$PROJECT_ID" >/dev/null 2>&1 \
+    && gcloud secrets describe "sandbox-edge-identity-master-key" --project="$PROJECT_ID" >/dev/null 2>&1; then
+    agent_sandbox_cutover_enabled="1"
+    hub_storage_prefix_base_url="${hub_url:+${hub_url}/api/one/pod/storage-gateway}"
+    hub_storage_token_provider="ace_prefix_bearer"
+    pod_storage_gateway_gcs_bucket="hussh-hosted-pods-dev"
+    sandbox_edge_public_url="${_dev_ace_edge_url}"
+    source_pod_retirement_sweep_enabled="true"
+    dev_custody_broker_seal_key_secret="hussh-custody-broker-seal-key"
+    dev_sandbox_identity_master_key_secret="sandbox-edge-identity-master-key"
+  else
+    echo "Dev ACE sandbox parity: edge gateway or custody secrets absent; skipping ACE bindings." >&2
+  fi
+  # END DEV ACE SANDBOX PARITY
 fi
 append_optional_env "PERSONAL_AGENT_ENABLED" "${personal_agent_enabled}"
 append_optional_env "PERSONAL_AGENT_BACKEND" "${personal_agent_backend}"
@@ -945,6 +995,15 @@ append_optional_env "HUSSH_POD_MIGRATION_ENABLED" "${pod_migration}"
 append_optional_env "CONSENT_AUDIT_CHAIN_ENABLED" "${consent_audit_chain}"
 append_optional_env "HUSSH_TRUSTED_DEVICE_ENABLED" "${trusted_device_enabled}"
 append_optional_env "HUSSH_POD_FILES_ENABLED" "${pod_files_enabled}"
+# Dev Confidential Sandbox (ACE) runtime bindings (dev-only; empty elsewhere).
+append_optional_env "HUSSH_AGENT_SANDBOX_CUTOVER_ENABLED" "${agent_sandbox_cutover_enabled}"
+append_optional_env "HUSSH_HUB_STORAGE_PREFIX_BASE_URL" "${hub_storage_prefix_base_url}"
+append_optional_env "HUSSH_HUB_STORAGE_TOKEN_PROVIDER" "${hub_storage_token_provider}"
+append_optional_env "HUSSH_POD_STORAGE_GATEWAY_GCS_BUCKET" "${pod_storage_gateway_gcs_bucket}"
+append_optional_env "HUSSH_SANDBOX_EDGE_PUBLIC_URL" "${sandbox_edge_public_url}"
+append_optional_env "HUSSH_SOURCE_POD_RETIREMENT_SWEEP_ENABLED" "${source_pod_retirement_sweep_enabled}"
+append_optional_secret "${dev_custody_broker_seal_key_secret}" "HUSSH_CUSTODY_BROKER_SEAL_KEY"
+append_optional_secret "${dev_sandbox_identity_master_key_secret}" "HUSSH_SANDBOX_IDENTITY_MASTER_KEY"
 # Ed25519 consent signing (dev only; every value is empty elsewhere). The PRIVATE
 # key rides Secret Manager only -- never an env literal -- and the PUBLIC map is
 # mounted as hub env, which is exactly what gcp_backend's pod render reads to hand

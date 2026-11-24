@@ -1809,6 +1809,14 @@
         {
           "href": "/one/tasks?scheduled=1",
           "expected": { "href": "/one", "mode": "push", "transitionMode": "full" }
+        },
+        {
+          "href": "/one/tasks?from=goals",
+          "expected": { "href": "/one/goals", "mode": "push", "transitionMode": "full" }
+        },
+        {
+          "href": "/one/tasks?from=unknown",
+          "expected": { "href": "/one", "mode": "push", "transitionMode": "full" }
         }
       ],
       "kind": "parent"
@@ -7625,6 +7633,54 @@
       "cases": [
         {
           "href": "/research/protocol",
+          "expected": {
+            "href": "/",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
+    }
+  },
+  {
+    "route": "/design-system",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/design-system/reference-storybook.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.design.system",
+      "purpose": "Help the person inspect the reference design system showcase through its generated controls.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "nextRoute": "/design-system",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/design-system",
           "expected": {
             "href": "/",
             "mode": "push",

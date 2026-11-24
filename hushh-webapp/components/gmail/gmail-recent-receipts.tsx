@@ -1,4 +1,5 @@
 "use client";
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { NativeMailLayer, useNativeMailPaneActive, type MailNativeSection } from "./native-mail-workspace";
 
 import { withDeadline } from "@/lib/utils/with-deadline";
@@ -95,7 +96,7 @@ function subscribeToConnectivity(onChange: () => void): () => void {
 }
 
 function getConnectivitySnapshot(): boolean {
-  return typeof navigator === "undefined" || navigator.onLine !== false;
+  return isNetworkOnline();
 }
 
 export function ReceiptMerchantLogo({

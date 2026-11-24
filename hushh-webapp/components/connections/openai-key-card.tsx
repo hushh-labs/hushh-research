@@ -10,7 +10,6 @@ import {
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { OwnerKeyContent, type KeyNotice } from "./owner-key-content";
 import { RuntimeProviderMark } from "@/components/brand/runtime-provider-mark";
-import { MicrosoftAzureLogo } from "@/components/brand/microsoft-azure-logo";
 import { CaretDownIcon } from "@/components/icons";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -24,7 +23,6 @@ import {
 import { RUNTIME_PROVIDER_CATALOG } from "@/lib/connections/runtime-provider-catalog";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
-import { normalizeAiSelection } from "@/lib/one/ai-selection-seal";
 import {
   agentUpdateApprovalToast,
   approveAgentUpdate,
@@ -39,9 +37,6 @@ import {
   type AgentAiSelection,
 } from "@/lib/one/ai-selection-agent";
 import {
-  hasSavedAzureKey,
-  recordAzureSelection,
-  removeAzureSelection,
   hasSavedOpenAiKey,
   recordOpenAiSelection,
   removeOpenAiSelection,
@@ -64,9 +59,9 @@ export type OpenAiKeyCardProps = {
   onAccepted?: () => void;
   onPendingChange?: (
     pending: boolean,
-    provider: "openai" | "azure_openai",
+    provider: "openai",
   ) => void;
-  provider?: "openai" | "azure_openai";
+  provider?: "openai";
   /** Reuse the connection rows inside the single AI selection section. */
   ungrouped?: boolean;
 };
@@ -78,7 +73,7 @@ export function OpenAiKeyCard(props: OpenAiKeyCardProps) {
   const owner = snapshotValidatedAuthSessionOwner();
   return (
     <OwnerOpenAiKeyCard
-      key={`${props.userId ?? "signed-out"}:${owner?.generation ?? "unresolved"}:${props.provider ?? "openai"}`}
+      key={`${props.userId ?? "signed-out"}:${owner?.generation ?? "unresolved"}:openai`}
       {...props}
     />
   );
@@ -95,14 +90,12 @@ function OwnerOpenAiKeyCard({
   onChanged,
   onAccepted,
   onPendingChange,
-  provider = "openai",
   ungrouped = false,
 }: OpenAiKeyCardProps) {
-  const providerName = provider === "azure_openai" ? "Azure AI" : "OpenAI";
-  const statusId = `${provider}-key-status`;
-  const [endpoint, setEndpoint] = useState("");
+  const provider = "openai" as const;
+  const providerName = "OpenAI";
+  const statusId = "openai-key-status";
   const [expanded, setExpanded] = useState(false);
-  const [deployment, setDeployment] = useState("");
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -146,7 +139,7 @@ function OwnerOpenAiKeyCard({
     const [state, saved] = await Promise.all([
       loadAgentAiState(provider),
       userId && vaultKey && vaultOwnerToken
-        ? (provider === "azure_openai" ? hasSavedAzureKey : hasSavedOpenAiKey)({
+        ? hasSavedOpenAiKey({
             userId,
             vaultKey,
             vaultOwnerToken,
@@ -186,29 +179,6 @@ function OwnerOpenAiKeyCard({
         tone: "error",
         text: `Enter your ${providerName} API key.`,
       });
-    if (provider === "azure_openai" && (!endpoint.trim() || !deployment.trim()))
-      return setNotice({
-        tone: "error",
-        text: "Enter your Azure endpoint and deployment.",
-      });
-    if (provider === "azure_openai") {
-      try {
-        normalizeAiSelection({
-          provider,
-          model: deployment.trim(),
-          apiKey,
-          azureEndpoint: endpoint.trim(),
-          transport: null,
-          vertexProject: null,
-          vertexLocation: null,
-        });
-      } catch {
-        return setNotice({
-          tone: "error",
-          text: "Use your Azure HTTPS endpoint and a valid deployment name.",
-        });
-      }
-    }
     setBusy("checking");
     setNotice(null);
     try {
@@ -216,14 +186,11 @@ function OwnerOpenAiKeyCard({
       // only a selection the agent has accepted.
       const outcome = await sendAiSelectionToAgent({
         provider,
-        model: provider === "azure_openai" ? deployment.trim() : null,
+        model: null,
         apiKey,
         transport: null,
         vertexProject: null,
         vertexLocation: null,
-        ...(provider === "azure_openai"
-          ? { azureEndpoint: endpoint.trim() }
-          : {}),
       });
       if (!ownerIsCurrent()) return;
       if (!outcome.ok) {
@@ -244,14 +211,7 @@ function OwnerOpenAiKeyCard({
         lastFailure: null,
       });
       try {
-        if (provider === "azure_openai")
-          await recordAzureSelection({
-            ...vault,
-            apiKey,
-            endpoint: endpoint.trim(),
-            model: deployment.trim(),
-          });
-        else await recordOpenAiSelection({ ...vault, apiKey, model: null });
+        await recordOpenAiSelection({ ...vault, apiKey, model: null });
       } catch {
         // The pod already durably owns the accepted choice. A vault backup failure
         // must not silently switch a working private agent onto another provider.
@@ -294,11 +254,7 @@ function OwnerOpenAiKeyCard({
           });
         return;
       }
-      await (
-        provider === "azure_openai"
-          ? removeAzureSelection
-          : removeOpenAiSelection
-      )(vault);
+      await removeOpenAiSelection(vault);
       if (!ownerIsCurrent()) return;
       setHasSavedKey(false);
       setSelection((current) =>
@@ -359,12 +315,8 @@ function OwnerOpenAiKeyCard({
     <>
       <SettingsRow
         asChild={ungrouped}
-        leading={
-          provider === "openai" ? (
-            <RuntimeProviderMark provider={OPENAI_MARK} className="!h-8 !w-8" />
-          ) : <MicrosoftAzureLogo decorative className="h-8 w-8" />
-        }
-        title={ungrouped ? provider === "azure_openai" ? "Azure AI key" : providerName : "Use your own key"}
+        leading={<RuntimeProviderMark provider={OPENAI_MARK} className="!h-8 !w-8" />}
+        title={ungrouped ? providerName : "Use your own key"}
         description={
           inUse
             ? `Using ${providerName} on your agent${selection?.model ? ` (${selection.model})` : ""}.`
@@ -377,7 +329,7 @@ function OwnerOpenAiKeyCard({
           onClick={() => setExpanded((value) => !value)} /> : null}
       </SettingsRow>
       {!ungrouped || expanded ? <div className="space-y-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-        <OwnerKeyContent readiness={readiness} providerName={providerName} busy={busy} vault={Boolean(vault)} needsVaultCreation={needsVaultCreation} lastFailure={lastFailure} provider={provider} endpoint={endpoint} deployment={deployment} draftKey={draftKey} notice={notice} defaultModel={defaultModel} statusId={statusId} hasSavedKey={hasSavedKey} inUse={inUse} load={load} approveUpdate={approveUpdate} requestVault={requestVault} setEndpoint={setEndpoint} setDeployment={setDeployment} setDraftKey={setDraftKey} setNotice={setNotice} checkAndUse={checkAndUse} remove={remove} />
+        <OwnerKeyContent readiness={readiness} providerName={providerName} busy={busy} vault={Boolean(vault)} needsVaultCreation={needsVaultCreation} lastFailure={lastFailure} provider={provider} draftKey={draftKey} notice={notice} defaultModel={defaultModel} statusId={statusId} hasSavedKey={hasSavedKey} inUse={inUse} load={load} approveUpdate={approveUpdate} requestVault={requestVault} setDraftKey={setDraftKey} setNotice={setNotice} checkAndUse={checkAndUse} remove={remove} />
       </div> : null}
     </>
   );

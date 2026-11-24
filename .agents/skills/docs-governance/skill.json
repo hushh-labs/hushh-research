@@ -6,6 +6,7 @@
   "description": "Use when reorganizing docs, deciding documentation homes, consolidating redundant docs, updating diagrams or doc maps, or changing documentation verification policy in this repo.",
   "owned_paths": [
     "docs",
+    "llms.txt",
     "consent-protocol/docs",
     "hushh-webapp/docs"
   ],
@@ -27,22 +28,27 @@
     "docs/README.md",
     "docs/development/documentation.md",
     "docs/architecture/README.md",
-    "docs/operations/brand-and-compatibility-contract.md"
+    "docs/operations/brand-and-compatibility-contract.md",
+    "llms.txt"
   ],
   "required_commands": [
     "./bin/hushh docs verify",
+    "python3 scripts/licenses/verify_apache_surface.py",
     "python3 .agents/skills/docs-governance/scripts/doc_inventory.py inventory",
     "python3 .agents/skills/docs-governance/scripts/doc_inventory.py stale-candidates",
-    "python3 .agents/skills/docs-governance/scripts/doc_inventory.py folders"
+    "python3 .agents/skills/docs-governance/scripts/doc_inventory.py folders",
+    "python3 .agents/skills/skill-authoring/scripts/skill_lint.py"
   ],
   "verification_bundles": [
     {
       "id": "docs-governance",
       "commands": [
         "./bin/hushh docs verify",
+        "python3 scripts/licenses/verify_apache_surface.py",
         "python3 .agents/skills/docs-governance/scripts/doc_inventory.py inventory",
         "python3 .agents/skills/docs-governance/scripts/doc_inventory.py stale-candidates",
-        "python3 .agents/skills/docs-governance/scripts/doc_inventory.py folders"
+        "python3 .agents/skills/docs-governance/scripts/doc_inventory.py folders",
+        "python3 .agents/skills/skill-authoring/scripts/skill_lint.py"
       ],
       "tests": [
         "./bin/hushh docs verify"

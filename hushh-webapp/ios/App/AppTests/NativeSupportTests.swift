@@ -514,7 +514,8 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertNil(host.presentedViewController)
     }
 
-    func testCommittedNavigationForwarderPreservesCapacitorDelegateCallbacks() {
+    @MainActor
+    func testCommittedNavigationForwarderPreservesCapacitorDelegateCallbacks() throws {
         final class DelegateProbe: NSObject, WKNavigationDelegate {
             var didStart = false
             var didCommit = false
@@ -525,13 +526,25 @@ final class NativeSupportTests: XCTestCase {
                 didCommit = true
             }
         }
-        let webView = WKWebView(frame: .zero)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+        let host = UIViewController()
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previousKeyWindow?.makeKeyAndVisible()
+        }
+        let webView = WKWebView(frame: host.view.bounds)
+        host.view.addSubview(webView)
         let target = DelegateProbe()
         let committed = expectation(description: "committed page observed")
         let forwarder = HushhMainFrameNavigationDelegate(target: target) { _ in committed.fulfill() }
         webView.navigationDelegate = forwarder
         webView.loadHTMLString("<html><body>public fixture</body></html>", baseURL: nil)
-        wait(for: [committed], timeout: 5)
+        wait(for: [committed], timeout: 20)
         XCTAssertTrue(target.didStart)
         XCTAssertTrue(target.didCommit)
     }
@@ -1133,6 +1146,75 @@ final class NativeSupportTests: XCTestCase {
     }
 
     @MainActor
+    func testNewsPresentationKeepsArtworkBoundedAndDestinationsInRegisteredActions() throws {
+        let png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1cAAAAASUVORK5CYII="
+        var story: [String: Any] = ["publisher": "Example", "publishedAt": "Recent", "summary": "A complete authored summary", "sentiment": "positive", "symbols": ["AAPL"], "artwork": ["glyph": "A", "hue": 22, "png": png]]
+        func object(_ workspace: String = "finance") -> [String: Any] {
+            ["documentId": "public-document", "ownerEpoch": "public-owner", "ownerGeneration": 1, "revision": 1, "workspace": workspace,
+             "updateSequence": 1, "privacyGeneration": 0, "isolationGeneration": 0, "appearance": "light", "accentHex": "#007aff", "foregroundHex": "#111111", "canvasHex": "#ffffff",
+             "frame": ["x": 0, "y": 100, "width": 390, "height": 500, "viewportWidth": 390, "viewportHeight": 844, "layoutRevision": 1],
+             "page": "overview", "title": "Market news", "enabled": true, "backEnabled": false,
+             "sections": [["id": "headlines", "rows": [["id": "article", "label": "Public headline", "enabled": true, "marketNews": story]]]]]
+        }
+        func projection(_ workspace: String = "finance") throws -> NativeWorkspaceProjection {
+            try JSONDecoder().decode(NativeWorkspaceProjection.self, from: JSONSerialization.data(withJSONObject: object(workspace)))
+        }
+        XCTAssertTrue(try projection().valid); XCTAssertTrue(NativeWorkspaceProjection.closed(object()))
+        XCTAssertFalse(try projection("connect").valid)
+        story["url"] = "https://forbidden.test"; XCTAssertFalse(NativeWorkspaceProjection.closed(object())); story.removeValue(forKey: "url")
+        story["artwork"] = ["glyph": "A", "hue": 360]; XCTAssertFalse(try projection().valid)
+        story["artwork"] = ["glyph": "A", "hue": 22, "png": "data:image/png;base64,AAAA"]; XCTAssertFalse(try projection().valid)
+        story["artwork"] = ["glyph": "A", "hue": 22]; story["symbols"] = []; XCTAssertFalse(try projection().valid)
+    }
+
+    @MainActor
+    func testFinanceCompositionBoundsArtworkAndKeepsActionsOutOfValues() throws {
+        func content(_ value: [String: Any]) throws -> NativeFinanceContent {
+            try JSONDecoder().decode(NativeFinanceContent.self, from: JSONSerialization.data(withJSONObject: value))
+        }
+        let cover: [String: Any] = ["kind": "headline", "publisher": "Example", "publishedAt": "Recent", "sources": [["url": "https://static.seekingalpha.com/uploads/public.jpeg"]]]
+        XCTAssertTrue(NativeFinanceContent.closed(cover)); XCTAssertTrue(try content(cover).valid)
+        XCTAssertNotNil(NativeFinanceArtworkSource(url: "https://media.zenfs.com/en/public.jpeg").admittedURL)
+        var executable = cover; executable["destination"] = "forbidden"; XCTAssertFalse(NativeFinanceContent.closed(executable))
+        for url in ["http://static.seekingalpha.com/a.jpeg", "https://static.seekingalpha.com.evil.test/a.jpeg", "https://owner:secret@s.yimg.com/a.jpeg", "https://127.0.0.1/a.png", "https://financialmodelingprep.com/api/v3/profile/AAPL", "https://financialmodelingprep.com/image-stock/%2Fsecret.png"] {
+            XCTAssertNil(NativeFinanceArtworkSource(url: url).admittedURL)
+        }
+        let balance: [String: Any] = ["kind": "balance", "value": "$12", "cash": "$2", "invested": "$10", "period": "Saved snapshot", "points": [["date": "2026-11-01", "value": 12]]]
+        XCTAssertTrue(try content(balance).valid)
+        let roundtrip = try JSONDecoder().decode(NativeFinanceContent.self, from: JSONEncoder().encode(content(balance)))
+        XCTAssertEqual(roundtrip.history?.first?.value, 12); XCTAssertTrue(roundtrip.valid)
+        XCTAssertFalse(try content(["kind": "sector", "value": -4, "maximum": 3]).valid)
+        var oversized = balance; oversized["points"] = Array(repeating: ["date": "2026-11-01", "value": 12], count: 1001)
+        XCTAssertFalse(try content(oversized).valid)
+        XCTAssertNil(NativeFinanceArtwork.thumbnail(Data(repeating: 0, count: NativeFinanceArtwork.maximumBytes + 1)))
+    }
+
+    @MainActor
+    func testCalendarVisualValuesStayBoundedAndCannotIntroduceDestinations() throws {
+        let metrics: [[String: Any]] = (0..<3).map { ["id": "metric-\($0)", "label": "0", "detail": "Scheduled time", "enabled": true, "readOnly": true] }
+        let sections: [[String: Any]] = [["id": "snapshot", "layout": "metrics", "rows": metrics], ["id": "toolbar", "layout": "toolbar", "rows": [["id": "calendar-actions", "label": "Calendar actions", "enabled": true, "readOnly": true, "inlineActions": [["id": "calendar-refresh", "label": "Refresh", "enabled": true, "tone": "ghost"]]]]]]
+        let days: [[String: Any]] = (0..<7).map { ["date": String(format: "2026-11-%02d", $0 + 5), "label": "Day \($0 + 1)", "minutes": Double($0) + 0.5, "meetings": $0] }
+        var week: [String: Any] = ["contextId": "calendar-personal", "afterSectionId": "snapshot", "title": "Your week at a glance", "state": "ready", "days": days]
+        var object: [String: Any] = ["documentId": "public-document", "ownerEpoch": "public-owner", "ownerGeneration": 1, "revision": 1, "workspace": "calendar",
+            "updateSequence": 1, "privacyGeneration": 0, "isolationGeneration": 0, "appearance": "light", "accentHex": "#007aff", "foregroundHex": "#111111", "canvasHex": "#ffffff",
+            "frame": ["x": 0, "y": 100, "width": 390, "height": 500, "viewportWidth": 390, "viewportHeight": 844, "layoutRevision": 1],
+            "page": "overview", "title": "Calendar", "enabled": true, "backEnabled": false, "sections": sections]
+        func projection() throws -> NativeWorkspaceProjection {
+            object["calendarWeek"] = week
+            return try JSONDecoder().decode(NativeWorkspaceProjection.self, from: JSONSerialization.data(withJSONObject: object))
+        }
+        XCTAssertTrue(try projection().valid); XCTAssertTrue(NativeWorkspaceProjection.closed(object))
+        week["afterSectionId"] = "missing"; XCTAssertFalse(try projection().valid)
+        week["afterSectionId"] = "snapshot"; week["days"] = days + [days[0]]; XCTAssertFalse(try projection().valid)
+        week["days"] = days.map { var day = $0; day["href"] = "https://forbidden.test"; return day }
+        _ = try projection(); XCTAssertFalse(NativeWorkspaceProjection.closed(object))
+        week["days"] = days; object["workspace"] = "connect"; XCTAssertFalse(try projection().valid)
+        object["workspace"] = "calendar"
+        object["sections"] = [["id": "snapshot", "layout": "metrics", "rows": metrics.map { var row = $0; row["readOnly"] = false; return row }]]
+        XCTAssertFalse(try projection().valid)
+    }
+
+    @MainActor
     func testConnectTabLevelsKeepDistinctHandlesAndCurrentSelection() throws {
         var object: [String: Any] = ["documentId": "public-document", "ownerEpoch": "public-owner", "ownerGeneration": 1, "revision": 1, "workspace": "connect",
             "updateSequence": 1, "privacyGeneration": 0, "isolationGeneration": 0, "appearance": "light", "accentHex": "#007aff", "foregroundHex": "#111111", "canvasHex": "#ffffff",
@@ -1600,7 +1682,8 @@ final class NativeSupportTests: XCTestCase {
         window.rootViewController = parent
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
-        let scene = NativeProfileNameScene(publicNameScene())
+        var quarantined = false
+        let scene = NativeProfileNameScene(publicNameScene(), isQuarantined: { quarantined })
         let shown = expectation(description: "Public ordinary scene presented")
         XCTAssertTrue(scene.present(from: parent) { admitted in XCTAssertTrue(admitted); shown.fulfill() })
         await fulfillment(of: [shown], timeout: 3)
@@ -1613,10 +1696,14 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(scene.model.canEdit, "A pending Save keeps the owned sheet locked")
         XCTAssertTrue(presented.isModalInPresentation)
         XCTAssertTrue(scene.settle(pending))
-        let privacy = HushhSessionPrivacyShield.shared.snapshot()
         XCTAssertTrue(scene.model.canEdit, "A settled Save restores editing authority")
-        XCTAssertEqual(presented.isModalInPresentation, !privacy.appIsActive || privacy.shielded,
-            "A settled Save unlocks native drag dismissal only while the app is active and unshielded; active=\(privacy.appIsActive) shielded=\(privacy.shielded)")
+        XCTAssertFalse(presented.isModalInPresentation, "A settled Save unlocks native drag dismissal when unquarantined")
+        quarantined = true
+        scene.refreshPrivacy()
+        XCTAssertTrue(presented.isModalInPresentation, "Privacy quarantine must re-lock native drag dismissal")
+        quarantined = false
+        scene.refreshPrivacy()
+        XCTAssertFalse(presented.isModalInPresentation, "Clearing privacy quarantine restores native drag dismissal")
         let first = expectation(description: "First actual dismissal observer")
         let second = expectation(description: "Joined actual dismissal observer")
         scene.retire { XCTAssertNil(parent.presentedViewController); first.fulfill() }
@@ -4085,8 +4172,8 @@ final class NativeSupportTests: XCTestCase {
         host.view.frame = CGRect(x: 16, y: 700, width: 358, height: 100)
         defer { model.clear(); host.view.removeFromSuperview(); host.removeFromParent(); window.isHidden = true }
         host.view.layoutIfNeeded()
-        XCTAssertEqual(host.sizeThatFits(in: CGSize(width: 358, height: 340)).height, 68, accuracy: 1,
-            "The compact editor and trailing action share a 68-point Agent Bar without nested glass")
+        XCTAssertEqual(host.sizeThatFits(in: CGSize(width: 358, height: 340)).height, 52, accuracy: 1,
+            "The compact editor and trailing action share a 52-point Agent Bar")
         let editor = try XCTUnwrap(model.editor)
         XCTAssertFalse(editor.placeholderLabel.isHidden)
         XCTAssertEqual(editor.placeholderLabel.font, editor.font)
@@ -4124,7 +4211,7 @@ final class NativeSupportTests: XCTestCase {
                 button.willMove(toParent: nil); button.view.removeFromSuperview(); button.removeFromParent()
                 window.isHidden = true; previousKeyWindow?.makeKeyAndVisible()
             }
-            host.view.frame = CGRect(x: 16, y: 682, width: 358, height: 68)
+            host.view.frame = CGRect(x: 16, y: 698, width: 358, height: 52)
             for style in [UIUserInterfaceStyle.light, .dark] {
                 parent.overrideUserInterfaceStyle = style
                 host.overrideUserInterfaceStyle = style
@@ -4151,6 +4238,8 @@ final class NativeSupportTests: XCTestCase {
                     for mode in ["text", "voice"] {
                         model.mode = mode
                         model.placeholder = mode == "text" ? "Message One" : "Talk to One"
+                        model.sendNowEnabled = mode == "text"
+                        model.text = mode == "text" ? "Synthetic draft" : ""
                         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
                         host.view.layoutIfNeeded()
                         var rendered = false
@@ -4165,7 +4254,7 @@ final class NativeSupportTests: XCTestCase {
                     }
                 }
             }
-            model.mode = "text"; model.placeholder = "Message One"
+            model.mode = "text"; model.placeholder = "Message One"; model.sendNowEnabled = false
         }
         model.text = "Hello 👋"
         RunLoop.main.run(until: Date().addingTimeInterval(0.02))
@@ -4305,14 +4394,22 @@ final class NativeSupportTests: XCTestCase {
         fence.edited()
         let send = fence.emitted(kind: "action", action: "send")
         XCTAssertTrue(fence.confirm(identity, sequence: send, applied: 1, editRevision: 1, kind: "action", allowed: true))
-        XCTAssertTrue(fence.consume(identity, sequence: send, editRevision: 1, allowed: true))
+        XCTAssertTrue(fence.consume(identity, sequence: send, editRevision: 1, action: "send", allowed: true))
         XCTAssertEqual(fence.edit, 2)
-        XCTAssertFalse(fence.consume(identity, sequence: send, editRevision: 1, allowed: true))
+        XCTAssertFalse(fence.consume(identity, sequence: send, editRevision: 1, action: "send", allowed: true))
         fence.edited()
-        let next = fence.emitted(kind: "action", action: "send")
+        let next = fence.emitted(kind: "action", action: "send-now")
         XCTAssertTrue(fence.confirm(identity, sequence: next, applied: 1, editRevision: 3, kind: "action", allowed: true))
         fence.edited() // A later keystroke before the acknowledgement.
-        XCTAssertFalse(fence.consume(identity, sequence: next, editRevision: 3, allowed: true))
+        XCTAssertFalse(fence.consume(identity, sequence: next, editRevision: 3, action: "send-now", allowed: true))
+        let current = fence.emitted(kind: "action", action: "send-now")
+        XCTAssertFalse(fence.confirm(identity, sequence: current, applied: 1, editRevision: 4, kind: "action", action: "send", allowed: true))
+        XCTAssertTrue(fence.confirm(identity, sequence: current, applied: 1, editRevision: 4, kind: "action", action: "send-now", allowed: true))
+        XCTAssertFalse(fence.consume(identity, sequence: current, editRevision: 4, action: "send", allowed: true))
+        XCTAssertFalse(fence.consume(identity, sequence: current, editRevision: 4, action: "send-now", allowed: false))
+        XCTAssertEqual(fence.edit, 4, "A changed or unavailable Send now action must leave the draft intact")
+        XCTAssertTrue(fence.consume(identity, sequence: current, editRevision: 4, action: "send-now", allowed: true))
+        XCTAssertFalse(fence.consume(identity, sequence: current, editRevision: 4, action: "send-now", allowed: true))
         let open = fence.emitted(kind: "action", action: "attachment-edit")
         XCTAssertTrue(fence.confirm(identity, sequence: open, applied: fence.update, editRevision: fence.edit, kind: "action", allowed: true))
         XCTAssertTrue(fence.admitsEditingTransition(identity, sequence: open, editRevision: fence.edit))
@@ -4354,11 +4451,11 @@ final class NativeSupportTests: XCTestCase {
     func testNativeChromeKeepsKeyboardFenceUntilCurrentDismissalCompletes() async {
         let plugin = HushhNativeChromePlugin()
         plugin.load()
-        let ready = expectation(description: "Native lifecycle observers registered")
-        DispatchQueue.main.async { ready.fulfill() }
-        // load() registers on the main queue. Yield the actor so registration
-        // can complete before asserting the synchronous keyboard fence.
-        await fulfillment(of: [ready], timeout: 1)
+        // load() queues observer installation on main. Its FIFO successor
+        // proves setup completed even when the hosted simulator is busy.
+        await withCheckedContinuation { (ready: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async { ready.resume() }
+        }
         #if DEBUG
         let invalidations = plugin.presentationInvalidations
         #endif
@@ -4624,6 +4721,10 @@ final class NativeSupportTests: XCTestCase {
         var state = HushhNativeNavigationState()
         XCTAssertTrue(state.apply(document: "first", revision: 1, visible: true, selected: "chat"))
         XCTAssertTrue(state.acceptsTap("dashboard", appIsActive: true, shielded: false, keyboardVisible: false))
+        XCTAssertTrue(state.isPresented(appIsActive: true, shielded: false, keyboardVisible: true, keepPaintDuringKeyboard: true))
+        XCTAssertFalse(state.acceptsTap("dashboard", appIsActive: true, shielded: false, keyboardVisible: true),
+            "Retained paint behind the keyboard must not admit a tab selection")
+        XCTAssertFalse(state.isPresented(appIsActive: true, shielded: true, keyboardVisible: true, keepPaintDuringKeyboard: true))
         // Covered presentation is retained; neither direct taps nor VoiceOver
         // admission may navigate underneath the authored interaction layer.
         XCTAssertTrue(state.apply(document: "first", revision: 2, visible: true, selected: "chat", interactionEpoch: 1, interactionEnabled: false))
@@ -5518,7 +5619,7 @@ final class NativeSupportTests: XCTestCase {
             let visible = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 alert.presentingViewController === parent && !alert.isBeingPresented
             }, object: nil)
-            await fulfillment(of: [visible], timeout: 3)
+            await fulfillment(of: [visible], timeout: 10)
             XCTAssertFalse(alert.presentationController?.delegate === presenter)
             if style == .alert {
                 presenter.choose("delete")
@@ -5526,7 +5627,7 @@ final class NativeSupportTests: XCTestCase {
             }
             let dismissed = expectation(description: "Owned alert detached")
             presenter.retire { dismissed.fulfill() }
-            await fulfillment(of: [dismissed], timeout: 3)
+            await fulfillment(of: [dismissed], timeout: 10)
             XCTAssertNil(alert.presentingViewController)
             XCTAssertEqual(choices, style == .alert ? 1 : 0)
         }

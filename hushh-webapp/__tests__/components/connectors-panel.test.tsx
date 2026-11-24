@@ -13,6 +13,10 @@ import { Capacitor } from "@capacitor/core";
 import { ConnectorsPanel, type ConnectorsPanelPresentation } from "@/components/agent/connectors-panel";
 import { useGoogleConnectorTransitionReview } from '@/components/connections/google-connector-transition-review';
 import { snapshotVaultSessionEpoch, advanceVaultSessionEpoch } from '@/lib/vault/session-epoch';
+import { useNativeConnectors } from '@/components/profile/use-native-connectors';
+import type { NativeDrawerChoice } from '@/lib/capacitor/native-drawers';
+
+vi.mock('@/lib/capacitor/session-privacy', () => ({ nativePrivacyObservation: () => ({ state: { appIsActive: true, shielded: false } }) }));
 
 describe('private Google transition owner review', () => {
   const terms = { services: ['gmail', 'drive'] as const, scope: 'all_google_project_grants' as const };
@@ -134,8 +138,34 @@ describe("supported connector catalog", () => {
   });
   afterEach(() => { cleanup(); publishValidatedAuthSessionPrincipal(null); });
 
-  it('private placement mounts only pod connectors and does not claim management access from a connection receipt', async () => {
+  it('private placement mounts only pod connectors, uses 1-row progressive disclosure, and drills cleanly into Google and Plaid details', async () => {
     state.privatePlacement.mockResolvedValue(true);
+    state.financial = {
+      loading: false,
+      error: null,
+      data: {
+        data: {
+          connections_v1: {
+            item_1: {
+              item_id: "item_1",
+              institution_name: "First Platypus Bank",
+              status: "active",
+              last_refreshed_at: "2026-11-19T12:00:00Z",
+            },
+          },
+          derived_v1: {
+            schema: "plaid-derived-v1",
+            net_worth: { value: 115000 },
+            liquid_cash: { value: 50000 },
+            investable_assets: { value: 65000 },
+          },
+          summary: {
+            schema: "plaid-summary-v1",
+            net_worth_band: "$100k-$250k",
+          },
+        },
+      },
+    };
     const view = render(<ConnectorsPanel open surface="profile" showAccessDetails {...callbacks} />);
     expect(await screen.findByTestId('private-google-connectors')).toBeInTheDocument();
     expect(await screen.findByTestId('private-plaid-connectors')).toBeInTheDocument();
@@ -144,11 +174,30 @@ describe("supported connector catalog", () => {
     expect(document.querySelector('img[data-connector-brand="plaid"][src="/icons/connectors/plaid.svg"]')).not.toBeNull();
     expect(document.querySelector('img[data-connector-brand="stripe"][src="/icons/connectors/stripe.svg"]')).not.toBeNull();
     expect(screen.getByText('Use your calendar to help plan your time.')).toBeInTheDocument();
-    expect(await screen.findAllByRole('button', { name: 'Allow changes' })).toHaveLength(2);
-    expect(screen.getAllByText('Connected · reading only')).toHaveLength(2);
+    expect(await screen.findAllByText('Connected · reading only')).toHaveLength(2);
+    // Strict 1-row progressive disclosure: root list keeps action buttons and bank sub-rows inside detail views.
+    expect(screen.queryByRole('button', { name: 'Allow changes' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('private-plaid-bank-item_1')).not.toBeInTheDocument();
     expect(state.ownerPodRequest).toHaveBeenCalledTimes(4);
     expect(state.overview).not.toHaveBeenCalled();
     expect(state.calendarStartNativeConnect).not.toHaveBeenCalled();
+
+    // Drilling into Gmail exposes Allow changes, Disconnect, Check connection, and Background preparation.
+    fireEvent.click(within(screen.getByTestId('private-connector-row-gmail')).getByRole('button'));
+    const gmailDetail = await screen.findByTestId('private-connector-detail-gmail');
+    expect(within(gmailDetail).getByRole('button', { name: 'Allow changes' })).toBeEnabled();
+    expect(within(gmailDetail).getByRole('button', { name: 'Disconnect' })).toHaveAttribute('data-connector-action', 'destructive');
+    expect(within(gmailDetail).getByRole('button', { name: 'Check connection' })).toBeEnabled();
+
+    // Drilling into Plaid shows projection summary, primary Add bank, Refresh live, and connected bank Disconnect.
+    view.rerender(<ConnectorsPanel open surface="profile" activeConnector="plaid" showAccessDetails {...callbacks} />);
+    const plaidDetail = await screen.findByTestId('private-connector-detail-plaid');
+    expect(within(plaidDetail).getByTestId('private-plaid-projection-summary')).toHaveTextContent('Net worth $115,000');
+    expect(within(plaidDetail).getByRole('button', { name: 'Add bank' })).toHaveAttribute('data-connector-action', 'primary');
+    expect(within(plaidDetail).getByRole('button', { name: 'Refresh live' })).toHaveAttribute('data-connector-action', 'secondary');
+    expect(within(plaidDetail).getByText('First Platypus Bank')).toBeInTheDocument();
+    expect(within(plaidDetail).getByRole('button', { name: 'Disconnect' })).toHaveAttribute('data-connector-action', 'destructive');
+
     state.token = null;
     view.rerender(panel());
     expect(await screen.findByText('Sign in and unlock your vault to connect Google.')).toBeInTheDocument();
@@ -173,6 +222,18 @@ describe("supported connector catalog", () => {
     view.rerender(<RetainedHarness />);
     expect(state.privatePlacement).toHaveBeenCalledTimes(2);
     expect(state.overview).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])('shows private Calendar changes only from the confirmed manage capability (%s)', async manage => {
+    state.privatePlacement.mockResolvedValue(true);
+    state.ownerPodRequest.mockImplementation(async (path: string) => new Response(JSON.stringify({
+      connectorId: path.split('/')[1], status: 'connected', accessLevel: 'manage', capabilities: { read: true, manage },
+    })));
+    render(<ConnectorsPanel open surface="profile" activeConnector="calendar" {...callbacks} />);
+    const permissions = await screen.findByRole('group', { name: 'Calendar permissions' });
+    expect(within(permissions).getByText('Create events').parentElement).toHaveTextContent(manage ? 'Allowed · review required' : 'Not enabled');
+    expect(state.calendarStartConnect).not.toHaveBeenCalled();
+    expect(state.calendarStartNativeConnect).not.toHaveBeenCalled();
   });
 
   it("explains app access alongside the existing guarded disconnect action", async () => {
@@ -1223,6 +1284,69 @@ describe("supported connector catalog", () => {
     await waitFor(() => expect(state.calendarRefresh).toHaveBeenCalledOnce());
   });
 
+  it("shows only verified Calendar permissions and upgrades through Google's consent sheet", async () => {
+    const native = vi.spyOn(Capacitor, 'isNativePlatform').mockReturnValue(true);
+    const readScopes = 'https://www.googleapis.com/auth/calendar.events.readonly https://www.googleapis.com/auth/calendar.freebusy';
+    state.calendar = { connected: true, loaded: true, error: null, status: {
+      configured: true, connected: true, status: 'connected', access_level: 'read', scope_csv: readScopes, calendar_list_access: false,
+    } };
+    const view = render(<ConnectorsPanel open activeConnector="calendar" {...callbacks} />);
+    const permissions = await screen.findByRole('group', { name: 'Calendar permissions' });
+    const permission = (label: string) => within(permissions).getByText(label).parentElement;
+    expect(permission('Read events')).toHaveTextContent('Allowed');
+    expect(permission('Check availability')).toHaveTextContent('Allowed');
+    expect(permission('View calendars')).toHaveTextContent('Not enabled');
+    expect(permission('Create events')).toHaveTextContent('Not enabled');
+    expect(state.calendarStartNativeConnect).not.toHaveBeenCalled();
+    state.calendarStartNativeConnect.mockResolvedValue({ server_client_id: 'native-client', access_level: 'manage', include_calendar_list: true, include_meeting_files: true, state: 'signed-state' });
+    state.connectCalendar.mockResolvedValue({ serverAuthCode: 'synthetic-code' });
+    state.calendarCompleteNativeConnect.mockResolvedValue({ connected: true, status: 'connected', access_level: 'read' });
+    fireEvent.click(screen.getByRole('button', { name: 'Enable calendar changes' }));
+    await waitFor(() => expect(state.calendarCompleteNativeConnect).toHaveBeenCalledOnce());
+    expect(state.calendarStartNativeConnect).toHaveBeenCalledWith(expect.objectContaining({ accessLevel: 'manage', includeCalendarList: true }));
+    expect(state.connectCalendar).toHaveBeenCalledWith(expect.objectContaining({ accessLevel: 'manage', includeCalendarList: true }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Enable calendar changes' })).toBeEnabled());
+    expect(permission('Create events')).toHaveTextContent('Not enabled');
+
+    state.calendar.status = { ...state.calendar.status, access_level: 'manage',
+      scope_csv: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.freebusy', calendar_list_access: true };
+    view.rerender(<ConnectorsPanel open activeConnector="calendar" {...callbacks} />);
+    expect(permission('View calendars')).toHaveTextContent('Allowed');
+    for (const label of ['Create events', 'Reschedule events', 'Cancel events', 'Respond to invitations'])
+      expect(permission(label)).toHaveTextContent('Allowed · review required');
+    expect(screen.queryByRole('button', { name: 'Enable calendar changes' })).not.toBeInTheDocument();
+    native.mockRestore();
+  });
+
+  it.each(['missing scopes', 'needs reauth'] as const)('does not claim Calendar changes with %s', async reason => {
+    state.calendar = { connected: reason !== 'needs reauth', loaded: true, error: null, status: {
+      connected: true, status: reason === 'needs reauth' ? 'needs_reauth' : 'connected', access_level: 'manage', scope_csv: '',
+    } };
+    render(<ConnectorsPanel open activeConnector="calendar" {...callbacks} />);
+    await screen.findByRole('region', { name: 'Calendar details' });
+    expect(screen.queryByText('Allowed · review required')).not.toBeInTheDocument();
+    if (reason === 'needs reauth') expect(screen.queryByRole('group', { name: 'Calendar permissions' })).not.toBeInTheDocument();
+  });
+
+  it("uses the same verified Calendar permissions and guarded upgrade action in native details", async () => {
+    state.calendar = { connected: true, loaded: true, error: null, status: {
+      connected: true, status: 'connected', access_level: 'read', scope_csv: 'https://www.googleapis.com/auth/calendar.events.readonly',
+    } };
+    let presentation: ConnectorsPanelPresentation | undefined;
+    render(<ConnectorsPanel open activeConnector="calendar" {...callbacks} render={model => { presentation = model; return model.webBody; }} />);
+    await screen.findByRole('group', { name: 'Calendar permissions' });
+    const { result, rerender } = renderHook(({ owner }) => useNativeConnectors(presentation, owner, true), { initialProps: { owner: 'owner-a' } });
+    const rows = result.current.pages.at(-1)!.sections.flatMap(section => section.rows);
+    expect(rows.find(row => row.label === 'Read events')?.detail).toBe('Allowed');
+    expect(rows.find(row => row.label === 'Create events')?.detail).toBe('Not enabled');
+    const enable = rows.find(row => row.label === 'Enable calendar changes')!;
+    const retired = result.current.rows.get(enable.id)!;
+    rerender({ owner: 'replacement' });
+    await act(async () => retired({ rowId: enable.id } as NativeDrawerChoice));
+    expect(state.calendarStartNativeConnect).not.toHaveBeenCalled();
+    expect(state.calendarStartConnect).not.toHaveBeenCalled();
+  });
+
   it("keeps Calendar copy concise before and after connection", async () => {
     const view = render(panel());
     fireEvent.click(await screen.findByRole("button", { name: "Calendar" }));
@@ -1864,6 +1988,24 @@ describe("supported connector catalog", () => {
       expect(await screen.findByRole("button", { name: "Enable full Drive access" })).toBeInTheDocument();
       expect(screen.queryByRole("switch", { name: "Background Drive access" })).not.toBeInTheDocument();
       expect(state.liveBackground).not.toHaveBeenCalled();
+    });
+
+    it("renders the subtle Google Apps clearance disclaimer only on Production while keeping connect actions enabled", async () => {
+      try {
+        vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
+        const view = render(<ConnectorsPanel open {...callbacks} />);
+        expect(await screen.findByTestId("connector-google-clearance-note")).toHaveTextContent(
+          "Google Apps (Gmail, Calendar, Drive) are undergoing Google clearance; public sign-in may be limited.",
+        );
+        view.unmount();
+
+        vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+        render(<ConnectorsPanel open {...callbacks} />);
+        await waitFor(() => expect(state.overview).toHaveBeenCalled());
+        expect(screen.queryByTestId("connector-google-clearance-note")).not.toBeInTheDocument();
+      } finally {
+        vi.unstubAllEnvs();
+      }
     });
   });
 

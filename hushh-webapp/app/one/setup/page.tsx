@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { RouteErrorBoundary } from "@/components/app-ui/route-error-boundary";
+import { ByocCloudSetupPage } from "@/components/connections/byoc-cloud-setup-page";
 import { OneSetupHub } from "@/components/onboarding/setup/one-setup-hub";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { ROUTES } from "@/lib/navigation/routes";
+import { isPooledSandboxSwitchAvailable } from "@/lib/one/owner-cloud";
 
 export default function OneSetupPage() {
   const router = useRouter();
@@ -51,7 +53,13 @@ export default function OneSetupPage() {
           in the shared route error boundary contains any such failure to a
           recoverable in-app screen (Retry / Go home) instead of crashing. */}
       <RouteErrorBoundary fallbackRoute={ROUTES.ONE_HOME}>
-        <OneSetupHub />
+        {isPooledSandboxSwitchAvailable() ? (
+          <Suspense fallback={null}>
+            <ByocCloudSetupPage />
+          </Suspense>
+        ) : (
+          <OneSetupHub />
+        )}
       </RouteErrorBoundary>
     </>
   );

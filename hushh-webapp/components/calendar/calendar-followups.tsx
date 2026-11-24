@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import type { CalendarNativeSection, CalendarNativeRow } from "./native-calendar-workspace";
 import { ExternalLink, Mail, MoreHorizontal } from "@/components/icons";
 import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
 import { PaginatedListFooter } from "@/components/app-ui/paginated-list-footer";
@@ -24,6 +25,7 @@ type Props = {
   refreshRevision?: number;
   deepLinkRequestId?: string | null;
   onDeepLinkHandled?: () => void;
+  renderPresentation?: (content: ReactNode, summary: CalendarNativeSection, covered: boolean) => ReactNode;
 };
 
 const VIEW_LABELS: Record<FollowupView, string> = { upcoming: "Upcoming", overdue: "Overdue", snoozed: "Snoozed", history: "History" };
@@ -49,7 +51,7 @@ const PROGRESS_CHECKS_MS = [15_000, 30_000, 60_000, 120_000];
 // ticks. Capped, and it stops the moment the card goes away.
 const CATCH_UP_MAX_CALLS = 20;
 
-export function CalendarFollowups({ userId, accountId, accountEmail, zone, expanded, getIdToken, getVaultOwnerToken, onViewAll, onConnectMail, onReviewMeeting, refreshRevision = 0, deepLinkRequestId, onDeepLinkHandled }: Props) {
+export function CalendarFollowups({ userId, accountId, accountEmail, zone, expanded, getIdToken, getVaultOwnerToken, onViewAll, onConnectMail, onReviewMeeting, refreshRevision = 0, deepLinkRequestId, onDeepLinkHandled, renderPresentation }: Props) {
   const [status, setStatus] = useState<FollowupStatus | null>(null);
   const [list, setList] = useState<FollowupList | null>(null);
   const [detail, setDetail] = useState<FollowupDetail | null>(null);
@@ -237,7 +239,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     const seq = ++detailSeq.current;
     sourceSeq.current += 1;
     selectedIdRef.current = conversationId;
-    if (from) trigger.current = from;
+    if (from !== undefined) trigger.current = from;
     setSelectedId(conversationId); setDetail(null); setSource(null); setActionError(""); setEmailLinks({}); setReminderOpen(null);
     setFocusedRequestId(focusRequestId || null);
     try {
@@ -493,7 +495,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     </div>
   </SectionCard>;
 
-  return <>
+  const content = <>
     {card}
     <AdaptiveDetailSurface open={Boolean(selectedId)} onOpenChange={open => { if (!open) { detailSeq.current += 1; sourceSeq.current += 1; selectedIdRef.current = null; setSelectedId(null); setDetail(null); setSource(null); setFocusedRequestId(null); } }}
       onCloseAutoFocus={event => { if (trigger.current?.isConnected) { event.preventDefault(); trigger.current.focus(); } }}
@@ -548,4 +550,36 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       </div>
     </AdaptiveDetailSurface>
   </>;
+  if (!renderPresentation) return content;
+  // Keep this controller mounted above native admission; only its authored
+  // presentation moves into the fallback after retirement is acknowledged.
+  const nativeRows: CalendarNativeRow[] = [];
+  if (loading) nativeRows.push({ key: "followups-loading", label: "Checking follow-ups…", pending: true });
+  if (needsMailChoice) nativeRows.push({ key: "followups-mail", label: renewing ? "Allow email access" : "Find meeting requests and reminders in my email",
+    detail: renewing ? `Email access for ${accountEmail} was removed. Your follow-ups stay as they are.`
+      : status?.mail_connected ? `Your private agent already has read access to ${accountEmail}. Choose how far back to look.`
+      : `This asks Google for one extra permission to read ${accountEmail}. Your private agent uses it only to find requests and proposed times. Calendar works the same without it.`,
+    web: true, enabled: !busy, run: onViewAll });
+  if (status?.monitoring_enabled) {
+    for (const entry of rows) {
+      const summary = rowSummary(entry, zone), first = entry.preview_requests[0];
+      const overdue = first?.bucket === "overdue" && (first.due_date || first.proposed_date) ? `Overdue · was due ${shortDate(first.due_date || first.proposed_date)}` : null;
+      nativeRows.push({ key: `followup:${entry.id}`, label: summary.title, symbol: "envelope",
+        detail: [overdue && !summary.detail.includes("Overdue") ? overdue : null, summary.detail,
+          summary.more ? `${summary.more} more in this email` : null].filter(Boolean).join(" · "),
+        enabled: !busy, web: true, run: () => openDetail(entry.id, null) });
+    }
+    if (list?.total_conversations === 0 && status.coverage?.coverage !== "catching_up" && status.scan_state === "complete" && !loading)
+      nativeRows.push({ key: "followups-empty", label: EMPTY_LABELS[activeView] });
+    if (!expanded && (list?.total_conversations || 0) > 2) nativeRows.push({ key: "followups-all", label: "View all follow-ups", web: true, run: onViewAll });
+    nativeRows.push({ key: "followups-settings", label: "Follow-up settings", symbol: "ellipsis", menuOnTap: true, inlineActions: [
+      { key: "followups-check", label: "Check email again", tone: "ghost", placement: "menu", enabled: !busy, run: checkAgain },
+      { key: "followups-disable", label: "Turn off monitoring for this account", tone: "danger", placement: "menu", enabled: !busy, run: disable },
+    ] });
+  }
+  if (notice) nativeRows.push({ key: "followups-coverage", label: notice.text, ...(notice.action ? { inlineActions: [{ key: "followups-coverage-action",
+    label: notice.action === "reconnect" ? "Reconnect email" : "Check again", tone: "ghost" as const, enabled: !busy,
+    web: notice.action === "reconnect", run: notice.action === "reconnect" ? reconnect : checkAgain }] } : {}) });
+  if (error) nativeRows.push({ key: "followups-error", label: error });
+  return renderPresentation(content, { key: "followups", title: "Follow-ups", layout: "cards", rows: nativeRows }, Boolean(selectedId));
 }

@@ -259,7 +259,7 @@ successful share creates a Messages reference and a Feed notice reading
 “[Sender name] shared their card with you.” Explicit Trusted Circle recipients
 can open it directly; other connections must complete fresh identity verification.
 Owners can revoke access under Shared with. See the
-[temporary sharing API contract](../../development/contracts/api-contracts.md#wallet-profile-lifecycle)
+[temporary sharing API contract](../../development/contracts/api-route-catalog.md#wallet-profile-lifecycle)
 for rollout requirements and browser/native limits.
 
 New shares seal the number, cardholder name, network, expiry and region for each
@@ -397,7 +397,7 @@ selected network. The dropdown uses the backend catalogue without filtering
 against that list. New backend network IDs survive resolution, encrypted storage
 and existing-card reads, with generic credential checks and neutral artwork
 until specialized client rules or approved artwork are available. Network-specific
-credential rules for future networks still require a client update. Malformed
+credential rules for newly introduced networks still require a client update. Malformed
 catalogue entries fail the request instead of silently disappearing.
 The form distinguishes owner selection from prefix identification and explains
 that neither verifies the card or issuing bank. The artwork resolver can match a

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 from google.adk.models.llm_response import LlmResponse
@@ -206,7 +207,7 @@ def _reviewable_selected_drive_share_tool(tool: Any) -> bool:
 def _selected_share_ready(context: Any) -> bool:
     marker = context.state.get(STATE_SELECTED_DRIVE_SHARE)
     return (
-        isinstance(marker, dict)
+        isinstance(marker, Mapping)
         and marker.get("invocation") == getattr(context, "invocation_id", None)
         and isinstance(marker.get("titleRef"), str)
         and marker["titleRef"].startswith("one_secret_ref:")
@@ -224,7 +225,7 @@ def _selected_share_requested(context: Any) -> bool:
         selection = json.loads(resolve_request_secret(pointer))
     except (TypeError, ValueError):
         return False
-    return isinstance(selection, dict) and selection.get("shareAllowed") is True
+    return isinstance(selection, Mapping) and selection.get("shareAllowed") is True
 
 
 def _receipt_handback_tool(tool: Any, context: Any) -> bool:
@@ -332,24 +333,28 @@ def before_external_read_tool(tool: Any, args: dict, tool_context: Any) -> dict 
 
 
 def _missing_required_argument(tool: Any, args: dict) -> bool:
+    safe_args = args if isinstance(args, Mapping) else {}
     try:
         declaration = tool._get_declaration()
     except Exception:  # noqa: BLE001 - an undeclared tool keeps the existing barrier
         return False
     schema = getattr(declaration, "parameters_json_schema", None)
-    required = schema.get("required") if isinstance(schema, dict) else None
+    required = schema.get("required") if isinstance(schema, Mapping) else None
     if required is None:
         required = getattr(getattr(declaration, "parameters", None), "required", None)
-    values = [args.get(name) for name in required or ()]
+    values = [safe_args.get(name) for name in required or ()]
     return any(value is None or (isinstance(value, str) and not value.strip()) for value in values)
 
 
-def after_external_read_tool(tool: Any, args: dict, tool_context: Any, tool_response: dict) -> None:
+def after_external_read_tool(tool: Any, args: dict, tool_context: Any, tool_response: Any) -> None:
     """Remember an Email receipts hand-back or executed connector connection/read outcomes.
 
     A blocked parallel/repeated call did not execute a read and cannot erase a
     successful first result. This state contains no provider text or file IDs.
     """
+    if not isinstance(tool_response, Mapping):
+        return None
+    safe_args = args if isinstance(args, Mapping) else {}
     name = getattr(tool, "name", "")
     if (
         name == MAIL_TOOL
@@ -369,7 +374,7 @@ def after_external_read_tool(tool: Any, args: dict, tool_context: Any, tool_resp
         or tool_response.get("reason") in {"connector_read_complete", "missing_argument"}
     ):
         return
-    provider = args.get("provider") if name == "read_workspace_tool" else None
+    provider = safe_args.get("provider") if name == "read_workspace_tool" else None
     is_drive = (
         name in {"ask_documents_agent", "read_selected_drive_search_result", "read_google_drive"}
         or provider == "drive"
@@ -377,13 +382,14 @@ def after_external_read_tool(tool: Any, args: dict, tool_context: Any, tool_resp
     if is_drive:
         if (
             name == "read_selected_drive_search_result"
-            and args.get("mode", "metadata") == "metadata"
+            and safe_args.get("mode", "metadata") == "metadata"
             and tool_response.get("status") == "ok"
             and tool_response.get("metadata_only") is True
             and _selected_share_requested(tool_context)
         ):
-            file = tool_response.get("result", {}).get("file")
-            title = file.get("name") if isinstance(file, dict) else None
+            result_obj = tool_response.get("result")
+            file = result_obj.get("file") if isinstance(result_obj, Mapping) else None
+            title = file.get("name") if isinstance(file, Mapping) else None
             if isinstance(title, str) and title.strip() and len(title.encode("utf-8")) <= 2048:
                 from hushh_mcp.one_adk.request_secrets import store_request_secret
 
@@ -392,7 +398,7 @@ def after_external_read_tool(tool: Any, args: dict, tool_context: Any, tool_resp
                     "titleRef": store_request_secret(title, ttl_seconds=660),
                 }
         previous = tool_context.state.get(STATE_DRIVE_READ_OUTCOME)
-        if isinstance(previous, dict) and previous.get("invocation") == invocation:
+        if isinstance(previous, Mapping) and previous.get("invocation") == invocation:
             return
         status = tool_response.get("status")
         if name == "read_google_drive":
@@ -430,7 +436,7 @@ def after_external_read_tool(tool: Any, args: dict, tool_context: Any, tool_resp
     )
     if is_mail:
         previous = tool_context.state.get(STATE_MAIL_READ_OUTCOME)
-        if isinstance(previous, dict) and previous.get("invocation") == invocation:
+        if isinstance(previous, Mapping) and previous.get("invocation") == invocation:
             return
         status = tool_response.get("status")
         outcome = (
@@ -448,7 +454,7 @@ def after_external_read_tool(tool: Any, args: dict, tool_context: Any, tool_resp
     is_calendar = name in _CALENDAR_READ_TOOLS or provider == "calendar"
     if is_calendar:
         previous = tool_context.state.get(STATE_CALENDAR_READ_OUTCOME)
-        if isinstance(previous, dict) and previous.get("invocation") == invocation:
+        if isinstance(previous, Mapping) and previous.get("invocation") == invocation:
             return
         status = tool_response.get("status")
         if tool_response.get("reason") == "hosted_pod_unavailable":
@@ -524,7 +530,7 @@ def before_external_read_model(callback_context: Any, llm_request: Any) -> LlmRe
         outcome = state.get(state_keys[key_prefix])
         if (
             invocation
-            and isinstance(outcome, dict)
+            and isinstance(outcome, Mapping)
             and outcome.get("invocation") == invocation
             and outcome.get("outcome") in answers
         ):

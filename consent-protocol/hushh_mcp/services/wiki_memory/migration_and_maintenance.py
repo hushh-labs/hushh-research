@@ -24,6 +24,7 @@ Implements `#9370` Phase 4 obligations over ``WikiLibrary``, ``WikiKnowledgeWrit
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
 import time
@@ -83,6 +84,76 @@ def _today_utc() -> str:
 def normalize_statement_fingerprint(statement: str) -> str:
     collapsed = " ".join(str(statement or "").strip().lower().split())
     return hashlib.sha256(collapsed.encode("utf-8")).hexdigest()
+
+
+_DOMAIN_FOLDER_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "commerce",
+        ("stripe", "commerce", "merchant", "mrr", "saas", "payout", "subscription", "billing"),
+    ),
+    (
+        "financial",
+        (
+            "financ",
+            "bank",
+            "account",
+            "treasury",
+            "cashflow",
+            "liabilit",
+            "tax",
+            "invest",
+            "portfolio",
+            "wealth",
+            "budget",
+            "brokerage",
+            "schwab",
+            "plaid",
+            "credit",
+        ),
+    ),
+    (
+        "professional",
+        (
+            "profession",
+            "career",
+            "work",
+            "company",
+            "role",
+            "advis",
+            "enterprise",
+            "business",
+            "entity",
+            "org",
+        ),
+    ),
+    (
+        "health",
+        (
+            "health",
+            "medical",
+            "fitness",
+            "wellness",
+            "dining",
+            "diet",
+            "food",
+            "nutrition",
+            "sleep",
+        ),
+    ),
+    ("travel", ("travel", "flight", "airline", "hotel", "mobility", "trip", "airport", "transit")),
+    ("identity", ("identity", "profile", "contact", "family", "personal", "address", "preference")),
+    ("projects", ("project", "goal", "roadmap", "task", "milestone", "initiative", "plan")),
+    ("imports", ("import", "archive", "chatgpt", "claude")),
+)
+
+
+def infer_wiki_domain_folder(title: str, tldr: str = "") -> str:
+    """Map a wiki page title/summary to a clean domain/scope folder slug."""
+    haystack = f"{title} {tldr}".strip().lower()
+    for folder, keywords in _DOMAIN_FOLDER_KEYWORDS:
+        if any(kw in haystack for kw in keywords):
+            return folder
+    return "notes"
 
 
 def parse_v1_markdown_sections(markdown: str) -> list[dict[str, Any]]:
@@ -376,11 +447,16 @@ class WikiOwnerMigrator:
                 if existing_page is not None and existing_page["tldr"].strip()
                 else (active_stmts[0][:240] if active_stmts else "")
             )
+            inferred_folder = (
+                "root"
+                if page_id == DEFAULT_WORKING_PAGE_ID
+                else infer_wiki_domain_folder(sec["title"], tldr)
+            )
             if existing_page is None:
                 await self.library.create_page(
                     page_id=page_id,
                     title=sec["title"],
-                    folder="topics" if page_id != DEFAULT_WORKING_PAGE_ID else "root",
+                    folder=inferred_folder,
                     tldr=tldr,
                     status_as_of=today,
                     body=body,
@@ -390,10 +466,17 @@ class WikiOwnerMigrator:
                     idempotency_key=f"{idem}:create:{page_id}"[:120],
                 )
             else:
+                existing_folder = str(existing_page.get("folder") or "root")
+                upgraded_folder = (
+                    inferred_folder
+                    if page_id != DEFAULT_WORKING_PAGE_ID and existing_folder in {"topics", "root"}
+                    else existing_folder
+                )
                 await self.library.edit_page(
                     page_id,
                     expected_revision=int(existing_page["revision"]),
                     idempotency_key=f"{idem}:edit:{page_id}:{existing_page['revision']}"[:120],
+                    folder=upgraded_folder,
                     tldr=tldr,
                     status_as_of=today,
                     body=body,
@@ -922,6 +1005,109 @@ class WikiOwnerMigrator:
         }
 
 
+def _dedup_statement_fingerprint(statement: str) -> str:
+    collapsed = " ".join(str(statement or "").strip().lower().split()).rstrip(".!?;:")
+    return hashlib.sha256(collapsed.encode("utf-8")).hexdigest()
+
+
+def _scope_matches_domain_token(scope: str, domain_token: str) -> bool:
+    s = scope.strip().lower()
+    t = domain_token.strip().lower().strip("/")
+    if not s or not t:
+        return False
+    if s in {"pkm.read", "pkm.*", "*"}:
+        return True
+    for candidate in {t, t.split("/")[0], t.replace("-", "_")}:
+        if not candidate:
+            continue
+        if (
+            s == candidate
+            or s.startswith(f"{candidate}.")
+            or s.startswith(f"attr.{candidate}.")
+            or s == f"attr.{candidate}"
+            or f".{candidate}." in s
+            or s.endswith(f".{candidate}")
+        ):
+            return True
+    return False
+
+
+def _is_page_grant_pinned(
+    page_id: str,
+    folder: str,
+    page_projection_domains: set[str],
+    protected_scopes: set[str],
+) -> bool:
+    if not protected_scopes:
+        return False
+    tokens = {
+        str(folder or "").strip().lower(),
+        str(page_id or "").split("/")[0].strip().lower(),
+        *(d.strip().lower() for d in page_projection_domains if d),
+    }
+    tokens.discard("")
+    tokens.discard("root")
+    for scope in protected_scopes:
+        if scope.strip().lower() in {"pkm.read", "pkm.*", "*"}:
+            return True
+        if any(_scope_matches_domain_token(scope, tok) for tok in tokens):
+            return True
+    return False
+
+
+async def resolve_owner_protected_grant_scopes(owner_user_id: str) -> set[str]:
+    """Resolve active consent grant scopes and configured paid tariff scopes for an owner."""
+    uid = str(owner_user_id or "").strip()
+    if not uid:
+        return set()
+    scopes: set[str] = set()
+    try:
+        from hushh_mcp.services.pod_information_discovery import private_information_discovery
+
+        discovery = private_information_discovery(uid)
+        if discovery is not None:
+            pod_scopes = await asyncio.to_thread(discovery.list_protected_grant_scopes, limit=50)
+            scopes.update(pod_scopes)
+            return scopes
+    except Exception:  # noqa: BLE001
+        pass
+
+    try:
+        from hushh_mcp.services.consent_lifecycle_service import ConsentLifecycleService
+
+        grants = await ConsentLifecycleService().list_active_grants(uid, limit=50)
+        for g in grants:
+            sc = str(g.get("scope") or "").strip()
+            if sc:
+                scopes.add(sc)
+    except Exception:  # noqa: BLE001
+        pass
+
+    try:
+        from hushh_mcp.services.scope_commerce import ScopeCommerceService
+
+        tariffs = await ScopeCommerceService().list_tariffs(owner_user_id=uid)
+        for t in tariffs:
+            mode = str(
+                getattr(t, "pricing_mode", None)
+                or (t.get("pricing_mode") if isinstance(t, dict) else "")
+                or ""
+            ).lower()
+            amt = (
+                getattr(t, "amount_cents", None)
+                if not isinstance(t, dict)
+                else t.get("amount_cents")
+            )
+            if mode not in {"", "free"} or (isinstance(amt, (int, float)) and amt > 0):
+                for key in ("machine_scope", "scope_handle"):
+                    val = getattr(t, key, None) if not isinstance(t, dict) else t.get(key)
+                    if isinstance(val, str) and val.strip():
+                        scopes.add(val.strip())
+    except Exception:  # noqa: BLE001
+        pass
+    return scopes
+
+
 class WikiMaintenanceRunner:
     """Idempotent bounded-budget background wiki maintenance and lint engine."""
 
@@ -942,11 +1128,21 @@ class WikiMaintenanceRunner:
         idempotency_key: str,
         reference_date: str | None = None,
         max_pages_per_tick: int = 8,
+        protected_scopes: set[str] | None = None,
     ) -> dict[str, Any]:
         """Run a bounded, checkpointed maintenance sweep over at most `max_pages_per_tick` pages."""
         idem = validate_idempotency_key(idempotency_key)
         if max_pages_per_tick < 1 or max_pages_per_tick > 64:
             raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
+
+        pinned_scopes = {s.strip() for s in (protected_scopes or set()) if s and s.strip()}
+        proj_domains_by_page: dict[str, set[str]] = {}
+        if pinned_scopes:
+            for receipt in await self.library.list_projection_receipts():
+                r_pid = str(receipt.get("page_id") or "")
+                r_dom = str(receipt.get("domain") or "")
+                if r_pid and r_dom and receipt.get("state") == "active":
+                    proj_domains_by_page.setdefault(r_pid, set()).add(r_dom)
 
         ref_date = (reference_date or _today_utc())[:10]
         cursor_doc, cursor_rev = await self.library.read_named_checkpoint(
@@ -978,12 +1174,26 @@ class WikiMaintenanceRunner:
         deduplicated_count = 0
         expired_count = 0
         retracted_tombstoned_count = 0
+        protected_preserved_count = 0
         contradictions: list[dict[str, Any]] = []
         broken_links: list[dict[str, str]] = []
         inbound_targets: set[str] = set()
 
         for pid in batch_page_ids:
             page = await self.library.read_page(pid, require_settled=True)
+            page_pinned = _is_page_grant_pinned(
+                pid,
+                str(page.get("folder") or ""),
+                proj_domains_by_page.get(pid, set()),
+                pinned_scopes,
+            )
+            non_expired_active_count = sum(
+                1
+                for cl in page["claims"]
+                if cl.get("status") == "active"
+                and not (cl.get("valid_until") and str(cl.get("valid_until"))[:10] < ref_date)
+                and normalize_statement_fingerprint(cl["statement"]) not in tomb_fps
+            )
             changed = False
             seen_norm: dict[str, int] = {}
             new_claims: list[dict[str, Any]] = []
@@ -992,7 +1202,7 @@ class WikiMaintenanceRunner:
                 c_copy = dict(claim)
                 fp = normalize_statement_fingerprint(c_copy["statement"])
                 if c_copy["status"] == "active":
-                    # 1. Tombstone / source-retraction check
+                    # 1. Tombstone / source-retraction check (explicit Forget always wins)
                     claim_sources = list(c_copy.get("source_ids") or [])
                     all_sources_tombstoned = bool(claim_sources) and all(
                         sid in tomb_sources for sid in claim_sources
@@ -1002,11 +1212,16 @@ class WikiMaintenanceRunner:
                         c_copy["valid_until"] = ref_date
                         retracted_tombstoned_count += 1
                         changed = True
-                    # 2. Temporal `valid_until` expiry sweep
+                    # 2. Temporal `valid_until` expiry sweep (hard-pinned when sole backing claim of active/paid grant)
                     elif c_copy.get("valid_until") and str(c_copy["valid_until"])[:10] < ref_date:
-                        c_copy["status"] = "retracted"
-                        expired_count += 1
-                        changed = True
+                        if page_pinned and non_expired_active_count == 0:
+                            protected_preserved_count += 1
+                            non_expired_active_count += 1
+                            seen_norm[fp] = len(new_claims)
+                        else:
+                            c_copy["status"] = "retracted"
+                            expired_count += 1
+                            changed = True
                     # 3. Exact/normalized claim deduplication on the same page
                     elif fp in seen_norm:
                         keeper_idx = seen_norm[fp]
@@ -1117,5 +1332,219 @@ class WikiMaintenanceRunner:
             "orphan_page_ids": orphan_page_ids,
             "hot_digest_chars": len(hot_md),
             "hot_digest_within_budget": len(hot_md) <= WIKI_HOT_MAX_CHARS,
+            "protected_claims_preserved_count": protected_preserved_count,
             "cursor_revision": next_cursor_rev,
+        }
+
+    async def optimize_knowledge_base(
+        self,
+        *,
+        idempotency_key: str,
+        protected_scopes: set[str] | None = None,
+        reference_date: str | None = None,
+    ) -> dict[str, Any]:
+        """Full on-demand signal consolidation, structure/link repair, and grant-safe stale pruning."""
+        idem = validate_idempotency_key(idempotency_key)
+        ref_date = (reference_date or _today_utc())[:10]
+        pinned_scopes = {s.strip() for s in (protected_scopes or set()) if s and s.strip()}
+
+        proj_domains_by_page: dict[str, set[str]] = {}
+        for receipt in await self.library.list_projection_receipts():
+            r_pid = str(receipt.get("page_id") or "")
+            r_dom = str(receipt.get("domain") or "")
+            if r_pid and r_dom and receipt.get("state") == "active":
+                proj_domains_by_page.setdefault(r_pid, set()).add(r_dom)
+
+        all_summaries = sorted(await self.library.list_pages(), key=lambda p: p["page_id"])
+        all_page_ids = [p["page_id"] for p in all_summaries]
+        all_page_id_set = set(all_page_ids)
+
+        # Build slug lookup so moved pages can auto-relink broken graph edges deterministically
+        slug_to_unique_page_id: dict[str, str | None] = {}
+        for pid in all_page_ids:
+            leaf = pid.split("/")[-1].strip().lower()
+            if not leaf:
+                continue
+            if leaf in slug_to_unique_page_id:
+                slug_to_unique_page_id[leaf] = None
+            else:
+                slug_to_unique_page_id[leaf] = pid
+
+        tombstones = await self.library.list_tombstones()
+        fp_doc, _ = await self.library.read_named_checkpoint(TOMBSTONE_FPS_CHECKPOINT_NAME)
+        tomb_sources = {
+            str(tb["target_id"])
+            for tb in tombstones
+            if tb.get("target_kind") == "source" and tb.get("target_id")
+        }
+        tomb_fps = {str(fp) for fp in ((fp_doc or {}).get("fingerprints") or []) if str(fp)}
+
+        deduplicated_count = 0
+        stale_retired_count = 0
+        structure_repairs_count = 0
+        protected_pages_count = 0
+        protected_claims_preserved_count = 0
+        contradictions: list[dict[str, Any]] = []
+        folder_seen_claims: dict[tuple[str, str], tuple[str, str]] = {}
+
+        for pid in all_page_ids:
+            page = await self.library.read_page(pid, require_settled=True)
+            folder = str(page.get("folder") or "").strip() or pid.split("/")[0]
+            page_pinned = _is_page_grant_pinned(
+                pid,
+                folder,
+                proj_domains_by_page.get(pid, set()),
+                pinned_scopes,
+            )
+            if page_pinned:
+                protected_pages_count += 1
+
+            non_expired_active_count = sum(
+                1
+                for cl in page["claims"]
+                if cl.get("status") == "active"
+                and not (cl.get("valid_until") and str(cl.get("valid_until"))[:10] < ref_date)
+                and normalize_statement_fingerprint(cl["statement"]) not in tomb_fps
+            )
+
+            changed = False
+            seen_norm: dict[str, int] = {}
+            new_claims: list[dict[str, Any]] = []
+
+            for claim in page["claims"]:
+                c_copy = dict(claim)
+                fp = normalize_statement_fingerprint(c_copy["statement"])
+                dedup_fp = _dedup_statement_fingerprint(c_copy["statement"])
+                if c_copy["status"] == "active":
+                    claim_sources = list(c_copy.get("source_ids") or [])
+                    all_sources_tombstoned = bool(claim_sources) and all(
+                        sid in tomb_sources for sid in claim_sources
+                    )
+                    if fp in tomb_fps or all_sources_tombstoned:
+                        c_copy["status"] = "retracted"
+                        c_copy["valid_until"] = ref_date
+                        stale_retired_count += 1
+                        changed = True
+                    elif c_copy.get("valid_until") and str(c_copy["valid_until"])[:10] < ref_date:
+                        if page_pinned and non_expired_active_count == 0:
+                            protected_claims_preserved_count += 1
+                            non_expired_active_count += 1
+                            seen_norm[dedup_fp] = len(new_claims)
+                        else:
+                            c_copy["status"] = "retracted"
+                            stale_retired_count += 1
+                            changed = True
+                    elif dedup_fp in seen_norm:
+                        keeper_idx = seen_norm[dedup_fp]
+                        keeper = new_claims[keeper_idx]
+                        merged_src = sorted(
+                            set(keeper.get("source_ids") or [])
+                            | set(c_copy.get("source_ids") or [])
+                        )
+                        new_claims[keeper_idx] = {**keeper, "source_ids": merged_src}
+                        if c_copy["claim_id"] == keeper["claim_id"]:
+                            deduplicated_count += 1
+                            changed = True
+                            continue
+                        c_copy["status"] = "superseded"
+                        c_copy["superseded_by"] = keeper["claim_id"]
+                        c_copy["valid_until"] = ref_date
+                        deduplicated_count += 1
+                        changed = True
+                    elif (folder, dedup_fp) in folder_seen_claims and not page_pinned:
+                        _, canonical_cid = folder_seen_claims[(folder, dedup_fp)]
+                        c_copy["status"] = "superseded"
+                        c_copy["superseded_by"] = canonical_cid
+                        c_copy["valid_until"] = ref_date
+                        deduplicated_count += 1
+                        changed = True
+                    else:
+                        seen_norm[dedup_fp] = len(new_claims)
+                        folder_seen_claims[(folder, dedup_fp)] = (pid, c_copy["claim_id"])
+                new_claims.append(c_copy)
+
+            # Flag genuine active contradictions without silently guessing
+            slot_seen: dict[str, tuple[str, bool]] = {}
+            for c_item in new_claims:
+                if c_item["status"] != "active":
+                    continue
+                slot_info = _subject_slot_key(c_item["statement"])
+                if slot_info is None:
+                    continue
+                slot_name, is_neg = slot_info
+                if slot_name in slot_seen:
+                    prev_cid, prev_neg = slot_seen[slot_name]
+                    if prev_neg != is_neg:
+                        contradictions.append(
+                            {
+                                "page_id": pid,
+                                "slot": slot_name,
+                                "claim_ids": sorted([prev_cid, c_item["claim_id"]]),
+                            }
+                        )
+                else:
+                    slot_seen[slot_name] = (c_item["claim_id"], is_neg)
+
+            # Repair broken or moved links in structured links metadata
+            repaired_links: list[dict[str, Any]] = []
+            seen_link_keys: set[tuple[str, str]] = set()
+            links_changed = False
+            for link in page.get("links") or ():
+                target_id = str(link.get("target_page_id") or "").strip()
+                relation = str(link.get("relation") or "related").strip() or "related"
+                if target_id not in all_page_id_set:
+                    leaf = target_id.split("/")[-1].strip().lower()
+                    relinked = slug_to_unique_page_id.get(leaf)
+                    if relinked and relinked != pid:
+                        target_id = relinked
+                        links_changed = True
+                        structure_repairs_count += 1
+                    else:
+                        links_changed = True
+                        structure_repairs_count += 1
+                        continue
+                if target_id == pid or (target_id, relation) in seen_link_keys:
+                    links_changed = True
+                    continue
+                seen_link_keys.add((target_id, relation))
+                repaired_links.append({**link, "target_page_id": target_id, "relation": relation})
+
+            # Backfill missing or stale TLDR from highest-signal active claim
+            active_stmts = [c["statement"] for c in new_claims if c.get("status") == "active"]
+            current_tldr = str(page.get("tldr") or "").strip()
+            next_tldr: str | None = None
+            if active_stmts and not current_tldr:
+                next_tldr = active_stmts[0][:240]
+                structure_repairs_count += 1
+                changed = True
+            elif changed:
+                next_tldr = active_stmts[0][:240] if active_stmts else current_tldr
+
+            if changed or links_changed:
+                await self.library.edit_page(
+                    pid,
+                    expected_revision=int(page["revision"]),
+                    idempotency_key=f"{idem}:opt:{pid}:{page['revision']}"[:120],
+                    tldr=next_tldr if next_tldr is not None else current_tldr,
+                    status_as_of=ref_date,
+                    claims=new_claims,
+                    links=repaired_links if links_changed else None,
+                )
+                await self.projections.sync_page_lifecycle(pid)
+
+        await self.library.rebuild_indexes()
+        hot_md = await self.writer.refresh_hot_digest()
+        run_digest = hashlib.sha256(f"{idem}:opt:{ref_date}".encode("utf-8")).hexdigest()
+        return {
+            "optimization_run_id": f"wopt_{run_digest[:16]}",
+            "inspected_page_count": len(all_page_ids),
+            "deduplicated_claim_count": deduplicated_count,
+            "stale_retired_count": stale_retired_count,
+            "structure_repairs_count": structure_repairs_count,
+            "protected_grant_scopes": sorted(pinned_scopes),
+            "protected_grant_pages_count": protected_pages_count,
+            "protected_claims_preserved_count": protected_claims_preserved_count,
+            "contradictions": contradictions,
+            "hot_digest_chars": len(hot_md),
+            "hot_digest_within_budget": len(hot_md) <= WIKI_HOT_MAX_CHARS,
         }

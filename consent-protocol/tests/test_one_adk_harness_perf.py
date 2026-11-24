@@ -71,17 +71,35 @@ async def test_post_run_runs_in_settle_after_run_finished_while_holding_admissio
         post_run=post_memory,
     )
 
-    iterator = agent.run(_input())
+    turn_input = _input()
+    iterator = agent.run(turn_input)
     event = await anext(iterator)
     assert isinstance(event, RunFinishedEvent)
     yielded_finished = True
     assert not post_started.is_set()
 
+    # Stream settlement completes immediately without blocking on detached post_run,
+    # releasing the thread lock while retaining upgrade admission until post_run settles.
     finishing = asyncio.create_task(iterator.aclose())
-    await asyncio.wait_for(post_started.wait(), 2)
-    assert (await admission.status(incarnation="synthetic"))["activeWork"] == 1
-    post_release.set()
     await asyncio.wait_for(finishing, 2)
+    await asyncio.wait_for(post_started.wait(), 2)
+    assert turn_input.thread_id not in pod._ACTIVE_THREADS
+    assert (await admission.status(incarnation="synthetic"))["activeWork"] == 1
+
+    # A back-to-back follow-up turn on the same thread succeeds immediately (no POD_CHAT_BUSY).
+    second_agent = pod.PodTimedADKAgent.__new__(pod.PodTimedADKAgent)
+    second_agent.close = AsyncMock()
+    second_agent.configure_pod_turn(
+        require_access=AsyncMock(),
+        runtime_scope=nullcontext,
+    )
+    second_events = [evt async for evt in second_agent.run(turn_input)]
+    assert len(second_events) == 1
+    assert isinstance(second_events[0], RunFinishedEvent)
+
+    post_release.set()
+    if pod._POST_RUN_TASKS:
+        await asyncio.wait_for(asyncio.gather(*tuple(pod._POST_RUN_TASKS)), 2)
     assert ran_after_yield == [1]
     assert (await admission.status(incarnation="synthetic"))["activeWork"] == 0
 
@@ -167,8 +185,34 @@ def test_scope_leaf_tools_prunes_unrelated_domains_and_keeps_history(monkeypatch
     generic_req = make_request("analyze NVDA stock price")
     scope_leaf_tools_before_model(None, generic_req)
     kept_generic = {d.name for d in generic_req.config.tools[0].function_declarations}
-    assert kept_generic == {*core_padding, "run_app_action", "ask_consent_agent"}
-    assert set(generic_req.tools_dict) == {*core_padding, "run_app_action", "ask_consent_agent"}
+    expected = {
+        *core_padding,
+        "run_app_action",
+        "ask_consent_agent",
+        "calendar_summary",
+        "propose_calendar_event",
+    }
+    assert kept_generic == expected
+    assert set(generic_req.tools_dict) == expected
+    # Calendar interpretation belongs to One, including fresh turns with no
+    # lexical calendar marker and short same-conversation references.
+    for wording in (
+        "Am I free Friday afternoon?",
+        "What calls do I have Monday?",
+        "Block 30 minutes Friday",
+        "kal khaali hoon?",
+        "move that one",
+        "shfit the 2nd one",
+        "मेरे पास सोमवार को क्या है?",
+    ):
+        request = make_request(wording)
+        scope_leaf_tools_before_model(None, request)
+        kept = {
+            decl.name for tool in request.config.tools for decl in tool.function_declarations or []
+        }
+        assert {"calendar_summary", "propose_calendar_event"} <= kept
+        assert {"calendar_summary", "propose_calendar_event"} <= set(request.tools_dict)
+        assert "create_drive_file" not in kept
 
     cal_req = make_request("what meetings are on my calendar tomorrow?")
     scope_leaf_tools_before_model(None, cal_req)

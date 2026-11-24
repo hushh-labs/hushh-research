@@ -18,6 +18,7 @@ from .contracts import (
 )
 
 _TOKEN_RE = re.compile(r"[a-z0-9_]{2,64}")
+_ID_PREFIXES = ("wpg_", "wcl_", "wsr_", "wbt_", "wtb_", "wpr_")
 _STOPWORDS = frozenset(
     {
         "an",
@@ -27,12 +28,14 @@ _STOPWORDS = frozenset(
         "at",
         "be",
         "by",
+        "do",
         "for",
         "from",
         "has",
         "in",
         "is",
         "it",
+        "my",
         "of",
         "on",
         "or",
@@ -45,6 +48,32 @@ _STOPWORDS = frozenset(
     }
 )
 
+# Compact query-time synonym bridges for personal-memory paraphrases.
+# Applied only at query time with discounted weight (0.55) so exact matches
+# always outrank conceptual bridges with zero storage or embedding overhead.
+_QUERY_SYNONYMS: dict[str, tuple[str, ...]] = {
+    "food": ("dietary", "allergy", "nutrition"),
+    "dining": ("dietary", "allergy", "nutrition", "restaurant"),
+    "dinner": ("dietary", "allergy", "nutrition", "restaurant"),
+    "meal": ("dietary", "allergy", "nutrition"),
+    "ingredient": ("allergy", "dietary", "nutrition"),
+    "reaction": ("allergy", "medical", "health"),
+    "allergy": ("allergic", "dietary", "nutrition", "health"),
+    "airplane": ("flight", "airline", "travel", "seat"),
+    "aircraft": ("flight", "airline", "travel", "seat"),
+    "plane": ("flight", "airline", "travel"),
+    "carrier": ("airline", "flight", "travel"),
+    "seating": ("seat", "aisle", "window", "flight"),
+    "live": ("residence", "home", "city", "relocation"),
+    "hometown": ("residence", "city", "home"),
+    "moved": ("relocation", "residence", "city"),
+    "relocate": ("relocation", "residence", "city"),
+    "equity": ("investing", "portfolio", "finance", "stock"),
+    "retirement": ("investing", "portfolio", "finance", "401k"),
+    "doctor": ("health", "medical", "allergy"),
+    "medication": ("health", "medical"),
+}
+
 _FIELD_WEIGHTS: dict[str, float] = {
     "title": 3.0,
     "claims": 2.5,
@@ -53,10 +82,45 @@ _FIELD_WEIGHTS: dict[str, float] = {
 }
 
 
+def _stem_token(token: str) -> str:
+    """Lightweight deterministic English stemmer for local lexical recall."""
+    if len(token) <= 3 or token.startswith(_ID_PREFIXES) or "_" in token:
+        return token
+    if token.endswith("ies") and len(token) > 4:
+        return f"{token[:-3]}y"
+    if token.endswith("ing") and len(token) > 5:
+        base = token[:-3]
+        return f"{base}e" if base.endswith(("din", "liv", "mov", "relocat", "invis")) else base
+    if token.endswith("ed") and len(token) > 4:
+        base = token[:-2]
+        return base[:-1] if len(base) > 3 and base[-1] == base[-2] else base
+    if token.endswith("es") and len(token) > 4 and token[-3] in {"s", "x", "z", "h"}:
+        return token[:-2]
+    if token.endswith("s") and not token.endswith("ss") and len(token) > 3:
+        return token[:-1]
+    return token
+
+
 def tokenize_wiki_text(text: str) -> list[str]:
     if not text:
         return []
-    return [token for token in _TOKEN_RE.findall(text.lower()) if token not in _STOPWORDS]
+    tokens: list[str] = []
+    for raw in _TOKEN_RE.findall(text.lower()):
+        if raw in _STOPWORDS:
+            continue
+        tokens.append(raw)
+        if "_" in raw and not raw.startswith(_ID_PREFIXES):
+            for sub in raw.split("_"):
+                if len(sub) >= 2 and sub not in _STOPWORDS:
+                    tokens.append(sub)
+                    stemmed = _stem_token(sub)
+                    if stemmed != sub and len(stemmed) >= 2:
+                        tokens.append(stemmed)
+        else:
+            stemmed = _stem_token(raw)
+            if stemmed != raw and len(stemmed) >= 2:
+                tokens.append(stemmed)
+    return tokens
 
 
 class BacklinkGraph:
@@ -240,9 +304,16 @@ class LexicalSearchIndex:
     def query_candidates(self, query: str, *, limit: int = 10) -> list[dict[str, Any]]:
         if type(limit) is not int or not 1 <= limit <= 50:
             raise WikiRefused("WIKI_SCHEMA_INVALID", 400)
-        terms = list(dict.fromkeys(tokenize_wiki_text(query)))
-        if not terms or not self._documents:
+        base_terms = list(dict.fromkeys(tokenize_wiki_text(query)))
+        if not base_terms or not self._documents:
             return []
+
+        weighted_query_terms: dict[str, float] = {term: 1.0 for term in base_terms}
+        for term in base_terms:
+            for syn in _QUERY_SYNONYMS.get(term, ()):
+                for expanded in tokenize_wiki_text(syn):
+                    if expanded not in weighted_query_terms:
+                        weighted_query_terms[expanded] = 0.55
 
         doc_count = len(self._documents)
         weighted_lengths: dict[str, float] = {}
@@ -268,7 +339,7 @@ class LexicalSearchIndex:
             doc = self._documents[page_id]
             score = 0.0
             matched: list[str] = []
-            for term in terms:
+            for term, q_weight in weighted_query_terms.items():
                 tf = 0.0
                 for field_name, weight in _FIELD_WEIGHTS.items():
                     tf += weight * doc["fields"].get(field_name, {}).get(term, 0)
@@ -278,7 +349,7 @@ class LexicalSearchIndex:
                 df = doc_freqs[term]
                 idf = math.log(1.0 + (doc_count - df + 0.5) / (df + 0.5))
                 norm = k1 * (1.0 - b + b * (weighted_lengths[page_id] / max(avg_len, 1.0)))
-                score += idf * ((tf * (k1 + 1.0)) / (tf + norm))
+                score += q_weight * idf * ((tf * (k1 + 1.0)) / (tf + norm))
             if score > 0.0:
                 scored.append(
                     {

@@ -17,6 +17,7 @@ import {
 } from "@/components/app-ui/bottom-chrome-column";
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
 import { useOptionalLocationCommand } from "@/components/agent/location-command-provider";
+import { useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { Navbar } from "@/components/navbar";
 import { bottomChromeScrollTravel, snapKaiBottomChromeVisible } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { useNativeNavigationBottomInset } from "@/lib/capacitor/native-navigation";
@@ -28,6 +29,8 @@ export type BottomShellModel = {
   agentBarHidden?: boolean;
   /** Messages reserves the complete centered dock above its lists and transcript. */
   includeComposerHeight?: boolean;
+  /** Hides the idle voice launcher while keeping bottom navigation visible. */
+  voiceSlotSuppressed?: boolean;
   /** An immersive route owns the full viewport and has no persistent chrome. */
   hidden?: boolean;
 };
@@ -46,7 +49,9 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
   const nativeBottomInset = useNativeNavigationBottomInset();
   const nativeDock = useNativeDockPorts();
   const voiceActive = useAgentVoiceState((state) => state.active);
-  const hidden = model.hidden && !command?.active && !voiceActive;
+  const sessionSuppressed = useSessionChromeSuppressed();
+  const hidden = sessionSuppressed || (model.hidden && !command?.active && !voiceActive);
+  const suppressVoiceSlot = Boolean(model.voiceSlotSuppressed) && !command?.active && !voiceActive;
   // The owner remains mounted above routes; Chat presents its active control
   // in the composer slot, not a second overlapping shell launcher.
   const shellRef = useRef<HTMLDivElement | null>(null);
@@ -100,7 +105,7 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
     observer.observe(shell);
     if (navigationSlotRef.current) observer.observe(navigationSlotRef.current);
     return () => observer.disconnect();
-  }, [hidden, model.agentBarHidden, model.includeComposerHeight, model.navigationHidden]);
+  }, [hidden, model.agentBarHidden, model.includeComposerHeight, model.navigationHidden, suppressVoiceSlot]);
 
   return (
     <>
@@ -138,6 +143,7 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
               : BOTTOM_SCROLL_TRANSFORM,
           }}
         >
+            {!suppressVoiceSlot ? (
             <div
               data-bottom-shell-agent-slot
               className="flex w-full justify-center"
@@ -145,6 +151,7 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
             >
               {agentBarMounted ? <AgentDockVoiceBoundary><AgentBar layout="slot" /></AgentDockVoiceBoundary> : null}
             </div>
+            ) : null}
           <div
             ref={navigationSlotRef}
             data-bottom-shell-navigation-slot

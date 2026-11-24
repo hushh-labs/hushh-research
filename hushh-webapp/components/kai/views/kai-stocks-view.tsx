@@ -80,7 +80,7 @@ export function KaiStocksView({ onAnalyze, onSelectedSymbolChange, history, brow
     </KaiControlSurface>
   </section>;
   if (!nativeActive || browseStocks && payload) return content;
-  return <NativeFinanceLayer active title="Stocks" sections={[{ key: "stock-status", rows: [...nativeStatus,
+  return <NativeFinanceLayer pane="analysis" active title="Stocks" sections={[{ key: "stock-status", rows: [...nativeStatus,
     ...(history ? [{ key: "history", label: "History", web: true, run: () => setHistoryOpen(true) }] : []),
-    ...(!busy && !error ? [{ key: "empty", label: "Stocks are not available in the current list." }] : [])] }]} webChild={isHistoryOpen} fallback={content} />;
+    ...(!busy && !error ? [{ key: "empty", label: "Stocks are not available in the current list." }] : [])] }]} webChild={!browseStocks || isHistoryOpen} fallback={content} />;
 }

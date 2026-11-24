@@ -692,3 +692,319 @@ def test_virgin_standby_prewarm_and_hub_broker_activation_envs(
     assert launched.get("metadata_disabled") == "1"
     assert launched.get("files_enabled") == "true"
     assert launched.get("host_kind") == "gcp_ace"
+
+
+@pytest.mark.asyncio
+async def test_edge_gateway_fails_fast_on_blackholed_pod_ip_and_rotates_expiring_claims(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Dead/blackholed pod IPs fail over in <= proxy_connect_timeout_s (never 127s TCP SYN hang)
+    and claims approaching K8s wall-clock shutdownTime extend or proactively rotate."""
+    import time
+
+    now = [1000.0]
+    extended_claims: list[str] = []
+    allow_extend = [True]
+
+    class _LifecycleClaimClient(_LocalStandbyClaimClient):
+        def extend_claim_shutdown(
+            self, claim_name: str, *, idle_shutdown_seconds: int = 600
+        ) -> bool:
+            extended_claims.append(claim_name)
+            return allow_extend[0]
+
+    claim_client = _LifecycleClaimClient(tmp_path, activation_guard="edge-act-fast-01")
+    manager = SandboxEdgeGatewayManager(
+        claim_client=claim_client,
+        master_seed=b"F" * 32,
+        idle_timeout_s=600.0,
+        activation_header_value="edge-act-fast-01",
+        admin_header_value="edge-admin-fast-01",
+        claim_timeout_s=15.0,
+        health_poll_timeout_s=15.0,
+        proxy_connect_timeout_s=0.35,
+        clock_s=lambda: now[0],
+    )
+    gw_app = create_sandbox_edge_gateway_app(manager, enable_reaper=False)
+    gw_port = _free_port()
+    gw_server = uvicorn.Server(
+        uvicorn.Config(gw_app, host="127.0.0.1", port=gw_port, log_level="error")
+    )
+    gw_thread = threading.Thread(target=gw_server.run, daemon=True)
+    gw_thread.start()
+
+    try:
+        base_http = f"http://127.0.0.1:{gw_port}"
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            for _ in range(30):
+                try:
+                    if (await client.get(f"{base_http}/health")).status_code == 200:
+                        break
+                except httpx.HTTPError:
+                    await asyncio.sleep(0.05)
+
+            # 1. Initial request creates lease and uses pooled proxy client with fast connect timeout
+            r1 = await client.get(f"{base_http}/u/owner_fast/health")
+            assert r1.status_code == 200
+            assert r1.json()["sandbox"] == "sbx-live-1"
+            proxy_client = manager._proxy_http_client
+            assert proxy_client is not None
+            assert proxy_client.timeout.connect == pytest.approx(0.35)
+            # Matches SandboxEdgeGatewayManager default (240.0s, exceeding the 230s+ AG-UI turn window).
+            assert proxy_client.timeout.read == pytest.approx(240.0)
+
+            # Second warm request reuses the exact same pooled client instance
+            r2 = await client.get(f"{base_http}/u/owner_fast/health")
+            assert r2.status_code == 200
+            assert manager._proxy_http_client is proxy_client
+
+            # 2. Simulate silent TCP SYN blackhole on cached lease IP -> must fail fast (< 2s) and recover
+            lease1 = manager.get_lease("owner_fast")
+            assert lease1 is not None
+            stale_port = lease1.port
+            real_send = proxy_client.send
+
+            async def _blackhole_once(
+                req: httpx.Request, *args: Any, **kwargs: Any
+            ) -> httpx.Response:
+                if req.url.port == stale_port:
+                    await asyncio.sleep(0.1)
+                    raise httpx.ConnectTimeout("simulated VPC blackhole timeout")
+                return await real_send(req, *args, **kwargs)
+
+            monkeypatch.setattr(proxy_client, "send", _blackhole_once)
+            t0 = time.monotonic()
+            r3 = await client.get(f"{base_http}/u/owner_fast/health")
+            elapsed = time.monotonic() - t0
+            assert r3.status_code == 200
+            assert r3.json()["sandbox"] == "sbx-live-2"
+            assert elapsed < 5.0
+            monkeypatch.setattr(proxy_client, "send", real_send)
+
+            # 3. Approaching claim_expires_at_s extends claim in place when supported
+            lease2 = manager.get_lease("owner_fast")
+            assert lease2 is not None
+            initial_exp = lease2.claim_expires_at_s
+            assert initial_exp > now[0]
+            now[0] = initial_exp - 60.0
+            r4 = await client.get(f"{base_http}/u/owner_fast/health")
+            assert r4.status_code == 200
+            assert r4.json()["sandbox"] == "sbx-live-2"
+            assert lease2.claim_name in extended_claims
+            assert lease2.claim_expires_at_s > initial_exp
+
+            # 4. When extension is unsupported/fails near expiry, Edge proactively rotates BEFORE K8s kills pod
+            allow_extend[0] = False
+            now[0] = lease2.claim_expires_at_s - 10.0
+            r5 = await client.get(f"{base_http}/u/owner_fast/health")
+            assert r5.status_code == 200
+            assert r5.json()["sandbox"] == "sbx-live-3"
+    finally:
+        gw_server.should_exit = True
+        gw_thread.join(timeout=3.0)
+        for cname in list(claim_client.runtimes):
+            claim_client.delete_claim(cname)
+
+
+@pytest.mark.asyncio
+async def test_edge_gateway_aborts_crashed_pod_in_under_2s_and_replaces_dead_standby(
+    tmp_path: Path,
+) -> None:
+    """Crashed post-activation sandboxes abort in <2s with SANDBOX_HYDRATION_FAILED instead of
+    blind 25s /health polling, while dead pre-activation standby pods auto-replace cleanly."""
+    import time
+
+    class _MixedStandbyClaimClient(_LocalStandbyClaimClient):
+        def __init__(self, root: Path, *, activation_guard: str) -> None:
+            super().__init__(root, activation_guard=activation_guard)
+            self.terminated: dict[str, str] = {}
+
+        def inspect_pod_termination(self, sandbox_name: str) -> str | None:
+            return self.terminated.get(sandbox_name)
+
+        def create_and_wait_claim(
+            self,
+            *,
+            claim_name: str,
+            billing_space_id: str,
+            warm_pool_name: str = "hussh-one-warm-pool",
+            idle_shutdown_seconds: int = 600,
+            timeout_s: float = 30.0,
+        ) -> ClaimedSandboxEndpoint:
+            if self.counter == 0:
+                self.counter += 1
+                sandbox_name = f"sbx-crash-{self.counter}"
+                crashed_runtime = VirginStandbyRuntime(
+                    bind_host="127.0.0.1",
+                    port=0,
+                    activation_guard=self.activation_guard,
+                    tmp_dir=self.tmp_dir / f"crash-{self.counter}",
+                    asgi_launcher=lambda _h, _p: self.terminated.__setitem__(
+                        sandbox_name, "ContainerTerminated:Error:1"
+                    ),
+                    uid=10001,
+                )
+                crashed_runtime.start_background()
+                self.runtimes[claim_name] = (crashed_runtime, {})
+                return ClaimedSandboxEndpoint(
+                    claim_name=claim_name,
+                    namespace="hussh-agents",
+                    sandbox_name=sandbox_name,
+                    pod_ip="127.0.0.1",
+                    port=crashed_runtime.port,
+                    ready=True,
+                )
+            if self.counter == 1:
+                self.counter += 1
+                sandbox_name = f"sbx-dead-pre-{self.counter}"
+                dead_port = _free_port()
+                self.terminated[sandbox_name] = "PodDeleted"
+                return ClaimedSandboxEndpoint(
+                    claim_name=claim_name,
+                    namespace="hussh-agents",
+                    sandbox_name=sandbox_name,
+                    pod_ip="127.0.0.1",
+                    port=dead_port,
+                    ready=True,
+                )
+            return super().create_and_wait_claim(
+                claim_name=claim_name,
+                billing_space_id=billing_space_id,
+                warm_pool_name=warm_pool_name,
+                idle_shutdown_seconds=idle_shutdown_seconds,
+                timeout_s=timeout_s,
+            )
+
+    claim_client = _MixedStandbyClaimClient(tmp_path, activation_guard="edge-act-crash-01")
+    manager = SandboxEdgeGatewayManager(
+        claim_client=claim_client,
+        master_seed=b"C" * 32,
+        idle_timeout_s=600.0,
+        activation_header_value="edge-act-crash-01",
+        admin_header_value="edge-admin-crash-01",
+        claim_timeout_s=15.0,
+        health_poll_timeout_s=25.0,
+        proxy_connect_timeout_s=0.35,
+    )
+    gw_app = create_sandbox_edge_gateway_app(manager, enable_reaper=False)
+    gw_port = _free_port()
+    gw_server = uvicorn.Server(
+        uvicorn.Config(gw_app, host="127.0.0.1", port=gw_port, log_level="error")
+    )
+    gw_thread = threading.Thread(target=gw_server.run, daemon=True)
+    gw_thread.start()
+
+    try:
+        base_http = f"http://127.0.0.1:{gw_port}"
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            for _ in range(30):
+                try:
+                    if (await client.get(f"{base_http}/health")).status_code == 200:
+                        break
+                except httpx.HTTPError:
+                    await asyncio.sleep(0.05)
+
+            t0 = time.monotonic()
+            r_crash = await client.get(f"{base_http}/u/owner_crash/health")
+            crash_elapsed = time.monotonic() - t0
+            assert r_crash.status_code == 503
+            assert r_crash.headers.get("x-hussh-pod-state") == "unavailable"
+            assert r_crash.json()["detail"]["code"] == "SANDBOX_HYDRATION_FAILED"
+            assert crash_elapsed < 2.5
+            assert len(claim_client.deleted_claims) == 1
+
+            t1 = time.monotonic()
+            r_heal = await client.get(f"{base_http}/u/owner_heal/health")
+            heal_elapsed = time.monotonic() - t1
+            assert r_heal.status_code == 200
+            assert r_heal.json()["sandbox"] == "sbx-live-3"
+            assert heal_elapsed < 4.0
+            assert len(claim_client.deleted_claims) == 2
+    finally:
+        gw_server.should_exit = True
+        gw_thread.join(timeout=3.0)
+        for cname in list(claim_client.runtimes):
+            claim_client.delete_claim(cname)
+
+
+def test_dev_hub_sandbox_custody_bootstrap_fences_lanes_and_hydrates_without_hardcoded_hashes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Dev Hub startup self-hydrates missing ACE custody bindings from Secret Manager while
+    keeping UAT, Prod, commerce previews, pod_mode, and explicit kill-switches 100% untouched."""
+    from hushh_mcp.services.dev_sandbox_custody_bootstrap import (
+        bootstrap_dev_hub_sandbox_custody,
+        derive_sibling_edge_gateway_url,
+    )
+
+    monkeypatch.delenv("HUSSH_POD_MODE", raising=False)
+    assert (
+        derive_sibling_edge_gateway_url("https://consent-protocol-xyz123-uc.a.run.app")
+        == "https://sandbox-edge-gateway-xyz123-uc.a.run.app"
+    )
+    assert derive_sibling_edge_gateway_url("http://consent-protocol-xyz123.a.run.app") == ""
+
+    secrets_map = {
+        "hussh-custody-broker-seal-key": "seal_secret_material_value_for_test",  # pragma: allowlist secret
+        "sandbox-edge-identity-master-key": "m" * 48,  # pragma: allowlist secret
+    }
+
+    dev_env = {
+        "HUSHH_DEPLOY_ENV": "dev",
+        "ENVIRONMENT": "dev",
+        "K_SERVICE": "consent-protocol",
+        "GOOGLE_CLOUD_PROJECT": "hushh-pda-dev",
+        "CONSENT_API_PUBLIC_ORIGIN": "https://consent-protocol-xyz123-uc.a.run.app",
+    }
+    res = bootstrap_dev_hub_sandbox_custody(
+        environ=dev_env,
+        allow_in_tests=True,
+        token_fetcher=lambda: "fake-adc-token",
+        secret_fetcher=lambda _proj, name, _tok: secrets_map[name],
+        edge_probe=lambda url: url == "https://sandbox-edge-gateway-xyz123-uc.a.run.app",
+    )
+    assert res["bootstrapped"] is True
+    assert dev_env["HUSSH_AGENT_SANDBOX_CUTOVER_ENABLED"] == "1"
+    assert (
+        dev_env["HUSSH_SANDBOX_EDGE_PUBLIC_URL"]
+        == "https://sandbox-edge-gateway-xyz123-uc.a.run.app"
+    )
+    assert (
+        dev_env["HUSSH_HUB_STORAGE_PREFIX_BASE_URL"]
+        == "https://consent-protocol-xyz123-uc.a.run.app/api/one/pod/storage-gateway"
+    )
+    assert dev_env["HUSSH_HUB_STORAGE_TOKEN_PROVIDER"] == "ace_prefix_bearer"
+    assert dev_env["HUSSH_POD_STORAGE_GATEWAY_GCS_BUCKET"] == "hussh-hosted-pods-dev"
+    assert dev_env["HUSSH_SOURCE_POD_RETIREMENT_SWEEP_ENABLED"] == "true"
+    assert dev_env["HUSSH_CUSTODY_BROKER_SEAL_KEY"] == secrets_map["hussh-custody-broker-seal-key"]
+    assert (
+        dev_env["HUSSH_SANDBOX_IDENTITY_MASTER_KEY"]
+        == secrets_map["sandbox-edge-identity-master-key"]
+    )
+
+    for neg_env in (
+        {**dev_env, "HUSHH_DEPLOY_ENV": "uat", "ENVIRONMENT": "uat"},
+        {**dev_env, "HUSHH_DEPLOY_ENV": "production", "ENVIRONMENT": "production"},
+        {**dev_env, "K_SERVICE": "scope-commerce-sandbox-consent-protocol"},
+        {**dev_env, "HUSSH_AGENT_SANDBOX_CUTOVER_ENABLED": "0"},
+    ):
+        clean_neg = {
+            k: v
+            for k, v in neg_env.items()
+            if k
+            in {
+                "HUSHH_DEPLOY_ENV",
+                "ENVIRONMENT",
+                "K_SERVICE",
+                "GOOGLE_CLOUD_PROJECT",
+                "CONSENT_API_PUBLIC_ORIGIN",
+                "HUSSH_AGENT_SANDBOX_CUTOVER_ENABLED",
+            }
+        }
+        verdict = bootstrap_dev_hub_sandbox_custody(
+            environ=clean_neg,
+            allow_in_tests=True,
+            token_fetcher=lambda: pytest.fail("must not fetch metadata token on fenced lanes"),
+        )
+        assert verdict["bootstrapped"] is False
+        assert "HUSSH_CUSTODY_BROKER_SEAL_KEY" not in clean_neg

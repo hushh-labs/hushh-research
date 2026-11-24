@@ -364,7 +364,7 @@ FINANCIAL_SUBINTENT_REGISTRY: tuple[DomainSubintentEntry, ...] = (
         domain_key="financial.derived_v1",
         parent_domain="financial",
         display_name="Financial Derived Facts",
-        icon_name="sparkles",
+        icon_name="chart-line",
         color_hex="#D4AF37",
         description="Private records and derived facts computed on device; never shared",
     ),

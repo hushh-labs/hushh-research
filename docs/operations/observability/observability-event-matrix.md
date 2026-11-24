@@ -80,6 +80,7 @@ Every emitted observability event carries centrally added shared params:
 
 | Event | Business purpose | Required params | Primary emitter | Destination use | Proof path |
 | --- | --- | --- | --- | --- | --- |
+| `hushh_mail_signin_screen_view` | Mail connection prompt shown to the signed-in owner once per page visit | `result` | `hushh-webapp/components/gmail/gmail-receipts-page.tsx` | Counts views of the Mail connection prompt | focused component test, GA DebugView |
 | `gmail_connect_started` | Gmail connect flow started | `action`, `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | Gmail onboarding baseline | GA DebugView |
 | `gmail_connect_result` | Gmail web/native connect start or OAuth completion result | `action`, `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | Connection attempts and completed connections remain separate | focused native-service test, GA DebugView |
 | `gmail_disconnect_result` | Gmail disconnect outcome | `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | disconnect success/error rate | GA DebugView |

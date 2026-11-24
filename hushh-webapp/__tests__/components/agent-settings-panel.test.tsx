@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   hostedMigrationStatus: vi.fn(),
   migrateToHostedAzure: vi.fn(),
   adoptPooledSandbox: vi.fn(),
+  switchHostingMode: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "owner" } }) }));
@@ -58,6 +59,7 @@ vi.mock("@/lib/services/api-service", () => ({
     getHostedAzureMigrationStatus: mocks.hostedMigrationStatus,
     migrateToHostedAzure: mocks.migrateToHostedAzure,
     adoptPooledSandbox: mocks.adoptPooledSandbox,
+    switchHostingMode: mocks.switchHostingMode,
   },
 }));
 vi.mock("@/lib/morphy-ux/morphy", async (original) => ({
@@ -91,6 +93,10 @@ beforeEach(() => {
     deploymentTarget: "ace",
     hushhId: "ha1_sandbox",
     podUrl: "https://sandbox-edge.dev.one.hussh.ai/u/ha1_sandbox",
+    detachedPriorHost: true,
+  });
+  mocks.switchHostingMode.mockResolvedValue({
+    hostingMode: "shared",
     detachedPriorHost: true,
   });
 });
@@ -261,7 +267,7 @@ describe("owner hosting and software settings", () => {
     expect(screen.getByText("Hussh Shared")).toBeTruthy();
     expect(screen.getByText("Hussh Pods")).toBeTruthy();
     expect(
-      screen.getByText("Dedicated hosting is unavailable for new setups."),
+      screen.getByText("Unavailable for new setups."),
     ).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", { name: /Bring your own cloud/ }),
@@ -442,7 +448,13 @@ describe("owner hosting and software settings", () => {
 
     expect(screen.getByText("Sep 2026 · Dev 1")).toBeTruthy();
     expect(screen.getByText("27.09.26 · Dev 2")).toBeTruthy();
+    expect(screen.queryByText("What’s in this update")).toBeNull();
+    expect(screen.queryByText("abcdef123456")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("agent-current-version-row").querySelector("button")!);
+    expect(screen.getByTestId("update-details-view")).toBeTruthy();
     expect(screen.getByText("What’s in this update")).toBeTruthy();
+    expect(screen.getByText("Improved reconnect behavior.")).toBeTruthy();
     expect(screen.queryByText("abcdef123456")).toBeNull();
   });
 
@@ -638,9 +650,16 @@ describe("owner hosting and software settings", () => {
       status("hussh_pods", { state: "active", deploymentTarget, featureEnabled: true });
 
       const { unmount } = render(<AgentSettingsPanel userId="owner" kind="hosting" />);
-      expect((await screen.findAllByText(expectedDisplay)).length).toBeGreaterThanOrEqual(2);
+      expect(await screen.findByText(expectedDisplay)).toBeTruthy();
       expect(screen.getByTestId("current-hosting-cloud-badge")).toHaveTextContent(expectedBadge);
-      expect(screen.getByTestId("hussh-pods-connected")).toHaveAttribute("data-provider", deploymentTarget);
+      expect(screen.getByTestId("current-hosting-status-signal")).toHaveTextContent("Connected");
+      // Detailed cloud card lives inside Hosting details, keeping top-level uniform.
+      expect(screen.queryByTestId("hussh-pods-connected")).toBeNull();
+      fireEvent.click(screen.getByTestId("current-hosting-row").querySelector("button")!);
+      expect(await screen.findByTestId("hussh-pods-connected")).toHaveAttribute(
+        "data-provider",
+        deploymentTarget,
+      );
 
       const { result } = renderHook(() =>
         useNativeAgentSettings(
@@ -651,7 +670,10 @@ describe("owner hosting and software settings", () => {
       );
       const statusRows = result.current.pages[0].sections.find((s) => s.id === "hosting-status-section")!.rows;
       expect(statusRows.find((r) => r.id === "hosting-current")?.detail).toBe(expectedDisplay);
-      expect(Boolean(statusRows.find((r) => r.id === "hosting-move-azure"))).toBe(deploymentTarget === "gcp");
+      expect(statusRows.find((r) => r.id === "hosting-move-azure")).toBeUndefined();
+      const choiceRows = result.current.pages[0].sections.find((s) => s.id === "hosting-choices-section")!.rows;
+      expect(choiceRows.find((r) => r.id === "hosting-shared")).toBeUndefined();
+      expect(choiceRows.find((r) => r.id === "hosting-pods")?.trailing).toBe("Switch");
       unmount();
       vi.unstubAllEnvs();
     },
@@ -709,7 +731,7 @@ describe("owner hosting and software settings", () => {
       const card = await screen.findByTestId("pooled-sandbox-switch-card");
       expect(screen.queryByTestId("hussh-pods-migration-route")).toBeNull();
       expect(card).toHaveTextContent(
-        expectConfirm ? "Switch to Hussh Personal Sandbox" : "Start in Hussh Personal Sandbox",
+        expectConfirm ? "Switch to Hussh Confidential Sandbox" : "Start in Hussh Confidential Sandbox",
       );
 
       fireEvent.click(screen.getByTestId("pooled-sandbox-switch-trigger"));
@@ -722,15 +744,112 @@ describe("owner hosting and software settings", () => {
     },
   );
 
-  it("shows multi-cloud Personal Sandbox identity for ace and hides switch card", async () => {
+  it("shows Google Cloud Confidential Sandbox identity for ace and retires Hussh Shared on cutover lane", async () => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
     status("hussh_pods", { state: "active", deploymentTarget: "ace", featureEnabled: true });
 
     render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+    const currentHostingRow = await screen.findByTestId("current-hosting-row");
+    expect(currentHostingRow).toHaveTextContent("Hussh Confidential Sandbox");
+    expect(
+      currentHostingRow.querySelector('[data-slot="settings-row-title"]'),
+    ).not.toHaveClass("truncate");
+    expect(
+      currentHostingRow.querySelector('[data-slot="settings-row-description"]'),
+    ).not.toHaveClass("truncate");
+    expect(
+      currentHostingRow.querySelector('[data-slot="settings-row-trailing"]'),
+    ).toBeNull();
+    expect(screen.getByTestId("current-hosting-status-signal")).toHaveTextContent("Connected");
+    expect(screen.getByTestId("current-hosting-cloud-badge")).toHaveTextContent("Google Cloud");
+    expect(screen.queryByTestId("hosting-choice-shared")).toBeNull();
+    expect(screen.queryByTestId("pooled-sandbox-switch-card")).toBeNull();
+    expect(screen.queryByTestId("hussh-pods-connected")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("current-hosting-row").querySelector("button")!);
     const card = await screen.findByTestId("hussh-pods-connected");
     expect(card).toHaveAttribute("data-provider", "ace");
-    expect(card).toHaveTextContent("Isolated Personal Sandbox across Google Cloud and Microsoft Azure");
-    expect(screen.getByTestId("hussh-pods-active-dual-cloud")).toBeInTheDocument();
-    expect(screen.queryByTestId("pooled-sandbox-switch-card")).toBeNull();
+    expect(card).toHaveTextContent("Isolated Confidential Sandbox on Google Cloud");
+    expect(card).not.toHaveTextContent("Microsoft Azure");
+    expect(screen.getByTestId("hussh-pods-active-gcp-cloud")).toBeInTheDocument();
+  });
+
+  it("reports Personal Sandbox as Managed automatically and keeps raw build hashes inside Version details", () => {
+    const rawSha = "dev-6aa3fb3c5aa664565a2b11a228b9d0086e8f2102";
+    status("hussh_pods", {
+      state: "active",
+      deploymentTarget: "ace",
+      installedReleaseVerified: false,
+      installedRelease: { version: rawSha },
+    });
+
+    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+    expect(screen.getByText("Managed automatically")).toBeTruthy();
+    expect(screen.queryByText("Running version not verified")).toBeNull();
+    expect(screen.getByText("Confidential Sandbox · Latest")).toBeTruthy();
+    expect(screen.queryByText(rawSha)).toBeNull();
+
+    fireEvent.click(screen.getByTestId("agent-current-version-row").querySelector("button")!);
+    expect(screen.getByTestId("update-details-view")).toBeTruthy();
+    expect(screen.getByText(rawSha)).toBeTruthy();
+  });
+
+  it("enables non-destructive switching from Personal Sandbox (ace) to Bring your own cloud while keeping Shared retired on Dev", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    status("hussh_pods", { state: "active", deploymentTarget: "ace", featureEnabled: true });
+
+    render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+    expect(screen.getByTestId("current-hosting-row")).toHaveTextContent("Hussh Confidential Sandbox");
+    expect(screen.getByTestId("current-hosting-status-signal")).toHaveTextContent("Connected");
+    expect(screen.getByTestId("current-hosting-cloud-badge")).toHaveTextContent("Google Cloud");
+    expect(screen.queryByTestId("hosting-choice-pods")).toBeNull();
+    expect(screen.queryByTestId("hosting-choice-shared")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("hosting-choice-own-cloud").querySelector("button")!);
+    expect(mocks.switchHostingMode).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(mocks.push).toHaveBeenCalledWith(
+        "/one/setup/cloud?return_to=%2Fone%2Fprofile%2Fhosting&from=%2Fone%2Fprofile%2Fhosting&intent=own",
+      ),
+    );
+  });
+
+  it("enables switching from legacy Shared to Personal Sandbox or Bring your own cloud directly in Profile Hosting", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    mocks.reconnect.mockResolvedValue({});
+    status("shared", { featureEnabled: true });
+
+    render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+    expect(screen.queryByTestId("hosting-choice-shared")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("hosting-choice-own-cloud").querySelector("button")!);
+    expect(mocks.push).toHaveBeenCalledWith(
+      "/one/setup/cloud?return_to=%2Fone%2Fprofile%2Fhosting&from=%2Fone%2Fprofile%2Fhosting&intent=own",
+    );
+
+    fireEvent.click(screen.getByTestId("hosting-choice-pods").querySelector("button")!);
+    expect(mocks.adoptPooledSandbox).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByTestId("hosting-switch-sandbox-confirm"));
+    await waitFor(() =>
+      expect(mocks.adoptPooledSandbox).toHaveBeenCalledWith({
+        allowCleanSlate: true,
+        isEffectCurrent: expect.any(Function),
+      }),
+    );
+    await waitFor(() => expect(mocks.reconnect).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
+  });
+
+  it("never displays retired Hussh Shared copy on Dev even for legacy hostingMode=shared accounts", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    const { updateCheckMessage } = await import("@/lib/feed/agent-update-status");
+    status("shared", { featureEnabled: true });
+
+    render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+    expect(screen.queryByText(/Hussh Shared/i)).toBeNull();
+    expect(screen.getByText("Confidential Sandbox transition")).toBeInTheDocument();
+    expect(updateCheckMessage({ hostingMode: "shared", featureEnabled: true } as never)).toBe(
+      "Confidential Sandbox updates automatically.",
+    );
   });
 });

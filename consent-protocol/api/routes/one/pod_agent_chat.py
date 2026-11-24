@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from ag_ui.core import RunAgentInput
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sse_starlette.sse import EventSourceResponse
 
 from api.routes.external_connectors import (
@@ -24,6 +24,7 @@ from hushh_mcp.one_adk.agui_factory import _authenticated_capabilities
 from hushh_mcp.one_adk.history_descriptors import (
     _event_text,
     _safe_agent_history_metadata,
+    _session_category_projection,
     _session_title,
     _submitted_source_id,
 )
@@ -110,6 +111,74 @@ async def context(request: Request) -> PodChatContext:
     return result
 
 
+async def migration_context(request: Request) -> PodChatContext:
+    _require_enabled()
+    result = PodChatContext(
+        request.headers.get("authorization"),
+        needs_key=False,
+        browser_runtime=getattr(request.app.state, "browser_task_runtime", None),
+    )
+    await result.require_access()
+    return result
+
+
+class SealedMigrationSession(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    app_name: str = Field(default=ONE_APP_NAME, min_length=1, max_length=128)
+    user_id: str | None = Field(default=None, min_length=1, max_length=256)
+    session_id: str = Field(min_length=1, max_length=256)
+    payload_ciphertext: str = Field(min_length=1)
+    payload_iv: str = Field(min_length=1)
+    payload_tag: str = Field(min_length=1)
+    payload_algorithm: str = Field(min_length=1)
+    revision: int = Field(default=1, ge=1)
+    updated_at: str = Field(default="")
+
+
+class MigrationSessionImportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sessions: list[SealedMigrationSession] = Field(default_factory=list, max_length=1000)
+
+
+@router.post("/migration/import")
+async def import_migration_sessions(
+    payload: MigrationSessionImportRequest,
+    owner: PodChatContext = Depends(migration_context),
+):
+    from hushh_mcp.one_adk.pod_adk_session_repository import (
+        PodAdkSessionRepository,
+        PodAdkSessionUnavailable,
+    )
+    from hushh_mcp.services.pod_upgrade_admission import ADMISSION, pod_incarnation
+
+    repo = owner.sessions._repository
+    if not isinstance(repo, PodAdkSessionRepository):
+        raise HTTPException(status_code=503, detail={"code": "POD_CHAT_RECOVERY_UNAVAILABLE"})
+    for item in payload.sessions:
+        if item.user_id is not None and item.user_id != owner.owner:
+            raise HTTPException(status_code=403, detail={"code": "POD_CHAT_OWNER_MISMATCH"})
+    permit = await ADMISSION.acquire_turn(incarnation=pod_incarnation())
+    try:
+        imported, skipped = await repo.import_sealed_sessions(
+            user=owner.owner,
+            sessions=[item.model_dump() for item in payload.sessions],
+        )
+    except PodAdkSessionUnavailable as exc:
+        detail = str(exc)
+        code = (
+            "POD_CHAT_OWNER_MISMATCH"
+            if "owner mismatch" in detail.lower()
+            else "POD_CHAT_MIGRATION_INVALID"
+        )
+        status = 403 if code == "POD_CHAT_OWNER_MISMATCH" else 400
+        raise HTTPException(status_code=status, detail={"code": code, "message": detail}) from None
+    finally:
+        await permit.release()
+    return {"status": "imported", "imported": imported, "skipped": skipped}
+
+
 @router.get("/capabilities")
 async def capabilities(owner: PodChatContext = Depends(context)):
     # Discovery performs no model construction, turn admission or history write.
@@ -194,6 +263,8 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         # As on the hub: only a draft-contract-2 app fills the card from the envelope.
         "temp:hussh:email_draft_envelope": forwarded.get("emailDraftContract") == 2,
         "temp:one_execution_surface": "typed_chat",
+        "temp:one_calendar_review_contract": type(forwarded.get("calendarReviewContract")) is int
+        and forwarded.get("calendarReviewContract") == 1,
         "temp:hussh:workspace_chat_admission": False,
         "hussh:user_id": owner.owner,
         "hussh:consent_token": store_request_secret(
@@ -215,6 +286,7 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         STATE_WIKI_CLIENT_READY: wiki_client_ready,
         STATE_PLAID_POSTURE: plaid_posture,
         STATE_PLAID_CLIENT_READY: plaid_client_ready,
+        **({"hussh:thread_title": "One"} if forwarded.get("mainChat") is True else {}),
     }
     return state, options
 
@@ -289,7 +361,10 @@ async def chat(input: RunAgentInput, owner: PodChatContext = Depends(context)):
     admitted = input.model_copy(update={"state": state, "forwarded_props": {}})
     return EventSourceResponse(
         pod_chat_events(agent, admitted, owner_id=owner.owner),
-        headers={"Cache-Control": "no-store"},
+        headers={
+            "Cache-Control": "no-cache, no-store, no-transform",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
@@ -309,6 +384,8 @@ async def conversations(
             {
                 "id": session.id,
                 "title": _session_title(session),
+                "category": category,
+                "category_source": category_source,
                 "status": "active",
                 "model": None,
                 "message_count": sum(1 for event in session.events if _event_text(event)),
@@ -317,6 +394,7 @@ async def conversations(
                 "last_message_at": session.last_update_time,
             }
             for session in sessions
+            for category, category_source in [_session_category_projection(session)]
         ],
     }
 
@@ -325,6 +403,7 @@ async def conversations(
 async def history(
     conversation_id: str,
     limit: int = Query(50, ge=1, le=100),
+    before: str | None = Query(default=None, max_length=160),
     owner: PodChatContext = Depends(context),
 ):
     pending_before_read = conversation_id in _ACTIVE_THREADS or turn_is_preparing(
@@ -344,6 +423,7 @@ async def history(
     submitted = {source for event in session.events if (source := _submitted_source_id(event))}
     providers = _call_providers(session.events)
     from hushh_mcp.one_adk.consent_chat_admission import consent_history_access
+    from hushh_mcp.one_adk.consent_continuation import continued_outcomes
     from hushh_mcp.services.pod_consent_read import PodConsentReadPort
 
     consent_by_invocation, consent_ended = await consent_history_access(
@@ -356,6 +436,7 @@ async def history(
         session.events,
         conversation_id,
         limit,
+        before_id=before,
         session_state=session.state,
         consent_by_invocation=consent_by_invocation,
         consent_ended=consent_ended,
@@ -371,6 +452,8 @@ async def history(
         or conversation_id in _ACTIVE_THREADS
         or turn_is_preparing(owner.owner, conversation_id)
     }
+    result["consentOutcomes"] = continued_outcomes(session.state)
+    result["consentAccessEnded"] = consent_ended
     from hushh_mcp.one_adk.pod_mcp_restore import pending_reviews
 
     result["mcpReviews"] = [
@@ -381,30 +464,53 @@ async def history(
 
 
 class Rename(BaseModel):
-    title: str = Field(min_length=1, max_length=160)
+    title: str | None = Field(default=None, min_length=1, max_length=160)
+    category: str | None = Field(default=None, max_length=32)
+
+    @model_validator(mode="after")
+    def _require_mutation(self) -> Rename:
+        if self.title is None and "category" not in self.model_fields_set:
+            raise ValueError("Provide title or category.")
+        return self
 
 
 @router.patch("/conversations/{conversation_id}")
 async def rename(conversation_id: str, payload: Rename, owner: PodChatContext = Depends(context)):
     from hushh_mcp.services.pod_upgrade_admission import ADMISSION, pod_incarnation
 
+    update_category = "category" in payload.model_fields_set
     permit = await ADMISSION.acquire_turn(incarnation=pod_incarnation())
     try:
-        session = await owner.sessions.set_title(
-            app_name=ONE_APP_NAME,
-            user_id=owner.owner,
-            session_id=conversation_id,
-            title=payload.title,
-        )
+        if update_category and hasattr(owner.sessions, "update_conversation_metadata"):
+            session = await owner.sessions.update_conversation_metadata(
+                app_name=ONE_APP_NAME,
+                user_id=owner.owner,
+                session_id=conversation_id,
+                title=payload.title,
+                category=payload.category,
+                update_category=True,
+            )
+        else:
+            session = await owner.sessions.set_title(
+                app_name=ONE_APP_NAME,
+                user_id=owner.owner,
+                session_id=conversation_id,
+                title=payload.title or "",
+            )
     finally:
         await permit.release()
     if session is None:
         raise HTTPException(404, detail="Conversation not found.")
+    category, category_source = _session_category_projection(session)
     return {
         "id": session.id,
         "title": _session_title(session),
+        "category": category,
+        "category_source": category_source,
         "status": "active",
         "message_count": len(session.events),
+        "updated_at": session.last_update_time,
+        "last_message_at": session.last_update_time,
     }
 
 

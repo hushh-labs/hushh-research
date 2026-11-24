@@ -182,6 +182,7 @@ def _default_directory_search(
     audience: str = DIRECTORY_AUDIENCE_ALL,
     name_only: bool = False,
     typed_search: bool = False,
+    exclude_network_user_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
 
@@ -193,6 +194,7 @@ def _default_directory_search(
         audience=audience,
         name_only=name_only,
         typed_search=typed_search,
+        exclude_network_user_ids=exclude_network_user_ids,
     )
 
 
@@ -3123,21 +3125,12 @@ class ConnectionsService:
         audience: str,
         name_only: bool = False,
         typed_search: bool = False,
-    ) -> tuple[dict[str, Any], bool]:
+        exclude_network_user_ids: list[str] | None = None,
+    ) -> tuple[dict[str, Any], bool, bool]:
         """Call the injected directory search with the options it supports.
 
-        Returns the page and whether the split was applied at the source.
-
-        `_directory_search` is a documented injection point -- tests and the
-        Location caller replace it with their own callables. Passing a keyword
-        those older callables never declared would turn an added tab into a
-        TypeError on the default People tab, so the parameter is offered only to
-        implementations that actually accept it. A double that does not is asked
-        the question it already understood, and the audience split is then
-        applied in Python below.
-
-        Name resolvers also request ``name_only`` from the production adapter;
-        older injected name-search callables keep their existing signature.
+        Returns the page, whether the audience split was applied at the source,
+        and whether connected-peer exclusion was applied at the source.
         """
         parameters: Mapping[str, inspect.Parameter]
         try:
@@ -3154,7 +3147,14 @@ class ConnectionsService:
         for option, enabled in (("name_only", name_only), ("typed_search", typed_search)):
             if enabled and (option in parameters or accepts_options):
                 options[option] = True
-        return directory_search(owner_user_id, **options), accepts_audience
+        accepts_exclude = "exclude_network_user_ids" in parameters or accepts_options
+        if exclude_network_user_ids and accepts_exclude:
+            options["exclude_network_user_ids"] = exclude_network_user_ids
+        return (
+            directory_search(owner_user_id, **options),
+            accepts_audience,
+            bool(exclude_network_user_ids and accepts_exclude),
+        )
 
     def _filter_people_by_audience(
         self, people: list[dict[str, Any]], audience: str
@@ -3211,6 +3211,31 @@ class ConnectionsService:
             if row.get("user_id") and row.get("public_person_ref")
         }
 
+    def _active_connected_user_ids(self, user_id: str) -> list[str]:
+        """Active accepted connection peer IDs for ``user_id`` (excluding pending invites)."""
+        if not user_id:
+            return []
+        try:
+            rows = self._execute_many(
+                """
+                SELECT CASE WHEN user_a_id = :user_id THEN user_b_id ELSE user_a_id END AS peer_id
+                FROM connections
+                WHERE status = 'active'
+                  AND (user_a_id = :user_id OR user_b_id = :user_id)
+                LIMIT 4000
+                """,
+                {"user_id": user_id},
+            )
+        except Exception:  # noqa: BLE001 - lightweight unit doubles without DB still settle metadata below
+            return []
+        return sorted(
+            {
+                str(row.get("peer_id") or "").strip()
+                for row in rows
+                if row.get("peer_id") and str(row.get("peer_id") or "").strip() != user_id
+            }
+        )
+
     def search_directory(
         self,
         user_id: str,
@@ -3221,6 +3246,7 @@ class ConnectionsService:
         audience: str = DIRECTORY_AUDIENCE_ALL,
         name_only: bool = False,
         typed_search: bool = False,
+        exclude_connected: bool = False,
     ) -> dict[str, Any]:
         """Search visible people; name resolvers opt out of contact-only matches."""
         user_id = (user_id or "").strip()
@@ -3233,6 +3259,11 @@ class ConnectionsService:
         if audience not in DIRECTORY_AUDIENCES:
             audience = DIRECTORY_AUDIENCE_ALL
 
+        excluded_connected_ids = (
+            self._active_connected_user_ids(user_id) if exclude_connected else []
+        )
+        excluded_connected_set = set(excluded_connected_ids)
+
         # Reuse the One Location "Ready people" directory (list_verified_recipients)
         # as the source of people, so display names resolve exactly as they do on
         # the Location screen (never a raw user id). The connection-graph
@@ -3240,9 +3271,10 @@ class ConnectionsService:
         # Set when the page was cut without knowing the audience, so the split
         # still has to happen in Python below.
         audience_pending = audience != DIRECTORY_AUDIENCE_ALL
+        exclude_pending = bool(excluded_connected_set)
         directory_search = getattr(self, "_directory_search", None)
         if directory_search is not None:
-            directory_page, audience_applied = self._call_directory_search(
+            directory_page, audience_applied, exclude_applied = self._call_directory_search(
                 directory_search,
                 user_id,
                 query=needle,
@@ -3251,11 +3283,14 @@ class ConnectionsService:
                 audience=audience,
                 name_only=name_only,
                 typed_search=typed_search,
+                exclude_network_user_ids=excluded_connected_ids or None,
             )
             people = directory_page.get("items") or []
             has_more = bool(directory_page.get("hasMore"))
             if audience_applied:
                 audience_pending = False
+            if exclude_applied:
+                exclude_pending = False
         else:
             # The in-memory fallback has to answer the same question the SQL
             # path answers, or the two disagree about who is findable depending
@@ -3263,6 +3298,11 @@ class ConnectionsService:
             # A-Z within each, and the same rule that ranking and matching
             # finish BEFORE the page is cut.
             people = self._directory_lookup(user_id) or []
+            if excluded_connected_set:
+                people = [
+                    p for p in people if str(p.get("userId") or "") not in excluded_connected_set
+                ]
+                exclude_pending = False
             if needle:
 
                 def _tier(person: dict[str, Any]) -> int | None:
@@ -3305,13 +3345,9 @@ class ConnectionsService:
             people = people[offset : offset + limit]
 
         if audience_pending:
-            # The page was cut by a directory implementation that predates the
-            # audience split, so the only remaining option is to filter what it
-            # returned. This narrows a page rather than paging the narrowed set,
-            # so `hasMore` still describes the unsplit list. Reachable only via
-            # an injected `_directory_search` double; the shipped implementation
-            # accepts `audience` and splits in SQL.
             people = self._filter_people_by_audience(people, audience)
+        if exclude_pending and excluded_connected_set:
+            people = [p for p in people if str(p.get("userId") or "") not in excluded_connected_set]
 
         # Annotate only the returned page. Reading the caller's entire pending
         # and connected graph here made a 20-row directory page scale with all
@@ -3332,25 +3368,38 @@ class ConnectionsService:
             self._directory_profiles,
         ).settle()
 
+        items = [
+            {
+                "userId": str(p.get("userId") or ""),
+                "publicPersonRef": public_person_refs.get(str(p.get("userId") or "")),
+                "displayName": p.get("displayName"),
+                "photoUrl": p.get("photoUrl"),
+                "email": p.get("email"),
+                "maskedEmail": p.get("maskedEmail"),
+                "maskedPhone": mask_directory_phone(
+                    (p.get("phoneNumber") if p.get("phoneVerified") else None)
+                    or p.get("maskedPhone")
+                ),
+                **metadata[str(p.get("userId") or "")],
+                "isRia": str(p.get("userId") or "") in ria_user_ids,
+                **({"roleLabel": p.get("roleLabel")} if "roleLabel" in p else {}),
+            }
+            for p in people
+        ]
+        if exclude_connected:
+            items = [
+                item
+                for item in items
+                if (
+                    item.get("relationship", {}).get("status")
+                    if isinstance(item.get("relationship"), dict)
+                    else item.get("relationship")
+                )
+                != "connected"
+            ]
+
         return {
-            "items": [
-                {
-                    "userId": str(p.get("userId") or ""),
-                    "publicPersonRef": public_person_refs.get(str(p.get("userId") or "")),
-                    "displayName": p.get("displayName"),
-                    "photoUrl": p.get("photoUrl"),
-                    "email": p.get("email"),
-                    "maskedEmail": p.get("maskedEmail"),
-                    "maskedPhone": mask_directory_phone(
-                        (p.get("phoneNumber") if p.get("phoneVerified") else None)
-                        or p.get("maskedPhone")
-                    ),
-                    **metadata[str(p.get("userId") or "")],
-                    "isRia": str(p.get("userId") or "") in ria_user_ids,
-                    **({"roleLabel": p.get("roleLabel")} if "roleLabel" in p else {}),
-                }
-                for p in people
-            ],
+            "items": items,
             "page": page,
             "hasMore": has_more,
             "audience": audience,

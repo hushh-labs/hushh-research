@@ -264,10 +264,13 @@ class PodGmailMailboxActions(GmailMailboxActions):
 
 
 def pod_mailbox_actions() -> Optional[PodGmailMailboxActions]:
-    """The owner-cloud agent's mailbox actions, or None anywhere else (the hub's are used)."""
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_agent, pod_owner_user_id
+    """The owner-cloud or Personal Sandbox mailbox actions, or None anywhere else."""
+    from hushh_mcp.services.pod_owner_cloud import (
+        personal_sandbox_workspace_runtime,
+        pod_owner_user_id,
+    )
 
-    if not owner_cloud_agent():
+    if not personal_sandbox_workspace_runtime():
         return None
     return PodGmailMailboxActions(pod_owner_user_id())
 

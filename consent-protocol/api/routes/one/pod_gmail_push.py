@@ -60,13 +60,16 @@ async def run_gmail_push(
     """Verify direct delivery and acknowledge only completed or durably handled work."""
     from hushh_mcp.services.compute_backend import BACKEND_USER_AZURE, BACKEND_USER_GCP
     from hushh_mcp.services.pod_gmail_doorbell import RENEW_WATCH, decode_push, pod_gmail_doorbell
-    from hushh_mcp.services.pod_owner_cloud import owner_cloud_provider
+    from hushh_mcp.services.pod_owner_cloud import hosted_ace_runtime, owner_cloud_provider
     from hushh_mcp.services.scheduler_identity import (
         SchedulerIdentityError,
         verify_scheduler_request,
     )
 
-    if owner_cloud_provider() not in (BACKEND_USER_GCP, BACKEND_USER_AZURE):
+    if (
+        owner_cloud_provider() not in (BACKEND_USER_GCP, BACKEND_USER_AZURE)
+        and not hosted_ace_runtime()
+    ):
         return _not_found()
     from hushh_mcp.services.pod_gmail_push_config import notification_config_generation
 

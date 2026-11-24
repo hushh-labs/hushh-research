@@ -46,6 +46,14 @@ class PodSpecialistInformationUnavailable(RuntimeError):
         self.door = door
 
 
+class PodSpecialistAdapterUnavailable(RuntimeError):
+    """A specialist has no owner adapter in the pod runtime (e.g. Drive OAuth on Hub)."""
+
+    def __init__(self, agent_id: str) -> None:
+        super().__init__("Pod specialist information adapter unavailable")
+        self.agent_id = agent_id
+
+
 @dataclass
 class SpecialistDependencyTrace:
     """What one specialist turn actually leaned on, counted as it happened.
@@ -647,7 +655,7 @@ def build_pod_specialist_runtime(
             return ConnectedSystemsAgentA2A(model=adk_model)
         # Never substitute a hub singleton when an owner adapter is absent.
         if agent_id not in {"agent_location", "agent_personal_information", "agent_email"}:
-            raise RuntimeError("Pod specialist information adapter unavailable")
+            raise PodSpecialistAdapterUnavailable(agent_id)
         if log is None:
             from hushh_mcp.services.pod_memory_service import _resolve_log
 

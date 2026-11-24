@@ -2395,8 +2395,8 @@ describe("OneLocationAgentPage", () => {
     expect(
       within(primary).getByRole("button", { name: "Share location" }),
     ).toHaveClass(
-      "h-[50px]",
-      "min-h-[50px]",
+      "h-10",
+      "min-h-10",
       "w-full",
       "max-w-[244px]",
       "mr-auto",

@@ -546,9 +546,29 @@ async def resolve_personal_agent_status(
             )
 
             if sandbox_pool_cutover_enabled():
-                row = await ensure_pooled_sandbox_placement(
-                    user_id=user_id, existing_row=row, registry=repo
-                )
+                phone_verified = row is not None
+                if not phone_verified:
+                    identities = await ActorIdentityService().get_many([user_id])
+                    identity = identities.get(user_id) or {}
+                    phone_verified = identity.get("phone_verified") is True
+                if phone_verified:
+                    if registry is None:
+                        from hushh_mcp.services.owner_hosting_choice import (  # noqa: PLC0415
+                            write_cloud_setup_marker,
+                        )
+
+                        row = await ensure_pooled_sandbox_placement(
+                            user_id=user_id,
+                            existing_row=row,
+                            registry=repo,
+                            cloud_marker_writer=write_cloud_setup_marker,
+                        )
+                    else:
+                        row = await ensure_pooled_sandbox_placement(
+                            user_id=user_id,
+                            existing_row=row,
+                            registry=repo,
+                        )
         except Exception as exc:  # fail safe: keep status endpoint responsive
             logger.warning(
                 "personal_agent.pooled_cutover_failed err=%s detail=%s",
@@ -636,6 +656,14 @@ async def resolve_personal_agent_status(
         health = _HEALTH_BY_REGISTRY_HEALTH_STATE.get(
             str((row or {}).get("health_state") or "").strip()
         )
+        # Disposable Personal Sandboxes (`ace`) scale to zero via idle lease
+        # reaping. Normalize any stale pre-fix warm-sweep verdict (`unreachable`
+        # / `degraded`) to `sleeping` so owners see truthful idle state and
+        # proactive wake runs cleanly on open.
+        if (
+            deployment_target == "ace" or str((row or {}).get("backend") or "").strip() == "ace"
+        ) and health in {"unreachable", "degraded"}:
+            health = "sleeping"
         if health:
             result["health"] = health
             # Only alongside a real verdict: a timestamp on its own invites a client

@@ -532,7 +532,7 @@ test.describe("Profile pane custom close layout", () => {
 
     for (const size of [
       { width: 390, height: 844, gutter: 0, cardHeight: 844 },
-      { width: 1280, height: 900, gutter: 18, cardHeight: 820 },
+      { width: 1280, height: 900, gutter: 8, cardHeight: 884 },
     ]) {
       await page.setViewportSize({ width: size.width, height: size.height });
       const geometry = await page.locator(".profile-pane-sheet").evaluate((panel) => {
@@ -557,7 +557,7 @@ test.describe("Profile pane custom close layout", () => {
       expect(geometry.height).toBeCloseTo(size.cardHeight, 0);
       expect(geometry.radius).toBe(size.gutter === 0 ? "0px" : "25px");
       expect(geometry.canScroll).toBe(true);
-      expect(geometry.closeRightGap).toBeCloseTo(size.gutter === 0 ? 16 : 21, 0);
+      expect(geometry.closeRightGap).toBeCloseTo(16, 0);
     }
     // Negative control: removing the mobile policy reproduces the actual
     // shortened, inset phone pane; the old recipe must not pass this contract.
@@ -573,7 +573,7 @@ test.describe("Profile pane custom close layout", () => {
       await touchPage.addStyleTag({ content: mobileRules });
       for (const size of [
         { width: 844, height: 390, gutter: 0 },
-        { width: 1194, height: 834, gutter: 18 },
+        { width: 1194, height: 834, gutter: 8 },
       ]) {
         await touchPage.setViewportSize(size);
         const bounds = await touchPage.locator(".profile-pane-sheet").boundingBox();

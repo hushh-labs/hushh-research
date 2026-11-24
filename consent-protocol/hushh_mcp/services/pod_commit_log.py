@@ -43,6 +43,7 @@ import tempfile
 import threading
 import time
 import urllib.parse
+from collections import OrderedDict
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Optional, Protocol
@@ -795,6 +796,23 @@ def _record_sha(seq: int, kind: str, payload: Any, prev_sha: Optional[str]) -> s
     return hashlib.sha256(body).hexdigest()
 
 
+_REMOTE_STORE_TYPE_NAMES = frozenset(
+    {
+        "GcsObjectStore",
+        "PrefixTokenObjectStore",
+        "S3ObjectStore",
+        "AzureBlobObjectStore",
+    }
+)
+_REMOTE_OPEN_LEASE_SECONDS = 2.0
+_RECORD_BLOB_CACHE_MAX_ENTRIES = 512
+_RECORD_BLOB_CACHE_MAX_BYTES = 16 * 1024 * 1024
+
+
+def _is_remote_object_store(store: Any) -> bool:
+    return type(store).__name__ in _REMOTE_STORE_TYPE_NAMES
+
+
 class PodCommitLog:
     """Append-only, sealed, chained. The pod's one durable truth."""
 
@@ -807,6 +825,8 @@ class PodCommitLog:
         *,
         max_retries: int = 8,
         owner_id: Optional[str] = None,
+        open_lease_seconds: Optional[float] = None,
+        cache_immutable_records: Optional[bool] = None,
     ) -> None:
         if len(seal_key) != _KEY_LEN:
             raise ValueError("the log key must be exactly 32 bytes")
@@ -814,6 +834,53 @@ class PodCommitLog:
         self._aead = AESGCM(seal_key)
         self._max_retries = max_retries
         self._owner_id = owner_id
+        remote = _is_remote_object_store(store)
+        self._open_lease_seconds = (
+            float(open_lease_seconds)
+            if open_lease_seconds is not None
+            else (_REMOTE_OPEN_LEASE_SECONDS if remote else 0.0)
+        )
+        self._cache_immutable_records = (
+            bool(cache_immutable_records) if cache_immutable_records is not None else remote
+        )
+        self._open_verified_at: Optional[float] = None
+        self._blob_cache: OrderedDict[str, bytes] = OrderedDict()
+        self._blob_cache_bytes = 0
+
+    def _invalidate_read_caches(self) -> None:
+        self._open_verified_at = None
+        self._blob_cache.clear()
+        self._blob_cache_bytes = 0
+
+    def _record_open_verified(self) -> None:
+        if self._open_lease_seconds > 0.0:
+            self._open_verified_at = time.monotonic()
+
+    def _cache_sealed_blob(self, key: str, blob: bytes) -> None:
+        if not self._cache_immutable_records:
+            return
+        size = len(blob)
+        if size > _RECORD_BLOB_CACHE_MAX_BYTES // 4:
+            return
+        existing = self._blob_cache.pop(key, None)
+        if existing is not None:
+            self._blob_cache_bytes -= len(existing)
+        while self._blob_cache and (
+            len(self._blob_cache) >= _RECORD_BLOB_CACHE_MAX_ENTRIES
+            or self._blob_cache_bytes + size > _RECORD_BLOB_CACHE_MAX_BYTES
+        ):
+            _, evicted = self._blob_cache.popitem(last=False)
+            self._blob_cache_bytes -= len(evicted)
+        self._blob_cache[key] = blob
+        self._blob_cache_bytes += size
+
+    def _get_cached_blob(self, key: str) -> Optional[bytes]:
+        if not self._cache_immutable_records:
+            return None
+        blob = self._blob_cache.get(key)
+        if blob is not None:
+            self._blob_cache.move_to_end(key)
+        return blob
 
     # -- sealing ----------------------------------------------------------------------
 
@@ -835,6 +902,7 @@ class PodCommitLog:
         if head_bytes is None:
             return None
         if self._read_fence(head_bytes) is not None:
+            self._invalidate_read_caches()
             raise PodLogFenced("the log is closed for erasure")
         try:
             head = json.loads(head_bytes)
@@ -859,6 +927,7 @@ class PodCommitLog:
                 raise ValueError("digest")
             return head
         except (ValueError, TypeError, UnicodeError) as exc:
+            self._invalidate_read_caches()
             raise PodLogTampered("the log head is malformed") from exc
 
     def _read_fence(self, raw: bytes) -> Optional[dict[str, Any]]:
@@ -883,10 +952,18 @@ class PodCommitLog:
             and not any(ord(char) < 32 or ord(char) == 127 for char in value)
         )
 
-    async def require_open(self) -> None:
+    async def require_open(self, *, force: bool = False) -> None:
         """Check ordinary read admission; this does not drain in-flight work."""
+        if (
+            not force
+            and self._open_lease_seconds > 0.0
+            and self._open_verified_at is not None
+            and (time.monotonic() - self._open_verified_at) < self._open_lease_seconds
+        ):
+            return
         raw, _ = await self._store.get_with_generation(self.HEAD)
         self._read_head(raw)
+        self._record_open_verified()
 
     async def require_fenced(self, *, owner_id: str, attempt_id: str) -> None:
         """Verify an existing authenticated fence without exposing prior history."""
@@ -938,6 +1015,7 @@ class PodCommitLog:
             or not self._valid_identity(attempt_id)
         ):
             raise PodLogFenced("log erasure authority unavailable")
+        self._invalidate_read_caches()
         for _ in range(self._max_retries):
             raw, generation = await self._store.get_with_generation(self.HEAD)
             previous_fence = self._read_fence(raw) if raw is not None else None
@@ -946,7 +1024,7 @@ class PodCommitLog:
                     raise PodLogFenced("log erasure attempt does not match")
                 return
             head = self._read_head(raw)
-            await self._replay_head(head)
+            await self._replay_head(head, use_cache=False)
             payload = {
                 "kind": "pod_log_erasure_fence",
                 "owner_id": owner_id,
@@ -973,6 +1051,7 @@ class PodCommitLog:
             if observed != marker or observed_generation != written:
                 raise PodLogConflict("log erasure fence persistence unconfirmed")
             self._read_fence(observed)
+            self._invalidate_read_caches()
             return
         raise PodLogConflict("the log head kept moving during erasure fencing")
 
@@ -992,11 +1071,15 @@ class PodCommitLog:
         for _ in range(self._max_retries):
             head_bytes, generation = await self._store.get_with_generation(self.HEAD)
             head = self._read_head(head_bytes)
+            self._record_open_verified()
             if expected_seq is not None and (head["seq"] if head else 0) != expected_seq:
                 raise PodLogConflict("the caller's log snapshot is stale")
             if head is not None:
                 # Refuse a corrupt predecessor before publishing any successor.
-                blob = await self._store.get(head["key"])
+                blob = self._get_cached_blob(head["key"])
+                from_cache = blob is not None
+                if blob is None:
+                    blob = await self._store.get(head["key"])
                 if blob is None:
                     raise PodLogTampered("the log head references a missing record")
                 predecessor = self._unseal(blob)
@@ -1006,7 +1089,10 @@ class PodCommitLog:
                     or predecessor["seq"] != head["seq"]
                     or predecessor.get("sha") != head["sha"]
                 ):
+                    self._invalidate_read_caches()
                     raise PodLogTampered("the log head and predecessor disagree")
+                if not from_cache:
+                    self._cache_sealed_blob(head["key"], blob)
             seq = (int(head["seq"]) + 1) if head else 1
             prev_key = head["key"] if head else None
             prev_sha = head["sha"] if head else None
@@ -1020,10 +1106,13 @@ class PodCommitLog:
                 "sha": _record_sha(seq, kind, payload, prev_sha),
             }
             key = f"records/{seq:012d}-{secrets.token_hex(4)}.bin"
-            await self._store.put(key, self._seal(record))
+            sealed = self._seal(record)
+            await self._store.put(key, sealed)
 
             new_head = _canonical({"seq": seq, "key": key, "sha": record["sha"]})
             if await self._store.put_if_generation(self.HEAD, new_head, generation) is not None:
+                self._cache_sealed_blob(key, sealed)
+                self._record_open_verified()
                 return record
             # Lost the race: our record object is an orphan the chain never
             # references. Re-read the pointer and try again.
@@ -1033,10 +1122,14 @@ class PodCommitLog:
         """Every record, oldest first, chain-verified. Raises on tampering."""
         head_bytes, _ = await self._store.get_with_generation(self.HEAD)
         head = self._read_head(head_bytes)
-        records = await self._replay_head(head)
+        self._record_open_verified()
+        records, fetched_remote, newly_fetched = await self._replay_head_tracked(head)
         # A fence may have won while chain I/O was in flight. Do not release a
         # captured history after observing the durable closure.
-        await self.require_open()
+        if fetched_remote:
+            await self.require_open(force=True)
+        for key, blob in newly_fetched:
+            self._cache_sealed_blob(key, blob)
         return records
 
     async def replay_since(
@@ -1061,10 +1154,14 @@ class PodCommitLog:
             self._read_head(_canonical({"seq": cursor.seq, "key": cursor.key, "sha": cursor.sha}))
         raw, _ = await self._store.get_with_generation(self.HEAD)
         head = self._read_head(raw)
-        records = await self._replay_head(
+        self._record_open_verified()
+        records, fetched_remote, newly_fetched = await self._replay_head_tracked(
             head, cursor=cursor, max_records=max_records, max_bytes=max_bytes
         )
-        await self.require_open()
+        if fetched_remote:
+            await self.require_open(force=True)
+        for key, blob in newly_fetched:
+            self._cache_sealed_blob(key, blob)
         next_cursor = PodLogCursor(head["seq"], head["key"], head["sha"]) if head else None
         return records, next_cursor
 
@@ -1078,16 +1175,59 @@ class PodCommitLog:
             self._read_head(_canonical({"seq": cursor.seq, "key": cursor.key, "sha": cursor.sha}))
         raw, _ = await self._store.get_with_generation(self.HEAD)
         head = self._read_head(raw)
-        await replay_chain(
+        self._record_open_verified()
+        _, fetched_remote, newly_fetched = await self._replay_head_tracked(
             head,
-            read_record=self._store.get,
-            unseal=self._unseal,
-            record_sha=_record_sha,
             cursor=cursor,
             visit_reverse=visit_reverse,
         )
-        await self.require_open()
+        if fetched_remote:
+            await self.require_open(force=True)
+        for key, blob in newly_fetched:
+            self._cache_sealed_blob(key, blob)
         return PodLogCursor(head["seq"], head["key"], head["sha"]) if head else None
+
+    async def _replay_head_tracked(
+        self,
+        head: Optional[dict[str, Any]],
+        *,
+        cursor: PodLogCursor | None = None,
+        max_records: int | None = None,
+        max_bytes: int | None = None,
+        visit_reverse: Callable[[dict[str, Any]], None] | None = None,
+        use_cache: bool = True,
+    ) -> tuple[list[dict[str, Any]], bool, list[tuple[str, bytes]]]:
+        fetched_remote = False
+        newly_fetched: list[tuple[str, bytes]] = []
+        allow_cache = use_cache and self._cache_immutable_records
+
+        async def _read_record(key: str) -> Optional[bytes]:
+            nonlocal fetched_remote
+            if allow_cache:
+                cached = self._get_cached_blob(key)
+                if cached is not None:
+                    return cached
+            fetched_remote = True
+            blob = await self._store.get(key)
+            if blob is not None and allow_cache:
+                newly_fetched.append((key, blob))
+            return blob
+
+        try:
+            records = await replay_chain(
+                head,
+                read_record=_read_record,
+                unseal=self._unseal,
+                record_sha=_record_sha,
+                cursor=cursor,
+                max_records=max_records,
+                max_bytes=max_bytes,
+                visit_reverse=visit_reverse,
+            )
+        except (PodLogTampered, PodLogFenced):
+            self._invalidate_read_caches()
+            raise
+        return records, fetched_remote, newly_fetched
 
     async def _replay_head(
         self,
@@ -1096,13 +1236,15 @@ class PodCommitLog:
         cursor: PodLogCursor | None = None,
         max_records: int | None = None,
         max_bytes: int | None = None,
+        use_cache: bool = True,
     ) -> list[dict[str, Any]]:
-        return await replay_chain(
+        records, _, newly_fetched = await self._replay_head_tracked(
             head,
-            read_record=self._store.get,
-            unseal=self._unseal,
-            record_sha=_record_sha,
             cursor=cursor,
             max_records=max_records,
             max_bytes=max_bytes,
+            use_cache=use_cache,
         )
+        for key, blob in newly_fetched:
+            self._cache_sealed_blob(key, blob)
+        return records

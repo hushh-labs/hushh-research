@@ -1,3 +1,4 @@
+import { NativeFinanceRoute, NativeFinanceLayer } from "@/components/kai/native-finance-workspace";
 import { NativeWorkspaceSurface } from "@/lib/capacitor/native-workspace-surface";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -24,7 +25,7 @@ import { advanceVaultSessionEpoch, snapshotVaultSessionEpoch } from "@/lib/vault
 import { NativeAgentDock } from "@/components/agent/native-agent-dock";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { NativePanelPoseWriter, useNativePanelPresentation, type NativePanelPose } from "@/lib/capacitor/native-panel-presentation";
-import { nativePresentationAdmission, registerNativeDrawerPose, setNativePresentationRegionIsolation, syncNativePresentationRegions, useNativeFullWindowOverlayReady, waitForNativeDrawerCoverageRelease, type NativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
+import { nativePresentationAdmission, setNetworkStatusBannerHeight, registerNativeDrawerPose, setNativePresentationRegionIsolation, syncNativePresentationRegions, useNativeFullWindowOverlayReady, waitForNativeDrawerCoverageRelease, type NativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
 import { AgentDockPortal, AgentDockProvider, useAgentDockState } from "@/components/agent/agent-dock";
 import { useNativeDockPort, useNativeDockPorts, type NativeDockPort } from "@/components/agent/native-dock-port";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
@@ -204,6 +205,50 @@ describe("private route-body presentation boundary", () => {
       expect(open).toHaveBeenCalledOnce();
       expect(drawerBridge.applyWorkspace).not.toHaveBeenCalled();
     } finally { view.unmount(); }
+  });
+
+  it("retains the Finance presenter across root tabs and fences callbacks from a prior pane visit", async () => {
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(true);
+    publishValidatedAuthSessionOwner("synthetic-finance-owner");
+    bridge.documentId = crypto.randomUUID(); profile.pathname = "/one/kai";
+    privacy.state = { generation: 0, shielded: false, appIsActive: true, cause: "inactive" };
+    document.documentElement.style.setProperty("--muted-foreground", "#8e8e93");
+    document.documentElement.style.setProperty("--background", "#ffffff");
+    const seat = document.createElement("div"); seat.dataset.nativeWorkspaceSeat = "true"; seat.style.paddingBottom = "0px"; document.body.append(seat);
+    vi.spyOn(seat, "getBoundingClientRect").mockReturnValue({ x: 0, y: 100, width: window.innerWidth, height: 400 } as DOMRect);
+    const originalObserver = globalThis.ResizeObserver;
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    drawerBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, wholePresentation: true, routeWorkspaces: ["finance"], ...nativeDrawerIsolation() });
+    drawerBridge.applyWorkspace.mockImplementation(async state => ({ ...state, layoutRevision: state.frame.layoutRevision, phase: "active", settled: true }));
+    drawerBridge.retireWorkspace.mockImplementation(async state => ({ ...state, updateSequence: 0, privacyGeneration: 0, layoutRevision: 0, phase: "retired", settled: true }));
+    drawerBridge.confirmWorkspaceChoice.mockResolvedValue({ valid: true });
+    drawerBridge.settleWorkspaceChoice.mockResolvedValue({ valid: true });
+    const open = vi.fn();
+    function Finance({ pane }: { pane: "market" | "portfolio" | "analysis" }) {
+      const frame = useRef<HTMLDivElement>(null);
+      return <NativeFinanceRoute frame={frame} model={{ owner: "synthetic-finance-owner", view: pane, navigation: { tabs: ["market", "portfolio", "analysis"].map(value => ({ value, label: value })), select: () => {} } }}>
+        {["market", "portfolio", "analysis"].map(value => <NativeFinanceLayer key={value} pane={value as typeof pane} active={pane === value} title={value}
+          sections={[{ key: "items", rows: [{ key: "open", label: "Open detail", run: open }] }]} fallback={<button>Web {value}</button>} />)}
+      </NativeFinanceRoute>;
+    }
+    const view = render(<Finance pane="market" />);
+    const latest = () => drawerBridge.applyWorkspace.mock.calls.at(-1)?.[0];
+    try {
+      await waitFor(() => expect(latest()?.title).toBe("market"));
+      const first = latest()!;
+      view.rerender(<Finance pane="analysis" />);
+      await waitFor(() => expect(latest()?.title).toBe("analysis"));
+      view.rerender(<Finance pane="market" />);
+      await waitFor(() => expect(latest()?.title).toBe("market"));
+      expect(latest()?.ownerEpoch).toBe(first.ownerEpoch);
+      expect(latest()?.revision).toBe(first.revision);
+      expect(latest()?.sections[0]?.id).not.toBe(first.sections[0]?.id);
+      expect(drawerBridge.retireWorkspace).not.toHaveBeenCalled();
+      const emit = (state: NativeWorkspaceProjection, sequence: number) => act(() => drawerBridge.listeners.get("workspaceChoice")?.forEach(callback => callback({ ...state, sequence, action: "row", rowId: state.sections[0]!.rows[0]!.id })));
+      emit(first, 1); await act(async () => { await Promise.resolve(); });
+      expect(open).not.toHaveBeenCalled();
+      emit(latest()!, 2); await waitFor(() => expect(open).toHaveBeenCalledOnce());
+    } finally { view.unmount(); seat.remove(); profile.pathname = "/"; vi.stubGlobal("ResizeObserver", originalObserver); await nativeWorkspaceRetirementBarrier(); }
   });
 
   it.each([false, true])("reconciles a retiring Location text visit without overwriting its reopened successor (confirmation: %s)", async confirmation => {
@@ -819,6 +864,63 @@ describe("private route-body presentation boundary", () => {
     expect(workspaceChoiceDomainAllowed({ ...dateChoice, text: "2026-02-30" }, calendar, false)).toBe(false);
     expect(workspaceChoiceDomainAllowed(dateChoice, { ...calendar, calendarDate: { ...calendar.calendarDate!, enabled: false } }, false)).toBe(false);
     expect(workspaceChoiceDomainAllowed(dateChoice, calendar, true)).toBe(false);
+    const calendarVisuals: NativeWorkspaceProjection = { ...calendar, sections: [
+      { id: "calendar-actions", layout: "toolbar", rows: [{ id: "calendar-toolbar", label: "Calendar actions", enabled: true, readOnly: true, inlineActions: [{ id: "calendar-refresh", label: "Refresh", enabled: true, tone: "ghost" }] }] },
+      { id: "snapshot", layout: "metrics", rows: ["Events", "Scheduled time", "Recurring time"].map((detail, index) => ({ id: `metric-${index}`, label: "0", detail, enabled: true, readOnly: true })) },
+      { id: "account-controls", rows: [{ id: "calendar-account", label: "Calendar account", enabled: true, avatar: { initials: "PA" }, options: [
+        { id: "account-personal", label: "Personal", selected: true }, { id: "account-work", label: "Work", selected: false },
+      ] }, { id: "calendar-view", label: "Account view", choiceStyle: "segmented", enabled: true, options: [
+        { id: "account-events", label: "Events", selected: true }, { id: "account-free", label: "Free time", selected: false },
+      ] }] },
+      { id: "invitations", layout: "cards", rows: [{ id: "invitation", label: "Public meeting", enabled: true, avatar: { initials: "PA" },
+        calendarEvent: { day: "5", month: "Nov", weekday: "Thu", organizer: "Public organizer", muted: false },
+        inlineActions: [{ id: "open-organizer", label: "View organizer", tone: "ghost", enabled: true, placement: "menu" }] }] },
+    ], calendarWeek: { contextId: "calendar-personal", afterSectionId: "snapshot", title: "Your week at a glance", state: "ready",
+      days: Array.from({ length: 7 }, (_, index) => ({ date: `2026-11-${String(index + 5).padStart(2, "0")}`, label: `Day ${index + 1}`, minutes: index + 0.5, meetings: index })) } };
+    expect(validNativeWorkspace(calendarVisuals)).toBe(true);
+    expect(validNativeWorkspace({ ...calendarVisuals, calendarWeek: { ...calendarVisuals.calendarWeek!, state: "loading", days: [] } })).toBe(true);
+    expect(validNativeWorkspace({ ...calendarVisuals, calendarWeek: { ...calendarVisuals.calendarWeek!, state: "unavailable", days: [] } })).toBe(true);
+    expect(validNativeWorkspace({ ...calendarVisuals, calendarWeek: { ...calendarVisuals.calendarWeek!, days: [] } })).toBe(false);
+    expect(validNativeWorkspace({ ...calendarVisuals, calendarWeek: { ...calendarVisuals.calendarWeek!, afterSectionId: "missing-section" } })).toBe(false);
+    expect(validNativeWorkspace({ ...calendarVisuals, calendarWeek: { ...calendarVisuals.calendarWeek!, days: [...calendarVisuals.calendarWeek!.days, calendarVisuals.calendarWeek!.days[0]!] } })).toBe(false);
+    expect(validNativeWorkspace({ ...calendarVisuals, calendarWeek: { ...calendarVisuals.calendarWeek!, days: calendarVisuals.calendarWeek!.days.map(day => ({ ...day, minutes: NaN })) } })).toBe(false);
+    expect(validNativeWorkspace({ ...calendarVisuals, calendarWeek: { ...calendarVisuals.calendarWeek!, days: calendarVisuals.calendarWeek!.days.map(day => ({ ...day, href: "https://forbidden.test" })) } } as never)).toBe(false);
+    expect(validNativeWorkspace({ ...calendarVisuals, sections: [{ ...calendarVisuals.sections[1]!, rows: calendarVisuals.sections[1]!.rows.map(row => ({ ...row, readOnly: false })) }] })).toBe(false);
+    expect(validNativeWorkspace({ ...calendarVisuals, workspace: "connect", calendarDate: undefined, calendarWeek: undefined, sections: [calendarVisuals.sections[3]!] })).toBe(false);
+    const news: NativeWorkspaceProjection = { ...calendar, workspace: "finance", calendarDate: undefined, sections: [{ id: "headlines", rows: [{
+      id: "article", label: "A public headline", enabled: true, marketNews: { publisher: "Example", publishedAt: "Recent", summary: "Full authored summary", sentiment: "positive",
+        symbols: ["AAPL", "MSFT"], artwork: { glyph: "A", hue: 22, png: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1cAAAAASUVORK5CYII=" } } }] }] };
+    expect(validNativeWorkspace(news)).toBe(true);
+    const story = news.sections[0]!.rows[0]!.marketNews!;
+    const withStory = (marketNews: unknown) => ({ ...news, sections: [{ id: "headlines", rows: [{ ...news.sections[0]!.rows[0]!, marketNews }] }] }) as NativeWorkspaceProjection;
+    expect(validNativeWorkspace(withStory({ ...story, url: "https://forbidden.test" }))).toBe(false);
+    expect(validNativeWorkspace(withStory({ ...story, publisher: "P".repeat(257) }))).toBe(false);
+    expect(validNativeWorkspace(withStory({ ...story, summary: "S".repeat(4097) }))).toBe(false);
+    expect(validNativeWorkspace(withStory({ ...story, symbols: [] }))).toBe(false);
+    expect(validNativeWorkspace(withStory({ ...story, artwork: null }))).toBe(false);
+    expect(validNativeWorkspace(withStory({ ...story, artwork: { ...story.artwork, hue: 360 } }))).toBe(false);
+    expect(validNativeWorkspace(withStory({ ...story, artwork: { ...story.artwork, png: "data:image/png;base64,AAAA" } }))).toBe(false);
+    expect(validNativeWorkspace({ ...news, workspace: "connect" })).toBe(false);
+    const finance = (content: unknown) => ({ ...news, sections: [{ id: "finance-content", rows: [{ id: "financial-row", label: "Public headline", enabled: true, finance: content }] }] }) as NativeWorkspaceProjection;
+    const cover = { kind: "headline", publisher: "Example", publishedAt: "Recent", sources: [{ url: "https://static.seekingalpha.com/uploads/public.jpeg" }] };
+    expect(validNativeWorkspace(finance(cover))).toBe(true);
+    expect(validNativeWorkspace(finance({ ...cover, sources: [{ url: "https://media.zenfs.com/en/public.jpeg" }] }))).toBe(true);
+    expect(validNativeWorkspace(finance({ kind: "index", value: "12", change: "0%", tone: ["neutral"], points: [], quotedAt: "Recent" }))).toBe(false);
+    expect(validNativeWorkspace(finance({ kind: "allocation", showBar: true, slices: [{ label: "Cash", value: 5, colorHex: ["#ffffff"] }] }))).toBe(false);
+    const filters: NativeWorkspaceProjection = { ...news, sections: [{ id: "filters", layout: "toolbar", rows: ["Tier", "Sector", "Rows"].map((label, index) => ({ id: `filter-${index}`, label, enabled: true, options: [{ id: `choice-${index}-a`, label: "All", selected: true }, { id: `choice-${index}-b`, label: "Subset", selected: false }] })) }] };
+    expect(validNativeWorkspace(filters)).toBe(true);
+    expect(validNativeWorkspace({ ...filters, sections: [{ ...filters.sections[0]!, rows: [{ ...filters.sections[0]!.rows[0]!, readOnly: true }] }] })).toBe(false);
+
+    for (const url of ["http://static.seekingalpha.com/a.jpeg", "https://static.seekingalpha.com.evil.test/a.jpeg", "https://owner:secret@s.yimg.com/a.jpeg", "https://127.0.0.1/a.png", "https://financialmodelingprep.com/api/v3/profile/AAPL", "https://financialmodelingprep.com/image-stock/%2Fsecret.png"]) expect(validNativeWorkspace(finance({ ...cover, sources: [{ url }] }))).toBe(false);
+    expect(validNativeWorkspace(finance({ ...cover, destination: "forbidden" }))).toBe(false);
+    expect(validNativeWorkspace(finance({ ...cover, sources: Array.from({ length: 4 }, (_, i) => ({ url: `https://s.yimg.com/${i}.jpg` })) }))).toBe(false);
+    expect(validNativeWorkspace({ ...finance(cover), workspace: "connect" })).toBe(false);
+    const balance = { kind: "balance", value: "$12", invested: "$10", cash: "$2", period: "Saved snapshot", points: [{ date: "2026-11-01", value: 12 }] };
+    expect(validNativeWorkspace(finance(balance))).toBe(true);
+    expect(validNativeWorkspace(finance({ ...balance, points: [{ date: "2026-11-01", value: NaN }] }))).toBe(false);
+    expect(validNativeWorkspace(finance({ ...balance, points: Array.from({ length: 1001 }, () => balance.points[0]) }))).toBe(false);
+    expect(validNativeWorkspace(finance({ kind: "sector", value: -4, maximum: 3 }))).toBe(false);
+    expect(validNativeWorkspace(finance({ kind: "security", symbol: "AAPL", price: "$12", metadata: "Apple", artwork: { glyph: "A", hue: 12, png: "data:image/png;base64,AAAA" } }))).toBe(false);
     const setup: NativeWorkspaceProjection = { ...calendar, workspace: "setup", calendarDate: undefined, sections: [{ id: "settings", rows: [{ id: "prepare", label: "Prepare automatically", enabled: true, toggle: true,
       options: [{ id: "prepare-on", label: "On", selected: true }, { id: "prepare-off", label: "Off", selected: false }] }] }] };
     expect(validNativeWorkspace(setup)).toBe(true);
@@ -2421,7 +2523,7 @@ describe("private dock event boundary", () => {
 });
 
 describe("private dock asynchronous submission boundary", () => {
-  function Feature({ blocked, onAction, onEdit }: { blocked: boolean; onAction: NativeDockPort["onAction"]; onEdit?: (text: string) => void }) {
+  function Feature({ blocked, onAction, onEdit, sendNowEnabled }: { blocked: boolean; onAction: NativeDockPort["onAction"]; onEdit?: (text: string) => void; sendNowEnabled?: boolean }) {
     const dock = useAgentDockState();
     const host = useRef<HTMLDivElement>(null);
     useNativeNavigationBlocked(blocked);
@@ -2430,7 +2532,7 @@ describe("private dock asynchronous submission boundary", () => {
     }, [dock]);
     useNativeDockPort("text", { projection: {
       context: "synthetic-conversation", mode: "text", text: "Synthetic draft", placeholder: "Message One",
-      expanded: false, editable: true, sendEnabled: true, micEnabled: true, cancelEnabled: false,
+      expanded: false, editable: true, sendEnabled: true, sendNowEnabled, micEnabled: true, cancelEnabled: false,
       recording: false, recordingReady: false, muted: false, supportsHold: false,
       attachments: [], attachmentRevision: 0, editorRevision: 0,
     }, onAction, onEdit });
@@ -2441,8 +2543,8 @@ describe("private dock asynchronous submission boundary", () => {
     const ports = useNativeDockPorts();
     return <span data-testid="dock-presentation">{ports?.owned ? "reserved" : "fallback"}</span>;
   }
-  function fixture(blocked: boolean, onAction: NativeDockPort["onAction"], onEdit?: (text: string) => void) {
-    return <AgentDockProvider><Feature blocked={blocked} onAction={onAction} onEdit={onEdit} /></AgentDockProvider>;
+  function fixture(blocked: boolean, onAction: NativeDockPort["onAction"], onEdit?: (text: string) => void, sendNowEnabled?: boolean) {
+    return <AgentDockProvider><Feature blocked={blocked} onAction={onAction} onEdit={onEdit} sendNowEnabled={sendNowEnabled} /></AgentDockProvider>;
   }
   function send(state: DockState): DockEvent {
     return { ...state, sequence: 1, editRevision: 0, privacyGeneration: 0, kind: "action", action: "send",
@@ -2721,14 +2823,14 @@ describe("private dock asynchronous submission boundary", () => {
     await waitFor(() => expect((dockBridge.apply.mock.calls.at(-1)![0] as DockState).revision).toBeGreaterThan(initial.revision));
     expect(onAction).not.toHaveBeenCalled();
   });
-  it("keeps consumption unsettled until the feature guard finishes and consumes duplicate Send only once", async () => {
+  it.each(["send", "send-now"] as const)("holds %s until the feature guard finishes and consumes duplicates once", async (action) => {
     const guard = deferred<void>();
     const onAction = vi.fn(() => guard.promise);
     dockBridge.consumeDraft.mockResolvedValue({ consumed: true, editRevision: 1 });
-    render(fixture(false, onAction));
+    render(fixture(false, onAction, undefined, action === "send-now"));
     await waitFor(() => expect(dockBridge.apply).toHaveBeenCalled());
     const initial = dockBridge.apply.mock.calls.at(-1)![0] as DockState;
-    const request = send(initial);
+    const request = { ...send(initial), action };
     act(() => { dockBridge.callbacks.get("input")?.(request); dockBridge.callbacks.get("input")?.(request); });
     await waitFor(() => expect(onAction).toHaveBeenCalledOnce());
     expect(dockBridge.apply.mock.calls.every(([state]) => state.settledConsumption === 0)).toBe(true);
@@ -2736,6 +2838,18 @@ describe("private dock asynchronous submission boundary", () => {
     await waitFor(() => expect(dockBridge.apply.mock.calls.some(([state]) => state.settledConsumption === 1)).toBe(true));
     expect(onAction).toHaveBeenCalledOnce();
     expect(dockBridge.consumeDraft).toHaveBeenCalledOnce();
+    expect(dockBridge.confirmEvent).toHaveBeenCalledWith(expect.objectContaining({ action }));
+    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ action, text: "Synthetic draft" }));
+  });
+  it("keeps a draft when the active projection does not offer Send now", async () => {
+    const onAction = vi.fn();
+    render(fixture(false, onAction));
+    await waitFor(() => expect(dockBridge.apply).toHaveBeenCalled());
+    const initial = dockBridge.apply.mock.calls.at(-1)![0] as DockState;
+    await act(async () => dockBridge.callbacks.get("input")?.({ ...send(initial), action: "send-now" }));
+    await waitFor(() => expect(dockBridge.confirmEvent).toHaveBeenCalledOnce());
+    expect(dockBridge.consumeDraft).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
   });
   it.each(["send", "collapse"] as const)("withdraws a delayed %s snapshot after a complete native drawer cycle without replay", async action => {
     let isolationCallback!: (event: NativeDrawerIsolation) => void;
@@ -4043,6 +4157,27 @@ describe("native chrome presentation lease", () => {
       x: 2, y: 60, width: 44, height: 44, top: 60, left: 2, right: 46, bottom: 104, toJSON: () => ({}),
     });
   }
+  it.each([false, true])("moves Back with the offline notice with legacy region receipts %s", async (legacyRegions) => {
+    let noticeHeight = 0;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const header = this.hasAttribute("data-app-top-bar");
+      const x = header ? 0 : 2;
+      const y = header ? 0 : 60 + noticeHeight;
+      const width = header ? 390 : 44;
+      const height = header ? 112 + noticeHeight : 44;
+      return { x, y, width, height, top: y, left: x, right: x + width, bottom: y + height, toJSON: () => ({}) };
+    });
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["back"], independentControls: true,
+      reservedPresentationRegions: legacyRegions });
+    render(<header data-app-top-bar><Harness /></header>);
+    const latestY = () => bridge.prepare.mock.calls.at(-1)?.[0].frame.y;
+    await waitFor(() => expect(latestY()).toBe(60));
+    for (const height of [57, 0]) {
+      noticeHeight = height;
+      act(() => setNetworkStatusBannerHeight(height));
+      await waitFor(() => expect(latestY()).toBe(60 + height));
+    }
+  });
   it("keeps shell Back bound to its own lifecycle event and lease", async () => {
     measureSlot();
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["back"], independentControls: true,

@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   stalePhone: false,
   cachedPhoneVerified: true,
   refreshPhone: vi.fn(),
+  hasCloudProject: true,
   saved: false,
   choice: "hushh_managed_vertex" as "hushh_managed_vertex" | "byok_pending_vault",
   stagedGeminiKey: false,
@@ -27,6 +28,7 @@ const state = vi.hoisted(() => ({
   updatePreferences: vi.fn(),
   acknowledgeSetupExit: vi.fn(),
   emailStatus: "loading" as "loading" | "saving" | "failed",
+  personalAgentStatus: { hostingMode: "shared", state: "none", deploymentTarget: null as string | null } as Record<string, unknown>,
 }));
 vi.mock("@/components/account/use-marketing-preference", () => ({ useMarketingPreference: () => ({
   value: state.emailStatus === "saving" ? { enabled: false, frequency: "weekly" } : null,
@@ -62,15 +64,23 @@ vi.mock("@/lib/services/cache-service", async (importOriginal) => ({
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({ PreVaultUserStateService: {
   getCachedBootstrapState: () => ({ phoneVerified: state.phoneHint, saved: state.saved, oneRuntimeSetupChoice: state.choice, initialContactsWelcomeAcknowledged: !state.pendingContactsWelcome }),
   bootstrapState: async () => ({ phoneVerified: state.phoneHint, saved: state.saved, oneRuntimeSetupChoice: state.choice, initialContactsWelcomeAcknowledged: !state.pendingContactsWelcome }),
-  hasOneCloudProject: () => true,
+  hasOneCloudProject: () => state.hasCloudProject,
   hasOneRuntimeChoice: (value: { saved: boolean }) => value.saved,
+  markOneRuntimeChoice: async () => {
+    state.saved = true;
+    state.choice = "hushh_managed_vertex";
+    return { phoneVerified: state.phoneHint, saved: state.saved, oneRuntimeSetupChoice: state.choice, initialContactsWelcomeAcknowledged: !state.pendingContactsWelcome };
+  },
 } }));
 vi.mock("@/lib/services/account-identity-service", () => ({ AccountIdentityService: {
   peekCachedIdentity: () => state.cachedPhone ? ({ data: { phone_verified: state.cachedPhoneVerified }, isStale: state.stalePhone }) : null,
   refreshCurrentUserIdentity: state.refreshPhone,
   hasVerifiedPhone: (identity: { phone_verified?: boolean } | null) => identity?.phone_verified === true,
 } }));
-vi.mock("@/lib/services/api-service", () => ({ ApiService: { getByocSetupStatus: async () => ({ status: "idle" }) } }));
+vi.mock("@/lib/services/api-service", () => ({ ApiService: {
+  getByocSetupStatus: async () => ({ status: "idle" }),
+  getPersonalAgentStatus: async () => state.personalAgentStatus,
+} }));
 vi.mock("@/lib/onboarding/use-capability-setup-states", () => ({ useCapabilitySetupStates: () => ({ byId: {}, isLoading: false, isEnriching: false }) }));
 vi.mock("@/components/dashboard/one-agent-presence", () => ({ OneAgentPresence: () => null }));
 vi.mock("@/components/profile/public-profile-discovery-card", () => ({ PublicProfileDiscoveryCard: () => null }));
@@ -105,8 +115,10 @@ beforeEach(() => {
   state.stalePhone = false;
   state.cachedPhoneVerified = true;
   state.refreshPhone.mockReset().mockResolvedValue({ phone_verified: true });
+  state.hasCloudProject = true;
   state.saved = false;
   state.emailStatus = "loading";
+  state.personalAgentStatus = { hostingMode: "shared", state: "none", deploymentTarget: null };
   state.choice = "hushh_managed_vertex";
   state.stagedGeminiKey = false;
   state.savedGeminiKey = false;
@@ -158,13 +170,13 @@ describe("Setup saved AI choice", () => {
     view.unmount();
   });
 
-  it.each([null, "gemini", "openai", "azure_openai"])("accepts a BYOK choice backed by its selected encrypted key (%s)", async provider => {
+  it.each([null, "gemini", "openai"])("accepts a BYOK choice backed by its selected encrypted key (%s)", async provider => {
     state.saved = true;
     state.choice = "byok_pending_vault";
     state.unlocked = true;
     state.selectedProvider = provider;
     state.savedGeminiKey = provider === null || provider === "gemini";
-    state.savedProviderKey = provider === "openai" || provider === "azure_openai";
+    state.savedProviderKey = provider === "openai";
     render(<OneSetupHub />);
 
     const finish = await screen.findByRole("button", { name: "Finish setup" });
@@ -321,4 +333,35 @@ it("does not let an older bootstrap hint override a fresh unverified identity", 
   render(<OneSetupHub />);
   await screen.findByRole("button", { name: "Verify your phone: Required" });
   expect(screen.getByRole("button", { name: "Finish setup" })).toBeDisabled();
+});
+
+it("displays Hussh Confidential Sandbox copy on Dev cutover lane without Hussh Shared", async () => {
+  vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+  try {
+    state.hasCloudProject = false;
+    state.saved = false;
+    render(<OneSetupHub />);
+    expect(
+      await screen.findByText("Choose Hussh Confidential Sandbox or your own cloud."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Hussh Shared/i)).toBeNull();
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
+it("auto-defaults oneRuntimeSetupChoice when Hussh Confidential Sandbox (ace) is auto-placed", async () => {
+  state.hasCloudProject = true;
+  state.saved = false;
+  state.personalAgentStatus = {
+    hostingMode: "hussh_pods",
+    deploymentTarget: "ace",
+    state: "active",
+  };
+  render(<OneSetupHub />);
+  const finish = await screen.findByRole("button", { name: "Finish setup" });
+  await waitFor(() => expect(finish).toBeEnabled());
+  expect(screen.getByRole("button", { name: "Agent home: Connected" })).toBeVisible();
+  fireEvent.click(finish);
+  await screen.findByRole("dialog");
 });

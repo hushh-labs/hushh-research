@@ -502,7 +502,7 @@ tests/test_account_delete_error_detail.py
 tests/test_account_lost_vault_phone.py
 tests/test_account_phone_routes.py
 tests/test_phone_list_health.py
-tests/test_simulation_phone_lane.py
+tests/test_secret_list_edit_and_invariants.py
 tests/test_auth_health_lease_rest.py
 tests/test_auth_health_read_diagnostics.py
 tests/test_auth_health_deployment.py
@@ -1760,3 +1760,14 @@ tests/services/test_workspace_cas_sync_store.py
 tests/services/test_agent_sandbox_process_and_adk_terminal.py
 tests/services/test_agent_sandbox_phase2_routing_and_proxy.py
 tests/services/test_agent_sandbox_phase3_edge_and_puppy.py
+tests/test_personal_sandbox_harness_parity.py
+tests/test_dev_ace_deploy_parity.py
+
+# Paid scope sharing UX, live incoming consent cards, and Pod consent continuation/history parity.
+tests/test_paid_scope_chat_ux_and_live_cards.py
+
+# M8 Files-Chat bridge, ADK resilience, dev phone simulation lane, and Shared-to-ACE continuity.
+tests/one_adk/test_m8_files_and_adk_resilience.py
+tests/test_shared_to_ace_continuity.py
+tests/test_simulation_phone_lane.py
+tests/test_ace_lifecycle_deletion_and_byoc.py

@@ -270,9 +270,30 @@ def test_one_keeps_device_memory_capture_silent():
     assert "with the exact passage to keep" not in authored
 
 
-def test_one_writes_without_em_dashes_and_within_its_prompt_budget():
+@pytest.mark.parametrize(
+    ("is_pod_mode", "pod_files_enabled"),
+    [(False, "false"), (True, "true")],
+)
+@pytest.mark.parametrize("zone", [None, "Asia/Kolkata", "America/Argentina/ComodRivadavia"])
+def test_one_writes_without_em_dashes_and_within_its_prompt_budget(
+    monkeypatch, is_pod_mode, pod_files_enabled, zone
+):
+    # Static-baseline budget check (surface=None). Dynamic surface="typed_chat"
+    # connector, follow-up, and reaction overlays pre-existed above 60k on dev
+    # and remain outside this static-baseline check.
+    monkeypatch.setattr(agent_tree, "pod_mode", lambda: is_pod_mode)
+    monkeypatch.setenv("POD_FILES_ENABLED", pod_files_enabled)
     authored = str(agent_tree._ONE_MANIFEST.system_instruction)
-    composed = agent_tree._one_runtime_instruction(SimpleNamespace(state={}))
+    context = (
+        SimpleNamespace(state={})
+        if zone is None
+        else SimpleNamespace(
+            state={"hussh:timezone": zone, "temp:hussh:turn_started_at": 1_800_000_000},
+            invocation_id="current",
+            session=SimpleNamespace(events=[]),
+        )
+    )
+    composed = agent_tree._one_runtime_instruction(context)
     assert "\u2014" not in composed and "\u2013" not in composed
     assert "Never use an em dash or en dash as punctuation" in authored
     assert "The company is Hussh" in authored

@@ -1,5 +1,6 @@
 "use client";
 
+import { NativeFinanceLayer } from "@/components/kai/native-finance-workspace";
 import { useSearchParams } from "next/navigation";
 
 import { KaiAnalysisPreviewView } from "@/components/kai/views/kai-analysis-preview-view";
@@ -11,11 +12,11 @@ export function KaiPreviewRouter() {
   const preview = searchParams.get("preview");
 
   if (preview === "analysis") {
-    return <KaiAnalysisPreviewView />;
+    return <NativeFinanceLayer pane="market" active title="Analysis preview" contentPresentation="rich" sections={[]} fallback={<KaiAnalysisPreviewView />} />;
   }
 
   if (preview === "connect") {
-    return <KaiConnectPreviewView />;
+    return <NativeFinanceLayer pane="market" active title="Portfolio setup" contentPresentation="rich" sections={[]} fallback={<KaiConnectPreviewView />} />;
   }
 
   return <KaiMarketPreviewView />;

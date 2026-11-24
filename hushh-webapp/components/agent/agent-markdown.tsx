@@ -197,7 +197,7 @@ function Paragraph({ children }: { children?: ReactNode }) {
   const sources = useContext(SourcesLabel);
   if (sources) return <span className="min-w-0">{children}</span>;
   return (
-    <p dir="auto" className="my-3 first:mt-0 last:mb-0">
+    <p dir="auto" className="my-2.5 leading-[1.6] tabular-nums first:mt-0 last:mb-0">
       {children}
     </p>
   );
@@ -213,7 +213,7 @@ function OrderedList({ children, start }: { children?: ReactNode; start?: number
     );
   }
   return (
-    <ol start={start} className="my-3 list-decimal space-y-1 pl-6 marker:tabular-nums marker:text-[color:var(--agent-md-muted)] first:mt-0 last:mb-0">
+    <ol start={start} className="my-2.5 list-decimal space-y-1.5 pl-5 leading-[1.58] tabular-nums marker:tabular-nums marker:text-[color:var(--agent-md-muted)] first:mt-0 last:mb-0">
       {children}
     </ol>
   );
@@ -241,9 +241,17 @@ function ListItem({ children, className, id }: { children?: ReactNode; className
 // A cell this long wraps inside a readable column instead of stretching the
 // table; anything shorter stays on one line and the table scrolls.
 const LONG_CELL_CHARACTERS = 32;
+const NUMERIC_CELL_RE = /^[+-]?(?:\$[\d,]+(?:\.\d+)?|[\d,]+(?:\.\d+)?%?|~?\$[\d,]+(?:\.\d+)?)$/;
+
+function isNumericCell(node: HastElement | undefined): boolean {
+  const raw = hastText(node).trim();
+  return raw.length > 0 && NUMERIC_CELL_RE.test(raw);
+}
 
 function cellClassName(node: HastElement | undefined): string {
-  return hastText(node).length > LONG_CELL_CHARACTERS ? "min-w-48 whitespace-normal" : "whitespace-nowrap";
+  const raw = hastText(node);
+  const wrapClass = raw.length > LONG_CELL_CHARACTERS ? "min-w-48 whitespace-normal" : "whitespace-nowrap";
+  return isNumericCell(node) ? `${wrapClass} text-right font-medium tabular-nums` : wrapClass;
 }
 
 // Module scope on purpose: a components map rebuilt per render gives every
@@ -257,11 +265,11 @@ const components: Components = {
   h5: headingRenderer(4),
   h6: headingRenderer(4),
   p: Paragraph,
-  strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+  strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
   ul: ({ children, className: listClass }) => (
     <ul
       className={cn(
-        "my-3 list-disc space-y-1 pl-6 marker:text-[color:var(--agent-md-muted)] first:mt-0 last:mb-0",
+        "my-2.5 list-disc space-y-1.5 pl-5 leading-[1.58] tabular-nums marker:text-[color:var(--agent-md-muted)] first:mt-0 last:mb-0",
         listClass?.includes("contains-task-list") && "list-none pl-0",
       )}
     >
@@ -344,9 +352,9 @@ const components: Components = {
       role="region"
       aria-label="Table"
       tabIndex={0}
-      className="my-3 max-w-full overflow-x-auto rounded-xl border border-[color:var(--agent-md-rule)] first:mt-0 last:mb-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+      className="my-3 max-w-full overflow-x-auto rounded-2xl border border-[color:var(--agent-md-rule)] bg-background/50 first:mt-0 last:mb-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
     >
-      <table className="agent-md-table w-full min-w-max border-separate border-spacing-0 text-left text-[14px] leading-5 tabular-nums">
+      <table className="agent-md-table w-full min-w-max border-separate border-spacing-0 text-left text-[13.5px] leading-5 tabular-nums [&_tbody_tr:not(:last-child)_td]:border-b [&_tbody_tr:not(:last-child)_td]:border-[color:var(--agent-md-rule)]">
         {children}
       </table>
     </div>
@@ -355,13 +363,13 @@ const components: Components = {
     <th
       dir="auto"
       style={style}
-      className="whitespace-nowrap bg-[color:var(--agent-md-well)] px-3 py-2 font-semibold shadow-[inset_0_-1px_0_var(--agent-md-rule)]"
+      className="whitespace-nowrap bg-[color:var(--agent-md-well)] px-3.5 py-2.5 text-[11px] font-semibold uppercase tracking-[0.05em] text-[color:var(--agent-md-muted)] shadow-[inset_0_-1px_0_var(--agent-md-rule)]"
     >
       {children}
     </th>
   ),
   td: ({ children, style, node }) => (
-    <td dir="auto" style={style} className={cn("px-3 py-2 align-top", cellClassName(node))}>
+    <td dir="auto" style={style} className={cn("px-3.5 py-2.5 align-top", cellClassName(node))}>
       {children}
     </td>
   ),
@@ -380,7 +388,10 @@ export function AgentMarkdown({
 
 
   return (
-    <div className={cn("agent-markdown min-w-0 break-words", className)}>
+    <div
+      data-slot="markdown"
+      className={cn("agent-markdown min-w-0 break-words", className)}
+    >
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkChatPhoneLinks]}
         remarkRehypeOptions={{

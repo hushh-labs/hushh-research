@@ -24,6 +24,19 @@ export type RequestProgressField = {
   status: RequestFieldStatus;
 };
 
+export type RequestCommerceStatus =
+  | "reserved"
+  | "awaiting_payment"
+  | "active"
+  | "refunded"
+  | "ended"
+  | "free";
+
+export type RequestCommerceSummary = {
+  totalCoins: number;
+  status: RequestCommerceStatus;
+};
+
 export type RequestProgress = {
   requestedAt: string;
   deliveredAt: string | null;
@@ -32,6 +45,7 @@ export type RequestProgress = {
   accessEndsAt: string | null;
   endedAt: string | null;
   fields: RequestProgressField[];
+  commerce?: RequestCommerceSummary | null;
 };
 
 /** Set by the chat (C2) after an answer arrives; null or undefined otherwise. */
@@ -77,6 +91,29 @@ export function parseRequestProgress(value: unknown): RequestProgress | null {
       || !FIELD_STATUSES.includes(status as RequestFieldStatus)) return [];
     return [{ label, status: status as RequestFieldStatus }];
   });
+  const rawCommerce = asRecord(record.commerce);
+  const rawCoins = rawCommerce ? pick(rawCommerce, "total_coins", "totalCoins") : null;
+  const rawCommerceStatus = rawCommerce?.status;
+  const COMMERCE_STATUSES: readonly RequestCommerceStatus[] = [
+    "reserved",
+    "awaiting_payment",
+    "active",
+    "refunded",
+    "ended",
+    "free",
+  ];
+  const commerce: RequestCommerceSummary | null =
+    rawCommerce &&
+    typeof rawCoins === "number" &&
+    Number.isFinite(rawCoins) &&
+    rawCoins > 0 &&
+    typeof rawCommerceStatus === "string" &&
+    COMMERCE_STATUSES.includes(rawCommerceStatus as RequestCommerceStatus)
+      ? {
+          totalCoins: Math.round(rawCoins),
+          status: rawCommerceStatus as RequestCommerceStatus,
+        }
+      : null;
   return {
     requestedAt,
     deliveredAt: isoOrNull(pick(record, "delivered_at", "deliveredAt")),
@@ -85,6 +122,7 @@ export function parseRequestProgress(value: unknown): RequestProgress | null {
     accessEndsAt: isoOrNull(pick(record, "access_ends_at", "accessEndsAt")),
     endedAt: isoOrNull(pick(record, "ended_at", "endedAt")),
     fields,
+    ...(commerce ? { commerce } : {}),
   };
 }
 

@@ -11,6 +11,7 @@ import json
 import os
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -224,3 +225,31 @@ async def erased(owner: str, library_id: str, receipt: dict[str, Any]) -> None:
     )
     if not row:
         raise FilesRefused("FILES_ERASURE_UNCONFIRMED", 409)
+
+
+async def mark_ace_migration_complete(
+    owner: str, *, migrated_files: int, migrated_wiki_pages: int
+) -> None:
+    from asyncpg import UndefinedTableError  # noqa: PLC0415
+
+    marker = {
+        "status": "migrated",
+        "migrated_files": migrated_files,
+        "migrated_wiki_pages": migrated_wiki_pages,
+        "migrated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        pool = await get_pool()
+    except Exception:
+        return
+    try:
+        await pool.execute(
+            """UPDATE shared_files_storage
+               SET receipt = COALESCE(receipt, '{}'::jsonb) || jsonb_build_object('ace_migration', $2::jsonb),
+                   updated_at = now()
+               WHERE user_id = $1""",
+            owner,
+            json.dumps(marker),
+        )
+    except UndefinedTableError:
+        return

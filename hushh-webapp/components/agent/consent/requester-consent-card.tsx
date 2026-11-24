@@ -17,6 +17,7 @@
 import { createContext, type ReactNode } from "react";
 import { CheckCircle2, Clock, MinusCircle } from "@/components/icons";
 import { SEMANTIC_ROLE_CLASSES } from "@/lib/morphy-ux/tokens/semantic-roles";
+import { formatCommerceMoney } from "@/lib/services/scope-commerce-service";
 import { AccessEndedNotice } from "./access-ended-notice";
 import {
   formatDay,
@@ -97,6 +98,20 @@ export function RequesterProgressBody({ progress, phase, personName, purpose, de
   const endedLabels = labelsWith("granted", "revoked", "expired");
   const live = progress.outcome === "granted" || progress.outcome === "partially_granted";
   const endsOn = live ? formatDay(progress.accessEndsAt) : null;
+  const commerce = progress.commerce ?? null;
+  const commercePillLabel = commerce
+    ? commerce.status === "reserved"
+      ? `${formatCommerceMoney(commerce.totalCoins)} reserved`
+      : commerce.status === "awaiting_payment"
+        ? `Payment required · ${formatCommerceMoney(commerce.totalCoins)}`
+        : commerce.status === "active"
+          ? `Paid · ${formatCommerceMoney(commerce.totalCoins)}`
+          : commerce.status === "refunded"
+            ? `Refunded · ${formatCommerceMoney(commerce.totalCoins)}`
+            : commerce.status === "ended"
+              ? `Paid · ${formatCommerceMoney(commerce.totalCoins)}`
+              : null
+    : null;
 
   return (
     <div className="space-y-3" data-testid="requester-progress" data-outcome={progress.outcome} data-phase={phase ?? "none"}>
@@ -105,10 +120,26 @@ export function RequesterProgressBody({ progress, phase, personName, purpose, de
       {ended ? (
         <div className="flex flex-wrap items-center gap-2">
           <RequestStatusPill badge={badge} />
+          {commercePillLabel ? (
+            <span
+              data-testid="requester-commerce-pill"
+              className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-xs font-medium text-muted-foreground tabular-nums"
+            >
+              {commercePillLabel}
+            </span>
+          ) : null}
         </div>
       ) : (
         <div role="status" className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
           <RequestStatusPill badge={badge} />
+          {commercePillLabel ? (
+            <span
+              data-testid="requester-commerce-pill"
+              className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-xs font-medium text-foreground tabular-nums"
+            >
+              {commercePillLabel}
+            </span>
+          ) : null}
           <span>{progressHeadline(progress, personName, phase)}</span>
           {moment ? <span data-consent-role="helper" className="text-xs font-normal text-muted-foreground">{moment}</span> : null}
         </div>

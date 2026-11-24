@@ -95,17 +95,37 @@ export async function openCommerceHostedUrl(session: CommerceHostedSession, purp
         (!hint.action || (purpose === "onboarding" && hint.action === "onboarding_refresh")) &&
         Object.keys(hint).every(name => ["type", "attemptId", "purpose", "expiresAt", "action", "source"].includes(name));
     };
-    const returned = waitForOAuthPopup({
-      popup, signal, expiresAt: marker.expiresAt,
-      matches,
-      storageValue: event => {
-        if (event.key !== RETURN_KEY || !event.newValue) return null;
+    let channel: BroadcastChannel | null = null;
+    const closeChannel = () => {
+      try { channel?.close(); } catch { /* Channel cleanup is best-effort. */ }
+      channel = null;
+    };
+    const returned = new Promise<void>((resolve, reject) => {
+      const settle = () => { closeChannel(); resolve(); };
+      if (typeof BroadcastChannel !== "undefined") {
         try {
-          const value = JSON.parse(event.newValue) as CommerceReturn;
-          if (matches(value)) window.dispatchEvent(new CustomEvent(COMMERCE_RETURN_EVENT, { detail: value }));
-          return value;
-        } catch { return null; }
-      },
+          channel = new BroadcastChannel(RETURN_KEY);
+          channel.onmessage = (event: MessageEvent<unknown>) => {
+            if (matches(event.data)) {
+              window.dispatchEvent(new CustomEvent(COMMERCE_RETURN_EVENT, { detail: event.data }));
+              try { popup.close(); } catch { /* Browser owns popup policy. */ }
+              settle();
+            }
+          };
+        } catch { closeChannel(); }
+      }
+      waitForOAuthPopup({
+        popup, signal, expiresAt: marker.expiresAt,
+        matches,
+        storageValue: event => {
+          if (event.key !== RETURN_KEY || !event.newValue) return null;
+          try {
+            const value = JSON.parse(event.newValue) as CommerceReturn;
+            if (matches(value)) window.dispatchEvent(new CustomEvent(COMMERCE_RETURN_EVENT, { detail: value }));
+            return value;
+          } catch { return null; }
+        },
+      }).then(settle, err => { closeChannel(); reject(err); });
     });
     popup.location.replace(url);
     await returned;
@@ -131,6 +151,13 @@ export function notifyCommercePopupReturn(path: string): boolean {
   try {
     const serialized = JSON.stringify(hint);
     window.localStorage.setItem(RETURN_KEY, serialized);
+    if (typeof BroadcastChannel !== "undefined") {
+      try {
+        const channel = new BroadcastChannel(RETURN_KEY);
+        channel.postMessage(hint);
+        channel.close();
+      } catch { /* Storage event remains the universal fallback. */ }
+    }
     window.setTimeout(() => {
       if (window.localStorage.getItem(RETURN_KEY) === serialized) window.localStorage.removeItem(RETURN_KEY);
     }, 3000);

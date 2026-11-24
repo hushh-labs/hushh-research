@@ -101,7 +101,7 @@ async def list_tasks(response: Response, authorization: str | None = Header(defa
         return {
             "available": code is None,
             "code": code,
-            "templates": ["agent_files.organize_file.v1"] if code is None else [],
+            "templates": sorted(runtime.capabilities) if code is None else [],
             "authorization_limit_at": authorization_limit_at,
             "tasks": tasks,
         }

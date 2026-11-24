@@ -1128,11 +1128,11 @@ jobs:
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.ios == 'true')
-    runs-on: macos-15
+    runs-on: xcode-27
     timeout-minutes: 45
     env:
       # Also part of the Swift package cache key; the saver pins the same.
-      XCODE_VERSION: "26.3"
+      XCODE_VERSION: "27.2"
       XCODE_PROJECT: hushh-webapp/ios/App/App.xcodeproj
       XCODE_SCHEME: App
       NODE_OPTIONS: --max-old-space-size=8192
@@ -1224,6 +1224,7 @@ jobs:
           set -euo pipefail
           SIMULATOR_ID="$(python3 - <<'PY'
           import json
+          import re
           import subprocess
 
           payload = json.loads(
@@ -1232,11 +1233,29 @@ jobs:
                   text=True,
               )
           )
-          for runtime, devices in payload.get("devices", {}).items():
-              if "iOS" not in runtime:
-                  continue
-              for device in devices:
-                  if device.get("isAvailable") and device.get("name", "").startswith("iPhone"):
+          def runtime_key(runtime: str) -> tuple[int, ...]:
+              match = re.search(r"iOS-(\d+(?:-\d+)*)$", runtime)
+              if not match:
+                  return (0,)
+              return tuple(int(part) for part in match.group(1).split("-"))
+
+          ios_runtimes = sorted(
+              (
+                  (runtime_key(runtime), runtime, devices)
+                  for runtime, devices in payload.get("devices", {}).items()
+                  if "iOS" in runtime
+              ),
+              key=lambda item: item[0],
+              reverse=True,
+          )
+          for prefer_standard in (True, False):
+              for _, _, devices in ios_runtimes:
+                  for device in devices:
+                      name = device.get("name", "")
+                      if not device.get("isAvailable") or not name.startswith("iPhone"):
+                          continue
+                      if prefer_standard and "Duo" in name:
+                          continue
                       print(device["udid"])
                       raise SystemExit(0)
           raise SystemExit("No available iPhone Simulator is installed on the CI runner.")

@@ -5,6 +5,7 @@ import {
   hostedPodDisplayLabel,
   hostedPodProvider,
   isAzureHomeSelectable,
+  isHostedAzureMigrationAvailable,
   isHostedPodTierUnderMaintenance,
   isOwnerCloudTarget,
   isPooledSandboxSwitchAvailable,
@@ -17,8 +18,8 @@ describe("the owner-cloud question", () => {
     vi.unstubAllEnvs();
   });
 
-  it("labels pooled ACE personal sandboxes cleanly without advertising legacy GCP->Azure migration", () => {
-    expect(hostedPodDisplayLabel("ace")).toBe("Hussh Pods · Personal Sandbox");
+  it("labels pooled ACE confidential sandboxes cleanly without advertising legacy GCP->Azure migration", () => {
+    expect(hostedPodDisplayLabel("ace")).toBe("Hussh Confidential Sandbox");
     expect(hostedPodProvider("ace")).toBeNull();
   });
 
@@ -103,5 +104,18 @@ describe("the owner-cloud question", () => {
       vi.stubEnv("NEXT_PUBLIC_APP_ENV", env);
       expect(isPooledSandboxSwitchAvailable()).toBe(false);
     }
+  });
+
+  it("retires legacy Azure hosted-pod migration whenever Confidential Sandbox cutover is active", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    vi.stubEnv("NEXT_PUBLIC_HOSTED_AZURE_MIGRATION_ENABLED", "1");
+    expect(isHostedAzureMigrationAvailable()).toBe(false);
+
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "staging");
+    vi.stubEnv("NEXT_PUBLIC_HOSTED_AZURE_MIGRATION_ENABLED", "1");
+    expect(isHostedAzureMigrationAvailable()).toBe(true);
+
+    vi.stubEnv("NEXT_PUBLIC_HOSTED_AZURE_MIGRATION_ENABLED", "");
+    expect(isHostedAzureMigrationAvailable()).toBe(false);
   });
 });

@@ -129,7 +129,7 @@ export function KaiMarketHubPage() {
   // Finance is a One workspace, not a dashboard canvas. Match Location's
   // agent column and let the shared shell own the only outer gutter.
   return (
-    <NativeFinanceRoute frame={nativeFrame} model={{ owner: userId, view: visibleTab, navigation: { tabs: FINANCE_TAB_DEFINITION.tabs,
+    <NativeFinanceRoute frame={nativeFrame} model={{ owner: userId, view: visibleTab, rich: visibleTab === "portfolio" && !(["checking", "dashboard"] as FlowState[]).includes(flowState), navigation: { tabs: FINANCE_TAB_DEFINITION.tabs,
       select: value => { selectTab(value as PortfolioTab); } } }}><AppPageShell ref={nativeFrame}
       as="div"
       fitContent

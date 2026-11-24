@@ -5,8 +5,8 @@ import { useEffect } from "react";
 import { GoogleCloudLogo } from "@/components/brand/google-cloud-logo";
 import { MicrosoftAzureLogo } from "@/components/brand/microsoft-azure-logo";
 import type { HostingChoiceOption } from "@/components/connections/hosting-choice-cards";
-import { HostedPodDualCloudMarks, PodCloudBadge } from "@/components/connections/hussh-pods-cloud-card";
-import { hostedPodProvider } from "@/lib/one/owner-cloud";
+import { PodCloudBadge } from "@/components/connections/hussh-pods-cloud-card";
+import { hostedPodProvider, isPooledSandboxSwitchAvailable } from "@/lib/one/owner-cloud";
 import {
   DedicatedHostingRowIcon,
   OwnCloudRowIcon,
@@ -32,34 +32,54 @@ const ACTION = "min-h-11 self-start text-sm underline underline-offset-4 disable
 /** How often a connecting agent is re-checked while this screen is open. */
 export const CONNECTING_POLL_MS = 5_000;
 
-/** The three tier cards. Your own cloud leads: it is the agent Hussh is built around. */
+/** Tier cards. On Confidential Sandbox cutover lanes, Hussh Shared is retired in favor of Confidential Sandbox + BYOC. */
 export function hostingOptionsFor({
   azureSelectable,
   hostedUnderMaintenance,
   ownCloudAvailable,
+  pooledSandboxAvailable = isPooledSandboxSwitchAvailable(),
 }: {
   azureSelectable: boolean;
   hostedUnderMaintenance: boolean;
   ownCloudAvailable: boolean;
+  pooledSandboxAvailable?: boolean;
 }): HostingChoiceOption[] {
+  const ownOption: HostingChoiceOption = {
+    value: "own",
+    icon: OwnCloudRowIcon,
+    title: "Bring your own cloud",
+    description: azureSelectable
+      ? "Your agent runs in your own Google Cloud Platform or Microsoft Azure account. You own it and pay for it."
+      : "Your agent runs in your own Google Cloud Platform account. You own it and pay for it.",
+    supporting: !ownCloudAvailable ? "Cloud setup is unavailable in this environment." : (
+      <>
+        <GoogleCloudLogo decorative className="h-4" />
+        {azureSelectable ? <MicrosoftAzureLogo decorative className="h-4 w-4" /> : null}
+      </>
+    ),
+    supportingDecorative: ownCloudAvailable,
+    unavailable: !ownCloudAvailable,
+    testId: "cloud-tier-own",
+  };
+
+  if (pooledSandboxAvailable) {
+    return [
+      {
+        value: "hosted",
+        icon: DedicatedHostingRowIcon,
+        title: "Hussh Confidential Sandbox",
+        description: "Isolated Confidential Sandbox managed by Hussh on Google Cloud.",
+        supporting: <GoogleCloudLogo decorative className="h-4 w-auto" />,
+        supportingDecorative: true,
+        unavailable: false,
+        testId: "cloud-tier-hosted",
+      },
+      ownOption,
+    ];
+  }
+
   return [
-    {
-      value: "own",
-      icon: OwnCloudRowIcon,
-      title: "Bring your own cloud",
-      description: azureSelectable
-        ? "Your agent runs in your own Google Cloud Platform or Microsoft Azure account. You own it and pay for it."
-        : "Your agent runs in your own Google Cloud Platform account. You own it and pay for it.",
-      supporting: !ownCloudAvailable ? "Cloud setup is unavailable in this environment." : (
-        <>
-          <GoogleCloudLogo decorative className="h-4" />
-          {azureSelectable ? <MicrosoftAzureLogo decorative className="h-4 w-4" /> : null}
-        </>
-      ),
-      supportingDecorative: ownCloudAvailable,
-      unavailable: !ownCloudAvailable,
-      testId: "cloud-tier-own",
-    },
+    ownOption,
     {
       value: "shared",
       icon: SharedHostingRowIcon,
@@ -79,7 +99,7 @@ export function hostingOptionsFor({
           Paused for maintenance
         </>
       ) : (
-        <HostedPodDualCloudMarks />
+        <GoogleCloudLogo decorative className="h-4 w-auto" />
       ),
       supportingDecorative: !hostedUnderMaintenance,
       unavailable: hostedUnderMaintenance,
@@ -94,19 +114,24 @@ export function ConsentPendingCard({
   busy,
   onContinue,
   onChooseShared,
+  onChooseSandbox,
 }: {
   entry: ConsentPendingEntry;
   busy: boolean;
   onContinue: (() => void) | null;
-  onChooseShared: () => void;
+  onChooseShared?: (() => void) | null;
+  onChooseSandbox?: (() => void) | null;
 }) {
   const cloud = entry.provider === "azure" ? "Microsoft" : "Google";
+  const pooledSandboxAvailable = isPooledSandboxSwitchAvailable();
+  const showSharedFallback = !pooledSandboxAvailable && Boolean(onChooseShared);
+  const showSandboxFallback = pooledSandboxAvailable && Boolean(onChooseSandbox);
   return (
     <div className={CARD} data-testid="hosting-consent-pending" aria-live="polite">
       <p className="text-sm font-semibold">Finish signing in to set up your cloud</p>
       <p className={BODY}>
-        Your setup starts once {cloud} sends you back here. Nothing runs on Hussh Shared in
-        the meantime.
+        Your setup starts once {cloud} sends you back here.
+        {showSharedFallback ? " Nothing runs on Hussh Shared in the meantime." : ""}
       </p>
       <div className="flex flex-wrap gap-x-5">
         {onContinue ? (
@@ -115,10 +140,18 @@ export function ConsentPendingCard({
             Sign in again
           </button>
         ) : null}
-        <button type="button" className={ACTION} disabled={busy} onClick={onChooseShared}
-          data-testid="hosting-consent-choose-shared">
-          Use Hussh Shared instead
-        </button>
+        {showSandboxFallback && onChooseSandbox ? (
+          <button type="button" className={ACTION} disabled={busy} onClick={onChooseSandbox}
+            data-testid="hosting-consent-choose-sandbox">
+            Use Hussh Confidential Sandbox instead
+          </button>
+        ) : null}
+        {showSharedFallback && onChooseShared ? (
+          <button type="button" className={ACTION} disabled={busy} onClick={onChooseShared}
+            data-testid="hosting-consent-choose-shared">
+            Use Hussh Shared instead
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -197,6 +230,7 @@ export function HusshPodsPausedCard({
   // No move buttons: the hub refuses both moves while a Hussh Pods place is held
   // (POD_ASSIGNMENT_PRESERVED). Offering them would be a button that always fails.
   const provider = hostedPodProvider(deploymentTarget);
+  const pooledSandboxAvailable = isPooledSandboxSwitchAvailable();
   return (
     <div className={CARD} data-testid="hussh-pods-paused">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -204,9 +238,9 @@ export function HusshPodsPausedCard({
         {provider ? <PodCloudBadge provider={provider} testId="hussh-pods-paused-cloud" /> : null}
       </div>
       <p className={BODY}>
-        Your Hussh Pods agent and its information stay where they are. Moving it to your own
-        cloud or to Hussh Shared needs the Hussh team to release your Hussh Pods place first.
-        Once they do, this screen shows the choice.
+        {pooledSandboxAvailable
+          ? "Your Hussh agent and its information stay where they are. Moving it to your own cloud needs the Hussh team to release your current place first. Once they do, this screen shows the choice."
+          : "Your Hussh Pods agent and its information stay where they are. Moving it to your own cloud or to Hussh Shared needs the Hussh team to release your Hussh Pods place first. Once they do, this screen shows the choice."}
       </p>
     </div>
   );

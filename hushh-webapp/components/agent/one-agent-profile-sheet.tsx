@@ -1,8 +1,6 @@
 "use client";
 
-import { useRef, useState, type ReactNode, type RefObject } from "react";
-import { useRouter } from "next/navigation";
-import type { User } from "firebase/auth";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 
 import {
   Sheet,
@@ -15,121 +13,260 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   SettingsGroup,
   SettingsPresentationProvider,
+  SettingsRow,
 } from "@/components/app-ui/settings-ui";
-import { FeedRow } from "@/components/feed/feed-row";
 import { LiveMirrorPreview } from "@/components/profile/live-mirror-preview";
+import { WorkspaceTerminalPanel } from "@/components/computer-use/workspace-terminal-panel";
 import {
+  AccountProfileIcon,
+  Activity,
+  ChevronDown,
   ClipboardList,
+  Code2,
+  ConnectedSystemsAgentIcon,
+  ConsentAgentIcon,
+  FinanceAgentIcon,
   Fingerprint,
+  Globe,
+  LocationAgentIcon,
+  MemoryAgentIcon,
+  WalletAgentIcon,
   X,
-  Newspaper,
-  ArrowUpRight,
 } from "@/components/icons";
 import { useAuth } from "@/hooks/use-auth";
 import { useOneDisplayName } from "@/lib/agent/use-one-display-name";
-import { useStaleResource } from "@/lib/cache/use-stale-resource";
-import { CACHE_KEYS } from "@/lib/services/cache-service";
-import {
-  FeedService,
-  type FeedItem,
-  type FeedListResponse,
-} from "@/lib/services/feed-service";
-import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
-import { collapseConsentBundleRows } from "@/lib/feed/feed-consent-grouping";
-import { collapseDriveLifecycleRows } from "@/lib/feed/feed-drive-grouping";
-import { isFeedItemHidden } from "@/lib/feed/feed-visibility";
-import { isFeedIdAtOrBefore } from "@/lib/feed/feed-pagination";
-import { readFeedClearedThroughId } from "@/lib/feed/feed-clear-watermark";
-import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
-import { ROUTES } from "@/lib/navigation/routes";
 import { nativeDrawersPlatformEligible } from "@/lib/capacitor/native-drawers";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
+import { describeLiveActivity } from "@/lib/pkm/live-activity/live-activity-copy";
+import {
+  peekLiveActivity,
+  subscribeLiveActivity,
+} from "@/lib/pkm/live-activity/live-activity-journal";
 
 import { useVault } from "@/lib/vault/vault-context";
+import { OneAgentPresenceForOwner } from "@/components/dashboard/one-agent-presence";
 import { OneTodoPreview } from "./one-todo-preview";
 
 import styles from "./one-agent-profile-sheet.module.css";
 import { OnePresenceAvatar, type OnePresenceState } from "./one-presence-avatar";
+import { cn } from "@/lib/utils";
 
-/** A read-only feed preview; the full Feed owns actions and read acknowledgements. */
-function OneFeedPreview({
-  user,
+export type OneSessionActionIcon =
+  | "action"
+  | "connectors"
+  | "memory"
+  | "consent"
+  | "finance"
+  | "wallet"
+  | "location"
+  | "profile"
+  | "web";
+
+export type OneSessionActionEntry = {
+  id: string;
+  label: string;
+  message: string;
+  status: "running" | "waiting" | "done" | "blocked" | "error";
+  tag?: string;
+  icon?: OneSessionActionIcon;
+  createdAtMs: number;
+  durationMs?: number;
+};
+
+const ACTION_ICONS = {
+  action: Activity,
+  connectors: ConnectedSystemsAgentIcon,
+  memory: MemoryAgentIcon,
+  consent: ConsentAgentIcon,
+  finance: FinanceAgentIcon,
+  wallet: WalletAgentIcon,
+  location: LocationAgentIcon,
+  profile: AccountProfileIcon,
+  web: Globe,
+} as const;
+
+function ActionStepIcon({ icon = "action" }: { icon?: OneSessionActionIcon }) {
+  const Icon = ACTION_ICONS[icon] ?? Activity;
+  return <Icon aria-hidden="true" className="size-3.5 shrink-0" />;
+}
+
+const activityTimeFormat = new Intl.DateTimeFormat(undefined, {
+  hour: "numeric",
+  minute: "2-digit",
+});
+
+function formatActionTiming(event: OneSessionActionEntry): string {
+  if (event.status === "running") return "Running";
+  if (event.status === "waiting") return "Waiting";
+  if (typeof event.durationMs === "number" && event.durationMs > 0) {
+    if (event.durationMs < 1_000) return `${Math.round(event.durationMs)}ms`;
+    return `${(event.durationMs / 1_000).toFixed(1)}s`;
+  }
+  if (Number.isFinite(event.createdAtMs) && event.createdAtMs > 0) {
+    return activityTimeFormat.format(event.createdAtMs);
+  }
+  return "Done";
+}
+
+function startOfLocalDay(nowMs: number): number {
+  const date = new Date(nowMs);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+}
+
+function OneActivityWorkspace({
   ownerId,
-  onNavigate,
+  active,
+  isVaultUnlocked,
+  sessionActions = [],
 }: {
-  user: User;
   ownerId: string;
-  onNavigate: (href: string) => void;
+  active: boolean;
+  isVaultUnlocked: boolean;
+  sessionActions?: readonly OneSessionActionEntry[];
 }) {
-  const { data, loading, error, refresh } = useStaleResource<FeedListResponse>({
-    cacheKey: CACHE_KEYS.FEED_LIST(ownerId),
-    resourceLabel: "one_profile_feed",
-    retainOnInvalidate: true,
-    load: async (options) =>
-      FeedService.list({
-        idToken: await user.getIdToken(),
-        userId: ownerId,
-        limit: 20,
-        force: options?.force,
-      }),
-  });
-  useFeedLiveRefresh(() => {
-    void refresh({ force: true });
-  });
-  const clearedThrough = readFeedClearedThroughId(ownerId);
-  const visibleItems = (data?.items ?? []).filter(
-    (item) =>
-      !isFeedItemHidden(item, isLocalCrmBuildEnabled()) &&
-      (!clearedThrough || !isFeedIdAtOrBefore(item.id, clearedThrough)),
-  );
-  const items = collapseDriveLifecycleRows(
-    collapseConsentBundleRows(visibleItems),
-  );
-  const openFullFeed = (_item: FeedItem) => onNavigate(ROUTES.ONE_FEED);
+  const [journalTick, setJournalTick] = useState(0);
+  const [terminalExpanded, setTerminalExpanded] = useState(true);
+
+  useEffect(() => {
+    if (!active) return;
+    return subscribeLiveActivity(() => setJournalTick((value) => value + 1));
+  }, [active]);
+
+  const todayJournalEvents = useMemo(() => {
+    void journalTick;
+    if (!isVaultUnlocked || !ownerId) return [];
+    const since = startOfLocalDay(Date.now());
+    return peekLiveActivity(ownerId)
+      .filter((entry) => entry.lastAt >= since)
+      .slice(0, 12);
+  }, [isVaultUnlocked, journalTick, ownerId]);
+
+  const hasActionRows = sessionActions.length > 0 || todayJournalEvents.length > 0;
 
   return (
-    <div className={styles.feed} data-profile-type-scale="feed">
-      <div className={styles.sectionHeading}>
-        <h3 data-app-pane-section-label>Latest activity</h3>
-        <button type="button" onClick={() => onNavigate(ROUTES.ONE_FEED)}>
-          Open Feed <ArrowUpRight className="size-4" aria-hidden />
+    <div className={styles.activity} data-testid="one-activity-workspace">
+      <section className="flex flex-col gap-2" aria-label="Action logs" data-testid="one-activity-action-logs">
+        <div className={styles.sectionHeading}>
+          <h3 data-app-pane-section-label>Action logs</h3>
+          {sessionActions.some((step) => step.status === "running") ? (
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[color:var(--app-accent)]">
+              <span className="size-1.5 rounded-full bg-[color:var(--app-accent)] motion-safe:animate-pulse" aria-hidden />
+              Live
+            </span>
+          ) : null}
+        </div>
+
+        {hasActionRows ? (
+          <SettingsPresentationProvider density="compact" separatorInset>
+            <SettingsGroup>
+              {sessionActions.map((step) => {
+                const headline = step.message || step.label;
+                const detail =
+                  step.message && step.label && step.message !== step.label
+                    ? step.label
+                    : step.tag;
+                const isRunning = step.status === "running" || step.status === "waiting";
+                const isIssue = step.status === "error" || step.status === "blocked";
+                return (
+                  <SettingsRow
+                    key={step.id}
+                    leading={
+                      <span
+                        className={cn(
+                          "inline-flex size-7 shrink-0 items-center justify-center rounded-full",
+                          isRunning
+                            ? "bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]"
+                            : isIssue
+                              ? "bg-amber-500/12 text-amber-600 dark:text-amber-400"
+                              : "bg-[color:var(--app-neutral-fill)] text-muted-foreground",
+                        )}
+                      >
+                        <ActionStepIcon icon={step.icon} />
+                      </span>
+                    }
+                    title={headline}
+                    description={detail}
+                    trailing={
+                      <span
+                        className={cn(
+                          "shrink-0 font-mono text-[11.5px] tabular-nums",
+                          isRunning
+                            ? "font-medium text-[color:var(--app-accent)]"
+                            : "text-muted-foreground",
+                        )}
+                      >
+                        {formatActionTiming(step)}
+                      </span>
+                    }
+                  />
+                );
+              })}
+              {todayJournalEvents.map((event) => {
+                const line = describeLiveActivity(event);
+                const title = event.count > 1 ? `${line} · ${event.count}×` : line;
+                return (
+                  <SettingsRow
+                    key={`journal-${event.id}`}
+                    leading={
+                      <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill)] text-muted-foreground">
+                        <Activity className="size-3.5" aria-hidden />
+                      </span>
+                    }
+                    title={title}
+                    trailing={
+                      <time
+                        className="shrink-0 font-mono text-[11.5px] tabular-nums text-muted-foreground"
+                        dateTime={new Date(event.lastAt).toISOString()}
+                      >
+                        {activityTimeFormat.format(event.lastAt)}
+                      </time>
+                    }
+                  />
+                );
+              })}
+            </SettingsGroup>
+          </SettingsPresentationProvider>
+        ) : (
+          <div className="rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-5 text-center">
+            <p className="text-[13.5px] font-medium text-foreground">
+              No actions recorded in this session yet.
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Tool executions and memory updates stream here live.
+            </p>
+          </div>
+        )}
+      </section>
+
+      <section
+        className={styles.terminalSection}
+        aria-label="Sandbox terminal"
+        data-testid="one-activity-terminal-section"
+      >
+        <button
+          type="button"
+          className={styles.terminalToggle}
+          aria-expanded={terminalExpanded}
+          onClick={() => setTerminalExpanded((current) => !current)}
+        >
+          <span className="inline-flex items-center gap-2">
+            <Code2 className="size-4 text-muted-foreground" aria-hidden />
+            <h3 data-app-pane-section-label>Sandbox terminal</h3>
+          </span>
+          <ChevronDown
+            className={cn(
+              "size-4 text-muted-foreground transition-transform duration-150 motion-reduce:transition-none",
+              !terminalExpanded && "-rotate-90",
+            )}
+            aria-hidden
+          />
         </button>
-      </div>
-      {loading && !data ? (
-        <p role="status" className={styles.notice}>
-          Loading your feed…
-        </p>
-      ) : null}
-      {error && !data ? (
-        <div className={styles.notice}>
-          <p>Your feed couldn’t load.</p>
-          <button
-            type="button"
-            onClick={() => {
-              void refresh({ force: true });
-            }}
-          >
-            Try again
-          </button>
-        </div>
-      ) : null}
-      {!loading && !error && !items.length ? (
-        <div className={styles.empty}>
-          <Newspaper className="size-7" aria-hidden />
-          <p>No recent activity.</p>
-          <span>New activity will appear here.</span>
-        </div>
-      ) : null}
-      {items.length ? (
-        <SettingsPresentationProvider density="compact" separatorInset>
-          <SettingsGroup>
-            {items.map((item) => (
-              <FeedRow key={item.id} item={item} onOpen={openFullFeed} />
-            ))}
-          </SettingsGroup>
-        </SettingsPresentationProvider>
-      ) : null}
+        {terminalExpanded ? (
+          <WorkspaceTerminalPanel ownerId={ownerId} active={active && terminalExpanded} />
+        ) : null}
+      </section>
     </div>
   );
 }
@@ -141,24 +278,58 @@ type OneAgentProfileProps = {
   modelControl?: ReactNode;
   nativeReady?: boolean;
   presenceState?: OnePresenceState;
+  sessionActions?: readonly OneSessionActionEntry[];
 };
 
 /** Rich One content uses the existing owned content plane, not a second
- * two-row menu. Native owns the header; the shared body owns Feed and tabs. */
-function NativeOneAgentProfile({ open, onOpenChange, modelControl, nativeReady = false, presenceState = "connected" }: OneAgentProfileProps) {
+ * two-row menu. Native owns the header; the shared body owns Activity, Tasks, and Profile. */
+function NativeOneAgentProfile({
+  open,
+  onOpenChange,
+  modelControl,
+  nativeReady = false,
+  presenceState = "connected",
+  sessionActions,
+}: OneAgentProfileProps) {
   const { user, userId } = useAuth();
   const context = JSON.stringify([userId, snapshotVaultSessionEpoch(), "one-profile"]);
   const todoBack = useRef<(() => boolean) | null>(null);
   const close = () => onOpenChange(false);
-  return <NativeFeaturePage pane open={open && nativeReady && !!user} title="One"
-    owner={userId} context={context} backLabel="Back to Chat" closeLabel="Close One profile"
-    bodyClassName={styles.nativeBody} onBack={() => { if (!todoBack.current?.()) close(); }} onClose={close}>
-    <OneProfileContent open={open && nativeReady} onOpenChange={onOpenChange} modelControl={modelControl} presenceState={presenceState} onTodoBackChange={handler => { todoBack.current = handler; }} />
-  </NativeFeaturePage>;
+  return (
+    <NativeFeaturePage
+      pane
+      open={open && nativeReady && !!user}
+      title="One"
+      owner={userId}
+      context={context}
+      backLabel="Back to Chat"
+      closeLabel="Close One profile"
+      bodyClassName={styles.nativeBody}
+      onBack={() => {
+        if (!todoBack.current?.()) close();
+      }}
+      onClose={close}
+    >
+      <OneProfileContent
+        open={open && nativeReady}
+        onOpenChange={onOpenChange}
+        modelControl={modelControl}
+        presenceState={presenceState}
+        sessionActions={sessionActions}
+        onTodoBackChange={(handler) => {
+          todoBack.current = handler;
+        }}
+      />
+    </NativeFeaturePage>
+  );
 }
 
 export function OneAgentProfileSheet(props: OneAgentProfileProps) {
-  return nativeDrawersPlatformEligible() ? <NativeOneAgentProfile {...props} /> : <WebOneAgentProfile {...props} />;
+  return nativeDrawersPlatformEligible() ? (
+    <NativeOneAgentProfile {...props} />
+  ) : (
+    <WebOneAgentProfile {...props} />
+  );
 }
 
 function WebOneAgentProfile({
@@ -167,50 +338,93 @@ function WebOneAgentProfile({
   triggerRef,
   modelControl,
   presenceState = "connected",
+  sessionActions,
 }: OneAgentProfileProps) {
   const todoBack = useRef<(() => boolean) | null>(null);
   return (
     <Sheet open={open} onOpenChange={onOpenChange} modal>
-      <SheetContent side="right" className={styles.sheet} data-app-side-pane showCloseButton={false} contentDragDismiss={false}
-        onEscapeKeyDown={event => { if (todoBack.current?.()) event.preventDefault(); }}
-        onCloseAutoFocus={event => {
-          if (triggerRef?.current?.isConnected) { event.preventDefault(); triggerRef.current.focus(); }
-        }}>
+      <SheetContent
+        side="right"
+        className={styles.sheet}
+        data-app-side-pane
+        showCloseButton={false}
+        contentDragDismiss={false}
+        onEscapeKeyDown={(event) => {
+          if (todoBack.current?.()) event.preventDefault();
+        }}
+        onCloseAutoFocus={(event) => {
+          if (triggerRef?.current?.isConnected) {
+            event.preventDefault();
+            triggerRef.current.focus();
+          }
+        }}
+      >
         <SheetClose asChild>
-          <button type="button" aria-label="Close One profile"
-            className="app-side-pane-close absolute right-5 z-10 inline-flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <button
+            type="button"
+            aria-label="Close One profile"
+            className="app-side-pane-close absolute right-5 z-10 inline-flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
             <X className="size-[22px]" aria-hidden />
           </button>
         </SheetClose>
-        <SheetDescription className="sr-only">One profile and activity.</SheetDescription>
-        <OneProfileContent open={open} onOpenChange={onOpenChange} modelControl={modelControl} presenceState={presenceState} sheet onTodoBackChange={handler => { todoBack.current = handler; }} />
+        <SheetDescription className="sr-only">
+          One workspace activity, terminal, tasks, and profile.
+        </SheetDescription>
+        <OneProfileContent
+          open={open}
+          onOpenChange={onOpenChange}
+          modelControl={modelControl}
+          presenceState={presenceState}
+          sessionActions={sessionActions}
+          sheet
+          onTodoBackChange={(handler) => {
+            todoBack.current = handler;
+          }}
+        />
       </SheetContent>
     </Sheet>
   );
 }
 
-/** One content model and hierarchy across renderers; no duplicated identity,
- * feed policy, private-name projection or tab/action authority. */
-function OneProfileContent({ open, onOpenChange, modelControl, presenceState = "connected", sheet = false, onTodoBackChange }: OneAgentProfileProps & { sheet?: boolean; onTodoBackChange?: (handler: (() => boolean) | null) => void }) {
+/** One content model and hierarchy across renderers; Feed stays strictly on its
+ * dedicated bottom-bar route while One's character pane hosts live Activity & Terminal. */
+function OneProfileContent({
+  open,
+  onOpenChange,
+  modelControl,
+  presenceState = "connected",
+  sessionActions,
+  sheet = false,
+  onTodoBackChange,
+}: OneAgentProfileProps & {
+  sheet?: boolean;
+  onTodoBackChange?: (handler: (() => boolean) | null) => void;
+}) {
   const { user, userId } = useAuth();
   const profileName = useOneDisplayName(open);
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
-  const router = useRouter();
-  const [tab, setTab] = useState("feed");
+  const [tab, setTab] = useState("activity");
   const scrollRef = useRef<HTMLDivElement>(null);
   const changeTab = (value: string) => {
     setTab(value);
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
   };
-  const navigate = (href: string) => {
-    onOpenChange(false);
-    router.push(href);
-  };
-  let feed: ReactNode = (
-    <p className={styles.notice}>Sign in to view your feed.</p>
+
+  let activity: ReactNode = (
+    <p className={styles.notice}>Sign in to view workspace activity and terminal.</p>
   );
-  if (open && tab === "feed" && user && userId)
-    feed = <OneFeedPreview key={userId} user={user} ownerId={userId} onNavigate={navigate} />;
+  if (open && tab === "activity" && user && userId) {
+    activity = (
+      <OneActivityWorkspace
+        key={userId}
+        ownerId={userId}
+        active={open && tab === "activity"}
+        isVaultUnlocked={isVaultUnlocked}
+        sessionActions={sessionActions}
+      />
+    );
+  }
 
   let todo: ReactNode = (
     <p className={styles.notice}>Sign in to view your to-do list.</p>
@@ -229,37 +443,52 @@ function OneProfileContent({ open, onOpenChange, modelControl, presenceState = "
     );
   }
 
-
-  return <div className={styles.content}>
-        <div className={styles.hero}>
-          <div className={styles.avatar}>
-            <OnePresenceAvatar state={presenceState} presentation="profile" className={styles.artwork} />
-          </div>
-          {sheet ? <SheetTitle className={styles.title}>{profileName}</SheetTitle> : <h2 className={styles.title}>{profileName}</h2>}
+  return (
+    <div className={styles.content}>
+      <div className={styles.hero}>
+        <div className={styles.avatar}>
+          <OnePresenceAvatar
+            state={presenceState}
+            presentation="profile"
+            className={styles.artwork}
+          />
         </div>
-        {modelControl ? <div className={styles.modelControl}>{modelControl}</div> : null}
-        <Tabs value={tab} onValueChange={changeTab} className={styles.tabs}>
-          <TabsList
-            className={styles.tabList}
-            aria-label="One profile sections"
-          >
-            <TabsTrigger value="feed">
-              <Newspaper aria-hidden /> Feed
-            </TabsTrigger>
-            <TabsTrigger value="todo"><ClipboardList aria-hidden /> Tasks</TabsTrigger>
-            <TabsTrigger value="profile">
-              <Fingerprint aria-hidden /> Profile
-            </TabsTrigger>
-          </TabsList>
-          <div ref={scrollRef} className={styles.scroll} data-one-profile-scroll>
-            <TabsContent value="feed">{feed}</TabsContent>
-            <TabsContent value="todo">{todo}</TabsContent>
-            <TabsContent value="profile">
-              <div className={styles.profile}>
-                <LiveMirrorPreview onNavigate={() => onOpenChange(false)} />
-              </div>
-            </TabsContent>
-          </div>
-        </Tabs>
-  </div>;
+        {sheet ? (
+          <SheetTitle className={styles.title}>{profileName}</SheetTitle>
+        ) : (
+          <h2 className={styles.title}>{profileName}</h2>
+        )}
+        <div className={styles.presenceSlot}>
+          <OneAgentPresenceForOwner
+            userId={userId}
+            compact
+            working={presenceState === "working"}
+          />
+        </div>
+      </div>
+      {modelControl ? <div className={styles.modelControl}>{modelControl}</div> : null}
+      <Tabs value={tab} onValueChange={changeTab} className={styles.tabs}>
+        <TabsList className={styles.tabList} aria-label="One profile sections">
+          <TabsTrigger value="activity">
+            <Activity aria-hidden /> Activity
+          </TabsTrigger>
+          <TabsTrigger value="todo">
+            <ClipboardList aria-hidden /> Tasks
+          </TabsTrigger>
+          <TabsTrigger value="profile">
+            <Fingerprint aria-hidden /> Profile
+          </TabsTrigger>
+        </TabsList>
+        <div ref={scrollRef} className={styles.scroll} data-one-profile-scroll>
+          <TabsContent value="activity">{activity}</TabsContent>
+          <TabsContent value="todo">{todo}</TabsContent>
+          <TabsContent value="profile">
+            <div className={styles.profile}>
+              <LiveMirrorPreview onNavigate={() => onOpenChange(false)} />
+            </div>
+          </TabsContent>
+        </div>
+      </Tabs>
+    </div>
+  );
 }

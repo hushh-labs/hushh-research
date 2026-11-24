@@ -10,6 +10,7 @@ const STACK_TRANSITION_MS = 150;
 
 export type ProfileStackEntry = {
   key: string;
+  scrollKey?: string;
   title: ReactNode;
   description?: ReactNode;
   content: ReactNode;
@@ -143,6 +144,8 @@ export function ProfileStackNavigator({
   const activeEntry = activeIndex > 0 ? renderedEntries[activeIndex - 1] : undefined;
   const liveActiveEntry = activeEntry ? entries.find(entry => entry.key === activeEntry.key) ?? activeEntry : undefined;
   const activeTitle = liveActiveEntry?.title;
+  const activeScrollKey =
+    activeKey === "root" ? "root" : liveActiveEntry?.scrollKey || activeKey;
   // Displayed metadata follows this committed body, not the requested route.
   // Route/Back authority still updates immediately in its existing owner.
   useLayoutEffect(() => {
@@ -162,19 +165,19 @@ export function ProfileStackNavigator({
     if (!scrollRoot) return;
 
     const previousKey = previousActiveKeyRef.current;
-    if (!resetScroll && previousKey !== activeKey) {
+    if (!resetScroll && previousKey !== activeScrollKey) {
       scrollPositionsRef.current[previousKey] = scrollRoot.scrollTop;
     }
 
     const nextTop = resetScroll
       ? 0
-      : scrollPositionsRef.current[activeKey] ?? 0;
+      : scrollPositionsRef.current[activeScrollKey] ?? 0;
     scrollRoot.scrollTo({ top: nextTop, behavior: "auto" });
-    previousActiveKeyRef.current = activeKey;
+    previousActiveKeyRef.current = activeScrollKey;
     // Mounting/pruning a retained screen is not a destination change. In the
     // pre-slide frame the outgoing screen still owns scroll; restoring here
     // would jump it to zero and overwrite its return position.
-  }, [activeKey, resetScroll]);
+  }, [activeScrollKey, resetScroll]);
 
   const screens = [
     {

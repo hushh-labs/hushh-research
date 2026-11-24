@@ -91,9 +91,18 @@ class WithdrawalBody(OperationBody):
 
 
 @router.get("/account")
-async def account(response: Response, user_id: Payer):
+async def account(response: Response, user_id: Payer, reconcile: bool = False):
     response.headers.update(NO_STORE)
     try:
+        if reconcile and _enabled():
+            try:
+                provider = _provider()
+                if hasattr(provider, "reconcile_payer_fundings"):
+                    await provider.reconcile_payer_fundings(payer_user_id=user_id, max_operations=3)
+                else:
+                    await provider.reconcile(max_operations=3)
+            except Exception:  # noqa: BLE001 - provider outage cannot block reading local ledger
+                logger.warning("scope_commerce.account_reconcile_failed")
         service = _service()
         data = _snake(await service.balance(payer_user_id=user_id, buyer_app_id="shared"))
         earnings = _snake(await service.earnings(owner_user_id=user_id))
@@ -150,13 +159,37 @@ async def account(response: Response, user_id: Payer):
 
 
 @router.get("/tariffs")
-async def tariff(scope_handle: str, machine_scope: str, response: Response, user_id: Payer):
+async def tariff(
+    response: Response,
+    user_id: Payer,
+    scope_handle: str | None = None,
+    machine_scope: str | None = None,
+):
     response.headers.update(NO_STORE)
     try:
-        result = await _service().get_tariff(
+        service = _service()
+        if scope_handle is None and machine_scope is None:
+            if hasattr(service, "list_tariffs_with_readiness"):
+                items, readiness_payload = await service.list_tariffs_with_readiness(
+                    owner_user_id=user_id
+                )
+            else:
+                items = await service.list_tariffs(owner_user_id=user_id)
+                readiness_payload = await service.readiness(viewer_user_id=user_id)
+            return {
+                "tariffs": [_snake(item) for item in items],
+                "readiness": readiness_payload,
+            }
+        if not scope_handle or not machine_scope:
+            raise HTTPException(
+                422, detail={"code": "exact_tariff_scope_required"}, headers=NO_STORE
+            )
+        result = await service.get_tariff(
             owner_user_id=user_id, scope_handle=scope_handle, machine_scope=machine_scope
         )
         return {"tariff": _snake(result) if result else None}
+    except HTTPException:
+        raise
     except Exception as error:
         raise _error(error) from None
 

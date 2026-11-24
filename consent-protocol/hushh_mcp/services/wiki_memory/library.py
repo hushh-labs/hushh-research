@@ -341,6 +341,7 @@ class WikiLibrary:
                 revision=int(staged["target_revision"]),
                 title=str(staged["title"]),
                 folder=str(staged["folder"]),
+                tldr=str(staged.get("tldr") or head.get("tldr") or ""),
                 status_as_of=str(staged["status_as_of"]),
                 updated_at=int(staged["updated_at"]),
                 last_batch_id=batch_id,
@@ -491,6 +492,7 @@ class WikiLibrary:
             "revision": 1,
             "title": revision_doc.title,
             "folder": revision_doc.folder,
+            "tldr": revision_doc.tldr,
             "status_as_of": revision_doc.status_as_of,
             "updated_at": now_ms,
             "state": "ready",
@@ -663,6 +665,7 @@ class WikiLibrary:
             "revision": target_rev,
             "title": next_doc.title,
             "folder": next_doc.folder,
+            "tldr": next_doc.tldr,
             "status_as_of": next_doc.status_as_of,
             "updated_at": now_ms,
             "revision_ids": rev_ids,
@@ -758,28 +761,39 @@ class WikiLibrary:
         )
 
     async def list_pages(self, *, folder: str | None = None) -> list[dict[str, Any]]:
+        import asyncio
+
         normalized_folder = None if folder is None else validate_folder(folder)
-        entries: list[dict[str, Any]] = []
-        for path in await self._list_all_paths("wiki/v1/heads"):
-            raw_head, _ = await self._read_json(path)
-            if raw_head is None:
-                continue
-            effective_head, pending_batch_id = await self._resolve_effective_head(raw_head)
+        paths = await self._list_all_paths("wiki/v1/heads")
+        if not paths:
+            return []
+        sem = asyncio.Semaphore(8)
+
+        async def _load_entry(path: str) -> dict[str, Any] | None:
+            async with sem:
+                raw_head, _ = await self._read_json(path)
+                if raw_head is None:
+                    return None
+                effective_head, pending_batch_id = await self._resolve_effective_head(raw_head)
             if effective_head is None or effective_head.get("state") == "trashed":
-                continue
+                return None
             if normalized_folder is not None and effective_head.get("folder") != normalized_folder:
-                continue
+                return None
             item: dict[str, Any] = {
                 "page_id": effective_head["page_id"],
                 "revision": int(effective_head["revision"]),
                 "title": effective_head["title"],
                 "folder": effective_head["folder"],
+                "tldr": str(effective_head.get("tldr") or ""),
                 "status_as_of": effective_head["status_as_of"],
                 "updated_at": int(effective_head["updated_at"]),
             }
             if pending_batch_id is not None:
                 item["pending_batch_id"] = pending_batch_id
-            entries.append(item)
+            return item
+
+        loaded = await asyncio.gather(*(_load_entry(path) for path in paths))
+        entries = [item for item in loaded if item is not None]
         entries.sort(key=lambda item: item["page_id"])
         return entries
 
@@ -1377,11 +1391,20 @@ class WikiLibrary:
         return WikiTombstone.from_mapping(raw).to_dict()
 
     async def list_tombstones(self) -> list[dict[str, Any]]:
-        out: list[dict[str, Any]] = []
-        for path in await self._list_all_paths("wiki/v1/tombstones"):
-            raw, _ = await self._read_json(path)
-            if raw is not None:
-                out.append(WikiTombstone.from_mapping(raw).to_dict())
+        import asyncio
+
+        paths = await self._list_all_paths("wiki/v1/tombstones")
+        if not paths:
+            return []
+        sem = asyncio.Semaphore(8)
+
+        async def _load_tb(path: str) -> dict[str, Any] | None:
+            async with sem:
+                raw, _ = await self._read_json(path)
+            return WikiTombstone.from_mapping(raw).to_dict() if raw is not None else None
+
+        loaded = await asyncio.gather(*(_load_tb(path) for path in paths))
+        out = [item for item in loaded if item is not None]
         out.sort(key=lambda item: (item["created_at"], item["tombstone_id"]))
         return out
 
@@ -1424,16 +1447,26 @@ class WikiLibrary:
         return WikiProjectionReceipt.from_mapping(raw).to_dict()
 
     async def list_projection_receipts(self, *, domain: str | None = None) -> list[dict[str, Any]]:
+        import asyncio
+
         normalized_domain = None if domain is None else validate_projection_domain(domain)
-        out: list[dict[str, Any]] = []
-        for path in await self._list_all_paths("wiki/v1/receipts"):
-            raw, _ = await self._read_json(path)
+        paths = await self._list_all_paths("wiki/v1/receipts")
+        if not paths:
+            return []
+        sem = asyncio.Semaphore(8)
+
+        async def _load_rec(path: str) -> dict[str, Any] | None:
+            async with sem:
+                raw, _ = await self._read_json(path)
             if raw is None:
-                continue
+                return None
             parsed = WikiProjectionReceipt.from_mapping(raw)
             if normalized_domain is not None and parsed.domain != normalized_domain:
-                continue
-            out.append(parsed.to_dict())
+                return None
+            return parsed.to_dict()
+
+        loaded = await asyncio.gather(*(_load_rec(path) for path in paths))
+        out = [item for item in loaded if item is not None]
         out.sort(key=lambda item: (item["domain"], item["json_path"], item["receipt_id"]))
         return out
 

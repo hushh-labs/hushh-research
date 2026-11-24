@@ -1,9 +1,9 @@
-<h1 align="center">Private Agent One</h1>
-
 <p align="center">
-  <strong>The Private Agent Platform</strong><br/>
-  <em>Consent-first private agents & scoped information infrastructure.</em><br/>
-  <em>Your information. Your vault. Your private agents.</em>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/brand/hussh-one-hero-dark.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/brand/hussh-one-hero-light.svg" />
+    <img alt="Private Agent One by Hussh" src="docs/assets/brand/hussh-one-hero-light.svg" width="100%" />
+  </picture>
 </p>
 
 <p align="center">
@@ -11,81 +11,75 @@
   <img src="https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=next.js&logoColor=white" alt="Next.js 16"/>
   <img src="https://img.shields.io/badge/FastAPI-Python_3.13-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI Python 3.13"/>
   <img src="https://img.shields.io/badge/Google%20ADK-Agent%20Runtime-4285F4?style=flat-square&logo=google&logoColor=white" alt="Google ADK"/>
-  <br/>
   <img src="https://img.shields.io/badge/A2A-Google%20Compatible-1a73e8?style=flat-square" alt="Google A2A Compatible"/>
   <img src="https://img.shields.io/badge/MCP-Developer%20Surface-7c3aed?style=flat-square" alt="MCP Developer Surface"/>
   <img src="https://img.shields.io/badge/License-Apache%202.0-d22128?style=flat-square" alt="Apache 2.0"/>
   <a href="https://discord.gg/fd38enfsH5"><img src="https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Discord"/></a>
 </p>
 
-**Hussh is your personal agent for the digital world—trusted by design, consent-first by default, and accountable only to you.**
+> [!IMPORTANT]
+> **Hussh is your personal agent platform for the digital world: trusted by design, consent-first by default, and accountable only to you.**
+> Hussh is the platform; **One** is your private agent. Every design decision follows the [Personal Data Agent identity](docs/product/principles/agent-ontology.md#personal-data-agent-founder-identity): duty of care, discretion, explicit consent, and your information as your private capital.
 
-“An agent should work for the person whose life it touches.” The approved
-[Personal Data Agent identity](docs/product/principles/agent-ontology.md#personal-data-agent-founder-identity)
-guides product decisions: duty of care, discretion, consent and your information
-as your private capital. Hussh is the platform; One is your private agent.
+One helps you remember, organize, and act across your digital life on Web, iOS, and Android. Connect the services you choose, keep your sovereign Vault encrypted on your own device, and choose where your agent runs: our **Shared runtime**, your own cloud (**Google Cloud** or **Microsoft Azure BYOC**), or an isolated **Personal Sandbox** (Dev preview).
 
-This monorepo contains the web and native apps, agent runtime, consent protocol,
-and deployment tooling. People can use the Shared runtime or connect a private
-agent in their own Google Cloud or Microsoft Azure environment.
-
-One helps you remember, understand and act across your digital life. Connect the
-services you choose, work with your private information, and review requests to
-share it. [Explore the product](docs/product/README.md) and its
-[capability boundaries](docs/product/capabilities.md).
+[Explore the product](docs/product/README.md) · [Read the architecture atlas](docs/architecture/README.md) · [Browse all documentation](docs/README.md)
 
 ## Visual Map
 
 ```mermaid
 flowchart TB
-  accTitle: One platform and owner-cloud boundaries
-  accDescr: The app uses the hub for coordination and admitted direct routes for a private agent. Shared is a separate selected runtime.
-  app["One app<br/>Web · iOS · Android"]
-  hub["Hussh control plane<br/>Identity · consent · placement · releases"]
-  shared["Shared runtime<br/>Managed AI and consented foreground tools"]
-  pod["Owner's private agent<br/>Google Cloud or Microsoft Azure"]
-  ai["Owner-selected AI connection"]
-  storage["Owner-cloud encrypted storage<br/>Recovery · Files"]
-  puppy["Puppy on a trusted computer<br/>BYOC grant and signed binding"]
+  accTitle: One platform trust boundaries and hosting modes
+  accDescr: The owner device holds the master vault key and connects directly to private runtimes while the control plane coordinates identity, consent, and placement.
 
-  app -->|Coordination| hub
+  subgraph OwnerDevice["Owner Device (Web · iOS · Android)"]
+    app["One App<br/>Master Vault Key never leaves device"]
+    puppy["Puppy Companion<br/>Optional local model relay on BYOC"]
+  end
+
+  subgraph ControlPlane["Hussh Control Plane"]
+    hub["Coordination Hub<br/>Identity · Consent · Placement · Zero-Content Wake"]
+  end
+
+  subgraph Runtimes["Explicitly Selected Agent Runtime"]
+    shared["Shared Runtime<br/>Managed AI & consented foreground tools"]
+    sandbox["Personal Sandbox (Dev Preview)<br/>Isolated microVM · Stateless Edge · Sentinel Egress"]
+    byoc["Owner Cloud Pod (BYOC)<br/>Your Google Cloud or Microsoft Azure"]
+  end
+
+  subgraph Custody["Encrypted Storage & Connected Services"]
+    storage["Encrypted Commit Log & Files<br/>Owner-scoped custody"]
+    connectors["Opted-In Connectors & AI<br/>Mail · Calendar · Drive · Custom MCP · Chosen Models"]
+  end
+
+  app -->|Signed coordination| hub
   app -->|Explicit Shared selection| shared
-  app <-->|Admitted direct connection| pod
-  hub -->|Signed coordination| pod
-  pod --> ai
-  pod <--> storage
-  pod <-->|Private relay| puppy
+  app <-->|Direct admitted TLS| sandbox
+  app <-->|Direct admitted TLS| byoc
+  hub -->|Zero-content wake & coordination| sandbox
+  hub -->|Zero-content wake & coordination| byoc
+  byoc <-->|Private relay| puppy
+  sandbox <--> storage
+  byoc <--> storage
+  sandbox --> connectors
+  byoc --> connectors
 ```
 
-See the [architecture index](docs/architecture/README.md) for detailed
-system, runtime, flow, deployment, and information-boundary views.
+See the [architecture atlas](docs/architecture/README.md) for system, sequence, hosting, and information-boundary views.
 
-## Product boundaries
+## Platform capabilities and maturity
 
-- **One** coordinates specialists through the existing ADK, consent, and action contracts.
-- **Files** has a dedicated explorer and specialist. Shared Files uses browser-side
-  encryption and remains subject to its pilot gates; private Files requires a supported pod.
-- **Puppy** uses a trusted device and owner-approved private relay on BYOC.
-- **Updates** are managed for Shared. Private-pod installation requires approval for
-  the exact release, followed by recovery and installed-version verification.
-- **Computer Use** shares the owner pod and remains gated by exact cloud, image,
-  model and lifecycle qualification. Chromium’s internal sandbox is enabled on
-  GCP and explicitly disabled in Azure’s reviewed configuration; the whole owner
-  container is the compromise boundary. A configured pod alone is not acceptance.
+| Capability | Status | What a person gets and where the boundary sits |
+| --- | --- | --- |
+| **One & Specialist Agents** | `Live` | One root agent coordinates finance (Kai), mail, calendar, documents, location, and sharing through explicit consent gates. |
+| **Zero-Knowledge Personal Vault** | `Live` | Client-side encrypted personal capital unlocked strictly on the owner's device; the master key never leaves the device. |
+| **Shared Runtime** | `Live` | Instant managed onboarding with consented foreground tools and managed updates. |
+| **Owner-Cloud Pods (GCP & Azure BYOC)** | `Live` | Dedicated private agent inside your own Google Cloud project or Azure subscription with owner-approved release upgrades and Puppy local-model relay. |
+| **Personal Sandbox & Autonomous Prep** | `Preview` | Single-use isolated sandboxes on Dev with stateless TLS edge routing, default-deny Sentinel egress, ~3s warm wakes, lossless multi-cloud cutover, 6-surface prompt-injection quarantine, and quiet offline preparation. |
+| **Files & Personal Wiki** | `Live` | Dedicated encrypted file explorer and personal wiki workspace; private Files requires a supported private pod or sandbox. |
+| **Computer Use (Browser)** | `Preview` | Owner-controlled browser inside a qualified private pod container with explicit cloud, image, model, and lifecycle gates. |
 
-The [private-agent north star](docs/product/principles/private-agent-requirements.md)
-owns custody, processing consent, recovery, revocation, and erasure requirements.
-[Operational acceptance](docs/operations/acceptance/private-agents.md) separates source capabilities from installed verification.
-
-## Repository
-
-| Home | Responsibility |
-| --- | --- |
-| [hushh-webapp](hushh-webapp) | Next.js, React, and Capacitor experience for Web, iOS, and Android |
-| [consent-protocol](consent-protocol) | FastAPI, PKM, consent, ADK agents, and MCP |
-| [packages](packages) | Shared packages and developer integrations |
-| [docs](docs) | Product, architecture, development, operations and roadmap |
-| [.agents](.agents/README.md) | Authored development instructions, skills, workflows, and engineering lanes |
+Review the [private-agent north star](docs/product/principles/private-agent-requirements.md) for custody, recovery, revocation, and erasure requirements, and [operational acceptance](docs/operations/acceptance/private-agents.md) for how source capabilities differ from installed verification.
 
 ## Quick start
 
@@ -96,7 +90,7 @@ cd hushh-research
 ./bin/hushh doctor --mode local
 ```
 
-For local development, run each component in its own terminal:
+Run each local runtime component in its own terminal:
 
 ```bash
 ./bin/hushh proxy --mode local
@@ -104,19 +98,36 @@ For local development, run each component in its own terminal:
 ./bin/hushh web --mode local
 ```
 
-See [Getting started](docs/development/guides/getting-started.md) for prerequisites and
-[environment profiles](docs/operations/environments.md) for backend selection.
-The protocol package also supports its [standalone workflow](consent-protocol/README.md).
+See [Getting started](docs/development/guides/getting-started.md) for prerequisites, [environment profiles](docs/operations/environments.md) for backend selection, and the [standalone protocol workflow](consent-protocol/README.md) for backend-only work.
+
+## Repository map
+
+| Home | Responsibility |
+| --- | --- |
+| [hushh-webapp](hushh-webapp) | Next.js, React, and Capacitor app for Web, iOS, and Android |
+| [consent-protocol](consent-protocol) | FastAPI runtime, PKM, consent protocol, ADK agents, and MCP server |
+| [packages](packages) | Shared packages and developer integrations (`@hushh/mcp`) |
+| [docs](docs/README.md) | Five-pillar human and technical documentation atlas |
+| [.agents](.agents/README.md) | Portable coding-agent instructions, skills, workflows, and evaluations |
 
 ## Read next
 
 | Audience | Start here |
 | --- | --- |
-| Understand One | [Product](docs/product/README.md) · [system architecture](docs/architecture/README.md) · [principles](docs/product/principles/README.md) |
-| Contributors | [Contributor guide](contributing.md) · [project map](docs/development/repository-map.md) · [testing](TESTING.md) |
-| Operators | [Operations index](docs/operations/README.md) · [CI](docs/operations/releases/ci.md) |
-| Coding agents | [AGENTS.md](AGENTS.md) · [development system](.agents/README.md) |
+| **Understand One** | [Product overview](docs/product/README.md) · [Capabilities](docs/product/capabilities.md) · [Architecture atlas](docs/architecture/README.md) |
+| **Contributors** | [Contributor guide](contributing.md) · [Repository map](docs/development/repository-map.md) · [Testing guide](TESTING.md) |
+| **Operators** | [Operations hub](docs/operations/README.md) · [CI & release governance](docs/operations/releases/ci.md) · [Environments](docs/operations/environments.md) |
+| **Documentation authors** | [Documentation standard](docs/development/documentation.md) · [Brand contract](docs/operations/brand-and-compatibility-contract.md) |
 
-First-party code is Apache-2.0. Sign commits with `git commit -s` and follow the
-existing verification and release gates. Main, UAT, and production promotion retain
-separate authority.
+<details>
+<summary><strong>For coding agents: start here (operating contract, one-hop index, and rules)</strong></summary>
+
+1. Read [AGENTS.md](AGENTS.md) and [`.agents/instructions.md`](.agents/instructions.md) first; they are the single portable operating contract for every coding agent.
+2. Read [llms.txt](llms.txt) for a one-hop machine discovery map of canonical product, architecture, contract, and operational docs.
+3. Orient and route recurring tasks through [`.agents/README.md`](.agents/README.md) and `./bin/hushh agents route-task <workflow-id>`.
+4. Never create vendor-specific agent directories (`.claude`, `.codex`, `.qwen`) or duplicate instruction copies.
+5. Sign commits with `git commit -s` and pass local pre-PR checks (`./bin/hushh docs verify`, affected backend/frontend gates) before pushing. Main, UAT, and production promotion retain separate release authority.
+
+</details>
+
+First-party code is licensed under [Apache-2.0](LICENSE).

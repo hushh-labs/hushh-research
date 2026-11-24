@@ -7,6 +7,16 @@ import { FilesLocalError } from "@/lib/files/local-error";
 import { toast } from "sonner";
 import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { ApiService } from "@/lib/services/api-service";
+import {
+  evictInMemoryFilesCacheForTests,
+  setFilesHostingCache,
+  setFilesListCache,
+} from "@/lib/files/files-cache";
+import {
+  deleteEncryptedOwnerUiRecords,
+  flushEncryptedOwnerUiWritesForTests,
+  inspectRawMemoryUiCacheForTests,
+} from "@/lib/storage/encrypted-owner-ui-cache";
 
 describe("Files form submission", () => {
   beforeEach(() => {
@@ -33,7 +43,11 @@ describe("Files form submission", () => {
     publishValidatedAuthSessionPrincipal({ firebaseUid: "synthetic-owner", ownerId: session.ownerId, accountGeneration: 1 });
     render(<FilesWorkspace />);
     await waitFor(() => expect(files.list).toHaveBeenCalled());
-    expect(await screen.findByRole("button", { name: "New folder", exact: true })).toBeEnabled();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "New folder", exact: true }),
+      ).toBeEnabled(),
+    );
   });
 
   it("waits for the initial library read before enabling file actions", async () => {
@@ -316,4 +330,69 @@ describe("Files form submission", () => {
       expect(files.createFolder).not.toHaveBeenCalled();
     },
   );
+
+  it("hydrates root and nested folders from encrypted IDB offline without skeleton hangs or wiping hosting cache", async () => {
+    await deleteEncryptedOwnerUiRecords();
+    const realVaultKey = "d4".repeat(32);
+    session.vaultKey = realVaultKey;
+    publishValidatedAuthSessionPrincipal({
+      firebaseUid: "synthetic-owner",
+      ownerId: "synthetic-owner",
+      accountGeneration: 0,
+    });
+
+    const folderEntry = fileEntry({
+      id: "folder-1",
+      name: "Projects",
+      originalName: "Projects",
+      kind: "folder",
+      size: 0,
+      received: 0,
+    });
+    const rootFile = fileEntry({
+      id: "root-file-1",
+      name: "root-notes.txt",
+      originalName: "root-notes.txt",
+    });
+    const nestedFile = fileEntry({
+      id: "nested-file-1",
+      name: "project-brief.md",
+      originalName: "project-brief.md",
+      parent: "folder-1",
+    });
+
+    setFilesHostingCache("synthetic-owner", realVaultKey, "pod");
+    setFilesListCache("synthetic-owner", "root", "", false, {
+      entries: [folderEntry, rootFile],
+      cursor: "",
+    });
+    setFilesListCache("synthetic-owner", "folder-1", "", false, {
+      entries: [nestedFile],
+      cursor: "",
+    });
+    await flushEncryptedOwnerUiWritesForTests();
+
+    evictInMemoryFilesCacheForTests("synthetic-owner");
+    vi.mocked(ApiService.getPersonalAgentStatus).mockRejectedValue(
+      new TypeError("Hub offline"),
+    );
+    files.list.mockRejectedValue(new TypeError("Pod waking"));
+
+    try {
+      render(<FilesWorkspace />);
+      expect(await screen.findByText("root-notes.txt")).toBeInTheDocument();
+      expect(screen.queryByText(/Checking your Files connection/)).toBeNull();
+      expect(screen.queryByTestId("files-cold-skeleton")).toBeNull();
+      expect(
+        inspectRawMemoryUiCacheForTests().has("synthetic-owner::files:hosting:v1"),
+      ).toBe(true);
+
+      fireEvent.click(screen.getByRole("button", { name: "Projects" }));
+      expect(await screen.findByText("project-brief.md")).toBeInTheDocument();
+      expect(screen.queryByTestId("files-cold-skeleton")).toBeNull();
+    } finally {
+      await deleteEncryptedOwnerUiRecords();
+      session.vaultKey = "synthetic-memory-only";
+    }
+  });
 });

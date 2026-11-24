@@ -11,6 +11,8 @@ from google.adk.memory.base_memory_service import BaseMemoryService
 
 logger = logging.getLogger(__name__)
 _memory_replay: tuple[Any, Any] | None = None
+_WIKI_HYGIENE_MIN_INTERVAL_SECONDS = 300.0
+_LAST_WIKI_HYGIENE_AT: dict[str, float] = {}
 
 
 class PodChatMemory(BaseMemoryService):
@@ -113,7 +115,11 @@ class PodChatMemory(BaseMemoryService):
             input.state[STATE_WIKI_HOT_DIGEST] = wiki_hot
 
     async def commit(self, input) -> bool:
+        import hashlib
+        import time
+
         from hushh_mcp.one_adk.agent_tree import ONE_APP_NAME
+        from hushh_mcp.one_adk.rolling_horizon import persist_rolling_horizon_post_turn
 
         await self.context.require_access()
         session = await self.context.sessions.get_session(
@@ -121,20 +127,63 @@ class PodChatMemory(BaseMemoryService):
         )
         if session is None:
             raise RuntimeError("Pod conversation recovery unavailable.")
-        session = session.model_copy(
-            update={
-                "events": [
-                    event for event in session.events if event.id not in self._prior_event_ids
-                ],
-            }
-        )
+
+        # 1. Silently distill older turns beyond the verbatim horizon into encrypted state
+        try:
+            await persist_rolling_horizon_post_turn(
+                self.context.sessions,
+                app_name=ONE_APP_NAME,
+                user_id=self.context.owner,
+                session_id=input.thread_id,
+                session=session,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("pod_chat.rolling_horizon_failed kind=%s", type(exc).__name__)
+
+        new_events = [event for event in session.events if event.id not in self._prior_event_ids]
+        session = session.model_copy(update={"events": new_events})
         # The existing memory service owns extraction and provider consent.
         # No second memory store or synthetic owner capability is introduced.
+        wrote = False
         try:
-            return await self._add_session_to_memory_with_status(session)
+            wrote = await self._add_session_to_memory_with_status(session)
         except Exception as exc:
             logger.warning("pod_chat.memory_write_failed kind=%s", type(exc).__name__)
-            return False
+            wrote = False
+
+        # 2. Continuous bounded background wiki hygiene (grant-pinned deduplication & link/digest refresh)
+        # Throttle hygiene sweeps so rapid conversational turns never flood storage with redundant scans.
+        now_mono = time.monotonic()
+        last_hyg = _LAST_WIKI_HYGIENE_AT.get(self.context.owner)
+        hygiene_due = (
+            last_hyg is None or (now_mono - last_hyg) >= _WIKI_HYGIENE_MIN_INTERVAL_SECONDS
+        )
+        if new_events and self.wiki_library is not None and hygiene_due:
+            _LAST_WIKI_HYGIENE_AT[self.context.owner] = now_mono
+            try:
+                from hushh_mcp.services.pod_files.runtime import (
+                    require_files_access,
+                    wiki_operation,
+                )
+                from hushh_mcp.services.wiki_memory import (
+                    WikiMaintenanceRunner,
+                    resolve_owner_protected_grant_scopes,
+                )
+
+                protected = await resolve_owner_protected_grant_scopes(self.context.owner)
+                await require_files_access(manage=True)
+                async with wiki_operation(mutation=True) as wiki:
+                    seed = f"bg_hyg:{self.context.owner}:{input.thread_id}:{int(time.time() // 60)}"
+                    idem = f"hyg_{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:24]}"
+                    await WikiMaintenanceRunner(wiki).run_tick(
+                        idempotency_key=idem,
+                        max_pages_per_tick=4,
+                        protected_scopes=protected,
+                    )
+            except Exception:  # noqa: BLE001 - continuous hygiene never fails a completed turn
+                pass
+
+        return wrote
 
 
 async def build_memory_hooks(

@@ -32,7 +32,7 @@ import { InformationRequestReviewFields } from "@/components/consent/information
 import { DEFAULT_REQUEST_DURATION_HOURS, requestDurationLabel } from "@/lib/agent/action-directive-summary";
 import { PersonProfileService, mergePersonScopePage, type InformationRequestBundle, type RequestablePersonScope, type ViewerPersonProfile } from "@/lib/services/person-profile-service";
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
-import { ConnectorReadReceipt, WorkspaceConnectorSetupCard } from "@/components/agent/connector-read-receipt";
+import { ConnectorReadReceipt, TurnLocationPermissionCard, WorkspaceConnectorSetupCard } from "@/components/agent/connector-read-receipt";
 import { MailChatCard } from "@/components/agent/mail-chat-card";
 import { CustomConnectorProbeCard } from "@/components/agent/custom-connector-probe-card";
 import type { DriveCompilationUiState } from "@/lib/agent/drive-batch-progress";
@@ -140,6 +140,8 @@ export function AgentStructuredExperienceView({
         driveCompilation={driveCompilation} />;
     case "one.workspace_connector_setup.v1":
       return <WorkspaceConnectorSetupCard experience={experience} onOpenConnections={onOpenConnections} />;
+    case "one.turn_location_permission.v1":
+      return <TurnLocationPermissionCard experience={experience} />;
     case "one.mail_brief.v1": case "one.receipt_setup.v1": return <MailChatCard experience={experience} />;
     case "one.custom_connector_probe.v1":
       return <CustomConnectorProbeCard experience={experience} onOpenConnections={onOpenConnections} />;
@@ -883,6 +885,7 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
       person={{ personRef: experience.subjectRef, displayName: experience.personName }}
       items={sharedItems}
       variant="embedded"
+      presentation="modal"
     />
   ) : null;
   const sharedCard = sharedItems.length && experience.subjectRef ? (

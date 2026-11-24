@@ -287,9 +287,10 @@ export class GoogleCalendarService {
     userId: string;
     proposalId: string;
     accountId?: string;
+    reviewContract?: 1;
   }): Promise<CalendarExecution> {
     if (await ownerContentIsPrivate()) {
-      const value = await confirmPrivateGoogleAction(params.proposalId, 'calendar');
+      const value = await confirmPrivateGoogleAction(params.proposalId, 'calendar', params.reviewContract);
       if (!['create', 'reschedule', 'cancel'].includes(String(value.action)) || !value.event || typeof value.event !== 'object') throw new Error('Your agent could not confirm the Calendar outcome.');
       return value as CalendarExecution;
     }
@@ -305,6 +306,7 @@ export class GoogleCalendarService {
           user_id: params.userId,
           proposal_id: params.proposalId,
           ...(params.accountId ? { account_id: params.accountId } : {}),
+          ...(params.reviewContract === 1 ? { review_contract: 1 } : {}),
         }),
       },
     );

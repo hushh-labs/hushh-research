@@ -113,7 +113,7 @@
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "6c5ff1cdec94b7ebb762196a1f49221a12efaf426625d4584752b70c696f5d9c",
+      "system_instruction_sha256": "be8cff3866d6b807c3c8d0d1eb38d556d7d9afc51310c515823d03c6768cf76a",
       "telemetry_namespace": "agent.calendar",
       "tools": [
         {
@@ -135,7 +135,7 @@
           "required_scope": "cap.one.invoke"
         },
         {
-          "description": "List a bounded page of events in an exact time interval on the primary calendar or a previously offered subscribed calendar selected by calendar_ordinal; optionally match search text. A next-page token means more exist.",
+          "description": "List a bounded native page in an exact interval, optionally with search text or a verified connected-account creator filter; retain truncation and unknown creators. Select subscribed calendars by offered ordinal and continue the same search with next_page.",
           "name": "calendar_events",
           "py_func": "hushh_mcp.agents.calendar.tools.calendar_events",
           "required_scope": "cap.one.invoke"
@@ -165,13 +165,13 @@
           "required_scope": "cap.one.invoke"
         },
         {
-          "description": "Prepare a new Google Meet event for explicit owner confirmation; Calendar shares the invite with guests after confirmation.",
+          "description": "Prepare a timed or all-day event, optionally with bounded weekly recurrence and reminders, for explicit owner confirmation; invitations and requested Google Meet are created only after confirmation.",
           "name": "propose_calendar_event",
           "py_func": "hushh_mcp.agents.calendar.tools.propose_calendar_event",
           "required_scope": "cap.one.invoke"
         },
         {
-          "description": "Prepare an existing event change for explicit owner confirmation; only named fields change, and the review lists every attendee added or removed.",
+          "description": "Prepare an exact existing occurrence change, including guest/reminder additions with times omitted; only named fields change and every attendee addition/removal is reviewed before confirmation.",
           "name": "propose_calendar_reschedule",
           "py_func": "hushh_mcp.agents.calendar.tools.propose_calendar_reschedule",
           "required_scope": "cap.one.invoke"
@@ -2103,20 +2103,32 @@
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "8829c9f173835aaccdb26da535a9b728420ed8b8c48f645af70fde164c77a014",
+      "system_instruction_sha256": "fe5d3b5d0e3bf8e1b7dc76a2d6742c4afacb8a03d2ec4cb1568473ddcf7c5702",
       "telemetry_namespace": "agent.files",
       "tools": [
         {
-          "description": "List one bounded page of owner library metadata after analysis consent.",
+          "description": "List bounded owner library metadata (optionally recursive), excluding excluded folders.",
           "name": "list_files",
           "py_func": "hushh_mcp.one_adk.files_tools.list_files",
           "required_scope": "files.read"
         },
         {
-          "description": "Read supported bounded text content after library analysis consent.",
+          "description": "Search owner library files and folders recursively by normalized name or path.",
+          "name": "search_files",
+          "py_func": "hushh_mcp.one_adk.files_tools.search_files",
+          "required_scope": "files.read"
+        },
+        {
+          "description": "Read or extract bounded file content (text, PDF, XLSX, HTML, or metadata fallback) by ID or filename.",
           "name": "read_file",
           "py_func": "hushh_mcp.one_adk.files_tools.read_file",
           "required_scope": "files.read"
+        },
+        {
+          "description": "Create a bounded UTF-8 text, markdown, JSON, or CSV file with idempotent request_id.",
+          "name": "write_file",
+          "py_func": "hushh_mcp.one_adk.files_tools.write_file",
+          "required_scope": "files.manage"
         },
         {
           "description": "Create an empty folder with idempotent request identity and current consent.",
@@ -5041,7 +5053,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "94cb58a133a28d777e9a208e85d4929cf98aa27080423d4410f0d4c85ea417ce",
+      "system_instruction_sha256": "7e101b40e7828b325be416f0f0e936de3f4c842f0924f5985a5e6448d738b643",
       "telemetry_namespace": "agent.one",
       "tools": [
         {
@@ -5561,7 +5573,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "760c7a9289e241fe533c12958bd0cec82314ea8c269ef436897da493573e252f",
+      "system_instruction_sha256": "1768551e3e0d2491323ec83df320f7b93246e0141de78e2f2a09b4760dc400b6",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",

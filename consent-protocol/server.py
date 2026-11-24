@@ -523,6 +523,24 @@ logger.info(
 
 
 @app.on_event("startup")
+async def startup_dev_sandbox_custody_bootstrap() -> None:
+    """Self-hydrate Dev Hub sandbox custody secrets on Cloud Run dev when unset."""
+    if pod_mode():
+        return
+    try:
+        from hushh_mcp.services.dev_sandbox_custody_bootstrap import (  # noqa: PLC0415
+            bootstrap_dev_hub_sandbox_custody,
+        )
+
+        await asyncio.to_thread(bootstrap_dev_hub_sandbox_custody)
+    except Exception as exc:  # noqa: BLE001 - fail-safe so non-sandbox routes still boot
+        logger.warning(
+            "startup.dev_sandbox_custody_bootstrap_failed reason=%s",
+            type(exc).__name__,
+        )
+
+
+@app.on_event("startup")
 async def startup_widen_default_executor() -> None:
     """Give the asyncio default thread-pool executor more room.
 

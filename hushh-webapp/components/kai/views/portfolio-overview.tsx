@@ -16,15 +16,21 @@ import { overviewFacts } from "./portfolio-display-facts";
 
 const money = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
 
+/** The web and native overview use the same displayed position/allocation facts. */
+export function portfolioOverviewLayout(model: DashboardViewModel) {
+  const positions = [...model.canonicalModel.positions].filter(position => !position.isCashEquivalent && position.marketValue > 0).sort((a, b) => b.marketValue - a.marketValue);
+  const allocations = model.allocation.filter(item => item.value > 0 && Number.isFinite(item.value));
+  const allocationTotal = allocations.reduce((sum, item) => sum + item.value, 0);
+  const denominator = model.hero.totalValue > 0 ? model.hero.totalValue : allocationTotal;
+  return { positions, allocations, allocationTotal, denominator };
+}
+
 export function PortfolioOverview({ model, portfolio, source, period, action, briefing, sharing, onImport, onOpenSection }: {
   model: DashboardViewModel; portfolio?: PortfolioData | null; source: string;
   period: string; action?: ReactNode; briefing?: ReactNode; sharing?: ReactNode; onImport?: () => void; onOpenSection: (section: KaiPortfolioSection) => void;
 }) {
   const facts = overviewFacts(model, portfolio);
-  const positions = [...model.canonicalModel.positions].filter(position => !position.isCashEquivalent && position.marketValue > 0).sort((a, b) => b.marketValue - a.marketValue);
-  const allocations = model.allocation.filter(item => item.value > 0 && Number.isFinite(item.value));
-  const allocationTotal = allocations.reduce((sum, item) => sum + item.value, 0);
-  const denominator = model.hero.totalValue > 0 ? model.hero.totalValue : allocationTotal;
+  const { positions, allocations, allocationTotal, denominator } = portfolioOverviewLayout(model);
   return <div className="space-y-4" data-testid="portfolio-overview">
     <div className={styles.portfolioTop}>
       <PortfolioValueCard source={source} value={model.hero.totalValue} {...facts} period={period} history={model.quality.historyReady ? model.history : []} action={action} />

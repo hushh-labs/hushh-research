@@ -24,6 +24,7 @@ import re
 import time
 from typing import Any
 
+from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 
 from hushh_mcp.one_adk.request_secrets import (
@@ -282,14 +283,37 @@ async def execute_pod_wiki_tool(
         if name == "search_wiki":
             tombstones = await library.list_tombstones()
             dead_pages = {tb["target_id"] for tb in tombstones if tb["target_kind"] == "page"}
+            dead_claims = {tb["target_id"] for tb in tombstones if tb["target_kind"] == "claim"}
             hits = await library.search(
                 request["query"],
                 limit=request["limit"],
                 folder=request.get("folder"),
             )
-            filtered = [hit for hit in hits if hit["page_id"] not in dead_pages]
+            filtered = [dict(hit) for hit in hits if hit["page_id"] not in dead_pages]
             if not filtered:
                 return _envelope("absent", query=request["query"], results=[])
+            # Attach bounded non-tombstoned claims_preview for the top 2 hits so
+            # One can answer directly in 1 tool hop instead of paying an extra
+            # serial LLM round trip on every memory question (~45% faster recall).
+            for hit in filtered[:2]:
+                try:
+                    page = await library.read_page(hit["page_id"], require_settled=True)
+                except WikiRefused:
+                    continue
+                live_claims = [
+                    {
+                        "claim_id": c["claim_id"],
+                        "statement": str(c.get("statement") or "")[:240],
+                        "status": c["status"],
+                        "observed_at": c.get("observed_at"),
+                    }
+                    for c in page.get("claims", [])
+                    if c.get("status") in {"active", "superseded", "uncertain"}
+                    and c.get("claim_id") not in dead_claims
+                ][:6]
+                if live_claims:
+                    hit["status_as_of"] = page.get("status_as_of")
+                    hit["claims_preview"] = live_claims
             return _envelope("ok", results=filtered)
 
         if name == "read_wiki_page":
@@ -325,6 +349,38 @@ async def execute_pod_wiki_tool(
                 status = "conflicted"
             else:
                 status = "ok"
+
+            # Privacy fence: never send tombstoned claim text or tombstoned page
+            # prose back to the model after an owner Forget request.
+            visible_tldr = "" if page_tb is not None else page["tldr"]
+            visible_body = (
+                "[page removed by owner request]" if page_tb is not None else page["body"]
+            )
+            visible_claims: list[dict[str, Any]] = []
+            for claim in claims:
+                cid = claim.get("claim_id")
+                if page_tb is not None or cid in dead_claims:
+                    raw_stmt = str(claim.get("statement") or "").strip()
+                    if page_tb is None and isinstance(visible_body, str):
+                        if raw_stmt:
+                            visible_body = visible_body.replace(
+                                raw_stmt, "[removed by owner request]"
+                            )
+                        if isinstance(cid, str) and cid:
+                            visible_body = "\n".join(
+                                "[removed by owner request]" if cid in line else line
+                                for line in visible_body.splitlines()
+                            )
+                    visible_claims.append(
+                        {
+                            "claim_id": cid,
+                            "status": "retracted",
+                            "tombstoned": True,
+                            "statement": "[removed by owner request]",
+                        }
+                    )
+                else:
+                    visible_claims.append(claim)
             return _envelope(
                 status,
                 page_id=page["page_id"],
@@ -332,9 +388,9 @@ async def execute_pod_wiki_tool(
                 title=page["title"],
                 folder=page["folder"],
                 status_as_of=page["status_as_of"],
-                tldr=page["tldr"],
-                body=page["body"],
-                claims=claims,
+                tldr=visible_tldr,
+                body=visible_body,
+                claims=visible_claims,
                 links=page["links"],
                 source_ids=page["source_ids"],
                 **({"tombstone_id": page_tb["tombstone_id"]} if page_tb else {}),
@@ -416,10 +472,15 @@ def wiki_recall_instruction(
             "When CONSENTED TURN INFORMATION already answers a verified record, answer from it. "
             "When the owner asks about personal preferences, projects, notes, relationships, or "
             "imported history not fully answered there (or listed in <personal_wiki_hot_digest>), "
-            "call `search_wiki`, then `read_wiki_page` for the settled page, and `trace_claim` when "
+            "call `search_wiki`; if its returned `claims_preview` already answers the question "
+            "completely, answer directly without an extra `read_wiki_page` call. Call "
+            "`read_wiki_page` when full page prose is needed, and `trace_claim` when "
             'verifying provenance or contradictions; do not guess. Never treat `status="stale"` '
             '(retracted or forgotten) claims as current truth, and when `status="conflicted"` '
-            "surface the disagreement plainly without guessing."
+            "surface the disagreement plainly without guessing. "
+            "When the owner explicitly asks to save, remember, or add information to their "
+            "Personal Wiki or memory, call `add_to_pkm` once and never say you cannot update "
+            "their Personal Wiki."
         )
     else:
         parts.append(
@@ -815,6 +876,46 @@ async def trace_claim(
     return await _run_fenced_pod_wiki_recall("trace_claim", payload)
 
 
+async def optimize_personal_memory(tool_context: ToolContext) -> dict[str, Any]:
+    """Consolidate and optimize the owner's personal knowledge base and wiki.
+
+    Deduplicates redundant facts, retires expired noise, repairs broken links and missing
+    summaries, refreshes the hot digest, and strictly preserves every active or paid
+    shared scope without guessing on active contradictions.
+    """
+    from hushh_mcp.services.pod_files.library import FilesRefused
+    from hushh_mcp.services.pod_files.runtime import require_files_access, wiki_operation
+    from hushh_mcp.services.pod_upgrade_admission import PodUpgradeAdmissionRefused
+    from hushh_mcp.services.wiki_memory import (
+        WikiMaintenanceRunner,
+        resolve_owner_protected_grant_scopes,
+    )
+
+    state = getattr(tool_context, "state", None)
+    owner_uid = str(state.get("hussh:user_id") or "") if state is not None else ""
+    if not owner_uid:
+        return _envelope("unavailable", code="vault_required")
+
+    idem_seed = f"chat_opt:{owner_uid}:{int(time.time())}"
+    idem = f"opt_{hashlib.sha256(idem_seed.encode('utf-8')).hexdigest()[:24]}"
+    try:
+        protected_scopes = await resolve_owner_protected_grant_scopes(owner_uid)
+        await require_files_access(manage=True)
+        async with wiki_operation(mutation=True) as wiki:
+            summary = await WikiMaintenanceRunner(wiki).optimize_knowledge_base(
+                idempotency_key=idem,
+                protected_scopes=protected_scopes,
+            )
+            await require_files_access(manage=True)
+            return _envelope("ok", **summary)
+    except PodUpgradeAdmissionRefused:
+        return _envelope("unavailable", code="upgrade_in_progress")
+    except FilesRefused as exc:
+        return _envelope("unavailable", code=exc.code)
+    except WikiRefused as exc:
+        return _envelope("unavailable", code=exc.code)
+
+
 def pod_wiki_recall_tools() -> list[Any]:
-    """Return closed ADK Personal Wiki recall tools for One's Pod root agent."""
-    return [search_wiki, read_wiki_page, trace_claim]
+    """Return closed ADK Personal Wiki recall and optimization tools for One's Pod root agent."""
+    return [search_wiki, read_wiki_page, trace_claim, optimize_personal_memory]

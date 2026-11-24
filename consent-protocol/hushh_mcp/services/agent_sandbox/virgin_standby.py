@@ -292,7 +292,11 @@ class VirginStandbyRuntime:
                         ("hub_url", ("HUSSH_HUB_URL", "HUSSH_HUB_BASE_URL")),
                         (
                             "scheduler_caller_emails",
-                            ("HUSHH_SCHEDULER_CALLER_EMAILS", "HUSSH_POD_HUB_CALLER_EMAILS"),
+                            (
+                                "HUSHH_SCHEDULER_CALLER_EMAILS",
+                                "HUSSH_POD_HUB_CALLER_EMAILS",
+                                "HUSSH_POD_TICK_ALLOWED_EMAILS",
+                            ),
                         ),
                         ("consent_ed25519_public_keys", ("CONSENT_ED25519_PUBLIC_KEYS",)),
                         ("hub_public_key", ("CONSENT_ED25519_PUBLIC_KEYS",)),
@@ -334,6 +338,7 @@ class VirginStandbyRuntime:
                         os.environ.setdefault("POD_HOST_KIND", "gcp_ace")
                         os.environ.setdefault("POD_FILES_ENABLED", "true")
                         os.environ.setdefault("HUSSH_POD_FILES_ENABLED", "true")
+                        os.environ.setdefault("POD_LOCAL_PKM_ENABLED", "true")
                     elif not (os.environ.get("POD_STORAGE_BACKEND") or "").strip():
                         os.environ.setdefault("POD_DURABLE_IDENTITY_ENABLED", "0")
                     if str(payload.get("sandbox_name") or "").strip():

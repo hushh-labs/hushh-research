@@ -16,6 +16,7 @@ import { ownerCloudProvider } from "@/lib/one/owner-cloud";
 import { useVault } from "@/lib/vault/vault-context";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 import { useProactiveAgentWake } from "@/lib/feed/use-proactive-agent-wake";
+import { hasRecentAgentAnswer } from "@/lib/services/pod-chat-turn-transport";
 
 /**
  * "Your Agent One" — the first place a human SEES their own sovereign agent.
@@ -93,10 +94,32 @@ function toAgentState(value: unknown): AgentState | null {
 
 export function OneAgentPresence({ compact = false }: { compact?: boolean }) {
   const { userId } = useAuth();
-  return userId ? <OwnerAgentPresence key={userId} userId={userId} compact={compact} /> : null;
+  return <OneAgentPresenceForOwner userId={userId} compact={compact} />;
 }
 
-function OwnerAgentPresence({ userId, compact }: { userId: string; compact: boolean }) {
+export function OneAgentPresenceForOwner({
+  userId,
+  compact = false,
+  working = false,
+}: {
+  userId: string | null | undefined;
+  compact?: boolean;
+  working?: boolean;
+}) {
+  return userId ? (
+    <OwnerAgentPresence key={userId} userId={userId} compact={compact} working={working} />
+  ) : null;
+}
+
+function OwnerAgentPresence({
+  userId,
+  compact,
+  working = false,
+}: {
+  userId: string;
+  compact: boolean;
+  working?: boolean;
+}) {
   const [rebuilding, setRebuilding] = useState(false);
   const { vaultOwnerToken } = useVault();
   // Follows the deployment while it is in flight and stops once it settles.
@@ -117,12 +140,18 @@ function OwnerAgentPresence({ userId, compact }: { userId: string; compact: bool
   } = useAgentDeploymentFollow();
   const state: AgentState | null = toAgentState(followed);
   const updateBlocked = update.presentationState === "blocked";
+  const alreadyServingDirectly =
+    Boolean(process.env.NEXT_PUBLIC_LOCAL_SANDBOX_EDGE_URL?.trim()) ||
+    hasRecentAgentAnswer();
   // Foreground wake is shared and deduplicated; a held update is not chat readiness.
-  const { isWaking, livePresence } = useProactiveAgentWake({
+  const wake = useProactiveAgentWake({
     state: updateBlocked ? null : followed as string | null,
     health,
     userId,
+    enabled: !alreadyServingDirectly,
   });
+  const isWaking = alreadyServingDirectly ? false : wake.isWaking;
+  const livePresence = alreadyServingDirectly ? ("awake" as const) : wake.livePresence;
   const router = useRouter();
 
   // Nothing known yet, so nothing claimed. Rendering the chip with a fabricated
@@ -164,22 +193,26 @@ function OwnerAgentPresence({ userId, compact }: { userId: string; compact: bool
       ? "Updating"
       : waking
         ? "Waking"
-        : asleep
-          ? "Asleep"
-          : online
-            ? "Online"
-            : copy.badge;
+        : working && state === "active"
+          ? "Working"
+          : asleep
+            ? "Asleep"
+            : online
+              ? "Online"
+              : copy.badge;
   const dotClass = updateBlocked ? "bg-amber-500" : notAnswering
     ? "bg-amber-500"
     : updating
       ? "bg-sky-500 motion-safe:animate-pulse"
       : waking
         ? "bg-amber-400 motion-safe:animate-pulse"
-        : asleep
-          ? "bg-emerald-500/50"
-          : online
-            ? "bg-emerald-500"
-            : copy.dotClass;
+        : working && state === "active"
+          ? "bg-[color:var(--app-accent)] motion-safe:animate-pulse"
+          : asleep
+            ? "bg-emerald-500/50"
+            : online
+              ? "bg-emerald-500"
+              : copy.dotClass;
   const updateNote = updating
     ? "Your current work is finishing before the update is installed."
     : update.failed

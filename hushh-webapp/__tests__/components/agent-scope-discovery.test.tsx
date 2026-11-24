@@ -96,14 +96,15 @@ describe("current-authority inline Chat catalog", () => {
     vi.mocked(PersonProfileService.informationRequestPrice).mockResolvedValueOnce(price);
     render(<AgentStructuredExperienceView experience={{...experience,proposal:{proposed:[{scopeRef:"scope-1",label:"Synthetic field 1",why:null,domain:"professional",wildcard:false,pathSegments:[]}],durationHours:24,reasonSuggestion:"Synthetic sharing review"}}} />);
     await screen.findByText(/Add 24 Hussh/);
-    expect(screen.getByRole("button",{name:"Send",exact:true})).toBeDisabled();
-    expect(screen.getByRole("button",{name:"Close"})).toBeInTheDocument();
+    const reserveAndSend = screen.getByRole("button", { name: /Reserve & Send · 24 Hussh coins/ });
+    expect(reserveAndSend).toBeDisabled();
+    expect(screen.getByRole("button",{name:"Hide"})).toBeInTheDocument();
     expect(screen.getByRole("button",{name:"Check balance"})).toBeInTheDocument();
     expect(mocks.create).not.toHaveBeenCalled();
     vi.mocked(PersonProfileService.informationRequestPrice).mockResolvedValueOnce({...price,availableCoins:50,shortfallCoins:0});
-    fireEvent.click(screen.getByRole("button",{name:"Check price"}));
-    await waitFor(()=>expect(screen.getByRole("button",{name:"Send",exact:true})).toBeEnabled());
-    fireEvent.click(screen.getByRole("button",{name:"Send",exact:true}));
+    fireEvent.click(screen.getByRole("button",{name:"Check balance"}));
+    await waitFor(()=>expect(screen.getByRole("button",{name:/Reserve & Send · 24 Hussh coins/})).toBeEnabled());
+    fireEvent.click(screen.getByRole("button",{name:/Reserve & Send · 24 Hussh coins/}));
     await waitFor(()=>expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({priceBinding:price.binding,scopeRefs:["scope-1"],durationSeconds:86400})));
     expect(mocks.create).toHaveBeenCalledTimes(1);
   });
@@ -199,7 +200,10 @@ describe("current-authority inline Chat catalog", () => {
     act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: {
       source: "information_request_updated", action: "CONSENT_GRANTED", bundleId, requestId,
     } })));
-    expect(await screen.findByTestId("shared-with-you-values", {}, { timeout: 5_000 })).toHaveTextContent("Synthetic analyst");
+    const viewDetails = await screen.findByTestId("shared-with-you-view-details", {}, { timeout: 5_000 });
+    expect(screen.queryByTestId("shared-with-you-values")).toBeNull();
+    fireEvent.click(viewDetails);
+    expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent("Synthetic analyst");
     expect(mocks.getInformationRequestExports).toHaveBeenCalledWith({ bundleId, vaultOwnerToken: "test-owner-token" });
     await act(async () => finishStaleRead?.(bundle("pending")));
     expect(screen.getByTestId("shared-with-you-values")).toHaveTextContent("Synthetic analyst");
@@ -435,8 +439,11 @@ describe("current-authority inline Chat catalog", () => {
     mocks.decryptScopedExport.mockResolvedValue({ professional: { role: "Synthetic analyst" } });
 
     render(<AgentStructuredExperienceView experience={restored} />);
+    const viewDetails = await screen.findByTestId("shared-with-you-view-details");
+    expect(screen.queryByTestId("shared-with-you-values")).toBeNull();
+    fireEvent.click(viewDetails);
     expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent("Synthetic analyst");
-    // No reveal control: the secure card is the answer (CONTRACT-2 decision 2).
+    // No legacy reveal control: Chat stays compact and opens decrypted values in the Detailed View Modal.
     expect(screen.queryByRole("button", { name: "View shared information" })).toBeNull();
     expect(mocks.readStoredConnector).toHaveBeenCalledTimes(1);
     expect(mocks.decryptScopedExport).toHaveBeenCalledTimes(1);
@@ -488,6 +495,7 @@ describe("current-authority inline Chat catalog", () => {
     act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: {
       source: "information_request_updated", action: "CONSENT_GRANTED", bundleId: restored.bundleId, requestId: "request_12345678",
     } })));
+    fireEvent.click(await screen.findByTestId("shared-with-you-view-details"));
     expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent("Synthetic analyst");
     expect(mocks.decryptScopedExport).toHaveBeenCalledTimes(1);
   });
@@ -703,6 +711,7 @@ describe("current-authority inline Chat catalog", () => {
     act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: {
       source: "information_request_updated", action: "REVOKED", bundleId: restored.bundleId, requestId: "request_12345678",
     } })));
+    fireEvent.click(await screen.findByTestId("shared-with-you-view-details"));
     const values = await screen.findByTestId("shared-with-you-values");
     expect(values).toHaveTextContent("Synthetic lead");
     // The revoked item is never opened, not even for a moment.

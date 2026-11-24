@@ -1,5 +1,12 @@
 "use client";
 
+import { marketNewsArticleUrl } from "@/lib/kai/market-news-diversity";
+import { Browser } from "@capacitor/browser";
+import { usePathname } from "next/navigation";
+import { useNativeWorkspaceImages } from "@/components/app-ui/use-native-workspace-portraits";
+import { validNativeMarketNewsStory } from "@/lib/capacitor/native-workspace";
+import type { NativeMarketNewsStory } from "@/lib/capacitor/native-drawers";
+import { prepareNativeSymbolArtwork } from "@/lib/services/native-public-image-service";
 import { NativeWorkspaceRoute, type NativeWorkspaceSurfaceSection } from "@/lib/capacitor/native-workspace-surface";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -10,13 +17,13 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { KaiWorkspaceHeader } from "@/components/kai/kai-workspace-header";
-import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
+import { getCompanyLogoUrl, symbolAvatarFallback, SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import { useAuth } from "@/hooks/use-auth";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { KaiMarketHomeResourceService } from "@/lib/kai/kai-market-home-resource";
 import { KaiMarketNewsResourceService } from "@/lib/kai/kai-market-news-resource";
 import { Button } from "@/lib/morphy-ux/button";
-import { ROUTES } from "@/lib/navigation/routes";
+import { normalizeStaticExportPathname, ROUTES } from "@/lib/navigation/routes";
 import {
   MarketNewsSnapshotChangedError,
   type KaiHomeNewsItem,
@@ -40,14 +47,6 @@ function formatPublishedAt(value: string | null | undefined): string {
   });
 }
 
-function validArticleUrl(value: string): string | null {
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
-  } catch {
-    return null;
-  }
-}
 
 function dedupePages(pages: Array<KaiMarketNewsPage | null>): KaiHomeNewsItem[] {
   const seen = new Set<string>();
@@ -103,8 +102,17 @@ function extractNewsSymbols(item: KaiHomeNewsItem): string[] {
   return Array.from(new Set([...rawSymbols, ...matchedFromTitle]));
 }
 
+function nativeStory(item: KaiHomeNewsItem, symbols: readonly string[], png?: string): NativeMarketNewsStory {
+  const sentiment = String(item.sentiment_hint || "").toLowerCase();
+  return { publisher: String(item.source_name || "Market news").trim() || "Market news", publishedAt: formatPublishedAt(item.published_at),
+    ...(item.summary ? { summary: item.summary } : {}),
+    ...(sentiment.includes("positive") ? { sentiment: "positive" } : sentiment.includes("negative") ? { sentiment: "risk" } : {}),
+    symbols, ...(symbols[0] ? { artwork: { ...symbolAvatarFallback(symbols[0]), ...(png ? { png } : {}) } } : {}),
+  };
+}
+
 function MarketNewsRow({ item }: { item: KaiHomeNewsItem }) {
-  const href = validArticleUrl(item.url);
+  const href = marketNewsArticleUrl(item.url);
   const source = String(item.source_name || "Market news").trim() || "Market news";
   const linkedSymbols = extractNewsSymbols(item);
   const primarySymbol = linkedSymbols[0] || null;
@@ -240,6 +248,13 @@ export function KaiMarketNewsPage() {
   );
   const rows = useMemo(() => dedupePages(allPages), [allPages]);
   const lastPage = allPages.at(-1) ?? null;
+  const page = nativeWindow.key === feedKey ? Math.min(nativeWindow.page, Math.max(0, Math.ceil(rows.length / 40) - 1)) : 0;
+  const nativeStories = rows.slice(page * 40, (page + 1) * 40).map(item => ({ item, key: `article:${item.url}:${item.title}`, symbols: extractNewsSymbols(item) }));
+  const nativeSupported = nativeStories.every(({ item, symbols }) => validNativeMarketNewsStory(item.title, nativeStory(item, symbols)));
+  const pathname = normalizeStaticExportPathname(usePathname() ?? "/");
+  const artwork = useNativeWorkspaceImages(ownerId, Boolean(nativeSupported && isVaultUnlocked && customNativePresentationEnabled() && pathname === ROUTES.KAI_NEWS),
+    nativeStories.map(({ key, symbols }) => ({ key, source: symbols[0] ? getCompanyLogoUrl({ symbol: symbols[0] }) : null })), prepareNativeSymbolArtwork);
+
 
   const loadMore = useCallback(async () => {
     if (!userId || loadingMore || !lastPage?.has_more || !lastPage.next_cursor) return;
@@ -391,19 +406,17 @@ export function KaiMarketNewsPage() {
     </AppPageShell>
   );
   if (!isVaultUnlocked || !customNativePresentationEnabled()) return content;
-  const page = nativeWindow.key === feedKey ? Math.min(nativeWindow.page, Math.max(0, Math.ceil(rows.length / 40) - 1)) : 0;
   const description = mode === "personalized" ? "Latest reporting around the holdings currently available in your private workspace." : "A current market briefing. Unlock your vault to tailor this to your holdings.";
   const sections: NativeWorkspaceSurfaceSection[] = [{ key: "news-controls", rows: [
-    { key: "scope", label: "Market news", detail: description },
+    { key: "scope", label: description },
     { key: "refresh", label: "Refresh", pending: firstPageResource.refreshing, enabled: !firstPageResource.refreshing, run: () => firstPageResource.refresh({ force: true }) },
   ] }];
   if (firstPageResource.loading && !rows.length) sections.push({ key: "loading", rows: [{ key: "loading", label: "Loading market news", pending: true }] });
   else if (!rows.length) sections.push({ key: "empty", rows: [{ key: "empty", label: "No market headlines are available yet.", detail: "Try refreshing in a moment." }] });
-  else sections.push({ key: "headlines", title: "Headlines", rows: rows.slice(page * 40, (page + 1) * 40).map(item => {
-    const href = validArticleUrl(item.url), symbols = extractNewsSymbols(item), sentiment = String(item.sentiment_hint || "").toLowerCase();
-    return { key: `article:${item.url}:${item.title}`, label: item.title, symbol: "newspaper", enabled: Boolean(href), web: true,
-      detail: [String(item.source_name || "Market news").trim() || "Market news", formatPublishedAt(item.published_at), sentiment.includes("positive") ? "Positive" : sentiment.includes("negative") ? "Risk" : "", item.summary, symbols.length ? symbols.join(", ") : "Market"].filter(Boolean).join(" · "),
-      run: () => href ? openExternalUrl(href) : undefined };
+  else sections.push({ key: "headlines", title: "Headlines", rows: nativeStories.map(({ item, key, symbols }) => {
+    const href = marketNewsArticleUrl(item.url);
+    return { key, label: item.title, enabled: Boolean(href), marketNews: nativeStory(item, symbols, artwork.get(key)),
+      run: () => href ? Browser.open({ url: href }) : undefined };
   }) });
   const controls = [];
   if (page > 0) controls.push({ key: "previous", label: "Previous headlines", run: () => setNativeWindow({ key: feedKey, page: page - 1 }) });
@@ -412,5 +425,5 @@ export function KaiMarketNewsPage() {
   if (controls.length) sections.push({ key: "news-paging", rows: controls });
   if (resyncMessage) sections.push({ key: "news-resync", rows: [{ key: "resync", label: resyncMessage }] });
   if ((firstPageResource.error || firstPageResource.data?.stale) && rows.length) sections.push({ key: "news-stale", rows: [{ key: "stale", label: "Showing saved headlines. Refresh for the latest coverage." }] });
-  return <NativeWorkspaceRoute contentPresentation="rich" owner={ownerId} workspace="finance" viewKey={`${feedKey}:${page}`} path={ROUTES.KAI_NEWS} title="Market news" active frame={nativeFrame} sections={sections}>{content}</NativeWorkspaceRoute>;
+  return <NativeWorkspaceRoute contentPresentation={nativeSupported && sections.every(section => section.rows.every(row => !row.marketNews || validNativeMarketNewsStory(row.label, row.marketNews))) ? "native" : "rich"} owner={ownerId} workspace="finance" viewKey={`${feedKey}:${page}`} path={ROUTES.KAI_NEWS} title="Market news" active frame={nativeFrame} sections={sections}>{content}</NativeWorkspaceRoute>;
 }

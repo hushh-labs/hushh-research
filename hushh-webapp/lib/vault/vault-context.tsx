@@ -1,5 +1,6 @@
 "use client";
 
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { clearCachedGmailReceipts } from "@/lib/profile/gmail-receipts-cache";
 
 import { clearMemoryDocument } from "@/lib/pkm/memory-refresh";
@@ -41,7 +42,11 @@ import { clearActiveAgentTurnSession } from "@/lib/agent/active-agent-turn-sessi
 import { clearCoreAgentMarkdownCache } from "@/lib/pkm/agent-core-markdown-files";
 import { clearFilesCache } from "@/lib/files/files-cache";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
-import { clearAgentChatHistoryCache, warmAgentChatHistoryCache } from "@/lib/agent/agent-chat-history-cache";
+import {
+  clearAgentChatHistoryCache,
+  hydrateAgentChatHistoryFromEncryptedCache,
+  warmAgentChatHistoryCache,
+} from "@/lib/agent/agent-chat-history-cache";
 import { clearGeminiRuntimeConnectionCache } from "@/lib/connections/gemini-runtime-configuration";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
@@ -202,7 +207,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
     if (!authReady || !currentUserId || !vaultKey || !vaultOwnerToken) return;
     let lastAttemptAt = 0;
     const triggerReceivingSetup = (forceNow: boolean) => {
-      if (document.visibilityState !== "visible" || navigator.onLine === false) return;
+      if (document.visibilityState !== "visible" || !isNetworkOnline()) return;
       const now = Date.now();
       if (!forceNow && now - lastAttemptAt < 15_000) return;
       lastAttemptAt = now;
@@ -294,9 +299,9 @@ export function VaultProvider({ children }: VaultProviderProps) {
       clearMemoryDocument(lockedUserId);
       clearCoreAgentMarkdownCache(lockedUserId);
       clearActiveAgentTurnSession(lockedUserId);
-      clearFilesCache(lockedUserId);
+      clearFilesCache(lockedUserId, { includeDevice: false });
       clearAgentPkmContext(lockedUserId);
-      clearAgentChatHistoryCache(lockedUserId);
+      clearAgentChatHistoryCache(lockedUserId, { includeDevice: false });
       clearGeminiRuntimeConnectionCache(lockedUserId);
       PreVaultSensitiveDraftService.clearForUser(lockedUserId);
       CacheService.getInstance().invalidate(
@@ -372,11 +377,19 @@ export function VaultProvider({ children }: VaultProviderProps) {
       currentUserId !== vaultUserId &&
       (storedVaultKey || storedVaultOwnerToken)
     ) {
+      const priorVaultUserId = vaultUserId;
+      const confirmedOwnerMismatch = Boolean(
+        currentUserId && currentUserId !== priorVaultUserId,
+      );
       console.log(
         "🔒 [VaultProvider] Auth identity changed - clearing vault memory...",
       );
-      void MessagesDraftService.clearForUser(vaultUserId).catch(() => undefined);
+      void MessagesDraftService.clearForUser(priorVaultUserId).catch(() => undefined);
       lockVault();
+      if (confirmedOwnerMismatch) {
+        clearFilesCache(priorVaultUserId, { includeDevice: true });
+        clearAgentChatHistoryCache(priorVaultUserId, { includeDevice: true });
+      }
     }
   }, [
     currentUserId,
@@ -968,6 +981,15 @@ export function VaultProvider({ children }: VaultProviderProps) {
       // Connect without ever opening Location. Start strict, session-fenced
       // recovery here, before optional Firebase-token reads or route deferrals.
       UnlockWarmOrchestrator.queueLocationRecipientKeyBootstrap({ userId: unlockingUserId, vaultOwnerToken: token, vaultKey: key });
+
+      // Start encrypted IndexedDB chat history hydration synchronously on unlock
+      // so decryption overlaps unlock modal dismissal without network latency.
+      if (typeof hydrateAgentChatHistoryFromEncryptedCache === "function") {
+        void hydrateAgentChatHistoryFromEncryptedCache({
+          userId: unlockingUserId,
+          vaultKey: key,
+        }).catch(() => undefined);
+      }
 
       // Notify listeners (e.g. Siri handoff) that the vault is now unlocked
       // so they can resume any pending actions that were blocked by vault.

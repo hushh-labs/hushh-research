@@ -1,4 +1,4 @@
-import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
 import { useOneDisplayName } from "@/lib/agent/use-one-display-name";
@@ -408,62 +408,61 @@ describe("One agent profile feed preview", () => {
     expect(screen.getByRole("heading", { name: "One" })).toBeInTheDocument();
   });
 
-  it("fetches the viewer's feed only when visible and preserves its clear/read boundaries", async () => {
-    window.localStorage.setItem("hushh:feed-cleared-through-id:viewer", "1");
+  it("renders the live Activity workspace (Action logs + Sandbox terminal) only when visible and keeps Feed separate", async () => {
     const view = render(
-      <OneAgentProfileSheet open={false} onOpenChange={mocks.close} />,
+      <OneAgentProfileSheet
+        open={false}
+        onOpenChange={mocks.close}
+        sessionActions={[
+          {
+            id: "act-1",
+            label: "Memory",
+            message: "Updated 2026 cashflow goals",
+            status: "done",
+            icon: "memory",
+            createdAtMs: Date.now() - 1200,
+            durationMs: 420,
+          },
+        ]}
+      />,
     );
-    expect(mocks.list).not.toHaveBeenCalled();
-    view.rerender(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
-    await screen.findByText("Mail connected");
-    expect(mocks.list).toHaveBeenCalledWith(
-      expect.objectContaining({
-        idToken: "viewer-token",
-        userId: "viewer",
-        limit: 20,
-      }),
+    expect(screen.queryByTestId("one-activity-workspace")).toBeNull();
+    view.rerender(
+      <OneAgentProfileSheet
+        open
+        onOpenChange={mocks.close}
+        sessionActions={[
+          {
+            id: "act-1",
+            label: "Memory",
+            message: "Updated 2026 cashflow goals",
+            status: "done",
+            icon: "memory",
+            createdAtMs: Date.now() - 1200,
+            durationMs: 420,
+          },
+        ]}
+      />,
     );
-    expect(screen.queryByText("Calendar connected")).not.toBeInTheDocument();
-    expect(screen.getAllByTestId("feed-row")).toHaveLength(1);
-    expect(mocks.markRead).not.toHaveBeenCalled();
+    expect(await screen.findByTestId("one-activity-workspace")).toBeInTheDocument();
+    expect(screen.getByText("Updated 2026 cashflow goals")).toBeInTheDocument();
+    expect(screen.getByText("420ms")).toBeInTheDocument();
+    expect(screen.getByTestId("workspace-terminal-panel")).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Feed" })).toBeNull();
 
     openProfileTab();
     const memory = await screen.findByRole("link", { name: "Open Memory" });
     expect(memory).toHaveAttribute("href", "/one/pkm");
-    const calls = mocks.list.mock.calls.length;
-    fireEvent.focus(window);
-    await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(calls));
-    expect(mocks.markRead).not.toHaveBeenCalled();
   });
 
-  it("does not reintroduce cleared consent entries through a newer bundle row", async () => {
-    window.localStorage.setItem("hushh:feed-cleared-through-id:viewer", "3");
-    mocks.list.mockResolvedValue({
-      items: [
-        {
-          ...item("5", "consent_granted"),
-          source_domain: "consent",
-          metadata: {
-            bundle_id: "same-request",
-            scope_description: "Recent detail",
-          },
-        },
-        {
-          ...item("1", "consent_granted"),
-          source_domain: "consent",
-          metadata: {
-            bundle_id: "same-request",
-            scope_description: "Cleared detail",
-          },
-        },
-      ],
-      next_cursor: null,
-      unread_count: 2,
-    });
+  it("toggles the Sandbox terminal section inside the Activity workspace", async () => {
     render(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
-    await screen.findByText(/Recent detail/);
-    expect(screen.queryByText(/Cleared detail/)).not.toBeInTheDocument();
-    expect(mocks.markRead).not.toHaveBeenCalled();
+    expect(await screen.findByTestId("workspace-terminal-panel")).toBeInTheDocument();
+    const toggle = screen.getByRole("button", { name: /Sandbox terminal/i });
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId("workspace-terminal-panel")).toBeNull();
+    fireEvent.click(toggle);
+    expect(screen.getByTestId("workspace-terminal-panel")).toBeInTheDocument();
   });
 
   it("keeps native One on the shared hero and tabs without replacing the pane or leaking another owner's name", async () => {
@@ -472,9 +471,9 @@ describe("One agent profile feed preview", () => {
     const pane = screen.getByTestId("native-one-pane");
     const binding = pane.dataset.context;
     expect(screen.getByRole("heading", { name: "Love" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Feed" })).toBeInTheDocument();
-    expect(screen.getAllByRole("tab").map(tab => tab.textContent?.trim())).toEqual(["Feed", "Tasks", "Profile"]);
-    await screen.findByText("Mail connected");
+    expect(screen.getByRole("tab", { name: "Activity" })).toBeInTheDocument();
+    expect(screen.getAllByRole("tab").map(tab => tab.textContent?.trim())).toEqual(["Activity", "Tasks", "Profile"]);
+    expect(await screen.findByTestId("one-activity-workspace")).toBeInTheDocument();
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Profile" }), { button: 0, ctrlKey: false });
     expect(await screen.findByRole("link", { name: "Open Memory" })).toHaveAttribute("href", "/one/pkm");
     expect(screen.getByRole("heading", { name: "Live memory" })).toBeInTheDocument();
@@ -702,7 +701,7 @@ describe("One agent profile feed preview", () => {
     expect(mocks.loadTasks).not.toHaveBeenCalled();
     view.rerender(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
     expect(mocks.loadTasks).not.toHaveBeenCalled();
-    expect(screen.getAllByRole("tab").map(tab => tab.textContent?.trim())).toEqual(["Feed", "Tasks", "Profile"]);
+    expect(screen.getAllByRole("tab").map(tab => tab.textContent?.trim())).toEqual(["Activity", "Tasks", "Profile"]);
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Tasks" }), { button: 0, ctrlKey: false });
     expect(await screen.findByText("Anytime task")).toBeInTheDocument();
     expect(screen.getByText("Tomorrow task")).toBeInTheDocument();

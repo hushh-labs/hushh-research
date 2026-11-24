@@ -1,3 +1,4 @@
+import Network
 import UIKit
 import Capacitor
 import WebKit
@@ -139,6 +140,8 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     #endif
     private var launchCover: UIView?
     private var launchCoverObservation: NSKeyValueObservation?
+    private let networkMonitor = NWPathMonitor()
+    private var networkOnline: Bool?
     private var safeAreaObservation: NSKeyValueObservation?
     private var lastPublishedSafeAreaTop: CGFloat?
     private static let launchCoverSafetyTimeout: TimeInterval = 4
@@ -214,7 +217,21 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         webView.evaluateJavaScript("document.documentElement.style.setProperty('--app-native-safe-area-top', '\(Double(inset))px')", completionHandler: nil)
     }
 
+    private func publishNetworkStatus() {
+        guard let networkOnline, let webView else { return }
+        // Publish a connectivity hint only. Requests still determine service availability.
+        webView.evaluateJavaScript("""
+            (() => {
+              const online = \(networkOnline ? "true" : "false");
+              const previous = window.__HUSHH_NETWORK_ONLINE__ ?? navigator.onLine;
+              window.__HUSHH_NETWORK_ONLINE__ = online;
+              if (previous !== online) window.dispatchEvent(new Event(online ? 'online' : 'offline'));
+            })()
+            """, completionHandler: nil)
+    }
+
     deinit {
+        networkMonitor.cancel()
         #if DEBUG || HUSHH_NATIVE_HISTORY_STUDY
         if let historyQualificationObserver { NotificationCenter.default.removeObserver(historyQualificationObserver) }
         #endif
@@ -225,9 +242,17 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        networkMonitor.pathUpdateHandler = { [weak self] path in
+            let online = path.status != .unsatisfied
+            guard let self, self.networkOnline != online else { return }
+            self.networkOnline = online
+            self.publishNetworkStatus()
+        }
+        networkMonitor.start(queue: .main)
 
         if let webView = self.webView {
             let forwarder = HushhMainFrameNavigationDelegate(target: webView.navigationDelegate) { [weak self] webView in
+                self?.publishNetworkStatus()
                 self?.readCommittedDocumentIdentity(from: webView)
             }
             navigationDelegateForwarder = forwarder

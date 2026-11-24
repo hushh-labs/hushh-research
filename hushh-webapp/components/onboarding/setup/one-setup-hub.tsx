@@ -75,6 +75,7 @@ import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitiv
 import { FinanceSetupDraftService } from "@/lib/services/finance-setup-draft-service";
 import { PostUnlockSyncService } from "@/lib/services/post-unlock-sync-service";
 import { notifyGeminiRuntimeConfigurationChanged } from "@/lib/connections/gemini-runtime-configuration";
+import { isPooledSandboxSwitchAvailable } from "@/lib/one/owner-cloud";
 
 /**
  * OneSetupHub: the `/one/setup` hub screen.
@@ -234,6 +235,31 @@ export function OneSetupHub() {
       const revision = ++verification;
       const snapshot = project(state);
       setPrereqSnapshot(snapshot);
+      if (
+        snapshot.cloud === "complete" &&
+        snapshot.runtime === "required" &&
+        typeof ApiService?.getPersonalAgentStatus === "function"
+      ) {
+        void ApiService.getPersonalAgentStatus()
+          .then(async (status) => {
+            if (!active || revision !== verification) return;
+            if (
+              status?.hostingMode === "hussh_pods" &&
+              (status.deploymentTarget === "ace" || status.state === "active")
+            ) {
+              const updated =
+                typeof PreVaultUserStateService.markOneRuntimeChoice === "function"
+                  ? await PreVaultUserStateService.markOneRuntimeChoice(
+                      ownerId,
+                      "hushh_managed_vertex",
+                    ).catch(() => null)
+                  : null;
+              if (!active || revision !== verification) return;
+              setPrereqSnapshot(project(updated ?? state, true));
+            }
+          })
+          .catch(() => undefined);
+      }
       if (snapshot.runtime !== "loading") return;
       void hasReadyRuntimeChoice({ userId: ownerId, state, vaultKey, vaultOwnerToken })
         .then(ready => {
@@ -869,7 +895,9 @@ export function OneSetupHub() {
                         : "Finish choosing AI access in your agent setup."
                       : cloudSetupRunning
                         ? "Being set up in the background. Keep going; this finishes on its own."
-                        : "Choose Hussh Shared, your own cloud, or Hussh Pods when available."
+                        : isPooledSandboxSwitchAvailable()
+                          ? "Choose Hussh Confidential Sandbox or your own cloud."
+                          : "Choose Hussh Shared, your own cloud, or Hussh Pods when available."
                   }
                   href={buildOneSetupCloudRoute(returnTo)}
                   voiceControlId="one_setup_tile_cloud"
