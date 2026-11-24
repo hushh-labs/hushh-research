@@ -1,13 +1,13 @@
 # CODEOWNERS - Protected-Surface Review Assignment
 # See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 #
-# Ordinary PRs visibly route to the maintainer Team. Protected paths override
-# this default per file. Mixed and semantic-protected PRs need CLI reconciliation:
-# ./bin/hushh agents review-route --pr <number> --apply
-# This changes notification only; native/queue approval authority is unchanged.
+# Native CODEOWNERS is reserved exclusively for protected pipeline authority
+# (@hushh-labs/pipeline-editors). Never add a catch-all '*' entry: GitHub
+# unions CODEOWNERS across changed files and locks asCodeOwner team requests,
+# which would attach a second approval group to mixed protected PRs.
+# Ordinary PR routing uses ./bin/hushh agents review-route --pr <number> --apply;
+# native branch rulesets and queue admission enforce ordinary and protected authority.
 # See .agents/skills/repo-operations/references/admin-release-sop.md.
-
-* @hushh-labs/allowed-maintainers-to-approve
 
 # Protected CI, authority and fundamental engineering guidance.
 # Only these owners authorize changes; proposing one does not grant authority.

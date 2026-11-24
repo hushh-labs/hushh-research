@@ -39,14 +39,13 @@ authority. Apply the same precedence on Main, Dev and UAT:
 | Ordinary Dev/UAT product work | Request `@hushh-labs/allowed-maintainers-to-approve` for visible routing; eligible maintainer self-service still needs no independent review after required checks |
 | Ordinary Main product work | Governed independent maintainer approval; Main requester must belong to the production merger cohort |
 
-CODEOWNERS supplies the native maintainer default and protected path overrides.
-GitHub combines owners across changed files, so mixed PRs can display both Teams.
-Main's native code-owner review may retain the maintainer request for ordinary
-files even after the CLI requests pipeline editors. The CLI reports retained
-native requests after verifying their origin and the unchanged PR; it does not
-weaken review rules to make the display exclusive. Content-based protected edits
-can initially display the maintainer Team. These labels never replace native or
-queue approval enforcement.
+CODEOWNERS is reserved exclusively for protected pipeline paths owned by
+`@hushh-labs/pipeline-editors` (no catch-all `*` entry). That guarantees mixed
+protected PRs attach only `@hushh-labs/pipeline-editors` as their native code
+owner across Main, Dev and UAT instead of locking a second maintainer request
+alongside it. Content-based protected edits and ordinary product PRs use the
+CLI below to assign their single exact Team. These labels never replace native
+or queue approval enforcement.
 
 After creating, updating or retargeting a ready PR, run:
 
@@ -55,16 +54,16 @@ After creating, updating or retargeting a ready PR, run:
 ```
 
 The command uses the existing protected-edit classifier and the PR's authored
-merge base. It requests the expected Team, attempts removal of only the other
-managed Team and preserves individual review requests. An additional managed
-request with unverified native origin still refuses reconciliation. Without
-`--apply` it is read-only.
+merge base. It requests the expected Team, removes the other managed Team and
+preserves individual review requests. On protected PRs, any retained
+non-pipeline-editor Team refuses reconciliation so target-branch CODEOWNERS
+drift is caught immediately. Without `--apply` it is read-only.
 A completed eligible current-head review is not requested again merely to force
 a Team badge. GitHub still shows the actual person who approved.
 
-PRs opened outside this CLI get native CODEOWNERS defaults; their author or
-reviewer runs the same command for mixed/semantic precedence. No PR observer or
-extra Actions run is added. Routing grants no approval, self-service, merge or
+PRs opened outside this CLI still get native `@hushh-labs/pipeline-editors`
+ownership on protected paths; run the same command for ordinary or
+semantic-protected routing. No PR observer or extra Actions run is added. Routing grants no approval, self-service, merge or
 deployment permission; protected edits still require pipeline-editor authority.
 Explicit owner-authored approval follows the bounded Admin procedure below and
 never waives CI.
