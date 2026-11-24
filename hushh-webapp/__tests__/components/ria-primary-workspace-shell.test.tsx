@@ -94,6 +94,13 @@ describe("RiaPrimaryWorkspaceShell", () => {
     expect(current().active).toBe(true);
     verify?.run?.();
     expect(navigation.push).toHaveBeenCalledWith("/ria/onboarding");
+    navigation.pathname = "/ria/picks";
+    view.rerender(page());
+    expect(current()).toMatchObject({ active: true, path: "/ria/picks" });
+    advisor.riaCapability = "setup";
+    view.rerender(page());
+    expect(current().active).toBe(false);
+    advisor.riaCapability = "enabled";
     advisor.riaOnboardingStatus = { advisory_status: "verified" };
     view.rerender(page());
     expect(current().active).toBe(false);

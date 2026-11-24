@@ -114,7 +114,9 @@ function AdvisorGateProjection({ frame, selection, children }: {
   const setup = riaCapability === "setup";
   const verification = (!refreshing || Boolean(riaOnboardingStatus)) &&
     !isRiaVerified(riaVerificationStatusOf(riaOnboardingStatus));
-  const active = pathname === ROUTES.RIA_CLIENTS && !loading && (setup || verification);
+  // Picks owns the redirect to onboarding for setup-only advisors.
+  const picks = pathname === ROUTES.RIA_PICKS;
+  const active = !loading && (picks ? !setup && verification : pathname === ROUTES.RIA_CLIENTS && (setup || verification));
   const gate = setup ? RIA_COPY.clients.setupGate : RIA_COPY.clients.verifyGate;
   const sections: NativeWorkspaceSurfaceSection[] = [{
     key: "advisor-access", title: setup ? "Compatibility Mode" : RIA_COPY.clients.verifyGate.eyebrow,
@@ -125,7 +127,7 @@ function AdvisorGateProjection({ frame, selection, children }: {
         web: true, run: () => router.push(ROUTES.RIA_ONBOARDING) }]),
     ],
   }];
-  return <NativeWorkspaceRoute owner={userId} workspace="ria" path={ROUTES.RIA_CLIENTS} active={active}
+  return <NativeWorkspaceRoute owner={userId} workspace="ria" path={picks ? ROUTES.RIA_PICKS : ROUTES.RIA_CLIENTS} active={active}
     title="Advisor" sections={sections} frame={frame} tabs={tabs ? { label: "Advisor", options: tabs.tabs.map((tab) => ({
       key: tab.value, label: tab.label, selected: tab.value === tabs.activeValue, run: () => selection.current?.(tab.value),
     })) } : undefined}>{children}</NativeWorkspaceRoute>;

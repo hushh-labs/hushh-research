@@ -70,6 +70,52 @@ describe("recording crossings", () => {
     expect(readDestinationOriginsForTest()).toEqual([]);
   });
 
+  it.each([
+    ["/one/profile/gmail", "/one/gmail"],
+    ["/one/profile/gmail/connection", "/one/gmail"],
+    ["/one/profile/gmail/actions", "/one/gmail"],
+    ["/one/profile/receipts", "/one/gmail"],
+    ["/one/profile/my-data", "/one/pkm"],
+    ["/one/profile/my-data/domain/?key=finance", "/one/pkm"],
+    ["/one/profile/pkm", "/one/pkm"],
+    ["/one/profile/my-data/index.html?key=finance", "/one/pkm"],
+    ["/one/profile/referrals", "/one/referrals"],
+    ["/one/profile/integrations", "/one/calendar"],
+    ["/one/profile/regulatory", "/ria/profile"],
+    ["/gmail", "/one/gmail"],
+    ["/pkm", "/one/pkm"],
+    ["/consents", "/one/consent"],
+    ["/one/todos", "/one/tasks"],
+    ["/marketplace/connections?tab=previous", "/one/consent"],
+    ["/ria/requests", "/one/consent"],
+    ["/kai", "/one/kai"],
+    ["/kai/analysis", "/one/kai"],
+    ["/kai/dashboard", "/one/kai"],
+    ["/kai/dashboard/analysis", "/one/kai"],
+    ["/kai/investments", "/one/kai"],
+    ["/kai/funding-trade", "/one/kai"],
+    ["/kai/portfolio", "/one/kai"],
+    ["/kai/optimize", "/one/kai"],
+  ])("keeps %s out of the return path", (bookmark, destination) => {
+    recordDestinationEntry(bookmark);
+    recordDestinationEntry(destination);
+    expect(readDestinationOrigin(destination)).toBeNull();
+
+    clearDestinationOrigins();
+    recordDestinationEntry(LOCATION_PEOPLE);
+    recordDestinationEntry(bookmark);
+    recordDestinationEntry(destination);
+    expect(resolveTopShellBackAction({ pathname: destination })?.href).toBe(LOCATION_PEOPLE);
+  });
+
+  it("keeps an actual Profile screen as the origin when a bookmark follows it", () => {
+    const settings = "/one/profile/access/connection?id=demo_connection";
+    recordDestinationEntry(settings);
+    recordDestinationEntry("/one/profile/my-data");
+    recordDestinationEntry("/one/pkm");
+    expect(readDestinationOrigin("/one/pkm")).toBe(settings);
+  });
+
   it("refuses anything that is not an in-app absolute path", () => {
     recordDestinationEntry(LOCATION);
     recordDestinationEntry("https://example.com/one/connect");

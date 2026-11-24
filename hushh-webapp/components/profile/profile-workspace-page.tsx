@@ -4879,9 +4879,9 @@ function ProfilePageContent({
           ? undefined
           : {
               routeId: profileNativeRouteId,
-              marker: "native-route-profile",
+              marker: activePanel === "world-model" ? "native-route-profile-world-model" : "native-route-profile",
               authState: user ? "authenticated" : "pending",
-              dataState: authLoading ? "loading" : "loaded",
+              dataState: authLoading ? "loading" : activePanel === "world-model" ? worldModel.nativeDataState : "loaded",
             }
       }
     >

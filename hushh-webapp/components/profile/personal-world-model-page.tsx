@@ -1,5 +1,6 @@
 "use client";
 
+import type { NativeTestDataState } from "@/components/app-ui/native-test-beacon";
 import { captureProductAttempt } from "@/lib/observability/product-activity-client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type SetStateAction } from "react";
@@ -886,7 +887,8 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
   const checkpoint = !preparing && (retry || spent || retrying) ? progress : null;
   const StatusIcon = STATUS_ICON[status.kind];
 
-  return { ready, mounted, user, userId, vaultKey, vaultOwnerToken, statusRegion, status, freshness, StatusIcon, preparing, stalled, shownProgress, checkpoint, preferenceFailed, matchStatus, namesakesFound, namesakeNotice, retry, readFailed, focusStatus, setReadRevision, reload, retryDue, preferences, preferenceBusy, turnOn, identityLabel, identity, sections, drafts, saved, pending, errors, actions, setDetail, sourcedFacts, offered, usable, spent, canResearchPublicProfiles, result, pathname, claims, setClaims, present, paneState, updatePreferences, refresh, researchPublicProfiles, detail, detailTitle, closeDetail, memory, canFindMore, findMore, findMoreRequest, publicSourceCandidates, canCheckForUpdates };
+  const nativeDataState: NativeTestDataState = !ready ? "unavailable-valid" : readFailed ? "error" : memory ? "loaded" : "loading";
+  return { nativeDataState, ready, mounted, user, userId, vaultKey, vaultOwnerToken, statusRegion, status, freshness, StatusIcon, preparing, stalled, shownProgress, checkpoint, preferenceFailed, matchStatus, namesakesFound, namesakeNotice, retry, readFailed, focusStatus, setReadRevision, reload, retryDue, preferences, preferenceBusy, turnOn, identityLabel, identity, sections, drafts, saved, pending, errors, actions, setDetail, sourcedFacts, offered, usable, spent, canResearchPublicProfiles, result, pathname, claims, setClaims, present, paneState, updatePreferences, refresh, researchPublicProfiles, detail, detailTitle, closeDetail, memory, canFindMore, findMore, findMoreRequest, publicSourceCandidates, canCheckForUpdates };
 }
 export type PersonalWorldModelModel = ReturnType<typeof usePersonalWorldModelModel>;
 
@@ -1221,7 +1223,7 @@ function WorldModelPageView({ model, embedded = false, onManageDetails, onOpenAc
         routeId: ROUTES.PROFILE_WORLD_MODEL,
         marker: "native-route-profile-world-model",
         authState: user ? "authenticated" : "anonymous",
-        dataState: !ready ? "unavailable-valid" : memory ? "loaded" : "loading",
+        dataState: model.nativeDataState,
       }}
     >
       <AppPageHeaderRegion>
