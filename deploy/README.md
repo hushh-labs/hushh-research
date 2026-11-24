@@ -322,6 +322,22 @@ deployment. Actual over-budget capacity remains blocking in both phases.
 Manual Cloud Run changes outside governed releases require an explicit maintenance
 dispatch; the settled-receipt optimization does not claim to detect those changes.
 
+### Restore the accepted Production template
+
+When a failed non-serving latest revision prevents ordinary retirement, an
+operator can dispatch `capacity-maintenance.yml` with the matching
+`healthy_release_run_id`, `environment=production`, `apply=true` and
+`restore_serving_template=true`. Use this separately from bridge creation,
+worker adoption and operational-reference adoption.
+
+Under the existing deployment lock, Maintenance restores the accepted serving
+template to that same immutable revision. It validates the native request first,
+preserves traffic, IAM and all revision UIDs, and creates no additional workload.
+A durable receipt precedes submission. Provider completion and settled latest
+pointers must agree before ordinary retention can drain and delete an eligible
+failed revision. An uncertain result blocks deployment until Maintenance observes
+and reconciles it; the provider request is never automatically replayed.
+
 ### Fixed production capacity bridge
 
 When the serving, latest-created and rollback-protected backend revisions consume

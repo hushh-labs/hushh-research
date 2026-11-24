@@ -21,6 +21,7 @@ DIAGNOSTIC_STAGES = frozenset(
         "release_preflight",
         "pending_mutation_reconcile",
         "capacity_bridge",
+    "serving_template_restore",
         "revision_cleanup",
         "deferred_clock_validation",
         "completion_checkpoint",
