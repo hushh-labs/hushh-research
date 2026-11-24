@@ -1700,7 +1700,7 @@
         "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fconnect%2Fsettings",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fconnect%2Fsettings",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -3772,7 +3772,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fconnected-systems",
+      "reviewer_fixture": "/one/profile/connected-systems",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -7426,5 +7426,5 @@
       ]
     }
   ],
-  "content_sha256": "79a33a1655ed7dc5b7765a4487cf32626beb3a99777bc4b0e366af18a4ef6b01"
+  "content_sha256": "cfa036c0a801c776f760f2290d305a4f646608ce5e409bcecc988d280e39b0b0"
 }

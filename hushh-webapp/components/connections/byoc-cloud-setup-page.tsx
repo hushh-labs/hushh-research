@@ -104,15 +104,18 @@ import { useCloudSetupManagementReturn } from "./use-cloud-setup-management-retu
 /** How long "Checking your cloud..." may stay on screen before the form shows. */
 export const CLOUD_CHECK_TIMEOUT_MS = 15_000;
 
-export function ByocCloudSetupPage() {
+type CloudSetupRoute = typeof ROUTES.ONE_SETUP | typeof ROUTES.ONE_SETUP_CLOUD;
+
+export function ByocCloudSetupPage({ owningRoute = ROUTES.ONE_SETUP_CLOUD }: { owningRoute?: CloudSetupRoute }) {
   const { user } = useAuth();
   const owner = snapshotValidatedAuthSessionPrincipal();
-  return <OwnerCloudSetupPage key={`${user?.uid ?? "signed-out"}:${owner?.generation ?? "unresolved"}`} user={user} owner={owner} />;
+  return <OwnerCloudSetupPage key={`${user?.uid ?? "signed-out"}:${owner?.generation ?? "unresolved"}`} user={user} owner={owner} owningRoute={owningRoute} />;
 }
 
-function OwnerCloudSetupPage({ user, owner }: {
+function OwnerCloudSetupPage({ user, owner, owningRoute }: {
   user: ReturnType<typeof useAuth>["user"];
   owner: ReturnType<typeof snapshotValidatedAuthSessionPrincipal>;
+  owningRoute: CloudSetupRoute;
 }) {
   const ownerId = owner?.ownerId ?? null;
   const router = useRouter();
@@ -635,7 +638,7 @@ function OwnerCloudSetupPage({ user, owner }: {
 
   // Guard mid-provisioning / mid-save transitions so accidental Back taps or
   // edge swipes cannot strand the owner before hosting placement commits.
-  useBackLayer(ROUTES.ONE_SETUP_CLOUD, saving || hostingSaving ? 2 : 0, () => true);
+  useBackLayer(owningRoute, saving || hostingSaving ? 2 : 0, () => true);
 
   const rawReturnToParam = searchParams.get("return_to");
   const isProfilePaneHostingReturn =
@@ -867,12 +870,12 @@ function OwnerCloudSetupPage({ user, owner }: {
     <AppPageShell
       as="main"
       width="reading"
-      nativeTest={{
-        routeId: "/one/setup/cloud",
+      nativeTest={owningRoute === ROUTES.ONE_SETUP_CLOUD ? {
+        routeId: owningRoute,
         marker: "native-route-one-setup-cloud",
         authState: "authenticated",
         dataState: saving ? "loading" : "loaded",
-      }}
+      } : undefined}
     >
       <AppPageHeaderRegion>
         <PageHeader
@@ -945,7 +948,7 @@ function OwnerCloudSetupPage({ user, owner }: {
                       : null
                 }
                 onSwitched={refreshAttach}
-                owningRoute={ROUTES.ONE_SETUP_CLOUD}
+                owningRoute={owningRoute}
               />
             ) : null}
             {openHomeFallback}
@@ -981,7 +984,7 @@ function OwnerCloudSetupPage({ user, owner }: {
                 isOwnerCloud
                 sourceCloudLabel={ownerCloudSourceLabel}
                 onSwitched={refreshAttach}
-                owningRoute={ROUTES.ONE_SETUP_CLOUD}
+                owningRoute={owningRoute}
               />
             ) : null}
           </div>
@@ -994,7 +997,7 @@ function OwnerCloudSetupPage({ user, owner }: {
                 isOwnerCloud
                 sourceCloudLabel={ownerCloudSourceLabel}
                 onSwitched={refreshAttach}
-                owningRoute={ROUTES.ONE_SETUP_CLOUD}
+                owningRoute={owningRoute}
               />
             ) : null}
           </div>
@@ -1053,7 +1056,7 @@ function OwnerCloudSetupPage({ user, owner }: {
                 isOwnerCloud
                 sourceCloudLabel={ownerCloudSourceLabel}
                 onSwitched={refreshAttach}
-                owningRoute={ROUTES.ONE_SETUP_CLOUD}
+                owningRoute={owningRoute}
               />
             ) : null}
             {openHomeFallback}
@@ -1079,7 +1082,7 @@ function OwnerCloudSetupPage({ user, owner }: {
                 isOwnerCloud
                 sourceCloudLabel={existing.projectId}
                 onSwitched={refreshAgent}
-                owningRoute={ROUTES.ONE_SETUP_CLOUD}
+                owningRoute={owningRoute}
               />
             ) : isHostedAzureMigrationAvailable() && agentState === "active" ? (
               <HusshPodsMigrationCard
@@ -1087,7 +1090,7 @@ function OwnerCloudSetupPage({ user, owner }: {
                 sourceTarget={agentTarget}
                 sourceProject={existing.projectId}
                 onMigrated={refreshAgent}
-                owningRoute={ROUTES.ONE_SETUP_CLOUD}
+                owningRoute={owningRoute}
                 subtleAction
               />
             ) : null}
@@ -1107,7 +1110,7 @@ function OwnerCloudSetupPage({ user, owner }: {
                   isOwnerCloud
                   sourceCloudLabel={ownerCloudSourceLabel ?? reservedProjectId}
                   onSwitched={refreshAttach}
-                  owningRoute={ROUTES.ONE_SETUP_CLOUD}
+                  owningRoute={owningRoute}
                 />
               ) : null}
             </div>
@@ -1193,7 +1196,7 @@ function OwnerCloudSetupPage({ user, owner }: {
                       hasAssignedCloudPod
                       sourceCloudLabel={hostedPodSourceLabel}
                       onSwitched={refreshAgent}
-                      owningRoute={ROUTES.ONE_SETUP_CLOUD}
+                      owningRoute={owningRoute}
                     />
                   ) : null}
                   {openHomeFallback}
@@ -1210,7 +1213,7 @@ function OwnerCloudSetupPage({ user, owner }: {
                   sourceMode="hussh_pods"
                   sourceTarget={agentTarget}
                   onMigrated={refreshAgent}
-                  owningRoute={ROUTES.ONE_SETUP_CLOUD}
+                  owningRoute={owningRoute}
                   subtleAction
                 />
               ) : null}

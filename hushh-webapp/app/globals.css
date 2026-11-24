@@ -3284,6 +3284,17 @@ body:has(.profile-account-content:not(.profile-pane-sheet *))
   .native-feature-page[data-native-feature-pane="profile"][data-native-feature-side="left"] { inset: 0; width: 100vw; height: 100dvh; border-radius: 0; }
 }
 
+.native-feature-page[data-native-feature-pane="profile"][data-native-feature-layer="chat-attachment"] {
+  inset: 0 0 var(--kb-height, 0px);
+  width: 100%;
+  height: auto;
+  border-radius: 0;
+  padding-top: var(--app-safe-area-top-effective, 0px);
+}
+.kb-open .native-feature-page[data-native-feature-layer="chat-attachment"] .native-feature-page-body {
+  padding-bottom: 0;
+}
+
 html.native-ios {
   --agent-chat-header-safe-top: max(64px, var(--app-safe-area-top-effective, 0px));
 }

@@ -55,7 +55,7 @@ export default function OneSetupPage() {
       <RouteErrorBoundary fallbackRoute={ROUTES.ONE_HOME}>
         {isPooledSandboxSwitchAvailable() ? (
           <Suspense fallback={null}>
-            <ByocCloudSetupPage />
+            <ByocCloudSetupPage owningRoute={ROUTES.ONE_SETUP} />
           </Suspense>
         ) : (
           <OneSetupHub />

@@ -28,7 +28,7 @@ import { formatTextAttachmentSize } from "@/lib/agent/large-text-attachment";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 import { cn } from "@/lib/utils";
-import { NativeFeatureBack, NativeFeaturePage } from "@/components/app-ui/native-feature-page";
+import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -555,21 +555,20 @@ export function AgentTextAttachmentViewer({
   const nativePage = customNativePresentationEnabled();
   const owner = snapshotValidatedAuthSessionOwner();
   const context = JSON.stringify([owner?.generation, snapshotVaultSessionEpoch(), "attachment-viewer"]);
-  const body = <div ref={contentRef} className="flex min-h-0 flex-1 flex-col">
+  const renderBody = (leadingControl?: ReactNode) => <div ref={contentRef} className="flex min-h-0 flex-1 flex-col">
     <TextAttachmentViewerBody name={name} text={text} sheet={isMobile && !nativePage} findInputRef={findInputRef}
       scrollerRef={scrollerRef} onEditAndResend={onEditAndResend}
-      leadingControl={nativePage ? <NativeFeatureBack owner={owner?.userId ?? null} context={context} layer="chat-attachment"
-        onBack={() => onOpenChange(false)} /> : undefined} />
+      leadingControl={leadingControl} />
   </div>;
 
   if (nativePage) return <NativeFeaturePage open={open} title={name} owner={owner?.userId ?? null} context={context}
-    layer="chat-attachment" authoredHeader bodyClassName="flex flex-1 flex-col overflow-hidden"
+    layer="chat-attachment" pane renderBody={renderBody} bodyClassName="flex flex-1 flex-col overflow-hidden"
     data-testid="text-attachment-viewer" data-presentation="page" onBack={() => onOpenChange(false)}
     onOpenAutoFocus={() => scrollerRef.current?.focus({ preventScroll: true })}
     onCloseAutoFocus={() => returnFocusRef.current?.focus({ preventScroll: true })}
     onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
       event.preventDefault(); findInputRef.current?.focus(); findInputRef.current?.select();
-    } }}>{body}</NativeFeaturePage>;
+    } }} />;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange} modal={isMobile}>
@@ -627,7 +626,7 @@ export function AgentTextAttachmentViewer({
       >
         {/* Radix unmounts the content once closed, so the body (and its line
           * split and find index) exists only while the viewer is on screen. */}
-        {body}
+        {renderBody()}
       </SheetContent>
     </Sheet>
   );
