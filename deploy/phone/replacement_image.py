@@ -63,6 +63,19 @@ def recheck_main_source(source: str, tools: Path, directory: Path, prior=None) -
     if tools is None:
         raise ValueError("phone_rollback_main_tools_required")
     output = directory / "phone-rollback-main-acceptance.json"
+    application = source
+    parents = (
+        qualify_image.run(["git", "show", "-s", "--format=%P", source]).decode().split()
+    )
+    if len(parents) == 2:
+        source_tree = qualify_image.run(
+            ["git", "rev-parse", f"{source}^{{tree}}"]
+        ).strip()
+        parent_tree = qualify_image.run(
+            ["git", "rev-parse", f"{parents[1]}^{{tree}}"]
+        ).strip()
+        if source_tree == parent_tree:
+            application = parents[1]
     command = [
         "python3",
         str(tools / "verify-predecessor-acceptance.py"),
@@ -72,7 +85,7 @@ def recheck_main_source(source: str, tools: Path, directory: Path, prior=None) -
         "--scope",
         "backend",
         "--sha",
-        source,
+        application,
         "--approval-sha",
         source,
         "--output",
@@ -88,7 +101,7 @@ def recheck_main_source(source: str, tools: Path, directory: Path, prior=None) -
         receipt.get("kind") != "main-qualified-source"
         or receipt.get("status") != "qualified"
         or receipt.get("environment") != "production"
-        or receipt.get("sha") != source
+        or receipt.get("sha") != application
         or receipt.get("main_approval_sha") != source
         or receipt.get("resolved_services") != ["backend"]
     ):

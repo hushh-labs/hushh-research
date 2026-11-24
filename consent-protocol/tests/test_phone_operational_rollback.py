@@ -444,6 +444,8 @@ def test_replacement_refuses_before_building_or_writing(release_plan, monkeypatc
         "pending",
         "timeout",
         "poll_identity",
+        "merged",
+        "mapped_approval",
     ],
 )
 def test_replacement_binds_main_build_native_output_and_actual_image(
@@ -486,6 +488,14 @@ def test_replacement_binds_main_build_native_output_and_actual_image(
 
     def command(args, **_kwargs):
         calls.append(args)
+        if args[:3] == ["git", "show", "-s"]:
+            return (
+                ("d" * 40 + " " + PRIMARY).encode()
+                if failure in {"merged", "mapped_approval"}
+                else b""
+            )
+        if args[:2] == ["git", "rev-parse"]:
+            return ("a" * 40).encode()
         if args[0] == "git":
             archive = next(arg.split("=", 1)[1] for arg in args if arg.startswith("--output="))
             with tarfile.open(archive, "w"):
@@ -514,8 +524,8 @@ def test_replacement_binds_main_build_native_output_and_actual_image(
             "kind": "main-qualified-source",
             "environment": "production",
             "status": "refused" if failure == "main" else "qualified",
-            "sha": source,
-            "main_approval_sha": source,
+            "sha": PRIMARY if failure in {"merged", "mapped_approval"} else source,
+            "main_approval_sha": "e" * 40 if failure == "mapped_approval" else source,
             "resolved_services": ["backend"],
         }
         output = args[args.index("--output") + 1]
@@ -535,7 +545,7 @@ def test_replacement_binds_main_build_native_output_and_actual_image(
         return probe(*args)
 
     monkeypatch.setattr(replacement_image.qualify_image, "qualify", qualify)
-    if failure and failure != "pending":
+    if failure and failure not in {"pending", "merged"}:
         with pytest.raises((ValueError, TimeoutError)):
             replacement_image.qualify_replacement_image(
                 source, release_plan.args.release_tools, release_plan.args.output.parent
