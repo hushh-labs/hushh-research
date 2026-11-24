@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ConnectorVectorGlyph } from "@/components/agent/connector-brand-mark";
 import {
   ConnectorConfirm,
@@ -11,6 +11,7 @@ import type {
   ConnectorDetailPresentation,
   ConnectorsPanelPresentation,
 } from "@/components/agent/connectors-panel";
+import { ScopeTariffEditor } from "@/components/consent/scope-tariff-editor";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Button } from "@/components/ui/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
@@ -28,6 +29,7 @@ import {
   vaultConnections,
 } from "@/lib/kai/plaid-vault/vault-sync";
 import { usePkmDomainResource } from "@/lib/pkm/pkm-domain-resource";
+import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import {
   isVaultSessionEpochCurrent,
   snapshotVaultSessionEpoch,
@@ -137,6 +139,68 @@ export function usePrivatePlaidConnectorModel({
       needsRelink: connection.status === "needs_relink",
     }),
   );
+
+  const [scopeHandlesByMachineScope, setScopeHandlesByMachineScope] = useState<
+    Record<string, string>
+  >(() => {
+    const userId = access?.userId;
+    if (!userId || typeof PersonalKnowledgeModelService?.peekAvailableScopes !== "function") {
+      return {};
+    }
+    const warm = PersonalKnowledgeModelService.peekAvailableScopes(userId);
+    if (!warm || warm.userId !== userId || !Array.isArray(warm.scopeEntries)) {
+      return {};
+    }
+    const next: Record<string, string> = {};
+    for (const entry of warm.scopeEntries) {
+      if (
+        entry &&
+        entry.domain === "financial" &&
+        typeof entry.scope === "string" &&
+        typeof entry.scope_handle === "string" &&
+        entry.scope_handle.trim()
+      ) {
+        next[entry.scope] = entry.scope_handle.trim();
+      }
+    }
+    return next;
+  });
+
+  useEffect(() => {
+    const userId = access?.userId;
+    const token = access?.vaultOwnerToken;
+    if (
+      !open ||
+      !userId ||
+      !token ||
+      banks.length === 0 ||
+      typeof PersonalKnowledgeModelService?.getAvailableScopes !== "function"
+    ) {
+      return;
+    }
+    let active = true;
+    void PersonalKnowledgeModelService.getAvailableScopes(userId, token)
+      .then((result) => {
+        if (!active || !isCurrent() || result.userId !== userId) return;
+        const next: Record<string, string> = {};
+        for (const entry of result.scopeEntries ?? []) {
+          if (
+            entry &&
+            entry.domain === "financial" &&
+            typeof entry.scope === "string" &&
+            typeof entry.scope_handle === "string" &&
+            entry.scope_handle.trim()
+          ) {
+            next[entry.scope] = entry.scope_handle.trim();
+          }
+        }
+        setScopeHandlesByMachineScope(next);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [open, access?.userId, access?.vaultOwnerToken, banks.length, isCurrent]);
 
   const runGuarded = async (
     kind: "connect" | "refresh" | "disconnect",
@@ -363,6 +427,7 @@ export function usePrivatePlaidConnectorModel({
     access,
     banks,
     projectionSummary,
+    scopeHandlesByMachineScope,
     connected: banks.length > 0,
     loading: financial.loading,
     error: financial.error,
@@ -557,6 +622,7 @@ export function PrivatePlaidConnectorDetail({
     access,
     banks,
     projectionSummary,
+    scopeHandlesByMachineScope,
     loading,
     error,
     busy,
@@ -587,13 +653,33 @@ export function PrivatePlaidConnectorDetail({
         {banks.length > 0 && projectionSummary.hasData ? (
           <div
             data-testid="private-plaid-projection-summary"
-            className="space-y-1 border-t border-[color:var(--app-separator)] px-4 py-3 text-xs leading-relaxed text-muted-foreground"
+            className="space-y-2.5 border-t border-[color:var(--app-separator)] px-4 py-3.5 text-xs leading-relaxed text-muted-foreground"
           >
-            <p className="font-semibold text-foreground">Account summary</p>
-            {projectionSummary.totalsLine ? (
-              <p className="text-foreground/90">{projectionSummary.totalsLine}</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+                Account summary
+              </p>
+              <span className="text-[11px] text-muted-foreground">Updates on sync</span>
+            </div>
+            {projectionSummary.metrics.length > 0 ? (
+              <dl className="grid grid-cols-3 gap-2">
+                {projectionSummary.metrics.map((metric) => (
+                  <div
+                    key={metric.key}
+                    className="rounded-xl border border-[color:var(--app-border)]/70 bg-foreground/[0.02] px-2.5 py-2"
+                  >
+                    <dt className="text-[11px] font-medium text-muted-foreground">
+                      {metric.label}{" "}
+                    </dt>
+                    <dd className="mt-0.5 text-[14px] font-semibold tabular-nums tracking-[-0.015em] text-foreground">
+                      {metric.formatted}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            ) : projectionSummary.totalsLine ? (
+              <p className="text-foreground/90 tabular-nums">{projectionSummary.totalsLine}</p>
             ) : null}
-            <p>Ready to share with your approval · Updates on sync.</p>
           </div>
         ) : null}
         <div className="border-t border-[color:var(--app-separator)] px-4 py-3">
@@ -627,6 +713,44 @@ export function PrivatePlaidConnectorDetail({
           </div>
         </div>
       </SettingsGroup>
+
+      {banks.length > 0 && projectionSummary.scopes.length > 0 ? (
+        <SettingsGroup
+          title="Shareable data & pricing"
+          separatorInset
+          testId="private-plaid-shareable-scopes-group"
+        >
+          {projectionSummary.scopes.map((scope) => {
+            const scopeHandle = scopeHandlesByMachineScope[scope.machineScope];
+            return (
+              <SettingsRow
+                key={scope.machineScope}
+                testId={`private-plaid-scope-${scope.key}`}
+                title={scope.label}
+                description={
+                  scope.valueLabel
+                    ? `${scope.valueLabel} · Ask first before sharing`
+                    : "Ask first before sharing"
+                }
+                trailingInteractive={Boolean(scopeHandle)}
+                stackTrailingOnMobile={Boolean(scopeHandle)}
+                trailing={
+                  scopeHandle ? (
+                    <ScopeTariffEditor
+                      scopeHandle={scopeHandle}
+                      machineScope={scope.machineScope}
+                      label={`Financial · ${scope.label}`}
+                      showSavedPrice
+                    />
+                  ) : (
+                    <span className="text-xs font-medium text-muted-foreground">Ask first</span>
+                  )
+                }
+              />
+            );
+          })}
+        </SettingsGroup>
+      ) : null}
 
       {banks.length > 0 ? (
         <SettingsGroup title="Connected banks" separatorInset testId="private-plaid-banks-group">

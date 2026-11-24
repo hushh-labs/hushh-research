@@ -372,11 +372,11 @@ export function HusshPodsActiveCard({
               </div>
             )}
           </div>
-          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[var(--app-border)] bg-background px-2.5 py-0.5 text-xs font-medium text-foreground">
-            <span
-              aria-hidden="true"
-              className="h-1.5 w-1.5 rounded-full bg-[color:var(--app-accent)]"
-            />
+          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+            <span className="relative flex size-2 items-center justify-center" aria-hidden="true">
+              <span className="absolute inline-flex size-2 rounded-full bg-emerald-500/45 motion-safe:animate-ping" />
+              <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500" />
+            </span>
             {statusLabel}
           </span>
         </div>
