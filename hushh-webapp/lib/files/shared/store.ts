@@ -187,6 +187,39 @@ export class SharedFilesStore {
     await this.initialization;
     this.check();
   }
+  async readyIfInitialized(signal?: AbortSignal): Promise<boolean> {
+    this.check();
+    if (this.initialization) {
+      await this.initialization;
+      this.check();
+      return true;
+    }
+    try {
+      if (!this.libraryId) await this.storage(signal);
+      const envelope = await this.remote(`objects/${ZERO}/${ZERO}`, undefined, signal);
+      if (envelope.ciphertext === null || typeof envelope.ciphertext !== "string") {
+        return false;
+      }
+      const context = `hussh/shared-files/key/v1/${this.access.owner}/${this.libraryId}`;
+      const wrapping = await cipher.wrappingKey(
+        this.access.vaultKey,
+        this.access.owner,
+      );
+      const raw = await cipher.open(wrapping, envelope.ciphertext, context);
+      try {
+        if (raw.length !== 32) return false;
+        this.encryption = await cipher.aes(raw);
+        this.names = await cipher.namesKey(raw);
+        this.initialization = Promise.resolve();
+        this.check();
+        return true;
+      } finally {
+        raw.fill(0);
+      }
+    } catch {
+      return false;
+    }
+  }
   private async address(
     group: string,
     id: string,

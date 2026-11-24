@@ -1084,6 +1084,22 @@ def _compose_one_runtime_instruction(context: Any) -> str:
         if callable(state_getter)
         else ""
     )
+    if callable(state_getter):
+        from hushh_mcp.one_adk.wiki_recall_tools import (
+            STATE_WIKI_CLIENT_READY,
+            STATE_WIKI_HOT_DIGEST,
+            pod_files_wiki_enabled,
+            wiki_recall_instruction,
+        )
+
+        wiki_tools_enabled = bool(
+            state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
+            and (pod_files_wiki_enabled() or state_getter(STATE_WIKI_CLIENT_READY) is True)
+        )
+        memory_instruction += wiki_recall_instruction(
+            state_getter(STATE_WIKI_HOT_DIGEST),
+            tools_available=wiki_tools_enabled,
+        )
     # The owner's Settings choices: a trusted style channel, separate from the
     # recalled-memory packet above, rendered only from server templates.
     style_instruction = owner_style_instruction(state_getter) + focus_instruction(state_getter)
@@ -2713,9 +2729,11 @@ def _one_roster_tools(
         )
     if pod_mode() and os.getenv("POD_FILES_ENABLED", "").lower() in {"1", "true"}:
         from hushh_mcp.one_adk.files_agent import build_files_agent
+        from hushh_mcp.one_adk.wiki_recall_tools import pod_wiki_recall_tools
 
         files_manifest = _load_product_agent_manifest("agent_files")
         tools.append(AgentTool(agent=build_files_agent(files_manifest, model=text_model)))
+        tools.extend(pod_wiki_recall_tools())
     if pod_mode():
         from hushh_mcp.one_adk.computer_use_agent import (
             browser_task_hand_available,
@@ -2737,8 +2755,11 @@ def _one_roster_tools(
         from ag_ui_adk import AGUIToolset
 
         from hushh_mcp.one_adk.receipt_client_tools import RECEIPT_TOOL_NAMES
+        from hushh_mcp.one_adk.wiki_recall_tools import WIKI_TOOL_NAMES, pod_files_wiki_enabled
 
         tools.append(AGUIToolset(tool_filter=sorted(RECEIPT_TOOL_NAMES)))
+        if not pod_files_wiki_enabled():
+            tools.append(AGUIToolset(tool_filter=sorted(WIKI_TOOL_NAMES)))
         # The typed hub advertises this separate contract only to compatible,
         # owner-authorized browsers. Offline receipt evaluations omit it.
         tools.append(AGUIToolset(tool_filter=[PORTFOLIO_CONTEXT_TOOL]))
@@ -2781,8 +2802,14 @@ def _before_one_tool(tool: Any, args: dict, tool_context: Any) -> dict | None:
     if boundary:
         return boundary
     from hushh_mcp.one_adk.receipt_client_tools import before_receipt_tool
+    from hushh_mcp.one_adk.wiki_recall_tools import before_wiki_recall_tool, pod_files_wiki_enabled
 
-    return before_receipt_tool(tool, args, tool_context)
+    receipt_guard = before_receipt_tool(tool, args, tool_context)
+    if receipt_guard:
+        return receipt_guard
+    if not pod_files_wiki_enabled():
+        return before_wiki_recall_tool(tool, args, tool_context)
+    return None
 
 
 async def _requester_bundle(owner_id: str, bundle_id: str) -> dict[str, Any] | None:

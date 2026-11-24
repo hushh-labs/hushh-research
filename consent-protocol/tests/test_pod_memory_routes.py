@@ -265,6 +265,7 @@ async def test_status_is_counts_and_words_never_content(enabled, tmp_path):
         "bank": False,
         "lastRebuildSeq": 0,
         "stale": False,
+        "rebuildSemantics": "unrebuilt",
     }
     assert "Pushkin" not in str(status)
 
@@ -771,7 +772,13 @@ async def test_revoke_and_status_open_for_an_owner_local_session_with_no_hub(
     assert isinstance(status["factIds"], list) and len(status["factIds"]) == 2
     assert set(status["factIds"]) == {keep, drop}
     assert all(re.fullmatch(r"[0-9a-f]{24}", fact_id) for fact_id in status["factIds"])
-    assert set(status["provider"]) == {"consent", "bank", "lastRebuildSeq", "stale"}
+    assert set(status["provider"]) == {
+        "consent",
+        "bank",
+        "lastRebuildSeq",
+        "stale",
+        "rebuildSemantics",
+    }
     assert set(result) == {"revoked", "tombstones", "provider"}
     assert set(result["provider"]) == set(status["provider"])
     # Only the validated opaque ID path may coincidentally contain these digits.

@@ -33,6 +33,8 @@ const CAPTURE_SOURCE_BY_LABEL: ReadonlyMap<string, MemoryCaptureSource> = new Ma
   ["business_profile_review", "business_profile_review"],
   ["profile_research_review", "profile_research_review"],
   ["public_profile_claim", "public_profile_claim"],
+  ["one_wiki_opt_in_auto_save", "agent_chat_auto_capture"],
+  ["one_wiki_candidate_confirm", "memory_workspace"],
 ]);
 
 export type AgentPkmPreparationInput = {
@@ -46,7 +48,7 @@ export type AgentPkmPreparationInput = {
   vaultOwnerToken: string;
   ingestionId?: string;
   chunkIndex?: number;
-  memoryProfile?: "general" | "kyc_identity_v1" | "business_directory_v1" | "soul_markdown_v1" | "profile_review_v1";
+  memoryProfile?: "general" | "kyc_identity_v1" | "business_directory_v1" | "soul_markdown_v1" | "profile_review_v1" | "wiki_claim_projection_v1";
   /** Existing details the merge agent may extend or correct (explicit saves). */
   reconciliationCandidates?: readonly PkmReconciliationCandidate[];
   /** The caller's existing source label. In-process only: just its closed code

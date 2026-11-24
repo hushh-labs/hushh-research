@@ -534,6 +534,24 @@ class DynamicScopeGenerator:
         enabled_consumer_top_levels_by_domain: dict[str, set[str]] = {}
         all_consumer_top_levels_by_domain: dict[str, set[str]] = {}
         known_domains = set(index_domains)
+        known_states = {
+            "materialized",
+            "private_candidate",
+            "empty",
+            "unknown",
+            "failed",
+            "pending",
+            "stale",
+            "conflicted",
+        }
+        non_requestable_states = {
+            "private_candidate",
+            "empty",
+            "failed",
+            "pending",
+            "stale",
+            "conflicted",
+        }
         for row in manifest_rows:
             if not isinstance(row, dict):
                 continue
@@ -549,7 +567,7 @@ class DynamicScopeGenerator:
                 if not top_level_path or "." in top_level_path or not isinstance(raw_entry, dict):
                     continue
                 state = str(raw_entry.get("state") or "").strip().lower()
-                if state not in {"materialized", "empty", "unknown"}:
+                if state not in known_states:
                     continue
                 try:
                     leaf_count = max(0, int(raw_entry.get("materialized_leaf_count") or 0))
@@ -598,7 +616,7 @@ class DynamicScopeGenerator:
                 registry_state = (
                     str(summary_projection.get("materialization_state") or "").strip().lower()
                 )
-                if registry_state in {"materialized", "empty", "unknown"}:
+                if registry_state in known_states:
                     try:
                         registry_count = max(
                             0,
@@ -626,7 +644,7 @@ class DynamicScopeGenerator:
                     and visibility.get("internal_only") is not True
                     and visibility.get("visibility_posture") != "private"
                     and row.get("exposure_enabled") is not False
-                    and materialization.get("materialization_state") != "empty"
+                    and materialization.get("materialization_state") not in non_requestable_states
                 ):
                     enabled_consumer_top_levels_by_domain.setdefault(domain, set()).add(
                         top_level_path
@@ -667,7 +685,8 @@ class DynamicScopeGenerator:
                 if entry_domain == domain
             ]
             if domain_materialization and all(
-                entry.get("materialization_state") == "empty" for entry in domain_materialization
+                entry.get("materialization_state") in non_requestable_states
+                for entry in domain_materialization
             ):
                 continue
             domain_leaf_count = sum(
@@ -726,7 +745,7 @@ class DynamicScopeGenerator:
                     continue
                 registry_meta = registry_by_top_level.get((domain, path), {})
                 materialization = materialization_by_top_level.get((domain, path), {})
-                if materialization.get("materialization_state") == "empty":
+                if materialization.get("materialization_state") in non_requestable_states:
                     continue
                 if registry_meta.get("visibility_posture") == "private":
                     continue
@@ -779,7 +798,7 @@ class DynamicScopeGenerator:
                 top_level = path.split(".", 1)[0]
                 registry_meta = registry_by_top_level.get((domain, top_level), {})
                 materialization = materialization_by_top_level.get((domain, top_level), {})
-                if materialization.get("materialization_state") == "empty":
+                if materialization.get("materialization_state") in non_requestable_states:
                     continue
                 if registry_meta.get("visibility_posture") == "private":
                     continue
@@ -836,7 +855,7 @@ class DynamicScopeGenerator:
             top_level = path.split(".", 1)[0]
             registry_meta = registry_by_top_level.get((domain, top_level), {})
             materialization = materialization_by_top_level.get((domain, top_level), {})
-            if materialization.get("materialization_state") == "empty":
+            if materialization.get("materialization_state") in non_requestable_states:
                 continue
             if registry_meta.get("visibility_posture") == "private":
                 continue

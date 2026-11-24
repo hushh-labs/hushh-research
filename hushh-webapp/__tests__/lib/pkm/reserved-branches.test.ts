@@ -266,8 +266,10 @@ describe("reserved-branch loader", () => {
     });
     expect(agent.rows).toEqual([]);
     expect(agent.withheld).toEqual(["one_living_sources"]);
-    expect(excludePrivatePkmDomains({ one_living_sources: { x: 1 }, food: { y: 2 } })).toEqual({ food: { y: 2 } });
+    expect(excludePrivatePkmDomains({ one_living_sources: { x: 1 }, source_library: { y: 2 }, one_wiki: { z: 3 }, food: { y: 2 } })).toEqual({ food: { y: 2 } });
     expect(isPrivatePkmExportScope("attr.one_living_sources.x")).toBe(true);
+    expect(isPrivatePkmExportScope("attr.source_library.catalog")).toBe(true);
+    expect(isPrivatePkmExportScope("attr.one_wiki.pages.career")).toBe(true);
   });
 
   it("restricts every send_to_model value other than full in agent exports", () => {

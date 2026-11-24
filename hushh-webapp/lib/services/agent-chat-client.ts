@@ -66,6 +66,22 @@ import {
 } from "@/lib/agent/agui-structured-experiences";
 import { ownerStyleRequestField, type OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
 import { ownerAiRunErrorMessage } from "@/lib/agent/owner-ai-turn-errors";
+import {
+  WIKI_TOOL_DECLARATIONS,
+  WIKI_TOOL_NAMES,
+  buildSharedWikiHotDigestContext,
+  executeSharedWikiRecallTool,
+  normalizeWikiRecallRequest,
+  type WikiRecallEnvelope,
+  type WikiToolName,
+} from "@/lib/files/wiki/recall-client-tools";
+import {
+  clearActiveSharedWiki,
+  ensureActiveSharedWiki,
+  peekActiveSharedWiki,
+} from "@/lib/files/wiki/active-shared-wiki";
+import { SharedWikiOwnerMigrator } from "@/lib/files/wiki/migration-and-maintenance";
+import type { SharedWikiLibrary } from "@/lib/files/wiki/library";
 import { managedChatRunErrorMessage, MODEL_CAPACITY_MESSAGE } from "@/lib/agent/managed-chat-run-errors";
 import { ownerPodTurnErrorMessage, refusalCode } from "@/lib/agent/owner-pod-turn-errors";
 import { wakingChatTransport } from "@/lib/agent/one-chat-transport";
@@ -706,6 +722,21 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Models",
     message: "Checking available models.",
     activity: "Checking models",
+  },
+  search_wiki: {
+    label: "Personal wiki",
+    message: "Checking your Personal wiki.",
+    activity: "Checking your Personal wiki",
+  },
+  read_wiki_page: {
+    label: "Personal wiki",
+    message: "Reading a Personal wiki note.",
+    activity: "Reading a Personal wiki note",
+  },
+  trace_claim: {
+    label: "Personal wiki",
+    message: "Tracing a Personal wiki claim.",
+    activity: "Tracing a Personal wiki claim",
   },
   set_preferred_model: {
     label: "Models",
@@ -1411,16 +1442,108 @@ async function streamAgentChatAttempt(input: {
     }];
   });
   tools.push(...RECEIPT_TOOL_DECLARATIONS);
+  const wikiToolsEligible = Boolean(
+    input.vaultKey &&
+      input.vaultOwnerToken &&
+      !recovered &&
+      !input.financeShare &&
+      !input.feedAttention,
+  );
+  const wikiEligible = Boolean(wikiToolsEligible && !input.consentContinuation);
+  const resolveTurnSharedWiki = async (): Promise<{
+    wiki: SharedWikiLibrary | null;
+    wikiHotDigest: string;
+    migrationState: string;
+  }> => {
+    if (!wikiEligible || !mcpSessionCurrent()) {
+      return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+    }
+    try {
+      const access = await import("./pod-app-access");
+      if (
+        !(await access.introMayReachHub(() =>
+          ApiService.getPersonalAgentStatus(),
+        ))
+      ) {
+        clearActiveSharedWiki();
+        return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+      }
+      if (!mcpSessionCurrent()) {
+        return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+      }
+      const bound = peekActiveSharedWiki();
+      if (bound) {
+        const initialized = await bound.store.readyIfInitialized(input.signal);
+        if (!initialized || !mcpSessionCurrent()) {
+          if (!initialized) clearActiveSharedWiki();
+          return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+        }
+        const [digest, mig] = await Promise.all([
+          buildSharedWikiHotDigestContext(bound, undefined, input.signal).catch(
+            () => "",
+          ),
+          new SharedWikiOwnerMigrator(bound)
+            .getMigrationStatus(input.signal)
+            .catch(() => null),
+        ]);
+        return {
+          wiki: bound,
+          wikiHotDigest: digest,
+          migrationState: mig?.state ?? "v1_markdown_only",
+        };
+      }
+      const ensured = ensureActiveSharedWiki({
+        userId: input.userId,
+        vaultKey: input.vaultKey,
+        vaultOwnerToken: input.vaultOwnerToken,
+        vaultEpoch: mcpVaultEpoch,
+        readToken: () => (mcpSessionCurrent() ? input.vaultOwnerToken : null),
+      });
+      if (!ensured) {
+        return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+      }
+      const initialized = await ensured.store.readyIfInitialized(input.signal);
+      if (!initialized || !mcpSessionCurrent()) {
+        if (!initialized) clearActiveSharedWiki();
+        return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+      }
+      const [digest, mig] = await Promise.all([
+        buildSharedWikiHotDigestContext(ensured, undefined, input.signal).catch(
+          () => "",
+        ),
+        new SharedWikiOwnerMigrator(ensured)
+          .getMigrationStatus(input.signal)
+          .catch(() => null),
+      ]);
+      return {
+        wiki: ensured,
+        wikiHotDigest: digest,
+        migrationState: mig?.state ?? "v1_markdown_only",
+      };
+    } catch {
+      return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+    }
+  };
   // Chat history is sealed with a key derived from the vault key; the server
   // refuses the turn without it and holds it for this request only.
   // The coarse position is resolved beside the key so it adds no serial wait.
   let chatKeyHeaders: Record<string, string>;
   let turnLocation: Awaited<ReturnType<typeof resolveTurnLocation>>;
+  let turnWiki: {
+    wiki: SharedWikiLibrary | null;
+    wikiHotDigest: string;
+    migrationState: string;
+  } = {
+    wiki: null,
+    wikiHotDigest: "",
+    migrationState: "v1_markdown_only",
+  };
   try {
-    [chatKeyHeaders, turnLocation] = await Promise.all([
+    [chatKeyHeaders, turnLocation, , turnWiki] = await Promise.all([
       oneChatKeyHeaders(input.vaultKey),
       resolveTurnLocation(),
       initialConnectorProjection,
+      resolveTurnSharedWiki(),
     ]);
   } catch (error) {
     // A vault-owner token without a vault key is not an unlocked chat. Nothing
@@ -1429,6 +1552,17 @@ async function streamAgentChatAttempt(input: {
       throw routeChatKeyRefusal("CHAT_KEY_REQUIRED", mcpVaultEpoch, true);
     }
     throw error;
+  }
+  const warmContinuationWiki =
+    !turnWiki.wiki &&
+    wikiToolsEligible &&
+    Boolean(input.consentContinuation) &&
+    mcpSessionCurrent()
+      ? peekActiveSharedWiki()
+      : null;
+  const sharedWikiSession = turnWiki.wiki ?? warmContinuationWiki;
+  if (sharedWikiSession) {
+    tools.push(...(WIKI_TOOL_DECLARATIONS as unknown as Tool[]));
   }
   const chatKey = Object.values(chatKeyHeaders)[0] ?? "";
   const onLostTransport = () => {
@@ -1582,6 +1716,16 @@ async function streamAgentChatAttempt(input: {
   // Parse the confirmation from its own streamed deltas instead.
   const confirmationArgs = new Map<string, string>();
   const receiptArgs = new Map<string, string>();
+  const wikiCalls = new Map<
+    string,
+    Promise<{
+      toolCallId: string;
+      toolName: WikiToolName;
+      request: Record<string, unknown>;
+      result: WikiRecallEnvelope;
+    }>
+  >();
+  const wikiArgs = new Map<string, string>();
   const publishedMcpReviews = new Set<string>();
   const emittedStateDirectivePaths = new Set<string>();
   const toolPayload = (callId: string, name: string, args: Record<string, unknown> = {}): AgentChatToolEvent => {
@@ -1668,6 +1812,52 @@ async function streamAgentChatAttempt(input: {
     const { request } = admission;
     receiptCalls.set(toolCallId, runReceiptCall(operation, request).then(result => ({ toolCallId, toolName: operation, request, result })));
   };
+  const startWikiCall = (
+    toolCallId: string,
+    operation: WikiToolName,
+    args: unknown,
+  ) => {
+    if (wikiCalls.has(toolCallId)) return;
+    const buffered = wikiArgs.get(toolCallId);
+    wikiArgs.delete(toolCallId);
+    let parsedArgs: unknown = args;
+    if (buffered && buffered !== "!") {
+      try {
+        parsedArgs = JSON.parse(buffered);
+      } catch {
+        parsedArgs = args;
+      }
+    }
+    if (!receiptSessionCurrent() || wikiCalls.size >= 6 || buffered === "!") {
+      failure = new Error("Personal wiki recall doesn't match this owner turn. Ask again.");
+      handlers.onError?.(failure.message);
+      agent.abortRun();
+      finishTerminalRun();
+      return;
+    }
+    let request: Record<string, unknown>;
+    try {
+      request = normalizeWikiRecallRequest(operation, parsedArgs);
+    } catch {
+      failure = new Error("Personal wiki recall doesn't match this owner turn. Ask again.");
+      handlers.onError?.(failure.message);
+      agent.abortRun();
+      finishTerminalRun();
+      return;
+    }
+    wikiCalls.set(
+      toolCallId,
+      executeSharedWikiRecallTool(sharedWikiSession, operation, request, {
+        isUnlocked: receiptSessionCurrent,
+        signal: input.signal,
+      }).then((result) => ({
+        toolCallId,
+        toolName: operation,
+        request,
+        result,
+      })),
+    );
+  };
   const startPortfolioContextCall = (toolCallId: string) => {
     if (receiptCalls.has(toolCallId)) return;
     const streamed = receiptArgs.get(toolCallId);
@@ -1712,6 +1902,10 @@ async function streamAgentChatAttempt(input: {
           // Native snapshots redact arguments and may replace streamed IDs.
           // Consume the bounded streamed call before the SDK's message lookup.
           startReceiptCall(id, name as ReceiptFunction, {});
+          return { stopPropagation: true };
+        }
+        if (typeof id === "string" && WIKI_TOOL_NAMES.includes(name as WikiToolName)) {
+          startWikiCall(id, name as WikiToolName, {});
           return { stopPropagation: true };
         }
       }
@@ -1768,6 +1962,7 @@ async function streamAgentChatAttempt(input: {
       if (event.toolCallName === "adk_request_confirmation") confirmationArgs.set(event.toolCallId, "");
       if (event.toolCallName === PORTFOLIO_CONTEXT_TOOL ||
           RECEIPT_FUNCTIONS.includes(event.toolCallName as ReceiptFunction)) receiptArgs.set(event.toolCallId, "");
+      if (WIKI_TOOL_NAMES.includes(event.toolCallName as WikiToolName)) wikiArgs.set(event.toolCallId, "");
       handlers.onToolStart?.(toolPayload(event.toolCallId, event.toolCallName));
     },
     onToolCallArgsEvent: ({ event }) => {
@@ -1775,6 +1970,12 @@ async function streamAgentChatAttempt(input: {
       if (receiptBuffered !== undefined) {
         const next = receiptBuffered + (event.delta ?? "");
         receiptArgs.set(event.toolCallId, next.length <= 4096 ? next : "!");
+        return;
+      }
+      const wikiBuffered = wikiArgs.get(event.toolCallId);
+      if (wikiBuffered !== undefined) {
+        const next = wikiBuffered + (event.delta ?? "");
+        wikiArgs.set(event.toolCallId, next.length <= 4096 ? next : "!");
         return;
       }
       const buffered = confirmationArgs.get(event.toolCallId);
@@ -1791,6 +1992,10 @@ async function streamAgentChatAttempt(input: {
       }
       if (RECEIPT_FUNCTIONS.includes(toolCallName as ReceiptFunction)) {
         startReceiptCall(event.toolCallId, toolCallName as ReceiptFunction, toolCallArgs);
+        return;
+      }
+      if (WIKI_TOOL_NAMES.includes(toolCallName as WikiToolName)) {
+        startWikiCall(event.toolCallId, toolCallName as WikiToolName, toolCallArgs);
         return;
       }
       if (toolCallName === FOLLOW_UP_TOOL_NAME || toolCallName === REACTION_TOOL_NAME) return;
@@ -1845,6 +2050,13 @@ async function streamAgentChatAttempt(input: {
         const payload = toolPayload(event.toolCallId, toolName);
         payload.raw = { protocol: "ag-ui", toolName };
         payload.message = toolName === PORTFOLIO_CONTEXT_TOOL ? "Private portfolio read finished." : "Receipt function finished for this turn.";
+        handlers.onToolResult?.(payload);
+        return;
+      }
+      if (WIKI_TOOL_NAMES.includes(toolName as WikiToolName)) {
+        const payload = toolPayload(event.toolCallId, toolName);
+        payload.raw = { protocol: "ag-ui", toolName };
+        payload.message = "Personal note checked for this turn.";
         handlers.onToolResult?.(payload);
         return;
       }
@@ -2144,7 +2356,7 @@ async function streamAgentChatAttempt(input: {
         finishTerminalRun();
         return;
       }
-      if (receiptCalls.size) {
+      if (receiptCalls.size || wikiCalls.size) {
         // Native long-running calls are persisted before RUN_FINISHED. The
         // outer loop alone submits their value-free replies and resumes.
         finishTerminalRun();
@@ -2321,6 +2533,8 @@ async function streamAgentChatAttempt(input: {
         // The mail draft envelope version this client reads. The server reads it per request, so resumed runs send it too.
         emailDraftContract: 2, emailAgentContract: 1, calendarReviewContract: 1, emailReadReceiptContract: 2,
         ...(portfolioContextEnabled ? { portfolioContextContract: PORTFOLIO_CONTEXT_CONTRACT } : {}),
+        ...(sharedWikiSession ? { wikiClientReady: true } : {}),
+        ...(turnWiki.wikiHotDigest ? { wikiHotDigest: turnWiki.wikiHotDigest } : {}),
         screenContext: input.screenContext,
         ...(input.consentContinuation ? { consentContinuation: input.consentContinuation } : {}),
         ...(input.financeShare ? { financeShare: input.financeShare } : {}),
@@ -2356,6 +2570,59 @@ async function streamAgentChatAttempt(input: {
         ...(portfolioRead ? { portfolioContextContract: PORTFOLIO_CONTEXT_CONTRACT } : {}),
       } });
       if (!receiptSessionCurrent()) throw new Error(`${privateReadLabel} authority changed. Ask again.`);
+    }
+    for (
+      let wikiRound = 0;
+      wikiRound < 3 && wikiCalls.size && !failure && !detached && !input.signal?.aborted;
+      wikiRound += 1
+    ) {
+      const wikiToolResults = await Promise.all(wikiCalls.values());
+      wikiCalls.clear();
+      if (mcpReviews.size) {
+        throw new Error(
+          "Personal wiki recall must complete in its own authorized turn. Ask again.",
+        );
+      }
+      if (!receiptSessionCurrent()) {
+        throw new Error("Vault authority changed. Unlock and ask again.");
+      }
+      for (const item of wikiToolResults) {
+        const donePayload = toolPayload(item.toolCallId, item.toolName);
+        donePayload.raw = { protocol: "ag-ui", toolName: item.toolName };
+        donePayload.message = "Personal note checked for this turn.";
+        handlers.onToolResult?.(donePayload);
+      }
+      agent.setMessages(
+        wikiToolResults.map((item) => ({
+          id: crypto.randomUUID(),
+          role: "tool" as const,
+          toolCallId: item.toolCallId,
+          content: JSON.stringify({
+            schema: "wiki_result.v1",
+            operation: item.toolName,
+            ephemeral_result: true,
+          }),
+        })),
+      );
+      await runUntilTerminal({
+        tools,
+        context: [],
+        forwardedProps: {
+          timezone,
+          screenContext: input.screenContext,
+          communicationPreferences,
+          ...(sharedWikiSession ? { wikiClientReady: true } : {}),
+          ...(turnWiki.wikiHotDigest ? { wikiHotDigest: turnWiki.wikiHotDigest } : {}),
+          wikiToolResults,
+          emailDraftContract: 2,
+          emailAgentContract: 1,
+          calendarReviewContract: 1,
+          emailReadReceiptContract: 2,
+        },
+      });
+      if (!receiptSessionCurrent()) {
+        throw new Error("Vault authority changed. Unlock and ask again.");
+      }
     }
     await terminalRun;
   } catch (error) {
