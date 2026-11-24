@@ -1206,7 +1206,11 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/design-system",
+        "classification": "excluded-web-only",
+        "reason": "Internal reference-design storybook and visual review lab surface for component craft sign-off; not shipped to signed-in app users."
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -11443,5 +11447,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "60b2de7754f3e06efa30ce82327e1984639661e998b5bd81e7264787dc2df3a2"
+  "content_sha256": "78ecf7c10df0dbea40c720ad07cfcefbb9e4d82822f61385ad3fc6d2531823bd"
 }

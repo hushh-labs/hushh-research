@@ -1,8 +1,8 @@
 {
   "generated_at": "2026-10-28",
-  "total_routes": 148,
+  "total_routes": 149,
   "native_required_routes": 120,
-  "excluded_routes": 28,
+  "excluded_routes": 29,
   "routes": [
     {
       "route": "/one/documents/open",
@@ -76,6 +76,11 @@
       "route": "/delete-account",
       "classification": "excluded-web-only",
       "reason": "Public account-deletion request page for people without the app (Google Play Delete account URL). In the native shell, deletion lives in Profile."
+    },
+    {
+      "route": "/design-system",
+      "classification": "excluded-web-only",
+      "reason": "Internal reference-design storybook and visual review lab surface for component craft sign-off; not shipped to signed-in app users."
     },
     {
       "route": "/developers",
