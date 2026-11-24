@@ -496,6 +496,12 @@ class TrustedDeviceSelfEnrollRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class TrustedDevicePruneWebRequest(BaseModel):
+    keep_device_id: str | None = Field(default=None, alias="keepDeviceId", max_length=120)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class TrustedDeviceVaultHandoffRequest(BaseModel):
     vault_handoff_wrapped_key: str = Field(min_length=40, max_length=64)
     vault_handoff_iv: str = Field(min_length=16, max_length=24)
@@ -739,6 +745,27 @@ async def trusted_device_self_enroll(
             device_public_key=payload.device_public_key,
             device_name=payload.device_name,
             platform=payload.platform,
+        )
+    except TrustedDeviceError as exc:
+        _raise_trusted_device_error(exc)
+
+
+@router.post("/trusted-devices/prune-web")
+async def trusted_device_prune_web(
+    payload: TrustedDevicePruneWebRequest | None = None,
+    firebase_uid: str = Depends(require_firebase_auth),
+    authorization: str | None = Header(None, alias="Authorization"),
+):
+    """Revoke dormant web browser sessions while leaving linked computers/apps intact."""
+    browser_uid = await _verify_browser_enrollment_identity(authorization)
+    if browser_uid != firebase_uid:
+        raise HTTPException(status_code=401, detail="Invalid Firebase ID token")
+    keep_device_id = payload.keep_device_id if payload is not None else None
+    try:
+        return await run_in_threadpool(
+            TrustedDeviceService().prune_web_devices,
+            user_id=firebase_uid,
+            keep_device_id=keep_device_id,
         )
     except TrustedDeviceError as exc:
         _raise_trusted_device_error(exc)

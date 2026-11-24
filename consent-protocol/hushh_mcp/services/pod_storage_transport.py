@@ -73,8 +73,11 @@ class PodStorageTransport:
         session = self._session_for_worker()
         try:
             return session.request(method, url, **kwargs)
-        except requests.exceptions.ConnectionError:
-            if method.upper() not in {"GET", "HEAD"}:
+        except requests.exceptions.ConnectionError as exc:
+            if isinstance(exc, requests.exceptions.ConnectTimeout) or method.upper() not in {
+                "GET",
+                "HEAD",
+            }:
                 raise
             return session.request(method, url, **kwargs)
 

@@ -1,20 +1,41 @@
+import { createElement } from "react";
+import TrustedDevicesPage from "@/components/profile/trusted-devices-page";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 
-const api = vi.hoisted(() => ({ list: vi.fn(), revoke: vi.fn(), readback: vi.fn() }));
+const api = vi.hoisted(() => ({
+  list: vi.fn(),
+  revoke: vi.fn(),
+  pruneWeb: vi.fn(),
+  readback: vi.fn(),
+  currentBrowserId: null as string | null,
+}));
 vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getCurrentUser: () => ({uid: "device-owner"}) } }));
 vi.mock("@/lib/services/phone-recovery-service", () => ({ PhoneRecoveryService: {revocationStatus: api.readback} }));
-vi.mock("@/lib/services/api-service", () => ({ ApiService: { listTrustedDevices: api.list, revokeTrustedDeviceEverywhere: async (...args: unknown[]) => ({ hub: (args[3] as { receipt?: Response })?.receipt ?? await api.revoke(...args), pod: { delivered: true, pending: null } }) } }));
+vi.mock("@/lib/services/api-service", () => ({ ApiService: {
+  listTrustedDevices: api.list,
+  pruneWebTrustedDevices: api.pruneWeb,
+  revokeTrustedDeviceEverywhere: async (...args: unknown[]) => ({ hub: (args[3] as { receipt?: Response })?.receipt ?? await api.revoke(...args), pod: { delivered: true, pending: null } }),
+} }));
+vi.mock("@/lib/services/owner-pod-endpoint", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/services/owner-pod-endpoint")>("@/lib/services/owner-pod-endpoint");
+  return {
+    ...actual,
+    readCurrentBrowserSubjectId: async () => api.currentBrowserId,
+  };
+});
 vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => false }, registerPlugin: () => ({}) }));
 vi.mock("@/components/profile/use-device-revocation-proof", () => ({ useDeviceRevocationProof: () => ({ view: { codeSent: true }, ownsOperation: () => false, clear: vi.fn(async () => null), proof: async () => ({ operation_id: "proof-for-owner-test", confirmed: true, test_code: "synthetic" }) }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: null }) }));
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { CacheService } from "@/lib/services/cache-service";
+import { detectBrowserDeviceLabel } from "@/lib/services/owner-pod-endpoint";
 import { useTrustedDevicesModel } from "@/components/profile/use-trusted-devices-model";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 import { formatRelativeTime } from "@/lib/format/relative-time";
 import {
+  deriveBrowserSessionDisplay,
   deriveSyncDisplay,
   HEARTBEAT_FRESH_MS,
   SEAL_CONFIRM_WINDOW_MS,
@@ -22,7 +43,7 @@ import {
 
 const NOW = 1_700_000_000_000;
 
-afterEach(() => { publishValidatedAuthSessionOwner(null); CacheService.getInstance().clear(); vi.clearAllMocks(); });
+afterEach(() => { api.currentBrowserId = null; publishValidatedAuthSessionOwner(null); CacheService.getInstance().clear(); vi.clearAllMocks(); });
 
 describe("trusted-device operation owner", () => {
   const device = { device_id: "synthetic-device", device_name: "Test computer", platform: "macos", status: "active" };
@@ -267,5 +288,137 @@ describe("formatRelativeTime", () => {
 
   it("formats a past time relative to now", () => {
     expect(formatRelativeTime(NOW - 3 * 3_600_000, NOW)).toMatch(/ago/);
+  });
+});
+
+describe("web browser session naming, display, split layout, and bulk prune", () => {
+  it("parses human browser and OS labels instead of generic 'This browser'", () => {
+    expect(
+      detectBrowserDeviceLabel(
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+      ),
+    ).toBe("Chrome on macOS");
+    expect(
+      detectBrowserDeviceLabel(
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+      ),
+    ).toBe("Safari on iPhone");
+    expect(
+      detectBrowserDeviceLabel(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0",
+      ),
+    ).toBe("Edge on Windows");
+    expect(detectBrowserDeviceLabel("")).toBe("Web browser");
+  });
+
+  it("never labels web browsers as 'Trusted · not yet synced'", () => {
+    const current = deriveBrowserSessionDisplay(
+      { status: "active", last_used_at: NOW - 60_000 },
+      { isCurrent: true, nowMs: NOW },
+    );
+    expect(current).toEqual({
+      label: "Current browser · Active now",
+      tone: "active",
+    });
+
+    const other = deriveBrowserSessionDisplay(
+      { status: "active", last_used_at: NOW - 3 * 3_600_000 },
+      { isCurrent: false, nowMs: NOW },
+    );
+    expect(other.label).toMatch(/^Active · last used /);
+    expect(other.label).not.toContain("not yet synced");
+  });
+
+  it("splits linked computers from active web browsers, hides revoked web zombies, and prunes other browsers", async () => {
+    publishValidatedAuthSessionOwner("device-owner");
+    api.currentBrowserId = "tdv_web_current";
+    api.list.mockResolvedValue(
+      Response.json({
+        devices: [
+          {
+            device_id: "tdv_mac_1",
+            device_name: "Kushal's MacBook Pro",
+            platform: "macos",
+            status: "active",
+            last_synced_at: NOW - 60_000,
+          },
+          {
+            device_id: "tdv_web_current",
+            device_name: "Chrome on macOS",
+            platform: "web",
+            status: "active",
+            last_used_at: NOW - 5_000,
+          },
+          {
+            device_id: "tdv_web_old_1",
+            device_name: "This browser",
+            platform: "web",
+            status: "active",
+            last_used_at: NOW - 3_600_000,
+          },
+          {
+            device_id: "tdv_web_zombie_revoked",
+            device_name: "Old Zombie Browser",
+            platform: "web",
+            status: "revoked",
+            revoked_at: NOW - 86_400_000,
+          },
+        ],
+      }),
+    );
+    api.pruneWeb.mockResolvedValueOnce(
+      Response.json({
+        revoked_count: 1,
+        revoked_device_ids: ["tdv_web_old_1"],
+        kept_device_id: "tdv_web_current",
+      }),
+    );
+
+    const hook = renderHook(() => useTrustedDevicesModel("device-owner", true));
+    await waitFor(() => expect(hook.result.current.devices).toHaveLength(4));
+    await waitFor(() => expect(hook.result.current.currentBrowserDeviceId).toBe("tdv_web_current"));
+
+    const view = render(createElement(TrustedDevicesPage, { model: hook.result.current, panePresentation: true }));
+    expect(screen.getByTestId("trusted-linked-devices-group")).toHaveTextContent("Kushal's MacBook Pro");
+    expect(screen.getByTestId("trusted-web-browsers-group")).toHaveTextContent("Chrome on macOS");
+    expect(screen.getByTestId("current-browser-badge")).toHaveTextContent("Current");
+    expect(screen.getByTestId("trusted-web-browsers-group")).toHaveTextContent("Current browser · Active now");
+    expect(screen.queryByText("Old Zombie Browser")).toBeNull();
+    expect(screen.getByTestId("trusted-web-browsers-group").textContent).not.toContain("not yet synced");
+
+    // Open bulk prune confirmation and confirm
+    fireEvent.click(screen.getByTestId("prune-web-browsers-button"));
+    view.rerender(createElement(TrustedDevicesPage, { model: hook.result.current, panePresentation: true }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("Sign out other browsers?");
+    api.list.mockResolvedValueOnce(
+      Response.json({
+        devices: [
+          {
+            device_id: "tdv_mac_1",
+            device_name: "Kushal's MacBook Pro",
+            platform: "macos",
+            status: "active",
+            last_synced_at: NOW - 60_000,
+          },
+          {
+            device_id: "tdv_web_current",
+            device_name: "Chrome on macOS",
+            platform: "web",
+            status: "active",
+            last_used_at: NOW - 5_000,
+          },
+        ],
+      }),
+    );
+    const confirmBtn = screen.getAllByRole("button", { name: "Sign out other browsers" }).at(-1)!;
+    await act(async () => {
+      fireEvent.click(confirmBtn);
+    });
+
+    await waitFor(() => expect(api.pruneWeb).toHaveBeenCalledWith("tdv_web_current", expect.any(Function)));
+    await waitFor(() => expect(hook.result.current.pruneNotice).toBe("Signed out 1 browser."));
+    view.unmount();
+    hook.unmount();
   });
 });
