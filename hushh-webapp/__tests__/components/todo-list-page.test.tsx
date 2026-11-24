@@ -646,4 +646,38 @@ describe("TodoListPage row actions", () => {
     });
     expect(screen.queryByRole("region", { name: "Task details" })).not.toBeInTheDocument();
   });
+
+  it("allows typing and saving in the task composer while a background task write is in flight", async () => {
+    let finishWrite!: (result: { success: boolean; saveState: string; fullBlob: object }) => void;
+    vi.spyOn(TodoListPkmService, "setStatus").mockImplementationOnce(
+      () => new Promise((resolve) => { finishWrite = resolve; }),
+    );
+    vi.spyOn(todoService, "createTodo").mockResolvedValueOnce({
+      task: buildTodo({ id: "new-task-1", title: "New created item", type: "manual" }),
+      result: { success: true },
+    });
+
+    render(<TodoListPage />);
+    const checkbox = await screen.findByRole("checkbox", {
+      name: "Mark Review the plan as completed",
+    });
+    fireEvent.click(checkbox);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }));
+    const titleInput = screen.getByRole("textbox", { name: "Title", exact: true });
+    expect(titleInput).toBeEnabled();
+    fireEvent.change(titleInput, { target: { value: "New created item" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save", exact: true }));
+
+    await waitFor(() => {
+      expect(todoService.createTodo).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "New created item" }),
+        expect.anything(),
+      );
+    });
+
+    await act(async () => {
+      finishWrite({ success: true, saveState: "saved", fullBlob: {} });
+    });
+  });
 });

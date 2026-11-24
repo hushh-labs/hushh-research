@@ -405,7 +405,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   };
 
   const saveTask = async (input: EditableTodoFields) => {
-    if (!isCurrent() || !writeReady || !userId || !vaultKey || !vaultOwnerToken || createPending.current || taskWrites.current.size > 0) return;
+    if (!isCurrent() || !writeReady || !userId || !vaultKey || !vaultOwnerToken || createPending.current) return;
     createPending.current = true;
     setCreatingTask(true);
 
@@ -755,7 +755,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
       {writeReady ? (
         <TodoAddItemSheet
           open={editorOpen}
-          saving={isSaving}
+          saving={creatingTask}
           onOpenChange={setEditorOpen}
           onSave={saveTask}
         />
