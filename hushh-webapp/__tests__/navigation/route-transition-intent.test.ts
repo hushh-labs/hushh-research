@@ -163,10 +163,21 @@ describe("route transition intent ownership", () => {
       expect(document.documentElement.dataset.viewTransitionActive).toBe("true");
       expect(document.documentElement.dataset.routeTransition).not.toBe("pending");
 
+      // Simulate Next.js resolving router.push asynchronously via history.pushState
+      // while the View Transition is active: must never blank to pending.
+      window.history.pushState(null, "", "/one/files");
+      expect(document.documentElement.dataset.routeTransition).not.toBe("pending");
+
       const second = vi.fn();
       beginRouteTransition("/one/connect", second, "tap", "full");
       expect(skipTransition).toHaveBeenCalledTimes(1);
       expect(second).toHaveBeenCalledTimes(1);
+      expect(document.documentElement.dataset.routeDirection).toBe("pop");
+
+      window.history.pushState(null, "", "/one/connect");
+      const third = vi.fn();
+      beginRouteTransition("/one/feed", third, "tap", "full");
+      expect(third).toHaveBeenCalledTimes(1);
       expect(document.documentElement.dataset.routeDirection).toBe("tab-forward");
 
       resolveFinished();

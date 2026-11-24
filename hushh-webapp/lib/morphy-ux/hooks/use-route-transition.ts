@@ -483,13 +483,18 @@ function patchHistory(): () => void {
       unused: string,
       url?: string | URL | null,
     ) {
-      // Already inside an explicitly coordinated navigation, motion is disabled,
-      // or this is a same-page write — perform it immediately.
-      const target = transitionInFlight
-        ? null
-        : reducedMotion()
+      // Already inside an explicitly coordinated navigation (including an
+      // in-flight native View Transition whose Next.js pushState arrives
+      // asynchronously after router.push), motion is disabled, or this is a
+      // same-page write — perform it immediately without blanking the shell.
+      const target =
+        transitionInFlight ||
+        pendingViewTransitionResolve !== null ||
+        activeViewTransition !== null
           ? null
-          : transitionTargetForHistory(url);
+          : reducedMotion()
+            ? null
+            : transitionTargetForHistory(url);
 
       if (!target) {
         return original(data, unused, url ?? "");

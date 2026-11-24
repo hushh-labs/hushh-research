@@ -109,6 +109,32 @@ async def stripe_drive_request_webhook(
     # endpoint answer Stripe with {"received": true} while never settling the
     # order. That takes the requester's money and silently delivers nothing.
     kind = webhook_payment_kind(payload)
+    if kind == "scope_commerce":
+        # Scope Commerce settles exclusively through /api/payments/scope-commerce/webhook.
+        # Because Stripe broadcasts checkout.session.* to every endpoint registered on the
+        # same Stripe account, verify the signature against the active /api/payments/stripe/webhook
+        # signing secret and acknowledge cleanly instead of falling through to disabled
+        # Drive Request payments with HTTP 503.
+        try:
+            await PkmAnswerPaymentService().process_webhook(
+                payload=payload, signature=stripe_signature
+            )
+        except AnswerPaymentError as error:
+            code = str(error)
+            status = {
+                "payment_invalid_signature": 400,
+                "payment_invalid_event": 409,
+                "payment_not_ready": 409,
+                "request_unavailable": 404,
+            }.get(code, 503)
+            raise HTTPException(
+                status_code=status,
+                detail="Payment event could not be matched."
+                if status == 409
+                else "Payment is temporarily unavailable.",
+                headers={"Cache-Control": "no-store"},
+            ) from None
+        return {"received": True, "ignored": True}
     if kind == PKM_ANSWER_PAYMENT_KIND:
         try:
             await PkmAnswerPaymentService().process_webhook(
