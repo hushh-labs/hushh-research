@@ -21,14 +21,14 @@ describe("Core design system craft reset & Reference-Design Storybook", () => {
     );
 
     const standardBtn = screen.getByRole("button", { name: "Save changes" });
-    expect(standardBtn).toHaveClass("h-9", "min-h-9", "rounded-[10px]");
+    expect(standardBtn).toHaveClass("h-9", "min-h-9", "rounded-full");
     expect(standardBtn.className).not.toContain("h-[50px]");
 
     const compactBtn = screen.getByRole("button", { name: "Optimize memory" });
-    expect(compactBtn).toHaveClass("h-8", "min-h-8", "rounded-[9px]");
+    expect(compactBtn).toHaveClass("h-8", "min-h-8", "rounded-full");
 
     const prominentBtn = screen.getByRole("button", { name: "Confirm order" });
-    expect(prominentBtn).toHaveClass("h-10", "min-h-10", "rounded-[11px]");
+    expect(prominentBtn).toHaveClass("h-10", "min-h-10", "rounded-full");
 
     const rowBtn = screen.getByRole("button", { name: "Switch" });
     expect(rowBtn).toHaveClass("h-7", "rounded-full");
@@ -60,7 +60,7 @@ describe("Core design system craft reset & Reference-Design Storybook", () => {
     ).toBeVisible();
 
     const openBtn = screen.getByTestId("one-stream-event-open");
-    expect(openBtn).toHaveClass("h-8", "rounded-[9px]");
+    expect(openBtn).toHaveClass("h-8", "rounded-full");
     fireEvent.click(openBtn);
     expect(onOpen).toHaveBeenCalledTimes(1);
   });

@@ -12,17 +12,17 @@ export const PROFILE_LABELS = {
  * availability remain with Profile; this model grants no operation authority. */
 export const PROFILE_MENU_GROUPS = [
   { id: "settings", title: "Your settings", entries: [
-    { id: "hosting", label: "Hosting", icon: PROFILE_ICONS.connectors, symbol: "cloud" },
-    { id: "software-updates", label: "Agent updates", icon: PROFILE_ICONS.refresh, symbol: "arrow.triangle.2.circlepath" },
     { id: "account", label: PROFILE_LABELS.account, icon: PROFILE_ICONS.account, symbol: "person" },
-    { id: "payouts", label: "Payouts", icon: PROFILE_ICONS.payouts, symbol: "building.columns", voiceControlId: "profile_payouts", voiceActionId: "route.profile_payouts", voicePurpose: "Opens bank setup and transaction history." },
-    { id: "request-pricing", label: "Request pricing", icon: PROFILE_ICONS.pricing, symbol: "tag", voiceControlId: "profile_request_pricing", voiceActionId: "route.profile_request_pricing", voicePurpose: "Opens your default document request price." },
-    { id: "world-model", label: "Personal World Model", icon: PROFILE_ICONS.worldModel, symbol: "globe", voiceControlId: "profile_world_model", voiceActionId: "route.profile_world_model", voicePurpose: "Opens your Personal World Model." },
+    { id: "connectors", label: "Connectors", icon: PROFILE_ICONS.connectors, symbol: "powerplug" },
     { id: "preferences", label: PROFILE_LABELS.preferences, icon: PROFILE_ICONS.preferences, symbol: "slider.horizontal.3" },
+    { id: "hosting", label: "Hosting", icon: PROFILE_ICONS.connectors, symbol: "cloud" },
     { id: "security", label: PROFILE_LABELS.security, icon: PROFILE_ICONS.security, symbol: "checkmark.shield" },
     { id: "devices", label: "Trusted devices", icon: PROFILE_ICONS.devices, symbol: "laptopcomputer" },
-    { id: "connectors", label: "Connectors", icon: PROFILE_ICONS.connectors, symbol: "powerplug" },
+    { id: "world-model", label: "Personal World Model", icon: PROFILE_ICONS.worldModel, symbol: "globe", voiceControlId: "profile_world_model", voiceActionId: "route.profile_world_model", voicePurpose: "Opens your Personal World Model." },
+    { id: "payouts", label: "Payouts", icon: PROFILE_ICONS.payouts, symbol: "building.columns", voiceControlId: "profile_payouts", voiceActionId: "route.profile_payouts", voicePurpose: "Opens bank setup and transaction history." },
+    { id: "request-pricing", label: "Request pricing", icon: PROFILE_ICONS.pricing, symbol: "tag", voiceControlId: "profile_request_pricing", voiceActionId: "route.profile_request_pricing", voicePurpose: "Opens your default document request price." },
     { id: "invite", label: PROFILE_LABELS.referrals, icon: PROFILE_ICONS.invite, symbol: "person.2" },
+    { id: "software-updates", label: "Agent updates", icon: PROFILE_ICONS.refresh, symbol: "arrow.triangle.2.circlepath" },
     { id: "support", label: PROFILE_LABELS.support, icon: PROFILE_ICONS.support, symbol: "questionmark.circle" },
     { id: "developer-tools", label: PROFILE_LABELS.developerTools, icon: PROFILE_ICONS.developerTools, symbol: "chevron.left.forwardslash.chevron.right", localOnly: true },
   ] },

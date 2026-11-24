@@ -557,15 +557,17 @@ function ScopeDiscoveryView({
         </MorphyButton>
       </div> : unavailable ? <MorphyButton type="button" size="sm" variant="none" data-consent-quiet-action="true" onClick={() => setRetry(value => value + 1)}>Try again</MorphyButton> : null}
 
-      {reviewing && profile ? <section aria-label="Review information request" className="consent-presentation-surface space-y-3 rounded-2xl border border-border p-3 sm:p-4">
-        <h4 className="font-semibold">Request information from {profile.displayName}</h4>
-        <p className="text-sm text-muted-foreground">They will see exactly what you asked for, why, and for how long. Nothing is sent until you confirm.</p>
+      {reviewing && profile ? <section aria-label="Review information request" className="consent-presentation-surface space-y-4 rounded-[22px] border border-black/[0.08] bg-[color:var(--app-card-surface-default-solid)] p-4 shadow-[0_6px_24px_-12px_rgba(15,23,42,0.10),0_1px_3px_rgba(15,23,42,0.04)] dark:border-white/[0.11] sm:p-5">
+        <div className="space-y-1">
+          <h4 className="text-[15.5px] font-semibold tracking-[-0.015em] text-foreground">Request information from {profile.displayName}</h4>
+          <p className="text-sm text-muted-foreground">They will see exactly what you asked for, why, and for how long. Nothing is sent until you confirm.</p>
+        </div>
         <InformationRequestReviewFields scopes={selectedScopes} purpose={purpose} durationHours={durationHours}
           onPurposeChange={setPurpose} onDurationChange={setDurationHours} disabled={request.pending} personRef={personRef ?? undefined} onPriceChange={setRequestPrice} testIdPrefix="chat-request" />
         {request.error ? <p role="alert" className="text-sm text-destructive">{request.error}</p> : null}
-        <div className="flex flex-wrap justify-end gap-2">
-          <MorphyButton type="button" size="sm" data-consent-quiet-action="true" disabled={request.pending} onClick={() => setReviewing(false)}>Edit information</MorphyButton>
-          <MorphyButton type="button" size="sm" className="min-h-11" disabled={!requestPrice || requestPrice.shortfallCoins > 0 || !request.available || request.pending || purpose.trim().length < 8 || !selectedScopes.length || selectedScopes.length > 50}
+        <div className="flex flex-wrap items-center justify-end gap-2.5 border-t border-black/[0.06] pt-3.5 dark:border-white/[0.08]">
+          <MorphyButton type="button" size="default" variant="none" data-consent-quiet-action="true" disabled={request.pending} onClick={() => setReviewing(false)}>Edit information</MorphyButton>
+          <MorphyButton type="button" size="default" className="px-5" disabled={!requestPrice || requestPrice.shortfallCoins > 0 || !request.available || request.pending || purpose.trim().length < 8 || !selectedScopes.length || selectedScopes.length > 50}
             onClick={() => { if (requestPrice && !requestPrice.shortfallCoins) sendRequest({ scopes: selectedScopes, purpose, durationHours, priceBinding: requestPrice.binding }); }}>{request.pending ? "Sending…" : "Send request"}</MorphyButton>
         </div>
       </section> : null}

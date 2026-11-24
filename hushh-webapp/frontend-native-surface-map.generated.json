@@ -147,6 +147,10 @@
       "file": "app/api/consent/history/route.ts"
     },
     {
+      "template": "/api/consent/history/clear-system-logs",
+      "file": "app/api/consent/history/clear-system-logs/route.ts"
+    },
+    {
       "template": "/api/consent/logout",
       "file": "app/api/consent/logout/route.ts"
     },
@@ -11447,5 +11451,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "78ecf7c10df0dbea40c720ad07cfcefbb9e4d82822f61385ad3fc6d2531823bd"
+  "content_sha256": "33ab89c56876f658ba89fdac85134636b14f136b03c37f2f017c1e200d0d8997"
 }

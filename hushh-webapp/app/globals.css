@@ -11855,8 +11855,42 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
   }
 }
 
-/* Draw the inner pill behind each existing Button/Link. The button owns the
-   touch target, focus ring and ripple; a pseudo element adds no DOM or action. */
+/* Fluid rhythmic typing indicator for One chat turns (replaces static "Thinking…" text). */
+@keyframes one-typing-rhythm-wave {
+  0%, 60%, 100% {
+    transform: translateY(0) scale(0.88);
+    opacity: 0.34;
+  }
+  28% {
+    transform: translateY(-3.5px) scale(1.06);
+    opacity: 0.92;
+  }
+}
+
+.one-typing-rhythm-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background-color: color-mix(in srgb, var(--foreground) 68%, transparent);
+  will-change: transform, opacity;
+  animation: one-typing-rhythm-wave 1.18s cubic-bezier(0.37, 0, 0.24, 1) infinite;
+}
+.one-typing-rhythm-dot:nth-child(2) {
+  animation-delay: 160ms;
+}
+.one-typing-rhythm-dot:nth-child(3) {
+  animation-delay: 320ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .one-typing-rhythm-dot {
+    animation: none;
+    opacity: 0.55;
+  }
+}
+
+/* Draw the inner pill behind each existing Button/Link. Matches the core pill
+   button scale (32px/36px visual height inside a comfortable tap target). */
 :is(
     .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
     [data-consent-presentation], .consent-presentation-surface
@@ -11864,45 +11898,38 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
   :is(button, a)[data-consent-quiet-action] {
   position: relative;
   isolation: isolate;
-  min-height: 44px !important;
-  height: auto !important;
-  min-width: 88px;
-  padding-inline: 15px !important;
-  padding-block: 11px !important;
-  border: 0 !important;
-  border-radius: 999px;
-  background: transparent !important;
-  box-shadow: none !important;
-  color: var(--app-accent) !important;
+  min-height: 36px !important;
+  height: 36px !important;
+  min-width: 84px;
+  padding-inline: 16px !important;
+  padding-block: 0 !important;
+  border: 1px solid color-mix(in srgb, var(--foreground) 12%, transparent) !important;
+  border-radius: 9999px !important;
+  background: var(--app-card-surface-default-solid) !important;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.03) !important;
+  color: var(--foreground) !important;
   font-family: var(--font-app-body) !important;
-  font-size: 12px !important;
-  line-height: 18px !important;
-  font-weight: 550 !important;
-  white-space: normal !important;
+  font-size: 12.5px !important;
+  line-height: 16px !important;
+  font-weight: 500 !important;
+  white-space: nowrap !important;
   text-align: center;
+  transition: background-color 140ms cubic-bezier(0.22, 1, 0.36, 1), border-color 140ms cubic-bezier(0.22, 1, 0.36, 1), color 140ms cubic-bezier(0.22, 1, 0.36, 1) !important;
 }
 :is(
     .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
     [data-consent-presentation], .consent-presentation-surface
   )
   :is(button, a)[data-consent-quiet-action]::before {
-  content: "";
-  position: absolute;
-  inset-block: 4px;
-  inset-inline: 0;
-  z-index: -1;
-  pointer-events: none;
-  border: 1px solid color-mix(in srgb, var(--app-accent) 26%, var(--app-separator));
-  border-radius: 999px;
-  background: var(--app-card-surface-default-solid);
+  display: none;
 }
 :is(
     .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
     [data-consent-presentation], .consent-presentation-surface
   )
-  :is(button, a)[data-consent-quiet-action]:not(:disabled):not([aria-disabled="true"]):is(:hover, :focus-visible)::before {
-  border-color: color-mix(in srgb, var(--app-accent) 48%, var(--app-card-surface-default-solid));
-  background: color-mix(in srgb, var(--app-accent) 6%, var(--app-card-surface-default-solid));
+  :is(button, a)[data-consent-quiet-action]:not(:disabled):not([aria-disabled="true"]):is(:hover, :focus-visible) {
+  border-color: color-mix(in srgb, var(--foreground) 22%, transparent) !important;
+  background: var(--app-neutral-fill) !important;
 }
 :is(
     .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,

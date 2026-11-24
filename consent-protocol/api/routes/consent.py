@@ -1308,6 +1308,19 @@ async def get_consent_center_list(
     )
 
 
+@router.post("/history/clear-system-logs")
+async def clear_consent_history_system_logs(
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Delete legacy routine personal_agent POD_ACCESS_ALLOWED noise from owner history.
+
+    Preserves all real consent grants, denials, revocations, fail-closed denials,
+    and the immutable consent_audit_receipts chain.
+    """
+    result = await ConsentDBService().clear_system_pod_access_logs(firebase_uid)
+    return result
+
+
 @router.get("/requests/outgoing")
 async def get_outgoing_requests(firebase_uid: str = Depends(require_firebase_auth)):
     service = ConsentCenterService()
@@ -1382,7 +1395,7 @@ async def disconnect_relationship(
 
 
 async def _issue_or_reuse_vault_owner_token(
-    *, user_id: str, agent_id: str = "self", expires_in_ms: int = 24 * 60 * 60 * 1000
+    *, user_id: str, agent_id: str = "self", expires_in_ms: int = 7 * 24 * 60 * 60 * 1000
 ) -> dict[str, Any]:
     now_ms = int(time.time() * 1000)
     service = ConsentDBService()
@@ -1472,7 +1485,7 @@ async def issue_trusted_device_vault_owner_token(
     result = await _issue_or_reuse_vault_owner_token(
         user_id=firebase_uid,
         agent_id=f"device:{payload.device_id}",
-        expires_in_ms=15 * 60 * 1000,
+        expires_in_ms=24 * 60 * 60 * 1000,
     )
     still_active = await run_in_threadpool(
         TrustedDeviceService().is_active_device,
