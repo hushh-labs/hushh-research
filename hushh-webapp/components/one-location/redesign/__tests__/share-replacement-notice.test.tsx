@@ -179,14 +179,14 @@ describe("ShareReplacementConfirmDialog", () => {
     }
   });
 
-  it("keeps both dialog actions equal at the prominent 50px height", () => {
+  it("keeps both dialog actions equal at the prominent 40px height", () => {
     renderDialog([row()]);
 
     expect(
       screen.getByTestId("one-location-share-replacement-cancel"),
-    ).toHaveClass("h-[50px]", "min-h-[50px]", "w-full");
+    ).toHaveClass("h-10", "min-h-10", "w-full");
     expect(
       screen.getByTestId("one-location-share-replacement-accept"),
-    ).toHaveClass("h-[50px]", "min-h-[50px]", "w-full");
+    ).toHaveClass("h-10", "min-h-10", "w-full");
   });
 });
