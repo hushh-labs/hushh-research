@@ -10,6 +10,7 @@ from typing import Any
 from hushh_mcp.one_adk.history_projection import (
     _bounded_text,
     _record,
+    _safe_turn_location_permission_descriptor,
     _safe_workspace_connector_setup_descriptor,
 )
 from hushh_mcp.one_adk.queued_input import QUEUED_INPUT_KIND
@@ -622,6 +623,8 @@ def _safe_agent_history_metadata(
             descriptor = _safe_drive_bulk_share_descriptor(event, [part])
         if descriptor is None:
             descriptor = _safe_workspace_connector_setup_descriptor(event, [part], call_providers)
+        if descriptor is None:
+            descriptor = _safe_turn_location_permission_descriptor(event, [part])
         if descriptor is None:
             continue
         invocation_identity = _bounded_text(

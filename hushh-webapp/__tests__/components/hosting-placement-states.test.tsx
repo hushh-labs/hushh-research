@@ -340,6 +340,7 @@ describe("cloud step placement states", () => {
     const card = await screen.findByTestId("hussh-pods-connected");
     expect(card).toHaveAttribute("data-provider", "ace");
     expect(card).toHaveTextContent("Isolated Confidential Sandbox on Google Cloud");
+    expect(card).not.toHaveTextContent("Hussh Confidential Sandbox");
     expect(card).not.toHaveTextContent("Microsoft Azure");
     expect(screen.getByTestId("hussh-pods-active-gcp-cloud")).toBeInTheDocument();
     expect(screen.queryByTestId("pooled-sandbox-switch-card")).toBeNull();

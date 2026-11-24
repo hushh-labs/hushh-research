@@ -2385,6 +2385,12 @@ async function streamAgentChatAttempt(input: {
         toolArgs.get(event.toolCallId) || {},
       );
       payload.raw.result = event.content;
+      if (toolName === "get_my_location") {
+        const parsedLocation = parseRecord(event.content);
+        if (parsedLocation?.status === "needs_location_permission") {
+          payload.message = "Location permission needed.";
+        }
+      }
       if (
         toolName === "files" ||
         toolName === "create_folder" ||

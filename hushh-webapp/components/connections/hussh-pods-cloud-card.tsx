@@ -205,12 +205,14 @@ export function HusshPodsActiveCard({
   deploymentTarget,
   cutover,
   embedded = false,
+  compactBelowPicker = false,
   showRetiredHistory = false,
   dataTestId = "hussh-pods-connected",
 }: {
   deploymentTarget?: string | null;
   cutover?: HostedAzureCutoverState | null;
   embedded?: boolean;
+  compactBelowPicker?: boolean;
   showRetiredHistory?: boolean;
   dataTestId?: string;
 }) {
@@ -311,10 +313,12 @@ export function HusshPodsActiveCard({
         data-testid={dataTestId}
         data-provider={provider ?? (isPersonalSandbox ? "ace" : "unknown")}
         className={cn(
-          "space-y-3",
+          compactBelowPicker ? "space-y-2.5" : "space-y-3",
           embedded
             ? "p-4"
-            : "rounded-2xl border border-[var(--app-border)] bg-[var(--app-card-surface-default)] p-4",
+            : compactBelowPicker
+              ? "rounded-2xl border border-[var(--app-border)] bg-[var(--app-card-surface-default)] px-3.5 py-3"
+              : "rounded-2xl border border-[var(--app-border)] bg-[var(--app-card-surface-default)] p-4",
         )}
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -322,29 +326,53 @@ export function HusshPodsActiveCard({
             {provider ? (
               <span
                 aria-hidden="true"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[var(--app-border)] bg-background"
+                className={cn(
+                  "flex shrink-0 items-center justify-center rounded-xl border border-[var(--app-border)] bg-background",
+                  compactBelowPicker ? "h-7 w-7 rounded-lg" : "h-9 w-9",
+                )}
               >
-                <PodCloudProviderMark provider={provider} className="h-5 w-5" />
+                <PodCloudProviderMark
+                  provider={provider}
+                  className={compactBelowPicker ? "h-4 w-4" : "h-5 w-5"}
+                />
               </span>
             ) : isPersonalSandbox ? (
               <span
                 aria-hidden="true"
                 data-testid="hussh-pods-active-gcp-cloud"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[var(--app-border)] bg-background"
+                className={cn(
+                  "flex shrink-0 items-center justify-center rounded-xl border border-[var(--app-border)] bg-background",
+                  compactBelowPicker ? "h-7 w-7 rounded-lg" : "h-9 w-9",
+                )}
               >
-                <PodCloudProviderMark provider="gcp" className="h-5 w-5" />
+                <PodCloudProviderMark
+                  provider="gcp"
+                  className={compactBelowPicker ? "h-4 w-4" : "h-5 w-5"}
+                />
               </span>
             ) : null}
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-foreground">{title}</p>
-              <p className="text-xs text-[var(--app-text-secondary)]">
+            {compactBelowPicker ? (
+              <p className="min-w-0 text-xs font-medium text-[var(--app-text-secondary)]">
                 {isPersonalSandbox
-                  ? "Isolated Confidential Sandbox on Google Cloud"
-                  : "Dedicated private agent managed by Hussh"}
+                  ? "Isolated Confidential Sandbox on Google Cloud · Built-in AI ready"
+                  : provider === "azure"
+                    ? "Hussh Pods · Microsoft Azure"
+                    : provider === "gcp"
+                      ? "Hussh Pods · Google Cloud"
+                      : "Dedicated private agent managed by Hussh"}
               </p>
-            </div>
+            ) : (
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground">{title}</p>
+                <p className="text-xs text-[var(--app-text-secondary)]">
+                  {isPersonalSandbox
+                    ? "Isolated Confidential Sandbox on Google Cloud"
+                    : "Dedicated private agent managed by Hussh"}
+                </p>
+              </div>
+            )}
           </div>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--app-border)] bg-background px-2.5 py-0.5 text-xs font-medium text-foreground">
+          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[var(--app-border)] bg-background px-2.5 py-0.5 text-xs font-medium text-foreground">
             <span
               aria-hidden="true"
               className="h-1.5 w-1.5 rounded-full bg-[color:var(--app-accent)]"
@@ -352,15 +380,17 @@ export function HusshPodsActiveCard({
             {statusLabel}
           </span>
         </div>
-        <p className="text-sm text-[var(--app-text-secondary)]">
-          {provider === "azure"
-            ? "Your agent runs on Microsoft Azure in Hussh’s managed cell. Your prior cloud setup stays untouched during its 3-day safety window."
-            : provider === "gcp"
-              ? "Your agent runs on Google Cloud in a dedicated pod managed by Hussh."
-              : isPersonalSandbox
-                ? "Your isolated Confidential Sandbox runs on Google Cloud with built-in AI."
-                : "Your dedicated private agent is active on Hussh Pods."}
-        </p>
+        {!compactBelowPicker ? (
+          <p className="text-sm text-[var(--app-text-secondary)]">
+            {provider === "azure"
+              ? "Your agent runs on Microsoft Azure in Hussh’s managed cell. Your prior cloud setup stays untouched during its 3-day safety window."
+              : provider === "gcp"
+                ? "Your agent runs on Google Cloud in a dedicated pod managed by Hussh."
+                : isPersonalSandbox
+                  ? "Your isolated Confidential Sandbox runs on Google Cloud with built-in AI."
+                  : "Your dedicated private agent is active on Hussh Pods."}
+          </p>
+        ) : null}
 
         <PodSessionLockdownControl />
 

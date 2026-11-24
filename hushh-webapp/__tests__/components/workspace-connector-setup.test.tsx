@@ -4,10 +4,59 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AgentConnectorContinuationContext,
   ConnectorReadReceipt,
+  TurnLocationPermissionCard,
   WorkspaceConnectorSetupCard,
 } from "@/components/agent/connector-read-receipt";
+import {
+  parseAgentActivityExperience,
+  parseAgentToolResultExperience,
+} from "@/lib/agent/agui-structured-experiences";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
 import { VaultContext } from "@/lib/vault/vault-context";
+
+const locationBusMock = vi.hoisted(() => {
+  const listeners = new Set<(state: Record<string, unknown>) => void>();
+  let current: Record<string, unknown> = {
+    status: "idle",
+    permission: "prompt",
+    snapshot: null,
+    error: null,
+    snapshotOrigin: null,
+  };
+  return {
+    getState: vi.fn(() => current),
+    setState(next: Record<string, unknown>) {
+      current = { ...current, ...next };
+      for (const listener of listeners) listener(current);
+    },
+    subscribe: vi.fn((listener: (state: Record<string, unknown>) => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    }),
+    syncPermission: vi.fn(async () => current.permission),
+    request: vi.fn(async () => {
+      const fix = {
+        latitude: 37.7749,
+        longitude: -122.4194,
+        accuracyM: 12,
+        capturedAt: new Date().toISOString(),
+        sourcePlatform: "web" as const,
+      };
+      current = {
+        status: "ready",
+        permission: "granted",
+        snapshot: fix,
+        error: null,
+        snapshotOrigin: "fresh",
+      };
+      for (const listener of listeners) listener(current);
+      return fix;
+    }),
+  };
+});
+vi.mock("@/lib/one-location/location-bus", () => ({
+  LocationBus: locationBusMock,
+}));
 
 const plaidState = vi.hoisted(() => ({
   financialData: null as Record<string, unknown> | null,
@@ -205,5 +254,62 @@ describe("Workspace connector setup card", () => {
       "/icons/connectors/stripe.svg",
     );
     expect(screen.getByRole("button", { name: "Set up Stripe" })).toBeInTheDocument();
+  });
+
+  it("maps get_my_location permission results to an inline toggle card and auto-continues the chat turn once allowed", async () => {
+    locationBusMock.setState({
+      status: "idle",
+      permission: "prompt",
+      snapshot: null,
+      error: null,
+      snapshotOrigin: null,
+    });
+    locationBusMock.request.mockClear();
+
+    const parsed = parseAgentToolResultExperience("get_my_location", {
+      status: "needs_location_permission",
+      permission: "not_granted",
+      message: "Allow location access on the card below so I can check that for where you are right now.",
+    });
+    expect(parsed).toEqual({
+      type: "one.turn_location_permission.v1",
+      permission: "not_granted",
+    });
+    expect(
+      parseAgentActivityExperience("one.turn_location_permission.v1", {
+        permission: "denied",
+      }),
+    ).toEqual({
+      type: "one.turn_location_permission.v1",
+      permission: "denied",
+    });
+
+    const continueAfterConnectorSync = vi.fn();
+    render(
+      <AgentConnectorContinuationContext.Provider value={{ continueAfterConnectorSync }}>
+        <TurnLocationPermissionCard
+          experience={{
+            type: "one.turn_location_permission.v1",
+            permission: "not_granted",
+          }}
+        />
+      </AgentConnectorContinuationContext.Provider>,
+    );
+
+    expect(screen.getByTestId("turn-location-permission-card")).toHaveTextContent(
+      "Allow device location",
+    );
+    const toggle = screen.getByTestId("turn-location-permission-switch");
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(locationBusMock.request).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(continueAfterConnectorSync).toHaveBeenCalledWith(
+        expect.stringContaining("Location access is now allowed"),
+      ),
+    );
+    expect(screen.getByTestId("turn-location-permission-card")).toHaveTextContent(
+      "Device location · Allowed",
+    );
   });
 });

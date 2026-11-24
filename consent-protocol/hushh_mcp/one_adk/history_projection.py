@@ -177,6 +177,37 @@ def _safe_workspace_connector_setup_descriptor(
     return None
 
 
+_TURN_LOCATION_PERMISSIONS = frozenset({"not_granted", "denied", "unavailable", "not_provided"})
+
+
+def _safe_turn_location_permission_descriptor(
+    event: Any,
+    selected_parts: list[Any] | None = None,
+) -> dict[str, Any] | None:
+    """Project the inline device-location toggle card when get_my_location lacked permission."""
+    parts = (
+        selected_parts
+        if selected_parts is not None
+        else (getattr(getattr(event, "content", None), "parts", None) or [])
+    )
+    for part in parts:
+        response = getattr(part, "function_response", None)
+        name = getattr(response, "name", "") if response is not None else ""
+        if name != "get_my_location":
+            continue
+        result = _status_result(getattr(response, "response", None))
+        if result.get("status") != "needs_location_permission":
+            continue
+        permission = str(result.get("permission") or "not_provided")
+        if permission not in _TURN_LOCATION_PERMISSIONS:
+            permission = "not_provided"
+        return {
+            "activityType": "one.turn_location_permission.v1",
+            "content": {"permission": permission},
+        }
+    return None
+
+
 # App-owned tool identities the browser already labels in the live Activity
 # panel. Anything else (sub-agent transfers, confirmation plumbing) is not a
 # step the owner saw by name, so it is not restored.

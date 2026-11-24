@@ -1564,6 +1564,7 @@ export function GeminiRuntimeSettingsView({ model }: { model: GeminiRuntimeSetti
       isRemoving={isRemoving}
       privateCloud={privateCloud}
       placement={placement}
+      requiresExplicitSelection={requiresExplicitSelection}
       useRadioItem={useRadioItems}
       selectedOption={selectedOption}
       hasActiveGemini={activeConfig?.provider === "gemini"}
