@@ -885,6 +885,7 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
       person={{ personRef: experience.subjectRef, displayName: experience.personName }}
       items={sharedItems}
       variant="embedded"
+      presentation="modal"
     />
   ) : null;
   const sharedCard = sharedItems.length && experience.subjectRef ? (

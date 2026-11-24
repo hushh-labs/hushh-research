@@ -11,9 +11,17 @@
  * Layout contract: every state (loading, locked, ready) draws the same rows at
  * the same height, so values arriving never move the card.
  */
-import { useState } from "react";
-import { Copy, Eye, EyeOff, Lock, LockKeyhole, RefreshCw, ShieldCheck } from "@/components/icons";
+import { useEffect, useState } from "react";
+import { ArrowUpRight, Copy, Eye, EyeOff, Lock, LockKeyhole, RefreshCw, ShieldCheck } from "@/components/icons";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { morphyToast } from "@/lib/morphy-ux/toast-utils";
@@ -59,6 +67,8 @@ export type SharedWithYouCardViewProps = {
   onRetry?: () => void;
   /** Chat floats the card in the transcript; Profile stacks it in a list; Embedded nests inside a request card. */
   variant?: "chat" | "profile" | "embedded";
+  /** Controls whether decrypted values render inline or behind a bounded Detailed View Modal. Defaults to "modal" for chat and "inline" elsewhere. */
+  presentation?: "inline" | "modal";
   className?: string;
 };
 
@@ -212,14 +222,17 @@ function OutlineRows({ names, mode }: { names: string[]; mode: "locked" | "loadi
   );
 }
 
-function SharedItem({ item, personName, status, onRetry, compact = false }: {
+function SharedItem({ item, personName, status, onRetry, compact = false, useDetailModal = false }: {
   item: SharedWithYouItemView;
   personName: string;
   status: SharedWithYouCardStatus;
   onRetry?: () => void;
   compact?: boolean;
+  /** Keep Chat concise by opening decrypted fields inside a scrollable modal. */
+  useDetailModal?: boolean;
 }) {
   const [hidden, setHidden] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
   const dates = compact ? null : sharedDatesLine(item.sharedAt, item.accessEndsAt);
   const rows = item.state === "ready" && item.data ? sharedValueRows(item.data, item.label, item.fields) : [];
   const headingId = `shared-item-${item.key.replace(/[^A-Za-z0-9_-]/g, "")}`;
@@ -227,34 +240,50 @@ function SharedItem({ item, personName, status, onRetry, compact = false }: {
   // entity"): Hide then masks those fields and leaves the rest readable.
   const canHide = item.state === "ready" && rows.length > 0
     && (item.sensitive || rows.some((row) => row.sensitive));
+  const modalEnabled = useDetailModal && item.state === "ready" && rows.length > 0;
+
+  // Immediately drop any open detail modal the moment access locks or ends.
+  useEffect(() => {
+    if (
+      detailOpen &&
+      (status === "locked" ||
+        item.state === "locked" ||
+        item.state === "ended" ||
+        item.state === "unopenable")
+    ) {
+      setDetailOpen(false);
+    }
+  }, [status, item.state, detailOpen]);
+
+  const hideToggle = canHide ? (
+    <button data-consent-role="utility" type="button" aria-pressed={hidden} onClick={() => setHidden((current) => !current)}
+      aria-label={hidden ? `Show ${item.label}` : `Hide ${item.label}`}
+      className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-[9px] px-2.5 text-xs font-medium text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      {hidden ? <Eye className="size-3.5" aria-hidden="true" /> : <EyeOff className="size-3.5" aria-hidden="true" />}
+      <span>{hidden ? "Show" : "Hide"}</span>
+    </button>
+  ) : null;
 
   return (
     <article aria-labelledby={headingId} data-testid="shared-with-you-item" data-item-state={item.state}
-      data-sensitive={item.sensitive ? "true" : "false"} className={compact ? "py-3" : "px-4 py-4 sm:px-5"}>
+      data-sensitive={item.sensitive ? "true" : "false"} className={compact ? "py-3" : "px-4 py-3.5 sm:px-5"}>
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <h4 data-consent-role="row-title" id={headingId} className="text-[15px] font-semibold leading-6 tracking-[-0.01em] text-foreground">{item.label}</h4>
-          {dates ? <p data-consent-role="helper" className="text-xs leading-5 text-muted-foreground">{dates}</p> : null}
+          <h4 data-consent-role="row-title" id={headingId} className="text-[14.5px] font-semibold leading-5 tracking-[-0.01em] text-foreground">{item.label}</h4>
+          {dates ? <p data-consent-role="helper" className="mt-0.5 text-xs leading-5 text-muted-foreground">{dates}</p> : null}
         </div>
-        {canHide ? (
-          <button data-consent-role="utility" type="button" aria-pressed={hidden} onClick={() => setHidden((current) => !current)}
-            aria-label={hidden ? `Show ${item.label}` : `Hide ${item.label}`}
-            className="-mr-2 -mt-1.5 inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-3 text-xs font-medium text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-            {hidden ? <Eye className="size-4" aria-hidden="true" /> : <EyeOff className="size-4" aria-hidden="true" />}
-            <span>{hidden ? "Show" : "Hide"}</span>
-          </button>
-        ) : null}
+        {!modalEnabled ? hideToggle : null}
       </div>
 
       {item.sensitive && item.state !== "ended" ? (
         <p data-testid="shared-with-you-sensitive"
-          data-consent-role="disclosure" className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium leading-4 text-muted-foreground">
+          data-consent-role="disclosure" className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-medium leading-4 text-muted-foreground">
           <ShieldCheck className="size-3.5 shrink-0" aria-hidden="true" />
           <span className="min-w-0">{item.modelProcessingAllowed ? "Sensitive · identifier model use approved; credentials stay private" : "Sensitive · not shared with One’s model"}</span>
         </p>
       ) : null}
       {item.purpose && item.state !== "ended" ? (
-        <p data-consent-role="body" className="mt-2 text-sm leading-6 text-foreground/80 [overflow-wrap:anywhere]">{item.purpose}</p>
+        <p data-consent-role="body" className="mt-1.5 text-[13px] leading-5 text-foreground/80 [overflow-wrap:anywhere]">{item.purpose}</p>
       ) : null}
 
       <div className="mt-3">
@@ -272,6 +301,72 @@ function SharedItem({ item, personName, status, onRetry, compact = false }: {
               <MorphyButton data-consent-quiet-action="true" data-consent-role="compact-action" type="button" variant="muted" size="compact" onClick={onRetry}>Try again</MorphyButton>
             ) : null}
           </div>
+        ) : modalEnabled ? (
+          <>
+            <div
+              data-testid="shared-with-you-chat-summary"
+              className="flex flex-wrap items-center justify-between gap-2.5 rounded-[12px] border border-black/[0.07] bg-muted/30 px-3.5 py-2.5 dark:border-white/[0.08]"
+            >
+              <div className="min-w-0 space-y-0.5">
+                <p className="text-[13px] font-medium leading-[18px] text-foreground tabular-nums">
+                  {rows.length} {rows.length === 1 ? "field" : "fields"} ready on this device
+                </p>
+                <p className="truncate text-[12px] leading-[16px] text-muted-foreground">
+                  {rows
+                    .map((row) => row.label)
+                    .filter((label): label is string => Boolean(label))
+                    .slice(0, 3)
+                    .join(" · ") || "Open detailed view to inspect and copy values"}
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="compact"
+                variant="outline"
+                data-testid="shared-with-you-view-details"
+                aria-label={`View ${item.label} details`}
+                onClick={() => setDetailOpen(true)}
+              >
+                View details
+                <ArrowUpRight className="size-3.5 text-muted-foreground" aria-hidden="true" />
+              </Button>
+            </div>
+            <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+              <DialogContent
+                data-testid="shared-with-you-detail-modal"
+                className="consent-presentation-surface max-w-lg gap-4"
+              >
+                <DialogHeader>
+                  <div className="flex items-start justify-between gap-3 pr-6">
+                    <div className="min-w-0 space-y-1">
+                      <DialogTitle className="text-[16px] font-semibold tracking-[-0.015em]">
+                        {item.label}
+                      </DialogTitle>
+                      <DialogDescription className="text-[12.5px]">
+                        Shared by {personName} · Decrypted on this device only
+                        {dates ? ` · ${dates}` : ""}
+                      </DialogDescription>
+                    </div>
+                    {hideToggle}
+                  </div>
+                </DialogHeader>
+                <div className="max-h-[62vh] overflow-y-auto rounded-[12px] border border-black/[0.07] bg-muted/25 dark:border-white/[0.08]">
+                  <ValueRows
+                    rows={rows}
+                    hidden={hidden}
+                    itemLabel={item.label}
+                    itemSensitive={item.sensitive}
+                    modelProcessingAllowed={item.modelProcessingAllowed}
+                  />
+                </div>
+                <div className="flex items-center justify-end">
+                  <Button type="button" size="compact" variant="secondary" onClick={() => setDetailOpen(false)}>
+                    Close
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </>
         ) : (
           <div className="overflow-hidden rounded-[var(--app-card-radius-compact)] bg-muted/40">
             {item.state === "ready" && rows.length ? (
@@ -295,11 +390,13 @@ export function SharedWithYouCardView({
   onUnlock,
   onRetry,
   variant = "chat",
+  presentation,
   className,
 }: SharedWithYouCardViewProps) {
   const line = statusLine(status);
   const name = person.displayName.trim() || "Someone";
   const embedded = variant === "embedded";
+  const useDetailModal = presentation ? presentation === "modal" : variant === "chat";
   const body = (
     <>
       {status === "error" ? (
@@ -317,7 +414,15 @@ export function SharedWithYouCardView({
       ) : (
         <div className="divide-y divide-border/50">
           {items.map((item) => (
-            <SharedItem key={item.key} item={item} personName={name} status={status} onRetry={onRetry} compact={embedded} />
+            <SharedItem
+              key={item.key}
+              item={item}
+              personName={name}
+              status={status}
+              onRetry={onRetry}
+              compact={embedded}
+              useDetailModal={useDetailModal}
+            />
           ))}
         </div>
       )}

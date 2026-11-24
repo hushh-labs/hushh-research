@@ -437,12 +437,12 @@ html.native-keyboard-inset.kb-open
   --type-helper-text-tracking: 0;
   --type-legal-text-size: 11px;
   --type-legal-text-line: 15px;
-  --type-button-label-size: 17px;
-  --type-button-label-line: 22px;
-  --type-button-label-weight: 650;
-  --type-compact-button-label-size: 15px;
-  --type-compact-button-label-line: 20px;
-  --type-compact-button-label-weight: 650;
+  --type-button-label-size: 13.5px;
+  --type-button-label-line: 18px;
+  --type-button-label-weight: 560;
+  --type-compact-button-label-size: 12.5px;
+  --type-compact-button-label-line: 16px;
+  --type-compact-button-label-weight: 550;
   --type-eyebrow-size: 12px;
   --type-eyebrow-line: 16px;
   --type-eyebrow-weight: 400;
@@ -6322,29 +6322,56 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 
 .ambient-chrome-mask--top {
   --ambient-chrome-bg: var(--ambient-chrome-material-bg);
-  /* The top edge is a plain, fully opaque surface across the solid bar height
-     and stops there with no fade band (founder direction, 2026-09-27). Scrolled
-     page content passes under a solid header instead of dissolving through a
-     gradient tail. The element still spans --top-shell-mask-visible-height so
-     layout clearance and ambient sampling geometry are unchanged; the mask
-     simply clips everything below the solid edge, including the backdrop
-     blur. */
+  /* Unified top app bar progressive blur + raised-cosine mask fade (founder
+     direction, 2026-11-24): matches Agent Chat's signature silky progressive
+     dissolve across every signed-in screen so scrolled content melts cleanly
+     underneath the header without a hard horizontal cliff or Mach banding. */
   --ambient-chrome-wash: var(--ambient-chrome-fade-solid);
   --ambient-chrome-top-solid-height: var(--top-shell-mask-solid-height);
-  background-color: color-mix(
-    in srgb,
-    var(--ambient-chrome-bg) var(--ambient-chrome-wash),
-    transparent
+  background-color: transparent;
+  background-image: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--ambient-chrome-bg) 92%, transparent) 0%,
+    color-mix(in srgb, var(--ambient-chrome-bg) 86%, transparent)
+      var(--ambient-chrome-top-solid-height),
+    color-mix(in srgb, var(--ambient-chrome-bg) 62%, transparent)
+      calc(var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.35),
+    color-mix(in srgb, var(--ambient-chrome-bg) 28%, transparent)
+      calc(var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.70),
+    color-mix(in srgb, var(--ambient-chrome-bg) 8%, transparent)
+      calc(var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.90),
+    transparent 100%
   );
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  /* Raised-cosine dissolve across --top-fade-active eliminates Mach bands */
   -webkit-mask-image: linear-gradient(
     to bottom,
+    #000 0%,
     #000 var(--ambient-chrome-top-solid-height),
-    transparent var(--ambient-chrome-top-solid-height)
+    rgba(0, 0, 0, 0.92)
+      calc(var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.18),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-mid))
+      calc(var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.42),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-soft))
+      calc(var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.68),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-trace))
+      calc(var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.88),
+    transparent 100%
   );
   mask-image: linear-gradient(
     to bottom,
+    #000 0%,
     #000 var(--ambient-chrome-top-solid-height),
-    transparent var(--ambient-chrome-top-solid-height)
+    rgba(0, 0, 0, 0.92)
+      calc(var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.18),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-mid))
+      calc(var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.42),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-soft))
+      calc(var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.68),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-trace))
+      calc(var(--ambient-chrome-top-solid-height) + var(--top-fade-active) * 0.88),
+    transparent 100%
   );
 }
 

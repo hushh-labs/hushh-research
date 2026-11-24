@@ -18,6 +18,7 @@ export const ROUTE_ID_VALUES = [
   "one_setup",
   "one_welcome",
   "developers",
+  "design_system",
   "founder_profile",
   "research",
   "research_protocol",
@@ -181,6 +182,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "one_setup";
   }
   if (pathname === ROUTES.DEVELOPERS) return "developers";
+  if (pathname === ROUTES.DESIGN_SYSTEM) return "design_system";
   if (pathname === ROUTES.MANISH_SAINANI) return "founder_profile";
   if (pathname === ROUTES.RESEARCH) return "research";
   if (pathname === ROUTES.RESEARCH_PROTOCOL) return "research_protocol";

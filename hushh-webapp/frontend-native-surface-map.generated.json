@@ -1167,6 +1167,64 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/design-system",
+      "page_file": "app/design-system/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/design-system/reference-storybook.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.design.system",
+          "purpose": "Help the person inspect the reference design system showcase through its generated controls.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "next_route": "/design-system",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/design-system",
+        "classification": "excluded-web-only",
+        "reason": "Internal reference-design storybook and visual review lab surface for component craft sign-off; not shipped to signed-in app users."
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/developers",
       "page_file": "app/developers/page.tsx",
       "physical_page_exists": true,
@@ -11389,5 +11447,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "8270b6eb18d8522f718c8dd2d6fd64bb1b79b79714eaf05c8e4e12dc0bd0e507"
+  "content_sha256": "78ecf7c10df0dbea40c720ad07cfcefbb9e4d82822f61385ad3fc6d2531823bd"
 }

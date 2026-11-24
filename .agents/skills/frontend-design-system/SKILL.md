@@ -42,8 +42,9 @@ Non-owned surfaces:
 4. `docs/development/quality/app-surface-design-system.md`
 5. `docs/development/quality/frontend-pattern-catalog.md`
 6. `.agents/skills/frontend-design-system/references/design-review-kernel.md`
-7. `docs/development/mobile/render-performance-charter.md`
-8. `hushh-webapp/docs/ios-native-surface-adoption.md`
+7. `.agents/skills/frontend-design-system/references/visual-taste-benchmark.md`
+8. `docs/development/mobile/render-performance-charter.md`
+9. `hushh-webapp/docs/ios-native-surface-adoption.md`
 
 ## Workflow
 Hybrid iOS renderer, overlap and first-paint gates: `hushh-webapp/docs/ios-native-surface-adoption.md`. Verify changed overlay geometry against production-optimized CSS in the nearest browser layout test: development CSS and mocked rectangles cannot prove that independent transforms survive optimization. Keep a negative control for a reproduced displacement; do not weaken native geometry admission to conceal a web-layout defect.
@@ -68,8 +69,9 @@ Hybrid iOS renderer, overlap and first-paint gates: `hushh-webapp/docs/ios-nativ
 19. In-page step/tab enters use the shared `.motion-step-enter` utility (`app/globals.css`, motion tokens, reduced-motion safe) - never ad-hoc `animate-in fade-in slide-in-* duration-N`. Dark chrome tints (bar glass, chrome-glass-surface, morphy-app-bg, route palettes like `--one-bg`/`--one-card`) derive from `color-mix(in oklab, var(--background) N%, transparent)`, never hardcoded `rgb(28,28,30)`/`#1c1c1e` (lighter than true `--background` = milky band / "double card" partition). Visualizations are honest: sparklines only from real series scaled to their own min/max, degraded rows get a `Delayed` chip + flat dashed baseline, never invented always-green paths. Drawer flows (vault unlock) keep ONE surface: no opaque card inside `DrawerContent` (morphy `Card effect="fill"` needs `!bg-transparent`).
 20. Frame pacing is a contract, not an audit: follow `references/render-performance-kernel.md` (transform/opacity only, no per-frame `<html>` writes, no non-passive `window` touch listeners, no body-wide observers, no React state per frame, `CHART_ANIMATION_ACTIVE`, the `--z-*` ladder) and ship shell/sheet/streaming changes with probe numbers.
 21. Initial source/import decisions are short task selectors, not dashboards: use `PageHeader` plus one `SettingsGroup`/`SettingsRow` list at the reading measure. The first mobile viewport must contain the choices and deferral action; do not add badge clusters, drag-and-drop panels, duplicate CTA buttons, or a setup-terminal action until the user completes or defers a source choice.
-22. Ambient shell material has one owner: `AmbientChromeMask` and `lib/morphy-ux/ambient-chrome.ts`; both edges render on desktop/mobile with no route gradients or second engine. The top mask spans resolved shell height, stays solid through the `bar-with-tabs` underline, and stops there with a hard edge: the top has no fade band or gradient tail. Use the route-layout body-offset contract for additional reading space; never add a second mask or route-local gradient.
+22. Ambient shell material has one owner: `AmbientChromeMask` and `lib/morphy-ux/ambient-chrome.ts`; both edges render on desktop/mobile with no route gradients or second engine. The top mask spans resolved shell height and applies Agent Chat's unified raised-cosine progressive blur and mask fade across `--top-fade-active` on every screen so scrolled content dissolves cleanly beneath the header without a hard horizontal edge. Use the route-layout body-offset contract for additional reading space; never add a second mask or route-local gradient.
 23. Finance is one query-tabbed One workspace: Profile's `AppPageShell width="reading"` owns the gutter and the top shell owns tabs; render one primary `PageHeader`, never route-local tabs, second fixed headers, or a wider dashboard canvas.
+24. Enforce `references/visual-taste-benchmark.md` and compare UI craft changes against the live Reference-Design Storybook at `/design-system` (Apple Private Cloud + Linear/Geist density: `32px` `compact`, `36px` `default`/`standard`, `40px` `prominent`, crisp hairline surfaces, zero dead-void cards, zero hardcoded pill overrides).
 ## Handoff Rules
 1. Broad or ambiguous frontend work routes back to `frontend`.
 2. Route contracts or verification ownership route to `frontend-architecture`.
