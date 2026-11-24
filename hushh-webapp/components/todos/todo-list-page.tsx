@@ -526,7 +526,10 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   };
 
   const currentDetail = detail && (tasks.find(task => task.id === detail.id) ?? pending.find(task => task.id === detail.id) ?? detail);
-  if (writeReady && currentDetail && currentDetail.status !== "deleted") return <AppPageShell as="main" width="reading" fitContent><AppPageContentRegion><TodoTaskDetail task={currentDetail} busy={isSaving} onBack={() => setDetail(null)} onToggle={(task, complete) => void toggleTask(task, complete)} onRemove={task => { void deleteTask(task).then(() => setDetail(null)); }} /></AppPageContentRegion></AppPageShell>;
+  if (writeReady && currentDetail && currentDetail.status !== "deleted") return <AppPageShell as="main" width="reading" fitContent><AppPageContentRegion><TodoTaskDetail task={currentDetail} busy={isSaving} onBack={() => setDetail(null)} onToggle={(task, complete) => {
+    void toggleTask(task, complete);
+    if (complete) setDetail(null);
+  }} onRemove={task => { void deleteTask(task).then(() => setDetail(null)); }} /></AppPageContentRegion></AppPageShell>;
 
   return (
     <AppPageShell

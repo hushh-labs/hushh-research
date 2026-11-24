@@ -142,10 +142,8 @@ describe("One profile To-do live-source parity", () => {
     fireEvent.click(within(detail).getByRole("button", { name: "Mark as completed", exact: true }));
     expect(await within(detail).findByRole("alert")).toHaveTextContent("Couldn’t save. Try again.");
     fireEvent.click(within(detail).getByRole("button", { name: "Mark as completed", exact: true }));
-    await waitFor(() => expect(within(detail).getByRole("button", { name: "Mark as not completed", exact: true })).toBeEnabled());
-    expect(within(detail).queryByRole("alert")).not.toBeInTheDocument();
-    fireEvent.click(within(detail).getByRole("button", { name: "Back to tasks" }));
     expect(await screen.findByRole("button", { name: "Task sources", exact: true })).toBeEnabled();
+    expect(screen.queryByRole("region", { name: "Task details" })).not.toBeInTheDocument();
     expect(screen.queryByText("Your saved tasks could not refresh.")).not.toBeInTheDocument();
   });
 

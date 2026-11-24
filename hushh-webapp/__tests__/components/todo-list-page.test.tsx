@@ -5,6 +5,7 @@ import {
   renderHook,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -614,5 +615,17 @@ describe("TodoListPage row actions", () => {
     ).toHaveValue("");
   });
 
-
+  it("dismisses detail view and returns to the to-do list when marking a task as completed", async () => {
+    render(<TodoListPage />);
+    const taskButton = await screen.findByRole("button", { name: "Review the plan", exact: true });
+    await act(async () => {
+      fireEvent.click(taskButton);
+    });
+    const detail = screen.getByRole("region", { name: "Task details" });
+    expect(detail).toBeVisible();
+    await act(async () => {
+      fireEvent.click(within(detail).getByRole("button", { name: "Mark as completed", exact: true }));
+    });
+    expect(screen.queryByRole("region", { name: "Task details" })).not.toBeInTheDocument();
+  });
 });
