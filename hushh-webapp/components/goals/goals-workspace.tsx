@@ -172,7 +172,10 @@ function OwnerGoalsWorkspace({ credentials }: { credentials: TodoWriteParams }) 
     <GoalsShell title={title}
       dataState={loadError ? "unavailable-valid" : !workspace ? "loading" : goals.length ? "loaded" : "empty-valid"}
       actions={!draft && !selectedId ? (
-        <Button disabled={!workspace || loadError} onClick={() => openEditor(null)}>New goal</Button>
+        <>
+          <Link href={`${ROUTES.ONE_TASKS}?from=goals`} className="inline-flex min-h-11 items-center px-3 text-sm font-medium text-primary hover:underline">Tasks</Link>
+          <Button disabled={!workspace || loadError} onClick={() => openEditor(null)}>New goal</Button>
+        </>
       ) : null}>
       {loadError ? (
         <SurfaceCard className="flex flex-wrap items-center justify-between gap-3 p-4">
@@ -201,7 +204,7 @@ function OwnerGoalsWorkspace({ credentials }: { credentials: TodoWriteParams }) 
                 {tasksById.get(id)?.status === "done" ? <span className="text-muted-foreground">Done</span> : null}
               </li>
             ))}</ul> : <HelperText>No tasks linked yet.</HelperText>}
-            <Link href={ROUTES.ONE_TASKS} className="inline-flex min-h-11 items-center text-sm text-primary underline-offset-4 hover:underline">
+            <Link href={`${ROUTES.ONE_TASKS}?from=goals`} className="inline-flex min-h-11 items-center text-sm text-primary underline-offset-4 hover:underline">
               Open Tasks
             </Link>
           </div>

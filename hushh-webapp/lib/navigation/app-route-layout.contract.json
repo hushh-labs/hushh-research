@@ -1809,6 +1809,14 @@
         {
           "href": "/one/tasks?scheduled=1",
           "expected": { "href": "/one", "mode": "push", "transitionMode": "full" }
+        },
+        {
+          "href": "/one/tasks?from=goals",
+          "expected": { "href": "/one/goals", "mode": "push", "transitionMode": "full" }
+        },
+        {
+          "href": "/one/tasks?from=unknown",
+          "expected": { "href": "/one", "mode": "push", "transitionMode": "full" }
         }
       ],
       "kind": "parent"
