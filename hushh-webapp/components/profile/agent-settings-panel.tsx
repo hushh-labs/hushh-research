@@ -275,8 +275,14 @@ function AgentSettingsBody({
       );
     }
 
-    const currentHostingTrailing = (
-      <span className="inline-flex items-center gap-2">
+    const hasCurrentHostingBadges = Boolean(
+      activeCloudProvider ||
+        (mode === "hussh_pods" && status?.deploymentTarget === "ace") ||
+        (mode === "hussh_pods" && status?.state === "active"),
+    );
+
+    const currentHostingBadges = hasCurrentHostingBadges ? (
+      <span className="flex flex-wrap items-center gap-1.5 pt-1">
         {mode === "hussh_pods" && status?.state === "active" ? (
           <span
             data-testid="current-hosting-status-signal"
@@ -307,21 +313,23 @@ function AgentSettingsBody({
           />
         ) : null}
       </span>
-    );
+    ) : null;
 
     return (
       <div className="space-y-5">
         <SettingsGroup density="compact">
           <SettingsRow
             title="Current hosting"
-            description={currentHostingDescription}
-            textOverflow="truncate"
-            trailing={
-              activeCloudProvider ||
-              (mode === "hussh_pods" && status?.deploymentTarget === "ace") ||
-              (mode === "hussh_pods" && status?.state === "active")
-                ? currentHostingTrailing
-                : undefined
+            voicePurpose={currentHostingDescription}
+            description={
+              currentHostingBadges ? (
+                <span className="flex flex-col gap-0.5">
+                  <span className="text-foreground/90">{currentHostingDescription}</span>
+                  {currentHostingBadges}
+                </span>
+              ) : (
+                currentHostingDescription
+              )
             }
             onClick={hasHostingDetails ? () => openDetail("hosting-details") : undefined}
             chevron={hasHostingDetails}
@@ -333,7 +341,6 @@ function AgentSettingsBody({
               description={[status.cloudProject, status.cloudRegion]
                 .filter(Boolean)
                 .join(" · ")}
-              textOverflow="truncate"
             />
           ) : null}
           <CloudHostingHealth inspection={inspection} />

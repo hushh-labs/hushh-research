@@ -3205,7 +3205,7 @@ function OwnerConnectorsPanel({
                     data-testid="plaid-live-projection-summary"
                     className="space-y-1 rounded-xl border border-border bg-background/60 p-3 text-xs text-muted-foreground"
                   >
-                    <p className="font-medium text-foreground">Live scope projection</p>
+                    <p className="font-medium text-foreground">Account summary</p>
                     {plaidProjection.totalsLine ? <p>{plaidProjection.totalsLine}</p> : null}
                     {plaidProjection.projectedScopesLine ? <p>{plaidProjection.projectedScopesLine}</p> : null}
                     <p>Active ongoing shares update automatically on sync.</p>

@@ -749,9 +749,19 @@ describe("owner hosting and software settings", () => {
     status("hussh_pods", { state: "active", deploymentTarget: "ace", featureEnabled: true });
 
     render(<AgentSettingsPanel userId="owner" kind="hosting" />);
-    expect(await screen.findByTestId("current-hosting-row")).toHaveTextContent(
-      "Hussh Confidential Sandbox",
-    );
+    const currentHostingRow = await screen.findByTestId("current-hosting-row");
+    expect(currentHostingRow).toHaveTextContent("Hussh Confidential Sandbox");
+    expect(
+      currentHostingRow.querySelector('[data-slot="settings-row-title"]'),
+    ).not.toHaveClass("truncate");
+    expect(
+      currentHostingRow.querySelector('[data-slot="settings-row-description"]'),
+    ).not.toHaveClass("truncate");
+    expect(
+      currentHostingRow
+        .querySelector('[data-slot="settings-row-trailing"]')
+        ?.querySelector('[data-testid="current-hosting-cloud-badge"]'),
+    ).toBeNull();
     expect(screen.getByTestId("current-hosting-status-signal")).toHaveTextContent("Connected");
     expect(screen.getByTestId("current-hosting-cloud-badge")).toHaveTextContent("Google Cloud");
     expect(screen.queryByTestId("hosting-choice-shared")).toBeNull();

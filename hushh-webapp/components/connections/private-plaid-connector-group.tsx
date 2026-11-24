@@ -13,6 +13,7 @@ import type {
 } from "@/components/agent/connectors-panel";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Button } from "@/components/ui/button";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { connectorAccessPurpose } from "@/lib/agent/connector-access-copy";
 import {
   isValidatedAuthSessionOwnerCurrent,
@@ -185,26 +186,31 @@ export function usePrivatePlaidConnectorModel({
                 : financial.data?.data,
           });
           if (stillCurrent()) {
-            setMessage(
-              result.institutionName
-                ? `${result.institutionName} connected.`
-                : "Bank connected.",
-            );
+            const successText = result.institutionName
+              ? `${result.institutionName} connected.`
+              : "Bank connected.";
+            setMessage(successText);
+            morphyToast.success(successText);
           }
         } else if (result.status === "blocked") {
           setMessage(result.reason);
+          morphyToast.error(result.reason);
         } else {
           setMessage("");
         }
       } catch {
-        if (stillCurrent()) setMessage("Could not connect that bank. Try again.");
+        if (stillCurrent()) {
+          const errorText = "Could not connect that bank. Try again.";
+          setMessage(errorText);
+          morphyToast.error(errorText);
+        }
       }
     });
   };
 
   const refreshLive = async () => {
     await runGuarded("refresh", async (resolvedAccess, stillCurrent) => {
-      setMessage("Refreshing live bank data…");
+      setMessage("Refreshing bank balances…");
       try {
         const outcome = await refreshVaultConnections({
           userId: resolvedAccess.userId,
@@ -231,16 +237,26 @@ export function usePrivatePlaidConnectorModel({
         }
         if (!stillCurrent()) return;
         if (outcome.needsRelink.length > 0) {
-          setMessage("At least one bank needs re-authentication before refreshing.");
+          const relinkText = "Reconnect needed on at least one bank.";
+          setMessage(relinkText);
+          morphyToast.error(relinkText);
         } else if (outcome.refreshed > 0) {
-          setMessage("Live bank snapshot updated.");
+          const refreshedText = "Bank balances updated.";
+          setMessage(refreshedText);
+          morphyToast.success(refreshedText);
         } else if (outcome.failed > 0) {
-          setMessage("Could not refresh all bank records. Try again.");
+          const failText = "Could not refresh all bank records. Try again.";
+          setMessage(failText);
+          morphyToast.error(failText);
         } else {
-          setMessage("Bank records are already up to date.");
+          setMessage("Balances are up to date.");
         }
       } catch {
-        if (stillCurrent()) setMessage("Could not refresh live bank data. Try again.");
+        if (stillCurrent()) {
+          const errorText = "Could not refresh bank balances. Try again.";
+          setMessage(errorText);
+          morphyToast.error(errorText);
+        }
       }
     });
   };
@@ -474,11 +490,11 @@ export function PrivatePlaidConnectorGroup({
           <SettingsRow
             testId="private-plaid-projection-summary"
             leading={<ConnectorVectorGlyph id="plaid" variant="profile" />}
-            title="Live scope projection"
+            title="Account summary"
             description={
               [
                 projectionSummary.totalsLine,
-                "Active shares update on sync",
+                "Shared details update on sync",
               ]
                 .filter(Boolean)
                 .join(" · ")
@@ -573,10 +589,11 @@ export function PrivatePlaidConnectorDetail({
             data-testid="private-plaid-projection-summary"
             className="space-y-1 border-t border-[color:var(--app-separator)] px-4 py-3 text-xs leading-relaxed text-muted-foreground"
           >
-            <p className="font-semibold text-foreground">Live scope projection</p>
-            {projectionSummary.totalsLine ? <p>{projectionSummary.totalsLine}</p> : null}
-            {projectionSummary.projectedScopesLine ? <p>{projectionSummary.projectedScopesLine}</p> : null}
-            <p>Active ongoing shares update automatically on sync.</p>
+            <p className="font-semibold text-foreground">Account summary</p>
+            {projectionSummary.totalsLine ? (
+              <p className="text-foreground/90">{projectionSummary.totalsLine}</p>
+            ) : null}
+            <p>Ready to share with your approval · Updates on sync.</p>
           </div>
         ) : null}
         <div className="border-t border-[color:var(--app-separator)] px-4 py-3">
@@ -620,7 +637,7 @@ export function PrivatePlaidConnectorDetail({
               title={bank.name}
               description={
                 [
-                  bank.status,
+                  bank.status === "Connected" ? null : bank.status,
                   bank.amountLabel,
                   bank.lastRefreshedLabel ? `Updated ${bank.lastRefreshedLabel}` : null,
                 ]
@@ -645,7 +662,7 @@ export function PrivatePlaidConnectorDetail({
       ) : null}
 
       {message ? (
-        <p role="status" aria-live="polite" className="px-1.5 text-xs text-muted-foreground">
+        <p role="status" aria-live="polite" className="sr-only">
           {message}
         </p>
       ) : null}

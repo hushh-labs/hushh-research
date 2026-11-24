@@ -546,7 +546,7 @@ jobs:
             --remote-mcp-enabled "true"
             --cors-allowed-origins "${{ env.APP_FRONTEND_ORIGIN }}"
             --obs-data-stale-ratio-threshold "0.25"
-            --plaid-env "production"
+            --plaid-env "sandbox"
             --plaid-client-name "Hushh Kai"
             --plaid-country-codes "US"
             --plaid-webhook-url "${{ env.APP_FRONTEND_ORIGIN }}/api/kai/plaid/webhook"

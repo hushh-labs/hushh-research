@@ -1187,7 +1187,7 @@ function OwnerCloudSetupPage({ user, owner }: {
                 ) : null
               ) : (
                 <>
-                  <HusshPodsActiveCard deploymentTarget={agentTarget} />
+                  <HusshPodsActiveCard deploymentTarget={agentTarget} compactBelowPicker />
                   {agentTarget !== "ace" ? (
                     <PooledSandboxSwitchCard
                       hasAssignedCloudPod

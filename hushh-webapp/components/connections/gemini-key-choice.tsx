@@ -34,6 +34,7 @@ export function GeminiKeyChoice({
   isRemoving,
   privateCloud,
   placement,
+  requiresExplicitSelection = false,
   useRadioItem,
   selectedOption,
   hasActiveGemini,
@@ -63,6 +64,7 @@ export function GeminiKeyChoice({
   isRemoving: boolean;
   privateCloud: boolean;
   placement: string;
+  requiresExplicitSelection?: boolean;
   useRadioItem: boolean;
   selectedOption: string;
   hasActiveGemini: boolean;
@@ -285,7 +287,7 @@ export function GeminiKeyChoice({
             {credentialValidation.status === "ready" ? (
               <Button
                 type="button"
-                variant={useRadioItem ? "blue" : "blue-gradient"}
+                variant={requiresExplicitSelection ? "blue" : "blue-gradient"}
                 onClick={() => void saveByok()}
                 disabled={isSaving || isRemoving}
               >
@@ -297,7 +299,7 @@ export function GeminiKeyChoice({
             ) : (
               <Button
                 type="button"
-                variant={useRadioItem ? "blue" : "blue-gradient"}
+                variant={requiresExplicitSelection ? "blue" : "blue-gradient"}
                 onClick={() => void validateByok()}
                 disabled={
                   isSaving ||
