@@ -213,6 +213,7 @@ jobs:
           INPUT_DRIVE_LIVE_MODE: ${{ inputs.drive_live_mode }}
           INPUT_BACKEND_IMAGE_SOURCE: ${{ inputs.backend_image_source }}
           INPUT_PHONE_ROLLBACK_SHA: ${{ inputs.phone_rollback_sha }}
+          INPUT_PHONE_ROLLBACK_QUALIFICATION: ${{ inputs.phone_rollback_qualification || 'uat' }}
           INPUT_PHONE_PHASE: ${{ inputs.phone_phase }}
           INPUT_PHONE_WORKER_STAGE_RUN_ID: ${{ inputs.phone_worker_stage_run_id }}
           INPUT_PHONE_ACTIVATION_RUN_ID: ${{ inputs.phone_activation_run_id }}
