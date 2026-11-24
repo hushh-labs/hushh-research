@@ -130,11 +130,65 @@ function detailCode(body: Record<string, unknown>): string {
 
 // -- enrolment and discovery ---------------------------------------------------------
 
+/** Derive a concise, human-readable browser + OS label for self-enrolled web sessions. */
+export function detectBrowserDeviceLabel(userAgent?: string | null): string {
+  const ua =
+    typeof userAgent === "string"
+      ? userAgent
+      : typeof navigator !== "undefined"
+        ? navigator.userAgent || ""
+        : "";
+  if (!ua.trim()) return "Web browser";
+
+  let browser = "Web browser";
+  if (/Edg\//i.test(ua) || /EdgiOS\//i.test(ua) || /EdgA\//i.test(ua)) {
+    browser = "Edge";
+  } else if (/OPR\//i.test(ua) || /Opera/i.test(ua)) {
+    browser = "Opera";
+  } else if (/Firefox\//i.test(ua) || /FxiOS\//i.test(ua)) {
+    browser = "Firefox";
+  } else if (/CriOS\//i.test(ua) || (/Chrome\//i.test(ua) && !/Chromium\//i.test(ua))) {
+    browser = "Chrome";
+  } else if (/Safari\//i.test(ua) && !/Chrome\//i.test(ua) && !/Chromium\//i.test(ua)) {
+    browser = "Safari";
+  }
+
+  let os = "";
+  if (/iPhone/i.test(ua)) {
+    os = "iPhone";
+  } else if (/iPad/i.test(ua)) {
+    os = "iPad";
+  } else if (/Android/i.test(ua)) {
+    os = "Android";
+  } else if (/Macintosh|Mac OS X/i.test(ua)) {
+    os = "macOS";
+  } else if (/Windows/i.test(ua)) {
+    os = "Windows";
+  } else if (/CrOS/i.test(ua)) {
+    os = "ChromeOS";
+  } else if (/Linux/i.test(ua)) {
+    os = "Linux";
+  }
+
+  return os ? `${browser} on ${os}` : browser;
+}
+
+/** Read the current browser installation's enrolled trusted-device subject ID without side effects. */
+export async function readCurrentBrowserSubjectId(userId: string): Promise<string | null> {
+  if (!userId || typeof indexedDB === "undefined") return null;
+  try {
+    const existing = await readRecord<AppKeyRecord>(KEY_STORE, userId);
+    return existing?.subjectId ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Enrol THIS installation as an app subject of the owner's pod. Idempotent. */
 async function ensureAppEnrollmentUnlocked(
   userId: string,
   transport: OwnerPodTransport,
-  deviceName = "This browser",
+  deviceName = detectBrowserDeviceLabel(),
 ): Promise<string> {
   const existing = await readRecord<AppKeyRecord>(KEY_STORE, userId);
   if (existing?.subjectId) return existing.subjectId;

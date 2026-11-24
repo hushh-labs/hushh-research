@@ -338,6 +338,7 @@ class VirginStandbyRuntime:
                         os.environ.setdefault("POD_HOST_KIND", "gcp_ace")
                         os.environ.setdefault("POD_FILES_ENABLED", "true")
                         os.environ.setdefault("HUSSH_POD_FILES_ENABLED", "true")
+                        os.environ.setdefault("POD_LOCAL_PKM_ENABLED", "true")
                     elif not (os.environ.get("POD_STORAGE_BACKEND") or "").strip():
                         os.environ.setdefault("POD_DURABLE_IDENTITY_ENABLED", "0")
                     if str(payload.get("sandbox_name") or "").strip():

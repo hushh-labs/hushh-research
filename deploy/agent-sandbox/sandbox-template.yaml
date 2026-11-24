@@ -23,8 +23,14 @@ spec:
         hussh.ai/pool: hussh-one-sandbox-v1
         hussh.ai/egress-enforced: sentinel
     spec:
-      # Verified live on Dev GKE Autopilot (gvisor); use microvm (kata-clh) or kata on dedicated Kata node pools / EKS / AKS.
+      # Verified live on Dev GKE Autopilot (gvisor); unified 2 vCPU / 4 GiB
+      # profile across Chat, Terminal, and Browser Use with GKE Autopilot Spot
+      # scheduling (~65% lower warm-standby compute cost) and 10-minute idle
+      # auto-destroy. Use microvm (kata-clh) or Confidential AMD SEV-SNP nodes
+      # on dedicated Enterprise / Production compliance pools.
       runtimeClassName: gvisor
+      nodeSelector:
+        cloud.google.com/gke-spot: "true"
       automountServiceAccountToken: false
       restartPolicy: Never
       securityContext:

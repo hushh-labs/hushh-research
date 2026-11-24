@@ -66,6 +66,10 @@ class SandboxActivationError(RuntimeError):
         self.phase = phase
 
 
+class SandboxStandbyUnreachableError(RuntimeError):
+    """Claimed standby pod vanished or refused TCP before accepting lease activation."""
+
+
 def sign_sandbox_edge_placement_headers(
     master_seed: bytes,
     hushh_id: str,
@@ -173,6 +177,7 @@ class ActiveOwnerLease:
     pod_public_key: str
     last_activity_s: float
     surrogate_expires_at_s: float = 0.0
+    claim_expires_at_s: float = 0.0
     active_ws_count: int = 0
     active_http_count: int = 0
 
@@ -219,6 +224,8 @@ class SandboxEdgeGatewayManager:
         enable_prefix_storage: bool = False,
         claim_timeout_s: float = 180.0,
         health_poll_timeout_s: float = 25.0,
+        proxy_connect_timeout_s: float = 2.5,
+        proxy_read_timeout_s: float = 240.0,
         clock_s: Callable[[], float] | None = None,
     ) -> None:
         if len(master_seed) < 32:
@@ -243,11 +250,15 @@ class SandboxEdgeGatewayManager:
         self.enable_prefix_storage = bool(enable_prefix_storage)
         self.claim_timeout_s = float(claim_timeout_s)
         self.health_poll_timeout_s = float(health_poll_timeout_s)
+        self.proxy_connect_timeout_s = max(0.1, float(proxy_connect_timeout_s))
+        self.proxy_read_timeout_s = max(1.0, float(proxy_read_timeout_s))
         self._clock_s = clock_s or time.monotonic
         self._leases: dict[str, ActiveOwnerLease] = {}
         self._owner_locks: dict[str, asyncio.Lock] = {}
         self._hub_http_client: httpx.AsyncClient | None = None
         self._hub_http_loop: asyncio.AbstractEventLoop | None = None
+        self._proxy_http_client: httpx.AsyncClient | None = None
+        self._proxy_http_loop: asyncio.AbstractEventLoop | None = None
 
     def _get_hub_http_client(self) -> httpx.AsyncClient:
         loop = asyncio.get_running_loop()
@@ -260,11 +271,48 @@ class SandboxEdgeGatewayManager:
             self._hub_http_loop = loop
         return self._hub_http_client
 
+    def _get_proxy_http_client(self) -> httpx.AsyncClient:
+        loop = asyncio.get_running_loop()
+        if (
+            self._proxy_http_client is None
+            or self._proxy_http_client.is_closed
+            or self._proxy_http_loop is not loop
+        ):
+            self._proxy_http_client = httpx.AsyncClient(
+                follow_redirects=False,
+                trust_env=False,
+                timeout=httpx.Timeout(
+                    connect=self.proxy_connect_timeout_s,
+                    read=self.proxy_read_timeout_s,
+                    write=30.0,
+                    pool=5.0,
+                ),
+                limits=httpx.Limits(
+                    max_connections=200,
+                    max_keepalive_connections=64,
+                    keepalive_expiry=30.0,
+                ),
+            )
+            self._proxy_http_loop = loop
+        return self._proxy_http_client
+
+    def _claim_shutdown_seconds(self) -> int:
+        # Give K8s lifecycle.shutdownTime a safety margin beyond the Edge's sliding
+        # idle reaper so active users do not hit a fixed wall-clock pod deletion
+        # while the Edge still caches the pod IP. Truly idle leases are still reaped
+        # on schedule at `idle_timeout_s` by `reap_idle_leases()`.
+        base_idle = int(self.idle_timeout_s)
+        return max(60, min(3600, max(base_idle * 2, base_idle + 300)))
+
     async def aclose(self) -> None:
         if self._hub_http_client is not None and not self._hub_http_client.is_closed:
             await self._hub_http_client.aclose()
         self._hub_http_client = None
         self._hub_http_loop = None
+        if self._proxy_http_client is not None and not self._proxy_http_client.is_closed:
+            await self._proxy_http_client.aclose()
+        self._proxy_http_client = None
+        self._proxy_http_loop = None
 
     def _lock_for(self, hushh_id: str) -> asyncio.Lock:
         lock = self._owner_locks.get(hushh_id)
@@ -405,9 +453,10 @@ class SandboxEdgeGatewayManager:
         if self._activation_guard:
             headers["X-Sandbox-Activation-Token"] = self._activation_guard
 
+        inspect_termination = getattr(self.claim_client, "inspect_pod_termination", None)
         async with httpx.AsyncClient(timeout=15.0, trust_env=False) as client:
             last_exc: Exception | None = None
-            for _ in range(30):
+            for act_attempt in range(30):
                 try:
                     resp = await client.post(
                         f"{base_url}/internal/v1/activate-lease",
@@ -432,13 +481,23 @@ class SandboxEdgeGatewayManager:
                     raise
                 except httpx.HTTPError as exc:
                     last_exc = exc
+                    if callable(inspect_termination) and act_attempt >= 1:
+                        pre_term = await asyncio.to_thread(
+                            inspect_termination, endpoint.sandbox_name
+                        )
+                        if pre_term:
+                            raise SandboxStandbyUnreachableError(pre_term) from exc
                 await asyncio.sleep(0.15)
             if last_exc is not None:
+                if isinstance(last_exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+                    raise SandboxStandbyUnreachableError(str(last_exc)) from last_exc
                 raise last_exc
 
+            last_pod_check_s = 0.0
             health_timeout = httpx.Timeout(2.5, connect=0.20)
             deadline = time.monotonic() + max(2.0, self.health_poll_timeout_s)
             while time.monotonic() < deadline:
+                health_connect_failed = False
                 try:
                     h_resp = await client.get(f"{base_url}/health", timeout=health_timeout)
                     try:
@@ -475,7 +534,23 @@ class SandboxEdgeGatewayManager:
                 except SandboxActivationError:
                     raise
                 except httpx.HTTPError:
-                    pass
+                    health_connect_failed = True
+
+                now_mono = time.monotonic()
+                if callable(inspect_termination) and (
+                    (health_connect_failed and (now_mono - last_pod_check_s) >= 0.30)
+                    or (now_mono - last_pod_check_s) >= 0.75
+                ):
+                    last_pod_check_s = now_mono
+                    term_reason = await asyncio.to_thread(
+                        inspect_termination, endpoint.sandbox_name
+                    )
+                    if term_reason:
+                        raise SandboxActivationError(
+                            f"Sandbox exited during startup ({term_reason})",
+                            code=SANDBOX_HYDRATION_FAILED_CODE,
+                            phase="unlocking",
+                        )
                 await asyncio.sleep(0.03)
         raise TimeoutError(f"Sandbox {endpoint.sandbox_name} /health did not turn Ready after bind")
 
@@ -506,6 +581,28 @@ class SandboxEdgeGatewayManager:
             now_s = self._clock_s()
             existing = self._leases.get(clean_id)
             if existing is not None:
+                claim_shutdown_s = self._claim_shutdown_seconds()
+                claim_margin_s = min(180.0, max(15.0, float(claim_shutdown_s) * 0.25))
+                claim_expiring_soon = (
+                    existing.claim_expires_at_s > 0
+                    and (existing.claim_expires_at_s - now_s) <= claim_margin_s
+                )
+                claim_extended = False
+                if claim_expiring_soon and hasattr(self.claim_client, "extend_claim_shutdown"):
+                    with contextlib.suppress(Exception):
+                        if await asyncio.to_thread(
+                            self.claim_client.extend_claim_shutdown,
+                            existing.claim_name,
+                            idle_shutdown_seconds=claim_shutdown_s,
+                        ):
+                            existing.claim_expires_at_s = self._clock_s() + float(claim_shutdown_s)
+                            claim_extended = True
+                claim_hard_expired = (
+                    existing.claim_expires_at_s > 0
+                    and not claim_extended
+                    and now_s >= (existing.claim_expires_at_s - 15.0)
+                )
+
                 expiring_soon = (
                     existing.surrogate_expires_at_s > 0
                     and (existing.surrogate_expires_at_s - now_s) <= 300.0
@@ -513,6 +610,7 @@ class SandboxEdgeGatewayManager:
                 renewed_in_place = False
                 if (
                     expiring_soon
+                    and not claim_hard_expired
                     and self.sentinel_control is not None
                     and hasattr(self.sentinel_control, "mint_model_surrogate")
                 ):
@@ -529,14 +627,21 @@ class SandboxEdgeGatewayManager:
                 hard_expired = (
                     existing.surrogate_expires_at_s > 0 and now_s >= existing.surrogate_expires_at_s
                 )
-                if not renewed_in_place and (
+                should_rotate_claim = claim_hard_expired or (
+                    claim_expiring_soon
+                    and not claim_extended
+                    and existing.active_http_count <= 0
+                    and existing.active_ws_count <= 0
+                )
+                should_rotate_surrogate = not renewed_in_place and (
                     hard_expired
                     or (
                         expiring_soon
                         and existing.active_http_count <= 0
                         and existing.active_ws_count <= 0
                     )
-                ):
+                )
+                if should_rotate_claim or should_rotate_surrogate:
                     self._leases.pop(clean_id, None)
                     if self.sentinel_control is not None:
                         if hasattr(self.sentinel_control, "delete_lease"):
@@ -555,40 +660,55 @@ class SandboxEdgeGatewayManager:
                     existing.last_activity_s = now_s
                     return existing
 
-            claim_name = f"claim-{secrets.token_hex(6)}"
-            lease_id = f"lease_{secrets.token_hex(12)}"
+            claim_shutdown_s = self._claim_shutdown_seconds()
             surrogate_ttl = (
                 max(3600, min(7200, int(self.idle_timeout_s * 2)))
                 if self.sentinel_control is not None
                 and hasattr(self.sentinel_control, "mint_model_surrogate")
                 else 0
             )
-            endpoint, placement_epoch = await asyncio.gather(
-                asyncio.to_thread(
-                    self.claim_client.create_and_wait_claim,
-                    claim_name=claim_name,
-                    billing_space_id=clean_id,
-                    warm_pool_name=self.warm_pool_name,
-                    idle_shutdown_seconds=max(60, min(3600, int(self.idle_timeout_s))),
-                    timeout_s=self.claim_timeout_s,
-                ),
-                self._resolve_owner_placement_epoch(clean_id),
-            )
-            try:
-                pub_b64, pod_key_id = await self._activate_claimed_sandbox(
-                    hushh_id=clean_id,
-                    lease_id=lease_id,
-                    endpoint=endpoint,
-                    placement_epoch=placement_epoch,
+            claim_name = ""
+            lease_id = ""
+            claim_created_at_s = 0.0
+            endpoint: ClaimedSandboxEndpoint | None = None
+            pub_b64 = ""
+            pod_key_id = ""
+            for claim_attempt in range(2):
+                claim_name = f"claim-{secrets.token_hex(6)}"
+                lease_id = f"lease_{secrets.token_hex(12)}"
+                claim_created_at_s = self._clock_s()
+                endpoint, placement_epoch = await asyncio.gather(
+                    asyncio.to_thread(
+                        self.claim_client.create_and_wait_claim,
+                        claim_name=claim_name,
+                        billing_space_id=clean_id,
+                        warm_pool_name=self.warm_pool_name,
+                        idle_shutdown_seconds=claim_shutdown_s,
+                        timeout_s=self.claim_timeout_s,
+                    ),
+                    self._resolve_owner_placement_epoch(clean_id),
                 )
-            except Exception:
-                if self.sentinel_control is not None and hasattr(
-                    self.sentinel_control, "delete_lease"
-                ):
-                    with contextlib.suppress(Exception):
-                        await asyncio.to_thread(self.sentinel_control.delete_lease, lease_id)
-                await asyncio.to_thread(self.claim_client.delete_claim, claim_name)
-                raise
+                try:
+                    pub_b64, pod_key_id = await self._activate_claimed_sandbox(
+                        hushh_id=clean_id,
+                        lease_id=lease_id,
+                        endpoint=endpoint,
+                        placement_epoch=placement_epoch,
+                    )
+                    break
+                except Exception as exc:
+                    if self.sentinel_control is not None and hasattr(
+                        self.sentinel_control, "delete_lease"
+                    ):
+                        with contextlib.suppress(Exception):
+                            await asyncio.to_thread(self.sentinel_control.delete_lease, lease_id)
+                    await asyncio.to_thread(self.claim_client.delete_claim, claim_name)
+                    if claim_attempt == 0 and isinstance(exc, SandboxStandbyUnreachableError):
+                        continue
+                    raise
+
+            if endpoint is None:
+                raise RuntimeError("Sandbox claim failed to resolve endpoint")
 
             activated_at_s = self._clock_s()
             lease = ActiveOwnerLease(
@@ -604,6 +724,7 @@ class SandboxEdgeGatewayManager:
                 surrogate_expires_at_s=(
                     activated_at_s + float(surrogate_ttl) if surrogate_ttl > 0 else 0.0
                 ),
+                claim_expires_at_s=claim_created_at_s + float(claim_shutdown_s),
             )
             self._leases[clean_id] = lease
             return lease
@@ -773,7 +894,7 @@ def create_sandbox_edge_gateway_app(
             async with websockets.connect(
                 upstream_url,
                 additional_headers=forward_headers,
-                open_timeout=15.0,
+                open_timeout=max(2.0, min(15.0, manager.proxy_connect_timeout_s * 2.0)),
             ) as upstream_ws:
                 await websocket.accept()
 
@@ -932,7 +1053,7 @@ def create_sandbox_edge_gateway_app(
             lease.active_http_count += 1
             lease.last_activity_s = manager._clock_s()
             target = f"http://{lease.pod_ip}:{lease.port}/{clean_sub}" + (f"?{qs}" if qs else "")
-            client = httpx.AsyncClient(follow_redirects=False, timeout=160.0, trust_env=False)
+            client = manager._get_proxy_http_client()
             try:
                 built = client.build_request(
                     method=request.method,
@@ -943,18 +1064,21 @@ def create_sandbox_edge_gateway_app(
                 upstream = await client.send(built, stream=True)
             except (httpx.ConnectError, httpx.ConnectTimeout):
                 lease.active_http_count = max(0, lease.active_http_count - 1)
-                await client.aclose()
                 await manager.invalidate_lease(hushh_id, expected_lease_id=lease.lease_id)
                 if attempt == 0:
                     continue
                 return _waking_response(request)
+            except httpx.RemoteProtocolError:
+                lease.active_http_count = max(0, lease.active_http_count - 1)
+                if attempt == 0 and request.method.upper() in {"GET", "HEAD", "OPTIONS"}:
+                    await manager.invalidate_lease(hushh_id, expected_lease_id=lease.lease_id)
+                    continue
+                return _waking_response(request)
             except httpx.HTTPError:
                 lease.active_http_count = max(0, lease.active_http_count - 1)
-                await client.aclose()
                 return _waking_response(request)
             except BaseException:
                 lease.active_http_count = max(0, lease.active_http_count - 1)
-                await client.aclose()
                 raise
 
             lease.last_activity_s = manager._clock_s()
@@ -967,10 +1091,11 @@ def create_sandbox_edge_gateway_app(
 
             content_type = str(upstream.headers.get("content-type") or "").lower()
             if content_type.startswith("text/event-stream"):
+                resp_headers.setdefault("Cache-Control", "no-cache, no-store, no-transform")
+                resp_headers.setdefault("X-Accel-Buffering", "no")
 
                 async def _stream_sse(
                     upstream_resp: httpx.Response = upstream,
-                    http_client: httpx.AsyncClient = client,
                     active_lease: ActiveOwnerLease = lease,
                 ) -> AsyncIterator[bytes]:
                     try:
@@ -983,8 +1108,6 @@ def create_sandbox_edge_gateway_app(
                         active_lease.last_activity_s = manager._clock_s()
                         with contextlib.suppress(Exception):
                             await upstream_resp.aclose()
-                        with contextlib.suppress(Exception):
-                            await http_client.aclose()
 
                 return StreamingResponse(
                     _stream_sse(),
@@ -999,8 +1122,6 @@ def create_sandbox_edge_gateway_app(
                 lease.last_activity_s = manager._clock_s()
                 with contextlib.suppress(Exception):
                     await upstream.aclose()
-                with contextlib.suppress(Exception):
-                    await client.aclose()
 
             if upstream.status_code in {502, 503, 504} and "x-hussh-pod-state" not in {
                 k.lower() for k in resp_headers
@@ -1095,5 +1216,11 @@ def create_edge_gateway_from_env() -> FastAPI:
         sentinel_vertex_location=os.environ.get("HUSSH_SENTINEL_VERTEX_LOCATION"),
         enable_prefix_storage=enable_prefix_storage,
         claim_timeout_s=float(os.environ.get("HUSSH_SANDBOX_CLAIM_TIMEOUT_SECONDS") or "180"),
+        proxy_connect_timeout_s=float(
+            os.environ.get("HUSSH_SANDBOX_PROXY_CONNECT_TIMEOUT_SECONDS") or "2.5"
+        ),
+        proxy_read_timeout_s=float(
+            os.environ.get("HUSSH_SANDBOX_PROXY_READ_TIMEOUT_SECONDS") or "240.0"
+        ),
     )
     return create_sandbox_edge_gateway_app(manager)
