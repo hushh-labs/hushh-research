@@ -555,7 +555,6 @@
         "native_beacon": false
       },
       "findings": [
-        "review native route beacon coverage",
         "no local cache primitive detected in page/contract source"
       ]
     },
@@ -7427,5 +7426,5 @@
       ]
     }
   ],
-  "content_sha256": "ec16254a336392bd91f0ed8fd78191476abb4f75af8c786358214b0075d4290c"
+  "content_sha256": "79a33a1655ed7dc5b7765a4487cf32626beb3a99777bc4b0e366af18a4ef6b01"
 }
