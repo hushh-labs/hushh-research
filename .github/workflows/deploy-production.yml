@@ -91,10 +91,18 @@ on:
           - build-from-source
           - promote-from-uat
       phone_rollback_sha:
-        description: "Previously UAT-accepted phone425 source for first production rollback baseline; blank once a qualified production baseline exists"
+        description: "Independent rollback source. An incompatible serving baseline may be replaced by a Main-qualified source with identical backend bytes to the primary"
         required: false
         default: ""
         type: string
+      phone_rollback_qualification:
+        description: "UAT accepted image, or Main qualified replacement with identical backend runtime inputs"
+        required: true
+        default: uat
+        type: choice
+        options:
+          - uat
+          - main
       phone_phase:
         description: "standard release or qualification-only cold checkpoint; cold never deploys primary"
         type: choice
@@ -205,6 +213,7 @@ jobs:
           INPUT_DRIVE_LIVE_MODE: ${{ inputs.drive_live_mode }}
           INPUT_BACKEND_IMAGE_SOURCE: ${{ inputs.backend_image_source }}
           INPUT_PHONE_ROLLBACK_SHA: ${{ inputs.phone_rollback_sha }}
+          INPUT_PHONE_ROLLBACK_QUALIFICATION: ${{ inputs.phone_rollback_qualification || 'uat' }}
           INPUT_PHONE_PHASE: ${{ inputs.phone_phase }}
           INPUT_PHONE_WORKER_STAGE_RUN_ID: ${{ inputs.phone_worker_stage_run_id }}
           INPUT_PHONE_ACTIVATION_RUN_ID: ${{ inputs.phone_activation_run_id }}
@@ -957,6 +966,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PHONE_ROLLBACK_SHA: ${{ inputs.phone_rollback_sha }}
+          PHONE_ROLLBACK_QUALIFICATION: ${{ inputs.phone_rollback_qualification || 'uat' }}
           ENABLE_PHONE_RECOVERY: ${{ inputs.phone_phase == 'cold' && 'false' || vars.AUTH_PHONE_RECOVERY_PROD_ENABLED || 'true' }}
         run: |
           set -euo pipefail
@@ -971,6 +981,7 @@ jobs:
           python3 deploy/phone/plan.py prepare --run-id "${{ github.run_id }}" \
             --primary-sha "${{ inputs.sha }}" --enable-recovery "$ENABLE_PHONE_RECOVERY" \
             --current-json /tmp/prod-drive-serving-backend.json --fallback-sha "$PHONE_ROLLBACK_SHA" \
+            --fallback-qualification "$PHONE_ROLLBACK_QUALIFICATION" \
             --release-tools "${RUNNER_TEMP}/release-tools" \
             --output /tmp/phone-rollback/plan.json --github-output "$GITHUB_OUTPUT"
 
@@ -1949,6 +1960,7 @@ jobs:
           fi
           python3 deploy/phone/plan.py verify --run-id "${{ github.run_id }}" \
             --primary-sha "${{ inputs.sha }}" --plan /tmp/phone-rollback/plan.json \
+            --release-tools "${RUNNER_TEMP}/release-tools" \
             --output /tmp/phone-rollback/qualified.json --github-output "$GITHUB_OUTPUT"
           "${{ env.PROTOCOL_PYTHON }}" deploy/phone/workos_rollout.py \
             --project "${{ env.GCP_PROJECT_ID }}" --output /tmp/phone-rollback/workos-after.json

@@ -7,11 +7,12 @@ import json
 import os
 import subprocess
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 import yaml
 
-from tests.test_phone_rollback_release import FALLBACK, IMAGE, PRIMARY, ROOT, _verify_args
+from tests.test_phone_rollback_release import FALLBACK, IMAGE, PRIMARY, REVISION, ROOT, _verify_args
 from tests.test_phone_rollback_release import release_plan as release_plan
 
 pytestmark = pytest.mark.feature_auth_reliability
@@ -342,3 +343,314 @@ def test_continuation_requires_retained_operational_reference_without_requalifyi
     monkeypatch.setattr(state.plan, "_operational", lambda: None)
     with pytest.raises(ValueError, match="operational_reference_required"):
         state.plan.prepare(state.args)
+
+
+@pytest.mark.parametrize("mismatch", ["", "phone_rollback_consumer_change_unqualified"])
+def test_explicit_replacement_requires_an_incompatible_verified_baseline(
+    release_plan, monkeypatch, mismatch
+):
+    state = release_plan
+    state.args.fallback_sha = FALLBACK
+    state.args.fallback_qualification = "main"
+    existing = {
+        "mode": "existing",
+        "source": "d" * 40,
+        "image": IMAGE,
+        "revision": REVISION,
+    }
+    monkeypatch.setattr(state.plan, "_existing", lambda *_: existing)
+    original = state.plan.qualify_consumers
+
+    def compatibility(fallback, primary):
+        if fallback == existing["source"] and mismatch:
+            raise ValueError(mismatch)
+        return original(FALLBACK, primary)
+
+    monkeypatch.setattr(state.plan, "qualify_consumers", compatibility)
+    monkeypatch.setattr(state.plan, "same_backend", lambda *_: True)
+    builds = []
+
+    def build(source, *_):
+        builds.append(source)
+        return {
+            "mode": "cold",
+            "source": source,
+            "image": IMAGE,
+            "probe": state.plan.qualify_image.qualify(source, IMAGE),
+            "predecessor": {"kind": "main-qualified-source"},
+        }
+
+    monkeypatch.setattr(state.plan, "qualify_replacement_image", build)
+    if not mismatch:
+        with pytest.raises(ValueError, match="independent_source_unnecessary"):
+            state.plan.prepare(state.args)
+        assert not builds
+        return
+    prepared = state.plan.prepare(state.args)
+    assert prepared["mode"] == "cold"
+    assert prepared["source"] == FALLBACK
+    assert prepared["replacement_of"] == {
+        key: existing[key] for key in ("source", "image", "revision")
+    }
+    assert builds == [FALLBACK]
+
+
+@pytest.mark.parametrize("failure", ["different_backend", "same_source", "other_error"])
+def test_replacement_refuses_before_building_or_writing(release_plan, monkeypatch, failure):
+    state = release_plan
+    state.args.fallback_sha = PRIMARY if failure == "same_source" else FALLBACK
+    state.args.fallback_qualification = "main"
+    monkeypatch.setattr(
+        state.plan,
+        "_existing",
+        lambda *_: {
+            "mode": "existing",
+            "source": "d" * 40,
+            "image": IMAGE,
+            "revision": REVISION,
+        },
+    )
+
+    def incompatible(*_):
+        reason = (
+            "phone_image_packaged_source_mismatch"
+            if failure == "other_error"
+            else "phone_rollback_consumer_change_unqualified"
+        )
+        raise ValueError(reason)
+
+    monkeypatch.setattr(state.plan, "qualify_consumers", incompatible)
+    monkeypatch.setattr(state.plan, "same_backend", lambda *_: failure != "different_backend")
+    build = MagicMock()
+    monkeypatch.setattr(state.plan, "qualify_replacement_image", build)
+    with pytest.raises(ValueError):
+        state.plan.prepare(state.args)
+    build.assert_not_called()
+    assert not state.args.output.exists()
+    assert not state.args.github_output.exists()
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "",
+        "main",
+        "build",
+        "output",
+        "tag",
+        "platform",
+        "digest",
+        "probe",
+        "pending",
+        "timeout",
+        "poll_identity",
+        "merged",
+        "mapped_approval",
+    ],
+)
+def test_replacement_binds_main_build_native_output_and_actual_image(
+    release_plan, monkeypatch, failure
+):
+    import base64
+    import tarfile
+
+    import replacement_image
+
+    source = FALLBACK
+    native = {
+        "kind": "backend-image-build-output-v1",
+        "imageTag": "wrong" if failure == "tag" else "phone-rollback-" + source,
+        "platform": "linux/arm64" if failure == "platform" else "linux/amd64",
+        "indexDigest": "mutable-tag" if failure == "digest" else "sha256:" + "a" * 64,
+    }
+    build = {
+        "id": "12345678-1234-1234-1234-123456789abc",
+        "projectId": "hushh-pda",
+        "status": "FAILURE" if failure == "build" else "SUCCESS",
+        "steps": [{"id": "record-backend-image", "status": "SUCCESS"}],
+        "results": {
+            "buildStepOutputs": []
+            if failure == "output"
+            else [
+                base64.b64encode(json.dumps(native).encode()).decode(),
+            ]
+        },
+    }
+    calls = []
+    monkeypatch.setattr(
+        replacement_image,
+        "time",
+        SimpleNamespace(
+            monotonic=MagicMock(side_effect=[0, 3001] if failure == "timeout" else [0, 1]),
+            sleep=lambda _: None,
+        ),
+    )
+
+    def command(args, **_kwargs):
+        calls.append(args)
+        if args[:3] == ["git", "show", "-s"]:
+            return (
+                ("d" * 40 + " " + PRIMARY).encode()
+                if failure in {"merged", "mapped_approval"}
+                else b""
+            )
+        if args[:2] == ["git", "rev-parse"]:
+            return ("a" * 40).encode()
+        if args[0] == "git":
+            archive = next(arg.split("=", 1)[1] for arg in args if arg.startswith("--output="))
+            with tarfile.open(archive, "w"):
+                pass
+            return b""
+        if args[:3] == ["gcloud", "builds", "submit"]:
+            assert "--suppress-logs" in args
+            initial = dict(build)
+            if failure in {"pending", "timeout", "poll_identity"}:
+                initial["status"] = "WORKING"
+            return json.dumps(initial).encode()
+        if args[:3] == ["gcloud", "builds", "describe"]:
+            observed = dict(build)
+            if failure == "poll_identity":
+                observed["id"] = "87654321-1234-1234-1234-123456789abc"
+            return json.dumps(observed).encode()
+        if args[:3] == ["gcloud", "builds", "cancel"]:
+            return b""
+        if args[:3] == ["docker", "buildx", "imagetools"]:
+            return b"{}"
+        if args[0] == "python3" and args[1].endswith("resolve-cloud-run-image.py"):
+            assert args[args.index("--image-reference") + 1].endswith("@sha256:" + "a" * 64)
+            return IMAGE.encode()
+        assert args[0] == "python3" and args[2] == "main-source"
+        receipt = {
+            "kind": "main-qualified-source",
+            "environment": "production",
+            "status": "refused" if failure == "main" else "qualified",
+            "sha": PRIMARY if failure in {"merged", "mapped_approval"} else source,
+            "main_approval_sha": "e" * 40 if failure == "mapped_approval" else source,
+            "resolved_services": ["backend"],
+        }
+        output = args[args.index("--output") + 1]
+        from pathlib import Path
+
+        if "--predecessor" in args:
+            assert json.loads(Path(output).read_text()) == receipt
+        Path(output).write_text(json.dumps(receipt))
+        return b""
+
+    monkeypatch.setattr(replacement_image.qualify_image, "run", command)
+    probe = release_plan.plan.qualify_image.qualify
+
+    def qualify(*args):
+        if failure == "probe":
+            raise ValueError("phone_image_packaged_source_mismatch")
+        return probe(*args)
+
+    monkeypatch.setattr(replacement_image.qualify_image, "qualify", qualify)
+    if failure and failure not in {"pending", "merged"}:
+        with pytest.raises((ValueError, TimeoutError)):
+            replacement_image.qualify_replacement_image(
+                source, release_plan.args.release_tools, release_plan.args.output.parent
+            )
+        if failure in {"timeout", "poll_identity"}:
+            assert any(call[:3] == ["gcloud", "builds", "cancel"] for call in calls)
+        return
+    result = replacement_image.qualify_replacement_image(
+        source, release_plan.args.release_tools, release_plan.args.output.parent
+    )
+    assert (result["mode"], result["source"], result["image"]) == ("cold", source, IMAGE)
+    assert result["build_id"] == build["id"]
+    assert sum(len(call) > 2 and call[2] == "main-source" for call in calls) == 2
+    assert not any(call[:3] == ["gcloud", "container", "images"] for call in calls)
+
+
+def test_main_replacement_retry_retains_main_qualification(release_plan, monkeypatch):
+    state = release_plan
+    state.revision["metadata"]["labels"]["deploy-source"] = "deploy-production-phone-rollback"
+    state.args.current_json.write_text(json.dumps(state.revision))
+    state.args.fallback_sha = FALLBACK
+    state.args.fallback_qualification = "main"
+    monkeypatch.setattr(state.plan, "same_backend", lambda *_: True)
+    build = MagicMock(
+        return_value={
+            "mode": "cold",
+            "source": FALLBACK,
+            "image": IMAGE,
+            "probe": state.plan.qualify_image.qualify(FALLBACK, IMAGE),
+            "predecessor": {"kind": "main-qualified-source"},
+        }
+    )
+    monkeypatch.setattr(state.plan, "qualify_replacement_image", build)
+    original = MagicMock()
+    monkeypatch.setattr(state.plan, "_independent", original)
+    result = state.plan.prepare(state.args)
+    assert result["predecessor"]["kind"] == "main-qualified-source"
+    build.assert_called_once_with(FALLBACK, state.args.release_tools, state.args.output.parent)
+    original.assert_not_called()
+
+
+def test_main_fallback_is_rechecked_before_promotion(release_plan, monkeypatch):
+    state = release_plan
+    state.revision["metadata"]["labels"]["deploy-source"] = "deploy-production-phone-rollback"
+    state.args.current_json.write_text(json.dumps(state.revision))
+    state.args.fallback_sha = FALLBACK
+    state.args.fallback_qualification = "main"
+    monkeypatch.setattr(state.plan, "same_backend", lambda *_: True)
+    monkeypatch.setattr(
+        state.plan,
+        "qualify_replacement_image",
+        lambda *_: {
+            "mode": "cold",
+            "source": FALLBACK,
+            "image": IMAGE,
+            "probe": state.plan.qualify_image.qualify(FALLBACK, IMAGE),
+            "predecessor": {"kind": "main-qualified-source"},
+        },
+    )
+    state.plan.prepare(state.args)
+    receipt = MagicMock()
+    monkeypatch.setattr(state.plan, "recheck_main_source", receipt)
+    monkeypatch.setattr(
+        state.plan,
+        "inspect_cold",
+        lambda **_: {
+            "source": FALLBACK,
+            "image": IMAGE,
+            "revision": REVISION,
+        },
+    )
+    args = _verify_args(state)
+    args.release_tools = state.args.release_tools
+    assert state.plan.verify(args)["qualification"] == "passed"
+    receipt.assert_called_once()
+    monkeypatch.setattr(state.plan, "same_backend", lambda *_: False)
+    with pytest.raises(ValueError, match="replacement_source_invalid"):
+        state.plan.verify(args)
+
+
+@pytest.mark.parametrize(
+    "ignore, exit_code, expected",
+    [
+        ("tests/\n!hushh_mcp/agents/*.md\n", 0, True),
+        ("tests/\n", 1, False),
+        ("tests/\n", 2, None),
+        ("tests/\n!tests/**\n", 0, None),
+        ("tests/\n !tests/**\n", 0, None),
+        ("tests/\n!**\n", 0, None),
+        ("", 0, None),
+    ],
+)
+def test_backend_equality_excludes_only_proven_unshipped_tests(
+    release_plan, monkeypatch, ignore, exit_code, expected
+):
+    import replacement_image
+
+    monkeypatch.setattr(replacement_image.qualify_image, "run", lambda *_: ignore.encode())
+    monkeypatch.setattr(
+        replacement_image.subprocess,
+        "run",
+        lambda *_, **__: SimpleNamespace(returncode=exit_code),
+    )
+    if expected is None:
+        with pytest.raises(ValueError):
+            replacement_image.same_backend(FALLBACK, PRIMARY)
+    else:
+        assert replacement_image.same_backend(FALLBACK, PRIMARY) is expected

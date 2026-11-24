@@ -557,6 +557,17 @@ Every hosted deployment must prove:
 Backend traffic rollback uses `activate_release.py --qualify-rollback-source`:
 the exact source must declare account policy v1 and migrations 423 and 425.
 Migration 425 is the conservative source floor for retired-phone admission.
+For an incompatible serving baseline, the Production operator can explicitly
+select `phone_rollback_qualification=main` and a separate Main-qualified
+`phone_rollback_sha`. The fallback and primary must have identical backend
+runtime inputs and generated contracts. The workflow builds the selected source
+with its canonical recipe, pins the exact build's native image digest, verifies
+the packaged reader, and stages the fallback at zero traffic with recovery and
+WorkOS disabled. The standard fenced migration, live core checks and final
+fallback revalidation remain required. Failed candidate retries retain the
+explicit Main qualification. The default independent route still requires its
+UAT image receipt.
+
 Pre-phone backend rollback is refused even when phone state appears empty;
 the existing release lifecycle does not prove phone-transfer quiescence.
 Initial producer admission still uses `--qualify-source` and migration 423, so
