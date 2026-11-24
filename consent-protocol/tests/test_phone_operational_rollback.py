@@ -654,3 +654,60 @@ def test_backend_equality_excludes_only_proven_unshipped_tests(
             replacement_image.same_backend(FALLBACK, PRIMARY)
     else:
         assert replacement_image.same_backend(FALLBACK, PRIMARY) is expected
+
+
+@pytest.mark.parametrize(
+    "phase, qualification, fallback, other, restoration, admitted",
+    [
+        ("standard", "uat", "", "", "", True),
+        ("standard", "main", FALLBACK, "", "", True),
+        ("standard", "uat", FALLBACK, "", "", False),
+        ("cold", "main", FALLBACK, "", "", False),
+        ("worker", "main", FALLBACK, "", "", False),
+        ("activate", "main", FALLBACK, "", "", False),
+        ("standard", "main", FALLBACK, "activation", "", False),
+        ("standard", "main", FALLBACK, "", "restoration", False),
+    ],
+)
+def test_curated_approval_allows_only_standard_main_replacement(
+    tmp_path, phase, qualification, fallback, other, restoration, admitted
+):
+    import sys
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-production.yml").read_text())
+    steps = workflow["jobs"]["deploy"]["steps"]
+    step = next(
+        s for s in steps if s.get("name") == "Bind curated application to its Main approval"
+    )
+    script = tmp_path / "scripts/ci/promotion_approval.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("from pathlib import Path; Path('mapped').touch()")
+    env = dict(
+        os.environ,
+        RESTORATION_RUN=restoration,
+        CADENCE_ORIGIN="",
+        OTHER_OPERATION=other,
+        PHONE_DEPLOY_PHASE=phase,
+        PHONE_ROLLBACK_SHA=fallback,
+        PHONE_ROLLBACK_QUALIFICATION=qualification,
+        APPLICATION_SHA=PRIMARY,
+        APPROVAL_SHA=FALLBACK,
+        RUNNER_TEMP=str(tmp_path),
+    )
+    # Use this test interpreter while exercising the exact trusted workflow shell.
+    shell = step["run"].replace(
+        "python3 scripts/ci/promotion_approval.py",
+        f"{sys.executable} scripts/ci/promotion_approval.py",
+    )
+    # Trusted checkout workflow with fixture-only inputs and a local approval stub.
+    result = subprocess.run(  # noqa: S603
+        ["bash", "-c", shell],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert (result.returncode == 0) is admitted
+    assert (tmp_path / "mapped").exists() is admitted
