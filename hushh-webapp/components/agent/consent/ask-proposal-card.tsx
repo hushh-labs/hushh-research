@@ -15,6 +15,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { Check, ChevronRight, ConsentAgentIcon, Minus, Search } from "@/components/icons";
 import { Input } from "@/components/ui/input";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
+import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
 import { REQUEST_DURATION_OPTIONS } from "@/lib/agent/action-directive-summary";
 import { proposalDurationLabel, type ScopeProposal } from "@/lib/agent/scope-proposal";
 import type { PersonScopeCatalogPage, RequestablePersonScope } from "@/lib/services/person-profile-service";
@@ -336,20 +337,58 @@ export function AskProposalCard({ personName, proposal, ready, sending, error, o
     setRow(scope.scopeRef, !selected.has(scope.scopeRef));
   };
 
+  const durationOptions = useMemo(
+    () =>
+      REQUEST_DURATION_OPTIONS.map((option) => ({
+        value: String(option.hours),
+        label: proposalDurationLabel(option.hours),
+      })),
+    [],
+  );
+
+  // Hands-free voice & free-text confirmation hook: when the owner says or
+  // types "yes send" / "send it" / "confirm" while this card is pending,
+  // settle the exact current draft (including user edits & price binding).
+  const latestSubmitRef = useRef<(() => boolean) | null>(null);
+  useEffect(() => {
+    latestSubmitRef.current = () => {
+      if (!canSend) return false;
+      onSend({ scopes, purpose: reason.trim(), durationHours });
+      return true;
+    };
+  }, [canSend, durationHours, onSend, reason, scopes]);
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const custom = event as CustomEvent<{ handled?: boolean; personName?: string }>;
+      if (custom.detail?.handled) return;
+      if (latestSubmitRef.current?.()) {
+        if (custom.detail) {
+          custom.detail.handled = true;
+          custom.detail.personName = personName;
+        }
+      }
+    };
+    window.addEventListener("hushh:confirm-active-ask-proposal", handler);
+    return () => window.removeEventListener("hushh:confirm-active-ask-proposal", handler);
+  }, [personName]);
+
   return (
-    <section aria-label={`Ask ${firstName(personName)}`} data-testid="ask-proposal-card"
-      className="consent-presentation-surface space-y-3 rounded-[24px] bg-[linear-gradient(145deg,var(--app-accent-surface),color-mix(in_srgb,var(--background)_94%,var(--app-accent-soft)))] p-4 shadow-[0_18px_55px_-38px_var(--app-accent-deep)] sm:p-5">
+    <section
+      aria-label={`Ask ${firstName(personName)}`}
+      data-testid="ask-proposal-card"
+      className="consent-presentation-surface space-y-3.5 rounded-[22px] border border-black/[0.08] bg-[color:var(--app-card-surface-default-solid)] p-4 shadow-[0_6px_24px_-12px_rgba(15,23,42,0.10),0_1px_3px_rgba(15,23,42,0.04)] dark:border-white/[0.11] dark:shadow-[0_10px_30px_-14px_rgba(0,0,0,0.45)] sm:p-5"
+    >
       <div className="flex items-start gap-3">
         {/* The /one Consent glyph, bare on a transparent well: never a filled tile. */}
         <span data-slot="card-header-icon" className="inline-flex h-9 w-9 shrink-0 items-center justify-center">
           <ConsentAgentIcon className="h-7 w-7" aria-hidden="true" />
         </span>
         <div className="min-w-0 flex-1">
-          <p data-consent-role="row-title" className="text-base font-semibold leading-6 tracking-[-0.015em] text-foreground [overflow-wrap:anywhere]" data-testid="ask-sentence">
+          <p data-consent-role="row-title" className="text-[15.5px] font-semibold leading-6 tracking-[-0.015em] text-foreground [overflow-wrap:anywhere]" data-testid="ask-sentence">
             {labels.length ? askSentence(personName, labels, durationHours) : `Choose what to ask ${firstName(personName)} for`}
           </p>
           {reason.trim() ? (
-            <p data-consent-role="body" className="mt-1 text-sm leading-5 text-foreground/80 [overflow-wrap:anywhere]" data-testid="ask-reason">
+            <p data-consent-role="body" className="mt-1 text-sm leading-5 text-foreground/78 [overflow-wrap:anywhere]" data-testid="ask-reason">
               {reason.trim()}
             </p>
           ) : null}
@@ -360,31 +399,54 @@ export function AskProposalCard({ personName, proposal, ready, sending, error, o
       </div>
 
       <ProposalRows nodes={nodes} extras={extras} selected={selected} disabled={sending} onToggle={setRow} />
-      <p data-consent-role="status" className="text-xs font-medium text-muted-foreground" data-testid="ask-proposal-summary" aria-live="polite">
-        {chosen} {chosen === 1 ? "item" : "items"} · {proposalDurationLabel(durationHours)}
-      </p>
+
+      <div className="space-y-3 pt-0.5">
+        <fieldset disabled={sending} className="min-w-0 space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <legend data-consent-role="form-label" className="text-xs font-medium text-muted-foreground">
+              Access duration
+            </legend>
+            <span data-consent-role="status" className="text-xs font-medium text-muted-foreground" data-testid="ask-proposal-summary" aria-live="polite">
+              {chosen} {chosen === 1 ? "item" : "items"} · {proposalDurationLabel(durationHours)}
+            </span>
+          </div>
+          <SegmentedControl
+            ariaLabel="For how long"
+            value={String(durationHours)}
+            options={durationOptions}
+            onValueChange={(value) => setDurationHours(Number(value))}
+            disabled={sending}
+            size="sm"
+            mobileColumns={2}
+            className="w-full"
+          />
+          <select
+            aria-hidden="true"
+            tabIndex={-1}
+            value={durationHours}
+            disabled={sending}
+            data-testid="ask-proposal-duration"
+            onChange={(event) => setDurationHours(Number(event.target.value))}
+            className="sr-only"
+          >
+            {REQUEST_DURATION_OPTIONS.map((option) => (
+              <option key={option.hours} value={option.hours}>{proposalDurationLabel(option.hours)}</option>
+            ))}
+          </select>
+        </fieldset>
+        {changing || reason.trim().length < MIN_REASON ? (
+          <label data-consent-role="form-label" className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+            What it is for
+            <Input value={reason} disabled={sending} maxLength={500} data-testid="ask-proposal-reason" data-consent-input="true"
+              onChange={(event) => setReason(event.target.value)} placeholder="To plan dinner together" />
+          </label>
+        ) : null}
+      </div>
 
       {changing ? (
-        <div className="space-y-3 rounded-[var(--app-card-radius-compact)] bg-background/72 p-3 backdrop-blur-xl">
+        <div className="space-y-3 rounded-[16px] border border-black/[0.06] bg-foreground/[0.025] p-3 dark:border-white/[0.08] dark:bg-white/[0.03]">
           <CatalogPicker personName={personName} selected={universe.filter((scope) => selected.has(scope.scopeRef))}
             onToggle={toggle} searchCatalog={searchCatalog} />
-          <div className="grid gap-3 sm:grid-cols-[10rem_minmax(0,1fr)]">
-            <label data-consent-role="form-label" className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-              For how long
-              <select value={durationHours} disabled={sending} data-testid="ask-proposal-duration" data-consent-input="true"
-                onChange={(event) => setDurationHours(Number(event.target.value))}
-                className="block h-11 w-full cursor-pointer rounded-[var(--app-input-radius)] border border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] px-3.5 text-sm font-normal text-foreground">
-                {REQUEST_DURATION_OPTIONS.map((option) => (
-                  <option key={option.hours} value={option.hours}>{proposalDurationLabel(option.hours)}</option>
-                ))}
-              </select>
-            </label>
-            <label data-consent-role="form-label" className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-              What it is for
-              <Input value={reason} disabled={sending} maxLength={500} data-testid="ask-proposal-reason" data-consent-input="true"
-                onChange={(event) => setReason(event.target.value)} placeholder="To plan dinner together" />
-            </label>
-          </div>
         </div>
       ) : null}
 
@@ -392,13 +454,26 @@ export function AskProposalCard({ personName, proposal, ready, sending, error, o
       {!changing && reason.trim().length < MIN_REASON ? (
         <p data-consent-role="helper" className="text-xs text-muted-foreground">Add a reason so {firstName(personName)} can decide.</p>
       ) : null}
-      <div ref={actionsRef} data-testid="ask-proposal-actions" className="flex flex-wrap items-center gap-2">
-        <MorphyButton data-consent-role="compact-action" type="button" size="sm" className="min-h-11" disabled={!canSend}
-          onClick={() => onSend({ scopes, purpose: reason.trim(), durationHours })}>
+      <div ref={actionsRef} data-testid="ask-proposal-actions" className="flex flex-wrap items-center gap-2.5 border-t border-black/[0.06] pt-3.5 dark:border-white/[0.08]">
+        <MorphyButton
+          data-consent-role="compact-action"
+          type="button"
+          size="default"
+          className="px-5"
+          disabled={!canSend}
+          onClick={() => onSend({ scopes, purpose: reason.trim(), durationHours })}
+        >
           {sending ? "Sending…" : !ready || !placed ? "Checking…" : "Send"}
         </MorphyButton>
-        <MorphyButton data-consent-role="compact-action" type="button" size="sm" variant="none" data-consent-quiet-action="true" disabled={sending}
-          onClick={() => setChanging((current) => !current)}>
+        <MorphyButton
+          data-consent-role="compact-action"
+          type="button"
+          size="default"
+          variant="none"
+          data-consent-quiet-action="true"
+          disabled={sending}
+          onClick={() => setChanging((current) => !current)}
+        >
           {changing ? "Done" : "Change"}
         </MorphyButton>
       </div>

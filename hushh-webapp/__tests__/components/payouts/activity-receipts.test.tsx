@@ -257,7 +257,7 @@ describe("payout receipts", () => {
     state.apiJson.mockRejectedValueOnce(new Error("offline"));
     render(<PayoutReceiptSheet itemId="deposit:po_1Abc" onOpenChange={vi.fn()} />);
     const retry = await screen.findByRole("button", { name: "Retry" });
-    expect(retry).toHaveClass("min-h-11");
+    expect(retry).toHaveClass("min-h-8");
     fireEvent.click(retry);
     expect(await screen.findByRole("dialog", { name: "$15.50" })).toBeVisible();
     expect(state.apiJson).toHaveBeenCalledTimes(2);

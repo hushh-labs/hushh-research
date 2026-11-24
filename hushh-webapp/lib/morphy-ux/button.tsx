@@ -78,7 +78,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       size = "default",
       asChild = false,
       showRipple = true,
-      disableHoverRipple = false,
+      disableHoverRipple = true,
       icon,
       fullWidth,
       loading = false,
