@@ -67,6 +67,8 @@ export type SharedWithYouCardViewProps = {
   onRetry?: () => void;
   /** Chat floats the card in the transcript; Profile stacks it in a list; Embedded nests inside a request card. */
   variant?: "chat" | "profile" | "embedded";
+  /** Controls whether decrypted values render inline or behind a bounded Detailed View Modal. Defaults to "modal" for chat and "inline" elsewhere. */
+  presentation?: "inline" | "modal";
   className?: string;
 };
 
@@ -388,11 +390,13 @@ export function SharedWithYouCardView({
   onUnlock,
   onRetry,
   variant = "chat",
+  presentation,
   className,
 }: SharedWithYouCardViewProps) {
   const line = statusLine(status);
   const name = person.displayName.trim() || "Someone";
   const embedded = variant === "embedded";
+  const useDetailModal = presentation ? presentation === "modal" : variant === "chat";
   const body = (
     <>
       {status === "error" ? (
@@ -417,7 +421,7 @@ export function SharedWithYouCardView({
               status={status}
               onRetry={onRetry}
               compact={embedded}
-              useDetailModal={variant === "chat"}
+              useDetailModal={useDetailModal}
             />
           ))}
         </div>

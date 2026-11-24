@@ -591,7 +591,10 @@ describe("InformationRequestReviewView with and without progress", () => {
     mocks.readStoredConnector.mockResolvedValue({ connector_key_id: "test-connector" });
     mocks.decryptScopedExport.mockResolvedValue(MEMORY_TREE);
     render(<AgentStructuredExperienceView experience={restored} />);
-    // The approval shows the secure card at once: no reveal control to find.
+    // In Chat, approved values stay compact behind the Detailed View Modal rather than flooding the transcript.
+    const viewDetails = await screen.findByTestId("shared-with-you-view-details");
+    expect(screen.queryByTestId("shared-with-you-values")).toBeNull();
+    fireEvent.click(viewDetails);
     const details = await screen.findByTestId("shared-with-you-values");
     expect(details).toHaveTextContent("Nopa");
     expect(screen.queryByRole("button", { name: "View shared information" })).toBeNull();
