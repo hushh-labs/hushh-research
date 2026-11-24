@@ -22,12 +22,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/lib/firebase/auth-context";
 import {
+  buildOneSetupCloudRoute,
   buildOneSetupRoute,
   normalizeStaticExportPathname,
   normalizeInvitationReturnTo,
   KAI_MARKET_PATH,
   ROUTES,
 } from "@/lib/navigation/routes";
+import { isPooledSandboxSwitchAvailable } from "@/lib/one/owner-cloud";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { ApiService } from "@/lib/services/api-service";
 import {
@@ -195,6 +197,8 @@ export function PhoneMandatePageContent() {
             phoneNumber: activeUser.phoneNumber,
             phoneVerified: AccountIdentityService.hasVerifiedPhone(identity),
           })
+        : isPooledSandboxSwitchAvailable()
+        ? buildOneSetupCloudRoute(redirectPath)
         : buildOneSetupRoute({ returnTo: redirectPath });
       await PreVaultUserStateService.syncOnboardingJourney({
         userId: owner,

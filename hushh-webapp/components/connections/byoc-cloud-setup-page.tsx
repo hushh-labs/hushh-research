@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import {
@@ -30,6 +30,9 @@ import {
 import { OwnerCloudProviderChoice } from "@/components/connections/owner-cloud-provider-choice";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { Button } from "@/components/ui/button";
+import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
+import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
+import { notifyGeminiRuntimeConfigurationChanged } from "@/lib/connections/gemini-runtime-configuration";
 import { useAuth } from "@/lib/firebase/auth-context";
 import {
   isValidatedAuthSessionOwnerCurrent,
@@ -65,13 +68,25 @@ import {
   ownerCloudProvider,
   type OwnerCloudProvider,
 } from "@/lib/one/owner-cloud";
+import { hasStoredAiKey } from "@/lib/one/setup-runtime-readiness";
 import { ApiService } from "@/lib/services/api-service";
+import { FinanceSetupDraftService } from "@/lib/services/finance-setup-draft-service";
+import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
+import { PostUnlockSyncService } from "@/lib/services/post-unlock-sync-service";
+import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { useBackLayer } from "@/lib/navigation/back-layers";
-import { buildOneSetupRoute, resolveOneSetupReturnTo, ROUTES } from "@/lib/navigation/routes";
+import {
+  buildOneSetupFinanceImportRoute,
+  buildOneSetupRoute,
+  isOneSetupSurfaceRoute,
+  resolveOneSetupReturnTo,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
+import { VaultContext } from "@/lib/vault/vault-context";
 import { useCloudSetupManagementReturn } from "./use-cloud-setup-management-return";
 
 /**
@@ -103,6 +118,15 @@ function OwnerCloudSetupPage({ user, owner }: {
   const router = useRouter();
   const searchParams = useSearchParams();
   const migrationRequested = searchParams.get("intent") === "migrate";
+  const vaultContext = useContext(VaultContext);
+  const vaultKey = vaultContext?.vaultKey ?? null;
+  const vaultOwnerToken = vaultContext?.vaultOwnerToken ?? null;
+  const isVaultUnlocked = vaultContext?.isVaultUnlocked ?? false;
+  const queueEntryWelcome = useOneConversationSession((state) => state.queueEntryWelcome);
+  const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
+  const [pendingDirectVaultFinish, setPendingDirectVaultFinish] = useState(false);
+  const [finalizingSetup, setFinalizingSetup] = useState(false);
+  const finalizationInFlightRef = useRef<Promise<string | null> | null>(null);
   const ownerCurrent = useCallback(() => Boolean(owner && owner.firebaseUid === user?.uid && isValidatedAuthSessionOwnerCurrent(owner)), [owner, user?.uid]);
   useCloudSetupManagementReturn(ownerId ?? undefined, ownerCurrent);
   const [saving, setSaving] = useState(false);
@@ -532,13 +556,14 @@ function OwnerCloudSetupPage({ user, owner }: {
     !pooledSwitchAvailable && (hostingMode === "shared" || sharedChosen);
   const selectedHosting: HostingChoice | null =
     choice ?? (sharedConfirmed ? "shared" : null);
+  const selectedSandboxHosting: HostingChoice = choice === "own" ? "own" : "hosted";
   const authorized =
     connectedBefore ||
     recordedReservedProject ||
     hostedChosen ||
     (!pooledSwitchAvailable && sharedChosen && selectedHosting === "shared" && hostingMode === "shared" && job === null) ||
-    hostingMode === "hussh_pods";
-  const hostingSaving = saving || sharedSaving || hostedSaving || azureSignIn.starting;
+    (hostingMode === "hussh_pods" && !(pooledSwitchAvailable && choice === "own"));
+  const hostingSaving = saving || sharedSaving || hostedSaving || azureSignIn.starting || finalizingSetup;
   // One alert, whichever cloud's authorization refused.
   const shownError = error ?? azureSignIn.error;
   // Azure is named only on a build where it can actually be chosen.
@@ -612,6 +637,139 @@ function OwnerCloudSetupPage({ user, owner }: {
   // edge swipes cannot strand the owner before hosting placement commits.
   useBackLayer(ROUTES.ONE_SETUP_CLOUD, saving || hostingSaving ? 2 : 0, () => true);
 
+  const rawReturnToParam = searchParams.get("return_to");
+  const isProfilePaneHostingReturn =
+    typeof rawReturnToParam === "string" &&
+    rawReturnToParam.startsWith("/") &&
+    !rawReturnToParam.startsWith("//") &&
+    rawReturnToParam.includes("profile_panel=hosting");
+  const resolvedReturnTo = resolveOneSetupReturnTo(rawReturnToParam);
+  const isAlreadyCompletedSetup =
+    Boolean(ownerId) &&
+    (OneSetupCompletionHintService.isResolved(ownerId!) ||
+      PreVaultUserStateService.getCachedBootstrapState(ownerId!)?.setupCompleted === true);
+  const isSettingsHostingVisit =
+    isProfilePaneHostingReturn ||
+    resolvedReturnTo === ROUTES.PROFILE_HOSTING ||
+    (!resolvedReturnTo && isAlreadyCompletedSetup);
+  const resolveDirectOnboardingHref = useCallback(() => {
+    if (ownerId && PreVaultSensitiveDraftService.hasFinanceIntent(ownerId)) {
+      return buildOneSetupFinanceImportRoute(resolvedReturnTo);
+    }
+    if (resolvedReturnTo) {
+      const pathOnly = resolvedReturnTo.split(/[?#]/)[0] ?? resolvedReturnTo;
+      if (!isOneSetupSurfaceRoute(pathOnly)) {
+        return resolvedReturnTo;
+      }
+    }
+    return ROUTES.HOME;
+  }, [ownerId, resolvedReturnTo]);
+
+  const completeDirectOnboarding = useCallback(async (): Promise<string | null> => {
+    if (!ownerId || !ownerCurrent()) return null;
+    if (!vaultKey || !vaultOwnerToken) {
+      throw new Error("Not ready yet. Try again.");
+    }
+    if (finalizationInFlightRef.current) {
+      return finalizationInFlightRef.current;
+    }
+    const run = (async () => {
+      setError(null);
+      await PreVaultSensitiveDraftService.finalizeForVault({
+        userId: ownerId,
+        vaultKey,
+        vaultOwnerToken,
+      });
+      const bootstrap =
+        PreVaultUserStateService.getCachedBootstrapState(ownerId) ??
+        (await PreVaultUserStateService.bootstrapState(ownerId, { force: true }));
+      if (
+        bootstrap?.oneRuntimeSetupChoice === "byok_pending_vault" &&
+        !(await hasStoredAiKey(ownerId, vaultKey, vaultOwnerToken))
+      ) {
+        throw new Error("Your selected AI key was not saved. Choose your AI again.");
+      }
+      await PostUnlockSyncService.run({
+        userId: ownerId,
+        vaultKey,
+        vaultOwnerToken,
+      });
+      await FinanceSetupDraftService.finalizeForVault({
+        userId: ownerId,
+        vaultKey,
+        vaultOwnerToken,
+      });
+      notifyGeminiRuntimeConfigurationChanged(ownerId);
+      const completion = acknowledgeOneSetupExit({
+        userId: ownerId,
+        skipped: false,
+        isVaultUnlocked: true,
+        vaultKey,
+        vaultOwnerToken,
+      });
+      queueEntryWelcome(ownerId);
+      await completion;
+      setVaultDialogOpen(false);
+      setPendingDirectVaultFinish(false);
+      const targetHref = resolveDirectOnboardingHref();
+      const requested = requestInternalAppNavigation({
+        href: targetHref,
+        replace: true,
+        scroll: false,
+        source: "programmatic",
+        transitionMode: "full",
+      });
+      if (!requested) router.replace(targetHref);
+      return targetHref;
+    })();
+    finalizationInFlightRef.current = run;
+    setFinalizingSetup(true);
+    try {
+      return await run;
+    } catch (err) {
+      setError(
+        err instanceof Error && err.message
+          ? err.message
+          : "Could not save your setup. Try again.",
+      );
+      throw err;
+    } finally {
+      if (finalizationInFlightRef.current === run) {
+        finalizationInFlightRef.current = null;
+      }
+      setFinalizingSetup(false);
+    }
+  }, [
+    ownerCurrent,
+    ownerId,
+    queueEntryWelcome,
+    resolveDirectOnboardingHref,
+    router,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
+
+  useEffect(() => {
+    if (
+      !pendingDirectVaultFinish ||
+      !isVaultUnlocked ||
+      !vaultKey ||
+      !vaultOwnerToken ||
+      !ownerId ||
+      finalizationInFlightRef.current
+    ) {
+      return;
+    }
+    void completeDirectOnboarding().catch(() => undefined);
+  }, [
+    completeDirectOnboarding,
+    isVaultUnlocked,
+    ownerId,
+    pendingDirectVaultFinish,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
+
   const finish = useCallback(async () => {
     if (!ownerCurrent() || !authorized || !aiReady || hostingSaving) {
       return { status: "blocked" as const, summary: "Finish your hosting and AI selection first." };
@@ -631,20 +789,49 @@ function OwnerCloudSetupPage({ user, owner }: {
         return { status: "blocked" as const, summary: "Session changed." };
       }
     }
-    const rawReturnTo = searchParams.get("return_to");
-    const isProfilePaneHostingReturn =
-      typeof rawReturnTo === "string" &&
-      rawReturnTo.startsWith("/") &&
-      !rawReturnTo.startsWith("//") &&
-      rawReturnTo.includes("profile_panel=hosting");
-    const returnTo = resolveOneSetupReturnTo(rawReturnTo);
-    const completed = !!ownerId && (OneSetupCompletionHintService.isResolved(ownerId) ||
-      PreVaultUserStateService.getCachedBootstrapState(ownerId)?.setupCompleted === true);
+    if (pooledSwitchAvailable && !isSettingsHostingVisit) {
+      if (vaultContext !== null) {
+        if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
+          setPendingDirectVaultFinish(true);
+          setVaultDialogOpen(true);
+          return {
+            status: "started" as const,
+            summary: "One step left: set a lock.",
+          };
+        }
+        try {
+          const targetHref = await completeDirectOnboarding();
+          if (!targetHref) {
+            return { status: "blocked" as const, summary: "Session changed." };
+          }
+          return {
+            status: "started" as const,
+            summary: "Setup complete. Continuing.",
+            routeAfter: targetHref,
+          };
+        } catch {
+          return {
+            status: "blocked" as const,
+            summary: "Could not save your setup. Try again.",
+          };
+        }
+      }
+      const fallbackHref = resolveDirectOnboardingHref();
+      const requestedDirect = requestInternalAppNavigation({
+        href: fallbackHref,
+        replace: true,
+        scroll: false,
+        source: "programmatic",
+        transitionMode: "full",
+      });
+      if (!requestedDirect) router.replace(fallbackHref);
+      return { status: "started" as const, summary: "Setup complete. Continuing.", routeAfter: fallbackHref };
+    }
     const href = isProfilePaneHostingReturn
-      ? rawReturnTo
-      : returnTo === ROUTES.PROFILE_HOSTING || (!returnTo && completed)
+      ? rawReturnToParam!
+      : resolvedReturnTo === ROUTES.PROFILE_HOSTING || (!resolvedReturnTo && isAlreadyCompletedSetup)
         ? ROUTES.PROFILE_HOSTING
-        : buildOneSetupRoute({ returnTo });
+        : buildOneSetupRoute({ returnTo: resolvedReturnTo });
     const requested = requestInternalAppNavigation({
       href,
       replace: true,
@@ -654,7 +841,26 @@ function OwnerCloudSetupPage({ user, owner }: {
     });
     if (!requested) router.replace(href);
     return { status: "started" as const, summary: "Your agent setup is saved.", routeAfter: href };
-  }, [aiReady, authorized, hostingSaving, ownerCurrent, router, searchParams, ownerId]);
+  }, [
+    aiReady,
+    authorized,
+    completeDirectOnboarding,
+    hostingSaving,
+    isAlreadyCompletedSetup,
+    isProfilePaneHostingReturn,
+    isSettingsHostingVisit,
+    isVaultUnlocked,
+    ownerCurrent,
+    ownerId,
+    pooledSwitchAvailable,
+    rawReturnToParam,
+    resolveDirectOnboardingHref,
+    resolvedReturnTo,
+    router,
+    vaultContext,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
   useLocalOnboardingActionHandler("setup.finish_cloud", finish);
 
   return (
@@ -747,10 +953,11 @@ function OwnerCloudSetupPage({ user, owner }: {
         ) : consentIntent && !authorized ? (
           <ConsentPendingCard
             entry={consentIntent}
-            busy={saving || azureSignIn.starting || sharedSaving}
+            busy={saving || azureSignIn.starting || sharedSaving || hostedSaving}
             onContinue={!ownCloudAvailable ? null : consentIntent.provider === "azure" ? () => void startAzureSetup()
               : consentIntent.project ? () => void handleProjectNamed(consentIntent.project) : null}
             onChooseShared={pooledSwitchAvailable ? null : () => void chooseShared()}
+            onChooseSandbox={pooledSwitchAvailable ? () => void chooseHosted() : null}
           />
         ) : (!checked || !hostingStatusChecked) && !checkTimedOut && !authorized ? (
           <p
@@ -960,20 +1167,45 @@ function OwnerCloudSetupPage({ user, owner }: {
         ) : hostingMode === "hussh_pods" ? (
           hostedUnderMaintenance ? (
             <HusshPodsPausedCard deploymentTarget={agentTarget} />
+          ) : pooledSwitchAvailable ? (
+            <div className="space-y-4" data-testid="cloud-tier-choice">
+              <HostingChoiceCards
+                label="Where your agent runs"
+                options={hostingOptions}
+                value={selectedSandboxHosting}
+                onChange={setChoice}
+                busy={saving || hostedSaving || azureSignIn.starting}
+              />
+              {selectedSandboxHosting === "own" ? (
+                ownCloudAvailable ? (
+                  <OwnerCloudProviderChoice
+                    onProjectNamed={handleProjectNamed}
+                    projectBusy={saving}
+                    onConnectAzure={startAzureSetup}
+                    azureBusy={azureSignIn.starting}
+                  />
+                ) : null
+              ) : (
+                <>
+                  <HusshPodsActiveCard deploymentTarget={agentTarget} />
+                  {agentTarget !== "ace" ? (
+                    <PooledSandboxSwitchCard
+                      hasAssignedCloudPod
+                      sourceCloudLabel={hostedPodSourceLabel}
+                      onSwitched={refreshAgent}
+                      owningRoute={ROUTES.ONE_SETUP_CLOUD}
+                    />
+                  ) : null}
+                  {openHomeFallback}
+                </>
+              )}
+            </div>
           ) : (
             <div className="space-y-4">
               <HusshPodsActiveCard deploymentTarget={agentTarget} />
-              {pooledSwitchAvailable && agentTarget !== "ace" ? (
-                <PooledSandboxSwitchCard
-                  hasAssignedCloudPod
-                  sourceCloudLabel={hostedPodSourceLabel}
-                  onSwitched={refreshAgent}
-                  owningRoute={ROUTES.ONE_SETUP_CLOUD}
-                />
-              ) : !pooledSwitchAvailable &&
-                isHostedAzureMigrationAvailable() &&
-                agentState === "active" &&
-                hostedPodProvider(agentTarget) === "gcp" ? (
+              {isHostedAzureMigrationAvailable() &&
+              agentState === "active" &&
+              hostedPodProvider(agentTarget) === "gcp" ? (
                 <HusshPodsMigrationCard
                   sourceMode="hussh_pods"
                   sourceTarget={agentTarget}
@@ -1120,7 +1352,7 @@ function OwnerCloudSetupPage({ user, owner }: {
         ) : null}
       </AppPageContentRegion>
       {authorized && aiReady ? <SetupCompletionFooter
-        label="Finish agent setup"
+        label={pooledSwitchAvailable && !isSettingsHostingVisit ? "Finish setup" : "Finish agent setup"}
         onComplete={() => void finish()}
         busy={hostingSaving}
         // The existing AI selector acknowledges only a saved, verified choice.
@@ -1128,8 +1360,25 @@ function OwnerCloudSetupPage({ user, owner }: {
         disabled={!authorized || !aiReady || hostingSaving || !ownerCurrent()}
         controlId="one-setup-cloud-terminal"
         actionId="setup.finish_cloud"
-        purpose="Keep the verified hosting and AI choice, then return to setup."
+        purpose="Keep the verified hosting and AI choice, then continue."
       /> : null}
+      {user ? (
+        <VaultUnlockDialog
+          user={user}
+          open={vaultDialogOpen}
+          onOpenChange={(open) => {
+            setVaultDialogOpen(open);
+            if (!open && !finalizationInFlightRef.current) {
+              setPendingDirectVaultFinish(false);
+            }
+          }}
+          dismissible={false}
+          enableGeneratedDefault
+          title="Set a lock"
+          description="Only you can open what you save. Not even we can read it."
+          onSuccess={() => undefined}
+        />
+      ) : null}
     </AppPageShell>
   );
 }

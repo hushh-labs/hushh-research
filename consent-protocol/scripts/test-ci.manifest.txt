@@ -1769,3 +1769,4 @@ tests/test_paid_scope_chat_ux_and_live_cards.py
 tests/one_adk/test_m8_files_and_adk_resilience.py
 tests/test_shared_to_ace_continuity.py
 tests/test_simulation_phone_lane.py
+tests/test_ace_lifecycle_deletion_and_byoc.py

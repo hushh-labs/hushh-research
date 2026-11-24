@@ -64,7 +64,6 @@ export function hostingOptionsFor({
 
   if (pooledSandboxAvailable) {
     return [
-      ownOption,
       {
         value: "hosted",
         icon: DedicatedHostingRowIcon,
@@ -75,6 +74,7 @@ export function hostingOptionsFor({
         unavailable: false,
         testId: "cloud-tier-hosted",
       },
+      ownOption,
     ];
   }
 
@@ -114,15 +114,18 @@ export function ConsentPendingCard({
   busy,
   onContinue,
   onChooseShared,
+  onChooseSandbox,
 }: {
   entry: ConsentPendingEntry;
   busy: boolean;
   onContinue: (() => void) | null;
   onChooseShared?: (() => void) | null;
+  onChooseSandbox?: (() => void) | null;
 }) {
   const cloud = entry.provider === "azure" ? "Microsoft" : "Google";
   const pooledSandboxAvailable = isPooledSandboxSwitchAvailable();
   const showSharedFallback = !pooledSandboxAvailable && Boolean(onChooseShared);
+  const showSandboxFallback = pooledSandboxAvailable && Boolean(onChooseSandbox);
   return (
     <div className={CARD} data-testid="hosting-consent-pending" aria-live="polite">
       <p className="text-sm font-semibold">Finish signing in to set up your cloud</p>
@@ -135,6 +138,12 @@ export function ConsentPendingCard({
           <button type="button" className={ACTION} disabled={busy} onClick={onContinue}
             data-testid="hosting-consent-continue">
             Sign in again
+          </button>
+        ) : null}
+        {showSandboxFallback && onChooseSandbox ? (
+          <button type="button" className={ACTION} disabled={busy} onClick={onChooseSandbox}
+            data-testid="hosting-consent-choose-sandbox">
+            Use Hussh Confidential Sandbox instead
           </button>
         ) : null}
         {showSharedFallback && onChooseShared ? (

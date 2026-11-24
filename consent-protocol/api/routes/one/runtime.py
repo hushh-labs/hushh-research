@@ -1060,6 +1060,24 @@ async def _save_byoc_project(
             model_credential_mode="user_adc",
         )
     else:
+        from hushh_mcp.services.hosted_ace_placement import has_hosted_ace_evidence
+        from hushh_mcp.services.personal_agent_placement_detach import detach_placement
+        from hushh_mcp.services.pooled_sandbox_cutover import sandbox_pool_cutover_enabled
+
+        if sandbox_pool_cutover_enabled():
+            existing_row = await repo.get(firebase_uid)
+            if (
+                existing_row
+                and str(existing_row.get("deployment_target") or "").strip().lower() == "ace"
+                and str(existing_row.get("backend") or "").strip().lower() in {"", "ace"}
+                and has_hosted_ace_evidence(existing_row)
+                and bool(existing_row.get("external_agent_id"))
+            ):
+                await detach_placement(
+                    row=dict(existing_row),
+                    reason="owner saved Bring your own cloud project",
+                    allow_stalled_states=True,
+                )
         wrote = await _attach_cloud()
         if not wrote:
             # `set_user_cloud` is an UPDATE, and the row it updates is written at phone

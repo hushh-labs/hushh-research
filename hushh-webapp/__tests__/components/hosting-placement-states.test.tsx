@@ -641,4 +641,26 @@ describe("cloud step placement states", () => {
     render(<HusshPodsPausedCard deploymentTarget="gcp" />);
     expect(screen.getByTestId("hussh-pods-paused")).not.toHaveTextContent("Hussh Shared");
   });
+
+  it("keeps Bring your own cloud (GCP and Azure) selectable alongside active Confidential Sandbox on Dev", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    given({ hostingMode: "hussh_pods", deploymentTarget: "ace", state: "active" }, NO_JOB);
+    render(<ByocCloudSetupPage />);
+
+    const sandboxRadio = await screen.findByRole("radio", { name: /Hussh Confidential Sandbox/i });
+    const ownCloudRadio = screen.getByRole("radio", { name: /Bring your own cloud/i });
+    expect(sandboxRadio).toHaveAttribute("aria-checked", "true");
+    expect(ownCloudRadio).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByTestId("hussh-pods-connected")).toBeInTheDocument();
+
+    fireEvent.click(ownCloudRadio);
+    expect(ownCloudRadio).toHaveAttribute("aria-checked", "true");
+    expect(await screen.findByTestId("owner-cloud-provider-choice")).toBeInTheDocument();
+    expect(screen.getByTestId("owner-cloud-provider-gcp")).toBeInTheDocument();
+    expect(screen.getByTestId("owner-cloud-provider-azure")).toBeInTheDocument();
+
+    fireEvent.click(sandboxRadio);
+    expect(sandboxRadio).toHaveAttribute("aria-checked", "true");
+    expect(await screen.findByTestId("hussh-pods-connected")).toBeInTheDocument();
+  });
 });
