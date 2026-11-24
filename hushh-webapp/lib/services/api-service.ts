@@ -2325,6 +2325,33 @@ export class ApiService {
     );
   }
 
+  static async pruneWebTrustedDevices(
+    keepDeviceId: string | null,
+    isCurrentOwner?: () => boolean,
+  ): Promise<Response> {
+    const authToken = await this.getFirebaseToken();
+    if (isCurrentOwner && !isCurrentOwner()) return new Response(null, { status: 409 });
+    if (!authToken) {
+      return new Response(
+        JSON.stringify({ error: "Missing Firebase ID token" }),
+        {
+          status: 401,
+        },
+      );
+    }
+    return apiFetch("/api/account/trusted-devices/prune-web", {
+      method: "POST",
+      authRefreshRetry: "never",
+      isEffectCurrent: isCurrentOwner,
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(keepDeviceId ? { keepDeviceId } : {}),
+      signal: AbortSignal.timeout(30_000),
+    });
+  }
+
   /**
    * Request a backend-minted Firebase custom token for reviewer login.
    * Only available when app-review mode is enabled server-side, and never

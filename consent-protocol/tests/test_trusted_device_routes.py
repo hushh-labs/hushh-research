@@ -780,3 +780,50 @@ async def test_browser_device_approval_returns_the_captured_generation(monkeypat
         with pytest.raises(HTTPException) as raised:
             await account._verify_browser_enrollment_identity("Bearer synthetic-browser-proof")
         assert raised.value.status_code == (401 if outcome == "retired" else 503)
+
+
+@pytest.mark.asyncio
+async def test_prune_web_route_requires_matching_browser_identity_and_forwards_keep_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[dict[str, Any]] = []
+
+    class _PruneSvc:
+        def prune_web_devices(self, **kwargs: Any) -> dict[str, Any]:
+            captured.append(kwargs)
+            return {
+                "revoked_count": 4,
+                "revoked_device_ids": ["tdv_1", "tdv_2", "tdv_3", "tdv_4"],
+                "kept_device_id": kwargs.get("keep_device_id"),
+            }
+
+    async def _run_in_threadpool(function, **kwargs):
+        return function(**kwargs)
+
+    monkeypatch.setattr(account, "TrustedDeviceService", _PruneSvc)
+    monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
+    monkeypatch.setattr(
+        account, "_verify_browser_enrollment_identity", AsyncMock(return_value="user-1")
+    )
+
+    keep_id = "tdv_" + ("k" * 32)
+    response = await account.trusted_device_prune_web(
+        payload=account.TrustedDevicePruneWebRequest(keepDeviceId=keep_id),
+        firebase_uid="user-1",
+        authorization="Bearer owner-token",
+    )
+    assert response["revoked_count"] == 4
+    assert response["kept_device_id"] == keep_id
+    assert captured == [{"user_id": "user-1", "keep_device_id": keep_id}]
+
+    # Mismatched owner identity is rejected with 401.
+    monkeypatch.setattr(
+        account, "_verify_browser_enrollment_identity", AsyncMock(return_value="other-user")
+    )
+    with pytest.raises(HTTPException) as raised:
+        await account.trusted_device_prune_web(
+            payload=None,
+            firebase_uid="user-1",
+            authorization="Bearer other-token",
+        )
+    assert raised.value.status_code == 401

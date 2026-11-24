@@ -130,4 +130,51 @@ describe("route transition intent ownership", () => {
     vi.advanceTimersByTime(200);
     expect(document.documentElement.dataset.routeTransition).not.toBe("pending");
   });
+
+  it("uses native View Transitions without blanking to pending and classifies direction", async () => {
+    vi.useFakeTimers();
+    window.history.replaceState(null, "", "/one");
+    const skipTransition = vi.fn();
+    let resolveFinished!: () => void;
+    const finished = new Promise<void>((resolve) => {
+      resolveFinished = resolve;
+    });
+    const startViewTransition = vi.fn((update: () => void | Promise<void>) => {
+      void update();
+      return {
+        ready: Promise.resolve(),
+        finished,
+        skipTransition,
+      };
+    });
+    const doc = document as Document & {
+      startViewTransition?: typeof startViewTransition;
+    };
+    const originalStart = doc.startViewTransition;
+    doc.startViewTransition = startViewTransition;
+
+    try {
+      const navigate = vi.fn();
+      beginRouteTransition("/one/files", navigate, "tap", "full");
+
+      expect(startViewTransition).toHaveBeenCalledTimes(1);
+      expect(navigate).toHaveBeenCalledTimes(1);
+      expect(document.documentElement.dataset.routeDirection).toBe("push");
+      expect(document.documentElement.dataset.viewTransitionActive).toBe("true");
+      expect(document.documentElement.dataset.routeTransition).not.toBe("pending");
+
+      const second = vi.fn();
+      beginRouteTransition("/one/connect", second, "tap", "full");
+      expect(skipTransition).toHaveBeenCalledTimes(1);
+      expect(second).toHaveBeenCalledTimes(1);
+      expect(document.documentElement.dataset.routeDirection).toBe("tab-forward");
+
+      resolveFinished();
+      await Promise.resolve();
+    } finally {
+      doc.startViewTransition = originalStart;
+      delete document.documentElement.dataset.routeDirection;
+      delete document.documentElement.dataset.viewTransitionActive;
+    }
+  });
 });
