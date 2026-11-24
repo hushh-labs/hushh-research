@@ -151,6 +151,12 @@ def route(pr_number, *, apply=False, read=cli_read, write=None, classify=select_
         raise Refused("Expected review Team request is unconfirmed")
     retained = (TEAMS & final_teams) - {expected}
     if retained:
+        if expected == "pipeline-editors":
+            raise Refused(
+                "Protected PR still has a non-pipeline-editor review Team attached "
+                f"({', '.join(sorted(retained))}); remove catch-all CODEOWNERS entries "
+                "on the target branch before routing"
+            )
         native_teams = native_read(pr_number, pr)
         confirmed = read(prefix)
         approved = approval_current()
