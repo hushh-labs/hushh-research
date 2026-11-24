@@ -8914,7 +8914,8 @@ html.native-android [data-app-pane-material="profile"] {
   }
 }
 
-:root[data-route-transition="pending"] [data-app-shell-content="true"] {
+:root[data-route-transition="pending"]:not([data-view-transition-active="true"])
+  [data-app-shell-content="true"] {
   opacity: 0;
   transition: opacity var(--motion-route-exit-duration)
     var(--motion-route-exit-ease) 0ms;
