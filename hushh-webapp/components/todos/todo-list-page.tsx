@@ -347,7 +347,6 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     setItemsLoading(true);
     setItemsLoaded(false);
     setItemsLoadError(false);
-    setTasks([]);
     try {
       const state = await TodoListPkmService.load({
         userId,

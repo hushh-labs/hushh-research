@@ -207,6 +207,24 @@ describe("TodoListPage row actions", () => {
     expect(await screen.findByRole("heading", { name: "No tasks yet" })).toBeVisible();
   });
 
+  it("preserves existing tasks during background refresh instead of wiping them to empty", async () => {
+    const task = buildTodo({ id: "task-keep", title: "Existing task to keep", type: "manual" });
+    vi.mocked(TodoListPkmService.load).mockResolvedValueOnce({ tasks: [task] });
+    render(<TodoListPage />);
+    expect(await screen.findByText("Existing task to keep")).toBeVisible();
+
+    let resolveLoad!: (val: { tasks: TodoItem[] }) => void;
+    vi.mocked(TodoListPkmService.load).mockReturnValueOnce(new Promise((res) => { resolveLoad = res; }));
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.getByText("Existing task to keep")).toBeVisible();
+    await act(async () => {
+      resolveLoad({ tasks: [task] });
+    });
+    expect(screen.getByText("Existing task to keep")).toBeVisible();
+  });
+
   it.each(["pending", "done"] as const)("keeps a %s reviewed email task tied to its source without duplicating it", status => {
     const saved = { ...buildTodo({ id: "suggested_mail:opaque", title: "Review the meeting reply", type: "manual", source: "gmail", sourceId: "mail:opaque", link: "/one/gmail" }), status };
     mocks.reads = [{ coverage: { capability: "gmail", count: 1, status: "incomplete" }, evidence: [{
