@@ -27,20 +27,28 @@ describe("tabbed ambient chrome contract", () => {
     expect(styles).toContain("--top-shell-mask-visible-height");
     expect(styles).toContain("--ambient-chrome-top-solid-height");
     expect(styles).toContain("var(--top-chrome-collapse-px, 0px)");
-    // The top edge uses the unified raised-cosine progressive blur + mask fade
-    // (founder direction, 2026-11-24), matching Agent Chat across every screen
-    // through the shared feather tokens and --top-fade-active band.
+    // The top edge uses Agent Chat's exact continuous 0%-to-100% raised-cosine
+    // progressive blur + translucent canvas fade (no solid opaque plateau down
+    // to --ambient-chrome-top-solid-height that creates a milky cliff).
     const topRuleStart = styles.indexOf(".ambient-chrome-mask--top {");
     const topRule = styles.slice(
       topRuleStart,
       styles.indexOf("}", topRuleStart),
     );
     expect(topRule).toContain("--ambient-chrome-top-solid-height");
-    expect(topRule).toContain("--top-fade-active");
-    expect(topRule).toContain("--ambient-chrome-fade-mask-mid");
-    expect(topRule).toContain("--ambient-chrome-fade-mask-soft");
-    expect(topRule).toContain("--ambient-chrome-fade-mask-trace");
     expect(topRule).toContain("backdrop-filter: blur(20px) saturate(180%)");
+    expect(topRule).toContain("rgba(0, 0, 0, 0.97) 18%");
+    expect(topRule).toContain("rgba(0, 0, 0, 0.88) 34%");
+    expect(topRule).toContain("rgba(0, 0, 0, 0.71) 50%");
+    expect(topRule).toContain("rgba(0, 0, 0, 0.50) 64%");
+    expect(topRule).toContain("rgba(0, 0, 0, 0.28) 78%");
+    expect(topRule).toContain("rgba(0, 0, 0, 0.10) 90%");
+    expect(topRule).toContain("color-mix(in srgb, var(--ambient-chrome-bg) 88%, transparent) 0%");
+    expect(topRule).toContain("color-mix(in srgb, var(--ambient-chrome-bg) 50%, transparent) 52%");
+    expect(topRule).not.toContain("#000 var(--ambient-chrome-top-solid-height)");
+    expect(styles).toContain(
+      '[data-app-scroll-root="true"]:not([data-app-scroll-mode="hidden-shell"])',
+    );
     expect(styles).toContain(
       "--ambient-chrome-wash: var(--ambient-chrome-fade-solid)",
     );
