@@ -234,8 +234,7 @@ FINANCIAL_INTENT_MAP: tuple[str, ...] = (
     "runtime",
     "analysis.decisions",
     # Zero-knowledge Plaid (founder decision 2026-09-23): raw records sealed in
-    # the owner's vault, never shareable. Live Tier C mirrors (`summary`,
-    # `accounts`, `liabilities`, `cashflow`) plus `portfolio` cross grants.
+    # the owner's vault, never shareable. Only `summary` crosses a grant.
     "connections_v1",
     "accounts_v1",
     "holdings_v1",
@@ -243,9 +242,6 @@ FINANCIAL_INTENT_MAP: tuple[str, ...] = (
     "transactions_v1",
     "derived_v1",
     "summary",
-    "accounts",
-    "liabilities",
-    "cashflow",
     # The readable view of the same records (Finance > kind of account >
     # institution > account). Private like them; rebuilt from them on every change.
     "linked_accounts",
@@ -264,9 +260,6 @@ FINANCIAL_SOURCE_MANAGED_BRANCHES: frozenset[str] = frozenset(
         "transactions_v1",
         "derived_v1",
         "summary",
-        "accounts",
-        "liabilities",
-        "cashflow",
         "linked_accounts",
     }
 )
@@ -364,7 +357,7 @@ FINANCIAL_SUBINTENT_REGISTRY: tuple[DomainSubintentEntry, ...] = (
         domain_key="financial.derived_v1",
         parent_domain="financial",
         display_name="Financial Derived Facts",
-        icon_name="chart-line",
+        icon_name="sparkles",
         color_hex="#D4AF37",
         description="Private records and derived facts computed on device; never shared",
     ),
@@ -383,30 +376,6 @@ FINANCIAL_SUBINTENT_REGISTRY: tuple[DomainSubintentEntry, ...] = (
         icon_name="bar-chart-3",
         color_hex="#D4AF37",
         description="Shareable financial summary: bands and percentages only",
-    ),
-    DomainSubintentEntry(
-        domain_key="financial.accounts",
-        parent_domain="financial",
-        display_name="Bank Accounts",
-        icon_name="landmark",
-        color_hex="#D4AF37",
-        description="Live depository checking, savings, CD, and cash account balances",
-    ),
-    DomainSubintentEntry(
-        domain_key="financial.liabilities",
-        parent_domain="financial",
-        display_name="Credit & Loans",
-        icon_name="credit-card",
-        color_hex="#D4AF37",
-        description="Live credit card balances, utilization, and loan obligations",
-    ),
-    DomainSubintentEntry(
-        domain_key="financial.cashflow",
-        parent_domain="financial",
-        display_name="Cash Flow & Recurring Bills",
-        icon_name="activity",
-        color_hex="#D4AF37",
-        description="Current monthly cash flow posture, net worth totals, and active recurring bills",
     ),
 )
 
@@ -451,18 +420,11 @@ CANONICAL_REGISTRY_KEYS = tuple(sorted({*CANONICAL_DOMAIN_KEYS, *CANONICAL_SUBIN
 # These domains are protocol-reserved and writable only through first-party
 # owner-authorized PKM paths.  They must never be invented or repurposed by the
 # semantic structure agent as arbitrary user domains.
-OWNER_MANAGED_RESERVED_DOMAIN_SLUGS = frozenset({"one_wiki", "secrets", "source_library", "wallet"})
+OWNER_MANAGED_RESERVED_DOMAIN_SLUGS = frozenset({"secrets", "source_library", "wallet"})
 
 DOMAIN_SHARING_POLICY_REGISTRY: dict[str, DomainSharingPolicy] = {
     "one_memory": DomainSharingPolicy(
         domain_key="one_memory",
-        allow_domain_wildcard=False,
-        allowed_manifest_path_prefixes=(),
-        requestable_scopes=frozenset(),
-        allow_public_projection=False,
-    ),
-    "one_wiki": DomainSharingPolicy(
-        domain_key="one_wiki",
         allow_domain_wildcard=False,
         allowed_manifest_path_prefixes=(),
         requestable_scopes=frozenset(),

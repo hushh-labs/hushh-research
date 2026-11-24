@@ -2757,10 +2757,9 @@ def _one_roster_tools(
         from hushh_mcp.one_adk.receipt_client_tools import RECEIPT_TOOL_NAMES
         from hushh_mcp.one_adk.wiki_recall_tools import WIKI_TOOL_NAMES, pod_files_wiki_enabled
 
-        client_tool_names = set(RECEIPT_TOOL_NAMES)
+        tools.append(AGUIToolset(tool_filter=sorted(RECEIPT_TOOL_NAMES)))
         if not pod_files_wiki_enabled():
-            client_tool_names |= set(WIKI_TOOL_NAMES)
-        tools.append(AGUIToolset(tool_filter=sorted(client_tool_names)))
+            tools.append(AGUIToolset(tool_filter=sorted(WIKI_TOOL_NAMES)))
         # The typed hub advertises this separate contract only to compatible,
         # owner-authorized browsers. Offline receipt evaluations omit it.
         tools.append(AGUIToolset(tool_filter=[PORTFOLIO_CONTEXT_TOOL]))

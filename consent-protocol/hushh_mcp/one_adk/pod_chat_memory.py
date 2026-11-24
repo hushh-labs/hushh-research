@@ -119,7 +119,6 @@ class PodChatMemory(BaseMemoryService):
         import time
 
         from hushh_mcp.one_adk.agent_tree import ONE_APP_NAME
-        from hushh_mcp.one_adk.rolling_horizon import persist_rolling_horizon_post_turn
 
         await self.context.require_access()
         session = await self.context.sessions.get_session(
@@ -127,18 +126,6 @@ class PodChatMemory(BaseMemoryService):
         )
         if session is None:
             raise RuntimeError("Pod conversation recovery unavailable.")
-
-        # 1. Silently distill older turns beyond the verbatim horizon into encrypted state
-        try:
-            await persist_rolling_horizon_post_turn(
-                self.context.sessions,
-                app_name=ONE_APP_NAME,
-                user_id=self.context.owner,
-                session_id=input.thread_id,
-                session=session,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("pod_chat.rolling_horizon_failed kind=%s", type(exc).__name__)
 
         new_events = [event for event in session.events if event.id not in self._prior_event_ids]
         session = session.model_copy(update={"events": new_events})

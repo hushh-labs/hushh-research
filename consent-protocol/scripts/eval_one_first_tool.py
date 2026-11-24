@@ -245,10 +245,16 @@ def build_roster_declarations() -> list[Any]:
     """Genai FunctionDeclarations for the full production roster."""
     from google.genai import types
 
+    from hushh_mcp.one_adk.receipt_client_tools import RECEIPT_TOOL_NAMES
+
     declarations = []
     for tool in _canonical_roster():
         if not hasattr(tool, "_get_declaration"):
-            declarations.extend(receipt_declarations(tool.tool_filter, types))
+            declarations.extend(
+                receipt_declarations(
+                    set(getattr(tool, "tool_filter", None) or ()) & RECEIPT_TOOL_NAMES, types
+                )
+            )
             continue
         declared = tool._get_declaration()
         if declared is None:

@@ -33,6 +33,8 @@ const CAPTURE_SOURCE_BY_LABEL: ReadonlyMap<string, MemoryCaptureSource> = new Ma
   ["business_profile_review", "business_profile_review"],
   ["profile_research_review", "profile_research_review"],
   ["public_profile_claim", "public_profile_claim"],
+  ["one_wiki_opt_in_auto_save", "agent_chat_auto_capture"],
+  ["one_wiki_candidate_confirm", "memory_workspace"],
 ]);
 
 export type AgentPkmPreparationInput = {

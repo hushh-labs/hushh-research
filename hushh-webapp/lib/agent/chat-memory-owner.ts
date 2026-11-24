@@ -75,7 +75,12 @@ export function ownerChatMemory(input: {
 
   const resolveSharedWiki = async (options?: { initializeIfNeeded?: boolean }) => {
     const session = getSession();
-    if (!session || (await ownerContentIsPrivate())) return null;
+    if (!session) return null;
+    try {
+      if (await ownerContentIsPrivate()) return null;
+    } catch {
+      return null;
+    }
     const { ensureActiveSharedWiki, peekActiveSharedWiki } = await import(
       "@/lib/files/wiki/active-shared-wiki"
     );

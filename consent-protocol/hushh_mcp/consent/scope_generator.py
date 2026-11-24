@@ -1250,22 +1250,12 @@ class DynamicScopeGenerator:
             display_name = domain_display
             description = domain_description
 
-        from hushh_mcp.consent.scope_icons import normalize_or_infer_scope_icon
-
-        resolved_icon = normalize_or_infer_scope_icon(
-            icon_name=icon_name,
-            domain=domain,
-            scope=scope,
-            label=display_name,
-            description=description,
-        )
-
         return {
             "display_name": display_name,
             "domain": domain,
             "attribute": attribute_key,
             "is_wildcard": is_wildcard,
-            "icon_name": resolved_icon,
+            "icon_name": icon_name,
             "color_hex": color_hex,
             "description": description,
         }

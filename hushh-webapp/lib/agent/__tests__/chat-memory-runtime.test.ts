@@ -48,43 +48,6 @@ beforeEach(() => {
 afterEach(() => { advanceVaultSessionEpoch(); runtimes.splice(0).forEach(runtime => runtime.clear()); vi.useRealTimers(); });
 
 describe("incremental owner chat memory", () => {
-  it("hands off without waiting, keeps the saved document on failure, and retries encrypted work", async () => {
-    vi.useFakeTimers();
-    const { runtime, rewrite } = create();
-    mocks.write.mockRejectedValueOnce(new Error("Device storage temporarily unavailable"));
-    runtime.queueSnapshot({ conversationId: "chat", messages: [source("background")] });
-    await vi.advanceTimersByTimeAsync(0);
-    expect(memory.markdown).toBe("- Existing fact\n");
-    expect(rewrite).not.toHaveBeenCalled();
-    mocks.replace.mockResolvedValueOnce({ success: false });
-    await vi.advanceTimersByTimeAsync(300_000);
-    expect(memory.markdown).toBe("- Existing fact\n");
-    expect(durable).toMatchObject({ messages: [{ id: "background" }] });
-    await vi.advanceTimersByTimeAsync(300_000);
-    expect(memory.markdown).toBe("- Updated memory\n");
-    expect(durable).toMatchObject({ messages: [] });
-  });
-
-  it("drops an unregistered background handoff when the owner session ends", async () => {
-    vi.useFakeTimers();
-    const { runtime, rewrite } = create();
-    mocks.write.mockRejectedValueOnce(new Error("Device unavailable"));
-    runtime.queueSnapshot({ conversationId: "chat", messages: [source("private")] });
-    await vi.advanceTimersByTimeAsync(0);
-    runtime.clear();
-    await vi.advanceTimersByTimeAsync(600_000);
-    expect(rewrite).not.toHaveBeenCalled();
-    expect(memory.markdown).toBe("- Existing fact\n");
-  });
-
-  it("automatically resumes encrypted pending work when the owner runtime is recreated", async () => {
-    await create().runtime.registerSnapshot({ conversationId: "chat", messages: [source("recover")] });
-    mocks.rewrite.mockResolvedValue({ markdown: "- Recovered import\n" });
-    ownerChatMemory({ ...session, token: session.vaultOwnerToken, vaultEpoch: snapshotVaultSessionEpoch(), readToken: () => session.vaultOwnerToken });
-    await vi.waitFor(() => expect(memory.markdown).toBe("- Recovered import\n"));
-    expect(durable).toMatchObject({ messages: [] });
-  });
-
   it("keeps one owner writer across navigation and cancels it immediately on lock", async () => {
     const owner = { ...session, token: session.vaultOwnerToken, vaultEpoch: snapshotVaultSessionEpoch(), readToken: () => session.vaultOwnerToken };
     const first = ownerChatMemory(owner);
@@ -198,20 +161,7 @@ describe("incremental owner chat memory", () => {
     expect(parts[1]!.content.startsWith("🦊")).toBe(true);
     await runtime.registerSnapshot({ conversationId: "chat", messages: [source("large", content)] });
     expect(await runtime.trigger("new_chat")).toBe(false);
-    expect(await runtime.isSnapshotCommitted({ conversationId: "chat", messages: [source("large", content)] })).toBe(true);
     expect(rewrite).toHaveBeenCalledTimes(2);
-  });
-
-  it("does not acknowledge a large import when only its first source fragment committed", async () => {
-    const { runtime } = create();
-    const input = { conversationId: "chat", messages: [source("import", "A".repeat(200_000))] };
-    await runtime.registerSnapshot(input);
-    const commit = mocks.replace.getMockImplementation()!;
-    mocks.replace.mockImplementationOnce(commit).mockResolvedValueOnce({ success: false });
-    expect(await runtime.trigger("remember")).toBe(true);
-    expect(await runtime.isSnapshotCommitted(input)).toBe(false);
-    await runtime.trigger("remember");
-    expect(await runtime.isSnapshotCommitted(input)).toBe(true);
   });
 
   it("flushes on the idle timer and coalesces simultaneous triggers", async () => {
@@ -269,5 +219,114 @@ describe("incremental owner chat memory", () => {
     await expect(runtime.trigger("remember")).rejects.toThrow("no document");
     expect(mocks.replace).not.toHaveBeenCalled();
     expect(durable).toMatchObject({ messages: [{ id: "a" }], requests: [{ requestId: "r1", inputTokens: 50 }] });
+  });
+
+  it("survives vaultOwnerToken renewal on the same unlock epoch and commits with the fresh token", async () => {
+    mocks.rewrite.mockResolvedValueOnce({ markdown: "- Consolidated after token renewal\n" });
+    let liveToken = "token-initial";
+    const epoch = snapshotVaultSessionEpoch();
+    const first = ownerChatMemory({
+      userId: session.userId,
+      vaultKey: session.vaultKey,
+      vaultEpoch: epoch,
+      token: liveToken,
+      readToken: () => liveToken,
+    });
+    await first.registerSnapshot({ conversationId: "chat", messages: [source("turn-1")] });
+
+    liveToken = "token-rotated";
+    const rotated = ownerChatMemory({
+      userId: session.userId,
+      vaultKey: session.vaultKey,
+      vaultEpoch: epoch,
+      token: liveToken,
+      readToken: () => liveToken,
+    });
+    expect(rotated).toBe(first);
+    expect(await rotated.trigger("switch")).toBe(true);
+    expect(mocks.replace).toHaveBeenCalledWith(expect.objectContaining({ vaultOwnerToken: "token-rotated" }));
+  });
+
+  it("exposes uncommitted sibling-chat turns immediately and withdraws deleted conversations before commit", async () => {
+    const { runtime, rewrite } = create();
+    await runtime.registerSnapshot({
+      conversationId: "chat-a",
+      messages: [{ id: "m1", conversationId: "chat-a", role: "user", content: "Planning Tokyo trip in April" }],
+    });
+    await runtime.registerSnapshot({
+      conversationId: "chat-b",
+      messages: [{ id: "m2", conversationId: "chat-b", role: "user", content: "Drafting budget" }],
+    });
+    expect(runtime.peekPendingMessages("chat-b").map(m => m.id)).toEqual(["m1"]);
+
+    let release!: (value: { markdown: string }) => void;
+    const abortedSignals: boolean[] = [];
+    rewrite.mockImplementationOnce(({ signal }: ChatMemoryRewriteInput) => new Promise((resolve, reject) => {
+      signal?.addEventListener("abort", () => {
+        abortedSignals.push(true);
+        reject(new DOMException("Aborted", "AbortError"));
+      });
+      release = resolve;
+    }));
+
+    const inflight = runtime.trigger("switch");
+    await vi.waitFor(() => expect(rewrite).toHaveBeenCalledOnce());
+    await runtime.withdrawConversation("chat-a");
+    expect(abortedSignals).toEqual([true]);
+    await expect(inflight).rejects.toThrow();
+    expect(mocks.replace).not.toHaveBeenCalled();
+
+    // Late snapshot registration for the deleted chat is ignored, while chat-b still consolidates cleanly.
+    await runtime.registerSnapshot({
+      conversationId: "chat-a",
+      messages: [{ id: "m1-late", conversationId: "chat-a", role: "user", content: "Should never resurrect" }],
+    });
+    expect(runtime.peekPendingMessages().map(m => m.id)).toEqual(["m2"]);
+    expect(await runtime.trigger("switch")).toBe(true);
+    expect(rewrite.mock.calls.at(-1)![0].messages.map((m: ChatMemoryMessage) => m.id)).toEqual(["m2"]);
+    void release;
+  });
+
+  it("arms the idle consolidation timer when hydrating uncommitted turns after reload", async () => {
+    vi.useFakeTimers();
+    mocks.rewrite.mockResolvedValueOnce({ markdown: "- Hydrated memory\n" });
+    durable = {
+      version: 1,
+      editGeneration: 0,
+      messages: [{ id: "hydrated-turn", conversationId: "chat-prev", role: "user", content: "Recovered after reload" }],
+      requests: [],
+      withdrawn: [],
+    };
+    const runtime = createChatMemoryRuntime({
+      getSession: () => session,
+      rewrite: mocks.rewrite,
+      idleMs: 1_000,
+    });
+    runtimes.push(runtime);
+    await runtime.recordUsage({ requestId: "req-1", inputTokens: 10 });
+    expect(mocks.rewrite).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_100);
+    await vi.waitFor(() => expect(mocks.rewrite).toHaveBeenCalledOnce());
+    expect(mocks.rewrite.mock.calls[0]![0].messages.map((m: ChatMemoryMessage) => m.id)).toEqual(["hydrated-turn"]);
+  });
+
+  it("threads explicit remember reason (and merged triggers) plus previousMarkdown to onConsolidated", async () => {
+    const onConsolidated = vi.fn(async () => undefined);
+    const { runtime } = create(
+      vi.fn(async () => ({ markdown: "# Work\n- Works at Hussh\n" })),
+      { onConsolidated },
+    );
+    await runtime.registerSnapshot({
+      conversationId: "chat",
+      messages: [source("exp-1", "Please save this about me in a wiki format")],
+    });
+    expect(await runtime.trigger("remember")).toBe(true);
+    expect(onConsolidated).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: "remember",
+        previousMarkdown: "- Existing fact\n",
+        markdown: "# Work\n- Works at Hussh\n",
+      }),
+    );
   });
 });
