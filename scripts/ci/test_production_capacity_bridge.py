@@ -800,5 +800,122 @@ class BridgeTests(unittest.TestCase):
                 self.assertNotIn("capacity_bridge", json.loads(checkpoint.read_text()))
 
 
+class ServingTemplateRestorationTests(unittest.TestCase):
+    def native(self):
+        from types import SimpleNamespace
+        import production_template_restore as restore
+
+        source_name = restore.RESOURCE + "/revisions/consent-protocol-good"
+        old_name = restore.RESOURCE + "/revisions/consent-protocol-failed"
+        service = {
+            "name": restore.RESOURCE, "etag": "before", "generation": "7", "observedGeneration": "7",
+            "terminalCondition": {"state": "CONDITION_SUCCEEDED"},
+            "latestCreatedRevision": old_name, "latestReadyRevision": old_name,
+            "traffic": [{"type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION", "revision": "consent-protocol-good", "percent": 100}],
+            "trafficStatuses": [{"revision": source_name, "percent": 100}],
+            "template": {"revision": "consent-protocol-failed"},
+            "ingress": "INGRESS_TRAFFIC_ALL",
+        }
+        revisions = [{
+            "name": source_name, "uid": "accepted-uid", "service": restore.RESOURCE,
+            "conditions": [{"type": "Ready", "state": "CONDITION_SUCCEEDED"}],
+            "containers": [{"image": IMAGE, "env": [{"name": "PRIVATE_SETTING", "value": "memory-only"}]}],
+            "labels": {"deploy-sha": SHA, "serving.knative.dev/configuration": "managed"},
+        }, {"name": old_name, "uid": "failed-uid"}]
+        schema = {"schemas": {
+            "GoogleCloudRunV2Service": {"properties": {
+                "name": {"readOnly": True}, "etag": {}, "template": {}, "traffic": {}, "ingress": {},
+            }},
+            "GoogleCloudRunV2RevisionTemplate": {"properties": {"revision": {}, "containers": {}, "labels": {}}},
+        }}
+        calls = []
+        native = SimpleNamespace(owner=bridge.retention, service=service, revisions=revisions, iam="policy-etag", calls=calls, done=True)
+
+        def call(method, url, body=None):
+            calls.append((method, url, body))
+            if "$discovery" in url:
+                return schema
+            if url.endswith("/revisions?pageSize=100"):
+                return {"revisions": copy.deepcopy(native.revisions)}
+            if url.endswith(":getIamPolicy"):
+                return {"etag": native.iam}
+            if method == "GET" and url == restore.URL:
+                return copy.deepcopy(native.service)
+            if method == "PATCH":
+                self.assertEqual(body["template"]["revision"], "consent-protocol-good")
+                self.assertNotIn("serving.knative.dev/configuration", body["template"]["labels"])
+                return {"name": "projects/hushh-pda/locations/us-central1/operations/restore-1"}
+            if "/operations/" in url:
+                return {"done": native.done}
+            raise AssertionError((method, url))
+
+        native.call = call
+        return native
+
+    def test_exact_existing_revision_is_reused_and_receipt_reconciles(self):
+        import production_template_restore as restore
+        native = self.native()
+        release = {"final": {"backend_revision": "consent-protocol-good"}}
+        with tempfile.TemporaryDirectory() as directory:
+            checkpoint = Path(directory) / "completed.json"
+            checkpoint.write_text("{}")
+            with self.assertRaises(bridge.retention.MutationUncertain):
+                restore.maintain(release, checkpoint, create=True, owner=bridge.retention, native=native)
+            self.assertEqual(sum(method == "PATCH" for method, _, _ in native.calls), 2)
+            self.assertNotIn("memory-only", checkpoint.read_text())
+            native.service["latestCreatedRevision"] = restore.RESOURCE + "/revisions/consent-protocol-good"
+            native.service["latestReadyRevision"] = native.service["latestCreatedRevision"]
+            restore.maintain(release, checkpoint, create=False, owner=bridge.retention, native=native)
+            self.assertEqual(json.loads(checkpoint.read_text())["serving_template_restore"]["status"], "verified")
+            self.assertEqual(sum(method == "PATCH" for method, _, _ in native.calls), 2)
+
+    def test_unknown_outcome_is_not_replayed_and_changed_authority_refuses(self):
+        import production_template_restore as restore
+        release = {"final": {"backend_revision": "consent-protocol-good"}}
+        for drift in ("pending", "iam", "revision", "traffic"):
+            with self.subTest(drift=drift), tempfile.TemporaryDirectory() as directory:
+                native = self.native()
+                checkpoint = Path(directory) / "completed.json"
+                checkpoint.write_text("{}")
+                with self.assertRaises(bridge.retention.MutationUncertain):
+                    restore.maintain(release, checkpoint, create=True, owner=bridge.retention, native=native)
+                if drift == "iam":
+                    native.iam = "changed-policy"
+                elif drift == "revision":
+                    native.revisions.append({"name": "new", "uid": "unexpected"})
+                elif drift == "traffic":
+                    native.service["traffic"][0]["percent"] = 50
+                expected = bridge.retention.MutationUncertain if drift == "pending" else bridge.retention.UnsafeState
+                with self.assertRaises(expected):
+                    restore.maintain(release, checkpoint, create=True, owner=bridge.retention, native=native)
+                self.assertEqual(sum(method == "PATCH" for method, _, _ in native.calls), 2)
+
+    def test_matching_pointers_do_not_hide_pending_native_operation(self):
+        import production_template_restore as restore
+        native = self.native()
+        release = {"final": {"backend_revision": "consent-protocol-good"}}
+        with tempfile.TemporaryDirectory() as directory:
+            checkpoint = Path(directory) / "completed.json"
+            checkpoint.write_text("{}")
+            with self.assertRaises(bridge.retention.MutationUncertain):
+                restore.maintain(release, checkpoint, create=True, owner=bridge.retention, native=native)
+            native.service["latestCreatedRevision"] = restore.RESOURCE + "/revisions/consent-protocol-good"
+            native.service["latestReadyRevision"] = native.service["latestCreatedRevision"]
+            native.done = False
+            with self.assertRaises(bridge.retention.MutationUncertain):
+                restore.maintain(release, checkpoint, create=False, owner=bridge.retention, native=native)
+            self.assertEqual(json.loads(checkpoint.read_text())["serving_template_restore"]["status"], "intent")
+            self.assertEqual(sum(method == "PATCH" for method, _, _ in native.calls), 2)
+
+    def test_missing_explicit_request_never_starts_an_operation(self):
+        import production_template_restore as restore
+        native = self.native()
+        with tempfile.TemporaryDirectory() as directory:
+            checkpoint = Path(directory) / "completed.json"
+            checkpoint.write_text("{}")
+            restore.maintain({}, checkpoint, create=False, owner=bridge.retention, native=native)
+            self.assertEqual(native.calls, [])
+
+
 if __name__ == "__main__":
     unittest.main()
