@@ -403,7 +403,7 @@ export interface AppTopShellProps {
 export function AppTopShell({ className, model }: AppTopShellProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { isAuthenticated, user, userId } = useAuth();
+  const { isAuthenticated, user, userId, loading: authLoading, sessionVerificationRequired } = useAuth();
   const { isVaultUnlocked } = useVault();
   const { activePersona, riaCapability, riaEntryRoute, switchPersona } =
     usePersonaState();
@@ -855,6 +855,10 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     () => isPersonaSwitchTopBarRoute(normalizedPathname),
     [normalizedPathname],
   );
+  // Public legal Back carries only the current page's return action. An
+  // unresolved or half-bound account cannot acquire an anonymous control.
+  const publicLegalBack = authLoading === false && sessionVerificationRequired === false &&
+    user === null && userId === null && (normalizedPathname === ROUTES.TERMS || normalizedPathname === ROUTES.PRIVACY);
   const showVaultUnlockAction =
     isAuthenticated && hasVault === true && !isVaultUnlocked &&
     normalizedPathname !== ROUTES.CALENDAR && normalizedPathname !== ROUTES.ONE_SETUP_CALENDAR;
@@ -1068,9 +1072,9 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                     <NativeShellBack
                       label={topShellBreadcrumb.backLabel ?? "Go back"}
                       onBack={handleTopShellBack}
-                      owner={userId}
+                      owner={publicLegalBack ? `legal:${normalizedPathname}` : userId ? `account:${userId}` : null}
                       context={`${normalizedPathname}?${searchParams.toString()}`}
-                      eligible={isAuthenticated && isVaultUnlocked && !showVaultUnlockAction}
+                      eligible={publicLegalBack || (isAuthenticated && isVaultUnlocked && !showVaultUnlockAction)}
                     />
                   ) : showOneHomeBrand ? (
                     <div

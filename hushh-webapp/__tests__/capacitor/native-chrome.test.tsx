@@ -832,6 +832,7 @@ describe("private route-body presentation boundary", () => {
       expect(validNativeWorkspace(withShare(patch) as never)).toBe(false);
     const primaryLocation = { ...location, sections: [{ id: "link", rows: [{ id: "create-link", label: "Create link", enabled: true, prominent: true }] }] };
     expect(validNativeWorkspace(primaryLocation)).toBe(true);
+    expect(validNativeWorkspace({ ...primaryLocation, workspace: "ria" })).toBe(true);
     expect(validNativeWorkspace({ ...primaryLocation, workspace: "calendar" })).toBe(false);
     expect(validNativeWorkspace({ ...primaryLocation, sections: [{ id: "link", rows: [{ ...primaryLocation.sections[0]!.rows[0]!, readOnly: true }] }] })).toBe(false);
     expect(validNativeWorkspace({ ...location, workspace: "feed" })).toBe(false);
