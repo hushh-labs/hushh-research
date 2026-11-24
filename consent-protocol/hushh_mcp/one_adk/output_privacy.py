@@ -14,6 +14,7 @@ from ag_ui.core import (
     StateSnapshotEvent,
 )
 
+from hushh_mcp.one_adk.account_context_contract import PRIVATE_ACCOUNT_ANSWER
 from hushh_mcp.one_adk.owner_ai_run_errors import (
     is_owner_ai_run_error,
     owner_ai_bridge_error,
@@ -306,6 +307,7 @@ def _replay_placeholder(part: Any, role: Any, answered: set[str]) -> bool:
     return role == "model" and getattr(part, "text", None) in (
         PRIVATE_RECEIPT_ANSWER,
         PRIVATE_PORTFOLIO_ANSWER,
+        PRIVATE_ACCOUNT_ANSWER,
     )
 
 

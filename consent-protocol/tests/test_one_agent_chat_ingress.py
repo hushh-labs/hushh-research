@@ -9,6 +9,11 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 from api.routes.one import agent_chat
+from hushh_mcp.one_adk.account_context_contract import (
+    ACCOUNT_CONTEXT_PARAMETERS,
+    ACCOUNT_CONTEXT_TOOL,
+    STATE_ACCOUNT_CONTEXT_ENABLED,
+)
 from hushh_mcp.one_adk.agent_tree import (
     STATE_CONSENT_TOKEN,
     STATE_GMAIL_INFORMATION_REQUEST_CONTEXT,
@@ -351,6 +356,7 @@ async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(
         forwarded_props={
             "pkmContext": "synthetic-scoped-context",
             "portfolioContextContract": 1,
+            "accountContextContract": 1,
             "calendarReviewContract": 1,
             "emailMemoryProjection": {
                 "source": "one_memory.markdown",
@@ -363,6 +369,12 @@ async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(
     )
     assert await select(request({"x-hushh-consent": "HCT:synthetic"}), data) is agent_chat._agent
     assert data.state[STATE_USER_ID] == "owner-a"
+    assert data.state[STATE_ACCOUNT_CONTEXT_ENABLED]
+    assert (
+        next(tool for tool in data.tools if tool.name == ACCOUNT_CONTEXT_TOOL).parameters
+        == ACCOUNT_CONTEXT_PARAMETERS
+    )
+    assert "accountContextContract" not in data.forwarded_props
     assert data.state[STATE_PORTFOLIO_CONTEXT_ENABLED]
     assert data.state["temp:one_calendar_review_contract"] is True
     tool = next(tool for tool in data.tools if tool.name == PORTFOLIO_CONTEXT_TOOL)

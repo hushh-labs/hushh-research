@@ -25,6 +25,13 @@ from google.adk.sessions import Session
 from google.adk.sessions.base_session_service import BaseSessionService, ListSessionsResponse
 from google.genai import types
 
+from hushh_mcp.one_adk.account_context_contract import (
+    ACCOUNT_CONTEXT_DESCRIPTION,
+    ACCOUNT_CONTEXT_PARAMETERS,
+    ACCOUNT_CONTEXT_TOOL,
+    PRIVATE_ACCOUNT_ANSWER,
+    STATE_ACCOUNT_CONTEXT_ENABLED,
+)
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
 from hushh_mcp.one_adk.portfolio_context_contract import (
     PORTFOLIO_CONTEXT_DESCRIPTION,
@@ -117,6 +124,20 @@ RESULT = {
             "net_amount": "7.00",
         }
     ],
+}
+ACCOUNT_QUERY = {"section": "identity"}
+ACCOUNT_RESULT = {
+    "status": "ok",
+    "source": "committed_account_identity",
+    "identity": {
+        "display_name": "SYNTHETIC_PRIVATE_MERCHANT",
+        "masked_email": "***@example.test",
+        "masked_phone": "••• 4826",
+        "email_verified": True,
+        "phone_verified": None,
+        "has_photo": False,
+        "last_synced_at": "2026-11-24T06:00:00Z",
+    },
 }
 PORTFOLIO_QUERY = {"section": "holdings", "source": "last_card", "ticker": "AAPL"}
 PORTFOLIO_RESULT = {
@@ -247,7 +268,13 @@ class StubReceiptModel(BaseLlm):
             )
         elif self.calls == 2:
             assert PRIVATE_LABEL in prompt, "The authorized result must reach this model request"
-            assert ("7.00" if self.operation == NAME else "market_value") in prompt
+            assert (
+                "7.00"
+                if self.operation == NAME
+                else "email_verified"
+                if self.operation == ACCOUNT_CONTEXT_TOOL
+                else "market_value"
+            ) in prompt
             config = llm_request.config.tool_config.function_calling_config
             assert str(config.mode).endswith("NONE")
             yield LlmResponse(
@@ -287,6 +314,15 @@ def run_input(run_id, messages, *, operation=NAME, **extra_state):
             )
         ]
         extra_state[STATE_PORTFOLIO_CONTEXT_ENABLED] = True
+    if operation == ACCOUNT_CONTEXT_TOOL:
+        tools = [
+            Tool(
+                name=operation,
+                description=ACCOUNT_CONTEXT_DESCRIPTION,
+                parameters=ACCOUNT_CONTEXT_PARAMETERS,
+            )
+        ]
+        extra_state[STATE_ACCOUNT_CONTEXT_ENABLED] = True
     return RunAgentInput(
         thread_id=THREAD,
         run_id=run_id,
@@ -307,13 +343,22 @@ def run_input(run_id, messages, *, operation=NAME, **extra_state):
         (NAME, False, True),
         (NAME, True, True),
         (PORTFOLIO_CONTEXT_TOOL, True, False),
+        (ACCOUNT_CONTEXT_TOOL, True, False),
+        (ACCOUNT_CONTEXT_TOOL, False, True),
     ],
 )
 async def test_native_receipt_result_current_turn_only_and_encrypted_reload(
     operation, streamed_function_call, same_worker
 ):
     portfolio = operation == PORTFOLIO_CONTEXT_TOOL
-    query, result = (PORTFOLIO_QUERY, PORTFOLIO_RESULT) if portfolio else (QUERY, RESULT)
+    account = operation == ACCOUNT_CONTEXT_TOOL
+    query, result = (
+        (ACCOUNT_QUERY, ACCOUNT_RESULT)
+        if account
+        else (PORTFOLIO_QUERY, PORTFOLIO_RESULT)
+        if portfolio
+        else (QUERY, RESULT)
+    )
     store = SealedReadbackService()
     model = StubReceiptModel(
         model="synthetic-receipt-probe",
@@ -462,7 +507,13 @@ async def test_native_receipt_result_current_turn_only_and_encrypted_reload(
         and PRIVATE_ANSWER not in restored_json
         and not any("7.00" in text for text in string_values(json.loads(restored_json)))
     )
-    assert (PRIVATE_PORTFOLIO_ANSWER if portfolio else PRIVATE_RECEIPT_ANSWER) in restored_json
+    assert (
+        PRIVATE_ACCOUNT_ANSWER
+        if account
+        else PRIVATE_PORTFOLIO_ANSWER
+        if portfolio
+        else PRIVATE_RECEIPT_ANSWER
+    ) in restored_json
     assert restored.state[STATE_RECEIPT_PRIVATE]
     assert STATE_RECEIPT_RESULT not in restored_json and reference not in restored_json
 

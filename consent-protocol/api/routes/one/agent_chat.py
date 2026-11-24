@@ -24,6 +24,12 @@ from api.routes.one.agent_context import sanitize_agent_context
 from api.routes.one.command_proposals import require_pod_process
 from api.utils.firebase_auth import verify_firebase_bearer
 from hushh_mcp.hushh_adk.product_activity import product_activity_plugins
+from hushh_mcp.one_adk.account_context_contract import (
+    ACCOUNT_CONTEXT_DESCRIPTION,
+    ACCOUNT_CONTEXT_PARAMETERS,
+    ACCOUNT_CONTEXT_TOOL,
+    STATE_ACCOUNT_CONTEXT_ENABLED,
+)
 from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
     STATE_CONSENT_TOKEN,
@@ -436,6 +442,18 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
                     "code": "CHAT_CONVERSATION_RETIRED",
                 },
             )
+    account_contract = forwarded.pop("accountContextContract", None)
+    account_enabled = bool(
+        token and user_id and type(account_contract) is int and account_contract == 1
+    )
+    if account_enabled:
+        input_data.tools.append(
+            Tool(
+                name=ACCOUNT_CONTEXT_TOOL,
+                description=ACCOUNT_CONTEXT_DESCRIPTION,
+                parameters=ACCOUNT_CONTEXT_PARAMETERS,
+            )
+        )
     portfolio_contract = forwarded.pop("portfolioContextContract", None)
     portfolio_enabled = bool(
         token and user_id and type(portfolio_contract) is int and portfolio_contract == 1
@@ -602,6 +620,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         else "",
         **email_memory,
         STATE_NWS_REPORT: admit_nws_report(forwarded, owner_admitted=bool(token and user_id)),
+        STATE_ACCOUNT_CONTEXT_ENABLED: account_enabled,
         STATE_PORTFOLIO_CONTEXT_ENABLED: portfolio_enabled,
         STATE_OWNER_STYLE: owner_style,
         STATE_OWNER_DISPLAY_NAME: store_request_secret(owner_display_name),

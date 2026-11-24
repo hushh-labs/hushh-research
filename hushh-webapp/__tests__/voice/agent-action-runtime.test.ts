@@ -15,6 +15,22 @@ import { buildKaiMarketRoute, ROUTES } from "@/lib/navigation/routes";
 import { runtimeState } from "./agent-action-runtime-fixture";
 
 describe("executeAgentGatewayAction", () => {
+  it.each([[true, "profile_account", "started"], [false, "profile_account", "blocked"], [true, "chat", "blocked"]] as const)("uses the mounted name-review seam: mounted=%s screen=%s", async (mounted, screen, expected) => {
+    const actionId = "profile.update_display_name";
+    const handler = vi.fn(async () => ({ status: "started" as const, summary: "Review the proposed name and Save. Your name has not changed yet." }));
+    if (mounted) registerLocalOnboardingHandler(actionId, handler);
+    try {
+      const result = await executeAgentGatewayAction({
+        actionId, slots: { display_name: "Mira Iyer" }, allowedActionIds: screen === "profile_account" ? [actionId] : [], userId: "user_1", router: { push: vi.fn() },
+        appRuntimeState: runtimeState({ route: { pathname: "/one/profile", screen } }),
+        hasPortfolioData: false, busyOperations: {}, setAnalysisParams: vi.fn(),
+      });
+      expect(result.status).toBe(expected);
+      if (expected === "started") expect(handler).toHaveBeenCalledExactlyOnceWith({ display_name: "Mira Iyer" }, undefined);
+      else expect(handler).not.toHaveBeenCalled();
+    } finally { if (mounted) unregisterLocalOnboardingHandler(actionId, handler); }
+  });
+
   it.each([
     ["ria.picks.open_category_avoid", "/ria/picks?source=my&category=top-picks&search=1&share=private", "avoid", "my"],
     ["ria.picks.open_source_kai", "/ria/picks?source=my&category=avoid&search=1&share=private", "avoid", "kai"],

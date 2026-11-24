@@ -531,7 +531,7 @@ export type AgentMessage = {
   status?: "streaming" | "done" | "error";
   ephemeral?: boolean;
   memoryCapture?: AgentPkmCaptureStatus;
-  receiptPrivate?: { ownerId: string; vaultEpoch: number; conversationId: string | null; expiresAt: number; kind?: "portfolio" };
+  receiptPrivate?: { ownerId: string; vaultEpoch: number; conversationId: string | null; expiresAt: number; kind?: "portfolio" | "account" };
   receiptRedacted?: boolean;
   kind?: "selection";
   /** Sent while One was working and taken into that reply at its next step. */

@@ -72,6 +72,11 @@ from hushh_mcp.agents.onboarding.agent import (
     resolve_onboarding_goal as _resolve_onboarding_goal,
 )
 from hushh_mcp.hushh_adk.manifest import AgentManifestV2, ManifestLoader
+from hushh_mcp.one_adk.account_context_contract import (
+    ACCOUNT_CONTEXT_TOOL,
+    ACCOUNT_INSTRUCTION,
+    STATE_ACCOUNT_CONTEXT_ENABLED,
+)
 from hushh_mcp.one_adk.action_tools import (
     add_to_pkm,
     continue_app_goal,
@@ -882,6 +887,8 @@ def _compose_one_runtime_instruction(context: Any) -> str:
             "show_stock_preview with its ticker and say it is ready for review. The person "
             "confirms in the card before the debate starts."
         )
+        if state_getter(STATE_ACCOUNT_CONTEXT_ENABLED):
+            identity_instruction += ACCOUNT_INSTRUCTION
         if state_getter(STATE_PORTFOLIO_CONTEXT_ENABLED):
             identity_instruction += (
                 " For facts about saved holdings, allocation, or performance, call "
@@ -2742,6 +2749,7 @@ def _one_roster_tools(
         # The typed hub advertises this separate contract only to compatible,
         # owner-authorized browsers. Offline receipt evaluations omit it.
         tools.append(AGUIToolset(tool_filter=[PORTFOLIO_CONTEXT_TOOL]))
+        tools.append(AGUIToolset(tool_filter=[ACCOUNT_CONTEXT_TOOL]))
     return tools
 
 
