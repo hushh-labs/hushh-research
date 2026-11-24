@@ -355,11 +355,13 @@ export function AskProposalCard({ personName, personRef, proposal, ready, sendin
   // types "yes send" / "send it" / "confirm" while this card is pending,
   // settle the exact current draft (including user edits & price binding).
   const latestSubmitRef = useRef<(() => boolean) | null>(null);
-  latestSubmitRef.current = () => {
-    if (!canSend) return false;
-    onSend({ scopes, purpose: reason.trim(), durationHours, priceBinding: price?.binding });
-    return true;
-  };
+  useEffect(() => {
+    latestSubmitRef.current = () => {
+      if (!canSend) return false;
+      onSend({ scopes, purpose: reason.trim(), durationHours, priceBinding: price?.binding });
+      return true;
+    };
+  }, [canSend, durationHours, onSend, price?.binding, reason, scopes]);
   useEffect(() => {
     const handler = (event: Event) => {
       const custom = event as CustomEvent<{ handled?: boolean; personName?: string }>;
