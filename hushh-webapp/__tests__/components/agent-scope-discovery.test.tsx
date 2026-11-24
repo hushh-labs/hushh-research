@@ -200,7 +200,10 @@ describe("current-authority inline Chat catalog", () => {
     act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: {
       source: "information_request_updated", action: "CONSENT_GRANTED", bundleId, requestId,
     } })));
-    expect(await screen.findByTestId("shared-with-you-values", {}, { timeout: 5_000 })).toHaveTextContent("Synthetic analyst");
+    const viewDetails = await screen.findByTestId("shared-with-you-view-details", {}, { timeout: 5_000 });
+    expect(screen.queryByTestId("shared-with-you-values")).toBeNull();
+    fireEvent.click(viewDetails);
+    expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent("Synthetic analyst");
     expect(mocks.getInformationRequestExports).toHaveBeenCalledWith({ bundleId, vaultOwnerToken: "test-owner-token" });
     await act(async () => finishStaleRead?.(bundle("pending")));
     expect(screen.getByTestId("shared-with-you-values")).toHaveTextContent("Synthetic analyst");
@@ -436,8 +439,11 @@ describe("current-authority inline Chat catalog", () => {
     mocks.decryptScopedExport.mockResolvedValue({ professional: { role: "Synthetic analyst" } });
 
     render(<AgentStructuredExperienceView experience={restored} />);
+    const viewDetails = await screen.findByTestId("shared-with-you-view-details");
+    expect(screen.queryByTestId("shared-with-you-values")).toBeNull();
+    fireEvent.click(viewDetails);
     expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent("Synthetic analyst");
-    // No reveal control: the secure card is the answer (CONTRACT-2 decision 2).
+    // No legacy reveal control: Chat stays compact and opens decrypted values in the Detailed View Modal.
     expect(screen.queryByRole("button", { name: "View shared information" })).toBeNull();
     expect(mocks.readStoredConnector).toHaveBeenCalledTimes(1);
     expect(mocks.decryptScopedExport).toHaveBeenCalledTimes(1);
@@ -489,6 +495,7 @@ describe("current-authority inline Chat catalog", () => {
     act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: {
       source: "information_request_updated", action: "CONSENT_GRANTED", bundleId: restored.bundleId, requestId: "request_12345678",
     } })));
+    fireEvent.click(await screen.findByTestId("shared-with-you-view-details"));
     expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent("Synthetic analyst");
     expect(mocks.decryptScopedExport).toHaveBeenCalledTimes(1);
   });
@@ -704,6 +711,7 @@ describe("current-authority inline Chat catalog", () => {
     act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: {
       source: "information_request_updated", action: "REVOKED", bundleId: restored.bundleId, requestId: "request_12345678",
     } })));
+    fireEvent.click(await screen.findByTestId("shared-with-you-view-details"));
     const values = await screen.findByTestId("shared-with-you-values");
     expect(values).toHaveTextContent("Synthetic lead");
     // The revoked item is never opened, not even for a moment.

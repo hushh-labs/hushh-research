@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useEffect, useId, useState } from "react";
-import { ConsentAgentIcon, ExternalLink, ShieldCheck, ShieldOff, WalletAgentIcon } from "@/components/icons";
+import { ArrowUpRight, ConsentAgentIcon, ExternalLink, ShieldCheck, ShieldOff, WalletAgentIcon } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -965,67 +965,100 @@ export function OneStreamEventCard({
   }, [busy, resolved, disarmDecline]);
 
   const isConnection = item.eventKind === "incoming_connection";
+  const isSharedAccess = item.eventKind === "shared_access_unlocked";
+  const isSettlement = item.eventKind === "commerce_settlement";
+  const hasNamedActor = Boolean(
+    item.actorPhotoUrl ||
+      (item.actorLabel &&
+        item.actorLabel.trim() &&
+        item.actorLabel.trim() !== "A connection" &&
+        item.actorLabel.trim() !== "One"),
+  );
+  const badgeLabel = resolved
+    ? resolvedOneStreamStatusLabels[item.status as Exclude<OneStreamEventStatus, "pending">]
+    : isSharedAccess
+      ? "Encrypted"
+      : isSettlement
+        ? "Settlement"
+        : "Invite";
+  const badgeToneClass = resolved
+    ? "border-black/[0.08] bg-black/[0.04] text-muted-foreground dark:border-white/[0.1] dark:bg-white/[0.06]"
+    : isSharedAccess
+      ? "border-emerald-500/20 bg-emerald-500/[0.09] text-emerald-700 dark:border-emerald-400/25 dark:bg-emerald-400/[0.12] dark:text-emerald-300"
+      : isSettlement
+        ? "border-[color:var(--app-accent)]/20 bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]"
+        : "border-black/[0.08] bg-black/[0.04] text-[color:var(--app-secondary-label)] dark:border-white/[0.1] dark:bg-white/[0.06]";
 
   return (
     <div
       data-testid="one-stream-event-card"
       data-event-kind={item.eventKind}
-      className="consent-presentation-surface rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-4"
+      className="consent-presentation-surface flex flex-col gap-3 rounded-[14px] border border-black/[0.08] bg-[color:var(--app-card-surface-default-solid)] px-3.5 py-3 shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-colors dark:border-white/[0.09] dark:shadow-none sm:flex-row sm:items-center sm:justify-between sm:gap-4"
     >
-      <div className="flex items-start gap-3">
-        {isConnection || item.actorPhotoUrl ? (
-          <ConnectionPersonAvatar
-            label={item.actorLabel || "Someone"}
-            photoUrl={item.actorPhotoUrl ?? null}
-            size="list"
-            className="bg-[color:var(--app-neutral-fill)] text-[13px] font-semibold text-[color:var(--app-secondary-label)]"
-          />
-        ) : item.eventKind === "commerce_settlement" ? (
-          <span className="mt-0.5 grid size-8 shrink-0 place-items-center">
-            <WalletAgentIcon className="size-5" aria-hidden="true" />
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        {isConnection || hasNamedActor ? (
+          <div className="relative shrink-0">
+            <ConnectionPersonAvatar
+              label={item.actorLabel || "Someone"}
+              photoUrl={item.actorPhotoUrl ?? null}
+              size="list"
+              className="bg-[color:var(--app-neutral-fill)] text-[12px] font-semibold text-[color:var(--app-secondary-label)] ring-1 ring-black/[0.06] dark:ring-white/[0.08]"
+            />
+            {isSharedAccess ? (
+              <span
+                aria-hidden="true"
+                className="absolute -bottom-0.5 -right-0.5 grid size-4 place-items-center rounded-full bg-emerald-500 text-white ring-2 ring-[color:var(--app-card-surface-default-solid)]"
+              >
+                <ShieldCheck className="size-2.5" />
+              </span>
+            ) : null}
+          </div>
+        ) : isSettlement ? (
+          <span className="grid size-9 shrink-0 place-items-center rounded-[10px] border border-[color:var(--app-accent)]/20 bg-[color:var(--app-accent-tint)]">
+            <WalletAgentIcon className="size-4" aria-hidden="true" />
           </span>
         ) : (
-          <span className="mt-0.5 grid size-8 shrink-0 place-items-center">
-            <ConsentAgentIcon className="size-5" aria-hidden="true" />
+          <span className="grid size-9 shrink-0 place-items-center rounded-[10px] border border-emerald-500/20 bg-emerald-500/[0.08] text-emerald-600 dark:border-emerald-400/25 dark:bg-emerald-400/[0.11] dark:text-emerald-400">
+            <ShieldCheck className="size-4" aria-hidden="true" />
           </span>
         )}
-        <div className="min-w-0 flex-1 space-y-1">
-          <p
-            data-consent-role="row-title"
-            className="text-[15px] font-semibold leading-5 text-foreground [overflow-wrap:anywhere]"
-          >
-            {item.headline}
-          </p>
+        <div className="min-w-0 flex-1 space-y-0.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <p
+              data-consent-role="row-title"
+              className="text-[13.5px] font-semibold leading-[19px] tracking-[-0.01em] text-foreground [overflow-wrap:anywhere]"
+            >
+              {item.headline}
+            </p>
+            <span
+              data-consent-role={resolved ? "status" : "meta"}
+              data-testid={resolved ? "one-stream-event-status" : "one-stream-event-badge"}
+              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium leading-[14px] tracking-[-0.005em] ${badgeToneClass}`}
+            >
+              {badgeLabel}
+            </span>
+          </div>
           {item.detail ? (
             <p
               data-consent-role="body"
-              className="text-sm leading-5 text-muted-foreground [overflow-wrap:anywhere]"
+              className="text-[12.5px] leading-[17px] text-muted-foreground [overflow-wrap:anywhere]"
             >
               {item.detail}
             </p>
           ) : null}
-          {resolved ? (
-            <p
-              data-consent-role="status"
-              data-testid="one-stream-event-status"
-              className="text-[13px] font-semibold leading-[18px] text-muted-foreground"
-            >
-              {resolvedOneStreamStatusLabels[item.status as Exclude<OneStreamEventStatus, "pending">]}
-            </p>
-          ) : null}
         </div>
       </div>
-      <div className="mt-3.5 flex min-h-11 flex-wrap items-center justify-end gap-2">
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 sm:self-center">
         {item.href && onOpen ? (
           <Button
             data-testid="one-stream-event-open"
-            size="sm"
+            size="compact"
             variant="outline"
-            className="px-4 font-medium"
             disabled={busy}
             onClick={() => onOpen(item)}
           >
             {isConnection && item.requiresScopeReview ? "Review" : "Open"}
+            <ArrowUpRight className="size-3.5 text-muted-foreground" aria-hidden="true" />
           </Button>
         ) : null}
         {!resolved && isConnection ? (
@@ -1033,9 +1066,8 @@ export function OneStreamEventCard({
             {onDecline ? (
               <Button
                 data-testid="one-stream-event-decline"
-                size="sm"
+                size="compact"
                 variant={declineArmed ? "destructive" : "subdued"}
-                className="px-4"
                 disabled={busy}
                 aria-label={declineTap.ariaLabel("Decline")}
                 data-armed={declineArmed ? "true" : undefined}
@@ -1050,8 +1082,7 @@ export function OneStreamEventCard({
             {!item.requiresScopeReview && onAccept ? (
               <Button
                 data-testid="one-stream-event-accept"
-                size="sm"
-                className="px-4"
+                size="compact"
                 disabled={busy}
                 isLoading={busy}
                 onClick={() => onAccept(item)}

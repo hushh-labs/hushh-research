@@ -70,6 +70,7 @@ def render_sandbox_template(
     egress_proxy_url: str = DEFAULT_EGRESS_PROXY_URL,
     sentinel_service_ip: str | None = None,
     command: list[str] | tuple[str, ...] | None = None,
+    spot: bool = False,
 ) -> dict[str, Any]:
     """Render a virgin hardened v1beta1 SandboxTemplate with zero owner state or SA tokens."""
     tpl_name = _require_dns_label(name, field_name="template name")
@@ -183,6 +184,8 @@ def render_sandbox_template(
     }
     if host_aliases is not None:
         pod_spec["hostAliases"] = host_aliases
+    if spot:
+        pod_spec["nodeSelector"] = {"cloud.google.com/gke-spot": "true"}
 
     return {
         "apiVersion": AGENT_SANDBOX_EXTENSIONS_API_VERSION,

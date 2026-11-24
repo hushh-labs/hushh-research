@@ -25,7 +25,7 @@ describe("ContactSyncResultsSheet", () => {
     );
 
     const invite = screen.getByRole("button", { name: "Invite contacts" });
-    expect(invite).toHaveClass("h-[50px]", "min-h-[50px]", "w-full", "max-w-[244px]");
+    expect(invite).toHaveClass("h-10", "min-h-10", "w-full", "max-w-[244px]");
     expect(invite.parentElement).toHaveClass("justify-center");
     expect(screen.queryByRole("link", { name: "Proceed to connections" })).toBeNull();
     fireEvent.click(invite);

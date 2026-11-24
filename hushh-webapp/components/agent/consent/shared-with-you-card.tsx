@@ -461,8 +461,12 @@ export function useSharedWithYouCardModel({ person, items: rawItems, active = tr
 export type SharedWithYouCardModel = ReturnType<typeof useSharedWithYouCardModel>;
 
 /** Compatibility facade: original web geometry and transcript reveal owner. */
-export function SharedWithYouCard({ person, items, variant = "chat", className }: {
-  person: SharedWithYouPerson; items: SharedWithMeCardItem[]; variant?: "chat" | "profile" | "embedded"; className?: string;
+export function SharedWithYouCard({ person, items, variant = "chat", presentation, className }: {
+  person: SharedWithYouPerson;
+  items: SharedWithMeCardItem[];
+  variant?: "chat" | "profile" | "embedded";
+  presentation?: "inline" | "modal";
+  className?: string;
 }) {
   const { user, status, items: views, retry: onRetry } = useSharedWithYouCardModel({ person, items });
   const [unlockOpen, setUnlockOpen] = useState(false);
@@ -481,6 +485,7 @@ export function SharedWithYouCard({ person, items, variant = "chat", className }
         status={status}
         items={views}
         variant={variant}
+        presentation={presentation}
         className={className}
         onRetry={onRetry}
         onUnlock={user ? () => setUnlockOpen(true) : undefined}
