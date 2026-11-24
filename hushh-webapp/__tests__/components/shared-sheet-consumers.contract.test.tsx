@@ -110,6 +110,7 @@ describe("the shared bottom sheet stays shared", () => {
       "components/app-ui/profile-pane.tsx",
       "components/app-ui/settings-ui.tsx",
       "components/computer-use/computer-use-task-card.tsx",
+      "components/files/files-markdown-document-sheet.tsx",
       "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
       "components/one-location/onboarding/onboarding-option-sheet.tsx",
       "components/one-location/onboarding/save-location-modal.tsx",
