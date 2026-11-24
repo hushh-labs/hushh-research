@@ -75,6 +75,7 @@ def test_mail_selection_provider_ids_stay_out_of_wire_state():
         "hussh:calendar_guest_clarification",
         "temp:hussh:calendar_guest_recovery",
         "temp:hussh:calendar_request_scope",
+        "temp:hussh:calendar_frozen_input",
         "temp:hussh:turn_started_at",
     ],
 )

@@ -393,6 +393,42 @@ async def _serve_via_door(
 async def _run_calendar_read(
     tool_context: ToolContext,
     call: Callable[[str, Any, str], Awaitable[dict[str, Any]]],
+    **options: Any,
+) -> dict[str, Any]:
+    """Run one Calendar read and log its content-free stage timing.
+
+    ``total_ms`` is the whole tool call; ``provider_ms`` is the provider read inside
+    it, so the rest is owner, account and grant resolution. Only authored enums and
+    integers are logged: nothing from the request, the account or the events.
+    """
+    started = time.monotonic()
+    provider = [0.0]
+
+    async def timed(user_id: str, service: Any, account_id: str) -> dict[str, Any]:
+        began = time.monotonic()
+        try:
+            return await call(user_id, service, account_id)
+        finally:
+            provider[0] += time.monotonic() - began
+
+    outcome = "failed"
+    try:
+        result = await _run_calendar_read_body(tool_context, timed, **options)
+        status = result.get("status") if isinstance(result, dict) else None
+        outcome = status if isinstance(status, str) and 0 < len(status) < 24 else "ok"
+        return result
+    finally:
+        logger.info(
+            "calendar.read.latency total_ms=%d provider_ms=%d status=%s",
+            int((time.monotonic() - started) * 1000),
+            int(provider[0] * 1000),
+            outcome,
+        )
+
+
+async def _run_calendar_read_body(
+    tool_context: ToolContext,
+    call: Callable[[str, Any, str], Awaitable[dict[str, Any]]],
     *,
     calendar_read: dict[str, Any] | Callable[[], dict[str, Any]] | None = None,
     owner_local_only: bool = False,
@@ -423,16 +459,17 @@ async def _run_calendar_read(
             if display_time_zone is not None
             else tool_context.state.get("hussh:timezone")
         )
-        from hushh_mcp.agents.calendar.request_scope import request_scope, require_action
+        from hushh_mcp.agents.calendar.request_scope import freeze_request_input, require_action
 
-        # Freeze the request's review ceiling before any provider content arrives.
-        # A failed assessment cannot authorize a review, but does not prevent reads.
         if required_action is not None:
             refused = await require_action(tool_context, required_action)
             if refused is not None:
                 return refused
         else:
-            await request_scope(tool_context)
+            # A pure read grants no action authority, so it spends no model call.
+            # Pin the authenticated input before provider results arrive; every
+            # proposal and invitation response runs its own mandatory action check.
+            freeze_request_input(tool_context)
         async with asyncio.timeout(25):
             expected_email = None
             if account_id is not None:
@@ -556,7 +593,11 @@ async def _run_calendar_read(
 
 
 def _iso_window(
-    tool_context: ToolContext, days: int, time_zone: str | None = None
+    tool_context: ToolContext,
+    days: int,
+    time_zone: str | None = None,
+    *,
+    whole_days: bool = False,
 ) -> tuple[str, str]:
     clean_days = max(1, min(int(days), 31))
     from hushh_mcp.agents.calendar.read_projection import turn_instant
@@ -569,6 +610,15 @@ def _iso_window(
         .astimezone(zone)
         .replace(second=0, microsecond=0)
     )
+    if whole_days:
+        # Civil days from today's local midnight to the midnight after the last day
+        # (end exclusive), through the shared DST-safe helper: no fixed 24-hour step.
+        from hushh_mcp.services.calendar_schedule_service import local_day_window
+
+        today = start.date()
+        first, _ = local_day_window(today.isoformat(), zone.key)
+        _, last = local_day_window((today + timedelta(days=clean_days - 1)).isoformat(), zone.key)
+        return first.isoformat().replace("+00:00", "Z"), last.isoformat().replace("+00:00", "Z")
     end = start + timedelta(days=clean_days)
     return start.astimezone(UTC).isoformat().replace("+00:00", "Z"), end.astimezone(
         UTC
@@ -599,15 +649,19 @@ async def calendar_summary(
     days: int = 7,
     account_id: str | None = None,
     time_zone: str | None = None,
+    whole_days: bool = False,
 ) -> dict[str, Any]:
     """Read the next 1–31 days from this turn's clock, including after restoration.
 
+    Set whole_days=True for named local days (today, tomorrow, "today and tomorrow"):
+    it reads that many whole days from today's local midnight, ending at the midnight
+    after the last day. Leave it False for a rolling "next N days from now" read.
     Use local_start_at/local_end_at in display_time_zone; pass an explicit IANA time_zone.
     For a read of a named account, account_id accepts its full email or the exact account ID.
     """
 
     async def _call(user_id: str, service: Any, account_id: str) -> dict[str, Any]:
-        start_at, end_at = _iso_window(tool_context, days, time_zone)
+        start_at, end_at = _iso_window(tool_context, days, time_zone, whole_days=whole_days)
         tool_context.state[STATE_EVENT_OFFER] = None
         before = await _read_binding(service, user_id)
         result = await service.list_events(
@@ -632,7 +686,11 @@ async def calendar_summary(
         calendar_read=lambda: dict(
             operation="events",
             **dict(
-                zip(("start_at", "end_at"), _iso_window(tool_context, days, time_zone), strict=True)
+                zip(
+                    ("start_at", "end_at"),
+                    _iso_window(tool_context, days, time_zone, whole_days=whole_days),
+                    strict=True,
+                )
             ),
         ),
         display_time_zone=time_zone,
