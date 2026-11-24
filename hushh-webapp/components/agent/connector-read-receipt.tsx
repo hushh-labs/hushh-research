@@ -148,6 +148,29 @@ export type AgentConnectorContinuationHandler = {
   continueAfterConnectorSync: (prompt: string) => void;
 };
 
+export const SILENT_LOCATION_CONTINUATION_PROMPT =
+  "Location access is now allowed. Answer my previous question using my current location.";
+
+export function isSilentConnectorContinuationPrompt(text: string | null | undefined): boolean {
+  const normalized = (text ?? "").trim();
+  if (!normalized) return false;
+  if (normalized === SILENT_LOCATION_CONTINUATION_PROMPT) return true;
+  if (
+    /^I just connected .+ with Plaid\. Summarize my connected accounts, balances, and updated financial scopes\.$/i.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+  if (
+    normalized ===
+    "I just refreshed my Plaid bank accounts. Summarize my updated balances and confirm my shared scopes updated."
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export const AgentConnectorContinuationContext =
   createContext<AgentConnectorContinuationHandler | null>(null);
 
@@ -250,9 +273,7 @@ export function TurnLocationPermissionCard({
       if (!mounted.current) return;
       if (fix) {
         setRequesting(false);
-        continuation?.continueAfterConnectorSync(
-          "Location access is now allowed. Answer my previous question using my current location.",
-        );
+        continuation?.continueAfterConnectorSync(SILENT_LOCATION_CONTINUATION_PROMPT);
         return;
       }
       const latest = LocationBus.getState();
