@@ -10,7 +10,7 @@ after any route's authored Back case changes; do not hand-edit this file.
 
 ## Visual Map
 
-164 authored routes, 11 of them section/app
+165 authored routes, 11 of them section/app
 roots. 15 routes additionally branch on query (an action sheet,
 a tab, a detail view) -- those sub-flows are counted on their edge label, not
 drawn individually, so the diagram reads as the hierarchy rather than every
@@ -185,6 +185,7 @@ flowchart TD
   r_blog_slug["/blog/[slug]"]
   r_research["/research"]
   r_research_protocol["/research/protocol"]
+  r_design_system["/design-system"]
   r_manishhussh(["/manishhussh"])
   r_ria_profile["/ria/profile"]
   r_people_personRef(["/people/[personRef]"])
@@ -208,7 +209,7 @@ flowchart TD
   r_one_email -->|push| r_one
   r_one_calendar -->|push| r_one
   r_one_goals -->|push| r_one
-  r_one_tasks -->|push, +1 case| r_one
+  r_one_tasks -->|push, +3 cases| r_one
   r_one_pkm -->|push| r_one
   r_one_pkm_recent -->|push| r_one_pkm
   r_one_pkm_location -->|push| r_one_pkm
@@ -296,6 +297,7 @@ flowchart TD
   r_blog_slug -->|push| r_blog
   r_research -->|push| r_root
   r_research_protocol -->|push| r_root
+  r_design_system -->|push| r_root
   r_ria_profile -->|push| r_one
   r_one_profile_hosting -->|push| r_one_profile
   r_one_profile_software_updates -->|push| r_one_profile
