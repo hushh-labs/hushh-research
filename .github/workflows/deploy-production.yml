@@ -412,10 +412,13 @@ jobs:
           APPROVAL_SHA: ${{ inputs.main_approval_sha }}
           RESTORATION_RUN: ${{ inputs.restoration_validation_run }}
           CADENCE_ORIGIN: ""
-          OTHER_OPERATION: ${{ inputs.restoration_activation_run_id }}${{ inputs.restoration_activation_attempt }}${{ inputs.phone_activation_run_id }}${{ inputs.phone_schema_origin_run_id }}${{ inputs.phone_schema_origin_attempt }}${{ inputs.phone_rollback_sha }}
+          OTHER_OPERATION: ${{ inputs.restoration_activation_run_id }}${{ inputs.restoration_activation_attempt }}${{ inputs.phone_activation_run_id }}${{ inputs.phone_schema_origin_run_id }}${{ inputs.phone_schema_origin_attempt }}
+          PHONE_ROLLBACK_SHA: ${{ inputs.phone_rollback_sha }}
+          PHONE_ROLLBACK_QUALIFICATION: ${{ inputs.phone_rollback_qualification || 'uat' }}
         run: |
           set -euo pipefail
-          [[ -z "$RESTORATION_RUN$CADENCE_ORIGIN$OTHER_OPERATION" && "$PHONE_DEPLOY_PHASE" == standard ]] || {
+          [[ -z "$RESTORATION_RUN$CADENCE_ORIGIN$OTHER_OPERATION" && "$PHONE_DEPLOY_PHASE" == standard \
+            && ( -z "$PHONE_ROLLBACK_SHA" || "$PHONE_ROLLBACK_QUALIFICATION" == main ) ]] || {
             echo "Curated approval cannot change restoration, cadence or phone-transition authority." >&2; exit 1;
           }
           python3 scripts/ci/promotion_approval.py --application-sha "$APPLICATION_SHA" \
