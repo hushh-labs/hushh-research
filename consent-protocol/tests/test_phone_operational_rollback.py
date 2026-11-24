@@ -614,3 +614,32 @@ def test_main_fallback_is_rechecked_before_promotion(release_plan, monkeypatch):
     monkeypatch.setattr(state.plan, "same_backend", lambda *_: False)
     with pytest.raises(ValueError, match="replacement_source_invalid"):
         state.plan.verify(args)
+
+
+@pytest.mark.parametrize(
+    "ignore, exit_code, expected",
+    [
+        ("tests/\n!hushh_mcp/agents/*.md\n", 0, True),
+        ("tests/\n", 1, False),
+        ("tests/\n", 2, None),
+        ("tests/\n!tests/**\n", 0, None),
+        ("tests/\n!**\n", 0, None),
+        ("", 0, None),
+    ],
+)
+def test_backend_equality_excludes_only_proven_unshipped_tests(
+    release_plan, monkeypatch, ignore, exit_code, expected
+):
+    import replacement_image
+
+    monkeypatch.setattr(replacement_image.qualify_image, "run", lambda *_: ignore.encode())
+    monkeypatch.setattr(
+        replacement_image.subprocess,
+        "run",
+        lambda *_, **__: SimpleNamespace(returncode=exit_code),
+    )
+    if expected is None:
+        with pytest.raises(ValueError):
+            replacement_image.same_backend(FALLBACK, PRIMARY)
+    else:
+        assert replacement_image.same_backend(FALLBACK, PRIMARY) is expected

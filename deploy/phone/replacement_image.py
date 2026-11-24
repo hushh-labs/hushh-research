@@ -33,7 +33,10 @@ def same_backend(fallback: str, primary: str) -> bool:
         .decode()
         .splitlines()
     )
-    if "tests/" not in ignored:
+    allowed_negations = {"!hushh_mcp/agents/*.md", "!hushh_mcp/agents/**/*.md"}
+    if "tests/" not in ignored or any(
+        line.startswith("!") and line not in allowed_negations for line in ignored
+    ):
         raise ValueError("phone_rollback_test_exclusion_unproven")
     result = subprocess.run(  # noqa: S603
         [
@@ -57,6 +60,8 @@ def same_backend(fallback: str, primary: str) -> bool:
 
 
 def recheck_main_source(source: str, tools: Path, directory: Path, prior=None) -> dict:
+    if tools is None:
+        raise ValueError("phone_rollback_main_tools_required")
     output = directory / "phone-rollback-main-acceptance.json"
     command = [
         "python3",
