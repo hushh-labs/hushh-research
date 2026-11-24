@@ -101,9 +101,25 @@ def replay_sql(entry) -> str:
         if entry.migration_id == "418"
         else ["guard_account_generation_history"]
     )
+    sql = entry.sql
     if entry.migration_id == "419":
         names.append("retire_erased_account_generation")
-    sql = entry.sql
+        backfill_pattern = (
+            r"INSERT INTO public\.account_generations\(identity_hash,generation,owner_hash,retired_at,\s*"
+            r"cleanup_operation,cleanup_confirmed\).*?ON CONFLICT DO NOTHING;"
+        )
+        backfill_matches = list(re.finditer(backfill_pattern, sql, flags=re.DOTALL))
+        if len(backfill_matches) != 1:
+            raise MigrationAuthorityError("Firebase erasure predecessor backfill shape changed")
+        backfill_body = backfill_matches[0].group()
+        sql = sql.replace(
+            backfill_body,
+            f"""DO $preserve_firebase_erasure_backfill$ BEGIN
+ IF {FOOTPRINT} THEN RETURN; END IF;
+ EXECUTE $firebase_predecessor${backfill_body}$firebase_predecessor$;
+END $preserve_firebase_erasure_backfill$;""",
+            1,
+        )
     for name in names:
         pattern = rf"CREATE OR REPLACE FUNCTION public\.{name}\([^;]*?\)\s*RETURNS.*?\$\$;"
         matches = list(re.finditer(pattern, sql, flags=re.DOTALL))
