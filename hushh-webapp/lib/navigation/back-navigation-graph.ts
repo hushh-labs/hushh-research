@@ -239,6 +239,18 @@ function resolveCapabilitySetupBackHref(
 export const BACK_NAVIGATION_RULES: BackRule[] = [
   ...ONE_LEAF_WORKSPACE_BACK_RULES,
   {
+    id: "reference-design-system",
+    resolve: (pathname) => {
+      if (pathname !== ROUTES.DESIGN_SYSTEM) return undefined;
+      return {
+        backHref: ROUTES.HOME,
+        width: "content",
+        align: "start",
+        items: [{ label: "Design System" }],
+      };
+    },
+  },
+  {
     id: "legal-terms-privacy",
     resolve: (pathname) => {
       if (pathname !== ROUTES.TERMS && pathname !== ROUTES.PRIVACY) return undefined;

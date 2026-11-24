@@ -2316,11 +2316,11 @@ async def list_information_shared_with_me(
     field names and dates only, never a value. Reply in one short line such as
     "Here's what Manish shared with you:" and let the card show the rest.
     """
-    user_id, blocked = await _read_tool_user_id(tool_context)
+    user_id, blocked = await _information_read_user_id(tool_context)
     if blocked is not None:
         return blocked
     if user_id is None:
-        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+        raise AssertionError("_information_read_user_id returned no user_id with blocked=None")
 
     try:
         from hushh_mcp.services.pod_information_discovery import private_information_discovery

@@ -104,6 +104,7 @@ export const ROUTES = {
   RESEARCH: "/research",
   RESEARCH_PROTOCOL: "/research/protocol",
   BLOG: "/blog",
+  DESIGN_SYSTEM: "/design-system",
   MANISH_SAINANI: "/manishhussh",
   LOGIN: "/login",
   GETTING_STARTED: "/getting-started",
@@ -583,6 +584,7 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
     normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname === ROUTES.DESIGN_SYSTEM ||
     normalizedPathname === ROUTES.MANISH_SAINANI ||
     normalizedPathname === ROUTES.LOGIN ||
     isFirebaseSessionOnlyRoute(normalizedPathname) ||
@@ -914,6 +916,7 @@ export function isPublicRoute(pathname: string): boolean {
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
     normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname === ROUTES.DESIGN_SYSTEM ||
     normalizedPathname === ROUTES.MANISH_SAINANI ||
     isInvitationPreviewRoute(normalizedPathname) ||
     // Both prefixes. `/view/` is where public live-location links point now;
@@ -939,6 +942,7 @@ export function isAnalyticsExemptRoute(pathname: string): boolean {
   const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
     normalizedPathname === ROUTES.CALENDAR_RESCHEDULE ||
+    normalizedPathname === ROUTES.DESIGN_SYSTEM ||
     normalizedPathname === ROUTES.WALLET_CARD_OPEN ||
     normalizedPathname === WALLET_CARD_PUBLIC_PREFIX ||
     normalizedPathname.startsWith(`${WALLET_CARD_PUBLIC_PREFIX}/`)
@@ -974,6 +978,7 @@ export function isPublicEditorialOrLegalRoute(pathname: string): boolean {
   return (
     normalizedPathname === ROUTES.PRIVACY ||
     normalizedPathname === ROUTES.TERMS ||
+    normalizedPathname === ROUTES.DESIGN_SYSTEM ||
     normalizedPathname === ROUTES.WELCOME ||
     normalizedPathname === ROUTES.DEVELOPERS ||
     normalizedPathname.startsWith(`${ROUTES.DEVELOPERS}/`) ||

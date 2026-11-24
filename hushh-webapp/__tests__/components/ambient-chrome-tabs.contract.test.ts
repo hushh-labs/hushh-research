@@ -27,19 +27,20 @@ describe("tabbed ambient chrome contract", () => {
     expect(styles).toContain("--top-shell-mask-visible-height");
     expect(styles).toContain("--ambient-chrome-top-solid-height");
     expect(styles).toContain("var(--top-chrome-collapse-px, 0px)");
-    // The top edge is a plain solid surface with no fade band (founder
-    // direction, 2026-09-27). Read the rule itself so a fade tail cannot come
-    // back through the shared feather tokens the bottom edge still uses.
+    // The top edge uses the unified raised-cosine progressive blur + mask fade
+    // (founder direction, 2026-11-24), matching Agent Chat across every screen
+    // through the shared feather tokens and --top-fade-active band.
     const topRuleStart = styles.indexOf(".ambient-chrome-mask--top {");
     const topRule = styles.slice(
       topRuleStart,
       styles.indexOf("}", topRuleStart),
     );
-    expect(topRule).toContain(
-      "#000 var(--ambient-chrome-top-solid-height),\n    transparent var(--ambient-chrome-top-solid-height)",
-    );
-    expect(topRule).not.toContain("--top-fade-active");
-    expect(topRule).not.toContain("--ambient-chrome-fade-mask");
+    expect(topRule).toContain("--ambient-chrome-top-solid-height");
+    expect(topRule).toContain("--top-fade-active");
+    expect(topRule).toContain("--ambient-chrome-fade-mask-mid");
+    expect(topRule).toContain("--ambient-chrome-fade-mask-soft");
+    expect(topRule).toContain("--ambient-chrome-fade-mask-trace");
+    expect(topRule).toContain("backdrop-filter: blur(20px) saturate(180%)");
     expect(styles).toContain(
       "--ambient-chrome-wash: var(--ambient-chrome-fade-solid)",
     );

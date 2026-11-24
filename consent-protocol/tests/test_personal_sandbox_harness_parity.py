@@ -129,7 +129,8 @@ async def test_list_information_shared_with_me_routes_via_owner_feed_in_sandbox(
     async def fake_read_uid(_tc: Any) -> tuple[str, None]:
         return ("user_kt", None)
 
-    monkeypatch.setattr(action_tools, "_read_tool_user_id", fake_read_uid)
+    # Deliberately do NOT patch _read_tool_user_id so pod_mode() proves
+    # list_information_shared_with_me admits via _information_read_user_id.
     monkeypatch.setattr(action_tools, "_information_read_user_id", fake_read_uid)
     monkeypatch.setattr(
         "hushh_mcp.services.pod_information_discovery.private_information_discovery",

@@ -150,10 +150,11 @@ export function FilesToolbar({
           <RefreshCw className="size-4" />
         </Button>
         <Button
+          size="compact"
           disabled={trash || loading || locked || blocked}
           onClick={onUpload}
         >
-          <Upload className="mr-2 size-4" />
+          <Upload className="size-3.5" />
           Upload
         </Button>
         <Button

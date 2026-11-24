@@ -312,7 +312,7 @@ function AgentSettingsBody({
                   type="button"
                   onClick={() => openDetail("hosting-details")}
                   aria-label={`${currentHostingDescription}, hosting details`}
-                  className="group flex w-full items-start gap-3.5 px-4 pb-4 pt-4 text-left transition-[background-color,transform] duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none active:scale-[0.99] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-foreground/[0.025] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-focus-ring)]"
+                  className="group flex w-full items-start gap-3.5 px-4 pb-4 pt-4 text-left transition-[background-color,opacity] duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none active:opacity-[0.92] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-foreground/[0.025] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-focus-ring)]"
                 >
                   <span
                     aria-hidden="true"
@@ -918,17 +918,17 @@ function AgentSettingsBody({
         !working ? (
           <>
             <Button
+              size="compact"
               disabled={busy}
               onClick={() => void act("approve")}
-              className="min-h-10 rounded-full px-4 text-sm font-semibold"
             >
               Update now
             </Button>
             <Button
               variant="muted"
+              size="compact"
               disabled={busy}
               onClick={() => void act("defer")}
-              className="min-h-10 rounded-full px-4 text-sm font-semibold"
             >
               Later
             </Button>
@@ -936,18 +936,18 @@ function AgentSettingsBody({
         ) : null}
         <Button
           variant="muted"
+          size="compact"
           disabled={busy}
           onClick={() => void checkStatus()}
-          className="min-h-10 rounded-full px-4 text-sm font-semibold"
         >
           Check for updates
         </Button>
         {isPod && update.failed && update.operationId ? (
           <Button
             variant="muted"
+            size="compact"
             disabled={busy}
             onClick={() => void sendFailureReport()}
-            className="min-h-10 rounded-full px-4 text-sm font-semibold"
           >
             Send failure report
           </Button>

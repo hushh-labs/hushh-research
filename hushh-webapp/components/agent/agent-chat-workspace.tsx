@@ -3609,18 +3609,44 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         for (const item of feed.items) {
           if (!item?.id || item.read) continue;
           if (item.event_type === "consent_granted") {
-            const actor = item.actor_label?.trim() || "A connection";
-            const scopeLabel =
-              typeof item.metadata?.scope_label === "string"
-                ? item.metadata.scope_label
+            const meta = (item.metadata ?? {}) as Record<string, unknown>;
+            const actor =
+              item.actor_label?.trim() ||
+              (typeof meta.owner_name === "string" && meta.owner_name.trim()) ||
+              (typeof meta.actor_name === "string" && meta.actor_name.trim()) ||
+              "A connection";
+            const actorPhotoUrl =
+              typeof meta.actor_photo_url === "string" && meta.actor_photo_url.trim()
+                ? meta.actor_photo_url.trim()
                 : null;
+            const scopeLabel =
+              (typeof meta.scope_label === "string" && meta.scope_label.trim()) ||
+              (typeof meta.scope_name === "string" && meta.scope_name.trim()) ||
+              (typeof meta.bundle_label === "string" && meta.bundle_label.trim()) ||
+              null;
+            const durationLabel =
+              typeof meta.duration_label === "string" && meta.duration_label.trim()
+                ? meta.duration_label.trim()
+                : null;
+            const detailParts = [
+              scopeLabel,
+              durationLabel,
+              "Decrypted on this device",
+            ].filter(Boolean);
             appendStreamItem(
               {
                 id: `feed:${item.id}`,
                 eventKind: "shared_access_unlocked",
                 actorLabel: actor,
-                headline: `${actor} shared access with you`,
-                detail: scopeLabel || "Ready to open from your connections.",
+                actorPhotoUrl,
+                headline:
+                  actor === "A connection"
+                    ? "Shared access unlocked"
+                    : `${actor} shared access`,
+                detail:
+                  detailParts.length > 0
+                    ? detailParts.join(" · ")
+                    : "End-to-end encrypted · Ready to open on this device",
                 href: `${ROUTES.CONSENTS}?tab=active&from=${pathname || ROUTES.ONE_HOME}`,
                 status: "pending",
               },
