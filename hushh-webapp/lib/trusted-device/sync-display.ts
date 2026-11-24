@@ -105,3 +105,37 @@ export function deriveSyncDisplay(
 
   return { label: "Sync status unavailable", tone: "muted" };
 }
+
+/**
+ * Honest session status for self-enrolled web browsers (`platform === "web"`).
+ *
+ * Web browsers never run the Puppy local sync channel, so showing
+ * `"Trusted · not yet synced"` misleads owners into thinking something is
+ * broken. Instead, report whether this is the current browser or when the
+ * browser session was last used.
+ */
+export function deriveBrowserSessionDisplay(
+  device: DeviceSyncFields,
+  options: { isCurrent?: boolean; nowMs: number },
+): SyncDisplay {
+  const { isCurrent = false, nowMs } = options;
+  if (device.status === "active") {
+    if (isCurrent) {
+      return { label: "Current browser · Active now", tone: "active" };
+    }
+    if (device.last_used_at != null) {
+      return {
+        label: `Active · last used ${formatRelativeTime(device.last_used_at, nowMs)}`,
+        tone: "neutral",
+      };
+    }
+    if (device.created_at != null) {
+      return {
+        label: `Signed in · ${formatRelativeTime(device.created_at, nowMs)}`,
+        tone: "neutral",
+      };
+    }
+    return { label: "Active browser session", tone: "neutral" };
+  }
+  return deriveSyncDisplay(device, nowMs);
+}

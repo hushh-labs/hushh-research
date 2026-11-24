@@ -1081,12 +1081,16 @@ html.native-keyboard-inset.kb-open
   --app-scrim-color: rgb(0 0 0 / 0.24);
   --app-scrim-filter: blur(12px);
 
-  /* Route transition (full-page crossfade) motion: hard-capped at <=150ms. */
-  /* The complete route envelope is 150ms: 60ms exit + 90ms enter, with no delay. */
+  /* Route transition motion tokens: Apple HIG spring-deceleration curve with
+   * simultaneous GPU View Transitions (220-260ms) and directional CSS fallback. */
   --motion-route-exit-duration: 60ms;
-  --motion-route-enter-duration: 90ms;
-  --motion-route-exit-ease: cubic-bezier(0.4, 0, 0.2, 1);
-  --motion-route-enter-ease: cubic-bezier(0.16, 0.84, 0.28, 1);
+  --motion-route-enter-duration: 220ms;
+  --motion-route-tab-duration: 220ms;
+  --motion-route-push-duration: 260ms;
+  --motion-route-pop-duration: 240ms;
+  --motion-route-exit-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --motion-route-enter-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --motion-route-spring-ease: cubic-bezier(0.32, 0.72, 0, 1);
 
   --motion-deck-scale-active: 1.14;
   --motion-deck-scale-adjacent: 0.9;
@@ -8686,22 +8690,207 @@ html.native-android [data-app-pane-material="profile"] {
 }
 
 /* ==========================================================================
- * UNIFORM ROUTE TRANSITION — app-wide page crossfade
+ * UNIFORM ROUTE TRANSITION — Native View Transitions + Direction-Aware HIG Motion
  * --------------------------------------------------------------------------
- * The app plays a rich GSAP *enter* animation per route (usePageEnterAnimation).
- * This block adds the missing *exit* half so navigation crossfades instead of
- * hard-cutting — matching hussh-wiki / hushh-search-console.
+ * The single driver (lib/morphy-ux/hooks/use-route-transition.ts) classifies
+ * every route switch into a spatial direction on <html> (`data-route-direction`:
+ * `tab-forward` | `tab-back` | `push` | `pop` | `crossfade`):
  *
- * The driver (lib/morphy-ux/hooks/use-route-transition.ts) intercepts internal
- * link clicks, sets `data-route-transition` on <html>, fades the current page
- * out, then pushes the route. The incoming page fades in via the same tokens.
- *
- *   pending  → outgoing page fades away (exit)
- *   entering → incoming page fades in (enter)
- *
- * The envelope is the existing app shell content node, so no extra wrapper is
- * introduced. The route envelope animates opacity only.
+ *   1. Native View Transitions API (supported browsers): pins the persistent
+ *      Top App Bar (`app-top-shell`) and Bottom Shell (`app-bottom-shell`)
+ *      rock-steady while the outgoing and incoming route snapshots cross-glide
+ *      simultaneously on the compositor (transform + opacity only, zero blank
+ *      flash).
+ *   2. Directional CSS fallback (unsupported browsers / compatibility history
+ *      writes): animates `[data-app-shell-content="true"]` with the same
+ *      Apple HIG spring curve and spatial direction.
  * ========================================================================== */
+:root[data-view-transition-active="true"] [data-ui-role="top-navigation"] {
+  view-transition-name: app-top-shell;
+}
+
+:root[data-view-transition-active="true"] [data-app-bottom-shell] {
+  view-transition-name: app-bottom-shell;
+}
+
+::view-transition-group(app-top-shell),
+::view-transition-group(app-bottom-shell) {
+  z-index: 200;
+  animation-duration: 0s;
+}
+
+::view-transition-old(app-top-shell),
+::view-transition-new(app-top-shell),
+::view-transition-old(app-bottom-shell),
+::view-transition-new(app-bottom-shell) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--motion-route-tab-duration);
+  animation-timing-function: var(--motion-route-spring-ease);
+  animation-fill-mode: both;
+  mix-blend-mode: normal;
+}
+
+:root[data-route-direction="crossfade"]::view-transition-old(root) {
+  animation-name: app-vt-fade-out;
+}
+
+:root[data-route-direction="crossfade"]::view-transition-new(root) {
+  animation-name: app-vt-fade-in;
+}
+
+:root[data-route-direction="tab-forward"]::view-transition-old(root) {
+  animation-name: app-vt-tab-forward-out;
+  animation-duration: var(--motion-route-tab-duration);
+}
+
+:root[data-route-direction="tab-forward"]::view-transition-new(root) {
+  animation-name: app-vt-tab-forward-in;
+  animation-duration: var(--motion-route-tab-duration);
+}
+
+:root[data-route-direction="tab-back"]::view-transition-old(root) {
+  animation-name: app-vt-tab-back-out;
+  animation-duration: var(--motion-route-tab-duration);
+}
+
+:root[data-route-direction="tab-back"]::view-transition-new(root) {
+  animation-name: app-vt-tab-back-in;
+  animation-duration: var(--motion-route-tab-duration);
+}
+
+:root[data-route-direction="push"]::view-transition-old(root) {
+  animation-name: app-vt-push-out;
+  animation-duration: var(--motion-route-push-duration);
+}
+
+:root[data-route-direction="push"]::view-transition-new(root) {
+  animation-name: app-vt-push-in;
+  animation-duration: var(--motion-route-push-duration);
+}
+
+:root[data-route-direction="pop"]::view-transition-old(root) {
+  animation-name: app-vt-pop-out;
+  animation-duration: var(--motion-route-pop-duration);
+  z-index: 2;
+}
+
+:root[data-route-direction="pop"]::view-transition-new(root) {
+  animation-name: app-vt-pop-in;
+  animation-duration: var(--motion-route-pop-duration);
+  z-index: 1;
+}
+
+@keyframes app-vt-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes app-vt-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes app-vt-tab-forward-out {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(-12px, 0, 0);
+  }
+}
+
+@keyframes app-vt-tab-forward-in {
+  from {
+    opacity: 0;
+    transform: translate3d(12px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes app-vt-tab-back-out {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(12px, 0, 0);
+  }
+}
+
+@keyframes app-vt-tab-back-in {
+  from {
+    opacity: 0;
+    transform: translate3d(-12px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes app-vt-push-out {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    opacity: 0.82;
+    transform: translate3d(-10px, 0, 0);
+  }
+}
+
+@keyframes app-vt-push-in {
+  from {
+    opacity: 0;
+    transform: translate3d(24px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes app-vt-pop-out {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(24px, 0, 0);
+  }
+}
+
+@keyframes app-vt-pop-in {
+  from {
+    opacity: 0.85;
+    transform: translate3d(-14px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
 :root[data-route-transition="pending"] [data-app-shell-content="true"] {
   opacity: 0;
   transition: opacity var(--motion-route-exit-duration)
@@ -8709,13 +8898,34 @@ html.native-android [data-app-pane-material="profile"] {
   will-change: opacity;
 }
 
-/* Enter is opacity-only here so it never fights the GSAP enter (which owns the
- * staggered translate). When GSAP is unavailable/slow this still guarantees a
- * clean fade-in with no flash of the prior frame. */
 :root[data-route-transition="entering"] [data-app-shell-content="true"] {
   animation: app-route-enter var(--motion-route-enter-duration)
     var(--motion-route-enter-ease) both;
-  will-change: opacity;
+  will-change: opacity, transform;
+}
+
+:root[data-route-transition="entering"][data-route-direction="tab-forward"]
+  [data-app-shell-content="true"] {
+  animation-name: app-vt-tab-forward-in;
+  animation-duration: var(--motion-route-tab-duration);
+}
+
+:root[data-route-transition="entering"][data-route-direction="tab-back"]
+  [data-app-shell-content="true"] {
+  animation-name: app-vt-tab-back-in;
+  animation-duration: var(--motion-route-tab-duration);
+}
+
+:root[data-route-transition="entering"][data-route-direction="push"]
+  [data-app-shell-content="true"] {
+  animation-name: app-vt-push-in;
+  animation-duration: var(--motion-route-push-duration);
+}
+
+:root[data-route-transition="entering"][data-route-direction="pop"]
+  [data-app-shell-content="true"] {
+  animation-name: app-vt-pop-in;
+  animation-duration: var(--motion-route-pop-duration);
 }
 
 @keyframes app-route-enter {
@@ -8751,6 +8961,12 @@ html.native-android [data-app-pane-material="profile"] {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+
   :root[data-route-transition="pending"] [data-app-shell-content="true"],
   :root[data-route-transition="entering"] [data-app-shell-content="true"] {
     opacity: 1 !important;
