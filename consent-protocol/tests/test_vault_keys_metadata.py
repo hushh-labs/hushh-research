@@ -750,6 +750,45 @@ def test_allowed_passkey_rp_ids_prefer_explicit_allowlist(monkeypatch):
     assert "uat.one.hushh.ai" in allowed
 
 
+def test_allowed_passkey_rp_ids_include_uat_website_siblings_only(monkeypatch):
+    from hushh_mcp.runtime_settings import clear_runtime_settings_caches
+
+    monkeypatch.delenv("PASSKEY_ALLOWED_RP_IDS", raising=False)
+    monkeypatch.delenv("CORS_ALLOWED_ORIGINS", raising=False)
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://uat.one.hushh.ai")
+    clear_runtime_settings_caches()
+
+    uat_allowed = VaultKeysService._get_allowed_passkey_rp_ids()
+    assert "uat.one.hushh.ai" in uat_allowed
+    assert "uat.one.hussh.si" in uat_allowed
+    assert "uat.hussh.si" in uat_allowed
+    assert "uat.hushh.ai" in uat_allowed
+    assert "uat.hussh.ai" in uat_allowed
+    assert "www.hussh.si" not in uat_allowed
+    assert "one.hushh.ai" not in uat_allowed
+    assert "evil.example.com" not in uat_allowed
+
+
+def test_allowed_passkey_rp_ids_include_prod_website_siblings_only(monkeypatch):
+    from hushh_mcp.runtime_settings import clear_runtime_settings_caches
+
+    monkeypatch.delenv("PASSKEY_ALLOWED_RP_IDS", raising=False)
+    monkeypatch.delenv("CORS_ALLOWED_ORIGINS", raising=False)
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://one.hushh.ai")
+    clear_runtime_settings_caches()
+
+    prod_allowed = VaultKeysService._get_allowed_passkey_rp_ids()
+    assert "one.hushh.ai" in prod_allowed
+    assert "one.hussh.si" in prod_allowed
+    assert "www.hussh.si" in prod_allowed
+    assert "hussh.si" in prod_allowed
+    assert "www.hussh.ai" in prod_allowed
+    assert "www.hushh.ai" in prod_allowed
+    assert "uat.hussh.si" not in prod_allowed
+    assert "uat.one.hushh.ai" not in prod_allowed
+    assert "evil.example.com" not in prod_allowed
+
+
 @pytest.mark.asyncio
 async def test_setup_vault_state_rejects_duplicate_method_wrapper_pairs():
     fake = _FakeDb()
