@@ -3826,6 +3826,7 @@ export function KaiFlow({
             { key: "empty", label: "Start your portfolio", detail: "Choose a statement or a read-only bank connection in the import workspace." },
             { key: "import", label: "Import portfolio", run: handleReimport },
           ] }]} fallback={<PortfolioDashboardEmpty
+            showSharing={dashboardSection === "overview"}
             onFileSelect={handleFileUpload}
             onPreloadSchema={() => void handlePreloadSchema()}
             onConnectPlaid={(environment) =>

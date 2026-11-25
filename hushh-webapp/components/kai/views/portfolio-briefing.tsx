@@ -1,17 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Lightbulb } from "@/components/icons";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
+import { PortfolioDeclineChart } from "@/components/kai/charts/portfolio-decline-chart";
 import { PortfolioHistoryChart } from "@/components/kai/charts/portfolio-history-chart";
 import type { PortfolioData } from "@/components/kai/types/portfolio";
+import { FinancePersonaBadge } from "@/components/kai/onboarding/finance-persona-form";
+import type { PersonaPreferences } from "@/lib/kai/investing-persona";
+import { PortfolioReviewCarousel } from "./portfolio-review-carousel";
 import styles from "@/components/kai/shared/finance-workspace.module.css";
 import type { FinanceSource } from "@/lib/finance-sharing/contract";
 import { readSavedPortfolioReview, type PortfolioReviewResponse } from "@/lib/finance-sharing/portfolio-review-cache";
 import { readPortfolioReviewInput } from "@/lib/finance-sharing/portfolio-review-input";
 import { useFinanceShareContext } from "@/lib/finance-sharing/use-finance-share-context";
 import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
-import { getReviewSession, subscribeReviewSession } from "@/lib/finance-sharing/portfolio-review-session";
+import { portfolioDownsideFacts } from "./portfolio-analysis-facts";
 import type { DashboardViewModel } from "./dashboard-data-mapper";
 import { overviewFacts } from "./portfolio-display-facts";
 
@@ -32,47 +37,35 @@ export function portfolioBriefingFacts(model?: DashboardViewModel, portfolio?: P
   return { largest, leadingSector, cashShare, ringReady };
 }
 
-export function PortfolioBriefing({
-  review,
-  onOpen,
-  needsAction = false,
-  missing,
-}: {
-  review?: Pick<PortfolioReviewResponse, "score" | "takeaway">;
+export function PortfolioBriefing({ review, preferences, model, netDeposits, onOpen, missing }: {
+  review?: Pick<PortfolioReviewResponse, "takeaway">;
+  preferences?: PersonaPreferences;
+  model?: DashboardViewModel;
+  netDeposits?: number | null;
   onOpen: () => void;
-  needsAction?: boolean;
   missing?: string;
 }) {
-  const score = review?.score ?? null;
+  const takeaway = typeof review?.takeaway === "string" ? review.takeaway.trim() : undefined;
   return (
-    <SurfaceCard data-testid="portfolio-briefing">
-      <SurfaceCardContent className={`space-y-0 ${styles.portfolioTopBody}`}>
-        <div className={styles.portfolioTopHeader}>
-          <h2 className="ui-text-section-label">Portfolio review</h2>
-          {needsAction ? <span className="ui-text-helper-text shrink-0 text-amber-600 dark:text-amber-400">Needs action</span> : null}
-        </div>
-        {review?.takeaway ? <p className="ui-text-row-description">{review.takeaway}</p> : null}
-        <dl className="flex items-baseline justify-between gap-3">
-          <dt className="ui-text-row-description">Portfolio score</dt>
-          <dd className="shrink-0 ui-text-row-description tabular-nums">
-            {score === null ? (missing ? "Complete your persona" : "Unavailable") : (
-              <><strong className="ui-text-row-label-emphasized">{score}</strong> / 100</>
-            )}
-          </dd>
-        </dl>
-        <div className={styles.cardFooter}>
-          <ShellActionSurface variant="pill" className="min-h-11 ui-text-compact-button-label" onClick={onOpen}>
-            View analysis
-          </ShellActionSurface>
-        </div>
-      </SurfaceCardContent>
+    <SurfaceCard data-testid="portfolio-briefing" className={styles.portfolioBriefingCard}>
+      <section className={styles.portfolioBriefingContent} aria-label="Portfolio review">
+        <header className={styles.portfolioBriefingHeader}>
+          <span className={styles.portfolioBriefingHeading}>
+            <span className={styles.portfolioBriefingIcon} aria-hidden="true">
+              <Lightbulb size={18} />
+            </span>
+            <span>Portfolio review</span>
+          </span>
+          {preferences ? <FinancePersonaBadge preferences={preferences} /> : null}
+        </header>
+        <PortfolioReviewCarousel takeaway={takeaway} model={model} netDeposits={netDeposits} missing={missing} onOpen={onOpen} />
+      </section>
     </SurfaceCard>
   );
 }
 
 export function SavedPortfolioBriefing({ source, onOpen }: { source: FinanceSource; onOpen: () => void }) {
   const { capture, ready, session } = useFinanceShareContext();
-  const activeReview = useSyncExternalStore(subscribeReviewSession, getReviewSession, () => null);
   const { kind, snapshotId, representation } = source;
   const [revision, setRevision] = useState(0);
   const key = useMemo(() => ({
@@ -81,7 +74,8 @@ export function SavedPortfolioBriefing({ source, onOpen }: { source: FinanceSour
   const [saved, setSaved] = useState<{
     key: typeof key;
     review?: PortfolioReviewResponse;
-    sourceFence: string;
+    preferences?: PersonaPreferences;
+    model?: DashboardViewModel;
     missing?: string;
     isCurrent: () => boolean;
   } | null>(null);
@@ -103,17 +97,21 @@ export function SavedPortfolioBriefing({ source, onOpen }: { source: FinanceSour
 
     if (context.isCurrent()) {
       void (async () => {
-        const stored = await readSavedPortfolioReview(context);
-        if (disposed || !context.isCurrent()) return;
-        const { digest, sourceFence, payload } = await readPortfolioReviewInput(context, key.source);
+        const [{ digest, payload, model, preferences }, stored] = await Promise.all([
+          readPortfolioReviewInput(context, key.source),
+          readSavedPortfolioReview(context).catch(() => null),
+        ]);
         if (!disposed && context.isCurrent()) {
           const missing = [
             payload?.horizon === null ? "withdrawal timing" : null,
             payload?.loss_capacity === null ? "ability to absorb losses" : null,
           ].filter(Boolean).join(" and ");
-          setSaved({ key, sourceFence, missing: missing || undefined, review: digest === stored?.digest ? stored.review : undefined, isCurrent: context.isCurrent });
+          setSaved({
+            key, model, preferences, missing: missing || undefined,
+            review: digest === stored?.digest ? stored.review : undefined, isCurrent: context.isCurrent,
+          });
         }
-      })().catch(() => { /* Leave the score unavailable if the saved review cannot be opened. */ });
+      })().catch(() => { /* Keep the review link available if the saved takeaway cannot be opened. */ });
     }
 
     return () => {
@@ -124,8 +122,14 @@ export function SavedPortfolioBriefing({ source, onOpen }: { source: FinanceSour
   }, [capture, key]);
 
   const current = saved?.key === key && saved.isCurrent() ? saved : null;
-  const approved = activeReview?.approval.scope === session && activeReview.approval.sourceFence === current?.sourceFence;
-  return <PortfolioBriefing review={current?.review} missing={current?.missing} needsAction={Boolean(current && !current.review && !approved)} onOpen={onOpen} />;
+  return <PortfolioBriefing
+    review={current?.review}
+    model={current?.model}
+    preferences={current?.preferences}
+    netDeposits={kind === "statement" ? current?.model?.summaryMetrics.netDepositsPeriod : null}
+    missing={current?.missing}
+    onOpen={onOpen}
+  />;
 }
 
 /** Charts use saved holdings and balance history, never model estimates. */
@@ -136,32 +140,13 @@ export function PortfolioAnalysis({ model, loading = false }: { model?: Dashboar
   const mappedTotal = allocation.reduce((sum, { value }) => sum + value, 0);
   const coverage = mappedTotal / total;
   const showMix = allocation.length > 0 && coverage >= 0.99 && coverage <= 1.01;
-  const stocks = new Map<string, { name: string; value: number }>();
-  const positions = model?.canonicalModel.positions ?? [];
-  for (const position of positions) {
-    if (!position.tickerSymbol || !Number.isFinite(position.marketValue) || position.marketValue <= 0 ||
-        position.assetBucket !== "equity" || position.isCashEquivalent ||
-        !/^(common stock|preferred stock|stocks?|equit(?:y|ies))$/i.test(position.assetType?.trim() ?? "")) continue;
-    const key = position.tickerSymbol;
-    stocks.set(key, { name: position.name || key, value: (stocks.get(key)?.value ?? 0) + position.marketValue });
-  }
-  const largest = [...stocks.values()].sort((a, b) => b.value - a.value)[0];
-  const stockWeight = largest ? largest.value / total : 0;
-  const stock = largest && stockWeight >= 0.15 && stockWeight <= 1 ? largest : undefined;
+  const scenario = portfolioDownsideFacts(model);
+  const { stock, weight, investedValue, hasCompleteBalances } = scenario;
   const showHistory = !stock && model?.quality.historyReady === true;
   const cash = model?.canonicalModel.totals.cashValue ?? 0;
-  const buckets = model?.canonicalModel.allocation ?? [];
-  const bucketCoverage = buckets.reduce((sum, { value }) => sum + value, 0) / total;
-  const investedBuckets = buckets.filter(({ key }) =>
-    key === "equity" || key === "fixed_income" || key === "real_asset");
-  const investedValue = investedBuckets.reduce((sum, { value }) => sum + value, 0);
-  const investedWeight = investedValue / total;
-  const hasCompleteBalances = bucketCoverage >= 0.99 && bucketCoverage <= 1.01
-    && positions.every(({ marketValue }) => Number.isFinite(marketValue) && marketValue >= 0);
-  const showScenario = Boolean(stock) || (!showHistory && hasCompleteBalances && investedWeight > 0 && investedWeight <= 1);
-  const weight = stock ? stockWeight : investedWeight;
+  const showScenario = Boolean(stock) || (!showHistory && scenario.canShowInvestedScenario);
   const scenarioTitle = stock ? "What if your largest stock falls?" : "What if your investments fall?";
-  const scenarioSubject = stock?.name ?? investedBuckets.map(({ label }) => label).join(", ");
+  const scenarioSubject = scenario.subject;
 
   const mix = stock && cash >= 0 && cash + stock.value <= total
     ? [
@@ -190,7 +175,7 @@ export function PortfolioAnalysis({ model, loading = false }: { model?: Dashboar
           <h3 className="ui-text-section-label">Portfolio mix</h3>
           {showMix ? (
             <div className="flex flex-1 flex-wrap items-center gap-5">
-              <div aria-hidden className="grid size-[5.5rem] shrink-0 place-items-center rounded-full"
+              <div aria-hidden className={`${styles.allocationGlow} grid size-[5.5rem] shrink-0 place-items-center rounded-full`}
                 style={{ background: `conic-gradient(${slices.join(", ")})` }}>
                 <span className="size-[3.75rem] rounded-full bg-card" />
               </div>
@@ -232,18 +217,8 @@ export function PortfolioAnalysis({ model, loading = false }: { model?: Dashboar
               <span className="ui-text-row-description">Estimated portfolio change</span>
               <strong className="ui-text-row-label-emphasized tabular-nums">{estimate}</strong>
             </div>
-            <div aria-hidden="true">
-              <svg viewBox="0 0 300 38" preserveAspectRatio="none" className={styles.scenarioChart}>
-                <path d="M2 2H298 M2 19H298 M2 36H298" className={styles.scenarioGrid} />
-                <path d="M2 2L298 36H2Z" className={styles.scenarioFill} />
-                <path d="M2 2L298 36" className={styles.scenarioLine} />
-                <circle cx={2 + 296 * drop / 30} cy={2 + 34 * drop / 30} r="2" className={styles.scenarioPoint} />
-              </svg>
-              <div className={styles.scenarioAxis}><span>0% drop</span><span>30% drop</span></div>
-            </div>
-            <p className={styles.description}>{stock
-              ? "Assumes all other holdings stay flat."
-              : "Assumes these investments fall together and everything else stays flat."}</p>
+            <PortfolioDeclineChart drop={drop} />
+            <p className={styles.description}>{scenario.assumptions}</p>
           </SurfaceCardContent>
         </SurfaceCard>
       ) : showHistory && model ? (

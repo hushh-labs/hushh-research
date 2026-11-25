@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PortfolioOverview } from "@/components/kai/views/portfolio-overview";
 import { SectorAllocationChart } from "@/components/kai/charts/sector-allocation-chart";
@@ -47,11 +47,10 @@ describe("portfolio briefing", () => {
     expect(screen.getByText("S08")).toBeVisible();
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
   });
-  it("offers analysis when a saved score is unavailable", () => {
+  it("offers analysis when there is no saved review", () => {
     const open = vi.fn();
     render(<PortfolioBriefing onOpen={open} />);
-    expect(screen.getByText("Portfolio score")).toBeVisible();
-    expect(screen.getByText("Unavailable")).toBeVisible();
+    expect(screen.getByText("Portfolio review")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "View analysis" }));
     expect(open).toHaveBeenCalledOnce();
   });
@@ -108,18 +107,20 @@ describe("portfolio briefing", () => {
     expect(screen.queryByText("Estimated portfolio change")).toBeNull();
   });
 
-  it("shows saved positions and allocation without inventing performance contributions", () => {
+  it("keeps holding details behind Explore without inventing performance contributions", () => {
     const portfolio = { total_value: 1000, holdings: [
       { symbol: "ABC", name: "Example", quantity: 1, price: 1000, market_value: 1000 },
     ] };
     const model = mapPortfolioToDashboardViewModel(portfolio);
     const open = vi.fn();
-    render(<PortfolioOverview model={model} portfolio={portfolio} source="Statement" period="Saved snapshot" onOpenSection={open} />);
-    expect(screen.getByText("Example")).toBeTruthy();
-    const performance = within(screen.getByTestId("portfolio-performance"));
-    expect(performance.queryByText("Unavailable")).toBeNull();
-    expect(performance.queryByText("Since you bought")).toBeNull();
-    expect(performance.queryByText("Reported balance change")).toBeNull();
+    render(<PortfolioOverview model={model} portfolio={portfolio} source="Statement" importLabel="Statement" period="Saved snapshot" onOpenSection={open} />);
+    const valueCard = screen.getByTestId("portfolio-value-card");
+    expect(valueCard).toHaveTextContent("Portfolio value");
+    expect(screen.getByText("Statement", { exact: true })).toBeVisible();
+    expect(screen.queryByText("Example")).toBeNull();
+    expect(screen.getByTestId("portfolio-value-card")).not.toHaveTextContent("balance change");
+    fireEvent.click(screen.getByRole("button", { name: "View holdings" }));
+    expect(open).toHaveBeenCalledWith("holdings");
     fireEvent.click(screen.getByRole("button", { name: "View performance" }));
     expect(open).toHaveBeenCalledWith("performance");
     fireEvent.click(screen.getByRole("button", { name: "View allocation" }));
@@ -133,14 +134,13 @@ describe("portfolio briefing", () => {
     const model = mapPortfolioToDashboardViewModel(portfolio);
     render(<PortfolioOverview model={model} portfolio={portfolio} source="Statement" period="Saved snapshot" onOpenSection={vi.fn()}
       briefing={<PortfolioBriefing onOpen={vi.fn()} />} />);
-    const performance = within(screen.getByTestId("portfolio-performance"));
-    if (change === null) expect(performance.queryByText("Reported balance change")).toBeNull();
-    else expect(performance.getByText("Reported balance change").nextElementSibling?.textContent).toBe(change === 0 ? "$0.00" : "-$25.00");
-    expect(performance.queryByText("Investment return")).toBeNull();
-    expect(performance.queryByText("Unavailable")).toBeNull();
+    const valueCard = screen.getByTestId("portfolio-value-card");
+    if (change === null) expect(valueCard).not.toHaveTextContent("balance change");
+    else expect(valueCard).toHaveTextContent(change === 0 ? "$0.00 balance change" : "−$25.00 balance change");
+    expect(valueCard).not.toHaveTextContent("Investment return");
   });
 
-  it("shows the judgment and score for the matching portfolio without inventing a next step", async () => {
+  it("shows the judgment for the matching portfolio without inventing a next step", async () => {
     reviewMocks.capture.mockReturnValue({ userId: "owner", isCurrent: reviewMocks.isCurrent });
     const takeaway = "There's enough cash here for the money you'll need soon.";
     reviewMocks.readCache.mockResolvedValue({
@@ -154,14 +154,14 @@ describe("portfolio briefing", () => {
     const { rerender } = render(<SavedPortfolioBriefing source={{ kind: "statement", snapshotId: "first" }} onOpen={open} />);
     expect(await screen.findByText(takeaway)).toBeVisible();
     expect(screen.queryByRole("heading", { name: "Next step" })).toBeNull();
-    expect(screen.getByText("Portfolio score").nextElementSibling).toHaveTextContent("0 / 100");
+    expect(screen.queryByText("Portfolio score")).toBeNull();
     rerender(<SavedPortfolioBriefing source={{ kind: "statement", snapshotId: "second" }} onOpen={open} />);
     await waitFor(() => expect(reviewMocks.readInput).toHaveBeenCalledWith(
       expect.objectContaining({ userId: "owner" }),
       expect.objectContaining({ snapshotId: "second" }),
     ));
     expect(screen.queryByText(takeaway)).toBeNull();
-    expect(screen.getByText("Unavailable")).toBeVisible();
+    expect(screen.getByRole("button", { name: "View analysis" })).toBeVisible();
   });
 
   it("shows the judgment from a saved review with a separate next step", () => {

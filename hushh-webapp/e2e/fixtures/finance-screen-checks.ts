@@ -48,6 +48,7 @@ export function registerFinanceScreenChecks(
     for (const theme of ["light", "dark"]) {
       test(`Finance complete screens ${width}px ${theme}`, async ({ page }) => {
         test.setTimeout(60_000);
+        await page.emulateMedia({ reducedMotion: "reduce" });
         await mount(page, width);
         await page.evaluate(mode => document.documentElement.classList.toggle("dark", mode === "dark"), theme);
         const importShell = page.getByTestId("finance-import-fixture").locator("[data-fullscreen-flow-shell]");
@@ -87,12 +88,13 @@ export function registerFinanceScreenChecks(
           .toBe(await page.evaluate(() => getComputedStyle(document.body).getPropertyValue("--font-app-body").trim()));
         await expect(overview.getByText("$2,000.00", { exact: true })).toBeVisible();
         const review = overview.getByTestId("portfolio-briefing");
-        await expect(review.getByText("Portfolio score").locator("..")).toContainText("72 / 100");
-        await expect(review.getByText("Separate the cash you’ll need from the cash you can invest.")).toBeVisible();
-        const performance = overview.getByTestId("portfolio-performance");
-        await expect(performance.getByText("$680.42", { exact: true })).toBeVisible();
-        await expect(performance.getByText("Investment return", { exact: true })).toHaveCount(0);
-        await expect(performance.getByText("Unavailable", { exact: true })).toHaveCount(0);
+        await expect(review.getByText(/One company accounts for most of your balance/)).toBeVisible();
+        await expect(overview.getByText("Portfolio score", { exact: true })).toHaveCount(0);
+        const value = overview.getByTestId("portfolio-value-card");
+        await expect(value.getByText("CSV", { exact: true })).toBeVisible();
+        await expect(value.getByRole("button", { name: "View performance" })).toBeVisible();
+        await expect(value.getByText(/\$680.42.*balance change/)).toBeVisible();
+        await expect(overview.getByText("Investment return", { exact: true })).toHaveCount(0);
         if (width >= 1024) {
           // The workspace should use the available content width rather than
           // introducing a second, narrower reading measure below the tabs.
@@ -103,19 +105,16 @@ export function registerFinanceScreenChecks(
             return { available, workspace: element.getBoundingClientRect().width };
           });
           expect(Math.abs(widths.workspace - widths.available)).toBeLessThanOrEqual(1);
-          const value = await overview.getByTestId("portfolio-value-card").boundingBox();
-          const briefing = await overview.getByTestId("portfolio-briefing").boundingBox();
-          expect(Math.abs(value!.y - briefing!.y)).toBeLessThanOrEqual(2);
-          expect(value!.x + value!.width).toBeLessThanOrEqual(briefing!.x);
-          const buttonInsets = await overview.evaluate(element => {
-            const names = ["View analysis", "View performance", "View allocation"];
-            return names.map(name => {
-              const button = [...element.querySelectorAll("button")].find(item => item.textContent?.trim() === name)!;
-              const card = button.closest('[data-slot="card"]')!;
-              return card.getBoundingClientRect().bottom - button.getBoundingClientRect().bottom;
-            });
-          });
-          for (const inset of buttonInsets) expect(Math.abs(inset - 16)).toBeLessThanOrEqual(2);
+          const hero = (await value.boundingBox())!;
+          const reviewBox = (await review.boundingBox())!;
+          expect(Math.abs(hero.y - reviewBox.y)).toBeLessThanOrEqual(2);
+          expect(hero.x + hero.width).toBeLessThanOrEqual(reviewBox.x);
+          const controls = review.getByRole("group", { name: "Portfolio review views" });
+          const [takeaway, playback] = await Promise.all([
+            controls.getByRole("button", { name: "Takeaway", exact: true }).boundingBox(),
+            controls.getByRole("button", { name: "Resume review rotation" }).boundingBox(),
+          ]);
+          expect(playback!.y).toBeCloseTo(takeaway!.y);
         }
         await overview.screenshot({ path: test.info().outputPath(`overview-${width}-${theme}.png`) });
         await overview.getByRole("button", { name: "Share portfolio PDF" }).click();
@@ -125,7 +124,7 @@ export function registerFinanceScreenChecks(
         await expect(page.getByTestId("action-result")).toHaveText("Export report");
         await page.keyboard.press("Escape");
         await expect(report).toHaveCount(0);
-        await overview.getByRole("button", { name: /^All \d+/ }).click();
+        await overview.getByRole("button", { name: "View holdings" }).click();
         await expect(page.getByTestId("action-result")).toHaveText("Open holdings");
         await overview.getByRole("button", { name: "Open sample holding" }).click();
         const holding = page.getByRole("dialog", { name: "TEST", exact: true });
@@ -187,9 +186,9 @@ export function registerFinanceScreenChecks(
         const history = page.getByTestId("finance-history-fixture");
         await history.getByRole("button", { name: "Open TEST analysis" }).click();
         await expect(page.getByTestId("action-result")).toHaveText("Open saved");
-        await history.getByRole("button", { name: "Versions for TEST" }).click();
-        await page.getByRole("menuitem", { name: /Version 3/ }).click();
-        await expect(page.getByTestId("action-result")).toHaveText("Open saved");
+        await history.getByRole("button", { name: "Actions for TEST" }).click();
+        await expect(page.getByRole("menuitem")).toHaveText("Delete this analysis");
+        await page.keyboard.press("Escape");
         expect(await history.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
         await history.screenshot({ path: test.info().outputPath(`history-${width}-${theme}.png`) });
         const subpages = page.getByTestId("finance-subpages-fixture");
