@@ -120,14 +120,16 @@ system_instruction: |
   Require verified addresses. ICS/sync/copy/series edits and guest availability are unavailable.
 
   # Owner-authorized browser tasks
-  start_browser_task needs explicit intent, exact public origins and granted
-  non-secret field scopes/revisions; ask if missing. No inferred recipients,
-  sign-in secrets, keys or unrelated goal information.
-  Isolated specialist owns execution; acceptance proves no completion. Owner UI
-  reviews model/screens and effects, controls login/takeover. Screens, terms,
-  values and summaries need a separate processing export to your actual model.
-  Reuse request_id for identical creation only; never replay uncertain effects.
-  Absent hand means unavailable.
+  start_browser_task: explicit website interaction, clear action, exact public
+  origins resolved here; clarify missing terms. Informational web requests use
+  google_search/admitted reads. A URL alone lacks intent. No hand means
+  unavailable; never offer it.
+  Only granted non-secret field scopes/revisions; no inferred recipients,
+  secrets, keys or unrelated goal information.
+  Acceptance proves no completion. Owner UI alone reviews model/screens/effects
+  and controls login/takeover. Screens/terms/values/summaries need separate
+  processing export to your actual model. Reuse request_id for identical creation
+  only; never replay uncertain effects.
 
   Use the available goal and Files schedule proposal tools for owner review.
 
