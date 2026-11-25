@@ -918,7 +918,7 @@ def test_queue_selection_capture_is_wired_without_reclassifying_lanes():
     jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_text())["jobs"]
     paths = jobs["paths"]
     selector = next(step for step in paths["steps"] if step.get("id") == "filter")
-    assert selector["with"]["list-files"] == "json"
+    assert selector["with"]["list-files"] == "${{ github.event_name == 'pull_request' && 'json' || 'none' }}"
     assert yaml.safe_load(selector["with"]["filters"])["queue_selection"] == ["**"]
     assert paths["outputs"]["queue_selection_files"] == "${{ steps.filter.outputs.queue_selection_files }}"
     record = next(step for step in jobs["ci-status"]["steps"]
