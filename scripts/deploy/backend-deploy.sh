@@ -977,6 +977,9 @@ if [[ "${_DEPLOY_ENV}" == "uat" && "${PROJECT_ID}" == "hushh-pda-uat" && -z "${c
     hub_url="$(gcloud run services describe "${_BACKEND_SERVICE}" \
       --region="${_REGION}" --format='value(status.url)' 2>/dev/null || true)"
     append_optional_env "HUSSH_HUB_BASE_URL" "${hub_url}"
+    # Admit owner-bound Ed25519 pod request signatures at the Hub custody and
+    # owner-feed doors while keeping POD_HUB_ALLOWED_SERVICE_ACCOUNT unset on UAT.
+    append_optional_env "POD_HUB_IDENTITY_AUTH_ENABLED" "true"
     personal_agent_enabled="true"
     personal_agent_backend="gcp"
     personal_agent_autoprovision="true"
@@ -1008,6 +1011,20 @@ if [[ "${_DEPLOY_ENV}" == "uat" && "${PROJECT_ID}" == "hushh-pda-uat" && -z "${c
     source_pod_retirement_sweep_enabled="true"
     dev_custody_broker_seal_key_secret="hussh-custody-broker-seal-key"
     dev_sandbox_identity_master_key_secret="sandbox-edge-identity-master-key"
+    if gcloud secrets describe CONSENT_ED25519_PRIVATE_KEY --project="$PROJECT_ID" >/dev/null 2>&1 \
+      && gcloud secrets describe CONSENT_ED25519_PUBLIC_KEYS --project="$PROJECT_ID" >/dev/null 2>&1; then
+      consent_signing_alg="ed25519"
+      consent_ed25519_kid="hushh-consent-uat-1"
+      dev_consent_ed25519_private_secret="CONSENT_ED25519_PRIVATE_KEY"
+      dev_consent_ed25519_public_keys_secret="CONSENT_ED25519_PUBLIC_KEYS"
+    fi
+    if gcloud secrets describe OWNER_FEED_ED25519_PRIVATE_KEY --project="$PROJECT_ID" >/dev/null 2>&1 \
+      && gcloud secrets describe OWNER_FEED_ED25519_PUBLIC_KEYS --project="$PROJECT_ID" >/dev/null 2>&1; then
+      owner_feed_signing_alg="ed25519"
+      owner_feed_ed25519_kid="hushh-owner-feed-uat-1"
+      dev_owner_feed_private_secret="OWNER_FEED_ED25519_PRIVATE_KEY"
+      dev_owner_feed_public_keys_secret="OWNER_FEED_ED25519_PUBLIC_KEYS"
+    fi
   else
     echo "UAT ACE sandbox parity: edge gateway or custody secrets absent; skipping ACE bindings." >&2
   fi
