@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: Apache-2.0
 -- SPDX-FileCopyrightText: 2026 Hushh
--- Migration 459: Control-plane KYC plaintext retirement, terminal scheduled-mail
+-- Migration 463: Control-plane KYC plaintext retirement, terminal scheduled-mail
 -- recipient_display minimization, and direct-call identity/cascade B-tree indexes.
 -- Note: Canonical migrations >= 459 execute inside the migration ledger's outer
 -- transaction envelope and intentionally omit top-level BEGIN/COMMIT statements.
@@ -17,7 +17,7 @@ SET
   last_error_message = NULL,
   metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
     'legacy_plaintext_redacted_at', NOW(),
-    'control_plane_redaction_migration', '459_control_plane_kyc_redaction_and_call_indexes'
+    'control_plane_redaction_migration', '463_control_plane_kyc_redaction_and_call_indexes'
   ),
   updated_at = NOW()
 WHERE sender_email IS NOT NULL
