@@ -131,30 +131,20 @@
       "deploy_env": "production",
       "cloud_sql_instance": "hushh-pda:us-central1:hushh-vault-db",
       "tier": "db-custom-1-3840",
-      "max_connections": 100,
-      "max_connections_source": "Tier default: 3.75 GB to under 6 GB gives 100 (https://cloud.google.com/sql/docs/postgres/flags, max_connections). No max_connections flag is set (gcloud sql instances describe hushh-vault-db, 2026-10-06).",
-      "observed_peak": "63 backends on 2026-10-06 (cloudsql.googleapis.com/database/postgresql/num_backends, daily max).",
+      "max_connections": 400,
+      "max_connections_source": "Explicit database flag max_connections=400 (gcloud sql instances describe hushh-vault-db, 2026-11-25).",
+      "observed_peak": "63 backends on 2026-10-06; 19 backends 6h peak on 2026-11-25 (cloudsql.googleapis.com/database/postgresql/num_backends).",
       "external_reserve": {
         "connections": 0,
-        "source": "No connection source outside the deployed config has been measured on production (peak 63 of 100, 2026-10-06). Raise this when a measurement shows one."
+        "source": "No connection source outside the deployed config has been measured on production (peak 63 of 100 on 2026-10-06; 19 of 400 on 2026-11-25). Raise this when a measurement shows one."
       },
       "deploy_paths": [
         {
-          "path": ".github/workflows/deploy-production.yml",
-          "accepted_worst_case": {
-            "connections": 237,
-            "decision": "pending founder: raise max_connections (needs instance restart) or reduce capacity",
-            "recorded": "2026-10-06"
-          }
+          "path": ".github/workflows/deploy-production.yml"
         },
         {
           "path": "scripts/ops/cloudbuild_release.sh",
-          "branch": "production",
-          "accepted_worst_case": {
-            "connections": 237,
-            "decision": "pending founder: raise max_connections (needs instance restart) or reduce capacity",
-            "recorded": "2026-10-06"
-          }
+          "branch": "production"
         }
       ],
       "companion_services": [

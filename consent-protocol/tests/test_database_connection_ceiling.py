@@ -402,7 +402,7 @@ def test_container_takes_its_worker_count_from_the_deploy() -> None:
 def test_preview_oauth_returns_to_one_process_without_changing_shared_lanes() -> None:
     assert _hub_worker_count("dev", preview=True) == 1
     assert _hub_worker_count("uat") == 2
-    assert _hub_worker_count("production") == 2
+    assert _hub_worker_count("production") == 1
     block = _process_bounds_source() + "\nconfigure_backend_process_bounds\n"
     variables = {
         "_DEPLOY_ENV": "uat",
