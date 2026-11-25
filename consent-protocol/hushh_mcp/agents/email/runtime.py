@@ -278,6 +278,124 @@ EMAIL_LIVE_RECEIPT_EXTRACTOR_SCHEMA: dict[str, Any] = {
 }
 
 
+_S: dict[str, Any] = {"type": "STRING"}
+_B: dict[str, Any] = {"type": "BOOLEAN"}
+_NS: dict[str, Any] = {"type": "STRING", "nullable": True}
+
+EMAIL_RECEIPT_NOTICE_SCHEMA: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        "findings": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "kind": {
+                        "type": "STRING",
+                        "enum": [
+                            "plan_review",
+                            "inactive_plan",
+                            "refund_followup",
+                            "possible_duplicate",
+                            "price_rise",
+                        ],
+                    },
+                    "headline": _S,
+                    "reason": _S,
+                    "strength": {"type": "STRING", "enum": ["clear", "question"]},
+                    "evidence": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "message_id": _S,
+                                "role": {
+                                    "type": "STRING",
+                                    "enum": [
+                                        "paid",
+                                        "provider_notice",
+                                        "announcement",
+                                        "refund_promise",
+                                        "refund_confirmation",
+                                        "cancellation",
+                                        "charge",
+                                    ],
+                                },
+                                "quote": _S,
+                            },
+                            "required": ["message_id", "role", "quote"],
+                        },
+                    },
+                    "plans": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "provider_id": _S,
+                                "paid_message_id": _S,
+                                "category": _S,
+                                "category_quote": _S,
+                                "active": _B,
+                            },
+                            "required": [
+                                "provider_id",
+                                "paid_message_id",
+                                "category",
+                                "category_quote",
+                                "active",
+                            ],
+                        },
+                    },
+                    "promised_by": _NS,
+                    "announced": {
+                        "type": "OBJECT",
+                        "nullable": True,
+                        "properties": {"amount_text": _S, "effective_on": _NS},
+                        "required": ["amount_text", "effective_on"],
+                    },
+                    "checks": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "newer_message_considered": _B,
+                            "other_account_considered": _B,
+                            "shared_plan_considered": _B,
+                            "already_cancelled_considered": _B,
+                        },
+                        "required": [
+                            "newer_message_considered",
+                            "other_account_considered",
+                            "shared_plan_considered",
+                            "already_cancelled_considered",
+                        ],
+                    },
+                },
+                "required": [
+                    "kind",
+                    "headline",
+                    "reason",
+                    "strength",
+                    "evidence",
+                    "plans",
+                    "promised_by",
+                    "announced",
+                    "checks",
+                ],
+            },
+        },
+        "resolved": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {"prior_id": _S, "message_id": _S, "quote": _S},
+                "required": ["prior_id", "message_id", "quote"],
+            },
+        },
+        "none_reason": _S,
+    },
+    "required": ["findings", "resolved", "none_reason"],
+}
+
+
 @lru_cache(maxsize=8)
 def load_email_gene(gene_id: str) -> AgentSubagentConfig:
     """Load one bounded Email child from the authored manifest."""
@@ -352,6 +470,7 @@ __all__ = [
     "EMAIL_REQUEST_CLASSIFIER_SCHEMA",
     "EMAIL_RECEIPT_EXTRACTOR_SCHEMA",
     "EMAIL_RECEIPT_MEMORY_SCHEMA",
+    "EMAIL_RECEIPT_NOTICE_SCHEMA",
     "load_email_gene",
     "run_email_gene",
 ]

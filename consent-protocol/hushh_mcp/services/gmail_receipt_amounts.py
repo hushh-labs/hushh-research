@@ -10,10 +10,11 @@ import re
 
 # A rupee, euro, pound or dollar sign ("Rs" and "Rs." are rupees), then digits
 # grouped as thousands (1,234,567) or Indian lakhs (1,23,456 and 1,00,00,000).
-_MONEY = (
-    r"([₹€£$]|Rs\.?)?\s*((?:[0-9]{1,3}(?:,[0-9]{3}){1,3}"
-    r"|[0-9]{1,2}(?:,[0-9]{2}){1,4},[0-9]{3}|[0-9]{1,12})(?:\.[0-9]{1,2})?)"
+NUMBER = (
+    r"(?:[0-9]{1,3}(?:,[0-9]{3}){1,3}"
+    r"|[0-9]{1,2}(?:,[0-9]{2}){1,4},[0-9]{3}|[0-9]{1,12})(?:\.[0-9]{1,2})?"
 )
+_MONEY = r"([₹€£$]|Rs\.?)?\s*(" + NUMBER + ")"
 TOTAL = re.compile(
     r"\b(grand\s+total|order\s+total|invoice\s+total|total\s+amount|"
     r"total\s+(?:paid|charged)|amount\s+(?:paid|charged|due)|payment\s+(?:total|received)|"
@@ -42,4 +43,4 @@ def receipt_currency(
     return explicit or symbol_currency or None
 
 
-__all__ = ["SUFFIX_TOTAL", "TOTAL", "receipt_currency"]
+__all__ = ["NUMBER", "SUFFIX_TOTAL", "TOTAL", "receipt_currency"]
