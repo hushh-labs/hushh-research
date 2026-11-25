@@ -20,13 +20,10 @@ from hushh_mcp.services.gmail_receipt_notice_service import GmailReceiptNoticeSe
 from tests.test_gmail_receipt_notice import NETFLIX, NOW, gmail, netflix_history
 from tests.test_gmail_receipt_notice_service import FakeLive, FakeSession
 
-pytestmark = [
-    pytest.mark.live_notice_model,
-    pytest.mark.skipif(
-        os.getenv("RECEIPT_NOTICE_LIVE_MODEL") != "1",
-        reason="set RECEIPT_NOTICE_LIVE_MODEL=1 (and Vertex credentials) to run the real model",
-    ),
-]
+pytestmark = pytest.mark.skipif(
+    os.getenv("RECEIPT_NOTICE_LIVE_MODEL") != "1",
+    reason="set RECEIPT_NOTICE_LIVE_MODEL=1 (and Vertex credentials) to run the real model",
+)
 
 SWIGGY = "Swiggy <orders@swiggy.in>"
 OWNER_TOKEN = "synthetic-owner-token"
