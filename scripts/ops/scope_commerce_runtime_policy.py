@@ -28,6 +28,7 @@ SCOPE_COMMERCE_POLICY_TYPES: dict[str, type] = {
             "scope_commerce_return_path",
             "scope_commerce_website_origin",
             "scope_commerce_fee_configuration_ref",
+            "scope_commerce_bank_checkout_configuration_id",
             "scope_commerce_stripe_acceptance_ref",
             "scope_commerce_account_configuration_ref",
             "scope_commerce_country_approval_ref",
@@ -101,6 +102,12 @@ def _validated_scope_commerce_policy(value: Any) -> dict[str, Any]:
             raise ValueError(
                 "Scope commerce scheduler identities must be exact nonempty strings"
             )
+        if (
+            key == "scope_commerce_bank_checkout_configuration_id"
+            and item
+            and not re.fullmatch(r"pmc_[A-Za-z0-9]+", item)
+        ):
+            raise ValueError("Scope commerce bank checkout configuration ID is invalid")
         if key == "scope_commerce_country_policies_json":
             _validate_scope_commerce_countries(item)
         if key == "scope_commerce_stripe_webhook_mode" and item not in {
