@@ -128,8 +128,20 @@ export function resolveRequesterDisplayName(
 export function resolveConsentRequesterLabel(
   input: ConsentRequesterLabelInput
 ): string {
+  const rawAgent = String(input.agentId || input.counterpartId || input.requesterLabel || "")
+    .trim()
+    .toLowerCase();
+  if (rawAgent === "personal_agent") {
+    return "Agent One";
+  }
+
   const friendlyLabel = resolveRequesterDisplayName(input);
-  if (friendlyLabel) return friendlyLabel;
+  if (friendlyLabel) {
+    if (friendlyLabel.trim().toLowerCase() === "personal_agent") {
+      return "Agent One";
+    }
+    return friendlyLabel;
+  }
 
   if (
     String(input.agentId || "").trim().toLowerCase().startsWith("ria:") ||

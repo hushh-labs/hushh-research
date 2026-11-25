@@ -41,26 +41,37 @@ export function OneThinkingIndicator({
   label?: string | null;
   className?: string;
 }) {
-  const displayLabel =
-    typeof label === "string" && label.trim().length > 0
-      ? label.trim()
-      : ONE_TURN_PHASE_LABELS[phase];
+  const explicitLabel =
+    typeof label === "string" && label.trim().length > 0 ? label.trim() : null;
+  const fallbackLabel = ONE_TURN_PHASE_LABELS[phase];
+  const isGenericThinking =
+    phase === "thinking" &&
+    (!explicitLabel || /^thinking\.{0,3}$|^thinking…$/i.test(explicitLabel));
+  const showVisibleLabel = !isGenericThinking;
+  const accessibleLabel = explicitLabel ?? fallbackLabel;
 
   return (
     <span
       data-testid="one-thinking-indicator"
       data-turn-phase={phase}
       className={cn(
-        "inline-flex items-center gap-2.5 py-0.5 text-[13.5px] leading-6 text-muted-foreground",
+        "inline-flex items-center gap-2.5 py-1 text-[13.5px] leading-6 text-muted-foreground",
         className,
       )}
     >
-      <span className="inline-flex items-center gap-1" aria-hidden="true">
-        <span className="size-1.5 rounded-full bg-foreground/45 motion-safe:animate-pulse" />
-        <span className="size-1.5 rounded-full bg-foreground/35 motion-safe:animate-pulse [animation-delay:220ms]" />
-        <span className="size-1.5 rounded-full bg-foreground/25 motion-safe:animate-pulse [animation-delay:440ms]" />
+      <span
+        className="one-typing-rhythm inline-flex items-center gap-[5px] px-0.5 py-1"
+        aria-hidden="true"
+      >
+        <span className="one-typing-rhythm-dot" />
+        <span className="one-typing-rhythm-dot" />
+        <span className="one-typing-rhythm-dot" />
       </span>
-      <span>{displayLabel}</span>
+      {showVisibleLabel ? (
+        <span>{accessibleLabel}</span>
+      ) : (
+        <span className="sr-only">{accessibleLabel}</span>
+      )}
     </span>
   );
 }

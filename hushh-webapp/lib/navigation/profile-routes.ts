@@ -43,6 +43,7 @@ export type ProfileDetail =
   | "sharing"
   | "phone"
   | "hosting-details"
+  | "hosting-own-cloud"
   | "update-details"
   | "kai-preferences"
   | "gemini"
@@ -182,7 +183,7 @@ export function normalizeProfileDetail(
   if (panel === "account" && detail === "phone") {
     return detail;
   }
-  if (panel === "hosting" && detail === "hosting-details") {
+  if (panel === "hosting" && (detail === "hosting-details" || detail === "hosting-own-cloud")) {
     return detail;
   }
   if (panel === "software-updates" && detail === "update-details") {

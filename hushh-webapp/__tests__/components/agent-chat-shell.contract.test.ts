@@ -201,7 +201,9 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("computeChatTimeSeparators(timelineItems)");
     expect(workspace).toContain("<ChatTimeSeparatorRow separator=");
     expect(workspace).not.toContain("<span>{message.timestamp}</span>");
-    expect(workspace).not.toContain('return "Ready";');
+    // Unified presence indicator uses "Ready" (matching /one) instead of stale "Idle".
+    expect(workspace).toContain('return "Ready";');
+    expect(workspace).not.toContain('return "Idle";');
     // Live status belongs below One, not beside the profile avatar. Idle One
     // has no tagline; active status crossfades without moving the controls.
     expect(workspace).toContain('IDLE_AGENT_SUBTITLE = ""');

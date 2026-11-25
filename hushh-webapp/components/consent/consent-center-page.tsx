@@ -769,7 +769,7 @@ function ConsentEntryRow({
         entry.kind === "connection" ? null : (
           <Badge data-consent-role="status"
             variant="outline"
-            className={cn("shrink-0 lowercase", badgeClassName(entry.status))}
+            className={cn("shrink-0 font-medium", badgeClassName(entry.status))}
           >
             {formatStatus(entry.status)}
           </Badge>
@@ -1163,7 +1163,7 @@ function ConsentEntryDetail({
     setRevokeDialogOpen(false);
   }, [disarmDeny, entry?.id, requestedProposalKey]);
 
-  const { userId: previewUserId } = useAuth();
+  const { user: authUser, userId: previewUserId } = useAuth();
   const {
     vaultKey: previewVaultKey,
     getVaultOwnerToken: getPreviewVaultOwnerToken,
@@ -1644,7 +1644,7 @@ function ConsentEntryDetail({
             <label data-consent-role="disclosure" className="flex w-full items-start gap-3 pb-2 text-sm text-muted-foreground">
               <Checkbox checked={modelProcessingApproved()} disabled={requestBusy}
                 onCheckedChange={(checked) => setModelApproval(checked === true ? { review: modelReviewBinding, epoch: snapshotVaultSessionEpoch() } : null)} />
-              <span>Allow this recipient’s Agent One and selected model to use these approved details for the stated purpose, including personal identifiers. This does not allow further sharing.</span>
+              <span>Let this recipient&rsquo;s Agent One and selected model read these approved details to help with their request. Leave unchecked if only the person should view sensitive details. Never allows further sharing.</span>
             </label>
           ) : null}
           {showDurationChoice ? (
@@ -1801,12 +1801,43 @@ function ConsentEntryDetail({
       ) : null}
 
       {hasGroupedHistory ? (
-        <ConsentHistoryLifecycleDetails
-          entry={entry}
-          onRevokeScope={onRevokeScope}
-          activeAction={activeAction}
-          isScopeBusy={isScopeBusy}
-        />
+        <div className="space-y-3">
+          {String(entry.counterpart_id || "").toLowerCase() === "personal_agent" ||
+          entry.status === "pod_access_allowed" ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-[16px] border border-black/[0.08] bg-[color:var(--app-secondary-surface)] px-4 py-3 dark:border-white/[0.10]">
+              <p className="text-xs leading-5 text-muted-foreground">
+                Automatic agent check-ins are non-binding diagnostics and can be cleared without affecting your consent records.
+              </p>
+              <Button
+                type="button"
+                variant="none"
+                effect="fade"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    const idToken = await authUser?.getIdToken?.();
+                    if (!idToken) return;
+                    await ConsentCenterService.clearSystemLogs({
+                      idToken,
+                      userId: previewUserId,
+                    });
+                    window.location.reload();
+                  } catch {
+                    // Non-blocking cleanup action
+                  }
+                }}
+              >
+                Clear system logs
+              </Button>
+            </div>
+          ) : null}
+          <ConsentHistoryLifecycleDetails
+            entry={entry}
+            onRevokeScope={onRevokeScope}
+            activeAction={activeAction}
+            isScopeBusy={isScopeBusy}
+          />
+        </div>
       ) : null}
 
       {entry.kind === "history" &&
@@ -4151,7 +4182,10 @@ export function ConsentCenterPage() {
                           ? scopeCommerceStatusCopy(selectedEntry.metadata?.commerce_status)
                           : "Active access"
                         : selectedEntry.kind === "history"
-                          ? `${formatStatus(selectedEntry.status)} access`
+                          ? selectedEntry.status === "pod_access_allowed" ||
+                              String(selectedEntry.counterpart_id || "").toLowerCase() === "personal_agent"
+                            ? "Automatic agent check-in"
+                            : formatStatus(selectedEntry.status)
                           : selectedEntry.status === "pending"
                             ? "Request awaiting your decision"
                             : `${formatStatus(selectedEntry.status)} request`

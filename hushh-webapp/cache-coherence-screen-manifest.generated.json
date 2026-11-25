@@ -5459,7 +5459,7 @@
         "api_service": true,
         "hushh_loader": true,
         "sse_or_streaming": false,
-        "native_beacon": true
+        "native_beacon": false
       },
       "findings": [
         "loader detected; verify warm cache path avoids blocking loader"
@@ -7426,5 +7426,5 @@
       ]
     }
   ],
-  "content_sha256": "cfa036c0a801c776f760f2290d305a4f646608ce5e409bcecc988d280e39b0b0"
+  "content_sha256": "25d4598c8baab15a28a9ba32ef2fa5ff9e1cebb1b92476a35ddf361f2c274aea"
 }

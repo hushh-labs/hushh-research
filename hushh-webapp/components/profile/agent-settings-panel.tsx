@@ -56,7 +56,7 @@ export {
 } from "./use-agent-settings-controller";
 export type { AgentSettingsController } from "./use-agent-settings-controller";
 
-export type AgentSettingsDetailView = "hosting-details" | "update-details" | null;
+export type AgentSettingsDetailView = "hosting-details" | "hosting-own-cloud" | "update-details" | null;
 
 export function AgentSettingsPanel({
   kind,
@@ -246,6 +246,22 @@ function AgentSettingsBody({
                   />
                 ) : null}
                 <CloudHostingHealth inspection={inspection} />
+                <SettingsRow
+                  title="Verify cloud resources"
+                  description="Run an on-demand health inspection against your cloud project."
+                  trailing={
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="muted"
+                      disabled={busy}
+                      onClick={() => void checkStatus()}
+                    >
+                      Check hosting
+                    </Button>
+                  }
+                  trailingInteractive
+                />
               </SettingsGroup>
               <SettingsGroup title="Background activity" density="compact">
                 <PodSessionLockdownControl
@@ -285,18 +301,21 @@ function AgentSettingsBody({
         (mode === "hussh_pods" && status?.state === "active") ||
         (mode === "byoc" && status?.state === "active"),
     );
-    const heroSubtitle = isPersonalSandboxActive
-      ? "Isolated memory · Auto-sleep · Built-in AI"
-      : mode === "byoc"
-        ? [status?.cloudProject, status?.cloudRegion].filter(Boolean).join(" · ") ||
-          "Private pod in your own cloud"
-        : "Dedicated private pod managed by Hussh";
     const heroCloudLabel =
       mode === "hussh_pods" && activeHostedProvider
         ? HOSTED_POD_PROVIDER_LABELS[activeHostedProvider]
         : resolvedHeroProvider === "azure"
           ? "Microsoft Azure"
           : "Google Cloud";
+    const heroDetailText = isPersonalSandboxActive
+      ? "Isolated memory · Auto-sleep · Built-in AI"
+      : mode === "byoc"
+        ? [status?.cloudProject, status?.cloudRegion].filter(Boolean).join(" · ") ||
+          "Private pod in your own cloud"
+        : "Dedicated private pod managed by Hussh";
+    const isHeroConnected = Boolean(
+      isPersonalSandboxActive || status?.state === "active",
+    );
 
     return (
       <div className="space-y-5">
@@ -304,9 +323,9 @@ function AgentSettingsBody({
           <section
             data-testid="current-hosting-row"
             aria-label="Current hosting"
-            className="overflow-hidden rounded-[20px] border border-[color:var(--app-border)] bg-[color:var(--app-card-surface-default)] shadow-[0_1px_2px_rgba(0,0,0,0.03)]"
+            className="overflow-hidden rounded-[20px] border border-black/[0.08] bg-[color:var(--app-card-surface-default-solid)] shadow-[0_2px_10px_-4px_rgba(15,23,42,0.06)] dark:border-white/[0.10]"
           >
-            <div className="bg-gradient-to-b from-[color:var(--app-accent)]/[0.045] to-transparent">
+            <div>
               {hasHostingDetails ? (
                 <button
                   type="button"
@@ -316,13 +335,13 @@ function AgentSettingsBody({
                 >
                   <span
                     aria-hidden="true"
-                    className="relative mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-[14px] border border-[color:var(--app-accent)]/20 bg-background/90 shadow-xs"
+                    className="relative mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-[14px] border border-black/[0.08] bg-[color:var(--app-secondary-surface)] dark:border-white/[0.10]"
                   >
                     <PodCloudProviderMark
                       provider={resolvedHeroProvider ?? "gcp"}
                       className="h-5 w-5"
                     />
-                    <span className="absolute -bottom-0.5 -right-0.5 flex size-3 items-center justify-center rounded-full bg-[color:var(--app-card-surface-default)]">
+                    <span className="absolute -bottom-0.5 -right-0.5 flex size-3 items-center justify-center rounded-full bg-[color:var(--app-card-surface-default-solid)]">
                       <span className="absolute inline-flex size-2.5 rounded-full bg-emerald-500/45 motion-safe:animate-ping" />
                       <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
                     </span>
@@ -350,7 +369,11 @@ function AgentSettingsBody({
                       data-slot="settings-row-description"
                       className="block text-[13px] leading-relaxed text-[var(--app-text-secondary)]"
                     >
-                      {heroSubtitle}
+                      <span data-testid="current-hosting-cloud-badge" className="font-medium text-foreground/80">
+                        {heroCloudLabel}
+                      </span>
+                      {" · "}
+                      {heroDetailText}
                     </span>
                   </span>
                   <ChevronRight
@@ -362,13 +385,13 @@ function AgentSettingsBody({
                 <div className="flex items-start gap-3.5 px-4 pb-4 pt-4">
                   <span
                     aria-hidden="true"
-                    className="relative mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-[14px] border border-[color:var(--app-accent)]/20 bg-background/90 shadow-xs"
+                    className="relative mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-[14px] border border-black/[0.08] bg-[color:var(--app-secondary-surface)] dark:border-white/[0.10]"
                   >
                     <PodCloudProviderMark
                       provider={resolvedHeroProvider ?? "gcp"}
                       className="h-5 w-5"
                     />
-                    <span className="absolute -bottom-0.5 -right-0.5 flex size-3 items-center justify-center rounded-full bg-[color:var(--app-card-surface-default)]">
+                    <span className="absolute -bottom-0.5 -right-0.5 flex size-3 items-center justify-center rounded-full bg-[color:var(--app-card-surface-default-solid)]">
                       <span className="absolute inline-flex size-2.5 rounded-full bg-emerald-500/45 motion-safe:animate-ping" />
                       <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
                     </span>
@@ -396,32 +419,29 @@ function AgentSettingsBody({
                       data-slot="settings-row-description"
                       className="text-[13px] leading-relaxed text-[var(--app-text-secondary)]"
                     >
-                      {heroSubtitle}
+                      <span data-testid="current-hosting-cloud-badge" className="font-medium text-foreground/80">
+                        {heroCloudLabel}
+                      </span>
+                      {" · "}
+                      {heroDetailText}
                     </p>
                   </div>
                 </div>
               )}
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[color:var(--app-separator)] bg-foreground/[0.02] px-4 py-2.5">
-              {resolvedHeroProvider ? (
-                <PodCloudBadge
-                  provider={resolvedHeroProvider}
-                  label={heroCloudLabel}
-                  testId="current-hosting-cloud-badge"
-                />
-              ) : (
-                <span className="text-xs text-[var(--app-text-secondary)]">Managed runtime</span>
-              )}
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void checkStatus()}
-                className="inline-flex min-h-8 items-center rounded-full px-2.5 text-xs font-semibold text-[color:var(--app-accent)] transition-[background-color,opacity] duration-[120ms] ease-[var(--ease-out)] hover:bg-[color:var(--app-accent)]/[0.08] active:opacity-75 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]"
-              >
-                Check hosting
-              </button>
-            </div>
+            {!isHeroConnected ? (
+              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[color:var(--app-separator)] bg-foreground/[0.02] px-4 py-2.5">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void checkStatus()}
+                  className="inline-flex min-h-8 items-center rounded-full px-3 text-xs font-semibold text-[color:var(--app-accent)] transition-[background-color,opacity] duration-[120ms] ease-[var(--ease-out)] hover:bg-[color:var(--app-accent)]/[0.08] active:opacity-75 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]"
+                >
+                  Check hosting
+                </button>
+              </div>
+            ) : null}
             <CloudHostingHealth inspection={inspection} />
           </section>
         ) : (
@@ -549,11 +569,13 @@ function AgentSettingsBody({
             onClick={
               !canManageCloud
                 ? undefined
-                : mode === "hussh_pods" && !(pooledSwitchAvailable && isPersonalSandboxActive)
-                  ? () => setConfirmSwitch("own_cloud")
-                  : mode === "shared" || (mode === "hussh_pods" && pooledSwitchAvailable && isPersonalSandboxActive)
-                    ? () => void switchToOwnCloud()
-                    : chooseHosting
+                : onOpenDetail
+                  ? () => openDetail("hosting-own-cloud")
+                  : mode === "hussh_pods" && !(pooledSwitchAvailable && isPersonalSandboxActive)
+                    ? () => setConfirmSwitch("own_cloud")
+                    : mode === "shared" || (mode === "hussh_pods" && pooledSwitchAvailable && isPersonalSandboxActive)
+                      ? () => void switchToOwnCloud()
+                      : chooseHosting
             }
             chevron={canManageCloud}
             testId="hosting-choice-own-cloud"

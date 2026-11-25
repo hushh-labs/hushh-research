@@ -863,4 +863,30 @@ export class ConsentCenterService {
     }
     return body;
   }
+
+  static async clearSystemLogs(options: { idToken: string; userId?: string | null }) {
+    const response = await ApiService.apiFetch(
+      "/api/consent/history/clear-system-logs",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${options.idToken}`,
+        },
+      },
+    );
+    const body = (await response.json().catch(() => ({}))) as {
+      detail?: string;
+      error?: string;
+      cleared?: number;
+    };
+    if (!response.ok) {
+      throw new Error(
+        body.detail || body.error || `Request failed: ${response.status}`,
+      );
+    }
+    if (options.userId) {
+      CacheSyncService.onConsentMutated(options.userId);
+    }
+    return body;
+  }
 }

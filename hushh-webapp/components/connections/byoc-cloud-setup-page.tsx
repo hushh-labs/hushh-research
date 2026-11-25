@@ -104,18 +104,51 @@ import { useCloudSetupManagementReturn } from "./use-cloud-setup-management-retu
 /** How long "Checking your cloud..." may stay on screen before the form shows. */
 export const CLOUD_CHECK_TIMEOUT_MS = 15_000;
 
-type CloudSetupRoute = typeof ROUTES.ONE_SETUP | typeof ROUTES.ONE_SETUP_CLOUD;
-
-export function ByocCloudSetupPage({ owningRoute = ROUTES.ONE_SETUP_CLOUD }: { owningRoute?: CloudSetupRoute }) {
+export function ByocCloudSetupPage({
+  embedded = false,
+  initialIntent,
+  owningRoute = ROUTES.ONE_SETUP_CLOUD,
+  backQuery,
+  onFinish,
+}: {
+  embedded?: boolean;
+  initialIntent?: "own" | "hussh_pods";
+  owningRoute?: string;
+  backQuery?: Parameters<typeof useBackLayer>[3];
+  onFinish?: () => void;
+} = {}) {
   const { user } = useAuth();
   const owner = snapshotValidatedAuthSessionPrincipal();
-  return <OwnerCloudSetupPage key={`${user?.uid ?? "signed-out"}:${owner?.generation ?? "unresolved"}`} user={user} owner={owner} owningRoute={owningRoute} />;
+  return (
+    <OwnerCloudSetupPage
+      key={`${user?.uid ?? "signed-out"}:${owner?.generation ?? "unresolved"}`}
+      user={user}
+      owner={owner}
+      embedded={embedded}
+      initialIntent={initialIntent}
+      owningRoute={owningRoute}
+      backQuery={backQuery}
+      onFinish={onFinish}
+    />
+  );
 }
 
-function OwnerCloudSetupPage({ user, owner, owningRoute }: {
+function OwnerCloudSetupPage({
+  user,
+  owner,
+  embedded = false,
+  initialIntent,
+  owningRoute,
+  backQuery,
+  onFinish,
+}: {
   user: ReturnType<typeof useAuth>["user"];
   owner: ReturnType<typeof snapshotValidatedAuthSessionPrincipal>;
-  owningRoute: CloudSetupRoute;
+  embedded?: boolean;
+  initialIntent?: "own" | "hussh_pods";
+  owningRoute: string;
+  backQuery?: Parameters<typeof useBackLayer>[3];
+  onFinish?: () => void;
 }) {
   const ownerId = owner?.ownerId ?? null;
   const router = useRouter();
@@ -131,7 +164,7 @@ function OwnerCloudSetupPage({ user, owner, owningRoute }: {
   const [finalizingSetup, setFinalizingSetup] = useState(false);
   const finalizationInFlightRef = useRef<Promise<string | null> | null>(null);
   const ownerCurrent = useCallback(() => Boolean(owner && owner.firebaseUid === user?.uid && isValidatedAuthSessionOwnerCurrent(owner)), [owner, user?.uid]);
-  useCloudSetupManagementReturn(ownerId ?? undefined, ownerCurrent);
+  useCloudSetupManagementReturn(embedded ? undefined : ownerId ?? undefined, ownerCurrent);
   const [saving, setSaving] = useState(false);
   const [aiReady, setAiReady] = useState(false);
   const authorizationStarting = useRef(false);
@@ -147,7 +180,7 @@ function OwnerCloudSetupPage({ user, owner, owningRoute }: {
   } | null>(null);
   // Which hosting card is picked. Null falls back to the confirmed Shared state.
   const [choice, setChoice] = useState<HostingChoice | null>(() =>
-    searchParams.get("intent") === "own" ? "own" : null,
+    initialIntent === "own" || searchParams.get("intent") === "own" ? "own" : null,
   );
   // The hosted door stays paused outside Dev unless NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE=0;
   // on Dev (`NEXT_PUBLIC_APP_ENV=dev`) it opens for fixed-cohort pilot owners.
@@ -638,7 +671,8 @@ function OwnerCloudSetupPage({ user, owner, owningRoute }: {
 
   // Guard mid-provisioning / mid-save transitions so accidental Back taps or
   // edge swipes cannot strand the owner before hosting placement commits.
-  useBackLayer(owningRoute, saving || hostingSaving ? 2 : 0, () => true);
+  useBackLayer(owningRoute, saving || hostingSaving ? 2 : 0, () => true, backQuery);
+  const hostingBackOwner = { owningRoute, backQuery };
 
   const rawReturnToParam = searchParams.get("return_to");
   const isProfilePaneHostingReturn =
@@ -652,6 +686,7 @@ function OwnerCloudSetupPage({ user, owner, owningRoute }: {
     (OneSetupCompletionHintService.isResolved(ownerId!) ||
       PreVaultUserStateService.getCachedBootstrapState(ownerId!)?.setupCompleted === true);
   const isSettingsHostingVisit =
+    embedded ||
     isProfilePaneHostingReturn ||
     resolvedReturnTo === ROUTES.PROFILE_HOSTING ||
     (!resolvedReturnTo && isAlreadyCompletedSetup);
@@ -792,6 +827,10 @@ function OwnerCloudSetupPage({ user, owner, owningRoute }: {
         return { status: "blocked" as const, summary: "Session changed." };
       }
     }
+    if (onFinish) {
+      onFinish();
+      return { status: "started" as const, summary: "Your agent setup is saved." };
+    }
     if (pooledSwitchAvailable && !isSettingsHostingVisit) {
       if (vaultContext !== null) {
         if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
@@ -853,6 +892,7 @@ function OwnerCloudSetupPage({ user, owner, owningRoute }: {
     isProfilePaneHostingReturn,
     isSettingsHostingVisit,
     isVaultUnlocked,
+    onFinish,
     ownerCurrent,
     ownerId,
     pooledSwitchAvailable,
@@ -866,24 +906,9 @@ function OwnerCloudSetupPage({ user, owner, owningRoute }: {
   ]);
   useLocalOnboardingActionHandler("setup.finish_cloud", finish);
 
-  return (
-    <AppPageShell
-      as="main"
-      width="reading"
-      nativeTest={owningRoute === ROUTES.ONE_SETUP_CLOUD ? {
-        routeId: owningRoute,
-        marker: "native-route-one-setup-cloud",
-        authState: "authenticated",
-        dataState: saving ? "loading" : "loaded",
-      } : undefined}
-    >
-      <AppPageHeaderRegion>
-        <PageHeader
-          title="Where your agent lives"
-          description="Choose where Agent One runs. Your existing setup stays in place."
-          accent="neutral"
-        />
-        {checkTimedOut && !authorized ? (
+  const contentBody = (
+    <div className="space-y-5">
+        {embedded && checkTimedOut && !authorized ? (
           <p
             className="text-sm text-[var(--app-text-secondary)]"
             data-testid="byoc-cloud-check-timed-out"
@@ -893,8 +918,6 @@ function OwnerCloudSetupPage({ user, owner, owningRoute }: {
             refresh to check before choosing a hosting option.
           </p>
         ) : null}
-      </AppPageHeaderRegion>
-      <AppPageContentRegion className="space-y-6">
         {hostingStatusChecked && !ownCloudAvailable && hostingMode !== "unknown" ? (
           <p role="status" className="text-sm text-[var(--app-text-secondary)]" data-testid="byoc-setup-unavailable">
             Cloud setup is unavailable in this environment. Your existing setup is unchanged.
@@ -948,7 +971,7 @@ function OwnerCloudSetupPage({ user, owner, owningRoute }: {
                       : null
                 }
                 onSwitched={refreshAttach}
-                owningRoute={owningRoute}
+                {...hostingBackOwner}
               />
             ) : null}
             {openHomeFallback}
@@ -984,7 +1007,7 @@ function OwnerCloudSetupPage({ user, owner, owningRoute }: {
                 isOwnerCloud
                 sourceCloudLabel={ownerCloudSourceLabel}
                 onSwitched={refreshAttach}
-                owningRoute={owningRoute}
+                {...hostingBackOwner}
               />
             ) : null}
           </div>
@@ -997,7 +1020,7 @@ function OwnerCloudSetupPage({ user, owner, owningRoute }: {
                 isOwnerCloud
                 sourceCloudLabel={ownerCloudSourceLabel}
                 onSwitched={refreshAttach}
-                owningRoute={owningRoute}
+                {...hostingBackOwner}
               />
             ) : null}
           </div>
@@ -1056,7 +1079,7 @@ function OwnerCloudSetupPage({ user, owner, owningRoute }: {
                 isOwnerCloud
                 sourceCloudLabel={ownerCloudSourceLabel}
                 onSwitched={refreshAttach}
-                owningRoute={owningRoute}
+                {...hostingBackOwner}
               />
             ) : null}
             {openHomeFallback}
@@ -1082,7 +1105,7 @@ function OwnerCloudSetupPage({ user, owner, owningRoute }: {
                 isOwnerCloud
                 sourceCloudLabel={existing.projectId}
                 onSwitched={refreshAgent}
-                owningRoute={owningRoute}
+                {...hostingBackOwner}
               />
             ) : isHostedAzureMigrationAvailable() && agentState === "active" ? (
               <HusshPodsMigrationCard
@@ -1090,7 +1113,7 @@ function OwnerCloudSetupPage({ user, owner, owningRoute }: {
                 sourceTarget={agentTarget}
                 sourceProject={existing.projectId}
                 onMigrated={refreshAgent}
-                owningRoute={owningRoute}
+                {...hostingBackOwner}
                 subtleAction
               />
             ) : null}
@@ -1110,7 +1133,7 @@ function OwnerCloudSetupPage({ user, owner, owningRoute }: {
                   isOwnerCloud
                   sourceCloudLabel={ownerCloudSourceLabel ?? reservedProjectId}
                   onSwitched={refreshAttach}
-                  owningRoute={owningRoute}
+                  {...hostingBackOwner}
                 />
               ) : null}
             </div>
@@ -1196,7 +1219,7 @@ function OwnerCloudSetupPage({ user, owner, owningRoute }: {
                       hasAssignedCloudPod
                       sourceCloudLabel={hostedPodSourceLabel}
                       onSwitched={refreshAgent}
-                      owningRoute={owningRoute}
+                      {...hostingBackOwner}
                     />
                   ) : null}
                   {openHomeFallback}
@@ -1213,7 +1236,7 @@ function OwnerCloudSetupPage({ user, owner, owningRoute }: {
                   sourceMode="hussh_pods"
                   sourceTarget={agentTarget}
                   onMigrated={refreshAgent}
-                  owningRoute={owningRoute}
+                  {...hostingBackOwner}
                   subtleAction
                 />
               ) : null}
@@ -1353,7 +1376,11 @@ function OwnerCloudSetupPage({ user, owner, owningRoute }: {
             onSetupReadyChange={setAiReady}
           />
         ) : null}
-      </AppPageContentRegion>
+    </div>
+  );
+
+  const footerAndDialogs = (
+    <>
       {authorized && aiReady ? <SetupCompletionFooter
         label={pooledSwitchAvailable && !isSettingsHostingVisit ? "Finish setup" : "Finish agent setup"}
         onComplete={() => void finish()}
@@ -1382,6 +1409,50 @@ function OwnerCloudSetupPage({ user, owner, owningRoute }: {
           onSuccess={() => undefined}
         />
       ) : null}
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <div data-testid="byoc-cloud-setup-embedded" className="space-y-5">
+        {contentBody}
+        {footerAndDialogs}
+      </div>
+    );
+  }
+
+  return (
+    <AppPageShell
+      as="main"
+      width="reading"
+      nativeTest={{
+        routeId: owningRoute,
+        marker: owningRoute === ROUTES.ONE_SETUP ? "native-route-one-setup" : "native-route-one-setup-cloud",
+        authState: "authenticated",
+        dataState: saving ? "loading" : "loaded",
+      }}
+    >
+      <AppPageHeaderRegion>
+        <PageHeader
+          title="Where your agent lives"
+          description="Choose where Agent One runs. Your existing setup stays in place."
+          accent="neutral"
+        />
+        {checkTimedOut && !authorized ? (
+          <p
+            className="text-sm text-[var(--app-text-secondary)]"
+            data-testid="byoc-cloud-check-timed-out"
+            aria-live="polite"
+          >
+            We couldn&rsquo;t confirm your agent home. Your existing setup is unchanged;
+            refresh to check before choosing a hosting option.
+          </p>
+        ) : null}
+      </AppPageHeaderRegion>
+      <AppPageContentRegion className="space-y-6">
+        {contentBody}
+      </AppPageContentRegion>
+      {footerAndDialogs}
     </AppPageShell>
   );
 }

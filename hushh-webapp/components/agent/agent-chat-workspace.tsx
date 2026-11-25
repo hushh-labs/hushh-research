@@ -543,6 +543,7 @@ import {
   pendingConsentCardRequestIds,
   resolvePendingConsentCardTargets,
   agentMessagePendingConsentRequestId,
+  insertMessageChronologically,
   mergePendingConsentMessages,
   declinedChatRequestMessage,
   markOneStreamEventDirectiveStatus,
@@ -1857,7 +1858,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (isChatLoading) return "Thinking";
     if (isStreaming) return "Streaming";
     if (chatWake.livePresence === "gone") return "Not responding";
-    return "Idle";
+    return "Ready";
   }, [
     authLoading,
     activeActionRun,
@@ -3360,17 +3361,30 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             }
           }
 
-          return [
-            ...current,
-            {
-              id: `msg-${Date.now()}-pending-consent-${item.id}`,
-              role: "assistant",
-              text: event.message,
-              ...stampNow(),
-              status: "done",
-              specialistDirective: event,
-            },
-          ];
+          const parsedRequestedMs =
+            typeof item.requestedAt === "number"
+              ? item.requestedAt
+              : typeof item.requestedAt === "string" && item.requestedAt.trim()
+                ? Date.parse(item.requestedAt)
+                : Number.NaN;
+          const cardStamp =
+            Number.isFinite(parsedRequestedMs) && parsedRequestedMs > 0
+              ? {
+                  sentAtMs: parsedRequestedMs,
+                  timestamp: new Date(parsedRequestedMs).toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  }),
+                }
+              : stampNow();
+          return insertMessageChronologically(current, {
+            id: `msg-${cardStamp.sentAtMs}-pending-consent-${item.id}`,
+            role: "assistant",
+            text: event.message,
+            ...cardStamp,
+            status: "done",
+            specialistDirective: event,
+          });
         });
       } catch (error) {
         console.warn(
@@ -3454,17 +3468,35 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 message: "",
                 stateChanged: false,
               };
-              next = [
-                ...next,
-                {
-                  id: `msg-receipt-${receipt.decidedAtMs}-${receiptId}`,
-                  role: "assistant",
-                  text: "",
-                  ...stampNow(),
-                  status: "done",
-                  specialistDirective: directive,
-                },
-              ];
+              const requestedMs =
+                typeof receipt.item.requestedAt === "number"
+                  ? receipt.item.requestedAt
+                  : typeof receipt.item.requestedAt === "string" &&
+                      receipt.item.requestedAt.trim()
+                    ? Date.parse(receipt.item.requestedAt)
+                    : Number.NaN;
+              const receiptMs =
+                Number.isFinite(requestedMs) && requestedMs > 0
+                  ? requestedMs
+                  : receipt.decidedAtMs;
+              const receiptStamp =
+                typeof receiptMs === "number" && Number.isFinite(receiptMs) && receiptMs > 0
+                  ? {
+                      sentAtMs: receiptMs,
+                      timestamp: new Date(receiptMs).toLocaleTimeString([], {
+                        hour: "numeric",
+                        minute: "2-digit",
+                      }),
+                    }
+                  : stampNow();
+              next = insertMessageChronologically(next, {
+                id: `msg-receipt-${receipt.decidedAtMs}-${receiptId}`,
+                role: "assistant",
+                text: "",
+                ...receiptStamp,
+                status: "done",
+                specialistDirective: directive,
+              });
             }
             return next;
           });
@@ -3532,7 +3564,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       try {
         const idToken = await user.getIdToken();
         if (!idToken || cancelled) return;
-        const appendStreamItem = (item: OneStreamEventItem, text: string) => {
+        const appendStreamItem = (
+          item: OneStreamEventItem,
+          text: string,
+          eventTimestamp?: string | number | null,
+        ) => {
           if (inlineOneStreamEventIdsRef.current.has(item.id)) return;
           inlineOneStreamEventIdsRef.current.add(item.id);
           const event: SpecialistDirectiveEvent = {
@@ -3547,6 +3583,22 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             message: text,
             stateChanged: true,
           };
+          const parsedEventMs =
+            typeof eventTimestamp === "number"
+              ? eventTimestamp
+              : typeof eventTimestamp === "string" && eventTimestamp.trim()
+                ? Date.parse(eventTimestamp)
+                : Number.NaN;
+          const eventStamp =
+            Number.isFinite(parsedEventMs) && parsedEventMs > 0
+              ? {
+                  sentAtMs: parsedEventMs,
+                  timestamp: new Date(parsedEventMs).toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  }),
+                }
+              : stampNow();
           setMessages((current) => {
             if (
               current.some(
@@ -3557,17 +3609,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             ) {
               return current;
             }
-            return [
-              ...current,
-              {
-                id: `msg-${Date.now()}-one-stream-${item.id}`,
-                role: "assistant",
-                text: event.message,
-                ...stampNow(),
-                status: "done",
-                specialistDirective: event,
-              },
-            ];
+            return insertMessageChronologically(current, {
+              id: `msg-${eventStamp.sentAtMs}-one-stream-${item.id}`,
+              role: "assistant",
+              text: event.message,
+              ...eventStamp,
+              status: "done",
+              specialistDirective: event,
+            });
           });
         };
 
@@ -3580,6 +3629,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           if (!req?.id || req.status !== "pending") continue;
           const actor = req.counterpartDisplayName?.trim() || "Someone";
           const hasScopes = Array.isArray(req.scopes) && req.scopes.length > 0;
+          const reqTs =
+            (req as { requestedAt?: string | number | null; created_at?: string | null })
+              .requestedAt ??
+            (req as { created_at?: string | null }).created_at ??
+            null;
           appendStreamItem(
             {
               id: `conn:${req.id}`,
@@ -3597,6 +3651,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               status: "pending",
             },
             "",
+            reqTs,
           );
         }
 
@@ -3614,7 +3669,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               item.actor_label?.trim() ||
               (typeof meta.owner_name === "string" && meta.owner_name.trim()) ||
               (typeof meta.actor_name === "string" && meta.actor_name.trim()) ||
-              "A connection";
+              (typeof meta.requester_name === "string" && meta.requester_name.trim()) ||
+              null;
             const actorPhotoUrl =
               typeof meta.actor_photo_url === "string" && meta.actor_photo_url.trim()
                 ? meta.actor_photo_url.trim()
@@ -3623,34 +3679,45 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               (typeof meta.scope_label === "string" && meta.scope_label.trim()) ||
               (typeof meta.scope_name === "string" && meta.scope_name.trim()) ||
               (typeof meta.bundle_label === "string" && meta.bundle_label.trim()) ||
+              (typeof meta.scope_description === "string" && meta.scope_description.trim()) ||
               null;
             const durationLabel =
               typeof meta.duration_label === "string" && meta.duration_label.trim()
                 ? meta.duration_label.trim()
                 : null;
+            const feedTitle =
+              typeof meta.title === "string" && meta.title.trim() ? meta.title.trim() : null;
+            const feedBody =
+              typeof meta.summary === "string" && meta.summary.trim()
+                ? meta.summary.trim()
+                : typeof meta.body === "string" && meta.body.trim()
+                  ? meta.body.trim()
+                  : null;
+            const headline =
+              actor && scopeLabel
+                ? `${actor} shared ${scopeLabel}`
+                : actor
+                  ? `${actor} approved your request`
+                  : feedTitle || "Information shared with you";
             const detailParts = [
-              scopeLabel,
+              !headline.includes(scopeLabel ?? "\u0000") ? scopeLabel : null,
               durationLabel,
-              "Decrypted on this device",
+              feedBody && feedBody !== headline ? feedBody : null,
+              "Ready to inspect on this device",
             ].filter(Boolean);
             appendStreamItem(
               {
                 id: `feed:${item.id}`,
                 eventKind: "shared_access_unlocked",
-                actorLabel: actor,
+                actorLabel: actor || "Connection",
                 actorPhotoUrl,
-                headline:
-                  actor === "A connection"
-                    ? "Shared access unlocked"
-                    : `${actor} shared access`,
-                detail:
-                  detailParts.length > 0
-                    ? detailParts.join(" · ")
-                    : "End-to-end encrypted · Ready to open on this device",
+                headline,
+                detail: detailParts.join(" · "),
                 href: `${ROUTES.CONSENTS}?tab=active&from=${pathname || ROUTES.ONE_HOME}`,
                 status: "pending",
               },
               "",
+              item.created_at ?? null,
             );
           } else if (item.event_type === "funding_transfer_status") {
             const summary =
@@ -3668,6 +3735,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 status: "pending",
               },
               "",
+              item.created_at ?? null,
             );
           }
         }
@@ -8578,6 +8646,43 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       return false;
     }
     const [submittedText = "", ...attachmentTexts] = kept;
+    // Hands-free voice & free-text confirmation for a mounted AskProposalCard:
+    // replying "yes send" / "send it" / "confirm" submits the visible proposal
+    // directly instead of forcing a manual tap on the card.
+    const trimmedConfirm = submittedText.trim();
+    if (
+      attachments.length === 0 &&
+      /^(?:yes|yeah|yep|sure|ok|okay|confirm|go ahead|send|send it|yes[, ]+send(?: it| the request| now)?|please send(?: it)?|do it|send the request)[.!?\s]*$/i.test(
+        trimmedConfirm,
+      ) &&
+      typeof window !== "undefined"
+    ) {
+      const detail: { handled?: boolean; personName?: string } = { handled: false };
+      window.dispatchEvent(new CustomEvent("hushh:confirm-active-ask-proposal", { detail }));
+      if (detail.handled) {
+        const userStamp = stampNow();
+        setMessages((current) => [
+          ...current,
+          {
+            id: `msg-${userStamp.sentAtMs}-confirm-user`,
+            role: "user",
+            text: trimmedConfirm,
+            ...userStamp,
+            status: "done",
+          },
+          {
+            id: `msg-${userStamp.sentAtMs + 1}-confirm-assistant`,
+            role: "assistant",
+            text: detail.personName
+              ? `Sending your request to ${detail.personName}.`
+              : "Sending your request.",
+            ...stampNow(),
+            status: "done",
+          },
+        ]);
+        return true;
+      }
+    }
     const submittedAttachments = attachments.map((item, index) =>
       attachmentTexts[index] === item.text ? item : createAgentTextAttachment(attachmentTexts[index] ?? "", item.name),
     );
@@ -9846,11 +9951,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     aria-label="One's model"
                     aria-busy={modelPreferenceSaving || undefined}
                     title={`Running ${modelPreference.effective_model}`}
-                    className="agent-chat-model-picker h-11 w-auto max-w-[7.5rem] shrink-0 gap-1 rounded-full border-0 bg-foreground/[0.045] px-2.5 text-[11px] font-medium text-muted-foreground sm:max-w-[9.5rem]"
+                    className="agent-chat-model-picker !h-9 !min-h-9 w-auto max-w-[7.5rem] shrink-0 gap-1.5 rounded-full border border-black/[0.08] bg-[color:var(--app-card-surface-default-solid)]/80 px-3 py-0 text-[12px] font-medium leading-none text-foreground/80 shadow-none backdrop-blur-md transition-[background-color,border-color,color] duration-[140ms] hover:border-black/[0.14] hover:bg-foreground/[0.06] hover:text-foreground dark:border-white/[0.11] dark:hover:border-white/[0.18] sm:max-w-[9.5rem]"
                   >
                     {/* The verified catalog owns labels; a short Gemini label
                         saves space without assuming the provider of other rows. */}
-                    <Cpu aria-hidden="true" className="agent-chat-model-icon size-4 shrink-0" />
+                    <Cpu aria-hidden="true" className="agent-chat-model-icon size-3.5 shrink-0 text-muted-foreground" />
                     <span className="truncate">
                       {(
                         modelPreference.choices.find(

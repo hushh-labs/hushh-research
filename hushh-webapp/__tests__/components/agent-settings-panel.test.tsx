@@ -567,6 +567,7 @@ describe("owner hosting and software settings", () => {
       status("byoc", { deploymentTarget: "user_azure", state: "active" });
       render(<AgentSettingsPanel userId="owner" kind="hosting" />);
 
+      fireEvent.click(screen.getByRole("button", { name: /hosting details/i }));
       fireEvent.click(screen.getByRole("button", { name: "Check hosting" }));
       await waitFor(() => expect(mocks.inspectHosting).toHaveBeenCalledOnce());
       const [request, copy] = mocks.promiseToast.mock.calls[0];
@@ -661,11 +662,13 @@ describe("owner hosting and software settings", () => {
         deploymentTarget,
       );
 
+      const openOwnCloud = vi.fn();
       const { result } = renderHook(() =>
         useNativeAgentSettings(
           useAgentSettingsController({ kind: "hosting", userId: "owner" }),
           true,
           "owner",
+          openOwnCloud,
         ),
       );
       const statusRows = result.current.pages[0].sections.find((s) => s.id === "hosting-status-section")!.rows;
@@ -674,6 +677,9 @@ describe("owner hosting and software settings", () => {
       const choiceRows = result.current.pages[0].sections.find((s) => s.id === "hosting-choices-section")!.rows;
       expect(choiceRows.find((r) => r.id === "hosting-shared")).toBeUndefined();
       expect(choiceRows.find((r) => r.id === "hosting-pods")?.trailing).toBe("Switch");
+      act(() => { result.current.rows.get("hosting-own-cloud")?.(); });
+      expect(openOwnCloud).toHaveBeenCalledOnce();
+      expect(mocks.switchHostingMode).not.toHaveBeenCalled();
       unmount();
       vi.unstubAllEnvs();
     },
