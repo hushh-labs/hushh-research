@@ -93,7 +93,7 @@ export type AgentMessage = {
     expiresAt: number;
     liveFinancePreview?: boolean;
     presentation?: "calendar";
-    kind?: "portfolio";
+    kind?: "portfolio" | "account";
   };
   receiptRedacted?: boolean;
   kind?: "selection";

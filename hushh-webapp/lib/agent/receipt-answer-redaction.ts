@@ -19,7 +19,7 @@ type ReceiptTurnMessage = {
   streamEvents?: unknown[];
   sources?: unknown[];
   followUps?: string[];
-  receiptPrivate?: { ownerId?: string; kind?: "portfolio" };
+  receiptPrivate?: { ownerId?: string; kind?: "portfolio" | "account" };
 };
 
 /** The receipt sync state a setup card shows, or null for the Connect Gmail card and other cards. */
@@ -45,9 +45,10 @@ export function redactReceiptAnswer<T extends ReceiptTurnMessage>(message: T): T
   const cards = withoutSyncingReceiptCard(message.structuredExperiences).filter(entry => entry.id.endsWith(RECEIPT_SETUP_ID));
   const unavailable = cards.some(entry => setupState(entry) === "sync_required" || setupState(entry) === null);
   const portfolio = message.receiptPrivate?.kind === "portfolio";
-  const completedText = portfolio ? PORTFOLIO_ANSWER_REDACTED_TEXT : RECEIPT_ANSWER_REDACTED_TEXT;
-  const unfinishedText = portfolio ? PORTFOLIO_ANSWER_UNFINISHED_TEXT : RECEIPT_ANSWER_UNFINISHED_TEXT;
-  const text = message.status === "error" ? message.errorNotice ?? (portfolio ? unfinishedText : message.text)
+  const account = message.receiptPrivate?.kind === "account";
+  const completedText = account ? "A private account answer was shown for that turn. Ask again to read your account." : portfolio ? PORTFOLIO_ANSWER_REDACTED_TEXT : RECEIPT_ANSWER_REDACTED_TEXT;
+  const unfinishedText = account ? "The account read ended before it finished. Ask again." : portfolio ? PORTFOLIO_ANSWER_UNFINISHED_TEXT : RECEIPT_ANSWER_UNFINISHED_TEXT;
+  const text = message.status === "error" ? message.errorNotice ?? (account || portfolio ? unfinishedText : message.text)
     : message.status === "done" && STOPPED_TEXTS.has(message.text) ? message.text
       : message.status === "done" && !unavailable ? completedText : unfinishedText;
   return {

@@ -13,3 +13,8 @@ describe("retiring a receipt answer", () => {
     expect(retireReceiptAnswer(failed)).toMatchObject({ status: "error", text: "Receipt authority changed. Ask again." });
   });
 });
+
+
+it("retires account facts with an account receipt", () => {
+  expect(retireReceiptAnswer({ text: "Private name", status: "done" as const, receiptPrivate: { ownerId: "owner", kind: "account" as const } })).toMatchObject({ text: "A private account answer was shown for that turn. Ask again to read your account.", receiptPrivate: undefined });
+});

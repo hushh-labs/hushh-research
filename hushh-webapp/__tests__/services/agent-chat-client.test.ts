@@ -47,6 +47,10 @@ vi.mock("@/lib/services/api-service", () => ({
 
 const receiptTools = vi.hoisted(() => ({ run: vi.fn() }));
 vi.mock("@/lib/mail/receipt-store", () => ({ runReceiptFunction: receiptTools.run }));
+const accountRead = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/services/account-chat-context", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/services/account-chat-context")>(), readAccountContext: accountRead,
+}));
 const portfolioRead = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/kai/portfolio-chat-context", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/kai/portfolio-chat-context")>(),
@@ -1388,17 +1392,20 @@ describe("AG-UI Agent One client", () => {
   it.each([
     { operation: "receipt_spending", remapped: false },
     { operation: "receipt_spending", remapped: true },
+    { operation: "read_account_context", remapped: true },
     { operation: "read_portfolio_context", remapped: true },
   ])("uses streamed $operation despite redacted snapshots (remapped=$remapped)", async ({ operation, remapped }) => {
     publishValidatedAuthSessionOwner("user-1");
     mockTransport.nativeMode = true;
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const account = operation === "read_account_context";
     const portfolio = operation === "read_portfolio_context";
-    const query = portfolio ? { section: "holdings", source: "last_card" } :
+    const query = account ? { section: "identity" } : portfolio ? { section: "holdings", source: "last_card" } :
       { from_date: "2026-10-01", to_date: "2026-11-01", timezone, group_by: "merchant", limit: 10 };
-    const result = portfolio ? { status: "ok", holdings: { positions: [{ name: "SYNTHETIC_PRIVATE_HOLDING", market_value: 7 }] } } :
+    const result = account ? { status: "ok", identity: { display_name: "SYNTHETIC_PRIVATE_NAME" } } : portfolio ? { status: "ok", holdings: { positions: [{ name: "SYNTHETIC_PRIVATE_HOLDING", market_value: 7 }] } } :
       { schema: "receipt_analysis.v1", operation, status: "ok", results: [{ label: "SYNTHETIC_PRIVATE_MERCHANT", paid_amount: "7.00" }] };
-    if (portfolio) portfolioRead.mockResolvedValueOnce(result);
+    if (account) accountRead.mockResolvedValueOnce(result);
+    else if (portfolio) portfolioRead.mockResolvedValueOnce(result);
     else receiptTools.run.mockResolvedValue(result);
     const stream = (events: unknown[]) => new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
     vi.mocked(ApiService.agentChatRequest).mockResolvedValueOnce(stream([
@@ -1418,13 +1425,17 @@ describe("AG-UI Agent One client", () => {
     try {
       await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", conversationId: "thread-1", vaultOwnerToken: "owner-token", message: "Spending by merchant",
         handlers: { onReceiptPrivate: () => events.push("private"), onToken: () => events.push("token"), onToolResult } });
-      if (portfolio) {
+      if (account) {
+        expect(accountRead).toHaveBeenCalledWith("user-1", expect.any(Function));
+        expect(mockTransport.runAgent.mock.calls[0][0].forwardedProps.accountContextContract).toBe(1);
+      } else if (portfolio) {
         expect(portfolioRead).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1", threadId: "thread-1" }), query, expect.any(Function));
         expect(mockTransport.runAgent.mock.calls[0][0].forwardedProps.portfolioContextContract).toBe(1);
       } else {
         expect(receiptTools.run.mock.calls).toEqual([[expect.objectContaining({ userId: "user-1" }), "receipt_spending", query]]);
       }
       expect(mockTransport.runAgent).toHaveBeenCalledTimes(2);
+      if (account) expect(mockTransport.runAgent.mock.calls[1][0].forwardedProps.accountContextContract).toBe(1);
       expect(mockTransport.runAgent.mock.calls[0][0].forwardedProps).not.toHaveProperty("receiptToolResults");
       expect(mockTransport.runAgent.mock.calls[1][0].forwardedProps.receiptToolResults).toEqual([{ toolCallId: "streamed-call", toolName: operation, request: query, result }]);
       // Only the receipt replies continue; a replayed question started a second run (UAT 2026-10-29).

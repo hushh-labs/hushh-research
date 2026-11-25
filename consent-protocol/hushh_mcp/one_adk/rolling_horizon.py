@@ -17,6 +17,10 @@ from typing import Any
 
 from google.genai import types as genai_types
 
+from hushh_mcp.one_adk.account_context_contract import (
+    PRIVATE_ACCOUNT_ANSWER,
+    account_private_invocations,
+)
 from hushh_mcp.one_adk.consent_redaction import tagged_bundles
 
 logger = logging.getLogger(__name__)
@@ -88,7 +92,7 @@ def _extract_turn_pairs_from_contents(contents: list[Any]) -> list[tuple[str, st
                 if getattr(p, "thought", False):
                     continue
                 txt = getattr(p, "text", None)
-                if isinstance(txt, str) and txt.strip():
+                if isinstance(txt, str) and txt.strip() and txt != PRIVATE_ACCOUNT_ANSWER:
                     current_assistant_parts.append(txt.strip())
     if current_user or current_assistant_parts:
         pairs.append((current_user, _clean_line(" ".join(current_assistant_parts), 220)))
@@ -153,7 +157,7 @@ def compile_rolling_thread_digest(
     Returns ``(digest_text, older_user_turn_count)``.
     """
     state = session_state or {}
-    tagged_invocations = {
+    tagged_invocations = account_private_invocations(state, events) | {
         inv for inv_ids in tagged_bundles(state).values() for inv in inv_ids if inv
     }
 
@@ -189,7 +193,7 @@ def compile_rolling_thread_digest(
                 if getattr(p, "thought", False):
                     continue
                 txt = getattr(p, "text", None)
-                if isinstance(txt, str) and txt.strip():
+                if isinstance(txt, str) and txt.strip() and txt != PRIVATE_ACCOUNT_ANSWER:
                     cur_assistant.append(txt.strip())
 
     if cur_user or cur_assistant:

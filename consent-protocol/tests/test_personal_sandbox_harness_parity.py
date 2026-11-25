@@ -915,6 +915,34 @@ def test_silent_rolling_horizon_preserves_prefix_cache_and_tool_pairs() -> None:
     assert "Secret 1" not in digest
     assert "Topic 0" in digest
 
+    # Private account answers stay out of the existing rolling writer, including
+    # event-only privacy tags on a raw session. Ordinary neighboring turns remain.
+    from hushh_mcp.one_adk.account_context_contract import (
+        PRIVATE_ACCOUNT_ANSWER,
+        STATE_ACCOUNT_CONTEXT_PRIVATE,
+    )
+    from hushh_mcp.one_adk.rolling_horizon import _extract_turn_pairs_from_contents
+
+    fake_events[1].content.parts[0].text = "PRIVATE_ACCOUNT_SENTINEL"
+    fake_events[1].actions = SimpleNamespace(state_delta={STATE_ACCOUNT_CONTEXT_PRIVATE: ["inv_1"]})
+    digest, _ = compile_rolling_thread_digest(fake_events, {})
+    assert "PRIVATE_ACCOUNT_SENTINEL" not in digest
+    assert "Topic 0" in digest
+    pairs = _extract_turn_pairs_from_contents(
+        [
+            genai_types.Content(role="user", parts=[genai_types.Part.from_text(text="Question")]),
+            genai_types.Content(
+                role="model", parts=[genai_types.Part.from_text(text=PRIVATE_ACCOUNT_ANSWER)]
+            ),
+            genai_types.Content(role="user", parts=[genai_types.Part.from_text(text="Next")]),
+            genai_types.Content(
+                role="model", parts=[genai_types.Part.from_text(text="Ordinary answer")]
+            ),
+        ]
+    )
+    assert PRIVATE_ACCOUNT_ANSWER not in str(pairs)
+    assert "Ordinary answer" in str(pairs)
+
 
 def test_cursor_paged_conversation_history_projects_seamlessly() -> None:
     from types import SimpleNamespace

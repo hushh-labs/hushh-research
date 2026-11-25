@@ -20,6 +20,12 @@ from api.routes.one.pod_chat_owner import owner_context
 from api.routes.one.pod_consent_chat import admit_continuation
 from api.routes.one.pod_turn import PodTurnRequest, _require_enabled
 from hushh_mcp.one_adk import owner_style
+from hushh_mcp.one_adk.account_context_contract import (
+    ACCOUNT_CONTEXT_DESCRIPTION,
+    ACCOUNT_CONTEXT_PARAMETERS,
+    ACCOUNT_CONTEXT_TOOL,
+    STATE_ACCOUNT_CONTEXT_ENABLED,
+)
 from hushh_mcp.one_adk.agent_tree import ONE_APP_NAME
 from hushh_mcp.one_adk.agui_factory import _authenticated_capabilities
 from hushh_mcp.one_adk.history_descriptors import (
@@ -208,6 +214,18 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         input.tools = admit_pod_chat_tools(input.tools)
     except PodChatToolAdmissionError:
         raise HTTPException(400, detail={"code": "AGENT_TOOL_NOT_ADMITTED"}) from None
+    from ag_ui.core import Tool
+
+    account_contract = forwarded.pop("accountContextContract", None)
+    account_enabled = type(account_contract) is int and account_contract == 1
+    if account_enabled:
+        input.tools.append(
+            Tool(
+                name=ACCOUNT_CONTEXT_TOOL,
+                description=ACCOUNT_CONTEXT_DESCRIPTION,
+                parameters=ACCOUNT_CONTEXT_PARAMETERS,
+            )
+        )
     options = PodTurnRequest.model_validate(
         {
             "message": "AG-UI turn",
@@ -247,6 +265,7 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
     except ValueError:
         raise HTTPException(413, detail={"code": "POD_CHAT_PLAID_POSTURE_TOO_LARGE"}) from None
     state = {
+        STATE_ACCOUNT_CONTEXT_ENABLED: account_enabled,
         owner_style.STATE_OWNER_STYLE: owner_style.admit_owner_style(
             forwarded, owner_admitted=True
         ),

@@ -10,6 +10,7 @@ type AccountCatchAllRoute = {
     request: NextRequest,
     props: { params: Promise<{ path: string[] }> }
   ) => Promise<Response>;
+  PATCH: (request: NextRequest, props: { params: Promise<{ path: string[] }> }) => Promise<Response>;
   POST: (
     request: NextRequest,
     props: { params: Promise<{ path: string[] }> }
@@ -28,6 +29,18 @@ beforeEach(async () => {
 });
 
 describe("/api/account/[...path] proxy", () => {
+  it("forwards confirmed display-name PATCH with body, authority and backend status", async () => {
+    const body = JSON.stringify({ display_name: "Mira Iyer" });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ code: "IDENTITY_PROVIDER_UNAVAILABLE" }, { status: 503 }));
+    const response = await route.PATCH(new NextRequest("http://localhost:3000/api/account/identity/display-name", {
+      method: "PATCH", headers: { Authorization: "Bearer fixture-proof", "Content-Type": "application/json" }, body,
+    }), { params: Promise.resolve({ path: ["identity", "display-name"] }) });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ code: "IDENTITY_PROVIDER_UNAVAILABLE" });
+    expect(fetchMock).toHaveBeenCalledWith("http://backend.test/api/account/identity/display-name", expect.objectContaining({ method: "PATCH", body }));
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("Authorization")).toBe("Bearer fixture-proof");
+  });
+
   it("forwards identity refresh with authorization", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       Response.json({ success: true, user_id: "user_1" })

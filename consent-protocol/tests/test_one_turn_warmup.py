@@ -120,13 +120,16 @@ def test_raw_chat_keeps_the_non_client_roster():
     client_toolsets = [
         set(tool.tool_filter) for tool in interactive.tools if isinstance(tool, AGUIToolset)
     ]
-    expected_count = 3 if pod_files_wiki_enabled() else 4
+    from hushh_mcp.one_adk.account_context_contract import ACCOUNT_CONTEXT_TOOL
+
+    expected_count = 4 if pod_files_wiki_enabled() else 5
     assert len(client_toolsets) == expected_count
     assert set(RECEIPT_TOOL_NAMES) in client_toolsets
     assert set(PLAID_TOOL_NAMES) in client_toolsets
     if not pod_files_wiki_enabled():
         assert set(WIKI_TOOL_NAMES) in client_toolsets
     assert {PORTFOLIO_CONTEXT_TOOL} in client_toolsets
+    assert {ACCOUNT_CONTEXT_TOOL} in client_toolsets
     assert not any(isinstance(tool, AGUIToolset) for tool in raw.tools)
     assert [identity(tool) for tool in raw.tools] == [
         identity(tool) for tool in interactive.tools if not isinstance(tool, AGUIToolset)

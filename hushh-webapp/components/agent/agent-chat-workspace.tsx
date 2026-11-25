@@ -6658,8 +6658,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               serverMessageId: latestServerMessageId,
             });
             updateMessage(assistantMessageId, message => ({ ...message, thinkingSummary: undefined, isThinkingStreaming: false, receiptPrivate: {
-              ownerId: userId, vaultEpoch: snapshotVaultSessionEpoch(), conversationId: conversationIdRef.current,
-              expiresAt: Date.now() + 5 * 60 * 1000, kind,
+              ownerId: userId, kind: kind ?? message.receiptPrivate?.kind, vaultEpoch: snapshotVaultSessionEpoch(), conversationId: conversationIdRef.current,
+              expiresAt: Date.now() + 5 * 60 * 1000,
             } }));
           },
           onReceiptSetupNeeded: (state) => {
@@ -7474,8 +7474,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onReceiptPrivate: (kind) => {
             if (streamAbortController.signal.aborted) return;
             updateMessage(assistantMessageId, current => ({ ...current, receiptPrivate: {
-              ownerId: userId, vaultEpoch: snapshotVaultSessionEpoch(), conversationId: conversationIdRef.current,
-              expiresAt: Date.now() + 5 * 60 * 1000, kind,
+              ownerId: userId, kind: kind ?? current.receiptPrivate?.kind, vaultEpoch: snapshotVaultSessionEpoch(), conversationId: conversationIdRef.current,
+              expiresAt: Date.now() + 5 * 60 * 1000,
             } }));
           },
           onStreamHealth: (signal) => {
