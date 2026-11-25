@@ -1571,7 +1571,7 @@ async def test_metrics_aggregate_incomplete_or_revoked_source_never_returns_zero
     if fault == "rls":
         metrics_aggregate_database.guard.restricted = True
     elif fault == "overflow":
-        metrics_aggregate_database.guard.ids = [f"owner-{i}" for i in range(51)]
+        metrics_aggregate_database.guard.ids = [f"owner-{i}" for i in range(5001)]
     elif fault == "cohort-change":
         metrics_aggregate_database.data.ids.append("new-owner")
     elif fault == "revocation":
@@ -1742,6 +1742,17 @@ def test_metrics_current_day_requires_one_explicit_utc_day_in_uat(metrics_aggreg
     after_midnight = datetime(2026, 11, 23, tzinfo=timezone.utc)
     _, through = _metrics_source.period_bounds(request, approved, after_midnight, environment="uat")
     assert through == after_midnight - timedelta(microseconds=1)
+    provisional_gen = "d" * 64
+    dual = {**approved, "provisionalSourceGeneration": provisional_gen}
+    provisional_req = _metrics_source.AdoptionRequest.model_validate(
+        {**body, "sourceGeneration": provisional_gen}
+    )
+    assert _metrics_source.period_bounds(provisional_req, dual, now, environment="uat") == (
+        datetime(2026, 11, 22, tzinfo=timezone.utc),
+        now,
+    )
+    with pytest.raises(ValueError):
+        _metrics_source.period_bounds(request, dual, now, environment="uat")
 
 
 @pytest.mark.asyncio

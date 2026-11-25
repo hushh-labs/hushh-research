@@ -41,6 +41,7 @@ import { apiErrorCode } from "@/lib/services/api-client";
 import { mailKycDisplayVersion } from "@/lib/gmail/mail-kyc-display-version";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { useMailKycDisplay } from "@/lib/gmail/use-mail-kyc-display";
+import { trackEvent } from "@/lib/observability/client";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { withDeadline } from "@/lib/utils/with-deadline";
 
@@ -688,6 +689,11 @@ function GmailInformationRequestsWorkspace({
       setActivityNextOffset(activity.next_offset);
       setActivityTotalCount(activity.total_count);
       setActivityLoaded(true);
+      trackEvent("one_kyc_action", {
+        route_id: "gmail",
+        action: "workflow_refreshed",
+        result: "success",
+      });
       return true;
       })(), deadline);
     } catch (scanError) {
@@ -697,6 +703,11 @@ function GmailInformationRequestsWorkspace({
         else automaticScanSessionRef.current = null;
         return false;
       }
+      trackEvent("one_kyc_action", {
+        route_id: "gmail",
+        action: "workflow_refreshed",
+        result: "error",
+      });
       setError(
         scanError instanceof Error
           ? scanError.message
@@ -753,6 +764,11 @@ function GmailInformationRequestsWorkspace({
         CacheSyncService.onMailKycChanged(userId);
         if (!next.monitoring_enabled) publishDisplayRef.current({ preference: next, requests: null, activity: null });
         setPreference(next);
+        trackEvent("one_kyc_action", {
+          route_id: "gmail",
+          action: enabled ? "access_approved" : "access_denied",
+          result: "success",
+        });
         if (!enabled) {
           setWorkflows([]);
           setActivityWorkflows([]);
@@ -939,7 +955,17 @@ function GmailInformationRequestsWorkspace({
           ...current,
           [workflow.workflow_id]: { body },
         }));
+        trackEvent("one_kyc_action", {
+          route_id: "gmail",
+          action: "redraft_completed",
+          result: "success",
+        });
       } catch (draftError) {
+        trackEvent("one_kyc_action", {
+          route_id: "gmail",
+          action: "redraft_completed",
+          result: "error",
+        });
         setError(
           draftError instanceof Error
             ? draftError.message
@@ -1017,6 +1043,11 @@ function GmailInformationRequestsWorkspace({
           body: draft.body,
         }), operationDeadline);
         if (result.state === "sent") {
+          trackEvent("one_kyc_action", {
+            route_id: "gmail",
+            action: "reply_sent",
+            result: "success",
+          });
           CacheSyncService.onMailKycChanged(userId);
           setWorkflows((current) =>
             current.filter((item) => item.workflow_id !== workflow.workflow_id),
@@ -1079,6 +1110,11 @@ function GmailInformationRequestsWorkspace({
           vaultOwnerToken,
           workflowId: workflow.workflow_id,
         }), operationDeadline);
+        trackEvent("one_kyc_action", {
+          route_id: "gmail",
+          action: "reply_rejected",
+          result: "success",
+        });
         CacheSyncService.onMailKycChanged(userId);
         setWorkflows((current) =>
           current.filter((item) => item.workflow_id !== workflow.workflow_id),
