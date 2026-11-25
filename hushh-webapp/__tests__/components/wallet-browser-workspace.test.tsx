@@ -377,7 +377,7 @@ describe("Wallet video browser workspace", () => {
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Revoke access", exact: true }));
     if (boundary === "owner roundtrip") { authMock.user = { uid: "user_2" }; view.rerender(<WalletWorkspace />); authMock.user = owner; view.rerender(<WalletWorkspace />); }
     if (boundary === "lock") { vaultMock.locked = true; view.rerender(<WalletWorkspace />); vaultMock.locked = false; view.rerender(<WalletWorkspace />); }
-    if (boundary === "tab") fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
+    if (boundary === "tab") fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true, hidden: true }));
     if (boundary === "overview") {
       act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
       expect(screen.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "all");
