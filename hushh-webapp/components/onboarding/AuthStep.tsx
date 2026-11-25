@@ -631,13 +631,16 @@ export function AuthStep({
       const canContinue = () => ownsAttempt() && isValidatedAuthSessionOwnerCurrent(owner);
       const idToken = result.idToken || await result.user.getIdToken();
       if (!canContinue()) throw new Error("The active sign-in session changed.");
-      await Promise.race([
+      void Promise.race([
         import("@/lib/observability/identity").then(({ setObservabilityUserId }) =>
           setObservabilityUserId(ownerId)
         ),
         new Promise((resolve) => setTimeout(resolve, 150)),
-      ]).catch(() => undefined);
-      trackEvent("auth_succeeded", { action: method, result: "success" });
+      ])
+        .catch(() => undefined)
+        .finally(() => {
+          trackEvent("auth_succeeded", { action: method, result: "success" });
+        });
       void ApiService.notifyFirstWelcome({ idToken });
       void LegalAcceptanceService.recordSignInAcceptance(result.user, true);
       if (method === "google" || method === "apple") {
