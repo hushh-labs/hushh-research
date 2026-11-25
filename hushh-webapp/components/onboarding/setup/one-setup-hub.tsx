@@ -513,7 +513,7 @@ export function OneSetupHub() {
           token: vaultOwnerToken, readToken: getVaultOwnerToken,
         });
         const conversationId = "onboarding-memory-import";
-        memory.queueSnapshot({ conversationId, messages: [{
+        void memory.registerSnapshot({ conversationId, messages: [{
           id: crypto.randomUUID(), conversationId, role: "user", content: imported.text,
         }] });
         memoryImportDraft.current = null;

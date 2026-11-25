@@ -416,7 +416,7 @@ async def ensure_pooled_sandbox_placement(
         backend="ace",
         billing_space_id=billing_space_id,
         backend_metadata=merged_meta,
-        liveness_mode="warm",
+        liveness_mode="economy",
         deployment_target="ace",
         model_credential_mode="byok_per_turn",
     )
@@ -778,6 +778,14 @@ async def adopt_pooled_sandbox_for_owner(
     setup_job = await jobs._current(user_id)
     if isinstance(setup_job, Mapping) and str(setup_job.get("status") or "").strip() == "running":
         raise ValueError("A cloud setup job is currently running. Wait for it to finish first.")
+    if isinstance(setup_job, Mapping):
+        from hushh_mcp.services import byoc_setup_intent  # noqa: PLC0415
+
+        if byoc_setup_intent.is_untouched_intent(dict(setup_job)):
+            try:
+                await byoc_setup_intent.clear_intent(user_id)
+            except Exception:  # noqa: BLE001 - best-effort intent cleanup when returning to ACE
+                logger.info("pooled_sandbox_cutover.clear_intent_skipped user=%s", user_id)
 
     mig_repo = migration_job_repo or PodMigrationJobRepo()
     mig_job = await mig_repo.get(user_id)

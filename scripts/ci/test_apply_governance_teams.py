@@ -115,10 +115,10 @@ def test_codeowners_use_the_protected_team_for_every_protected_path(module):
     content = (REPO_ROOT / ".github/CODEOWNERS").read_text()
     entries = {line.split()[0]: line.split()[1:] for line in content.splitlines()
                if line.strip() and not line.startswith("#")}
-    assert entries.pop("*") == ["@hushh-labs/allowed-maintainers-to-approve"]
+    assert "*" not in entries, "Catch-all '*' in CODEOWNERS attaches a second team to mixed protected PRs"
     assert entries and all(owners == ["@hushh-labs/pipeline-editors"] for owners in entries.values())
-    for rule in _policy()["main"]["protected_pipeline_paths"]:
-        assert entries[f"/{rule}"] == ["@hushh-labs/pipeline-editors"]
+    expected_paths = {f"/{rule}" for rule in _policy()["main"]["protected_pipeline_paths"]}
+    assert set(entries) == expected_paths
     assert "@kushaltrivedi5" not in content and "@ankitkumarsingh1702" not in content
 
 
@@ -245,14 +245,43 @@ def test_review_routing_reports_only_verified_native_retention(module):
     spec = importlib.util.spec_from_file_location("routing_native_retention", REPO_ROOT / ".agents/skills/repo-operations/scripts/pr_review_routing.py")
     route = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(route)
-    for approved, fault in ((False, None), (True, None), (False, "manual"),
-                            (False, "source"), (False, "missing"), (True, "withdrawn"),
-                            (False, "approval_arrived"), (False, "all_consumed")):
+    # Protected PRs must enforce single-group exclusivity: retaining allowed-maintainers-to-approve
+    # after DELETE always refuses (catches catch-all CODEOWNERS drift on the target branch).
+    for approved in (False, True):
         pr = {"state": "open", "draft": False, "head": {"sha": "a" * 40},
               "base": {"sha": "b" * 40, "ref": "main", "repo": {"full_name": route.REPO}},
               "requested_teams": [{"slug": "allowed-maintainers-to-approve"}],
               "requested_reviewers": [{"login": "explicit-human"}]}
         reviews = [{"state": "APPROVED", "user": {"login": "editor"}, "commit_id": "a" * 40}] if approved else []
+        def read_prot(endpoint):
+            if endpoint == "user": return {"login": "maintainer"}
+            if endpoint.endswith("/permission"): return {"permission": "maintain"}
+            if endpoint.endswith("/heads/main"): return {"object": {"sha": "c" * 40}}
+            if "/reviews?" in endpoint: return copy.deepcopy(reviews)
+            return copy.deepcopy(pr)
+        def write_prot(endpoint, method, body):
+            assert body.get("reviewers", []) == []
+            if method == "POST": pr["requested_teams"].append({"slug": "pipeline-editors"})
+        with patch.object(route, "read_teams", return_value={"pipeline-editors": ["editor"]}):
+            try:
+                route.route(1, apply=True, read=read_prot, write=write_prot,
+                            classify=lambda *args: "pipeline-editors",
+                            native_read=lambda *args: {"allowed-maintainers-to-approve"})
+            except route.Refused as exc:
+                assert "non-pipeline-editor review Team" in str(exc)
+            else:
+                raise AssertionError("Protected PR silently retained allowed-maintainers-to-approve")
+        assert pr["requested_reviewers"] == [{"login": "explicit-human"}]
+
+    # Non-protected routing retains strict native-metadata verification if another team remains.
+    for approved, fault in ((False, None), (True, None), (False, "manual"),
+                            (False, "source"), (False, "missing"), (True, "withdrawn"),
+                            (False, "approval_arrived"), (False, "all_consumed")):
+        pr = {"state": "open", "draft": False, "head": {"sha": "a" * 40},
+              "base": {"sha": "b" * 40, "ref": "main", "repo": {"full_name": route.REPO}},
+              "requested_teams": [{"slug": "pipeline-editors"}],
+              "requested_reviewers": [{"login": "explicit-human"}]}
+        reviews = [{"state": "APPROVED", "user": {"login": "maintainer-approver"}, "commit_id": "a" * 40}] if approved else []
         def read(endpoint):
             if endpoint == "user": return {"login": "maintainer"}
             if endpoint.endswith("/permission"): return {"permission": "maintain"}
@@ -261,28 +290,28 @@ def test_review_routing_reports_only_verified_native_retention(module):
             return copy.deepcopy(pr)
         def write(endpoint, method, body):
             assert body.get("reviewers", []) == []
-            if method == "POST": pr["requested_teams"].append({"slug": "pipeline-editors"})
+            if method == "POST": pr["requested_teams"].append({"slug": "allowed-maintainers-to-approve"})
             if method == "DELETE" and fault == "missing":
-                pr["requested_teams"] = [{"slug": "allowed-maintainers-to-approve"}]
+                pr["requested_teams"] = [{"slug": "pipeline-editors"}]
         def native_read(number, captured):
             assert number == 1 and captured["head"]["sha"] == "a" * 40
             if fault == "source": pr["head"]["sha"] = "d" * 40
             if fault == "withdrawn": reviews.clear()
             if fault in {"approval_arrived", "all_consumed"}:
-                reviews.append({"state": "APPROVED", "user": {"login": "editor"}, "commit_id": "a" * 40})
-                pr["requested_teams"] = ([{"slug": "allowed-maintainers-to-approve"}]
+                reviews.append({"state": "APPROVED", "user": {"login": "maintainer-approver"}, "commit_id": "a" * 40})
+                pr["requested_teams"] = ([{"slug": "pipeline-editors"}]
                                          if fault == "approval_arrived" else [])
-            return set() if fault == "manual" else {"allowed-maintainers-to-approve"}
-        with patch.object(route, "read_teams", return_value={"pipeline-editors": ["editor"]}):
+            return set() if fault == "manual" else {"pipeline-editors"}
+        with patch.object(route, "read_teams", return_value={"allowed-maintainers-to-approve": ["maintainer-approver"]}):
             try:
                 result = route.route(1, apply=True, read=read, write=write,
-                                     classify=lambda *args: "pipeline-editors", native_read=native_read)
+                                     classify=lambda *args: "allowed-maintainers-to-approve", native_read=native_read)
             except route.Refused:
                 assert fault not in (None, "approval_arrived", "all_consumed"), (approved, fault)
             else:
                 assert fault in (None, "approval_arrived", "all_consumed"), fault
-                assert result["team"] == "pipeline-editors"
-                assert result.get("retained_native_codeowners", []) == ([] if fault == "all_consumed" else ["allowed-maintainers-to-approve"])
+                assert result["team"] == "allowed-maintainers-to-approve"
+                assert result.get("retained_native_codeowners", []) == ([] if fault == "all_consumed" else ["pipeline-editors"])
                 assert result["already_approved"] is (approved or fault in {"approval_arrived", "all_consumed"})
         assert pr["requested_reviewers"] == [{"login": "explicit-human"}]
 

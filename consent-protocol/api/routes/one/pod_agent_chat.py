@@ -61,6 +61,17 @@ from hushh_mcp.one_adk.specialist_focus import (
     admit_specialist_focus,
 )
 from hushh_mcp.one_adk.turn_location import STATE_TURN_LOCATION, admit_turn_location
+from hushh_mcp.one_adk.wiki_recall_tools import (
+    STATE_WIKI_CLIENT_READY,
+    STATE_WIKI_HOT_DIGEST,
+    STATE_WIKI_RESULT,
+    pod_files_wiki_enabled,
+)
+from hushh_mcp.one_adk.wiki_turn_admission import (
+    admit_wiki_continuation,
+    admit_wiki_hot_digest,
+    admit_wiki_tool,
+)
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.action_gateway import get_action_gateway_action
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
@@ -100,10 +111,16 @@ async def context(request: Request) -> PodChatContext:
 @router.get("/capabilities")
 async def capabilities(owner: PodChatContext = Depends(context)):
     # Discovery performs no model construction, turn admission or history write.
+    from hushh_mcp.services.action_gateway import list_action_gateway_actions
+
     return {
         **_authenticated_capabilities,
         "podCommandCheckpointVersion": 1,
         "receiptToolVersion": 1,
+        "clientWikiRecallVersion": 0 if pod_files_wiki_enabled() else 1,
+        "admittedActionIds": sorted(
+            {"pkm.add", *(entry["action_id"] for entry in list_action_gateway_actions())}
+        ),
     }
 
 
@@ -114,9 +131,12 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
     hub_only = ("driveSearchSelection", "pendingEmailDraft", "gmailInformationRequestWorkflowId")
     if input.context or any(forwarded.get(key) for key in hub_only):
         raise HTTPException(409, detail={"code": "POD_CHAT_AUTHORITY_UNAVAILABLE"})
+    allow_client_wiki = not pod_files_wiki_enabled()
     for tool in input.tools:
         try:
             if admit_receipt_tool(tool):
+                continue
+            if allow_client_wiki and admit_wiki_tool(tool):
                 continue
         except ValueError:
             raise HTTPException(400, detail={"code": "AGENT_TOOL_NOT_ADMITTED"}) from None
@@ -162,6 +182,12 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         raise HTTPException(400, detail={"code": "POD_CHAT_SPECIALIST_FOCUS_INVALID"}) from None
     screen_context = forwarded.get("screenContext")
     screen = sanitize_agent_context(screen_context if isinstance(screen_context, dict) else {})
+    try:
+        wiki_hot_digest, wiki_client_ready = admit_wiki_hot_digest(
+            forwarded, owner_admitted=allow_client_wiki
+        )
+    except ValueError:
+        raise HTTPException(413, detail={"code": "POD_CHAT_WIKI_DIGEST_TOO_LARGE"}) from None
     state = {
         STATE_ACCOUNT_CONTEXT_ENABLED: account_enabled,
         owner_style.STATE_OWNER_STYLE: owner_style.admit_owner_style(
@@ -201,6 +227,8 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         "hussh:voice_context": screen,
         "hussh:pkm_context": store_request_secret(options.pkm_context or "", ttl_seconds=240),
         STATE_NWS_REPORT: admit_nws_report(forwarded, owner_admitted=True),
+        STATE_WIKI_HOT_DIGEST: wiki_hot_digest,
+        STATE_WIKI_CLIENT_READY: wiki_client_ready,
         **({"hussh:thread_title": "One"} if forwarded.get("mainChat") is True else {}),
     }
     return state, options
@@ -234,6 +262,23 @@ async def chat(input: RunAgentInput, owner: PodChatContext = Depends(context)):
         )
     except (ValueError, KeyError, TypeError):
         raise HTTPException(403, detail={"code": "POD_CHAT_RECEIPT_NOT_ADMITTED"}) from None
+    try:
+        if not pod_files_wiki_enabled():
+            state[STATE_WIKI_RESULT] = await admit_wiki_continuation(
+                forwarded,
+                owner_id=owner.owner,
+                conversation_id=input.thread_id,
+                messages=input.messages,
+                execution_head=lambda: None,
+                load_session=lambda: owner.sessions.get_session(
+                    app_name=ONE_APP_NAME, user_id=owner.owner, session_id=input.thread_id
+                ),
+            )
+        else:
+            forwarded.pop("wikiToolResults", None)
+            state[STATE_WIKI_RESULT] = ""
+    except (ValueError, KeyError, TypeError):
+        raise HTTPException(403, detail={"code": "POD_CHAT_WIKI_NOT_ADMITTED"}) from None
     state.update(await admit_continuation(forwarded, input, owner, ONE_APP_NAME))
     await owner.require_access()
     agent = await owner.build_agent(options)

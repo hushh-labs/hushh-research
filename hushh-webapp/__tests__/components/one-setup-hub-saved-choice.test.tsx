@@ -377,7 +377,7 @@ describe("optional onboarding memory import", () => {
     fireEvent.change(await openImport(), { target: { value: "I prefer concise answers." } });
     fireEvent.click(screen.getByRole("button", { name: "Finish setup" }));
     await waitFor(() => expect(state.replace).toHaveBeenCalledWith("/"));
-    expect(state.queueSnapshot).toHaveBeenCalledWith({
+    expect(state.registerSnapshot).toHaveBeenCalledWith({
       conversationId: "onboarding-memory-import",
       messages: [{ id: expect.any(String), conversationId: "onboarding-memory-import", role: "user", content: "I prefer concise answers." }],
     });

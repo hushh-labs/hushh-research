@@ -1466,11 +1466,41 @@ function agentMessagePendingConsentRequestId(
  * win over an older transcript copy. This merges only safe card descriptors;
  * it never merges decrypted information or replays an action.
  */
+export function insertMessageChronologically(
+  messages: readonly AgentMessage[],
+  candidate: AgentMessage,
+): AgentMessage[] {
+  const candidateMs =
+    typeof candidate.sentAtMs === "number" &&
+    Number.isFinite(candidate.sentAtMs) &&
+    candidate.sentAtMs > 0
+      ? candidate.sentAtMs
+      : null;
+  if (candidateMs === null || messages.length === 0) {
+    return [...messages, candidate];
+  }
+  const next = [...messages];
+  let insertAt = next.length;
+  for (let i = 0; i < next.length; i += 1) {
+    const existingMs = next[i]?.sentAtMs;
+    if (
+      typeof existingMs === "number" &&
+      Number.isFinite(existingMs) &&
+      existingMs > candidateMs
+    ) {
+      insertAt = i;
+      break;
+    }
+  }
+  next.splice(insertAt, 0, candidate);
+  return next;
+}
+
 export function mergePendingConsentMessages(
   restored: AgentMessage[],
   current: readonly AgentMessage[],
 ): AgentMessage[] {
-  const merged = [...restored];
+  let merged = [...restored];
 
   for (const candidate of current) {
     const payload = getPendingConsentRequestPayload(
@@ -1491,7 +1521,7 @@ export function mergePendingConsentMessages(
     if (existingIndex >= 0) {
       merged[existingIndex] = candidate;
     } else {
-      merged.push(candidate);
+      merged = insertMessageChronologically(merged, candidate);
     }
   }
 
@@ -1723,12 +1753,12 @@ function useAnimatedAssistantText(targetText: string, active: boolean) {
 function AgentThinkingDots() {
   return (
     <span
-      className="inline-flex items-center gap-1 py-1 text-muted-foreground"
-      aria-label="Agent is thinking"
+      className="one-typing-rhythm inline-flex items-center gap-[5px] px-0.5 py-1 text-muted-foreground"
+      aria-label="Agent is responding"
     >
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:-160ms] motion-reduce:animate-none" />
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:-80ms] motion-reduce:animate-none" />
-      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current motion-reduce:animate-none" />
+      <span className="one-typing-rhythm-dot" aria-hidden="true" />
+      <span className="one-typing-rhythm-dot" aria-hidden="true" />
+      <span className="one-typing-rhythm-dot" aria-hidden="true" />
     </span>
   );
 }
@@ -4568,17 +4598,30 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             }
           }
 
-          return [
-            ...current,
-            {
-              id: `msg-${Date.now()}-pending-consent-${item.id}`,
-              role: "assistant",
-              text: event.message,
-              ...stampNow(),
-              status: "done",
-              specialistDirective: event,
-            },
-          ];
+          const parsedRequestedMs =
+            typeof item.requestedAt === "number"
+              ? item.requestedAt
+              : typeof item.requestedAt === "string" && item.requestedAt.trim()
+                ? Date.parse(item.requestedAt)
+                : Number.NaN;
+          const cardStamp =
+            Number.isFinite(parsedRequestedMs) && parsedRequestedMs > 0
+              ? {
+                  sentAtMs: parsedRequestedMs,
+                  timestamp: new Date(parsedRequestedMs).toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  }),
+                }
+              : stampNow();
+          return insertMessageChronologically(current, {
+            id: `msg-${cardStamp.sentAtMs}-pending-consent-${item.id}`,
+            role: "assistant",
+            text: event.message,
+            ...cardStamp,
+            status: "done",
+            specialistDirective: event,
+          });
         });
       } catch (error) {
         inlineConsentRequestIdsRef.current.delete(normalizedRequestId);
@@ -8578,6 +8621,43 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       return false;
     }
     const [submittedText = "", ...attachmentTexts] = kept;
+    // Hands-free voice & free-text confirmation for a mounted AskProposalCard:
+    // replying "yes send" / "send it" / "confirm" submits the visible proposal
+    // directly instead of forcing a manual tap on the card.
+    const trimmedConfirm = submittedText.trim();
+    if (
+      attachments.length === 0 &&
+      /^(?:yes|yeah|yep|sure|ok|okay|confirm|go ahead|send|send it|yes[, ]+send(?: it| the request| now)?|please send(?: it)?|do it|send the request)[.!?\s]*$/i.test(
+        trimmedConfirm,
+      ) &&
+      typeof window !== "undefined"
+    ) {
+      const detail: { handled?: boolean; personName?: string } = { handled: false };
+      window.dispatchEvent(new CustomEvent("hushh:confirm-active-ask-proposal", { detail }));
+      if (detail.handled) {
+        const userStamp = stampNow();
+        setMessages((current) => [
+          ...current,
+          {
+            id: `msg-${userStamp.sentAtMs}-confirm-user`,
+            role: "user",
+            text: trimmedConfirm,
+            ...userStamp,
+            status: "done",
+          },
+          {
+            id: `msg-${userStamp.sentAtMs + 1}-confirm-assistant`,
+            role: "assistant",
+            text: detail.personName
+              ? `Sending your request to ${detail.personName}.`
+              : "Sending your request.",
+            ...stampNow(),
+            status: "done",
+          },
+        ]);
+        return true;
+      }
+    }
     const submittedAttachments = attachments.map((item, index) =>
       attachmentTexts[index] === item.text ? item : createAgentTextAttachment(attachmentTexts[index] ?? "", item.name),
     );
@@ -9729,11 +9809,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     aria-label="One's model"
                     aria-busy={modelPreferenceSaving || undefined}
                     title={`Running ${modelPreference.effective_model}`}
-                    className="agent-chat-model-picker h-11 w-auto max-w-[7.5rem] shrink-0 gap-1 rounded-full border-0 bg-foreground/[0.045] px-2.5 text-[11px] font-medium text-muted-foreground sm:max-w-[9.5rem]"
+                    className="agent-chat-model-picker !h-9 !min-h-9 w-auto max-w-[7.5rem] shrink-0 gap-1.5 rounded-full border border-black/[0.08] bg-[color:var(--app-card-surface-default-solid)]/80 px-3 py-0 text-[12px] font-medium leading-none text-foreground/80 shadow-none backdrop-blur-md transition-[background-color,border-color,color] duration-[140ms] hover:border-black/[0.14] hover:bg-foreground/[0.06] hover:text-foreground dark:border-white/[0.11] dark:hover:border-white/[0.18] sm:max-w-[9.5rem]"
                   >
                     {/* The verified catalog owns labels; a short Gemini label
                         saves space without assuming the provider of other rows. */}
-                    <Cpu aria-hidden="true" className="agent-chat-model-icon size-4 shrink-0" />
+                    <Cpu aria-hidden="true" className="agent-chat-model-icon size-3.5 shrink-0 text-muted-foreground" />
                     <span className="truncate">
                       {(
                         modelPreference.choices.find(

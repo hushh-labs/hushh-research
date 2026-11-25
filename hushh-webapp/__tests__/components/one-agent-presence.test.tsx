@@ -156,7 +156,7 @@ describe("OneAgentPresence", () => {
     mockStatus.mockResolvedValue({ state: "active" });
     vi.mocked(ApiService.wakePod).mockRejectedValue(new Error("offline"));
     render(<OneAgentPresence />);
-    expect(await screen.findByText("Active")).toBeTruthy();
+    expect(await screen.findByText("Ready")).toBeTruthy();
     expect(screen.queryByText("Not responding")).toBeNull();
   });
 

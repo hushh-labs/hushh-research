@@ -14,11 +14,29 @@ from hushh_mcp.consent.scope_generator import get_scope_generator
 
 ScopeAvailabilityState = Literal[
     "materialized",
+    "private_candidate",
     "empty",
     "unknown",
+    "failed",
+    "pending",
+    "stale",
+    "conflicted",
     "unavailable",
     "not_applicable",
 ]
+
+_PERSISTED_SCOPE_STATES = frozenset(
+    {
+        "materialized",
+        "private_candidate",
+        "empty",
+        "unknown",
+        "failed",
+        "pending",
+        "stale",
+        "conflicted",
+    }
+)
 
 
 class _ScopeGenerator(Protocol):
@@ -88,7 +106,7 @@ class PkmScopeAvailabilityResolver:
         if entry is None:
             return ScopeAvailability(scope=normalized_scope, state="unavailable")
         state = str(entry.get("materialization_state") or "unknown").strip().lower()
-        if state not in {"materialized", "empty", "unknown"}:
+        if state not in _PERSISTED_SCOPE_STATES:
             state = "unknown"
         try:
             leaf_count = max(0, int(entry.get("materialized_leaf_count") or 0))

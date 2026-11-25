@@ -1,8 +1,10 @@
 /** Negotiate new client tools without breaking an owner's older installed pod. */
+import { WIKI_TOOL_NAMES } from "@/lib/files/wiki/recall-client-tools";
 import { RECEIPT_TOOL_DECLARATIONS, RECEIPT_FUNCTIONS } from "@/lib/mail/receipt-analysis";
 import { canonicalJson } from "./owner-pod-crypto";
 
 const receiptNames = new Set<string>(RECEIPT_FUNCTIONS);
+const clientOnlySharedWikiNames = new Set<string>(WIKI_TOOL_NAMES);
 type Item = Record<string, unknown>;
 const record = (value: unknown): Item =>
   value && typeof value === "object" && !Array.isArray(value) ? value as Item : {};
@@ -34,6 +36,85 @@ export function receiptToolVersion(value: unknown): 0 | 1 {
   if (!Object.hasOwn(capabilities, "receiptToolVersion")) return 0;
   if (capabilities.receiptToolVersion !== 1) throw new Error("POD_CHAT_CAPABILITIES_INVALID");
   return 1;
+}
+
+export function admittedPodActionIds(value: unknown): ReadonlySet<string> | null {
+  const capabilities = record(value);
+  if (!Object.hasOwn(capabilities, "admittedActionIds")) return null;
+  const raw = capabilities.admittedActionIds;
+  if (!Array.isArray(raw) || raw.some((item) => typeof item !== "string" || !item)) {
+    throw new Error("POD_CHAT_CAPABILITIES_INVALID");
+  }
+  return new Set(raw);
+}
+
+export function clientWikiRecallVersion(value: unknown): 0 | 1 {
+  const capabilities = record(value);
+  if (!Object.hasOwn(capabilities, "clientWikiRecallVersion")) return 0;
+  if (capabilities.clientWikiRecallVersion === 0) return 0;
+  if (capabilities.clientWikiRecallVersion !== 1) {
+    throw new Error("POD_CHAT_CAPABILITIES_INVALID");
+  }
+  return 1;
+}
+
+function decodeActionToolId(name: string): string | null {
+  if (!name.startsWith("hussh_action_")) return null;
+  const encoded = name.slice("hussh_action_".length);
+  if (!encoded || !/^[A-Za-z0-9_-]+$/.test(encoded)) return null;
+  try {
+    const padded = encoded
+      .replaceAll("-", "+")
+      .replaceAll("_", "/")
+      .padEnd(Math.ceil(encoded.length / 4) * 4, "=");
+    return decodeURIComponent(escape(atob(padded)));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Negotiate client-side Shared-wiki recall tools and newer `hussh_action_*`
+ * entries against the installed pod's capabilities.
+ */
+export function projectPodActionTools(
+  request: RequestInit,
+  admittedActionIds: ReadonlySet<string> | null | undefined,
+  options?: { clientWikiVersion?: 0 | 1 },
+): RequestInit {
+  if (typeof request.body !== "string") return request;
+  const allowClientWiki = options?.clientWikiVersion === 1;
+  const turn = record(JSON.parse(request.body));
+  const forwarded = record(turn.forwardedProps);
+  const stripSharedWikiProps =
+    !allowClientWiki &&
+    (Object.hasOwn(forwarded, "wikiClientReady") ||
+      Object.hasOwn(forwarded, "wikiHotDigest") ||
+      Object.hasOwn(forwarded, "wikiToolResults"));
+  const tools = Array.isArray(turn.tools) ? turn.tools : null;
+  const filtered = tools
+    ? tools.filter((value: unknown) => {
+        const tool = record(value);
+        const name = String(tool.name ?? "");
+        if (!allowClientWiki && clientOnlySharedWikiNames.has(name)) return false;
+        if (!admittedActionIds || !name.startsWith("hussh_action_")) return true;
+        const actionId = decodeActionToolId(name);
+        return actionId !== null && admittedActionIds.has(actionId);
+      })
+    : null;
+  const toolsChanged = Boolean(tools && filtered && filtered.length !== tools.length);
+  if (!toolsChanged && !stripSharedWikiProps) return request;
+  if (toolsChanged && filtered) {
+    turn.tools = filtered;
+  }
+  if (stripSharedWikiProps) {
+    const nextForwarded = { ...forwarded };
+    delete nextForwarded.wikiClientReady;
+    delete nextForwarded.wikiHotDigest;
+    delete nextForwarded.wikiToolResults;
+    turn.forwardedProps = nextForwarded;
+  }
+  return { ...request, body: JSON.stringify(turn) };
 }
 
 export function projectPodReceiptTools(request: RequestInit, version: 0 | 1): RequestInit {

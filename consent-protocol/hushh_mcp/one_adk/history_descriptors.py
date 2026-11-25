@@ -227,17 +227,44 @@ def _safe_information_request_descriptor(
         ):
             return None
         raw_fields = result.get("fields")
-        if not isinstance(raw_fields, list):
-            return None
-        fields = [
-            {
-                "label": label,
-                "domain": "Information",
-                "sensitivity": "standard",
-            }
-            for raw_field in raw_fields[:50]
-            if (label := _bounded_text(raw_field, 120))
-        ]
+        fields: list[dict[str, str]] = []
+        if isinstance(raw_fields, list):
+            for raw_field in raw_fields[:50]:
+                if isinstance(raw_field, dict):
+                    label = _bounded_text(raw_field.get("label"), 120)
+                    domain = _bounded_text(raw_field.get("domain"), 80) or "Information"
+                    sensitivity = _bounded_text(raw_field.get("sensitivity"), 32) or "standard"
+                    if label:
+                        fields.append(
+                            {
+                                "label": label,
+                                "domain": domain,
+                                "sensitivity": sensitivity,
+                            }
+                        )
+                elif label := _bounded_text(raw_field, 120):
+                    fields.append(
+                        {
+                            "label": label,
+                            "domain": "Information",
+                            "sensitivity": "standard",
+                        }
+                    )
+        if not fields and isinstance(result.get("proposed"), list):
+            for raw_proposed in result["proposed"][:50]:
+                proposed = _record(raw_proposed)
+                if not proposed:
+                    continue
+                label = _bounded_text(proposed.get("label"), 120)
+                if not label:
+                    continue
+                fields.append(
+                    {
+                        "label": label,
+                        "domain": _bounded_text(proposed.get("domain"), 80) or "Information",
+                        "sensitivity": _bounded_text(proposed.get("sensitivity"), 32) or "standard",
+                    }
+                )
         if not fields:
             return None
         duration_label = (

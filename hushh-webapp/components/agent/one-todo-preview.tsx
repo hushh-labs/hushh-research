@@ -172,7 +172,11 @@ export function OneTodoPreview({
   const detailVisible = Boolean(currentDetail && current && ready && currentDetail.status !== "deleted");
   useLayoutEffect(() => { onDetailModeChange?.(detailVisible); return () => onDetailModeChange?.(false); }, [detailVisible, onDetailModeChange]);
   if (currentDetail && current && ready && currentDetail.status !== "deleted") return <TodoTaskDetail
-    task={currentDetail} busy={loading || Boolean(savingTaskId)} error={mutationError ? "Couldn’t save. Try again." : null} onBack={() => setDetail(null)} onToggle={toggleTask}
+    task={currentDetail} busy={loading || Boolean(savingTaskId)} error={mutationError ? "Couldn’t save. Try again." : null} onBack={() => setDetail(null)} onToggle={(task, complete) => {
+      void toggleTask(task, complete).then(saved => {
+        if (saved && complete) setDetail(null);
+      });
+    }}
     onDetailBackChange={onDetailBackChange}
     onRemove={task => { void persistTask(task, "deleted").then(saved => { if (saved) setDetail(null); }); }} />;
 

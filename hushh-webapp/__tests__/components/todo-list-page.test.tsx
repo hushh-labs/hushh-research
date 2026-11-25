@@ -5,6 +5,7 @@ import {
   renderHook,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -204,6 +205,24 @@ describe("TodoListPage row actions", () => {
     vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [] });
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByRole("heading", { name: "No tasks yet" })).toBeVisible();
+  });
+
+  it("preserves existing tasks during background refresh instead of wiping them to empty", async () => {
+    const task = buildTodo({ id: "task-keep", title: "Existing task to keep", type: "manual" });
+    vi.mocked(TodoListPkmService.load).mockResolvedValueOnce({ tasks: [task] });
+    render(<TodoListPage />);
+    expect(await screen.findByText("Existing task to keep")).toBeVisible();
+
+    let resolveLoad!: (val: { tasks: TodoItem[] }) => void;
+    vi.mocked(TodoListPkmService.load).mockReturnValueOnce(new Promise((res) => { resolveLoad = res; }));
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.getByText("Existing task to keep")).toBeVisible();
+    await act(async () => {
+      resolveLoad({ tasks: [task] });
+    });
+    expect(screen.getByText("Existing task to keep")).toBeVisible();
   });
 
   it.each(["pending", "done"] as const)("keeps a %s reviewed email task tied to its source without duplicating it", status => {
@@ -614,5 +633,51 @@ describe("TodoListPage row actions", () => {
     ).toHaveValue("");
   });
 
+  it("dismisses detail view and returns to the to-do list when marking a task as completed", async () => {
+    render(<TodoListPage />);
+    const taskButton = await screen.findByRole("button", { name: "Review the plan", exact: true });
+    await act(async () => {
+      fireEvent.click(taskButton);
+    });
+    const detail = screen.getByRole("region", { name: "Task details" });
+    expect(detail).toBeVisible();
+    await act(async () => {
+      fireEvent.click(within(detail).getByRole("button", { name: "Mark as completed", exact: true }));
+    });
+    expect(screen.queryByRole("region", { name: "Task details" })).not.toBeInTheDocument();
+  });
 
+  it("allows typing and saving in the task composer while a background task write is in flight", async () => {
+    let finishWrite!: (result: { success: boolean; saveState: string; fullBlob: object }) => void;
+    vi.spyOn(TodoListPkmService, "setStatus").mockImplementationOnce(
+      () => new Promise((resolve) => { finishWrite = resolve; }),
+    );
+    vi.spyOn(todoService, "createTodo").mockResolvedValueOnce({
+      task: buildTodo({ id: "new-task-1", title: "New created item", type: "manual" }),
+      result: { success: true },
+    });
+
+    render(<TodoListPage />);
+    const checkbox = await screen.findByRole("checkbox", {
+      name: "Mark Review the plan as completed",
+    });
+    fireEvent.click(checkbox);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }));
+    const titleInput = screen.getByRole("textbox", { name: "Title", exact: true });
+    expect(titleInput).toBeEnabled();
+    fireEvent.change(titleInput, { target: { value: "New created item" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save", exact: true }));
+
+    await waitFor(() => {
+      expect(todoService.createTodo).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "New created item" }),
+        expect.anything(),
+      );
+    });
+
+    await act(async () => {
+      finishWrite({ success: true, saveState: "saved", fullBlob: {} });
+    });
+  });
 });

@@ -52,6 +52,10 @@ class InMemorySandboxClaimClient:
         self._sequence = list(forced_sandbox_sequence or [])
         self.active_claims: dict[str, ClaimedSandboxEndpoint] = {}
         self.deleted_claims: list[str] = []
+        self.terminated_sandboxes: dict[str, str] = {}
+
+    def inspect_pod_termination(self, sandbox_name: str) -> str | None:
+        return self.terminated_sandboxes.get(str(sandbox_name or "").strip())
 
     def create_and_wait_claim(
         self,
@@ -311,6 +315,78 @@ class LiveK8sSandboxClaimClient:
         )
         if status not in {200, 202, 404}:
             raise RuntimeError(f"SandboxClaim delete failed ({status}): {body}")
+
+    def inspect_pod_termination(self, sandbox_name: str) -> str | None:
+        """Return a value-free termination reason if the claimed pod exited or crashed."""
+        clean_name = str(sandbox_name or "").strip()
+        if not clean_name:
+            return None
+        try:
+            status, pod_doc = self._request_json(
+                "GET", f"/api/v1/namespaces/{self.namespace}/pods/{clean_name}"
+            )
+        except Exception:  # noqa: BLE001 - transient K8s API hiccup is not pod termination
+            return None
+        if status == 404:
+            return "PodDeleted"
+        if status != 200 or not isinstance(pod_doc, dict):
+            return None
+        pod_status = pod_doc.get("status")
+        if not isinstance(pod_status, dict):
+            return None
+        phase = str(pod_status.get("phase") or "").strip()
+        if phase in {"Failed", "Succeeded"}:
+            return f"PodPhase:{phase}"
+        fatal_waiting = {
+            "CrashLoopBackOff",
+            "ErrImagePull",
+            "ImagePullBackOff",
+            "CreateContainerConfigError",
+            "InvalidImageName",
+        }
+        for cs in pod_status.get("containerStatuses") or ():
+            if not isinstance(cs, dict):
+                continue
+            state = cs.get("state")
+            if not isinstance(state, dict):
+                continue
+            term = state.get("terminated")
+            if isinstance(term, dict):
+                reason = str(term.get("reason") or "Exited").strip()[:48]
+                exit_code = term.get("exitCode")
+                return f"ContainerTerminated:{reason}:{exit_code}"
+            waiting = state.get("waiting")
+            if isinstance(waiting, dict):
+                w_reason = str(waiting.get("reason") or "").strip()
+                if w_reason in fatal_waiting:
+                    return f"ContainerWaiting:{w_reason}"
+        return None
+
+    def extend_claim_shutdown(
+        self,
+        claim_name: str,
+        *,
+        idle_shutdown_seconds: int = 600,
+    ) -> bool:
+        """Slide `spec.lifecycle.shutdownTime` forward so active leases outlive initial TTL."""
+        import datetime  # noqa: PLC0415
+
+        clamped = max(60, min(3600, int(idle_shutdown_seconds)))
+        shutdown_iso = datetime.datetime.fromtimestamp(
+            int(time.time()) + clamped,
+            tz=datetime.timezone.utc,
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        base = f"/apis/extensions.agents.x-k8s.io/v1beta1/namespaces/{self.namespace}/sandboxclaims"
+        try:
+            status, _body = self._request_json(
+                "PATCH",
+                f"{base}/{claim_name}",
+                {"spec": {"lifecycle": {"shutdownTime": shutdown_iso}}},
+                content_type="application/merge-patch+json",
+            )
+            return status in {200, 201, 202}
+        except Exception:  # noqa: BLE001 - caller rotates cleanly if claim PATCH is unsupported
+            return False
 
 
 class SentinelControlClient:

@@ -248,6 +248,9 @@ _ACTIVITY_TOOLS = frozenset(
         "resolve_onboarding_goal",
         "get_current_time",
         "get_my_location",
+        "search_wiki",
+        "read_wiki_page",
+        "trace_claim",
     }
 )
 _MCP_ACTIVITY_TOOL = re.compile(r"^mcp_[0-9a-f]{40}$")

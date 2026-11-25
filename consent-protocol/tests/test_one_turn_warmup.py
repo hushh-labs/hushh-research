@@ -115,11 +115,20 @@ def test_raw_chat_keeps_the_non_client_roster():
             getattr(tool, "name", None) or getattr(tool, "__name__", None),
         )
 
+    from hushh_mcp.one_adk.wiki_recall_tools import WIKI_TOOL_NAMES, pod_files_wiki_enabled
+
     client_toolsets = [
         set(tool.tool_filter) for tool in interactive.tools if isinstance(tool, AGUIToolset)
     ]
-    assert len(client_toolsets) == 3
+    expected_count = 3 if pod_files_wiki_enabled() else 4
+    assert len(client_toolsets) == expected_count
     assert set(RECEIPT_TOOL_NAMES) in client_toolsets
+    from hushh_mcp.one_adk.wiki_recall_tools import wiki_after_model, wiki_before_model
+
+    assert wiki_before_model in interactive.before_model_callback
+    assert wiki_after_model in interactive.after_model_callback
+    if not pod_files_wiki_enabled():
+        assert set(WIKI_TOOL_NAMES) in client_toolsets
     assert {PORTFOLIO_CONTEXT_TOOL} in client_toolsets
     assert {ACCOUNT_CONTEXT_TOOL} in client_toolsets
     assert not any(isinstance(tool, AGUIToolset) for tool in raw.tools)
