@@ -1320,8 +1320,8 @@
         "route": "/getting-started",
         "classification": "native-required-functional",
         "initialRoute": "/getting-started",
-        "expectedMarker": "native-route-getting-started",
-        "expectedRoute": "/getting-started",
+        "expectedMarker": "native-route-login",
+        "expectedRoute": "/login",
         "autoReviewerLogin": false,
         "expectedAuth": "anonymous",
         "allowedDataStates": [
@@ -3404,8 +3404,8 @@
       },
       "native": {
         "route": "/one/files",
-        "classification": "excluded-web-only",
-        "reason": "GAP: encrypted BYOC Files uses browser streaming and file-picker controls. Native transfer, key continuity, and direct-pod admission require device acceptance before enabling this route."
+        "classification": "excluded-conditional-handoff",
+        "reason": "Eligible nonproduction accounts can open the existing Files workspace from One on iPhone. Verify its controls and authored return in the iOS journey. Cross-platform native encrypted transfer, owner key continuity, and direct-pod admission require separate device evidence."
       },
       "shell": {
         "app_page_shell": false,
@@ -11466,5 +11466,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "59aaa98d7891e8680a8267a2a4433f73420763cfec25a56c273421c771599fd4"
+  "content_sha256": "d2a468f18a8dc084310f363eb317cdb69323770a26b4561f5cbeec7f2c29eec8"
 }

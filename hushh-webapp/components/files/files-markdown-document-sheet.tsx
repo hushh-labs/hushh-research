@@ -357,6 +357,7 @@ export function FilesMarkdownDocumentSheet({
                 owner={owner?.userId ?? null}
                 context="files-markdown-document"
                 layer="profile-pane"
+                label="Close document"
                 onBack={requestClose}
               />
             ) : null}

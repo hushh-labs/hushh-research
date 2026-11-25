@@ -1806,6 +1806,13 @@ enum NativeCircleCodeSelection {
     }
     var permitsWalletForm: Bool { walletFormParent != nil }
     func setExternalCoverage(_ covered: Bool) { walletPanel?.setExternalCoverage(covered) }
+    func update(_ next: NativeWorkspaceProjection) -> Bool {
+        guard model.update(next) else { return false }
+        // prepare() lays out synchronously unless an outgoing editor still owns a menu.
+        // Apply the new frame and interaction coverage immediately while it dismisses.
+        if model.hasRetiringEditorPresentations { refresh() }
+        return true
+    }
     func prepare(completion: @escaping (Bool) -> Void) {
         model.afterEditorRetirement { [weak self] in
             guard let self else { completion(false); return }; self.refresh()
@@ -1845,9 +1852,15 @@ enum NativeCircleCodeSelection {
         model.editorRetirementChanged = { [weak self] in self?.coverage?() }
         refresh()
     }
+    #if DEBUG
+    private(set) var layoutPassCount = 0
+    #endif
     func refresh() {
         host.overrideUserInterfaceStyle = model.state.appearance == "dark" ? .dark : .light
         host.view.backgroundColor = model.canvasColor
+        #if DEBUG
+        layoutPassCount += 1
+        #endif
         host.view.frame = model.state.frame.rect; host.view.setNeedsLayout(); host.view.layoutIfNeeded()
         container?.setAdmission(Self.installationID, admitted: model.state.enabled && container?.isolationGeneration == model.state.isolationGeneration)
         model.textEditor?.model.setPresentationEnabled(model.state.enabled && model.canInteract?() == true)

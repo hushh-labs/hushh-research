@@ -242,6 +242,10 @@ describe("private route-body presentation boundary", () => {
       await act(async () => { document.documentElement.dataset.routeTransition = "idle"; });
       await waitFor(() => expect(latest()?.title).toBe("market"));
       const first = latest()!;
+      const acknowledgedCalls = drawerBridge.applyWorkspace.mock.calls.length;
+      view.rerender(<Finance pane="market" />);
+      await act(async () => { await Promise.resolve(); });
+      expect(drawerBridge.applyWorkspace).toHaveBeenCalledTimes(acknowledgedCalls);
       view.rerender(<Finance pane="analysis" />);
       await waitFor(() => expect(latest()?.title).toBe("analysis"));
       view.rerender(<Finance pane="market" />);

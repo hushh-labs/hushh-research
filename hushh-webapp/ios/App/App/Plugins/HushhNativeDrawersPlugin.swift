@@ -843,8 +843,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 guard self.retiringWorkspaces.isEmpty else { call.reject("NATIVE_WORKSPACE_RETIRING"); return }
             }
             if let presentation = self.workspace {
-                guard presentation.model.update(next) else { call.reject("NATIVE_WORKSPACE_STALE"); return }
-                presentation.refresh()
+                guard presentation.update(next) else { call.reject("NATIVE_WORKSPACE_STALE"); return }
             } else {
                 guard self.workspaceIdentity != next.identity, let presentation = NativeWorkspacePresentation(next, parent: parent, container: container) else { call.reject("NATIVE_WORKSPACE_RETIRED"); return }
                 self.workspaceIdentity = next.identity; self.workspaceRetiredReceipt = nil; self.workspace = presentation
