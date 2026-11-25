@@ -21,12 +21,15 @@ SERVICE_COMPLETION_FORMAT = (
 def service_completion_filter(project, service, start, until, names):
     if not names or any(
         not isinstance(name, str)
-        or not re.fullmatch(rf"{re.escape(service)}-[a-z0-9-]{{1,{62 - len(service)}}}", name)
+        or not re.fullmatch(
+            rf"{re.escape(service)}-[a-z0-9-]{{1,{62 - len(service)}}}", name
+        )
         for name in names
     ):
         raise ValueError("workos_service_completion_unqualified")
     clause = " OR ".join(
-        f'protoPayload.response.status.latestCreatedRevisionName="{name}"' for name in names
+        f'protoPayload.response.status.latestCreatedRevisionName="{name}"'
+        for name in names
     )
     return (
         f'logName="projects/{project}/logs/cloudaudit.googleapis.com%2Fsystem_event" '
@@ -39,7 +42,9 @@ def service_completion_filter(project, service, start, until, names):
     )
 
 
-def retired_capable_revisions(events, inventory, *, service, check, excluded=frozenset()):
+def retired_capable_revisions(
+    events, inventory, *, service, check, excluded=frozenset()
+):
     if not isinstance(events, list) or not isinstance(inventory, dict):
         return []
     pattern = rf"{re.escape(service)}-[a-z0-9-]{{1,{62 - len(service)}}}"
@@ -47,10 +52,21 @@ def retired_capable_revisions(events, inventory, *, service, check, excluded=fro
     for event in events:
         payload = (event.get("protoPayload") if isinstance(event, dict) else None) or {}
         svc = (payload.get("request") or {}).get("service") or {}
-        template = (svc.get("spec") or {}).get("template") if isinstance(svc, dict) else None
-        metadata = (template.get("metadata") if isinstance(template, dict) else None) or {}
-        name = metadata.get("name")
-        sha = (metadata.get("labels") or {}).get("deploy-sha")
+        template = (
+            (svc.get("spec") or {}).get("template") if isinstance(svc, dict) else None
+        )
+        if isinstance(template, dict):
+            metadata = template.get("metadata") or {}
+            name = metadata.get("name")
+            sha = (metadata.get("labels") or {}).get("deploy-sha")
+        else:
+            v2_tmpl = svc.get("template") if isinstance(svc, dict) else None
+            name = v2_tmpl.get("revision") if isinstance(v2_tmpl, dict) else None
+            sha = (
+                (v2_tmpl.get("labels") or {}).get("deploy-sha")
+                if isinstance(v2_tmpl, dict)
+                else None
+            )
         if (
             not isinstance(name, str)
             or not re.fullmatch(pattern, name)
@@ -76,12 +92,14 @@ def _valid_completion_envelope(event, project, region, service, start, until, in
     except Exception as error:
         raise ValueError("workos_service_completion_unqualified") from error
     if (
-        event.get("logName") != f"projects/{project}/logs/cloudaudit.googleapis.com%2Fsystem_event"
+        event.get("logName")
+        != f"projects/{project}/logs/cloudaudit.googleapis.com%2Fsystem_event"
         or labels.get("project_id") != project
         or labels.get("location") != region
         or labels.get("service_name") != service
         or payload.get("serviceName") != "run.googleapis.com"
-        or payload.get("methodName") not in {"/Services.CreateService", "/Services.ReplaceService"}
+        or payload.get("methodName")
+        not in {"/Services.CreateService", "/Services.ReplaceService"}
         or payload.get("resourceName") != f"namespaces/{project}/services/{service}"
         or bool((payload.get("status") or {}).get("code"))
         or bool(payload.get("request"))
@@ -152,7 +170,8 @@ def audit_scope(event, project, service, start, until, instant):
     if (
         labels.get("service_name") != service
         or payload.get("serviceName") != "run.googleapis.com"
-        or event.get("logName") != f"projects/{project}/logs/cloudaudit.googleapis.com%2Factivity"
+        or event.get("logName")
+        != f"projects/{project}/logs/cloudaudit.googleapis.com%2Factivity"
         or not instant(start) <= stamp <= instant(until)
     ):
         raise ValueError("workos_audit_scope_invalid")
@@ -171,7 +190,15 @@ def revision_name(metadata, completed_name, service):
 
 
 def require_closed(
-    templates, inventory, completions, *, check, closed_key, require_retained, start, instant
+    templates,
+    inventory,
+    completions,
+    *,
+    check,
+    closed_key,
+    require_retained,
+    start,
+    instant,
 ):
     seen = set()
     for name, sha, carried in templates:
@@ -185,7 +212,9 @@ def require_closed(
             (require_retained and actual is None)
             or completed == (sha, False)
             or not (
-                (actual is not None and actual[closed_key]) or completed == (sha, True) or carried
+                (actual is not None and actual[closed_key])
+                or completed == (sha, True)
+                or carried
             )
         ):
             # Redacted requests supply no closure. Contrary completions always
