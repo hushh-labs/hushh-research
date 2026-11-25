@@ -145,6 +145,7 @@ import {
 } from "@/lib/navigation/profile-pane";
 import {
   ConnectionsService,
+  ConnectionsServiceRequestError,
   type ConnectionRequest,
 } from "@/lib/services/connections-service";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
@@ -2228,10 +2229,22 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
                 run: async () => {
                   const idToken = await user?.getIdToken();
                   if (!idToken || getAuthSessionGeneration() !== authGeneration) return;
-                  await ConnectionsService.accept({
-                    idToken,
-                    requestId: request.id,
-                  });
+                  try {
+                    await ConnectionsService.accept({
+                      idToken,
+                      requestId: request.id,
+                    });
+                  } catch (error) {
+                    if (error instanceof ConnectionsServiceRequestError && error.status === 410) {
+                      if (getAuthSessionGeneration() !== authGeneration) return;
+                      markConsentSettled(`connection:${request.id}`);
+                      toast.info("That account is no longer active.");
+                      notifyFeedActionResolved();
+                      await connectionsRefresh({ force: true });
+                      return;
+                    }
+                    throw error;
+                  }
                   if (getAuthSessionGeneration() !== authGeneration) return;
                   markConsentSettled(`connection:${request.id}`);
                   CacheSyncService.onConnectionGraphMutated(userId);

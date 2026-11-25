@@ -295,9 +295,9 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, retainedPages
   const Heading = embedded ? "h3" : "h1";
   return <section ref={root} tabIndex={-1} className={cn("mx-auto w-full min-w-0 max-w-[880px] space-y-3 sm:space-y-4", !embedded && "px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-5")} data-testid={mode === "mutuals" ? "mutual-connections-list" : "network-people-list"}>
     <header className="min-w-0 space-y-1 [overflow-wrap:anywhere]">
-      {!embedded || mode !== "discovery" ? <Heading>{title}</Heading> : null}
-      <p className="max-w-prose text-sm leading-snug text-muted-foreground">{mode === "mutuals" ? `People connected to both you${result?.person ? ` and ${connectPersonName(result.person)}` : " and this person"}.` : mode === "connections" ? "Eligible people connected to your direct connection." : extended ? "3rd-degree connections are people connected to your 2nd-degree connections. Eligible profiles appear automatically." : "Discover people through your accepted connections. Degrees are relative to you."}</p>
-      {mode === "mutuals" && result?.hasMore && result.totalCount !== undefined ? <p className="text-sm text-muted-foreground">Showing {result.items.length} of {result.totalCount}</p> : null}
+      {!embedded || mode !== "discovery" ? <Heading data-connect-role="section">{title}</Heading> : null}
+      <p data-connect-role="description" className="max-w-prose text-sm leading-snug text-muted-foreground">{mode === "mutuals" ? `People connected to both you${result?.person ? ` and ${connectPersonName(result.person)}` : " and this person"}.` : mode === "connections" ? "Eligible people connected to your direct connection." : extended ? "3rd-degree connections are people connected to your 2nd-degree connections. Eligible profiles appear automatically." : "Discover people through your accepted connections. Degrees are relative to you."}</p>
+      {mode === "mutuals" && result?.hasMore && result.totalCount !== undefined ? <p data-connect-role="description" className="text-sm text-muted-foreground">Showing {result.items.length} of {result.totalCount}</p> : null}
     </header>
     {mode !== "mutuals" ? (
       <div className="relative">
@@ -320,6 +320,7 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, retainedPages
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="group" aria-label="Connection degree filters">
         {NETWORK_FILTERS.map(value => (
           <button
+            data-connect-role="action"
             key={value ?? "all"}
             type="button"
             aria-pressed={degree === value}
@@ -345,8 +346,8 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, retainedPages
         ))}
       </div>
     ) : null}
-    {busy && !result ? <p role="status" className="py-3 text-sm text-muted-foreground">Loading connections…</p> : null}
-    {error ? <div role="alert" className="space-y-2"><p>{error}</p><button type="button" className="min-h-11 rounded-full border px-4" onClick={() => setRetry(value => value + 1)}>Try again</button></div> : null}
+    {busy && !result ? <p data-connect-role="description" role="status" className="py-3 text-sm text-muted-foreground">Loading connections…</p> : null}
+    {error ? <div role="alert" className="space-y-2"><p data-connect-role="description">{error}</p><button data-connect-role="action" type="button" className="min-h-11 rounded-full border px-4" onClick={() => setRetry(value => value + 1)}>Try again</button></div> : null}
     {people.length ? <ul className="divide-y rounded-xl border bg-card" aria-busy={busy} aria-label={extended ? "Extended network people" : undefined}>
       {people.map(person => <NetworkPersonRow key={person.publicPersonRef} person={person}
         connecting={connecting.has(person.publicPersonRef)} connectionError={connectionErrors[person.publicPersonRef]}
@@ -356,16 +357,16 @@ function NetworkListSession({ mode, personRef, visitKey, embedded, retainedPages
       }} />)}
     </ul> : null}
     {result && (!busy || result.page === page) && !people.length ? <div className="py-3 text-sm text-muted-foreground">
-      <p role="status">{extended && !query.trim()
+      <p data-connect-role="description" role="status">{extended && !query.trim()
         ? "No 3rd-degree connections to show yet. Connect with people you know to grow your network."
         : `No profiles to show${query.trim() ? " for this name" : " right now"}.`}</p>
-      {extended && !query.trim() && onDismiss ? <button type="button"
+      {extended && !query.trim() && onDismiss ? <button data-connect-role="action" type="button"
         data-voice-control-id="network-find-people"
         className="min-h-11 rounded-md text-primary hover:opacity-80 focus-visible:ring-2 focus-visible:ring-ring"
         onClick={onDismiss}>Back to Find people</button> : null}
     </div> : null}
-    {result && !result.hasMore && result.totalCount !== undefined && result.items.length < result.totalCount ? <p className="text-sm text-muted-foreground">Some mutual connections are unavailable to view.</p> : null}
-    {extended && result && people.length > 0 && !result.hasMore && !error ? <p role="status" className="text-sm text-muted-foreground">You’ve reached the end of this list.</p> : null}
-    {result?.hasMore && !error ? <button type="button" className="min-h-11 rounded-full border px-5" disabled={busy} onClick={() => setPage(result.page + 1)}>{mode === "mutuals" ? "Load more mutual connections" : extended ? "Load more people" : "Load more connections"}</button> : null}
+    {result && !result.hasMore && result.totalCount !== undefined && result.items.length < result.totalCount ? <p data-connect-role="description" className="text-sm text-muted-foreground">Some mutual connections are unavailable to view.</p> : null}
+    {extended && result && people.length > 0 && !result.hasMore && !error ? <p data-connect-role="description" role="status" className="text-sm text-muted-foreground">You’ve reached the end of this list.</p> : null}
+    {result?.hasMore && !error ? <button data-connect-role="action" type="button" className="min-h-11 rounded-full border px-5" disabled={busy} onClick={() => setPage(result.page + 1)}>{mode === "mutuals" ? "Load more mutual connections" : extended ? "Load more people" : "Load more connections"}</button> : null}
   </section>;
 }

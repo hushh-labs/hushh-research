@@ -45,7 +45,10 @@ from hushh_mcp.services.contact_sync_contract import (
     contact_sync_preference_state,
     resolve_revoked_contact_match,
 )
-from hushh_mcp.services.directory_identity_service import active_directory_user_ids
+from hushh_mcp.services.directory_identity_service import (
+    DirectoryIdentityUnavailableError,
+    active_directory_user_ids,
+)
 from hushh_mcp.services.people_search_sql import (
     directory_search_rank,
     mask_directory_phone,
@@ -453,7 +456,7 @@ class ConnectionsService:
             INSERT INTO feed_events (
               user_id, source_domain, event_type, metadata, source_row_id
             )
-            VALUES (
+            SELECT
               :owner_user_id,
               'connections',
               :event_type,
@@ -463,6 +466,9 @@ class ConnectionsService:
                   NULLIF(LEFT(BTRIM(:counterpart_label), 160), '')
               )),
               :source_row_id
+            WHERE NOT EXISTS (
+              SELECT 1 FROM account_deletion_tombstones deletion
+              WHERE deletion.user_id_hash = 'sha256:' || encode(sha256(convert_to(:owner_user_id, 'UTF8')), 'hex')
             )
             ON CONFLICT DO NOTHING
             RETURNING id
@@ -2589,6 +2595,7 @@ class ConnectionsService:
         selected_offered_scope_handles: list[str] | None = None,
     ) -> dict[str, Any]:
         user_id = (user_id or "").strip()
+        retired_deleted_requester = False
         with self._transaction():
             transaction_connection = getattr(self, "_transaction_connection", None)
             if transaction_connection is not None:
@@ -2654,94 +2661,151 @@ class ConnectionsService:
                 )
 
             requester = str(req.get("requester_user_id"))
-            # The statement that must satisfy `connections_canonical_order`
-            # decides the order itself, and reports back what it chose.
-            #
-            # Ordering the pair in Python and inserting the result is what
-            # broke: `CHECK (user_a_id < user_b_id)` is evaluated by Postgres
-            # under en_US.UTF8, which compares case-insensitively, while
-            # Python's `<` is bytewise and puts every uppercase letter first.
-            # For 'RPNmQ...' and 'oGltkj...' they disagree, the insert was
-            # rejected with CheckViolation, and accepting a connection failed
-            # for roughly half of all real UID pairs -- 88 of 390 pending
-            # requests on UAT, silently, because this route logged nothing.
-            #
-            # LEAST/GREATEST is the same comparison the constraint uses, in the
-            # same statement, so the two cannot drift apart again. RETURNING
-            # the columns means the canonical values used downstream are the
-            # ones actually stored rather than a second guess at them.
-            connection = self._execute_one(
-                """
-                INSERT INTO connections (user_a_id, user_b_id, status, source, created_at, updated_at)
-                VALUES (LEAST(:a, :b), GREATEST(:a, :b), 'active', 'request', NOW(), NOW())
-                ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET
-                  status = 'active', revoked_at = NULL, updated_at = NOW()
-                RETURNING id, user_a_id, user_b_id
-                """,
-                {"a": requester, "b": user_id},
-            )
-            # Prefer what the row actually stores, and fall back to the raw
-            # pair if RETURNING gave nothing. The fallback is safe because
-            # `ensure_connection_origin` canonicalises again on its own, so the
-            # worst case is passing the pair the other way round -- never a
-            # mis-ordered origin, and never the empty strings that a bare
-            # `.get()` would hand it.
-            user_a = str((connection or {}).get("user_a_id") or "") or requester
-            user_b = str((connection or {}).get("user_b_id") or "") or user_id
-            # Location eligibility needs BOTH an active `connections` row and
-            # an active non-circle origin. Acceptance wrote only the first, so
-            # a person could be connected in Connect and simply absent from
-            # Location's recipient list -- surfacing as "nobody in your
-            # connections matches that name" about someone plainly there, and
-            # leaving "connect with X, then share my location with X" broken at
-            # a step that looked like it had succeeded.
-            #
-            # Recorded through the graph service that owns origins rather than
-            # by writing the table here, and inside the same transaction that
-            # activates the connection, so the two can never disagree. The
-            # helper is idempotent, which matters because acceptance is
-            # retryable.
-            graph_connection = getattr(self, "_transaction_connection", None)
-            if graph_connection is not None:
-                ensure_connection_origin(
-                    graph_connection,
-                    user_a_id=user_a,
-                    user_b_id=user_b,
-                    kind=ORIGIN_DIRECT_REQUEST,
-                    source_ref=str(req.get("id") or "") or None,
+            requester_active = True
+            try:
+                requester_active = requester in active_directory_user_ids(
+                    [requester], use_cache=False
                 )
-            # Mirror both directional trusted edges so location/SOS readers keep working.
-            self._mirror_trusted_edge(requester, user_id)
-            self._mirror_trusted_edge(user_id, requester)
-            # A connection is intentionally only a connection. Circle
-            # membership is an explicit, owner-driven action and must never be
-            # inferred from this acceptance transaction.
-            scope_results = self._resolve_scope_proposals(
-                request_id=canonical_request_id,
-                actor_user_id=user_id,
-                selected_requested_scope_handles=selected_requested_scope_handles,
-                selected_offered_scope_handles=selected_offered_scope_handles,
-                proposals=pending_proposals,
-            )
-            self._execute_one(
-                """
-                UPDATE connection_requests
-                SET status = 'accepted', responded_at = NOW(), updated_at = NOW()
-                WHERE id = :id AND status = 'pending'
-                RETURNING id
-                """,
-                {"id": req.get("id")},
-            )
-            connection_id = (connection or {}).get("id")
-            source_request_id = str(req.get("id") or "")
-            for owner, counterpart in ((user_id, requester), (requester, user_id)):
-                self._record_connection_feed_transition(
-                    owner_user_id=owner,
-                    counterpart_user_id=counterpart,
+            except DirectoryIdentityUnavailableError:
+                requester_active = True
+            if not requester_active:
+                self._execute_one(
+                    """
+                    UPDATE connection_requests
+                    SET status = 'cancelled', responded_at = NOW(), updated_at = NOW()
+                    WHERE id = :id AND status = 'pending'
+                    RETURNING id
+                    """,
+                    {"id": req.get("id")},
+                )
+                self._resolve_pending_scope_proposals(
+                    canonical_request_id,
+                    status="declined",
                     actor_user_id=user_id,
-                    event_type="connection_accepted",
-                    source_row_id=source_request_id,
+                    reason="requester_account_deleted",
                 )
+                retired_deleted_requester = True
+            if not retired_deleted_requester:
+                # The statement that must satisfy `connections_canonical_order`
+                # decides the order itself, and reports back what it chose.
+                #
+                # Ordering the pair in Python and inserting the result is what
+                # broke: `CHECK (user_a_id < user_b_id)` is evaluated by Postgres
+                # under en_US.UTF8, which compares case-insensitively, while
+                # Python's `<` is bytewise and puts every uppercase letter first.
+                # For 'RPNmQ...' and 'oGltkj...' they disagree, the insert was
+                # rejected with CheckViolation, and accepting a connection failed
+                # for roughly half of all real UID pairs -- 88 of 390 pending
+                # requests on UAT, silently, because this route logged nothing.
+                #
+                # LEAST/GREATEST is the same comparison the constraint uses, in the
+                # same statement, so the two cannot drift apart again. RETURNING
+                # the columns means the canonical values used downstream are the
+                # ones actually stored rather than a second guess at them.
+                connection = self._execute_one(
+                    """
+                    INSERT INTO connections (user_a_id, user_b_id, status, source, created_at, updated_at)
+                    SELECT LEAST(:a, :b), GREATEST(:a, :b), 'active', 'request', NOW(), NOW()
+                    WHERE NOT EXISTS (
+                      SELECT 1 FROM account_deletion_tombstones deletion
+                      WHERE deletion.user_id_hash = 'sha256:' || encode(sha256(convert_to(:a, 'UTF8')), 'hex')
+                    )
+                    ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET
+                      status = 'active', revoked_at = NULL, updated_at = NOW()
+                    RETURNING id, user_a_id, user_b_id
+                    """,
+                    {"a": requester, "b": user_id},
+                )
+                if (
+                    connection is None
+                    and getattr(transaction_connection, "engine", None) is not None
+                ):
+                    self._execute_one(
+                        """
+                        UPDATE connection_requests
+                        SET status = 'cancelled', responded_at = NOW(), updated_at = NOW()
+                        WHERE id = :id AND status = 'pending'
+                        RETURNING id
+                        """,
+                        {"id": req.get("id")},
+                    )
+                    self._resolve_pending_scope_proposals(
+                        canonical_request_id,
+                        status="declined",
+                        actor_user_id=user_id,
+                        reason="requester_account_deleted",
+                    )
+                    retired_deleted_requester = True
+            if not retired_deleted_requester:
+                # Prefer what the row actually stores, and fall back to the raw
+                # pair if RETURNING gave nothing. The fallback is safe because
+                # `ensure_connection_origin` canonicalises again on its own, so the
+                # worst case is passing the pair the other way round -- never a
+                # mis-ordered origin, and never the empty strings that a bare
+                # `.get()` would hand it.
+                user_a = str((connection or {}).get("user_a_id") or "") or requester
+                user_b = str((connection or {}).get("user_b_id") or "") or user_id
+                # Location eligibility needs BOTH an active `connections` row and
+                # an active non-circle origin. Acceptance wrote only the first, so
+                # a person could be connected in Connect and simply absent from
+                # Location's recipient list -- surfacing as "nobody in your
+                # connections matches that name" about someone plainly there, and
+                # leaving "connect with X, then share my location with X" broken at
+                # a step that looked like it had succeeded.
+                #
+                # Recorded through the graph service that owns origins rather than
+                # by writing the table here, and inside the same transaction that
+                # activates the connection, so the two can never disagree. The
+                # helper is idempotent, which matters because acceptance is
+                # retryable.
+                graph_connection = getattr(self, "_transaction_connection", None)
+                if graph_connection is not None:
+                    ensure_connection_origin(
+                        graph_connection,
+                        user_a_id=user_a,
+                        user_b_id=user_b,
+                        kind=ORIGIN_DIRECT_REQUEST,
+                        source_ref=str(req.get("id") or "") or None,
+                    )
+                # Mirror both directional trusted edges so location/SOS readers keep working.
+                self._mirror_trusted_edge(requester, user_id)
+                self._mirror_trusted_edge(user_id, requester)
+                # A connection is intentionally only a connection. Circle
+                # membership is an explicit, owner-driven action and must never be
+                # inferred from this acceptance transaction.
+                scope_results = self._resolve_scope_proposals(
+                    request_id=canonical_request_id,
+                    actor_user_id=user_id,
+                    selected_requested_scope_handles=selected_requested_scope_handles,
+                    selected_offered_scope_handles=selected_offered_scope_handles,
+                    proposals=pending_proposals,
+                )
+                self._execute_one(
+                    """
+                    UPDATE connection_requests
+                    SET status = 'accepted', responded_at = NOW(), updated_at = NOW()
+                    WHERE id = :id AND status = 'pending'
+                    RETURNING id
+                    """,
+                    {"id": req.get("id")},
+                )
+                connection_id = (connection or {}).get("id")
+                source_request_id = str(req.get("id") or "")
+                for owner, counterpart in ((user_id, requester), (requester, user_id)):
+                    self._record_connection_feed_transition(
+                        owner_user_id=owner,
+                        counterpart_user_id=counterpart,
+                        actor_user_id=user_id,
+                        event_type="connection_accepted",
+                        source_row_id=source_request_id,
+                    )
+
+        if retired_deleted_requester:
+            raise ConnectionsError(
+                "CONNECTION_REQUESTER_DELETED",
+                "That account is no longer active.",
+                status_code=410,
+            )
 
         # After commit, not inside the transaction: push is best-effort and
         # must never be why an accept can fail or roll back. The requester
@@ -3083,7 +3147,17 @@ class ConnectionsService:
             counterpart_col = "cr.addressee_user_id"
         # nosec B608 # counterpart_col/where are hardcoded literals selected by
         # `direction` above (never user input); user_id is always parameterized.
-        status_clause = "" if include_resolved else "AND cr.status = 'pending'"
+        status_clause = (
+            ""
+            if include_resolved
+            else (
+                "AND cr.status = 'pending' "
+                "AND NOT EXISTS ("
+                "SELECT 1 FROM account_deletion_tombstones deletion "
+                f"WHERE deletion.user_id_hash = 'sha256:' || encode(sha256(convert_to({counterpart_col}, 'UTF8')), 'hex')"
+                ")"
+            )
+        )
         rows = self._execute_many(
             f"""
             SELECT cr.id, cr.requester_user_id, cr.addressee_user_id, cr.status,
