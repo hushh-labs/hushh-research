@@ -326,6 +326,46 @@ def current_validations(state, read=api):
     return result
 
 
+API_FILE_TRUNCATION_FLOOR = 3000
+FULL_PR_MATRIX_JOBS = frozenset({
+    "Secret Scan",
+    "DCO",
+    "PR Base Policy",
+    "Path filters",
+    "UI Contracts",
+    "Governance",
+    "Preflight Gate",
+    "Web Core (Next.js)",
+    "Web Targeted Contracts (node)",
+    "iOS Native (Xcode)",
+    "Android Native (Gradle)",
+    "Protocol (Python)",
+    "Protocol Database (1/2)",
+    "Protocol Database (2/2)",
+    "MCP Package",
+    "Integration",
+    "CI Status Gate",
+})
+AUTH_HEALTH_PATHS = frozenset({
+    "deploy/observability/auth_health_job.py",
+    "deploy/observability/auth_health_inventory.py",
+    "deploy/observability/setup_auth_health.py",
+    "deploy/observability/auth_health_uat_common.py",
+    "deploy/observability/auth_health_uat_job_install.py",
+    "deploy/observability/auth_health_uat_timer_activation.py",
+    "deploy/observability/auth_health_uat_installer.py",
+    "consent-protocol/tests/test_auth_health_deployment.py",
+    "consent-protocol/tests/test_auth_health_inventory.py",
+    "consent-protocol/tests/test_auth_health_lease_rest.py",
+    "consent-protocol/tests/auth_health_uat_cloud_fakes.py",
+    "consent-protocol/tests/auth_health_uat_installer_fixtures.py",
+    "consent-protocol/tests/test_auth_health_uat_activation.py",
+    "consent-protocol/tests/test_auth_health_uat_installation.py",
+    "consent-protocol/tests/test_auth_health_wif_scopes.py",
+    "consent-protocol/tests/test_phone_list_health.py",
+})
+
+
 def receipt_matches(receipt, state, validation):
     """Reuse needs the tested tree AND identical selection/authority inputs.
 
@@ -339,6 +379,66 @@ def receipt_matches(receipt, state, validation):
         "base": state["base"], "tree": state["tree"],
         "selection_exact": True, "level": "focused", "result": "success",
     }
+
+
+def _api_truncated_full_matrix_reusable(receipt, state, validation, read=api):
+    """Admit >=3,000-file PR receipts only when every governed PR lane succeeded.
+
+    GitHub's /pulls/<n>/files REST API caps at 3,000 entries, so paths-filter
+    cannot match the complete git diff on large release trains. Intra-job
+    selectors already use local git diff; reusing the receipt is safe only when
+    the exact merge tree matches AND every governed PR validation lane executed
+    and succeeded on the same attempt.
+    """
+    if not (isinstance(receipt, dict) and receipt == {
+        "version": 2, "repository": state["repository"], "event": "pull_request",
+        "run": validation["run"], "attempt": validation["attempt"],
+        "pr": validation["number"], "head": validation["head"],
+        "base": state["base"], "tree": state["tree"],
+        "selection_exact": False, "level": "focused", "result": "success",
+    }):
+        return False
+    try:
+        changed = set(
+            git("diff", "--no-renames", "--name-only", "-z", state["base"], state["tree"]).split("\0")
+        ) - {""}
+    except subprocess.SubprocessError:
+        return False
+    if len(changed) < API_FILE_TRUNCATION_FLOOR:
+        return False
+    inventory = read(
+        f"repos/{state['repository']}/actions/runs/{validation['run']}/attempts/{validation['attempt']}/jobs?per_page=100"
+    )
+    jobs = inventory.get("jobs")
+    if not (isinstance(jobs, list) and inventory.get("total_count") == len(jobs)
+            and len(jobs) <= 100 and all(isinstance(job, dict) for job in jobs)):
+        return False
+    succeeded = {
+        str(job.get("name", ""))
+        for job in jobs
+        if job.get("status") == "completed" and job.get("conclusion") == "success"
+    }
+    if not FULL_PR_MATRIX_JOBS.issubset(succeeded):
+        return False
+    unit_jobs = [job for job in jobs if str(job.get("name", "")).startswith("Web Unit Contracts")]
+    if not unit_jobs or not all(
+        job.get("status") == "completed" and job.get("conclusion") == "success"
+        for job in unit_jobs
+    ):
+        return False
+    if changed & AUTH_HEALTH_PATHS:
+        governance_jobs = [job for job in jobs if job.get("name") == "Governance"]
+        if len(governance_jobs) != 1:
+            return False
+        steps = governance_jobs[0].get("steps")
+        if not isinstance(steps, list) or not any(
+            isinstance(step, dict)
+            and step.get("name") == "Run exact auth-health contracts"
+            and step.get("conclusion") == "success"
+            for step in steps
+        ):
+            return False
+    return True
 
 
 def reusable(state, validations, read=api, *, reasons=None):
@@ -366,7 +466,9 @@ def reusable(state, validations, read=api, *, reasons=None):
         run_command=lambda argv, **kw: subprocess.run(argv, check=True, capture_output=True, **kw),
         timeout=60)
     receipt = json.loads(_status_bytes(archive, "ci-combined-inputs.json"))
-    matches = receipt_matches(receipt, state, validation)
+    matches = receipt_matches(receipt, state, validation) or _api_truncated_full_matrix_reusable(
+        receipt, state, validation, read=read
+    )
     if not matches:
         # Explain only machine fields, never provider/account payloads. Exact
         # matching remains the existing receipt owner's decision.
