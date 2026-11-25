@@ -50,6 +50,7 @@ _BACKEND_SERVICE="consent-protocol"
 commerce_preview_prefix="{commerce_prefix}"
 _REGION="us-central1"
 PROJECT_ID="{resolved_project}"
+_RUNTIME_SERVICE_ACCOUNT="consent-protocol-runtime@{resolved_project}.iam.gserviceaccount.com"
 hub_url=""
 env_vars=()
 append_optional_env() {{
@@ -59,6 +60,14 @@ append_optional_env() {{
 personal_agent_enabled=""
 personal_agent_backend=""
 personal_agent_autoprovision=""
+gcp_backend_live=""
+consent_plane_sa=""
+pod_invoker_member=""
+user_gcp_live=""
+user_gcp_substrate_apply=""
+pod_ingress=""
+personal_agent_reconcile=""
+personal_agent_reachability=""
 hosted_pod_tier=""
 hosted_pod_project=""
 pod_turn_enabled=""
@@ -116,6 +125,10 @@ printf 'HUSSH_CUSTODY_BROKER_SEAL_KEY=%s\\n' "${{dev_custody_broker_seal_key_sec
 printf 'HUSSH_SANDBOX_IDENTITY_MASTER_KEY=%s\\n' "${{dev_sandbox_identity_master_key_secret}}"
 printf 'PERSONAL_AGENT_ENABLED=%s\\n' "${{personal_agent_enabled}}"
 printf 'HUSSH_TRUSTED_DEVICE_ENABLED=%s\\n' "${{trusted_device_enabled}}"
+printf 'HUSSH_USER_GCP_LIVE=%s\\n' "${{user_gcp_live}}"
+printf 'HUSSH_USER_GCP_SUBSTRATE_APPLY=%s\\n' "${{user_gcp_substrate_apply}}"
+printf 'HUSSH_CONSENT_PLANE_SA=%s\\n' "${{consent_plane_sa}}"
+printf 'HUSSH_POD_INGRESS=%s\\n' "${{pod_ingress}}"
 printf 'HUSHH_DEV_SIMULATION_ENABLED=%s\\n' "${{dev_simulation_enabled}}"
 """
     proc = subprocess.run(  # noqa: S603 - repository-owned bash guard verification
@@ -158,6 +171,10 @@ def test_uat_ace_bindings_are_emitted_in_shared_uat_when_resources_exist() -> No
         "HUSSH_SANDBOX_IDENTITY_MASTER_KEY": "sandbox-edge-identity-master-key",
         "PERSONAL_AGENT_ENABLED": "true",
         "HUSSH_TRUSTED_DEVICE_ENABLED": "true",
+        "HUSSH_USER_GCP_LIVE": "true",
+        "HUSSH_USER_GCP_SUBSTRATE_APPLY": "true",
+        "HUSSH_CONSENT_PLANE_SA": "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com",
+        "HUSSH_POD_INGRESS": "all",
         "HUSHH_DEV_SIMULATION_ENABLED": "",
     }
 
@@ -214,3 +231,20 @@ def test_backend_deploy_wires_all_ace_bindings_without_hardcoded_dev_hashes() ->
         'append_optional_secret "${dev_sandbox_identity_master_key_secret}" "HUSSH_SANDBOX_IDENTITY_MASTER_KEY"',
     ):
         assert expected in script
+
+
+def test_uat_sandbox_edge_reconciler_skips_non_uat_and_rejects_hardcoded_hashes() -> None:
+    reconciler = REPO_ROOT / "scripts" / "deploy" / "reconcile-uat-sandbox-edge.sh"
+    body = reconciler.read_text(encoding="utf-8")
+    assert "aqahj4iyha" not in body
+    assert "f2gsa4kfsq" not in body
+    assert "@sha256:" in body
+    proc = subprocess.run(  # noqa: S603 - repository-owned non-UAT guard verification
+        ["bash", str(reconciler)],
+        env={"PATH": "/usr/bin:/bin", "GCP_PROJECT_ID": "hushh-pda"},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert proc.returncode == 0
+    assert "skipping non-UAT project" in proc.stderr

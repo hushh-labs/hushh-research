@@ -76,6 +76,7 @@ EXPECTED_WORKFLOW_IDS = [
     "data-model-audit",
     "github-contribution-governance",
     "uat-scoped-deploy",
+    "release-train-parity",
     "pre-pr-readiness",
     "security-consent-audit",
     "mobile-parity-check",
@@ -188,6 +189,7 @@ ADMIN_RELEASE_SKILL_IDS = {
     "repo-operations",
     "release-ios-appstore",
     "uat-scoped-deploy",
+    "release-train-parity",
 }
 ADMIN_RELEASE_WORKFLOW_IDS = {
     "ci-watch-and-heal",
@@ -195,6 +197,7 @@ ADMIN_RELEASE_WORKFLOW_IDS = {
     "pr-governance-review",
     "release-readiness",
     "uat-scoped-deploy",
+    "release-train-parity",
 }
 
 
