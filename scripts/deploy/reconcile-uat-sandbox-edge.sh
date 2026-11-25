@@ -93,6 +93,13 @@ SENTINEL_CONTROL_URL: "${SENTINEL_CONTROL_URL}"
 SENTINEL_MODEL_GATEWAY_URL: "http://sentinel-egress-proxy.hussh-sandbox-system.svc.cluster.local:8082"
 EOF
 
+EDGE_SECRETS="HUSSH_EDGE_ADMIN_TOKEN=sandbox-edge-admin-token:latest,HUSSH_SANDBOX_IDENTITY_MASTER_KEY=sandbox-edge-identity-master-key:latest,SENTINEL_CONTROL_TOKEN=sentinel-control-token:latest"
+for pub_secret in CONSENT_ED25519_PUBLIC_KEYS OWNER_FEED_ED25519_PUBLIC_KEYS; do
+  if gcloud secrets describe "${pub_secret}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+    EDGE_SECRETS="${EDGE_SECRETS},${pub_secret}=${pub_secret}:latest"
+  fi
+done
+
 echo "Reconciling ${EDGE_SERVICE} in ${PROJECT_ID} (${REGION}) with image ${IMAGE_REF}..."
 gcloud run deploy "${EDGE_SERVICE}" \
   --project="${PROJECT_ID}" \
@@ -114,7 +121,7 @@ gcloud run deploy "${EDGE_SERVICE}" \
   --port=8080 \
   --allow-unauthenticated \
   --env-vars-file="${ENV_FILE}" \
-  --set-secrets="HUSSH_EDGE_ADMIN_TOKEN=sandbox-edge-admin-token:latest,HUSSH_SANDBOX_IDENTITY_MASTER_KEY=sandbox-edge-identity-master-key:latest,SENTINEL_CONTROL_TOKEN=sentinel-control-token:latest" \
+  --set-secrets="${EDGE_SECRETS}" \
   --quiet
 
 DEPLOYED_EDGE_URL="$(gcloud run services describe "${EDGE_SERVICE}" --project="${PROJECT_ID}" --region="${REGION}" --format='value(status.url)')"

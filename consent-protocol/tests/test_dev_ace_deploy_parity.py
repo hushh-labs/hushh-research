@@ -35,6 +35,7 @@ def _run_ace_block(
     edge_url: str = "https://sandbox-edge-gateway.example.run.app",
     has_seal_secret: bool = True,
     has_master_secret: bool = True,
+    has_ed25519_secrets: bool = True,
 ) -> dict[str, str]:
     dev_block = _extract_block("# BEGIN DEV ACE SANDBOX PARITY", "# END DEV ACE SANDBOX PARITY")
     uat_block = _extract_block("# BEGIN UAT ACE SANDBOX PARITY", "# END UAT ACE SANDBOX PARITY")
@@ -87,6 +88,14 @@ sandbox_edge_public_url=""
 source_pod_retirement_sweep_enabled=""
 dev_custody_broker_seal_key_secret=""
 dev_sandbox_identity_master_key_secret=""
+consent_signing_alg=""
+consent_ed25519_kid=""
+dev_consent_ed25519_private_secret=""
+dev_consent_ed25519_public_keys_secret=""
+owner_feed_signing_alg=""
+owner_feed_ed25519_kid=""
+dev_owner_feed_private_secret=""
+dev_owner_feed_public_keys_secret=""
 
 gcloud() {{
   if [[ "$1" == "run" && "$2" == "services" && "$3" == "describe" ]]; then
@@ -102,6 +111,9 @@ gcloud() {{
       return 0
     fi
     if [[ "$3" == "sandbox-edge-identity-master-key" && "{str(has_master_secret).lower()}" == "true" ]]; then
+      return 0
+    fi
+    if [[ "$3" =~ ^(CONSENT_ED25519_|OWNER_FEED_ED25519_) && "{str(has_ed25519_secrets).lower()}" == "true" ]]; then
       return 0
     fi
     return 1
@@ -130,6 +142,14 @@ printf 'HUSSH_USER_GCP_SUBSTRATE_APPLY=%s\\n' "${{user_gcp_substrate_apply}}"
 printf 'HUSSH_CONSENT_PLANE_SA=%s\\n' "${{consent_plane_sa}}"
 printf 'HUSSH_POD_INGRESS=%s\\n' "${{pod_ingress}}"
 printf 'HUSHH_DEV_SIMULATION_ENABLED=%s\\n' "${{dev_simulation_enabled}}"
+printf 'CONSENT_TOKEN_SIGNING_ALG=%s\\n' "${{consent_signing_alg}}"
+printf 'CONSENT_ED25519_KID=%s\\n' "${{consent_ed25519_kid}}"
+printf 'CONSENT_ED25519_PRIVATE_KEY=%s\\n' "${{dev_consent_ed25519_private_secret}}"
+printf 'CONSENT_ED25519_PUBLIC_KEYS=%s\\n' "${{dev_consent_ed25519_public_keys_secret}}"
+printf 'OWNER_FEED_SIGNING_ALG=%s\\n' "${{owner_feed_signing_alg}}"
+printf 'OWNER_FEED_ED25519_KID=%s\\n' "${{owner_feed_ed25519_kid}}"
+printf 'OWNER_FEED_ED25519_PRIVATE_KEY=%s\\n' "${{dev_owner_feed_private_secret}}"
+printf 'OWNER_FEED_ED25519_PUBLIC_KEYS=%s\\n' "${{dev_owner_feed_public_keys_secret}}"
 """
     proc = subprocess.run(  # noqa: S603 - repository-owned bash guard verification
         ["bash", "-c", harness],  # noqa: S607
@@ -176,6 +196,14 @@ def test_uat_ace_bindings_are_emitted_in_shared_uat_when_resources_exist() -> No
         "HUSSH_CONSENT_PLANE_SA": "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com",
         "HUSSH_POD_INGRESS": "all",
         "HUSHH_DEV_SIMULATION_ENABLED": "",
+        "CONSENT_TOKEN_SIGNING_ALG": "ed25519",
+        "CONSENT_ED25519_KID": "hushh-consent-uat-1",
+        "CONSENT_ED25519_PRIVATE_KEY": "CONSENT_ED25519_PRIVATE_KEY",
+        "CONSENT_ED25519_PUBLIC_KEYS": "CONSENT_ED25519_PUBLIC_KEYS",
+        "OWNER_FEED_SIGNING_ALG": "ed25519",
+        "OWNER_FEED_ED25519_KID": "hushh-owner-feed-uat-1",
+        "OWNER_FEED_ED25519_PRIVATE_KEY": "OWNER_FEED_ED25519_PRIVATE_KEY",
+        "OWNER_FEED_ED25519_PUBLIC_KEYS": "OWNER_FEED_ED25519_PUBLIC_KEYS",
     }
 
 
