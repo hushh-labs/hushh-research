@@ -329,7 +329,7 @@ export function WorkspaceSplitPaneSurface({
       {activeTab === "terminal" ? (
         <div role="tabpanel" aria-label="Terminal view" className="flex min-h-0 flex-col gap-3">
           <WorkspaceTerminalPanel
-            ownerId={controller.binding.ownerId}
+            key={JSON.stringify([controller.binding.ownerId, controller.binding.podId])}
             podId={controller.binding.podId}
             active={activeTab === "terminal"}
           />

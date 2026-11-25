@@ -64,11 +64,9 @@ function tokenizeCommand(raw: string): string[] {
 
 /** On-demand terminal session panel for the unified sandbox runtime. Zero idle polling. */
 export function WorkspaceTerminalPanel({
-  ownerId,
   podId,
   active,
 }: {
-  ownerId: string;
   podId: string;
   active: boolean;
 }) {
@@ -126,7 +124,7 @@ export function WorkspaceTerminalPanel({
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, [ownerId, podId]);
+  }, [podId]);
 
   useEffect(() => {
     if (!active) return;
