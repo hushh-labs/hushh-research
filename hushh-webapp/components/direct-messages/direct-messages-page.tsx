@@ -1381,8 +1381,14 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     : inboxItems;
 
   const openConversation = (conversation: DirectMessageConversation) => {
-    if (activeConversationId === conversation.id && isCurrentRead) {
-      void loadThread({ preserveMessages: true });
+    // Reopening the active route can be a router no-op. Refresh its exact
+    // selection instead, preserving the last transcript until history settles.
+    if (
+      requestedConversationId === conversation.id ||
+      activeConversationId === conversation.id ||
+      (requestedPersonRef && requestedPersonRef === conversation.peerPersonRef)
+    ) {
+      void loadThread({ preserveMessages: isCurrentRead });
       return;
     }
     if (onSelect) onSelect({ kind: "conversation", ref: conversation.id });
@@ -2704,6 +2710,13 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                   }, []);
                 }
                 setNewChatOpen(false);
+                if (
+                  (requestedPersonRef && requestedPersonRef === person.publicPersonRef) ||
+                  (displayThread.peerPersonRef && displayThread.peerPersonRef === person.publicPersonRef)
+                ) {
+                  void loadThread({ preserveMessages: isCurrentRead });
+                  return;
+                }
                 if (onSelect) onSelect({ kind: "person", ref: person.publicPersonRef });
                 else void navigateDirectMessage(router, { personRef: person.publicPersonRef });
               }}>
