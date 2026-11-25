@@ -3142,22 +3142,26 @@ class ConnectionsService:
         if direction == "incoming":
             where = "cr.addressee_user_id = :user_id"
             counterpart_col = "cr.requester_user_id"
-        else:
-            where = "cr.requester_user_id = :user_id"
-            counterpart_col = "cr.addressee_user_id"
-        # nosec B608 # counterpart_col/where are hardcoded literals selected by
-        # `direction` above (never user input); user_id is always parameterized.
-        status_clause = (
-            ""
-            if include_resolved
-            else (
+            pending_clause = (
                 "AND cr.status = 'pending' "
                 "AND NOT EXISTS ("
                 "SELECT 1 FROM account_deletion_tombstones deletion "
-                f"WHERE deletion.user_id_hash = 'sha256:' || encode(sha256(convert_to({counterpart_col}, 'UTF8')), 'hex')"
+                "WHERE deletion.user_id_hash = 'sha256:' || encode(sha256(convert_to(cr.requester_user_id, 'UTF8')), 'hex')"
                 ")"
             )
-        )
+        else:
+            where = "cr.requester_user_id = :user_id"
+            counterpart_col = "cr.addressee_user_id"
+            pending_clause = (
+                "AND cr.status = 'pending' "
+                "AND NOT EXISTS ("
+                "SELECT 1 FROM account_deletion_tombstones deletion "
+                "WHERE deletion.user_id_hash = 'sha256:' || encode(sha256(convert_to(cr.addressee_user_id, 'UTF8')), 'hex')"
+                ")"
+            )
+        # nosec B608 # counterpart_col/where/pending_clause are hardcoded literals
+        # selected by `direction` above (never user input); user_id is parameterized.
+        status_clause = "" if include_resolved else pending_clause
         rows = self._execute_many(
             f"""
             SELECT cr.id, cr.requester_user_id, cr.addressee_user_id, cr.status,
