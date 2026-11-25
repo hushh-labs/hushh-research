@@ -7,6 +7,12 @@ from typing import Any
 from google.adk.sessions import Session
 
 from hushh_mcp.adk_bridge.contract import SpecialistReadResult
+from hushh_mcp.one_adk.account_context_contract import (
+    ACCOUNT_CONTEXT_TOOL,
+    PRIVATE_ACCOUNT_ANSWER,
+    STATE_ACCOUNT_CONTEXT_ENABLED,
+    STATE_ACCOUNT_CONTEXT_PRIVATE,
+)
 from hushh_mcp.one_adk.external_read_boundary import (
     READ_TOOLS,
     STATE_DRIVE_READ_OUTCOME,
@@ -50,6 +56,7 @@ _EPHEMERAL = frozenset(
         STATE_MAIL_DRILLDOWN_USED,
         STATE_SELECTED_DRIVE_SHARE,
         STATE_RECEIPT_RESULT,
+        STATE_ACCOUNT_CONTEXT_ENABLED,
         STATE_WIKI_CLIENT_READY,
         STATE_WIKI_HOT_DIGEST,
         STATE_WIKI_RESULT,
@@ -116,6 +123,28 @@ def redacted_read_receipt(response: Any) -> dict[str, Any]:
 
 
 def durable_external_read_projection(session: Session) -> Session:
+    account_calls = {
+        part.function_call.id
+        for event in session.events
+        if event.content
+        for part in event.content.parts or []
+        if part.function_call and part.function_call.name == ACCOUNT_CONTEXT_TOOL
+    }
+    account_invocations = (
+        set(session.state.get(STATE_ACCOUNT_CONTEXT_PRIVATE) or [])
+        | {
+            invocation
+            for event in session.events
+            for invocation in event.actions.state_delta.get(STATE_ACCOUNT_CONTEXT_PRIVATE, [])
+        }
+        | {
+            event.invocation_id
+            for event in session.events
+            if event.content
+            for part in event.content.parts or []
+            if part.function_call and part.function_call.name == ACCOUNT_CONTEXT_TOOL
+        }
+    )
     portfolio_invocations = (
         set(session.state.get(STATE_PORTFOLIO_CONTEXT_PRIVATE) or [])
         | {
@@ -196,6 +225,12 @@ def durable_external_read_projection(session: Session) -> Session:
         if event.content is None:
             continue
         for part in event.content.parts or []:
+            if (
+                part.function_response
+                and part.function_response.id in account_calls
+                and part.function_response.name == "unknown"
+            ):
+                part.function_response.name = ACCOUNT_CONTEXT_TOOL
             if part.function_call and (
                 part.function_call.name in PRIVATE_DEVICE_READ_TOOLS
                 or event.invocation_id in receipt_result_invocations
@@ -208,7 +243,9 @@ def durable_external_read_projection(session: Session) -> Session:
                 part.function_response.response = {"content_redacted": True}
             if event.author != "user" and event.invocation_id in receipt_invocations and part.text:
                 placeholder = (
-                    PRIVATE_PORTFOLIO_ANSWER
+                    PRIVATE_ACCOUNT_ANSWER
+                    if event.invocation_id in account_invocations
+                    else PRIVATE_PORTFOLIO_ANSWER
                     if event.invocation_id in portfolio_invocations
                     else PRIVATE_RECEIPT_ANSWER
                 )

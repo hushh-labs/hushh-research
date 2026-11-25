@@ -1,3 +1,4 @@
+import { ACCOUNT_CONTEXT_TOOL, ACCOUNT_CONTEXT_CONTRACT, parseAccountContextRequest, readAccountContext, type AccountContextRequest } from "./account-chat-context";
 import { parseConsentAccess, type AgentChatConsentAccess } from "@/lib/agent/chat-consent-access";
 export { parseConsentAccess, type AgentChatConsentAccess } from "@/lib/agent/chat-consent-access";
 import { loadAgentTurnNws } from "@/lib/kai/plaid-vault/agent-turn-nws";
@@ -216,7 +217,7 @@ export type AgentChatStreamHandlers = {
   /** Invocation metadata triggers owner-pod rediscovery, never private browser content. */
   onBrowserTaskCreated?: () => void;
   /** Receipt detail/answer is current-turn only, excluded from replay and PKM. */
-  onReceiptPrivate?: (kind?: "portfolio") => void;
+  onReceiptPrivate?: (kind?: "portfolio" | "account") => void;
   /** At most once per turn: receipts need Gmail connected, or a sync on this device. */
   onReceiptSetupNeeded?: (state: ReceiptSetupState) => void;
   /** Ephemeral native review: never append its references or receipt to history/debug events. */
@@ -623,6 +624,7 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Opening the portfolio card.",
     activity: "Opening portfolio",
   },
+  [ACCOUNT_CONTEXT_TOOL]: { label: "Account", activity: "Reading your account", message: "Reading your account for this answer." },
   [PORTFOLIO_CONTEXT_TOOL]: {
     label: "Portfolio",
     message: "Reading saved portfolio details.",
@@ -1691,8 +1693,8 @@ async function streamAgentChatAttempt(input: {
   const toolNames = new Map<string, string>();
   const receiptCalls = new Map<string, Promise<{
     toolCallId: string;
-    toolName: ReceiptFunction | typeof PORTFOLIO_CONTEXT_TOOL;
-    request: ReceiptAnalysisRequest | PortfolioContextRequest;
+    toolName: ReceiptFunction | typeof PORTFOLIO_CONTEXT_TOOL | typeof ACCOUNT_CONTEXT_TOOL;
+    request: ReceiptAnalysisRequest | PortfolioContextRequest | AccountContextRequest;
     result: unknown;
   }>>();
   let receiptPrivate = false;
@@ -1700,6 +1702,7 @@ async function streamAgentChatAttempt(input: {
   const receiptSessionCurrent = () => !receiptReset && mcpSessionCurrent();
   const portfolioContextEnabled = Boolean(input.vaultKey && input.vaultOwnerToken && input.message.trim() &&
     !recovered && !input.consentContinuation && !input.financeShare && !input.feedAttention);
+  const accountContextEnabled = portfolioContextEnabled;
   const runReceiptCall = receiptCallRunner({ userId: input.userId, vaultKey: input.vaultKey, vaultOwnerToken: input.vaultOwnerToken,
     isCurrent: receiptSessionCurrent }, state => handlers.onReceiptSetupNeeded?.(state));
   let reactionShown = false;
@@ -1812,6 +1815,23 @@ async function streamAgentChatAttempt(input: {
     const { request } = admission;
     receiptCalls.set(toolCallId, runReceiptCall(operation, request).then(result => ({ toolCallId, toolName: operation, request, result })));
   };
+  const startAccountContextCall = (toolCallId: string) => {
+    if (receiptCalls.has(toolCallId)) return;
+    const streamed = receiptArgs.get(toolCallId);
+    receiptArgs.delete(toolCallId);
+    receiptPrivate = true;
+    handlers.onReceiptPrivate?.("account");
+    let request: AccountContextRequest | null = null;
+    try { request = parseAccountContextRequest(JSON.parse(streamed || "null")); } catch { /* closed schema */ }
+    if (!request || !accountContextEnabled || !receiptSessionCurrent() || receiptCalls.size) {
+      failure = new Error("The account read could not be verified. Please ask again.");
+      handlers.onError?.(failure.message);
+      agent.abortRun(); finishTerminalRun(); return;
+    }
+    const admitted = request;
+    receiptCalls.set(toolCallId, readAccountContext(input.userId, receiptSessionCurrent)
+      .then(result => ({ toolCallId, toolName: ACCOUNT_CONTEXT_TOOL, request: admitted, result })));
+  };
   const startWikiCall = (
     toolCallId: string,
     operation: WikiToolName,
@@ -1894,6 +1914,10 @@ async function streamAgentChatAttempt(input: {
       if (event.type === "TOOL_CALL_END") {
         const id = event.toolCallId;
         const name = typeof id === "string" ? toolNames.get(id) : undefined;
+        if (typeof id === "string" && name === ACCOUNT_CONTEXT_TOOL) {
+          startAccountContextCall(id);
+          return { stopPropagation: true };
+        }
         if (typeof id === "string" && name === PORTFOLIO_CONTEXT_TOOL) {
           startPortfolioContextCall(id);
           return { stopPropagation: true };
@@ -1960,7 +1984,7 @@ async function streamAgentChatAttempt(input: {
       // Follow-ups are chips under the answer, not a step the person waits on.
       if (event.toolCallName === FOLLOW_UP_TOOL_NAME || event.toolCallName === REACTION_TOOL_NAME) return;
       if (event.toolCallName === "adk_request_confirmation") confirmationArgs.set(event.toolCallId, "");
-      if (event.toolCallName === PORTFOLIO_CONTEXT_TOOL ||
+      if (event.toolCallName === ACCOUNT_CONTEXT_TOOL || event.toolCallName === PORTFOLIO_CONTEXT_TOOL ||
           RECEIPT_FUNCTIONS.includes(event.toolCallName as ReceiptFunction)) receiptArgs.set(event.toolCallId, "");
       if (WIKI_TOOL_NAMES.includes(event.toolCallName as WikiToolName)) wikiArgs.set(event.toolCallId, "");
       handlers.onToolStart?.(toolPayload(event.toolCallId, event.toolCallName));
@@ -1986,6 +2010,10 @@ async function streamAgentChatAttempt(input: {
       else confirmationArgs.set(event.toolCallId, next);
     },
     onToolCallEndEvent: ({ event, toolCallName, toolCallArgs }) => {
+      if (toolCallName === ACCOUNT_CONTEXT_TOOL) {
+        startAccountContextCall(event.toolCallId);
+        return;
+      }
       if (toolCallName === PORTFOLIO_CONTEXT_TOOL) {
         startPortfolioContextCall(event.toolCallId);
         return;
@@ -2046,10 +2074,10 @@ async function streamAgentChatAttempt(input: {
         handlers.onToolResult?.({ ...toolPayload(event.toolCallId, toolName, {}), ...result.event });
         return;
       }
-      if (toolName === PORTFOLIO_CONTEXT_TOOL || RECEIPT_FUNCTIONS.includes(toolName as ReceiptFunction)) {
+      if (toolName === ACCOUNT_CONTEXT_TOOL || toolName === PORTFOLIO_CONTEXT_TOOL || RECEIPT_FUNCTIONS.includes(toolName as ReceiptFunction)) {
         const payload = toolPayload(event.toolCallId, toolName);
         payload.raw = { protocol: "ag-ui", toolName };
-        payload.message = toolName === PORTFOLIO_CONTEXT_TOOL ? "Private portfolio read finished." : "Receipt function finished for this turn.";
+        payload.message = toolName === ACCOUNT_CONTEXT_TOOL ? "Private account read finished." : toolName === PORTFOLIO_CONTEXT_TOOL ? "Private portfolio read finished." : "Receipt function finished for this turn.";
         handlers.onToolResult?.(payload);
         return;
       }
@@ -2532,6 +2560,7 @@ async function streamAgentChatAttempt(input: {
         ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}),
         // The mail draft envelope version this client reads. The server reads it per request, so resumed runs send it too.
         emailDraftContract: 2, emailAgentContract: 1, calendarReviewContract: 1, emailReadReceiptContract: 2,
+        ...(accountContextEnabled ? { accountContextContract: ACCOUNT_CONTEXT_CONTRACT } : {}),
         ...(portfolioContextEnabled ? { portfolioContextContract: PORTFOLIO_CONTEXT_CONTRACT } : {}),
         ...(sharedWikiSession ? { wikiClientReady: true } : {}),
         ...(turnWiki.wikiHotDigest ? { wikiHotDigest: turnWiki.wikiHotDigest } : {}),
@@ -2559,7 +2588,8 @@ async function streamAgentChatAttempt(input: {
       const receiptToolResults = await settleReceiptCalls(receiptCalls.values(), input.signal, () => handlers.onStreamHealth?.({ kind: "activity" }));
       receiptCalls.clear();
       const portfolioRead = receiptToolResults.some(item => item.toolName === PORTFOLIO_CONTEXT_TOOL);
-      const privateReadLabel = portfolioRead ? "Portfolio read" : "Receipt analysis";
+      const accountRead = receiptToolResults.some(item => item.toolName === ACCOUNT_CONTEXT_TOOL);
+      const privateReadLabel = accountRead ? "Account read" : portfolioRead ? "Portfolio read" : "Receipt analysis";
       if (mcpReviews.size) throw new Error(`${privateReadLabel} must complete in its own authorized turn. Ask again.`);
       if (!receiptSessionCurrent()) throw new Error(`${privateReadLabel} authority changed. Unlock and ask again.`);
       // Only the receipt replies: replaying run A's question made the bridge start a second run beside the receipt call.
@@ -2567,6 +2597,7 @@ async function streamAgentChatAttempt(input: {
         content: JSON.stringify({ schema: "receipt_result.v1", operation: item.toolName, ephemeral_result: true }) })));
       await runUntilTerminal({ tools, context: [], forwardedProps: {
         timezone, screenContext: input.screenContext, communicationPreferences, receiptToolResults, emailDraftContract: 2, emailAgentContract: 1, calendarReviewContract: 1, emailReadReceiptContract: 2,
+        ...(accountRead ? { accountContextContract: ACCOUNT_CONTEXT_CONTRACT } : {}),
         ...(portfolioRead ? { portfolioContextContract: PORTFOLIO_CONTEXT_CONTRACT } : {}),
       } });
       if (!receiptSessionCurrent()) throw new Error(`${privateReadLabel} authority changed. Ask again.`);

@@ -886,7 +886,7 @@
     {
       "action_id": "profile.update_display_name",
       "label": "Change display name",
-      "meaning": "Changes the person's Hussh display name at the identity provider after confirmation.",
+      "meaning": "In typed Chat, prepares the proposed Hussh display name in the existing account editor for the person to review and Save. Native voice changes the identity-provider name through its existing confirmation.",
       "aliases": [
         "change my name to"
       ],
@@ -916,6 +916,34 @@
       },
       "control_ids": [],
       "state_exposure": [],
+      "goal": {
+        "required_inputs": [
+          {
+            "name": "display_name",
+            "slot": "display_name",
+            "prompt": "What should your account display name be?",
+            "required": true,
+            "resolver": "user_utterance"
+          }
+        ],
+        "input_resolvers": [
+          "user_utterance"
+        ],
+        "slot_schema": {
+          "type": "object",
+          "properties": {
+            "display_name": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 60
+            }
+          },
+          "required": [
+            "display_name"
+          ],
+          "additionalProperties": false
+        }
+      },
       "speaker_persona": "one"
     },
     {
