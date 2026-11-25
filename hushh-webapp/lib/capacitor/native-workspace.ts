@@ -297,7 +297,7 @@ export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean 
     if (value.workspace !== "launcher" || value.page !== "overview" || !l || !closed(l, ["view", "agents"]) ||
       !["grid", "list"].includes(l.view) || !Array.isArray(l.agents) || l.agents.length > 32) return false;
     for (const a of l.agents) if (!a || !closed(a, ["id", "label", "description", "metricValue", "metricLabel", "artworkId", "iconHex"]) ||
-      !insert(a.id) || !text(a.label, 64) || !text(a.description, 1024) || !text(a.metricValue, 64) || !text(a.metricLabel, 64) ||
+      !insert(a.id) || !text(a.label, 64) || !text(a.description, 1024) || (a.metricValue !== "" && !text(a.metricValue, 64)) || !text(a.metricLabel, 64) ||
       !/^roster-[a-z-]+$/.test(a.artworkId) || !/^#[\da-f]{6}$/i.test(a.iconHex)) return false;
   }
   if (value.wallet) {

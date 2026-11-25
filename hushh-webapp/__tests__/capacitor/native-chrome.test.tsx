@@ -1,7 +1,7 @@
 import { NativeFinanceRoute, NativeFinanceLayer } from "@/components/kai/native-finance-workspace";
 import { NativeWorkspaceSurface } from "@/lib/capacitor/native-workspace-surface";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { createRef, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { NativeChromeLease, chromeOwnerEpoch, chromeLifecycleEventApplies, chromeInvalidationApplies, canResumeNativeChrome, suspendOwnedNativeChrome, getNativeChromeCapabilities, peekNativeChromeCapabilities, hasOutstandingNativeChrome, retireNativeChrome, retireOwnedNativeChrome, syncNativeCanvasAppearance, type ChromeAcknowledgement, type ChromeProjection, type ChromeUpdateAcknowledgement } from "@/lib/capacitor/native-chrome";
 import { NativeShellBack } from "@/components/app-ui/native-shell-back";
@@ -28,10 +28,11 @@ import { NativePanelPoseWriter, useNativePanelPresentation, type NativePanelPose
 import { nativePresentationAdmission, setNetworkStatusBannerHeight, registerNativeDrawerPose, setNativePresentationRegionIsolation, syncNativePresentationRegions, useNativeFullWindowOverlayReady, waitForNativeDrawerCoverageRelease, type NativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
 import { AgentDockPortal, AgentDockProvider, useAgentDockState } from "@/components/agent/agent-dock";
 import { useNativeDockPort, useNativeDockPorts, type NativeDockPort } from "@/components/agent/native-dock-port";
-import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
+import { customNativePresentationEnabled, nativeInterfacePreferenceAvailable } from "@/lib/capacitor/native-presentation-policy";
 import { setNativeBaseAperture } from "@/lib/capacitor/native-base-apertures";
 import { NativePrivateProfileForm } from "@/components/profile/native-private-profile-form";
 import { NativeProfilePresentation, projectNativeProfileMenu } from "@/components/profile/native-profile-menu";
+import { useNativeProfilePreferences } from "@/components/profile/use-native-profile-preferences";
 import { profileMenuGroups, type ProfileMenuActions } from "@/components/profile/profile-menu-model";
 import { useNativeDrawerPresentation } from "@/lib/capacitor/use-native-drawer-presentation";
 import { NativeProfileNameFence, validNativeProfileNameProjection, type NativeProfileNameProjection } from "@/lib/capacitor/native-profile-name-scene";
@@ -1670,6 +1671,30 @@ describe("private native drawer action boundary", () => {
           { ...projected.sections[1].rows[0], ...field } as NativeDrawerProjection["sections"][number]["rows"][number],
         ] }] })).toBe(false);
       }
+    }
+  });
+
+  it("admits the authored Preferences page with its notification action and experimental interface control", () => {
+    vi.mocked(nativeInterfacePreferenceAvailable).mockReturnValue(true);
+    const view = renderHook(() => useNativeProfilePreferences({ enabled: true, retainDraft: false,
+      userId: null, vaultKey: null, vaultOwnerToken: null, onGemini: vi.fn(), onVoice: vi.fn() }));
+    try {
+      const groups = profileMenuGroups(false);
+      const actions = Object.fromEntries(groups.flatMap(group => group.entries.map(entry => [entry.id, vi.fn()]))) as ProfileMenuActions;
+      const menu = projectNativeProfileMenu("Public sample", null, true, groups, actions, vi.fn());
+      const projection = { ...state(), family: "profile" as const, sections: menu.sections, backEnabled: true,
+        profileStack: [view.result.current.page], profileDestinationId: "preferences-destination" };
+      expect(validNativeDrawerProjection(projection)).toBe(true);
+      const rows = view.result.current.page.sections.flatMap(section => section.rows);
+      expect(rows.find(row => row.id === "preferences-native-interface")?.toggle).toBe(true);
+      expect(rows.find(row => row.id === "preferences-notifications")).toBeDefined();
+      expect(view.result.current.rows.has("preferences-notifications")).toBe(true);
+      const duplicate = structuredClone(projection);
+      duplicate.profileStack[0].sections.find(section => section.rows.some(row => row.id === "preferences-notifications"))!.id = "preferences-notifications";
+      expect(validNativeDrawerProjection(duplicate)).toBe(false);
+    } finally {
+      view.unmount();
+      vi.mocked(nativeInterfacePreferenceAvailable).mockReturnValue(false);
     }
   });
 

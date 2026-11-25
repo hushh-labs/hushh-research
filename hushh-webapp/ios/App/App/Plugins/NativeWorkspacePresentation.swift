@@ -218,9 +218,10 @@ struct NativeCalendarWeek: Codable, Equatable {
 }
 struct NativeWorkspaceAgent: Codable {
     let id: String; let label: String; let description: String; let metricValue: String; let metricLabel: String; let artworkId: String; let iconHex: String
+    var metricText: String { metricValue.isEmpty ? metricLabel : "\(metricValue) \(metricLabel)" }
     var valid: Bool {
         NativeDrawerIdentity.identifier(id) && NativeDrawerProjection.text(label, 64) && NativeDrawerProjection.text(description, 1024) &&
-        NativeDrawerProjection.text(metricValue, 64) && NativeDrawerProjection.text(metricLabel, 64) &&
+        (metricValue.isEmpty || NativeDrawerProjection.text(metricValue, 64)) && NativeDrawerProjection.text(metricLabel, 64) &&
         artworkId.hasPrefix("roster-") && NativeProfileArtwork.resolve(artworkId) != nil && iconHex.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil
     }
 }
@@ -1467,20 +1468,20 @@ struct NativeWorkspaceTabStrip: View {
                     VStack(spacing: 8) {
                         icon(agent).frame(width: 36, height: 36).frame(width: 60, height: 60)
                         Text(agent.label).font(.subheadline.weight(.medium)).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-                        Text("\(agent.metricValue) \(agent.metricLabel)").font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                        Text(agent.metricText).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
                     }.frame(maxWidth: .infinity).frame(minHeight: 108, alignment: .top)
                 } else {
                     HStack(spacing: 12) {
                         icon(agent).frame(width: 28, height: 28).frame(width: 40, height: 40)
                         Text(agent.label).font(.body).fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 8)
-                        Text("\(agent.metricValue) \(agent.metricLabel)").font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
+                        Text(agent.metricText).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
                         Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                     }.padding(12).frame(minHeight: 56)
                 }
             }.foregroundStyle(Color(uiColor: .label)).contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityElement(children: .ignore)
-            .accessibilityLabel("Open \(agent.label)").accessibilityValue("\(agent.metricValue) \(agent.metricLabel)")
+            .accessibilityLabel("Open \(agent.label)").accessibilityValue(agent.metricText)
             .accessibilityAddTraits(.isButton)
             .accessibilityHint(agent.description).accessibilityIdentifier("native-launcher-agent-\(agent.id)")
     }

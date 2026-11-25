@@ -2030,6 +2030,17 @@ final class NativeSupportTests: XCTestCase {
     }
     #endif
 
+    func testNativeLauncherAcceptsAuthoredLabelOnlyMetrics() throws {
+        let agent = NativeWorkspaceAgent(id: "goals", label: "Goals", description: "Goals and tasks",
+            metricValue: "", metricLabel: "Goals and tasks", artworkId: "roster-goals", iconHex: "#DFF7E7")
+        XCTAssertTrue(agent.valid)
+        XCTAssertEqual(agent.metricText, "Goals and tasks")
+        XCTAssertNotNil(NativeProfileArtwork.resolve("roster-goals"))
+        let unlabeled = NativeWorkspaceAgent(id: "goals", label: "Goals", description: "Goals and tasks",
+            metricValue: "", metricLabel: "", artworkId: "roster-goals", iconHex: "#DFF7E7")
+        XCTAssertFalse(unlabeled.valid)
+    }
+
     func testNativeProfileUsesTheBundledWebArtworkAndRejectsUnknownIds() throws {
         XCTAssertFalse(NativeProfileArtwork.ids.isEmpty)
         XCTAssertEqual(Set(NativeProfileArtwork.ids).count, NativeProfileArtwork.ids.count)

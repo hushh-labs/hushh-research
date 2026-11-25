@@ -71,7 +71,7 @@ export function useNativeProfilePreferences({ enabled, retainDraft, onGemini, on
           { id: "native-interface-off", label: "Off", selected: !nativeInterface.selected },
         ] }, ...(nativeInterface.pendingChange ? [{ id: "preferences-native-interface-undo", label: "Keep current interface", detail: "Cancel the pending change.", enabled: !nativeInterface.saving, artworkId: "appearance", chevron: true }] : [])] : []),
     ] },
-    { id: "preferences-notifications", title: "Notifications", rows: [
+    { id: "preferences-notifications-section", title: "Notifications", rows: [
       { id: "preferences-notifications", label: openDeviceSettings ? "Notification settings" : "Turn on notifications",
         enabled: !isRetryingPushRegistration, pending: isRetryingPushRegistration, symbol: "bell",
         chevron: openDeviceSettings },

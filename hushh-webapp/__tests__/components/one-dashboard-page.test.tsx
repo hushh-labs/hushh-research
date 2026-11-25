@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { nativeLauncherAgent } from "@/components/dashboard/native-one-dashboard";
+import { validNativeWorkspace, type NativeWorkspaceProjection } from "@/lib/capacitor/native-workspace";
 import type { OneAgentMode } from "@/components/dashboard/one-agent-roster";
 import { OneDashboardPage } from "@/components/dashboard/one-dashboard-page";
 import { ScheduledTasksPanel } from "@/components/scheduled-tasks/scheduled-tasks-panel";
@@ -134,6 +135,25 @@ function countRosterMetrics(
 describe("OneDashboardPage", () => {
   beforeEach(() => {
     window.localStorage.clear();
+  });
+
+  it("admits the authored label-only Goals metric without inventing a count", () => {
+    const mode = { id: "goals", title: "Goals", description: "Goals and tasks", tone: "pkm", paletteIndex: 0, primaryMetric: { value: "", label: "Goals and tasks" } } as OneAgentMode;
+    const agent = nativeLauncherAgent(mode, "agent-goals", "#D4A574");
+    const projection: NativeWorkspaceProjection = {
+      documentId: "document", ownerEpoch: "owner", ownerGeneration: 1, revision: 1,
+      workspace: "launcher", updateSequence: 1, privacyGeneration: 0, isolationGeneration: 0,
+      appearance: "dark", accentHex: "#D4A574", foregroundHex: "#FFFFFF", canvasHex: "#000000",
+      page: "overview", title: "One", enabled: true, backEnabled: false, sections: [],
+      frame: { x: 0, y: 100, width: 390, height: 600, viewportWidth: 390, viewportHeight: 844, layoutRevision: 1 },
+      launcher: { view: "grid", agents: [agent] },
+    };
+    expect(agent.artworkId).toBe("roster-goals");
+    expect(agent.metricValue).toBe("");
+    expect(validNativeWorkspace(projection)).toBe(true);
+    for (const invalid of [{ metricValue: null }, { metricValue: "x".repeat(65) }, { metricLabel: "" }]) {
+      expect(validNativeWorkspace({ ...projection, launcher: { view: "grid", agents: [{ ...agent, ...invalid }] } } as unknown as NativeWorkspaceProjection)).toBe(false);
+    }
   });
 
   it("resolves the authored CSS accent before native launcher admission", () => {

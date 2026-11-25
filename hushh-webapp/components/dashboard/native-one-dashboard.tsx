@@ -12,7 +12,8 @@ import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { WalletEntryWarmup } from "@/components/wallet/wallet-entry-warmup";
 import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { AGENT_ICON_MAP } from "@/components/icons/agents/agent-icons";
-import { nativeColorTokenHex } from "@/lib/capacitor/native-control-appearance";
+import { nativeColorTokenHex, readNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
+import { AGENT_PROFILE_LAUNCHER_PALETTE } from "@/lib/design/agent-theme-registry";
 import { resolvedAccentHex, useAccent } from "@/lib/theme/accent";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { useNativeWorkspace, useNativeWorkspacePresentation } from "@/lib/capacitor/use-native-workspace";
@@ -74,10 +75,17 @@ function LauncherPresentation({ fallback, ...model }: LauncherModel & { fallback
   return <LauncherBody {...model} presentation={presentation} openDiscovery={openDiscovery} activationRevision={handoff.activationRevision} />;
 }
 export function nativeLauncherAgent(mode: OneAgentMode, id: string, accentHex: string) {
+  let iconHex = accentHex;
+  if (mode.id === "location") iconHex = nativeColorTokenHex("--agent-location-blue") ?? resolvedAccentHex().toUpperCase();
+  if (mode.id === "goals") {
+    const palette = AGENT_PROFILE_LAUNCHER_PALETTE;
+    const style = palette[((mode.paletteIndex % palette.length) + palette.length) % palette.length]!;
+    iconHex = style[readNativeControlAppearance("accent")?.appearance === "dark" ? "--agent-icon-profile-fg-dark" : "--agent-icon-profile-fg"]!;
+  }
   return { id, label: mode.title, description: mode.description, metricValue: mode.primaryMetric.value,
-    metricLabel: mode.primaryMetric.label, artworkId: `roster-${Object.hasOwn(AGENT_ICON_MAP, mode.id) ? mode.id : "default"}`,
-    // Fixed glyph colors are generated from the authored SVG, not app tones.
-    iconHex: mode.id === "location" ? nativeColorTokenHex("--agent-location-blue") ?? resolvedAccentHex().toUpperCase() : accentHex };
+    metricLabel: mode.primaryMetric.label, artworkId: `roster-${mode.id === "goals" || Object.hasOwn(AGENT_ICON_MAP, mode.id) ? mode.id : "default"}`,
+    // Fixed artwork colors and the authored Goals palette retain their Web treatment.
+    iconHex };
 }
 function LauncherBody({ roster, discovery, tasks, frame, presentation, openDiscovery, activationRevision }: LauncherModel & {
   presentation: ReturnType<typeof useNativeWorkspacePresentation>; openDiscovery: () => Promise<void>; activationRevision: number;
