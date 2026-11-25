@@ -117,7 +117,7 @@ export interface OneCapability {
   tone: OneCapabilityTone;
   group: OneCapabilityGroup;
   /** A paused surface remains route-addressable but is omitted from One setup and navigation. */
-  availability?: "enabled" | "paused" | "local-only" | "development-only";
+  availability?: "enabled" | "paused" | "local-only" | "development-only" | "non-production";
   /**
    * True when this capability collects NOTHING from the user — there is no information
    * to enter or connection to authorize, the tab is usable as soon as it opens.
@@ -316,7 +316,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     requiresVault: true,
     // Match the specialist's authored rollout; workspace admission still
     // verifies placement, unlocked ownership, installed capability and analysis consent.
-    availability: "development-only",
+    availability: "non-production",
   },
   {
     id: "marketplace",
@@ -418,6 +418,8 @@ export function isOneCapabilityEnabled(
   }
   if (resolved.availability === "local-only") return isLocalCrmBuildEnabled();
   if (resolved.id === "goals") return areGoalsAvailable();
+  if (resolved.availability === "non-production")
+    return resolveAppEnvironment() !== "production";
   if (resolved.availability === "development-only")
     return resolveAppEnvironment() === "development";
   return true;

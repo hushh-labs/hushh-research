@@ -2159,7 +2159,8 @@
       "availability": {
         "enable_flag": null,
         "environments": [
-          "development"
+          "development",
+          "uat"
         ],
         "loopback_only": false
       },

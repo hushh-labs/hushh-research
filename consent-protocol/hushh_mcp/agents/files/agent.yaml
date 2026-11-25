@@ -79,7 +79,7 @@ rollout:
   kill_switch: POD_FILES_ENABLED
   rollback: Disable Files entrypoints while preserving encrypted objects and owner recovery keys.
 availability:
-  environments: [development]
+  environments: [development, uat]
 tools:
   - name: list_files
     description: List bounded owner library metadata (optionally recursive), excluding excluded folders.

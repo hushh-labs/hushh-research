@@ -515,37 +515,39 @@ function AgentSettingsBody({
         ) : null}
 
         <SettingsGroup
-          title={isPersonalSandboxActive ? "Switch hosting" : "Hosting choices"}
+          title={!pooledSwitchAvailable && isPersonalSandboxActive ? "Switch hosting" : "Hosting choices"}
           density="compact"
           headingClassName="!mt-5"
         >
-          <SettingsRow
-            title="Hussh Shared"
-            description={
-              mode === "byoc"
-                ? "Remove your current cloud below to switch."
-                : "Managed shared service with standalone Finance and automatic updates."
-            }
-            trailing={
-              mode === "shared"
-                ? "Current"
-                : mode === "unplaced"
-                  ? "Choose"
+          {!pooledSwitchAvailable ? (
+            <SettingsRow
+              title="Hussh Shared"
+              description={
+                mode === "byoc"
+                  ? "Remove your current cloud below to switch."
+                  : "Managed shared service with automatic updates."
+              }
+              trailing={
+                mode === "shared"
+                  ? "Current"
+                  : mode === "unplaced"
+                    ? "Choose"
+                    : canSwitchToShared
+                      ? "Switch"
+                      : undefined
+              }
+              disabled={busy && canSwitchToShared}
+              onClick={
+                mode === "unplaced"
+                  ? chooseHosting
                   : canSwitchToShared
-                    ? "Switch"
+                    ? () => setConfirmSwitch("shared")
                     : undefined
-            }
-            disabled={busy && canSwitchToShared}
-            onClick={
-              mode === "unplaced"
-                ? chooseHosting
-                : canSwitchToShared
-                  ? () => setConfirmSwitch("shared")
-                  : undefined
-            }
-            chevron={mode === "unplaced" || canSwitchToShared}
-            testId="hosting-choice-shared"
-          />
+              }
+              chevron={mode === "unplaced" || canSwitchToShared}
+              testId="hosting-choice-shared"
+            />
+          ) : null}
           <SettingsRow
             title="Bring your own cloud"
             description={

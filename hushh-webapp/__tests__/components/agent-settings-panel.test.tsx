@@ -675,7 +675,7 @@ describe("owner hosting and software settings", () => {
       expect(statusRows.find((r) => r.id === "hosting-current")?.detail).toBe(expectedDisplay);
       expect(statusRows.find((r) => r.id === "hosting-move-azure")).toBeUndefined();
       const choiceRows = result.current.pages[0].sections.find((s) => s.id === "hosting-choices-section")!.rows;
-      expect(choiceRows.find((r) => r.id === "hosting-shared")?.trailing).toBe("Switch");
+      expect(choiceRows.find((r) => r.id === "hosting-shared")).toBeUndefined();
       expect(choiceRows.find((r) => r.id === "hosting-pods")?.trailing).toBe("Switch");
       act(() => { result.current.rows.get("hosting-own-cloud")?.(); });
       expect(openOwnCloud).toHaveBeenCalledOnce();
@@ -750,7 +750,7 @@ describe("owner hosting and software settings", () => {
     },
   );
 
-  it("shows Google Cloud Confidential Sandbox identity for ace and supports switching to Hussh Shared", async () => {
+  it("shows Google Cloud Confidential Sandbox identity for ace and hides Hussh Shared on direct cutover", async () => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
     status("hussh_pods", { state: "active", deploymentTarget: "ace", featureEnabled: true });
 
@@ -768,7 +768,7 @@ describe("owner hosting and software settings", () => {
     ).toBeNull();
     expect(screen.getByTestId("current-hosting-status-signal")).toHaveTextContent("Connected");
     expect(screen.getByTestId("current-hosting-cloud-badge")).toHaveTextContent("Google Cloud");
-    expect(screen.getByTestId("hosting-choice-shared")).toHaveTextContent("Switch");
+    expect(screen.queryByTestId("hosting-choice-shared")).toBeNull();
     expect(screen.queryByTestId("pooled-sandbox-switch-card")).toBeNull();
     expect(screen.queryByTestId("hussh-pods-connected")).toBeNull();
 
@@ -800,7 +800,7 @@ describe("owner hosting and software settings", () => {
     expect(screen.getByText(rawSha)).toBeTruthy();
   });
 
-  it("enables non-destructive switching from Personal Sandbox (ace) to Bring your own cloud or Hussh Shared on Dev", async () => {
+  it("enables non-destructive switching from Personal Sandbox (ace) to Bring your own cloud on Dev without Hussh Shared", async () => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
     status("hussh_pods", { state: "active", deploymentTarget: "ace", featureEnabled: true });
 
@@ -809,7 +809,7 @@ describe("owner hosting and software settings", () => {
     expect(screen.getByTestId("current-hosting-status-signal")).toHaveTextContent("Connected");
     expect(screen.getByTestId("current-hosting-cloud-badge")).toHaveTextContent("Google Cloud");
     expect(screen.queryByTestId("hosting-choice-pods")).toBeNull();
-    expect(screen.getByTestId("hosting-choice-shared")).toHaveTextContent("Switch");
+    expect(screen.queryByTestId("hosting-choice-shared")).toBeNull();
 
     fireEvent.click(screen.getByTestId("hosting-choice-own-cloud").querySelector("button")!);
     expect(mocks.switchHostingMode).not.toHaveBeenCalled();
@@ -820,13 +820,14 @@ describe("owner hosting and software settings", () => {
     );
   });
 
-  it("enables switching from Shared to Personal Sandbox or Bring your own cloud directly in Profile Hosting", async () => {
+  it("enables switching from transitional Shared state to Personal Sandbox or Bring your own cloud directly in Profile Hosting", async () => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
     mocks.reconnect.mockResolvedValue({});
     status("shared", { featureEnabled: true });
 
     render(<AgentSettingsPanel userId="owner" kind="hosting" />);
-    expect(screen.getByTestId("hosting-choice-shared")).toHaveTextContent("Current");
+    expect(screen.queryByTestId("hosting-choice-shared")).toBeNull();
+    expect(screen.getByTestId("current-hosting-row")).toHaveTextContent("Confidential Sandbox transition");
 
     fireEvent.click(screen.getByTestId("hosting-choice-own-cloud").querySelector("button")!);
     expect(mocks.push).toHaveBeenCalledWith(
@@ -854,7 +855,7 @@ describe("owner hosting and software settings", () => {
     expect(screen.getByTestId("current-hosting-row")).toHaveTextContent("Hussh Confidential Sandbox");
     expect(screen.getByTestId("hosting-choice-own-cloud")).toHaveTextContent("Coming soon");
     expect(screen.getByTestId("hosting-choice-own-cloud").querySelector("button")).toBeNull();
-    expect(screen.getByTestId("hosting-choice-shared")).toHaveTextContent("Switch");
+    expect(screen.queryByTestId("hosting-choice-shared")).toBeNull();
 
     fireEvent.click(screen.getByTestId("current-hosting-row").querySelector("button")!);
     expect(await screen.findByTestId("hussh-pods-connected")).toHaveTextContent(
