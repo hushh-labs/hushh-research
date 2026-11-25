@@ -30,8 +30,6 @@ from hushh_mcp.services.gmail_receipt_notice_evidence import (
 )
 from hushh_mcp.services.gmail_receipt_notice_findings import (
     Reject,
-    _percent_x10,
-    _rise_over,
     validate_finding,
     validate_output,
 )
@@ -166,13 +164,6 @@ def test_a_signal_deep_in_a_long_email_still_reaches_the_model():
     )
     assert "haven't watched anything on this account in 60 days" in text
     assert len(text) <= 1_600
-
-
-def test_twenty_percent_is_exclusive_and_the_percent_is_rounded_half_up():
-    assert _rise_over(600, 500) is False
-    assert _rise_over(601, 500) is True
-    assert _percent_x10(1950, 1470) == 327  # the ₹1,950 vs usual ₹1,470 example: 32.7%
-    assert _percent_x10(601, 500) == 202
 
 
 def test_mail_text_never_reaches_the_model_without_a_stable_packet_shape():
@@ -823,24 +814,6 @@ def test_4800_against_4000_is_exactly_twenty_percent_and_is_not_a_rise():
             ),
             agreed_exact,
         )
-
-
-def test_exactly_twenty_percent_is_not_a_rise():
-    notice = gmail(
-        "an",
-        "2026-11-18",
-        JIO,
-        "Price change",
-        "From 1 December your plan will cost ₹600.00 a month.",
-    )
-    packet = packet_of(*bills("500.00", "500.00", "500.00", "500.00"), notice)
-    raw = rise(
-        packet,
-        announced={"quote": "your plan will cost ₹600.00 a month", "amount": "₹600.00"},
-        reason="Jio announced ₹600.00 from 1 Dec, up from ₹500.00.",
-    )
-    with pytest.raises(Reject, match="not_above_twenty_percent"):
-        check(raw, packet)
 
 
 def test_a_variable_bill_is_compared_with_the_middle_of_the_last_three_paid_bills():

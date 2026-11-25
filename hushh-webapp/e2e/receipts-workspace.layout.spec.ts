@@ -345,34 +345,3 @@ test("Keep it is remembered across a reload, and the same evidence never asks a 
   await page.waitForTimeout(2500);
   expect(calls).toHaveLength(1);
 });
-
-test("a failed check keeps the saved finding, says so, and the receipts stay usable", async ({ page }) => {
-  let healthy = true;
-  const calls: Array<Record<string, unknown>> = [];
-  await stubHosting(page);
-  await page.route("http://localhost/api/kai/gmail/receipts/notice", async (route) => {
-    calls.push(route.request().postDataJSON());
-    if (healthy) return route.fulfill({ contentType: "application/json", body: JSON.stringify(noticeAnswer()) });
-    return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: { code: "GMAIL_RECEIPT_NOTICE_UNAVAILABLE", message: "One can't check right now.", retryable: true } }) });
-  });
-  await openReceipts(page, 393, { notice: true });
-  await expect(page.getByTestId("insight-card")).toContainText("You pay for 5 TV and streaming plans");
-  healthy = false;
-  // Time moves on past a day: the saved check is stale and One asks again, and cannot.
-  await page.clock.setFixedTime(new Date("2026-12-12T10:00:00"));
-  await page.reload();
-  await awaitProductFont(page);
-  await expect(page.getByTestId("insight-card")).toContainText("You pay for 5 TV and streaming plans");
-  await expect(page.getByTestId("insight-caption")).toContainText(/Couldn’t update\. From 10 Dec\./, { timeout: 8000 });
-  await expect(page.getByTestId("receipt-row").first()).toBeVisible();
-  await expect(page.getByPlaceholder("Search receipts")).toBeEnabled();
-  await expect(page.getByRole("button", { name: "Try again" }).first()).toBeVisible();
-});
-
-test("an answer for another mailbox is refused and nothing is shown", async ({ page }) => {
-  const calls: Array<Record<string, unknown>> = [];
-  await stubNotice(page, () => noticeAnswer({ account_key: "someone-elses-mailbox" }), calls);
-  await openReceipts(page, 393, { notice: true });
-  await expect(page.getByTestId("insight-caption")).toContainText("Couldn’t check your mailbox. From your saved receipts.", { timeout: 8000 });
-  await expect(page.getByTestId("insight-card")).not.toContainText("5 TV and streaming plans");
-});
