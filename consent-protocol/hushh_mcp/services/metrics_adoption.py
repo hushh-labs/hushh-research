@@ -25,6 +25,8 @@ from hushh_mcp.services.metrics_adoption_sql import (
     SOURCE_TABLES,
 )
 
+_production_aggregate_lock = asyncio.Lock()
+
 
 class AggregateUnavailable(RuntimeError):
     """No complete, currently authorized result within the existing source bounds."""
@@ -399,6 +401,12 @@ async def bounded_adoption_aggregate(request, binding, *, environment="productio
         if environment == "uat":
             async with metrics_uat_authority.dedicated_pool(binding) as pool:
                 return await adoption_aggregate(request, binding, pool=pool, environment="uat")
+        if environment == "production":
+            # Admit one aggregate per worker before either pool acquisition.
+            # Overlapping reads can otherwise hold every guard connection while
+            # waiting for the second connection. The deadline includes admission.
+            async with _production_aggregate_lock:
+                return await adoption_aggregate(request, binding, environment="production")
         return await adoption_aggregate(request, binding, environment=environment)
 
     return await asyncio.wait_for(run(), timeout=20)

@@ -34,6 +34,9 @@ export const HOST_LABELS = {
 type HostingMode = keyof typeof HOST_LABELS;
 
 export function hostModeLabel(mode: HostingMode): string {
+  if (mode === "shared" && isPooledSandboxSwitchAvailable()) {
+    return "Confidential Sandbox transition";
+  }
   return HOST_LABELS[mode];
 }
 
