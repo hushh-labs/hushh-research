@@ -31,17 +31,17 @@ export function eventText(event: TrackingEvent): string {
     case "pattern_hidden": return `You said ${name} is not a recurring bill`;
     case "review_saved": return `You reviewed your plans: cancel ${Number(d.cancel ?? 0)}, keep ${Number(d.keep ?? 0)}`;
     case "cancellation_confirmed": return `${name} confirmed the cancellation`;
-    case "insight_reviewed": return `You marked “${String(d.title ?? "an item")}” as not an issue`;
+    case "insight_reviewed": return d.choice === "keep" ? `You kept the plan: “${String(d.title ?? "an item")}”` : `You marked “${String(d.title ?? "an item")}” as not an issue`;
   }
 }
 
 export const RECURRING_EVENT_KINDS = new Set<TrackingEvent["kind"]>(["bill_added", "date_changed", "occurrence_skipped", "tracking_stopped", "tracking_resumed", "pattern_hidden"]);
 
 /** The numbers behind a price-rise finding, as label and value rows. */
-export function riseFacts(rise: { latestMinor: number; baselineMinor: number; percent: string; basis: "agreed_price" | "median_last_three"; currency: string }): Array<{ label: string; value: string }> {
+export function riseFacts(rise: { latestMinor: number; baselineMinor: number; percent: string; basis: "median_last_three"; currency: string }): Array<{ label: string; value: string }> {
   return [
     { label: "This bill", value: formatMinor(rise.latestMinor, rise.currency) },
-    { label: rise.basis === "agreed_price" ? "Agreed price" : "Usual (middle of the last 3 paid)", value: formatMinor(rise.baselineMinor, rise.currency) },
+    { label: "Usual (middle of the last 3 paid)", value: formatMinor(rise.baselineMinor, rise.currency) },
     { label: "Change", value: `+${rise.percent}%` },
   ];
 }
