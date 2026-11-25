@@ -66,7 +66,6 @@ const SHEET_CONSUMERS = [
   "components/one-location/redesign/circles/named-circle-flows.tsx",
   "components/profile/profile-avatar-editor.tsx",
   "components/todos/todo-add-item-sheet.tsx",
-  "components/todos/todo-list-page.tsx",
   "components/todos/todo-task-sources.tsx",
   "components/ui/sidebar.tsx",
   "lib/morphy-ux/ui/task-surfaces.tsx",
