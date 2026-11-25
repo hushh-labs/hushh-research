@@ -511,22 +511,43 @@ async def test_browser_cancel_and_update_join_shutdown_before_releasing_admissio
         await fixture.runtime.drain()
 
 
-async def test_browser_one_roster_requires_qualified_runtime_and_current_app_scope(monkeypatch):
+@pytest.mark.parametrize(
+    ("environment", "wire_environment"),
+    [
+        ("dev", "development"),
+        ("development", "development"),
+        ("uat", "uat"),
+        ("prod", None),
+        ("production", None),
+    ],
+)
+async def test_browser_one_roster_requires_qualified_runtime_and_current_app_scope(
+    monkeypatch, environment, wire_environment
+):
+    from pathlib import Path
     from types import SimpleNamespace
 
     from fastapi import HTTPException
 
     from api.routes.one import pod_session
+    from hushh_mcp.hushh_adk.manifest import ManifestLoader
     from hushh_mcp.one_adk import agent_tree
     from hushh_mcp.one_adk.computer_use_agent import browser_task_hand_available, start_browser_task
     from hushh_mcp.one_adk.pod_agui_context import PodChatContext
     from hushh_mcp.services import pod_upgrade_admission
+    from hushh_mcp.services.pod_browser.task_contracts import BrowserTaskReceipt
 
     fixture = task_runtime_fixture(monkeypatch)
+    manifest = ManifestLoader.load(
+        str(Path(__file__).resolve().parents[1] / "hushh_mcp/agents/computer_use/agent.yaml")
+    )
+    assert (wire_environment in manifest.availability.environments) is (
+        wire_environment is not None
+    )
     context = PodChatContext.__new__(PodChatContext)
     context.owner, context.hushh_id = "owner", "pod"
     context.authorization, context._browser_incarnation = "Bearer owner", "epoch"
-    context.authority = SimpleNamespace(environment="dev")
+    context.authority = SimpleNamespace(environment=environment)
     context.claims = {"scopes": [], "exp": 1900}
     context.browser_runtime = fixture.runtime
 
@@ -543,10 +564,36 @@ async def test_browser_one_roster_requires_qualified_runtime_and_current_app_sco
         assert not browser_task_hand_available()  # flag alone and PKM scope are insufficient
         assert start_browser_task not in agent_tree._one_roster_tools(specialist_model="test-model")
     context.claims["scopes"] = ["browser.invoke"]
+    if wire_environment is None:
+        with context._browser_scope():
+            assert not browser_task_hand_available()
+            assert start_browser_task not in agent_tree._one_roster_tools(
+                specialist_model="test-model"
+            )
+        with pytest.raises(BrowserRefused, match="OWNER_REFUSED"):
+            await context._browser_access()
+        assert fixture.launcher.calls == 0
+        return
+
     with context._browser_scope():
         assert browser_task_hand_available()
         assert start_browser_task in agent_tree._one_roster_tools(specialist_model="test-model")
         await context._browser_access()
+
+        async def delegate(owner, request):
+            await owner.check()
+            assert owner.environment == wire_environment
+            return BrowserTaskReceipt(
+                binding=binding(environment=owner.environment), phase="needs_owner", revision=1
+            )
+
+        with monkeypatch.context() as delegation:
+            delegation.setattr(fixture.runtime, "delegate", delegate)
+            receipt = await start_browser_task(
+                "request_uat", "Read this site", ["https://example.com"]
+            )
+        assert receipt["status"] == "accepted"
+        assert receipt["binding"]["environment"] == wire_environment
         monkeypatch.setattr(pod_upgrade_admission, "pod_incarnation", lambda: "changed")
         with pytest.raises(BrowserRefused, match="OWNER_REFUSED"):
             await context._browser_access()

@@ -694,7 +694,8 @@
       "availability": {
         "enable_flag": null,
         "environments": [
-          "development"
+          "development",
+          "uat"
         ],
         "loopback_only": false
       },
@@ -803,7 +804,7 @@
         "chat": true,
         "ios": false,
         "mcp": false,
-        "not_applicable_reason": "Gated private-pod dev pilot; no shared runtime, device browser, native plugin, or A2A surface.",
+        "not_applicable_reason": "Gated private-pod Dev/UAT pilot; no shared runtime, device browser, native plugin, or A2A surface.",
         "voice": false,
         "web": true
       },
@@ -5140,7 +5141,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "6752b2a7cf9ffb64e52f827709d21b086ebb0f07d67c21aff57dbebc6348a327",
+      "system_instruction_sha256": "d3e6b36214487a0c5dab03b39d5a5f8102b5331c3f00e6abdb45b0b1f92f5796",
       "telemetry_namespace": "agent.one",
       "tools": [
         {
