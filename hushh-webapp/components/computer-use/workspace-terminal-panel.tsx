@@ -67,7 +67,7 @@ export function WorkspaceTerminalPanel({
   podId,
   active,
 }: {
-  podId: string;
+  podId?: string;
   active: boolean;
 }) {
   const [status, setStatus] = useState<WorkspaceStatusState | null>(null);

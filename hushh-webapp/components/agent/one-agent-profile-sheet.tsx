@@ -264,7 +264,7 @@ function OneActivityWorkspace({
           />
         </button>
         {terminalExpanded ? (
-          <WorkspaceTerminalPanel ownerId={ownerId} active={active && terminalExpanded} />
+          <WorkspaceTerminalPanel key={ownerId} active={active && terminalExpanded} />
         ) : null}
       </section>
     </div>
