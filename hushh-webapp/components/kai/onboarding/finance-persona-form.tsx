@@ -2,6 +2,8 @@
 
 import { useId, useRef, useState, type FormEvent } from "react";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { Check } from "@/components/icons";
+import { KAI_PREFERENCE_QUESTIONS } from "@/lib/kai/preference-questions";
 import {
   getInvestingPersona,
   personaPlanningNote,
@@ -9,59 +11,56 @@ import {
 } from "@/lib/kai/investing-persona";
 import styles from "./finance-persona.module.css";
 
-const questions = [
+const editQuestions = [
   {
-    key: "investment_horizon",
+    id: "investment_horizon",
     prompt:
       "When do you expect to start withdrawing money from these investments?",
-    choices: [
-      ["short_term", "Less than 3 years"],
-      ["medium_term", "In 3–7 years"],
-      ["long_term", "More than 7 years"],
+    options: [
+      { value: "short_term", label: "Less than 3 years" },
+      { value: "medium_term", label: "In 3–7 years" },
+      { value: "long_term", label: "More than 7 years" },
     ],
   },
   {
-    key: "drawdown_response",
+    id: "drawdown_response",
     prompt:
-      "If a $10,000 investment fell to $8,000 in a market downturn, what would you do first?",
-    choices: [
-      ["reduce", "Sell some investments to limit further losses"],
-      ["stay", "Keep my investments while I review my plan"],
-      ["buy_more", "Consider investing more if my plan still fits"],
+      "If your investments fell 20% in a market downturn, what would you do first?",
+    options: [
+      { value: "reduce", label: "Sell some investments to limit further losses" },
+      { value: "stay", label: "Keep my investments while I review my plan" },
+      { value: "buy_more", label: "Consider investing more if my plan still fits" },
     ],
   },
   {
-    key: "volatility_preference",
+    id: "volatility_preference",
     prompt:
       "Which of these hypothetical one-year investments would you choose?",
     hint: "In each example, the gain and loss are equally likely.",
-    choices: [
-      ["small", "Lose 5% or gain 8%"],
-      ["moderate", "Lose 15% or gain 18%"],
-      ["large", "Lose 30% or gain 35%"],
+    options: [
+      { value: "small", label: "Lose 5% or gain 8%" },
+      { value: "moderate", label: "Lose 15% or gain 18%" },
+      { value: "large", label: "Lose 30% or gain 35%" },
     ],
   },
   {
-    key: "loss_capacity",
+    id: "loss_capacity",
     prompt:
       "If your investments stayed down for a year, would you need to sell any?",
-    choices: [
-      ["essentials", "I’d probably need to sell to cover bills"],
-      [
-        "delay_goal",
-        "I could cover bills, but I might delay a planned expense",
-      ],
-      ["flexible", "I could keep the money invested without changing my plans"],
+    options: [
+      { value: "essentials", label: "I’d probably need to sell to cover bills" },
+      { value: "delay_goal", label: "I could cover bills, but I might delay a planned expense" },
+      { value: "flexible", label: "I could keep the money invested without changing my plans" },
     ],
   },
 ] as const;
 
 function answer<T extends string>(
   data: FormData,
-  question: { key: string; choices: readonly (readonly [T, string])[] },
+  question: { id: string; options: readonly { value: T }[] },
 ): T | null {
-  const value = data.get(question.key);
-  return question.choices.find(([choice]) => choice === value)?.[0] ?? null;
+  const selected = data.get(question.id);
+  return question.options.find(({ value }) => value === selected)?.value ?? null;
 }
 
 export function FinancePersonaBadge({
@@ -115,14 +114,12 @@ export function FinancePersonaForm({
   onboarding = false,
   onSave,
   onDone,
-  onSkip,
   onSavingChange,
 }: {
   initial?: PersonaPreferences;
   onboarding?: boolean;
-  onSave: (preferences: PersonaPreferences) => Promise<void>;
+  onSave: (preferences: PersonaPreferences) => Promise<void | false>;
   onDone: () => void;
-  onSkip?: () => void;
   onSavingChange?: (saving: boolean) => void;
 }) {
   const id = useId();
@@ -130,23 +127,30 @@ export function FinancePersonaForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const saving = useRef(false);
+  const [picked, setPicked] = useState<Record<string, string>>({});
+  const questions = onboarding ? KAI_PREFERENCE_QUESTIONS : editQuestions;
+  const [horizon, drawdown, volatility, capacity] = questions;
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (saving.current) return;
     const data = new FormData(event.currentTarget);
+    // Onboarding answers live in state (tap to choose, tap again to clear); a
+    // question left unanswered is saved as "not sure yet".
+    if (onboarding) for (const [key, value] of Object.entries(picked)) data.set(key, value);
     const preferences = {
-      investment_horizon: answer(data, questions[0]),
-      drawdown_response: answer(data, questions[1]),
-      volatility_preference: answer(data, questions[2]),
-      loss_capacity: answer(data, questions[3]),
+      investment_horizon: answer(data, horizon),
+      drawdown_response: answer(data, drawdown),
+      volatility_preference: answer(data, volatility),
+      ...(capacity ? { loss_capacity: answer(data, capacity) } : {}),
     } satisfies PersonaPreferences;
     saving.current = true;
     setBusy(true);
     onSavingChange?.(true);
     setError(null);
     try {
-      await onSave(preferences);
-      setSaved(preferences);
+      if (await onSave(preferences) === false) return;
+      if (onboarding) onDone();
+      else setSaved(preferences);
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -165,44 +169,46 @@ export function FinancePersonaForm({
       <FinancePersonaReveal
         preferences={saved}
         onDone={onDone}
-        actionLabel={onboarding ? "Continue to import" : "Back to analysis"}
+        actionLabel="Back to analysis"
       />
     );
   }
 
   return (
     <form
-      className={styles.form}
+      className={onboarding ? `app-type-compact ${styles.form} ${styles.onboarding}` : styles.form}
       onSubmit={(event) => void submit(event)}
       aria-busy={busy}
     >
       {onboarding ? (
         <header>
-          <p className="ui-text-helper-text">Finance setup · Step 2 of 3</p>
-          <h1 className="ui-text-page-title">
+          <p className={styles.eyebrow}>Finance setup</p>
+          <h1 className={styles.title}>
             Let’s build your financial persona
           </h1>
         </header>
       ) : null}
-      <p className="ui-text-body">
-        {onboarding
-          ? "Think about the investments you plan to add to Finance."
-          : "Think about the investments you want One to review."}{" "}
-        Your answers help One tailor your portfolio review.
-      </p>
+      {onboarding ? null : (
+        <p className="ui-text-body">
+          Think about the investments you want One to review. Your answers help
+          One tailor your portfolio review.
+        </p>
+      )}
       <div className={styles.questions}>
         {questions.map((question, index) => {
-          const hintId = `${id}-${question.key}`;
+          const hintId = `${id}-${question.id}`;
           return (
             <fieldset
-              key={question.key}
+              key={question.id}
               disabled={busy}
               aria-describedby={"hint" in question ? hintId : undefined}
             >
               <legend>
-                <span aria-hidden="true">
-                  {String(index + 1).padStart(2, "0")}
-                </span>
+                {onboarding ? null : (
+                  <span aria-hidden="true">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                )}
                 {question.prompt}
               </legend>
               {"hint" in question ? (
@@ -210,19 +216,39 @@ export function FinancePersonaForm({
                   {question.hint}
                 </p>
               ) : null}
-              {[
-                ...question.choices,
-                ["unknown", "I’m not sure yet"] as const,
-              ].map(([value, label]) => (
+              {onboarding
+                ? question.options.map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={styles.choice}
+                      aria-pressed={picked[question.id] === value}
+                      onClick={() =>
+                        setPicked((current) => {
+                          const { [question.id]: chosen, ...rest } = current;
+                          return chosen === value ? rest : { ...rest, [question.id]: value };
+                        })
+                      }
+                    >
+                      <span className={styles.box} aria-hidden="true">
+                        <Check size={14} />
+                      </span>
+                      <span>{label}</span>
+                    </button>
+                  ))
+                : [
+                ...question.options,
+                { value: "unknown", label: "I’m not sure yet" },
+              ].map(({ value, label }) => (
                 <label key={value}>
                   <input
                     type="radio"
-                    name={question.key}
+                    name={question.id}
                     value={value}
                     required
                     defaultChecked={
                       initial
-                        ? (initial[question.key] ?? "unknown") === value
+                        ? (initial[question.id] ?? "unknown") === value
                         : false
                     }
                   />
@@ -239,11 +265,6 @@ export function FinancePersonaForm({
         </p>
       ) : null}
       <footer className={styles.actions}>
-        {onSkip ? (
-          <ShellActionSurface variant="pill" onClick={onSkip} disabled={busy}>
-            Skip for now
-          </ShellActionSurface>
-        ) : null}
         <ShellActionSurface
           type="submit"
           variant="pill"
@@ -251,7 +272,7 @@ export function FinancePersonaForm({
           rippleEffect="fill"
           disabled={busy}
         >
-          {busy ? "Saving…" : "Save persona"}
+          {busy ? "Saving…" : onboarding ? "Continue" : "Save persona"}
         </ShellActionSurface>
       </footer>
     </form>

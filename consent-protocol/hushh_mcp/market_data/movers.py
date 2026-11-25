@@ -1,11 +1,13 @@
 """Observed mover selection shared by the producer and its cache admission check."""
 
 import math
+from datetime import datetime, timedelta
 from typing import Any
 
 MIN_MOVERS = 3
 MOVERS_COVERAGE_VERSION = 1
-MOVERS_REFRESH_SECONDS = 120
+MOVERS_REFRESH_SECONDS = 300
+MOVER_OBSERVATION_WINDOW = timedelta(minutes=20)
 
 
 def number(value: Any) -> float | None:
@@ -16,6 +18,16 @@ def number(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return parsed if math.isfinite(parsed) else None
+
+
+def observation_time(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        stamp = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return stamp if stamp.tzinfo is not None else None
 
 
 def select_movers(rows: Any, bucket: str, limit: int = 8) -> list[dict]:
@@ -65,6 +77,35 @@ def complete_movers(value: Any) -> bool:
     )
 
 
+def mover_refresh_regressed(previous: Any, candidate: Any, now: datetime) -> bool:
+    """Compare the provider's timestamps independently for each directional ranking."""
+
+    def latest_observation(payload: dict, bucket: str) -> datetime | None:
+        return max(
+            (
+                stamp
+                for row in select_movers(payload.get(bucket), bucket)
+                if (stamp := observation_time(row.get("as_of"))) is not None
+            ),
+            default=None,
+        )
+
+    saved, incoming = mover_payload(previous), mover_payload(candidate)
+    for bucket in ("gainers", "losers"):
+        saved_at = latest_observation(saved, bucket)
+        if saved_at is None:
+            continue
+        incoming_at = latest_observation(incoming, bucket)
+        if incoming_at is None:
+            # FMP may omit timestamps. Resume using it when the last dated list
+            # is outside the observation window, without inferring a quote time.
+            if now - saved_at < MOVER_OBSERVATION_WINDOW:
+                return True
+        elif incoming_at < saved_at:
+            return True
+    return False
+
+
 def stale_movers(value: Any) -> dict:
     """Annotate a retained snapshot without mutating its observations or cache entry."""
     payload = mover_payload(value)
@@ -83,14 +124,21 @@ def stale_movers(value: Any) -> dict:
     }
 
 
-def assemble_movers(primary: dict, fallback: dict, retrieved_at: str) -> tuple[dict, dict]:
+def assemble_movers(primary: dict, fallback: dict, retrieved_at: str | None) -> tuple[dict, dict]:
     buckets = {
         bucket: select_movers((primary.get(bucket) or []) + (fallback.get(bucket) or []), bucket)
         for bucket in ("gainers", "losers", "active")
     }
+    observations = [
+        stamp
+        for rows in buckets.values()
+        for row in rows
+        if (stamp := observation_time(row.get("as_of"))) is not None
+    ]
     payload = {
         **buckets,
-        "as_of": retrieved_at,
+        "as_of": max(observations).isoformat() if observations else None,
+        "retrieved_at": retrieved_at,
         "coverage_version": MOVERS_COVERAGE_VERSION,
         "source_tags": sorted(
             {tag for rows in buckets.values() for row in rows for tag in row.get("source_tags", [])}

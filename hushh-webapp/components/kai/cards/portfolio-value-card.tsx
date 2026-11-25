@@ -6,17 +6,20 @@ import { PortfolioHistoryChart, type HistoricalDataPoint } from "@/components/ka
 import styles from "@/components/kai/shared/finance-workspace.module.css";
 import { cn } from "@/lib/utils";
 
-const money = (value: number | null) => value === null ? "Unavailable" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(value);
+import { formatCurrency } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
+const money = (value: number | null) => value === null ? "Unavailable" : formatCurrency(value);
 
 export function PortfolioValueCard({ source, value, change, changePct, period, history, action, invested, cash }: {
   source: string; value: number; change: number | null; changePct: number | null;
   period: string; history: HistoricalDataPoint[]; action?: ReactNode;
   invested?: number | null; cash?: number | null;
 }) {
+  useMarketCurrency();
   return <SurfaceCard data-testid="portfolio-value-card" className={styles.detail}>
-    <SurfaceCardContent className="space-y-5 p-5 sm:p-6">
-      <div className="flex items-center justify-between gap-3">
-        <p className={styles.description}>{source} portfolio value</p>
+    <SurfaceCardContent className={cn("space-y-0", styles.portfolioTopBody)}>
+      <div className={styles.portfolioTopHeader}>
+        <h2 className="ui-text-section-label">{source} portfolio value</h2>
         {action}
       </div>
       <div>
@@ -26,12 +29,12 @@ export function PortfolioValueCard({ source, value, change, changePct, period, h
         </p> : null}
         {change !== null ? <p className={cn(styles.description, "mt-1")}>Period balance change · includes cash flows</p> : null}
       </div>
-      {history.length >= 2 ? <PortfolioHistoryChart data={history} height={220} /> : <p className={styles.description}>Dated balance history unavailable.</p>}
-      {invested !== undefined || cash !== undefined ? <dl className={styles.summaryFacts}>
-        <div><dt>Invested</dt><dd>{money(invested ?? null)}</dd></div>
-        <div><dt>Cash</dt><dd>{money(cash ?? null)}</dd></div>
+      {history.length >= 2 ? <PortfolioHistoryChart data={history} height={220} /> : null}
+      {typeof invested === "number" || typeof cash === "number" ? <dl className={styles.summaryFacts}>
+        {typeof invested === "number" ? <div><dt>Invested</dt><dd>{money(invested)}</dd></div> : null}
+        {typeof cash === "number" ? <div><dt>Cash</dt><dd>{money(cash)}</dd></div> : null}
       </dl> : null}
-      <p className={styles.description}>{period}</p>
+      <p className={cn(styles.description, styles.portfolioTopCaption)}>{period}</p>
     </SurfaceCardContent>
   </SurfaceCard>;
 }

@@ -281,7 +281,7 @@ async def test_calendar_summary_reads_through_the_door_in_pod_mode(bridge) -> No
 
     db_calls: list[str] = []
 
-    async def _db_call(user_id: str):
+    async def _db_call(user_id: str, service, account_id: str):
         db_calls.append(user_id)
         return {"status": "ok"}
 
@@ -301,7 +301,7 @@ async def test_private_door_refusal_never_reads_in_process(bridge) -> None:
     bridge["payload"] = None
     seen: list[str] = []
 
-    async def _db_call(user_id: str):
+    async def _db_call(user_id: str, service, account_id: str):
         seen.append(user_id)
         return {"status": "ok", "events": []}
 

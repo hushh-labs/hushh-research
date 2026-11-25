@@ -4,6 +4,7 @@ import * as React from "react"
 import { XIcon } from "@/components/icons"
 import { Dialog as DialogPrimitive } from "radix-ui"
 
+import { useTypographyScope } from "@/lib/morphy-ux/ui/typography-scope"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple"
@@ -77,6 +78,7 @@ function DialogContent({
   isolateNativeNavigation?: boolean
   nativeLayer?: string
 }) {
+  const typographyScope = useTypographyScope()
   const contentRef = useNativeNavigationOverlayRef(ref, isolateNativeNavigation, nativeLayer)
   return (
     <DialogPortal data-slot="dialog-portal">
@@ -84,7 +86,9 @@ function DialogContent({
       <DialogPrimitive.Content
         ref={contentRef}
         data-slot="dialog-content"
+        data-typography-scope={typographyScope}
         className={cn(
+          typographyScope,
           // Keyboard avoidance for this centered dialog is handled in globals.css
           // (`html.kb-open [data-slot="dialog-content"]`): max-h shrinks by
           // --kb-height and it shifts up by half of it, so it stays in the band

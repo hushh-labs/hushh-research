@@ -1,4 +1,4 @@
-import { TrendingUp } from "@/components/icons";
+import { RiaAgentIcon } from "@/components/icons/agents";
 import { advisorWorkspaceHref } from "@/lib/advisor-review/contract";
 import type { FeedItem } from "@/lib/services/feed-service";
 import type { FeedItemPresentation } from "./feed-item-renderers";
@@ -10,19 +10,22 @@ export function advisorReviewPresentation(
   if (
     !item.event_type.startsWith("advisor_review_") ||
     typeof id !== "string" ||
-    !/^[a-f0-9-]{36}$/i.test(id)
+    !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(id) ||
+    !["owner", "advisor"].includes(String(item.metadata.viewerRole))
   )
     return null;
   return {
-    icon: TrendingUp,
+    icon: RiaAgentIcon,
     domainLabel: "Finance",
-    label: "Advisor review",
-    description:
-      item.event_type === "advisor_review_requested"
-        ? "A Finance review and connection request is waiting. The snapshot is locked until acceptance."
-        : item.event_type === "advisor_review_accepted"
-          ? "Your advisor accepted. You’re connected and can arrange an introduction."
-          : "Your advisor review workspace has an update.",
+    label: item.event_type === "advisor_review_accepted"
+      ? "Advisor request accepted"
+      : item.event_type === "advisor_review_declined"
+        ? "Advisor request declined"
+        : item.event_type === "advisor_review_requested"
+          ? "Portfolio review requested"
+          : "Advisor request updated",
+    description: "",
+    exactDestination: "request",
     href: advisorWorkspaceHref(id, item.metadata.viewerRole === "advisor"),
   };
 }

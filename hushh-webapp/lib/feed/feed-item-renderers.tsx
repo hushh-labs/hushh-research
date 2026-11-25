@@ -1,3 +1,6 @@
+import { ROUTES } from "@/lib/navigation/routes";
+import { locationFeedPresentation } from "./location-feed-presentation";
+import { AGENT_OUTCOME_COPY } from "./feed-outcome-copy";
 import { directMessageFeedHref } from "./connection-feed-navigation";
 import type { ComponentType } from "react";
 import { advisorReviewPresentation } from "./advisor-review-presentation";
@@ -6,6 +9,7 @@ import { isCardRequestId, walletCardRequestHref } from "@/lib/wallet/card-reques
 import {
   AlertTriangle,
   Bot,
+  Banknote,
   Database,
   FileText,
   Mail,
@@ -26,7 +30,7 @@ import {
   joinInformationLabels,
   reasonMidSentence,
 } from "@/lib/consent/consent-owner-copy";
-import { documentShareNotificationSelection } from "@/lib/consent/document-share-consent";
+import { documentShareNotificationSelection, documentShareRequestId } from "@/lib/consent/document-share-consent";
 import { documentRequestEmptyOutcomeLabel, partialDocumentDeliveryState } from "@/lib/consent/document-request-delivery-state";
 import {
   formatPaymentMoney,
@@ -41,10 +45,11 @@ import {
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { formatLocationDurationLabel } from "@/lib/one-location/duration-copy";
 import { buildOneLocationWorkflowHref } from "@/lib/one-location/notifications";
-import { buildKaiMarketRoute, ROUTES } from "@/lib/navigation/routes";
+import { historicalFundingFeedHref, savedAnalysisFeedHref } from "@/lib/feed/source-routes";
 import {
   buildProfileConnectorsPaneHref,
   buildProfilePaneHref,
+  profileConnectorsLocation,
 } from "@/lib/navigation/profile-pane";
 import { circleChatHref } from "@/lib/circle-chat/routes";
 import { CONNECT_CIRCLES_LIST_HREF } from "@/lib/navigation/connect-routes";
@@ -52,10 +57,15 @@ import type { FeedItem, FeedSourceDomain } from "@/lib/services/feed-service";
 import { getAnalysisHistoryRunRouteId } from "@/lib/kai/analysis-route-intent";
 export type FeedItemPresentation = {
   icon: ComponentType<{ className?: string; color?: string }>;
+  /** Authoritative company ticker, never parsed from the displayed copy. */
+  symbol?: string;
   domainLabel: string;
   label: string;
   description: string;
   href: string | null;
+  /** Authored by a source-specific selector, never inferred from a URL. */
+  recovery?: { href: string; label: string };
+  exactDestination?: "request" | "report" | "transfer" | "followup" | "conversation" | "card" | "share" | "circle" | "check-in";
   person?: {
     personRef?: string | null;
     displayName: string;
@@ -81,30 +91,11 @@ const DOMAIN_LABEL: Record<FeedSourceDomain, string> = {
   kai: "Finance",
   kyc: "KYC",
   connected_systems: "Connected systems",
-  connections: "Connections",
+  connections: "Connect",
   profile_discovery: "Profile discovery",
   pwm: "Personal World Model",
   calendar_email_followup: "Follow-ups",
 };
-
-// Incoming history targets the received-share list without forcing a grant.
-// Created-share rows need no grant ID; expired/revoked access is resolved
-// by Shared with me rather than inferred from the historical notification.
-const SHARED_WITH_ME_HREF = buildOneLocationWorkflowHref({ section: "shared" });
-
-/**
- * True when this row is an emergency SOS rather than an ordinary share.
- *
- * The lane split is "sos" vs everything else, matching _is_sos_lane in
- * one_location_agent_service.py -- not one lane per share kind. Until
- * share_kind was added to the feed metadata allowlist this was unknowable
- * client-side, so an SOS narrated as "Shared location with you", then
- * "Stopped sharing location": an alert reading as routine activity on the
- * one screen someone scans to find out what needs them.
- */
-function isSosShare(metadata: Record<string, unknown>): boolean {
-  return metadataString(metadata, "share_kind").toLowerCase() === "sos";
-}
 
 function metadataString(
   metadata: Record<string, unknown>,
@@ -254,6 +245,42 @@ function driveFeedLine(
     default:
       return "";
   }
+}
+
+function documentActivitySummary(item: FeedItem): string {
+  const meta = item.metadata;
+  const recipient = meta.feed_audience === "recipient";
+  const count = Number(meta.current_delivery_confirmed_count);
+  const total = Number(meta.current_delivery_total_count);
+  const status = meta.current_request_status;
+  if (meta.current_access_stopped === true || item.event_type === "document_share_revoked") {
+    return recipient ? "Your file access ended" : "File access ended";
+  }
+  if (item.event_type === "document_share_payment_refunded" && recipient) {
+    const refund = Number(meta.current_refund_amount_cents);
+    return Number.isSafeInteger(refund) && refund > 0
+      ? `Refunded ${formatPaymentMoney(refund)}` : "Refund confirmed";
+  }
+  if (status === "declined") return recipient ? "Declined your request" : "Request declined";
+  if (status === "expired" || (meta.current_request_expired === true &&
+      ["pending", "preparing", "review_ready"].includes(String(status)))) return "Request expired";
+  if (status === "no_match" || status === "no_files_shared") return "No files shared";
+  if (Number.isSafeInteger(count) && count > 0) {
+    const files = `${count.toLocaleString()} ${count === 1 ? "file" : "files"}`;
+    const ready = status !== "completed" && recipient && Number.isSafeInteger(total) && total > count
+      ? `${count.toLocaleString()} of ${total.toLocaleString()} files ready`
+      : `${files} ready`;
+    return meta.current_existing_access_nocharge === true
+      ? `${ready} · ${recipient ? "No charge" : "No payment due"}` : ready;
+  }
+  if (meta.current_existing_access_nocharge === true) return recipient ? "Files ready · No charge" : "Files ready · No payment due";
+  if (status === "completed") return "Delivery complete";
+  if (recipient && meta.current_payment_status === "paid") {
+    const paid = Number(meta.current_payment_amount_cents);
+    return Number.isSafeInteger(paid) && paid > 0
+      ? `Paid ${formatPaymentMoney(paid)}` : "Payment confirmed";
+  }
+  return recipient ? "File request sent" : "Requested files";
 }
 
 function partialDriveOutcomeLine(metadata: Record<string, unknown>): string {
@@ -501,181 +528,6 @@ function consentRowLabels(metadata: Record<string, unknown>): string[] {
  * One line per event_type. Wording lives here, not in the backend row, so
  * copy iterates via a frontend deploy rather than a migration.
  */
-const AGENT_OUTCOME_COPY: Record<string, readonly [string, string, string]> = {
-  calendar_action_failed: [
-    "Calendar change needs review",
-    "Open Calendar to check the event before trying again.",
-    ROUTES.CALENDAR,
-  ],
-  mail_mailbox_archive: [
-    "Messages archived",
-    "Your approved mailbox change finished.",
-    ROUTES.GMAIL,
-  ],
-  mail_mailbox_trash: [
-    "Messages moved to trash",
-    "Your approved mailbox change finished.",
-    ROUTES.GMAIL,
-  ],
-  mail_mailbox_add_label: [
-    "Label added",
-    "Your approved mailbox change finished.",
-    ROUTES.GMAIL,
-  ],
-  mail_mailbox_remove_label: [
-    "Label removed",
-    "Your approved mailbox change finished.",
-    ROUTES.GMAIL,
-  ],
-  mail_mailbox_mark_read: [
-    "Messages marked as read",
-    "Your approved mailbox change finished.",
-    ROUTES.GMAIL,
-  ],
-  mail_mailbox_mark_unread: [
-    "Messages marked as unread",
-    "Your approved mailbox change finished.",
-    ROUTES.GMAIL,
-  ],
-  mail_mailbox_failed: [
-    "Mailbox change needs review",
-    "Check Mail before trying again; some changes may have finished.",
-    ROUTES.GMAIL,
-  ],
-  connected_systems_mutation_succeeded: [
-    "App change completed",
-    "Your approved change finished.",
-    ROUTES.CONNECTED_SYSTEMS,
-  ],
-  connected_systems_mutation_partial: [
-    "App change needs review",
-    "The full outcome of your approved change could not be confirmed. Check the app before trying again.",
-    ROUTES.CONNECTED_SYSTEMS,
-  ],
-  connected_systems_disconnected: [
-    "App disconnected",
-    "One no longer has access to this app.",
-    ROUTES.CONNECTED_SYSTEMS,
-  ],
-  drive_search_completed: [
-    "Drive search finished",
-    "Return to your chat to review the search.",
-    ROUTES.HOME,
-  ],
-  drive_search_limited: [
-    "Drive search reached a limit",
-    "Return to your chat to review the search limit.",
-    ROUTES.HOME,
-  ],
-  drive_search_failed: [
-    "Drive search needs another try",
-    "Return to your chat to review or retry the search.",
-    ROUTES.HOME,
-  ],
-  drive_search_stopped: [
-    "Drive search stopped",
-    "The search ended before completion.",
-    ROUTES.HOME,
-  ],
-  drive_share_succeeded: [
-    "Drive sharing completed",
-    "Your approved file share finished.",
-    ROUTES.HOME,
-  ],
-  drive_share_failed: [
-    "Drive sharing needs review",
-    "Check Drive sharing before trying again.",
-    ROUTES.HOME,
-  ],
-  drive_share_unconfirmed: [
-    "Drive sharing unconfirmed",
-    "Check Drive before trying again; sharing may have succeeded.",
-    ROUTES.HOME,
-  ],
-  drive_trash_succeeded: [
-    "Drive file moved to trash",
-    "Your approved file change finished.",
-    ROUTES.HOME,
-  ],
-  drive_trash_failed: [
-    "Drive file change needs review",
-    "Check Drive before trying again.",
-    ROUTES.HOME,
-  ],
-  drive_trash_unconfirmed: [
-    "Drive file change unconfirmed",
-    "Check Drive before trying again; the change may have succeeded.",
-    ROUTES.HOME,
-  ],
-  drive_bulk_received: [
-    "Drive files shared with you",
-    "Open Profile to review files shared with you.",
-    buildProfilePaneHref(ROUTES.ONE_HOME, null, {
-      panel: "my-data",
-      detail: null,
-    }),
-  ],
-  drive_bulk_completed: [
-    "Drive sharing finished",
-    "Your approved sharing finished for all selected recipients.",
-    ROUTES.HOME,
-  ],
-  drive_bulk_partial: [
-    "Drive sharing partly finished",
-    "Some sharing outcomes could not be confirmed. Return to your chat to review the outcome before trying again.",
-    ROUTES.HOME,
-  ],
-  drive_bulk_failed: [
-    "Drive sharing needs review",
-    "Sharing could not be confirmed. Return to your chat to review the outcome before trying again.",
-    ROUTES.HOME,
-  ],
-  drive_bulk_stopped: [
-    "Drive sharing stopped",
-    "In-flight changes have settled. Review which files were shared.",
-    ROUTES.HOME,
-  ],
-  kai_analysis_failed: [
-    "Analysis could not finish",
-    "Open Kai to start another analysis.",
-    buildKaiMarketRoute("analysis"),
-  ],
-  kai_analysis_canceled: [
-    "Analysis canceled",
-    "The analysis ended before completion.",
-    buildKaiMarketRoute("analysis"),
-  ],
-  kai_import_completed: [
-    "Statement parsing finished",
-    "Open Kai to check your current import.",
-    ROUTES.KAI_IMPORT,
-  ],
-  kai_import_failed: [
-    "Statement import could not finish",
-    "Open Kai to import the statement again.",
-    ROUTES.KAI_IMPORT,
-  ],
-  kai_import_canceled: [
-    "Statement import canceled",
-    "The import ended before completion.",
-    ROUTES.KAI_IMPORT,
-  ],
-  consent_denied: [
-    "Requested information declined",
-    "You declined requested information.",
-    buildConsentCenterHref("previous"),
-  ],
-  consent_cancelled: [
-    "Requested access withdrawn",
-    "Requested access to information was withdrawn.",
-    buildConsentCenterHref("previous"),
-  ],
-  consent_timed_out: [
-    "Requested access expired",
-    "An unanswered part of this request expired.",
-    buildConsentCenterHref("previous"),
-  ],
-};
 
 export function presentFeedItem(item: FeedItem): FeedItemPresentation {
   const advisorReview = advisorReviewPresentation(item); if (advisorReview) return advisorReview;
@@ -685,6 +537,27 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
   // "Someone" last). Used to turn vague, subjectless lines like "A live
   // location share was revoked" into explicit subject-action-object sentences.
   const who = resolveCounterpartName(item.metadata);
+  const location = locationFeedPresentation(item, { who, amount: metadataDurationLabel(item.metadata, "duration"),
+    requested: metadataDurationLabel(item.metadata, "requested_duration"), added: metadataDurationLabel(item.metadata, "added_duration") });
+  if (location) return location;
+  if (item.activity_group_id?.startsWith("document:")) {
+    const selection = documentShareRequestId(
+      `document_share_request:${metadataString(item.metadata, "request_id")}`,
+    );
+    return {
+      icon: FileText,
+      domainLabel: "Google Drive",
+      label: who !== "Someone" ? who : "Files",
+      person: counterpartPerson(item.metadata, who),
+      description: documentActivitySummary(item),
+      exactDestination: selection ? "request" : undefined,
+      href: selection ? buildConsentCenterHref("pending", {
+        requestId: `document_share_request:${selection}`,
+        ...(item.metadata.feed_audience === "recipient" ? { requestView: "sent" as const } : {}),
+        from: "/one/feed",
+      }) : null,
+    };
+  }
   // Whose side of the event this row is. A location share writes one row to
   // the person sharing and one to the person shared with (migration 152); only
   // the second carries this marker, and only the second reads as "someone did
@@ -727,6 +600,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         domainLabel: "Follow-ups",
         label: "Email follow-up reminder",
         description: "A request from your email needs attention.",
+        exactDestination: calendarFollowupHref(item.metadata.account_id, item.metadata.request_id) ? "followup" : undefined,
         href: calendarFollowupHref(item.metadata.account_id, item.metadata.request_id) || ROUTES.CALENDAR,
       };
     case "profile_discovery_queued":
@@ -734,13 +608,13 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     case "profile_discovery_scanning":
       return { icon, domainLabel: "Public profile", label: "Still building your profile", description: "Your public profile search is continuing in the background.", href: ROUTES.ONE_PROFILE_DISCOVERY };
     case "profile_discovery_needs_details":
-      return { icon, domainLabel: "Public profile", label: "One detail can improve your profile match", description: "Add an optional public profile link or work detail to continue.", href: ROUTES.ONE_PROFILE_DISCOVERY };
+      return { icon, domainLabel: "Public profile", label: "One detail can improve your profile match", description: "Add a profile detail", href: ROUTES.ONE_PROFILE_DISCOVERY };
     case "profile_discovery_ready":
-      return { icon, domainLabel: "Public profile", label: "Your profile is ready to review", description: "Review sources and choose what, if anything, belongs in your private knowledge model.", href: ROUTES.ONE_PROFILE_DISCOVERY };
+      return { icon, domainLabel: "Public profile", label: "Your profile is ready to review", description: "Choose what to keep", href: ROUTES.ONE_PROFILE_DISCOVERY };
     case "profile_discovery_failed":
-      return { icon, domainLabel: "Public profile", label: "Your profile search needs attention", description: "The one-time search could not finish. You can review the status and retry.", href: ROUTES.ONE_PROFILE_DISCOVERY };
+      return { icon, domainLabel: "Public profile", label: "Your profile search needs attention", description: "Review and retry", href: ROUTES.ONE_PROFILE_DISCOVERY };
     case "profile_discovery_claimed":
-      return { icon, domainLabel: "Public profile", label: "Your profile review is complete", description: "The one-time profile handoff is finished.", href: ROUTES.ONE_PROFILE_DISCOVERY };
+      return { icon, domainLabel: "Public profile", label: "Your profile review is complete", description: "", href: ROUTES.ONE_PROFILE_DISCOVERY };
     case "profile_discovery_cancelled":
       return { icon, domainLabel: "Public profile", label: "Your profile search was cancelled", description: "No further public profile discovery will run for this handoff.", href: null };
     case "pwm_research": {
@@ -779,6 +653,8 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
             : item.event_type === "connector_reconnect_required"
               ? "Reconnect this app to keep using it in One."
               : "Disconnected. One no longer has access.",
+        recovery: item.event_type === "connector_reconnect_required" ? { href: buildProfilePaneHref("/one/feed", null,
+          profileConnectorsLocation(metadataString(item.metadata, "connector_key").replace(/^external:/, ""))), label: "Reconnect" } : undefined,
         href: buildProfileConnectorsPaneHref(),
       };
     case "circle_invite_declined":
@@ -816,6 +692,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
           item.event_type === "drive_question_withdrawn"
             ? "The requester withdrew this question."
             : "The question could not finish. Review it before allowing another try.",
+        exactDestination: documentShareNotificationSelection({ type: "document_share_question", request_id: metadataString(item.metadata, "request_id") }) ? "request" : undefined,
         href: buildConsentCenterHref(
           item.event_type === "drive_question_withdrawn"
             ? "previous"
@@ -843,17 +720,17 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
           // The owner's row names the lane it belongs to, in the same words as
           // the profile CTA and the Consent Center row.
           "Request scope",
-          "Review the question and what it would use, then set a price.",
+          "Review the question; set a price",
         ],
         answer_request_payment_ready: [
           "Answer priced",
-          "They approved your question. Open it to check answer preparation.",
+          "Check answer preparation",
         ],
         answer_request_declined: [
           "Question declined",
-          "They declined this question. Anything paid is refunded in full.",
+          "Check payment details",
         ],
-        answer_delivered: ["Answer ready", "Open the answer they sent you."],
+        answer_delivered: ["Answer ready", ""],
       };
       const state = metadataString(item.metadata, "status");
       const terminal = [
@@ -879,6 +756,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         domainLabel,
         label,
         description,
+        exactDestination: answerRequestId ? "request" : undefined,
         href: buildConsentCenterHref(
           terminal || item.event_type === "answer_request_declined"
             ? "previous"
@@ -1115,326 +993,6 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         description: "It was idle for a while, so we powered it down. It wakes when you need it.",
         href: ROUTES.AGENT,
       };
-    // Location events use a person-first layout: the title is the counterparty's
-    // name (falling back to "Location" only when no name is resolvable), and the
-    // subtitle is the action. The name arrives via `counterpart_label` in the
-    // backend feed metadata (one_location_agent_service.py).
-    // The share lifecycle reaches the recipient through its own fan-out
-    // (migration 152), so these three also render from both sides.
-    case "location_share_created": {
-      const hasWho = who !== "Someone";
-      const shareAmount = metadataDurationLabel(item.metadata, "duration");
-      const isSos = isSosShare(item.metadata);
-      return {
-        icon,
-        domainLabel,
-        label: hasWho ? who : "Location",
-        person: counterpartPerson(item.metadata, who),
-        // For an approval-born share this is the requester's ONLY row (152
-        // writes it; 153 deliberately does not add a second for the approval),
-        // so it names the granted amount that the event metadata carries.
-        // "SMS", never "SOS". SMS is this product's own name -- Save my
-        // Soul -- not the phone carrier's. The service layer already says so
-        // ("the emergency (SMS / Save My Soul) lane"), the Circle that carries
-        // it is the "SMS Circle", and the notification list says "SMS sharing
-        // stopped with X". The Feed was the one surface calling it an SOS, so
-        // the same alert read as a different feature depending on where you
-        // saw it. The short form is also what keeps these lines on one row at
-        // phone width.
-        description: isSos
-          ? sharedWithMe
-            ? shareAmount
-              ? `SMS for ${shareAmount}`
-              : "Sent you an SMS"
-            : "You sent an SMS"
-          : sharedWithMe
-            ? shareAmount
-              ? `Shared location with you for ${shareAmount}`
-              : "Shared location with you"
-            : "You started sharing location",
-        href: sharedWithMe ? SHARED_WITH_ME_HREF : ROUTES.ONE_LOCATION,
-      };
-    }
-    case "location_share_revoked": {
-      const hasWho = who !== "Someone";
-      const ownerRevoked =
-        metadataString(item.metadata, "reason") === "owner_revoke";
-      return {
-        icon,
-        domainLabel,
-        label: hasWho ? who : "Location",
-        person: counterpartPerson(item.metadata, who),
-        // `reason` describes what the OWNER did, so on the recipient's row
-        // "owner_revoke" is still true and "You stopped sharing location"
-        // would be shown to the one person who did not stop anything.
-        // Audience decides the sentence; reason only refines the owner's.
-        description: isSosShare(item.metadata)
-          ? sharedWithMe
-            ? "SMS ended"
-            : "You ended your SMS"
-          : sharedWithMe
-            ? "Sharing stopped"
-            : ownerRevoked
-              ? "You stopped sharing"
-              : "Sharing stopped",
-        href: ROUTES.ONE_LOCATION,
-      };
-    }
-    // Being on someone's SMS Circle is the list that receives their Save my
-    // Soul alert, so it decides whether an emergency reaches you at all -- and
-    // it was the one relationship the product changed in silence. Both sides
-    // get a row: the owner sees what they changed, the contact learns what
-    // changed about them. The row's title is already the other person, so
-    // neither line needs to name a subject twice.
-    // "Did they actually look?" is the question a person asks after sharing,
-    // and until now the Feed could not answer it: `location_share_viewed` has
-    // been written on every envelope read since the feature shipped and was
-    // never projected. Only the owner gets this row -- "you viewed their
-    // location" is not news to the person who did the viewing -- and the
-    // projection collapses a whole afternoon of polling into one row per
-    // viewer per day, so watching a live share cannot bury everything else.
-    case "location_share_viewed": {
-      const hasWho = who !== "Someone";
-      return {
-        icon,
-        domainLabel,
-        label: hasWho ? who : "Location",
-        person: counterpartPerson(item.metadata, who),
-        description: "Saw your location",
-        href: ROUTES.ONE_LOCATION,
-      };
-    }
-    case "location_sms_contact_added": {
-      const hasWho = who !== "Someone";
-      return {
-        icon,
-        domainLabel,
-        label: hasWho ? who : "Location",
-        person: counterpartPerson(item.metadata, who),
-        description: sharedWithMe
-          ? "Added you to SMS Circle"
-          : "Added to your SMS Circle",
-        href: ROUTES.ONE_LOCATION,
-      };
-    }
-    case "location_sms_contact_removed": {
-      const hasWho = who !== "Someone";
-      return {
-        icon,
-        domainLabel,
-        label: hasWho ? who : "Location",
-        person: counterpartPerson(item.metadata, who),
-        description: sharedWithMe
-          ? "Removed you from SMS Circle"
-          : "Removed from your SMS",
-        href: ROUTES.ONE_LOCATION,
-      };
-    }
-    case "location_share_expired": {
-      const hasWho = who !== "Someone";
-      return {
-        icon,
-        domainLabel,
-        label: hasWho ? who : "Location",
-        person: counterpartPerson(item.metadata, who),
-        // No audience split: this line names no subject, and the row's title is
-        // already the other person, so it reads correctly from both sides.
-        // Both lines shortened to fit the row on one line at 375px. The
-        // description column is ~197px there, about 30 characters of 13px
-        // Inter, and "Sharing ended when time ran out" is 31 -- which is the
-        // "Stopped sharing - time ran..." QA photographed. Nothing is lost:
-        // the row's title is already the other person, so the sentence never
-        // needed to name a subject.
-        description: isSosShare(item.metadata)
-          ? "SMS ran out of time"
-          : "Ended when time ran out",
-        href: ROUTES.ONE_LOCATION,
-      };
-    }
-    // The three request lines carry the AMOUNT of time asked for and whether it
-    // was extra time on a share already running. A feed that says only
-    // "Requested your location" for a person asking to extend by three hours is
-    // reporting that something happened, not what.
-    //
-    // These rows now reach BOTH parties, so each one reads its own side:
-    // `viewer_role` says whether this copy belongs to the person whose location
-    // it is or to the person who asked for it. Rows written before that fan-out
-    // landed carry no role and keep the owner wording they were written for.
-    case "location_access_request": {
-      const hasWho = who !== "Someone";
-      const isExtension = metadataBool(item.metadata, "is_extension");
-      const amount = metadataDurationLabel(item.metadata, "requested_duration");
-      const asRequester = iAskedForThis;
-      const description = asRequester
-        ? isExtension
-          ? amount
-            ? `You asked for ${amount} more`
-            : "You asked for more location time"
-          : amount
-            ? `You asked to see location for ${amount}`
-            : "You asked to see location"
-        : isExtension
-          ? amount
-            ? `Asked for ${amount} more`
-            : "Asked for more location time"
-          : amount
-            ? `Requested your location for ${amount}`
-            : "Requested your location";
-      return {
-        icon,
-        domainLabel,
-        label: hasWho ? who : "Location",
-        person: counterpartPerson(item.metadata, who),
-        description,
-        href: buildOneLocationWorkflowHref({
-          requestId: metadataString(item.metadata, "request_id") || undefined,
-          section: asRequester ? "my_requests" : "approvals",
-        }),
-      };
-    }
-    case "location_access_approved": {
-      const hasWho = who !== "Someone";
-      const isExtension = metadataBool(item.metadata, "is_extension");
-      const amount = metadataDurationLabel(item.metadata, "duration");
-      // The word "more" needs the INCREMENT, not the new total. Approving
-      // "30 min more" on a two-hour share now leaves two and a half hours
-      // running (#6256), and `duration_hours` is that total -- rendering it
-      // here would report a thirty-minute top-up as "gave you 2 hours 30 min
-      // more". Rows written before the fix carry no `added_duration_hours`,
-      // and for those the total WAS what the approval granted, so the
-      // fallback keeps their line true rather than blanking it.
-      const addedAmount =
-        metadataDurationLabel(item.metadata, "added_duration") || amount;
-      // Approving an extension of a share that never ends adds nothing and
-      // takes nothing: the share stays open-ended. Without this branch the
-      // fallback above resolves `amount` to the phrase "as long as they need"
-      // and the row reads "You gave them as long as they need more" -- the
-      // exact sentence the push and the bell each grew a branch to stop
-      // saying.
-      const openEndedExtension =
-        isExtension && item.metadata.duration_mode === "until_stopped";
-      const asRequester = iAskedForThis;
-      const description = openEndedExtension
-        ? asRequester
-          ? "They are still sharing until they stop"
-          : "You are still sharing until you stop"
-        : asRequester
-          ? isExtension
-            ? addedAmount
-              ? `Gave you ${addedAmount} more`
-              : "Gave you more location time"
-            : amount
-              ? `Shared location with you for ${amount}`
-              : "Approved your location request"
-          : isExtension
-            ? addedAmount
-              ? `You gave them ${addedAmount} more`
-              : "You gave them more location time"
-            : amount
-              ? // Migration 151 stopped forwarding the approval-born
-                // location_share_created row, so this line is now the only report
-                // of that whole tap. It has to say the share STARTED, not just
-                // that a request was answered -- main's wording, carrying the
-                // amount this branch adds.
-                `You approved sharing for ${amount}`
-              : "You approved sharing";
-      return {
-        icon,
-        domainLabel,
-        label: hasWho ? who : "Location",
-        person: counterpartPerson(item.metadata, who),
-        description,
-        href: asRequester ? SHARED_WITH_ME_HREF : ROUTES.ONE_LOCATION,
-      };
-    }
-    case "location_access_denied": {
-      const hasWho = who !== "Someone";
-      const isExtension = metadataBool(item.metadata, "is_extension");
-      const asRequester = iAskedForThis;
-      const description = asRequester
-        ? isExtension
-          ? "Extra time declined"
-          : "Declined your location request"
-        : isExtension
-          ? "You declined the extra time"
-          : "You declined the location request";
-      return {
-        icon,
-        domainLabel,
-        label: hasWho ? who : "Location",
-        person: counterpartPerson(item.metadata, who),
-        description,
-        href: ROUTES.ONE_LOCATION,
-      };
-    }
-    case "location_share_shortened": {
-      const hasWho = who !== "Someone";
-      const ownerShortened =
-        metadataString(item.metadata, "reason") === "owner_shorten";
-      return {
-        icon,
-        domainLabel,
-        label: hasWho ? who : "Location",
-        person: counterpartPerson(item.metadata, who),
-        description: sharedWithMe
-          ? ownerShortened
-            ? "Shortened your location access"
-            : "You gave back your remaining time early"
-          : ownerShortened
-            ? "You shortened location access"
-            : "Gave back remaining time early",
-        href: sharedWithMe
-          ? SHARED_WITH_ME_HREF
-          : buildOneLocationWorkflowHref({
-              grantId: metadataString(item.metadata, "grant_id") || undefined,
-              section: "shared",
-            }),
-      };
-    }
-    case "location_share_duration_changed": {
-      const hasWho = who !== "Someone";
-      const direction = metadataString(item.metadata, "direction");
-      const description = sharedWithMe
-        ? direction === "until_stopped"
-          ? "Sharing until they stop"
-          : direction === "extended"
-            ? "Gave you more time"
-            : "Shortened your location access"
-        : direction === "until_stopped"
-          ? "You changed sharing to until you stop"
-          : direction === "extended"
-            ? "You gave them more time"
-            : "You shortened access";
-      return {
-        icon,
-        domainLabel,
-        label: hasWho ? who : "Location",
-        person: counterpartPerson(item.metadata, who),
-        description,
-        href: sharedWithMe
-          ? SHARED_WITH_ME_HREF
-          : buildOneLocationWorkflowHref({
-              grantId: metadataString(item.metadata, "grant_id") || undefined,
-              section: "shared",
-            }),
-      };
-    }
-    case "location_access_request_withdrawn": {
-      const hasWho = who !== "Someone";
-      return {
-        icon,
-        domainLabel,
-        label: hasWho ? who : "Location request",
-        person: counterpartPerson(item.metadata, who),
-        description: iAskedForThis
-          ? "You took back your location request"
-          : "Took back location request",
-        href: buildOneLocationWorkflowHref({
-          requestId: metadataString(item.metadata, "request_id") || undefined,
-          section: iAskedForThis ? "my_requests" : "approvals",
-        }),
-      };
-    }
     case "location_referral_invite": {
       const ownerLabel = metadataString(item.metadata, "owner_label");
       return {
@@ -1548,6 +1106,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
             : unread === 1
               ? "1 new message"
               : "Open your circle chat",
+        exactDestination: circleChatHref(metadataString(item.metadata, "circle_id")) ? "conversation" : undefined,
         href: circleChatHref(metadataString(item.metadata, "circle_id")),
       };
     }
@@ -1579,18 +1138,15 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       return {
         icon,
         domainLabel,
-        label: "Analysis ready",
-        description: ticker
-          ? `One finished analyzing ${ticker}.`
-          : "One finished an analysis.",
+        label: ticker ? `${ticker} analysis finished` : "Analysis finished",
+        symbol: ticker || undefined,
+        description: "",
         // Open this run's own saved result. `?ticker=` is the stock-preview
         // route: it opened the "Start debate" sheet instead of the result.
-        // Older items without a run id land on the analysis history.
+        exactDestination: runId ? "report" : undefined,
         href: runId
-          ? buildKaiMarketRoute("analysis", {
-              analysis_id: getAnalysisHistoryRunRouteId(runId),
-            })
-          : buildKaiMarketRoute("analysis"),
+          ? savedAnalysisFeedHref(getAnalysisHistoryRunRouteId(runId))
+          : null,
       };
     }
     case "funding_transfer_status": {
@@ -1599,23 +1155,25 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         item.metadata,
         "direction",
       ).toUpperCase();
-      const transferKind = direction === "OUTGOING" ? "withdrawal" : "deposit";
+      const transferKind = direction === "OUTGOING" ? "withdrawal"
+        : direction === "INCOMING" ? "deposit" : "transfer";
       const statusCopy =
         status === "completed"
           ? "completed"
           : status === "failed"
             ? "failed"
             : status === "returned"
-              ? "was returned"
-              : status === "canceled"
-                ? "was canceled"
-                : "was updated";
+              ? "returned"
+              : ["pending", "queued", "processing", "canceled"].includes(status)
+                ? status
+                : "updated";
       return {
-        icon,
+        icon: Banknote,
         domainLabel,
-        label: "Funding transfer",
-        description: `Your ${transferKind} ${statusCopy}`,
-        href: ROUTES.KAI_PORTFOLIO,
+        label: `${transferKind.charAt(0).toUpperCase()}${transferKind.slice(1)} ${statusCopy}`,
+        description: "",
+        exactDestination: item.metadata?.retained_funding_history === true ? "transfer" : undefined,
+        href: item.metadata?.retained_funding_history === true ? historicalFundingFeedHref(item.id) : null,
       };
     }
     case "kyc_status_changed": {
@@ -1677,7 +1235,8 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       return {
         icon: CalendarAgentIcon,
         domainLabel: "Calendar",
-        label: "Calendar needs reconnection",
+        label: "Reconnect Calendar",
+        recovery: { href: ROUTES.CALENDAR, label: "Reconnect" },
         description: "Reconnect Calendar to keep using it in One.",
         href: ROUTES.CALENDAR,
       };
@@ -1716,7 +1275,8 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       return {
         icon: Mail,
         domainLabel: "Mail",
-        label: "Mail connection needs attention",
+        label: "Reconnect Mail",
+        recovery: { href: ROUTES.GMAIL, label: "Reconnect" },
         description: "Open Mail to check your connection.",
         href: ROUTES.GMAIL,
       };
@@ -1775,7 +1335,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
               : "Message delivery unconfirmed",
         description:
           item.event_type === "mail_message_sent"
-            ? "Your approved message was sent."
+            ? ""
             : item.event_type === "mail_message_failed"
               ? "Open Mail to review what happened."
               : "Check Mail before trying again; delivery may have succeeded.",
@@ -1793,10 +1353,10 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         label: hasWho ? who : "Connection",
         person: counterpartPerson(item.metadata, who),
         description: !hasWho
-          ? "A connection was accepted."
+          ? "Connection accepted"
           : actorIsSelf
-            ? "You accepted the connection request"
-            : "Accepted your connection request",
+            ? "You accepted the request"
+            : "Accepted your request",
         href: ROUTES.CONNECT,
       };
     }
@@ -1809,10 +1369,10 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         label: hasWho ? who : "Connection",
         person: counterpartPerson(item.metadata, who),
         description: !hasWho
-          ? "A connection request was rejected."
+          ? "Request declined"
           : actorIsSelf
-            ? "You declined the connection request"
-            : "Declined your connection request",
+            ? "You declined the request"
+            : "Declined your request",
         href: ROUTES.CONNECT,
       };
     }
@@ -1825,9 +1385,9 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         label: hasWho ? who : "Connection",
         person: counterpartPerson(item.metadata, who),
         description: !hasWho
-          ? "A connection was removed."
+          ? "Connection removed"
           : actorIsSelf
-            ? "You removed the connection"
+            ? "You removed this connection"
             : "Removed your connection",
         href: ROUTES.CONNECT,
       };
@@ -1840,7 +1400,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         return { icon: ShieldCheck, domainLabel: "Wallet", label: `${who} requested a card`,
           person: counterpartPerson(item.metadata, who),
           description: status === "pending" ? "Choose card" : status === "fulfilled" ? "Card sent" : "View request",
-          href: walletCardRequestHref(cardRequest) };
+          exactDestination: "card", href: walletCardRequestHref(cardRequest) };
       }
       const cardGrant = metadataString(item.metadata, "wallet_card_grant_id");
       if (cardGrant && /^[a-f0-9-]{36}$/i.test(cardGrant)) {
@@ -1850,6 +1410,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
           label: `${who} shared their card with you`,
           person: counterpartPerson(item.metadata, who),
           description: "View card",
+          exactDestination: directMessageFeedHref(item.metadata) !== ROUTES.ONE_MESSAGES ? "conversation" : undefined,
           href: directMessageFeedHref(item.metadata),
         };
       }
@@ -1866,7 +1427,8 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
           unread > 1
             ? `${unread} new messages${preview ? ` · ${preview}` : ""}`
             : preview || "Sent you a message",
-        href: directMessageFeedHref(item.metadata),
+        exactDestination: directMessageFeedHref(item.metadata) !== ROUTES.ONE_MESSAGES ? "conversation" : undefined,
+          href: directMessageFeedHref(item.metadata),
       };
     }
     case "document_share_files_sent": {
@@ -1943,4 +1505,9 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         href: null,
       };
   }
+}
+
+/** Recorded steps never acquire the current operation's headline. */
+export function presentFeedMilestone(item: FeedItem): FeedItemPresentation {
+  return presentFeedItem({ ...item, activity_group_id: undefined });
 }

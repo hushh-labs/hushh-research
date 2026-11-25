@@ -13,6 +13,7 @@ import json
 import logging
 import re
 import secrets
+from collections.abc import Awaitable, Callable
 from datetime import UTC, date, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from html import unescape
@@ -213,6 +214,7 @@ class GoogleCalendarService:
         payload: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         required_scope: str | None = None,
+        before_write: Callable[[], Awaitable[None]] | None = None,
         expected_binding: tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
         # Include token refresh and grant checks in one wall-clock read budget.
@@ -231,6 +233,7 @@ class GoogleCalendarService:
                     headers=headers,
                     required_scope=required_scope,
                     expected_binding=expected_binding,
+                    **({"before_write": before_write} if before_write is not None else {}),
                 )
         except (TimeoutError, httpx.TimeoutException) as exc:
             raise GoogleConnectionError(
@@ -257,6 +260,7 @@ class GoogleCalendarService:
         headers: dict[str, str] | None,
         required_scope: str | None,
         expected_binding: tuple[str, ...] | None = None,
+        before_write: Callable[[], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         before = (
             await self.connections.read_grant_binding(user_id=user_id, service="calendar")
@@ -293,9 +297,13 @@ class GoogleCalendarService:
                 else "calendar_not_connected",
             )
         try:
-            token = await self.connections.access_token(
-                user_id=user_id, service="calendar", access_level=access
-            )
+            list_token = getattr(self.connections, "calendar_list_access_token", None)
+            if required_scope == CALENDAR_LIST_READ_SCOPE and callable(list_token):
+                token = await list_token(user_id=user_id)
+            else:
+                token = await self.connections.access_token(
+                    user_id=user_id, service="calendar", access_level=access
+                )
         except GoogleConnectionError as exc:
             reason = {
                 "google_not_connected": "calendar_not_connected",
@@ -335,6 +343,8 @@ class GoogleCalendarService:
         async with httpx.AsyncClient(timeout=timeout) as client:
             for attempt in range(2 if access == "read" else 1):
                 try:
+                    if before_write is not None:
+                        await before_write()
                     response = await self._provider_request(
                         client,
                         method=method,
@@ -672,6 +682,7 @@ class GoogleCalendarService:
                     "response_status": item.get("responseStatus"),
                     "display_name": item.get("displayName"),
                     "self": item.get("self") is True,
+                    "resource": item.get("resource") is True,
                     # A decline note is shown only to the person who wrote it and to
                     # the organiser it was written for; no other guest sees it.
                     "comment": (
@@ -950,7 +961,14 @@ class GoogleCalendarService:
             ),
         }
 
-    async def get_event(self, *, user_id: str, calendar_id: str, event_id: str) -> dict[str, Any]:
+    async def get_event(
+        self,
+        *,
+        user_id: str,
+        calendar_id: str,
+        event_id: str,
+        expected_binding: tuple[str, ...] | None = None,
+    ) -> dict[str, Any]:
         """Read an exact event; IDs come from a live list or owner-provided link."""
         if not calendar_id or len(calendar_id) > 1024 or not event_id or len(event_id) > 2048:
             raise GoogleConnectionError("Calendar event selection is invalid", status_code=422)
@@ -959,8 +977,9 @@ class GoogleCalendarService:
             method="GET",
             path=f"/calendars/{quote(calendar_id, safe='')}/events/{quote(event_id, safe='')}",
             access="read",
+            expected_binding=expected_binding,
         )
-        if not response.get("id"):
+        if response.get("id") != event_id:
             raise GoogleConnectionError("Calendar event is unavailable", status_code=502)
         return {
             "calendar_id": calendar_id,
@@ -1050,6 +1069,8 @@ class GoogleCalendarService:
         duration_minutes: int,
         limit: int = 3,
         calendar_ids: list[str] | None = None,
+        include_subscribed_calendars: bool = False,
+        expected_binding: tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
         """Return the earliest free slots of a requested duration.
 
@@ -1078,11 +1099,23 @@ class GoogleCalendarService:
                 "Choose between one and twenty Calendar openings", status_code=422
             )
 
+        if include_subscribed_calendars:
+            from hushh_mcp.services.calendar_schedule_service import CalendarScheduleService
+
+            return await CalendarScheduleService(calendar=self).openings_in_window(
+                user_id=user_id,
+                start_at=start_at,
+                end_at=end_at,
+                duration_minutes=duration,
+                limit=max_slots,
+                expected_binding=expected_binding,
+            )
         availability = await self.freebusy(
             user_id=user_id,
             start_at=start_at,
             end_at=end_at,
             calendar_ids=calendar_ids,
+            **({"expected_binding": expected_binding} if expected_binding is not None else {}),
         )
         range_start = datetime.fromisoformat(availability["time_min"].replace("Z", "+00:00"))
         range_end = datetime.fromisoformat(availability["time_max"].replace("Z", "+00:00"))
@@ -1091,30 +1124,20 @@ class GoogleCalendarService:
             range_start=range_start,
             range_end=range_end,
         )
-        minimum = timedelta(minutes=duration)
-        openings: list[dict[str, str]] = []
-        cursor = range_start
-        for busy_start, busy_end in [*busy, (range_end, range_end)]:
-            if busy_start - cursor >= minimum:
-                opening_end = cursor + minimum
-                openings.append(
-                    {
-                        "start_at": self._utc_iso(cursor),
-                        "end_at": self._utc_iso(opening_end),
-                        "available_until": self._utc_iso(busy_start),
-                    }
-                )
-                if len(openings) == max_slots:
-                    break
-            if busy_end > cursor:
-                cursor = busy_end
+        from hushh_mcp.services.calendar_opening_selection import opening_options
+        from hushh_mcp.services.calendar_schedule_service import CalendarScheduleService
 
         return {
             "time_min": availability["time_min"],
             "time_max": availability["time_max"],
             "time_zone": availability.get("time_zone"),
             "duration_minutes": duration,
-            "openings": openings,
+            "coverage_complete": True,
+            **opening_options(
+                CalendarScheduleService._free_gaps(range_start, range_end, busy),
+                duration,
+                max_slots,
+            ),
         }
 
     @classmethod
@@ -1212,6 +1235,7 @@ class GoogleCalendarService:
         end_at: str,
         exclude_event_id: str | None = None,
         expected_binding: tuple[str, ...] | None = None,
+        calendar_id: str = "primary",
     ) -> list[dict[str, Any]]:
         """Read the exact overlapping events used to warn the owner."""
         conflicts: list[dict[str, Any]] = []
@@ -1221,7 +1245,7 @@ class GoogleCalendarService:
             response = await self._request(
                 user_id=user_id,
                 method="GET",
-                path="/calendars/primary/events",
+                path=f"/calendars/{quote(calendar_id, safe='')}/events",
                 access="manage",
                 expected_binding=expected_binding,
                 params={
@@ -1292,8 +1316,26 @@ class GoogleCalendarService:
         action: Literal["create", "reschedule", "cancel"],
         payload: dict[str, Any],
         expected_binding: tuple[str, ...] | None = None,
+        contact_selection: tuple[list[str], tuple[str, ...]] | None = None,
+        mail_grant: tuple[str, str] | None = None,
+        linked_reply: dict[str, Any] | None = None,
+        chat_conversation_id: str | None = None,
     ) -> dict[str, Any]:
+        if action == "reschedule" and contact_selection is not None:
+            additions = payload.get("add_attendees", [])
+            if payload.get("attendees") is not None or not isinstance(additions, list):
+                raise proposal_options.invalid(
+                    "Add the selected contacts without replacing other guests."
+                )
+            payload = {**payload, "add_attendees": [*additions, *contact_selection[0]]}
         plan = self._validate_plan(action=action, payload=payload)
+        if (
+            action == "create"
+            and isinstance(chat_conversation_id, str)
+            and 1 <= len(chat_conversation_id) <= 256
+            and callable(getattr(self.proposals, "finish_confirmed_chat_booking", None))
+        ):
+            plan["chat_conversation_id"] = chat_conversation_id
         await self._purge_expired_proposals(user_id=user_id)
         # A create proposal previously needed no Google call, so a read-only
         # connection reached the confirmation screen and failed only after the
@@ -1316,9 +1358,38 @@ class GoogleCalendarService:
                 reason_code="calendar_connection_changed",
             )
         await self._check_read_binding(user_id, binding)
+        if action == "create" and mail_grant is not None:
+            plan["mail_attendee_grant"] = list(mail_grant)
+            self._check_mail_attendee_grant(user_id, plan)
+        if linked_reply is not None:
+            if (
+                action != "create"
+                or mail_grant is None
+                or not callable(getattr(self.proposals, "record_calendar_reply", None))
+            ):
+                raise GoogleConnectionError(
+                    "Prepare the linked reply in your private agent.",
+                    status_code=422,
+                    reason_code="calendar_linked_gmail_unavailable",
+                )
+            plan["linked_gmail_reply"] = linked_reply
+            await self._preflight_linked_reply(user_id, plan)
+        if action in {"create", "reschedule"} and contact_selection is not None:
+            emails, contact_binding = contact_selection
+            if action == "reschedule" and "attendees" in plan:
+                raise proposal_options.invalid(
+                    "Add the selected contacts without replacing other guests."
+                )
+            field = "attendees" if action == "create" else "add_attendees"
+            plan[field] = list(dict.fromkeys([*plan.get(field, []), *emails]))
+            if len(plan[field]) > 100:
+                raise GoogleConnectionError("Too many Calendar attendees", status_code=422)
+            plan["attendee_grant_binding"] = list(contact_binding)
+            self._check_attendee_grant(plan)
         await booking.prepare_proposal_account(self, user_id=user_id, plan=plan, binding=binding)
         expected_etag: str | None = None
         if action != "create":
+            await self._check_secondary_event_target(user_id, plan, binding)
             event = await self._request(
                 user_id=user_id,
                 method="GET",
@@ -1327,6 +1398,7 @@ class GoogleCalendarService:
                 expected_binding=binding,
             )
             booking.review_event(plan, event)
+            self._check_secondary_event_copy(plan, event)
             expected_etag = str(event.get("etag") or "") or None
             plan["current_event"] = self._event_summary(event)
             if action == "reschedule":
@@ -1347,19 +1419,22 @@ class GoogleCalendarService:
                 )
             )
         await booking.prepare_included_conflicts(
-            self,
-            user_id=user_id,
-            action=action,
-            plan=plan,
-            binding=binding,
+            self, user_id=user_id, action=action, plan=plan, binding=binding
         )
-        if action in {"create", "reschedule"} and plan.get("booking_source") != "board":
+        if (
+            action in {"create", "reschedule"}
+            and plan.get("booking_source") != "board"
+            and not plan.get("shared_opening_selection")
+        ):
             plan["conflicts"] = await booking.plan_conflicts(
                 self,
                 plan=plan,
                 user_id=user_id,
                 exclude_event_id=plan.get("event_id"),
                 expected_binding=binding,
+                **(
+                    {"calendar_id": plan["calendar_id"]} if plan["calendar_id"] != "primary" else {}
+                ),
             )
         if "included_conflicts" in plan:
             plan["primary_conflicts"] = plan["conflicts"]
@@ -1373,12 +1448,22 @@ class GoogleCalendarService:
                 )
             ]
             plan["conflicts"] = [*plan["conflicts"], *extra]
+        if plan.get("opening_selection") or plan.get("shared_opening_selection"):
+            await booking.check_opening(self, user_id=user_id, plan=plan, binding=binding)
+            if plan.get("conflicts"):
+                raise GoogleConnectionError(
+                    "This slot is no longer free. Check openings again.",
+                    status_code=409,
+                    reason_code="calendar_availability_changed",
+                )
         await self._check_read_binding(user_id, binding)
         plan = proposal_options.seal_review_plan(action=action, plan=plan)
         proposal_id, expires_at = await self.proposals.issue(
             user_id=user_id, action=action, plan=plan, expected_etag=expected_etag
         )
         await self._check_read_binding(user_id, binding)
+        self._check_attendee_grant(plan)
+        self._check_mail_attendee_grant(user_id, plan)
         return {
             "proposal_id": proposal_id,
             "action": action,
@@ -1389,6 +1474,44 @@ class GoogleCalendarService:
 
     def _validate_plan(self, *, action: str, payload: dict[str, Any]) -> dict[str, Any]:
         return booking.validate_plan(self, action=action, payload=payload)
+
+    async def _check_secondary_event_target(
+        self, user_id: str, plan: dict[str, Any], binding: tuple[str, ...] | None
+    ) -> None:
+        target = booking.target_fields(plan)["calendar_id"]
+        if target == "primary":
+            return
+        entry = await self._request(
+            user_id=user_id,
+            method="GET",
+            path=f"/users/me/calendarList/{quote(target, safe='')}",
+            access="read",
+            expected_binding=binding,
+            required_scope=CALENDAR_LIST_READ_SCOPE,
+        )
+        if entry.get("id") != target or entry.get("accessRole") not in {"owner", "writer"}:
+            raise GoogleConnectionError(
+                "The selected calendar no longer allows this change.",
+                status_code=409,
+                reason_code="calendar_destination_read_only",
+            )
+        label = entry.get("summaryOverride") or entry.get("summary")
+        plan["calendar_label"] = (
+            label.strip()[:256] if isinstance(label, str) and label.strip() else target
+        )
+
+    @staticmethod
+    def _check_secondary_event_copy(plan: dict[str, Any], event: dict[str, Any]) -> None:
+        if plan.get("calendar_id", "primary") != "primary" and (
+            event.get("locked")
+            or event.get("status") == "cancelled"
+            or _mapping(event.get("organizer")).get("self") is not True
+        ):
+            raise GoogleConnectionError(
+                "This calendar doesn't own an editable copy of the meeting.",
+                status_code=422,
+                reason_code="calendar_destination_read_only",
+            )
 
     def _stage_reschedule(self, plan: dict[str, Any], event: dict[str, Any]) -> None:
         """Record what the reviewed reschedule changes on the fetched event."""
@@ -1606,6 +1729,98 @@ class GoogleCalendarService:
             for left, right in busy
         ]
 
+    @staticmethod
+    async def _preflight_linked_reply(user_id: str, plan: dict[str, Any]) -> None:
+        from hushh_mcp.services.gmail_receipts_service import GmailApiError
+        from hushh_mcp.services.pod_gmail_mailbox import PodGmailMailboxActions
+
+        credential_id, account = plan["mail_attendee_grant"]
+        try:
+            await PodGmailMailboxActions(user_id).linked_calendar_token(
+                credential_id=credential_id, account=account
+            )
+        except GmailApiError:
+            raise GoogleConnectionError(
+                "Allow Gmail changes on your private agent before reviewing the meeting and reply.",
+                status_code=422,
+                reason_code="calendar_linked_gmail_unavailable",
+            ) from None
+
+    async def _complete_linked_reply(
+        self, *, user_id: str, proposal_id: str, event_id: str, plan: dict[str, Any]
+    ) -> dict[str, Any]:
+        from hushh_mcp.services.gmail_receipts_service import GmailApiError
+        from hushh_mcp.services.pod_gmail_mailbox import PodGmailMailboxActions
+
+        checkpoint = getattr(self.proposals, "record_calendar_reply", None)
+        reference = {"proposal_id": proposal_id, "owner_id": user_id, "event_id": event_id}
+        try:
+            if not callable(checkpoint) or not await checkpoint(**reference, gmail="dispatching"):
+                return {"status": "not_sent"}
+        except Exception:
+            logger.warning("calendar_linked_reply checkpoint=unavailable")
+            return {"status": "not_sent"}
+        credential_id, account = plan["mail_attendee_grant"]
+        message_id = None
+        try:
+            result = await PodGmailMailboxActions(user_id).send_linked_calendar_reply(
+                credential_id=credential_id, account=account, envelope=plan["linked_gmail_reply"]
+            )
+            gmail, message_id = "sent", result["message_id"]
+        except GmailApiError as exc:
+            gmail = "not_sent" if exc.status_code in {401, 403, 409, 422} else "outcome_unknown"
+        except Exception:
+            gmail = "outcome_unknown"
+        try:
+            if not await checkpoint(**reference, gmail=gmail, message_id=message_id):
+                logger.warning("calendar_linked_reply checkpoint=unavailable")
+        except Exception:
+            logger.warning("calendar_linked_reply checkpoint=unavailable")
+        return {"status": gmail, **({"message_id": message_id} if message_id else {})}
+
+    @staticmethod
+    def _check_mail_attendee_grant(user_id: str, plan: dict[str, Any]) -> None:
+        expected = plan.get("mail_attendee_grant")
+        if expected is None:
+            return
+        from hushh_mcp.services.gmail_metadata_reader import GmailMetadataError
+        from hushh_mcp.services.pod_gmail_local import current_calendar_mail_grant
+
+        try:
+            if current_calendar_mail_grant(user_id, *expected):
+                return
+        except (TypeError, GmailMetadataError):
+            pass
+        raise GoogleConnectionError(
+            "Gmail connection changed. Review the guest again.",
+            status_code=409,
+            reason_code="calendar_attendee_grant_changed",
+        )
+
+    @staticmethod
+    def _check_attendee_grant(plan: dict[str, Any]) -> None:
+        expected = plan.get("attendee_grant_binding")
+        if expected is None:
+            return
+        try:
+            from hushh_mcp.pod_connectors.google_people import (
+                ContactsUnavailable,
+                contacts_grant_binding,
+            )
+
+            try:
+                if contacts_grant_binding() == tuple(expected):
+                    return
+            except ContactsUnavailable:
+                pass
+        except ImportError:
+            pass
+        raise GoogleConnectionError(
+            "Google Contacts connection changed. Review the guest again.",
+            status_code=409,
+            reason_code="calendar_attendee_grant_changed",
+        )
+
     async def execute(
         self,
         *,
@@ -1613,6 +1828,7 @@ class GoogleCalendarService:
         proposal_id: str,
         account_id: str = "default",
         client_review_contract: int | None = None,
+        before_create: Callable[[], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         await self._purge_expired_proposals(user_id=user_id)
         proposal = await self.proposals.claim(user_id=user_id, proposal_id=proposal_id)
@@ -1623,6 +1839,7 @@ class GoogleCalendarService:
             )
         value_epoch = await capture_value_epoch(user_id)
         plan = proposal["plan"]
+        gmail_reply = None
         try:
             plan = proposal_options.open_review_plan(
                 action=proposal["action"], plan=plan, client_review_contract=client_review_contract
@@ -1673,10 +1890,20 @@ class GoogleCalendarService:
                     ),
                 )
             if action == "create":
+                if plan.get("opening_selection") or plan.get("shared_opening_selection"):
+                    await booking.check_opening(self, user_id=user_id, plan=plan, binding=binding)
+                if plan.get("linked_gmail_reply"):
+                    await self._preflight_linked_reply(user_id, plan)
                 response = await booking.execute_create(
-                    self, user_id=user_id, proposal_id=proposal_id, plan=plan, binding=binding
+                    self,
+                    user_id=user_id,
+                    proposal_id=proposal_id,
+                    plan=plan,
+                    binding=binding,
+                    before_write=before_create,
                 )
             else:
+                await self._check_secondary_event_target(user_id, plan, binding)
                 current = await self._request(
                     user_id=user_id,
                     method="GET",
@@ -1685,10 +1912,8 @@ class GoogleCalendarService:
                     expected_binding=binding,
                 )
                 booking.review_event(plan, current, execution=True)
-                if (
-                    proposal.get("expected_event_etag")
-                    and current.get("etag") != proposal["expected_event_etag"]
-                ):
+                self._check_secondary_event_copy(plan, current)
+                if current.get("etag") != proposal.get("expected_event_etag"):
                     raise GoogleConnectionError(
                         "Calendar event changed; review it again before confirming", status_code=409
                     )
@@ -1701,6 +1926,11 @@ class GoogleCalendarService:
                             user_id=user_id,
                             expected_binding=binding,
                             exclude_event_id=plan["event_id"],
+                            **(
+                                {"calendar_id": plan["calendar_id"]}
+                                if plan.get("calendar_id", "primary") != "primary"
+                                else {}
+                            ),
                         ),
                     )
                 headers = {"If-Match": str(current.get("etag") or "")}
@@ -1713,6 +1943,9 @@ class GoogleCalendarService:
                             status_code=409,
                         )
 
+                    async def check_guest_grant() -> None:
+                        self._check_attendee_grant(plan)
+
                     response = await self._request(
                         user_id=user_id,
                         method="PATCH",
@@ -1722,6 +1955,11 @@ class GoogleCalendarService:
                         params={"sendUpdates": "all" if plan["send_updates"] else "none"},
                         headers=headers,
                         payload=self._reschedule_patch(plan, current),
+                        **(
+                            {"before_write": check_guest_grant}
+                            if plan.get("attendee_grant_binding")
+                            else {}
+                        ),
                     )
                 else:
                     await self._request(
@@ -1740,7 +1978,15 @@ class GoogleCalendarService:
                     status_code=502,
                     reason_code="calendar_mutation_unconfirmed",
                 )
-            await self.proposals.finish(user_id=user_id, proposal_id=proposal_id, executed=True)
+            if action == "create" and plan.get("linked_gmail_reply"):
+                gmail_reply = await self._complete_linked_reply(
+                    user_id=user_id, proposal_id=proposal_id, event_id=response["id"], plan=plan
+                )
+            finish_chat = getattr(self.proposals, "finish_confirmed_chat_booking", None)
+            if action == "create" and plan.get("chat_conversation_id") and callable(finish_chat):
+                await finish_chat(proposal_id=proposal_id, event_id=response["id"])
+            else:
+                await self.proposals.finish(user_id=user_id, proposal_id=proposal_id, executed=True)
         except Exception:
             await self.proposals.finish(user_id=user_id, proposal_id=proposal_id, executed=False)
             raise
@@ -1760,6 +2006,7 @@ class GoogleCalendarService:
             "account_id": plan["account_id"],
             "calendar_id": plan["calendar_id"],
             "event": self._event_summary(response) if response.get("id") else response,
+            **({"gmail_reply": gmail_reply} if gmail_reply is not None else {}),
         }
 
     @staticmethod

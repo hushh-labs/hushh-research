@@ -29,7 +29,8 @@ export async function expectMarketMiniCharts(page: Page): Promise<void> {
     await expect(chart.locator("path.recharts-area-area")).toHaveAttribute("fill", /^url\(#index-/);
   }
   const ids = await page.locator("linearGradient[id^='index-']").evaluateAll(nodes => nodes.map(node => node.id));
-  expect(new Set(ids).size).toBe(4);
+  expect(ids).toHaveLength(8);
+  expect(new Set(ids).size).toBe(ids.length);
   // The chart root owns the direction; cached status never desaturates its series.
   expect(await page.locator("[data-index-chart-tone='positive']").count()).toBe(1);
   expect(await page.locator("[data-index-chart-tone='negative']").count()).toBe(3);
@@ -85,12 +86,13 @@ export function registerFinanceScreenChecks(
         expect(await overview.evaluate(el => getComputedStyle(el).getPropertyValue("--font-app-body").trim()))
           .toBe(await page.evaluate(() => getComputedStyle(document.body).getPropertyValue("--font-app-body").trim()));
         await expect(overview.getByText("$2,000.00", { exact: true })).toBeVisible();
-        await expect(overview.getByText("Dated balance history unavailable.")).toBeVisible();
-        await expect(overview.getByRole("img", { name: "Sample Company: 91.9% of portfolio" })).toBeVisible();
-        await expect(overview.getByText("Cash share").locator("..")).toContainText("8.1%");
+        const review = overview.getByTestId("portfolio-briefing");
+        await expect(review.getByText("Portfolio score").locator("..")).toContainText("72 / 100");
+        await expect(review.getByText("Separate the cash you’ll need from the cash you can invest.")).toBeVisible();
         const performance = overview.getByTestId("portfolio-performance");
         await expect(performance.getByText("$680.42", { exact: true })).toBeVisible();
-        await expect(performance.getByText("Investment return", { exact: true }).locator("..")).toContainText("Unavailable");
+        await expect(performance.getByText("Investment return", { exact: true })).toHaveCount(0);
+        await expect(performance.getByText("Unavailable", { exact: true })).toHaveCount(0);
         if (width >= 1024) {
           // The workspace should use the available content width rather than
           // introducing a second, narrower reading measure below the tabs.
@@ -113,7 +115,7 @@ export function registerFinanceScreenChecks(
               return card.getBoundingClientRect().bottom - button.getBoundingClientRect().bottom;
             });
           });
-          for (const inset of buttonInsets) expect(Math.abs(inset - 24)).toBeLessThanOrEqual(2);
+          for (const inset of buttonInsets) expect(Math.abs(inset - 16)).toBeLessThanOrEqual(2);
         }
         await overview.screenshot({ path: test.info().outputPath(`overview-${width}-${theme}.png`) });
         await overview.getByRole("button", { name: "Share portfolio PDF" }).click();
@@ -186,12 +188,13 @@ export function registerFinanceScreenChecks(
         await history.getByRole("button", { name: "Open TEST analysis" }).click();
         await expect(page.getByTestId("action-result")).toHaveText("Open saved");
         await history.getByRole("button", { name: "Versions for TEST" }).click();
-        await expect(page.getByTestId("action-result")).toHaveText("Open versions");
+        await page.getByRole("menuitem", { name: /Version 3/ }).click();
+        await expect(page.getByTestId("action-result")).toHaveText("Open saved");
         expect(await history.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
         await history.screenshot({ path: test.info().outputPath(`history-${width}-${theme}.png`) });
         const subpages = page.getByTestId("finance-subpages-fixture");
         await expect(subpages.getByText(/Full investment thesis remains readable/)).toBeVisible();
-        await expect(subpages.getByText(/Quote as of/)).toBeVisible();
+        await expect(subpages.locator('time[datetime="2026-10-20T20:00:00Z"]')).toBeVisible();
         await expect(subpages.getByText("Tier KING", { exact: true })).toBeVisible();
         await expect(subpages.getByRole("button", { name: "Start analysis debate" })).toBeVisible();
         expect(await subpages.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
@@ -203,6 +206,32 @@ export function registerFinanceScreenChecks(
 
 export function registerHoldingEntryChecks(mount: (page: Page, width?: number) => Promise<void>): void {
   for (const width of [393, 1440]) {
+    test("Import review shows four columns and opens the selected holding at " + width + "px", async ({ page }) => {
+      await mount(page, width);
+      const review = page.getByTestId("import-holdings-review-fixture");
+      const table = review.getByRole("table");
+      await expect(table.locator("thead th")).toHaveText(["Holdings", "Share Price", "Market Value", "Gain / Loss"]);
+      const row = table.getByRole("row").filter({ hasText: "VTI" });
+      await expect(row.getByRole("cell").nth(1)).toContainText("36 shares");
+      const trigger = row.getByRole("button", { name: "Manage entries for VTI" });
+      await expect(row.getByRole("cell").last().getByRole("button")).toBeVisible();
+      expect((await trigger.boundingBox())?.width).toBeGreaterThanOrEqual(44);
+      const { scrollWidth, clientWidth } = await table.evaluate((element) => {
+        const container = element.parentElement!;
+        return { scrollWidth: container.scrollWidth, clientWidth: container.clientWidth };
+      });
+      expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
+
+      await trigger.click();
+      const entries = page.getByRole("dialog", { name: "Manage entries" });
+      await expect(entries).toBeVisible();
+      await expect(entries.getByText("Vanguard Total Stock Market ETF · VTI")).toBeVisible();
+      await expect(entries.getByRole("button", { name: "Edit entry 1" })).toBeVisible();
+      await entries.getByRole("button", { name: "Done" }).click();
+      await expect(entries).not.toBeVisible();
+    });
+  }
+  for (const width of [393, 1440]) {
     for (const theme of ["light", "dark"]) {
       test(`Portfolio entries stay grouped through edit, add and removal at ${width}px ${theme}`, async ({ page }) => {
         await mount(page, width);
@@ -211,7 +240,7 @@ export function registerHoldingEntryChecks(mount: (page: Page, width?: number) =
         if (width < 768) await list.getByRole("button", { name: "View TEST entries" }).click();
         else {
           await expect(list.locator("tbody tr")).toHaveCount(1);
-          await list.getByRole("button", { name: "Manage entries", exact: true }).click();
+          await list.getByRole("button", { name: "Manage entries for TEST", exact: true }).click();
         }
         const detail = page.getByRole("dialog", { name: "TEST", exact: true });
         const entryList = detail.getByRole("region", { name: "Your entries" });
@@ -228,7 +257,7 @@ export function registerHoldingEntryChecks(mount: (page: Page, width?: number) =
         await editor.getByRole("button", { name: /save/i }).click();
         await expect(quantity).toBeFocused();
         await expect(quantity).toHaveAttribute("aria-invalid", "true");
-        await expect(quantity).toHaveAccessibleDescription("Enter a quantity other than 0.");
+        await expect(quantity).toHaveAccessibleDescription("Enter a quantity above 0.");
         expect(await quantity.evaluate(element => {
           const field = element.getBoundingClientRect();
           const viewport = element.closest(".overflow-y-auto")!.getBoundingClientRect();
@@ -293,7 +322,9 @@ export function registerStockQuoteRecoveryChecks(mount: (page: Page, width?: num
 
 export async function expectMarketLocalTimes(page: Page, localTime: string): Promise<void> {
   const movers = page.getByRole("region", { name: "Market movers", exact: true });
-  await expect(movers.locator("[data-market-mover-pair]")).toHaveCount(3);
+  for (const name of ["Gainers", "Losers"]) {
+    await expect(movers.getByRole("region", { name, exact: true }).getByRole("button")).toHaveCount(3);
+  }
   await expect(movers.getByRole("button")).toHaveCount(6);
   await expect(movers.locator("[data-market-mover-freshness]")).toContainText(localTime);
   await expect(page.locator("body")).not.toContainText(/\bcached\b/i);

@@ -57,8 +57,6 @@ export function FinanceShareEditor({
     setCustomValue,
     setCustomUnit,
     expiryAllowed,
-    allowModel,
-    setAllowModel,
   } = flow;
   const modeButtons = (
     <div className={styles.mode}>
@@ -271,14 +269,6 @@ export function FinanceShareEditor({
                 }
               />
               <span>Show dollar amounts</span>
-            </label>
-            <label className={styles.choice}>
-              <input
-                type="checkbox"
-                checked={allowModel}
-                onChange={(e) => setAllowModel(e.target.checked)}
-              />
-              <span>Allow their Agent One to review</span>
             </label>
           </div>
         </section>

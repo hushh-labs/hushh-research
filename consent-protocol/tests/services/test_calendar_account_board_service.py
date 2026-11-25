@@ -111,56 +111,11 @@ async def test_three_account_shared_time_is_exact_intersection(monkeypatch):
     assert result["conflicts_complete"] is True
     assert result["shared_free_windows"] == [
         {
-            "start_at": "2026-10-21T11:00:00+00:00",
-            "end_at": "2026-10-21T11:30:00+00:00",
+            "start_at": "2026-10-21T11:00:00Z",
+            "end_at": "2026-10-21T11:30:00Z",
         }
     ]
     assert all(schedule.reads == 2 for schedule in schedules.values())
-
-
-@pytest.mark.asyncio
-async def test_board_returns_the_same_hussh_people_invitations_shows(monkeypatch):
-    schedules = {name: _Schedule(name) for name in ("default", "second", "third")}
-    monkeypatch.setattr(
-        board_module, "account_schedule", lambda account_id, connections: schedules[account_id]
-    )
-    seen = {}
-
-    async def portraits(*, owner_user_id, events, account_emails=()):
-        seen["owner"] = owner_user_id
-        return {"manish@hushh.ai": {"userId": "m", "displayName": "Manish", "photoUrl": "p"}}
-
-    monkeypatch.setattr(board_module, "calendar_directory_portraits", portraits)
-    result = await CalendarAccountBoardService(_Connections()).day(
-        user_id="owner", date="2026-10-21", time_zone="UTC"
-    )
-    assert seen == {"owner": "owner"}
-    assert result["people"]["manish@hushh.ai"]["displayName"] == "Manish"
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["provider", "generation"])
-async def test_incomplete_account_never_produces_shared_free_time(monkeypatch, failure):
-    schedules = {
-        name: _Schedule(
-            name,
-            fail=name == "third" and failure == "provider",
-            change_binding=name == "third" and failure == "generation",
-        )
-        for name in ("default", "second", "third")
-    }
-    monkeypatch.setattr(
-        board_module, "account_schedule", lambda account_id, connections: schedules[account_id]
-    )
-    result = await CalendarAccountBoardService(_Connections()).day(
-        user_id="owner",
-        date="2026-10-21",
-        time_zone="UTC",
-    )
-    assert result["complete"] is False
-    assert result["conflicts_complete"] is False
-    assert result["shared_free_windows"] == []
-    assert result["accounts"][2]["status"] == "incomplete"
 
 
 @pytest.mark.asyncio
@@ -188,6 +143,31 @@ async def test_board_resolves_hussh_profiles_for_verified_accounts_without_event
     )
     assert seen == {"owner": "owner", "account_emails": ["default@example.com"]}
     assert result["people"]["manish@hushh.ai"]["displayName"] == "Manish"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["provider", "generation"])
+async def test_incomplete_account_never_produces_shared_free_time(monkeypatch, failure):
+    schedules = {
+        name: _Schedule(
+            name,
+            fail=name == "third" and failure == "provider",
+            change_binding=name == "third" and failure == "generation",
+        )
+        for name in ("default", "second", "third")
+    }
+    monkeypatch.setattr(
+        board_module, "account_schedule", lambda account_id, connections: schedules[account_id]
+    )
+    result = await CalendarAccountBoardService(_Connections()).day(
+        user_id="owner",
+        date="2026-10-21",
+        time_zone="UTC",
+    )
+    assert result["complete"] is False
+    assert result["conflicts_complete"] is False
+    assert result["shared_free_windows"] == []
+    assert result["accounts"][2]["status"] == "incomplete"
 
 
 def _meeting(

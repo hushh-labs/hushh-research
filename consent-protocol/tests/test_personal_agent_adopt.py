@@ -85,7 +85,18 @@ async def test_gcp_cloud_removal_preflight_uses_direct_erasure_backend_before_re
 
     backend = SimpleNamespace(
         backend_id="user_gcp",
-        provision_target_for=lambda _: {"service": "recorded-service"},
+        provision_target_for=lambda _spec: {
+            "project": "owner-project",
+            "service": "recorded-service",
+        },
+        observe_erasure_target=AsyncMock(
+            return_value={
+                "service": "recorded-service",
+                "serviceUid": "changed" if changed else "uid-1",
+                "revision": "revision-1",
+                "podUrl": "https://agent.example",
+            }
+        ),
         observe_erasure_runtime=AsyncMock(
             return_value={
                 "service": "recorded-service",
@@ -94,14 +105,6 @@ async def test_gcp_cloud_removal_preflight_uses_direct_erasure_backend_before_re
                 "podUrl": "https://agent.example",
                 "generation": 1,
                 "image": "registry.example/pod@sha256:" + "a" * 64,
-            }
-        ),
-        observe_erasure_target=AsyncMock(
-            return_value={
-                "service": "recorded-service",
-                "serviceUid": "changed" if changed else "uid-1",
-                "revision": "revision-1",
-                "podUrl": "https://agent.example",
             }
         ),
     )  # Intentionally has no Azure access-revocation protocol.
@@ -132,6 +135,7 @@ async def test_gcp_cloud_removal_preflight_uses_direct_erasure_backend_before_re
                 "evidence": {
                     "host_requested": {
                         "creationAcknowledgement": {
+                            "project": "owner-project",
                             "service": "recorded-service",
                             "serviceUid": "uid-1",
                             "initialGeneration": 1,

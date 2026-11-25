@@ -13,7 +13,17 @@ from unittest import mock
 maintenance = importlib.import_module("uat-retention-maintenance")
 
 
-class OneChatRetentionFixture:
+class OneChatRetentionTest(unittest.TestCase):
+    def test_retired_history_uses_repository_bound_numeric_identity(self):
+        endpoint = "workflows/deploy-uat-one-chat.yml/runs?per_page=100"
+        with mock.patch.object(maintenance, "command", return_value='{"workflow_runs": []}') as command:
+            self.assertEqual(maintenance.api("hushh-labs/hushh-research", endpoint), {"workflow_runs": []})
+            command.assert_called_once_with(
+                "gh", "api", "repos/hushh-labs/hushh-research/actions/workflows/382099846/runs?per_page=100")
+            with self.assertRaises(maintenance.retention.UnsafeState):
+                maintenance.api("other/repository", endpoint)
+            self.assertEqual(command.call_count, 1)
+
     def setUp(self) -> None:
         self.backend = "consent-protocol-02121-abc"
         self.old_backend = "consent-protocol-02118-yed"
@@ -79,7 +89,6 @@ class OneChatRetentionFixture:
                 )
                 return release
 
-class OneChatReceiptRetentionTest(OneChatRetentionFixture, unittest.TestCase):
     def test_replayed_release_composes_independent_backend_and_frontend_provenance(self):
         release = self.load(self.report)
         self.assertEqual(release["final"]["backend_revision"], self.backend)
@@ -144,66 +153,34 @@ class OneChatReceiptRetentionTest(OneChatRetentionFixture, unittest.TestCase):
                             with self.assertRaises(maintenance.retention.UnsafeState):
                                 self.load(report)
 
-class OneChatHistoryRetentionTest(OneChatRetentionFixture, unittest.TestCase):
-    def test_retired_history_uses_repository_bound_numeric_identity(self):
-        endpoint = "workflows/deploy-uat-one-chat.yml/runs?per_page=100"
-        with mock.patch.object(maintenance, "command", return_value='{"workflow_runs": []}') as command:
-            self.assertEqual(maintenance.api("hushh-labs/hushh-research", endpoint), {"workflow_runs": []})
-            command.assert_called_once_with(
-                "gh", "api", "repos/hushh-labs/hushh-research/actions/workflows/382099846/runs?per_page=100")
-            with self.assertRaises(maintenance.retention.UnsafeState):
-                maintenance.api("other/repository", endpoint)
-            self.assertEqual(command.call_count, 1)
-
-
-    def test_explicit_one_chat_source_loads_without_polling_retired_workflow_index(self):
+    def test_latest_one_chat_source_wins_over_older_standard_release(self):
         standard = {
             **self.run,
             "id": 200,
             "path": ".github/workflows/deploy-uat.yml",
         }
-        replayed = self.load(self.report)
 
         def api(_repo, endpoint):
             if "deploy-uat-one-chat.yml/runs?" in endpoint:
-                raise AssertionError("retired One-chat workflow index must not be polled during discovery")
-            if endpoint == "runs/300":
-                return self.run
+                return {"workflow_runs": [self.run]}
             if "deploy-uat.yml/runs?" in endpoint:
-                page = int(endpoint.rsplit("page=", 1)[1])
-                return {"workflow_runs": [standard] if page == 1 else []}
+                return {"workflow_runs": [standard]}
             raise AssertionError(endpoint)
 
         with (
             tempfile.TemporaryDirectory() as temporary,
             mock.patch.object(maintenance, "api", side_effect=api),
-            mock.patch.object(maintenance, "governed_dispatch", return_value=True),
-            mock.patch.object(maintenance, "load_one_chat_release", return_value=replayed),
-            mock.patch.object(
-                maintenance,
-                "load_release",
-                return_value={
-                    "status": "healthy",
-                    "final": {
-                        "backend_revision": self.backend,
-                        "frontend_revision": self.frontend,
-                    },
-                },
-            ),
+            mock.patch.object(maintenance, "load_one_chat_release", return_value=self.load(self.report)),
             mock.patch.object(
                 maintenance.retention,
                 "service_state",
                 side_effect=AssertionError("pre-auth source selection cannot access Cloud Run"),
             ),
         ):
-            explicit = maintenance.find_release(
-                "org/repo", "300", pathlib.Path(temporary), require_live=False
-            )
-            discovered = maintenance.find_release(
+            source = maintenance.find_release(
                 "org/repo", "", pathlib.Path(temporary), require_live=False
             )
-        self.assertEqual(explicit, (300, replayed))
-        self.assertEqual(discovered[0], 200)
+        self.assertEqual(source[0], 300)
 
     def test_automatic_uat_source_scan_reaches_live_run_past_first_page(self):
         standard_path = ".github/workflows/deploy-uat.yml"

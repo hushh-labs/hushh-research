@@ -89,7 +89,7 @@ import { VOICE_CONFIRM_DATA_KEY } from "@/lib/kai/actions/voice-action-card";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
 
-type Props = { personRef: string; initialProfile: PublicPersonProfile | null; embedded?: boolean; onNetworkReady?: () => void };
+type Props = { personRef: string; initialProfile: PublicPersonProfile | null; embedded?: boolean; calendarPresentation?: boolean; onNetworkReady?: () => void };
 
 function renderCategoryIcon(domain: string) {
   const { Icon, tone } = resolveScopePhosphorIcon({ domain });
@@ -225,7 +225,7 @@ export function PersonProfilePage(props: Props) {
   return <PersonProfileSession key={`${user?.uid ?? "signed-out"}:${getAuthSessionGeneration()}`} {...props} />;
 }
 
-function PersonProfileSession({ personRef, initialProfile, embedded = false, onNetworkReady }: Props) {
+function PersonProfileSession({ personRef, initialProfile, embedded = false, calendarPresentation = false, onNetworkReady }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, userId, loading: authLoading } = useAuth();
@@ -1079,7 +1079,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false, onN
         dataState: nativeTestDataState,
       }}
     >
-      <div className={cn(styles.page, embedded && "!pb-0")} data-native-route="native-route-person-profile">
+      <div className={cn(styles.page, embedded && "!pb-0")} data-calendar-profile={calendarPresentation || undefined} data-native-route="native-route-person-profile">
         <PersonProfileHero
           profile={profile}
           network={<PersonNetworkSummary personRef={resolvedPersonRef} onReady={markNetworkReady} />}

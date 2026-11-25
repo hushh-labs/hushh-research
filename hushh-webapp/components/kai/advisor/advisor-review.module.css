@@ -1,3 +1,9 @@
+.reviewSheet {
+  composes: app-type-compact from global;
+  font-size: var(--type-row-label-size);
+  line-height: var(--type-row-label-line);
+}
+
 .stack {
   font-size: var(--type-row-label-size, 14px);
   line-height: var(--type-row-label-line, 21px);
@@ -5,6 +11,16 @@
   flex-direction: column;
   gap: var(--space-4, 1rem);
   min-width: 0;
+}
+.discoveryAction.discoveryAction {
+  font-family: var(--font-app-body);
+  font-size: var(--type-row-label-size);
+  line-height: var(--type-row-label-line);
+  font-weight: var(--type-row-label-weight);
+}
+.discoveryAction[aria-pressed="true"] {
+  color: var(--app-accent);
+  background: var(--app-accent-tint);
 }
 /* Foundation headings are important rules in the base layer. Keep Finance's
    section roles in that same layer so the approved schema wins in portals. */
@@ -30,7 +46,7 @@
   min-width: 8rem;
 }
 .card {
-  padding: 1.25rem;
+  padding: 1rem;
   border: 1px solid var(--border);
   border-radius: 1.25rem;
   background: var(--card);
@@ -45,6 +61,36 @@
   display: flex;
   align-items: center;
   font-weight: 600;
+}
+.planCard {
+  display: grid;
+  gap: 0.75rem;
+}
+.planCard p {
+  margin: 0;
+}
+.planCard summary {
+  min-height: 2rem;
+}
+.planDetails {
+  display: grid;
+  gap: 0.25rem;
+}
+.planConsent {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+.planConsent input {
+  flex: none;
+  margin-top: 0.2rem;
+  accent-color: var(--app-accent);
+}
+.planActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
 }
 .person {
   display: grid;
@@ -80,9 +126,10 @@
 .scroll {
   max-height: 20rem;
   overflow: auto;
-  overscroll-behavior: contain;
 }
 .holding {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 3.5rem;
   display: flex;
   justify-content: space-between;
   gap: 1rem;
@@ -117,12 +164,6 @@
   color: var(--primary-foreground) !important;
   border-color: transparent !important;
 }
-.columns {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-  gap: 1.25rem;
-  align-items: start;
-}
 .field {
   display: flex;
   flex-direction: column;
@@ -149,17 +190,11 @@
   transition: width 0.2s ease;
 }
 @media (max-width: 700px) {
-  .columns {
-    grid-template-columns: minmax(0, 1fr);
-  }
   .person {
     grid-template-columns: minmax(0, 1fr);
   }
   .person button {
     justify-self: end;
-  }
-  .card {
-    padding: 1rem;
   }
   .row input {
     min-width: 0;
@@ -178,6 +213,22 @@
   margin-block: 1rem;
   align-items: start;
 }
+.personaSummary {
+  margin-block: 0.875rem;
+  padding: 0.75rem;
+  border-radius: 0.75rem;
+  background: var(--muted);
+}
+.personaSummary p {
+  margin-top: 0.25rem;
+}
+.quietAction {
+  min-height: 2.75rem;
+  color: var(--muted-foreground);
+  font-size: var(--type-row-description-size, 12px);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
 .reviewScore {
   display: grid;
   gap: 0.25rem;
@@ -188,7 +239,8 @@
   font-variant-numeric: tabular-nums;
 }
 .reviewScore strong {
-  font-size: 1.75rem;
+  font-size: var(--foundation-title3-size);
+  line-height: var(--foundation-title3-line);
   line-height: 1.15;
 }
 .reviewScore small {
@@ -204,3 +256,177 @@
     grid-template-columns: minmax(0, 1fr) auto;
   }
 }
+
+.meetingLayout {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: min(13rem, 50dvh);
+}
+
+.meetingContent {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+  padding-bottom: 0.75rem;
+}
+
+.meetingDock {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  flex: none;
+  gap: 0.5rem 0.75rem;
+  border-top: 1px solid var(--border);
+  padding-block: 0.75rem 0.25rem;
+}
+
+.meetingDockActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-inline-start: auto;
+}
+
+.calendarRow {
+  display: flex;
+  flex: 1 1 15rem;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.calendarBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.25rem 0.5rem;
+  font-size: var(--type-row-description-size, 12px);
+}
+
+.calendarBadge > span {
+  flex: none;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: #28784a;
+}
+
+:global(.dark) .calendarBadge > span {
+  background: #82b798;
+}
+.reviewNextStep {
+  border-radius: var(--app-card-radius-standard);
+  border: 1px solid color-mix(in srgb, var(--app-accent) 14%, var(--card));
+  background: color-mix(in srgb, var(--app-accent) 4%, var(--card));
+}
+.refinePersona {
+  color: var(--app-accent);
+  text-decoration: none;
+}
+
+.meetingConfirmed {
+  color: #28784a;
+  background: color-mix(in srgb, #28784a 10%, var(--card));
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+}
+:global(.dark) .meetingConfirmed {
+  color: #82b798;
+  background: color-mix(in srgb, #82b798 15%, var(--card));
+}
+
+.timeChoice {
+  border-radius: 0.75rem;
+  font-size: var(--type-row-description-size, 12px);
+  line-height: var(--type-row-description-line, 18px);
+}
+.timeChoice:hover {
+  background: var(--muted);
+}
+.timeChoice:has(:checked),
+.timeDone {
+  color: color-mix(in srgb, var(--app-accent) 85%, var(--foreground));
+  background: color-mix(in srgb, var(--app-accent) 10%, var(--card));
+  border-color: transparent;
+}
+.handshakeSheet.handshakeSheet {
+  width: min(100%, 728px);
+  margin-inline: auto;
+  max-height: calc(94dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px)) !important;
+}
+
+/* Keep the header, tabs and footer at a fixed position as panels slide. */
+.handshakeTabbedSheet.handshakeTabbedSheet {
+  height: min(620px, calc(94dvh - var(--kb-height, 0px) - var(--app-safe-area-top-effective, 0px)));
+}
+
+.handshakeTabbedBody {
+  display: flex;
+  flex-direction: column;
+}
+
+.handshakeTabLayout {
+  flex: 1;
+  min-height: min(10rem, 35dvh);
+}
+
+.handshakePager { flex: 1; }
+.handshakePager > div { height: 100%; }
+.handshakePager > div > [role="tabpanel"] {
+  overflow: hidden auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  padding-inline: 2px;
+}
+.handshakePager > div > [role="tabpanel"]:first-child {
+  scrollbar-gutter: auto;
+}
+
+@media (min-width: 640px) {
+  .handshakeSheet.handshakeSheet:has(> :global([data-slot="sheet-drag-handle"])) :global([data-slot="sheet-close"]) { top: 10px; }
+  .handshakeSheet.handshakeSheet:has(> :global([data-slot="sheet-drag-handle"])) :global([data-slot="sheet-header"]) { padding-top: 20px; }
+}
+
+.handshakeFooter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.handshakeForward { margin-inline-start: auto; }
+
+.handshakePrimary {
+  background: var(--app-accent) !important;
+  color: var(--app-accent-fg) !important;
+  border-color: transparent !important;
+}
+
+.handshakePrimary:hover { background: var(--app-accent-hover) !important; }
+
+.handshakeProgress {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.375rem;
+}
+
+.handshakeProgress > span {
+  height: 0.25rem;
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.handshakeProgress > [data-reached] { background: var(--app-secondary-label); }

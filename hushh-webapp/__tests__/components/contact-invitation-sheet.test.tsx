@@ -178,7 +178,7 @@ describe("contact invitation batches", () => {
     );
     await act(async () => complete("cancelled"));
     expect(
-      screen.getByText(/Cancelled. Your selection is saved/),
+      screen.getByText(/Cancelled. Your contacts are still selected/),
     ).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Back to review" }));
     expect(screen.getByText("15 selected contacts")).toBeVisible();

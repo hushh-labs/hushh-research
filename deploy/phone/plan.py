@@ -20,6 +20,11 @@ from emergency_admission import (
 from operational_reference import current as _operational
 from operational_reference import revalidate as _verify_operational
 from production_receipt import qualify_release
+from replacement_image import (
+    qualify_replacement_image,
+    recheck_main_source,
+    same_backend,
+)
 from revision_qualification import (
     PROJECT,
     REGION,
@@ -219,10 +224,17 @@ def prepare(args) -> dict:
     )
     if not _source_supported(args.primary_sha, emergency_sha=emergency_sha):
         raise ValueError("phone_rollback_primary_lacks_current_admission")
+    main_fallback = getattr(args, "fallback_qualification", "uat") == "main"
+    if main_fallback and (
+        args.fallback_sha == args.primary_sha
+        or not _source_supported(args.fallback_sha)
+        or not same_backend(args.fallback_sha, args.primary_sha)
+    ):
+        raise ValueError("phone_rollback_replacement_source_invalid")
     current = json.loads(args.current_json.read_text())
     labels = (current.get("metadata") or {}).get("labels") or {}
     # A cold rollback belongs to a failed run, never a healthy production receipt.
-    # An explicit source can restage only when no active qualified reference exists.
+    # An explicit source may replace an incompatible baseline after independent proof.
     restage = args.fallback_sha and labels.get("deploy-source") == (
         "deploy-production-phone-rollback"
     )
@@ -237,11 +249,29 @@ def prepare(args) -> dict:
         if chosen is None:
             chosen = _operational()
         if chosen is None:
-            chosen = _independent(
+            if main_fallback:
+                chosen = qualify_replacement_image(
+                    args.fallback_sha, args.release_tools, args.output.parent
+                )
+            else:
+                chosen = _independent(
+                    args.fallback_sha, args.release_tools, args.output.parent
+                )
+        elif args.fallback_sha:
+            if chosen["mode"] != "existing" or not main_fallback:
+                raise ValueError("phone_rollback_independent_source_unnecessary")
+            try:
+                qualify_consumers(chosen["source"], args.primary_sha)
+            except ValueError as error:
+                if str(error) != "phone_rollback_consumer_change_unqualified":
+                    raise
+            else:
+                raise ValueError("phone_rollback_independent_source_unnecessary")
+            replaced = {key: chosen[key] for key in ("source", "image", "revision")}
+            chosen = qualify_replacement_image(
                 args.fallback_sha, args.release_tools, args.output.parent
             )
-        elif args.fallback_sha:
-            raise ValueError("phone_rollback_independent_source_unnecessary")
+            chosen["replacement_of"] = replaced
     if chosen["mode"] == "operational" and not _source_supported(chosen["source"]):
         raise ValueError("phone_rollback_operational_source_lacks_current_admission")
     if (
@@ -300,6 +330,25 @@ def verify(args) -> dict:
         )
     ):
         raise ValueError("phone_rollback_preparation_evidence_mismatch")
+    if (plan.get("predecessor") or {}).get("kind") == "main-qualified-source":
+        if (
+            plan["mode"] != "cold"
+            or plan["source"] == args.primary_sha
+            or not same_backend(plan["source"], args.primary_sha)
+        ):
+            raise ValueError("phone_rollback_replacement_source_invalid")
+        recheck_main_source(
+            plan["source"], args.release_tools, args.output.parent, plan["predecessor"]
+        )
+        if plan.get("replacement_of") is not None:
+            replaced = plan["replacement_of"]
+            previous = _existing(
+                cloud_document("revisions", replaced["revision"]), args.output.parent
+            )
+            if previous is None or any(
+                previous[key] != replaced[key] for key in replaced
+            ):
+                raise ValueError("phone_rollback_replaced_revision_changed")
     if plan["mode"] == "operational":
         qualified = _verify_operational(plan)
     elif plan["mode"] == "cold":
@@ -340,6 +389,9 @@ def main() -> int:
     parser.add_argument("--github-output", type=Path, required=True)
     parser.add_argument("--current-json", type=Path)
     parser.add_argument("--fallback-sha", default="")
+    parser.add_argument(
+        "--fallback-qualification", choices=("uat", "main"), default="uat"
+    )
     parser.add_argument("--enable-recovery", choices=("true", "false"), default="false")
     parser.add_argument("--release-tools", type=Path)
     parser.add_argument("--plan", type=Path)

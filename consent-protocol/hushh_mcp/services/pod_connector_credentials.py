@@ -358,7 +358,9 @@ def connector_states() -> Optional[dict[str, str]]:
     }
 
 
-def connector_permissions(credential: Optional[ConnectorCredential]) -> dict[str, Any]:
+def connector_permissions(
+    credential: Optional[ConnectorCredential], *, connector_id: str | None = None
+) -> dict[str, Any]:
     """Owner-visible capabilities from the actual live grant, without exposing scopes."""
     from hushh_mcp.services.pod_connector_tokens import (  # noqa: PLC0415
         ConnectorTokenError,
@@ -378,6 +380,20 @@ def connector_permissions(credential: Optional[ConnectorCredential]) -> dict[str
                 continue
             capabilities[level] = True
     access_level = "manage" if capabilities["manage"] else "read" if capabilities["read"] else None
+    optional = {
+        "contacts": ("readOther", "read_other"),
+        "calendar": ("calendarList", "read_calendar_list"),
+    }
+    if connector_id in optional:
+        capability, level = optional[connector_id]
+        capabilities[capability] = False
+        if credential is not None and capabilities["read"]:
+            try:
+                required_scopes(connector_id, level, credential.granted_scopes)
+            except ConnectorTokenError:
+                pass
+            else:
+                capabilities[capability] = True
     return {"accessLevel": access_level, "capabilities": capabilities}
 
 

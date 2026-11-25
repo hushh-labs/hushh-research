@@ -17,6 +17,7 @@ const state = vi.hoisted(() => {
     tasks: [] as { runId: string; ticker: string; userId: string; status: string; startedAt: string }[],
     taskListeners: new Set<(value: { tasks: unknown[] }) => void>(),
     cancel: vi.fn(), setAnalysisParams: vi.fn(), setBusy: vi.fn(), context: vi.fn(), controllerMounts: 0, actions: new Map<string, () => unknown>(),
+    loadPreview: vi.fn(),
     analysisParams: null as Record<string, unknown> | null, analysisParamsUpdatedAt: 0,
     entry: { ticker: "TEST", timestamp: "2026-10-20T14:00:00Z", final_statement: "Saved result", raw_card: { debate_run_id: "run-1" } },
   };
@@ -57,11 +58,12 @@ vi.mock("@/lib/services/kai-history-service", () => ({
   getAnalysisHistoryEntryRouteId: () => "run:run-1",
 }));
 vi.mock("@/lib/kai/market-snapshot", () => ({
+  extractTickerMarketSnapshotFromKaiHome: () => null,
   getLatestMarketSnapshotFromCache: () => null, marketSnapshotForTicker: () => null,
   pickPreferredMarketSnapshot: () => null, fetchLatestMarketSnapshot: vi.fn().mockResolvedValue(null),
 }));
 vi.mock("@/lib/services/cache-service", () => ({ CacheService: { getInstance: () => ({ subscribe: () => () => undefined }) } }));
-vi.mock("@/lib/services/api-service", () => ({ ApiService: { getKaiStockPreview: vi.fn().mockResolvedValue({ symbol: "TEST" }) } }));
+vi.mock("@/lib/services/api-service", () => ({ ApiService: { getKaiStockPreview: state.loadPreview } }));
 vi.mock("@/lib/services/kai-service", () => ({ getStockContext: state.context }));
 vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({ usePublishVoiceSurfaceMetadata: vi.fn(), useVoiceSurfaceControlTracking: () => ({}) }));
 vi.mock("@/lib/agent/local-onboarding-actions", () => ({ useLocalOnboardingActionHandler: (id: string, handler: () => unknown) => { state.actions.set(id, handler); } }));
@@ -111,6 +113,7 @@ beforeEach(() => {
     state.analysisParamsUpdatedAt = value ? Date.now() : 0;
   });
   state.context.mockReset();
+  state.loadPreview.mockReset().mockResolvedValue({ symbol: "TEST" });
   state.controllerMounts = 0;
   state.actions.clear();
   state.navigate("/one/kai?tab=analysis");
@@ -152,6 +155,25 @@ describe("Finance shared Back with the mounted analysis page", () => {
     fireEvent.click(start);
     await waitFor(() => expect(state.setAnalysisParams).toHaveBeenCalledWith(expect.objectContaining({ ticker: "TEST", launchConfirmed: true })));
     expect(new URL(state.getHref(), "https://app.test").searchParams.get("focus")).toBe("active");
+  });
+
+  it("blocks confirmation while the current preview loads, even if an earlier request finishes", async () => {
+    let finishOld!: (value: { symbol: string }) => void;
+    let finishCurrent!: (value: { symbol: string }) => void;
+    state.loadPreview
+      .mockReturnValueOnce(new Promise(resolve => { finishOld = resolve; }))
+      .mockReturnValueOnce(new Promise(resolve => { finishCurrent = resolve; }));
+    state.navigate("/one/kai?tab=analysis&ticker=TEST");
+    render(<KaiAnalysisPageContent />);
+    const start = await screen.findByRole("button", { name: "Start analysis debate" });
+    act(() => state.navigate("/one/kai?tab=analysis&ticker=NEXT"));
+    expect(state.loadPreview.mock.calls[0][0].signal.aborted).toBe(true);
+    await act(async () => { finishOld({ symbol: "TEST" }); });
+    expect(start).toBeDisabled();
+    expect(state.actions.get("analysis.confirm_preview")?.()).toMatchObject({ status: "blocked" });
+    expect(state.context).not.toHaveBeenCalled();
+    await act(async () => { finishCurrent({ symbol: "NEXT" }); });
+    expect(start).toBeEnabled();
   });
 
   it.each(["back", "tab"])("ignores a pending preview launch after leaving by %s", async (leave) => {

@@ -1,12 +1,23 @@
-import { describe, expect, it } from "vitest";
+import { IDBFactory } from "fake-indexeddb";
+import { webcrypto } from "node:crypto";
+import { TextEncoder } from "node:util";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   compactAnalysisHistoryEntryForStorage,
   findAnalysisHistoryEntryByRouteId,
   getAnalysisHistoryEntryRouteId,
-  prependAnalysisHistoryEntry,
+  KaiHistoryService,
   type AnalysisHistoryEntry,
 } from "@/lib/services/kai-history-service";
+
+const pkm = vi.hoisted(() => ({ load: vi.fn(), write: vi.fn() }));
+vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
+  PersonalKnowledgeModelService: { loadDomainData: pkm.load },
+}));
+vi.mock("@/lib/services/pkm-write-coordinator", () => ({
+  PkmWriteCoordinator: { saveMergedDomain: pkm.write },
+}));
 
 function entry(
   overrides: Partial<AnalysisHistoryEntry> = {},
@@ -64,33 +75,32 @@ describe("analysis history route identity", () => {
   });
 });
 
-describe("analysis history retention", () => {
-  it("retains only the newest three analyses per ticker", () => {
-    const entries = Array.from({ length: 5 }, (_, index) =>
-      entry({
-        timestamp: `2026-08-${String(10 + index).padStart(2, "0")}T12:00:00.000Z`,
-        raw_card: { debate_run_id: `run-${index}` },
-      }),
-    ).reduce<AnalysisHistoryEntry[]>(
-      (history, next) => prependAnalysisHistoryEntry(history, next).entries,
-      [],
-    );
+it("reads legacy PKM history and keeps only the latest new result on this device without writing to PKM", async () => {
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  vi.stubGlobal("crypto", webcrypto);
+  // Web Crypto in Node expects buffer sources from its own realm.
+  const bytes = new TextEncoder().encode("");
+  vi.stubGlobal("Uint8Array", bytes.constructor);
+  vi.stubGlobal("ArrayBuffer", bytes.buffer.constructor);
+  try {
+    const owner = { userId: "finance-history-owner", vaultKey: "ab".repeat(32) };
+    const legacy = entry({ ticker: "MSFT", raw_card: { debate_run_id: "legacy" } });
+    pkm.load.mockResolvedValue({ analysis_history: { MSFT: [legacy] } });
+    const earlier = entry({ raw_card: { debate_run_id: "earlier" } });
+    const latest = entry({ timestamp: "2026-08-11T12:00:00.000Z", raw_card: { debate_run_id: "latest" } });
+    const save = (result: AnalysisHistoryEntry) => KaiHistoryService.saveAnalysis({ ...owner, entry: result, isCurrent: () => true });
 
-    expect(entries).toHaveLength(3);
-    expect(entries.map((item) => item.raw_card.debate_run_id)).toEqual([
-      "run-4",
-      "run-3",
-      "run-2",
-    ]);
-  });
-
-  it("treats an identical debate run as an idempotent no-op", () => {
-    const saved = entry({ raw_card: { debate_run_id: "run-1" } });
-    expect(prependAnalysisHistoryEntry([saved], saved)).toEqual({
-      entries: [saved],
-      changed: false,
-    });
-  });
+    await expect(save(earlier)).resolves.toBe(true);
+    await expect(save(latest)).resolves.toBe(true);
+    await expect(save(earlier)).resolves.toBe(true);
+    await expect(KaiHistoryService.getAllHistory(owner)).resolves.toEqual({ MSFT: [legacy], NVDA: [latest] });
+    await expect(KaiHistoryService.getAllHistory({ ...owner, vaultKey: "bc".repeat(32) })).resolves.toEqual({ MSFT: [legacy] });
+    await expect(KaiHistoryService.deleteEntry({ ...owner, ticker: "NVDA", timestamp: latest.timestamp, streamId: "latest" })).resolves.toBe(true);
+    await expect(KaiHistoryService.getAllHistory(owner)).resolves.toEqual({ MSFT: [legacy] });
+    expect(pkm.write).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 describe("analysis history storage shape", () => {

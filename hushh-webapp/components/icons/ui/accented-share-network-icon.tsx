@@ -7,11 +7,13 @@ import type { CanonicalIconProps } from "../legacy-ui-icons";
 type AccentedShareNetworkIconProps = CanonicalIconProps & {
   /** Solid accent actions need a contrasting glyph rather than an invisible blue source. */
   onAccent?: boolean;
+  /** Use the enclosing control's foreground for the entire glyph. */
+  inheritColor?: boolean;
 };
 
 /** Keep the official ShareNetwork geometry with a legible source node. */
 export const AccentedShareNetworkIcon = forwardRef<SVGSVGElement, AccentedShareNetworkIconProps>(function AccentedShareNetworkIcon(
-  { className, style, onAccent = false, weight = "regular", strokeWidth: _strokeWidth, absoluteStrokeWidth: _absoluteStrokeWidth, ...props },
+  { className, style, onAccent = false, inheritColor = false, weight = "regular", strokeWidth: _strokeWidth, absoluteStrokeWidth: _absoluteStrokeWidth, ...props },
   ref,
 ) {
   const toneId = useId();
@@ -25,15 +27,15 @@ export const AccentedShareNetworkIcon = forwardRef<SVGSVGElement, AccentedShareN
       weight={weight === "duotone" ? "regular" : weight}
       data-canonical-icon="true"
       className={className}
-      style={{ ...style, color: ink }}
-      fill={`url(#${toneId})`}
+      style={inheritColor ? style : { ...style, color: ink }}
+      fill={inheritColor ? "currentColor" : `url(#${toneId})`}
     >
-      <defs>
+      {inheritColor ? null : <defs>
         <pattern id={toneId} patternUnits="userSpaceOnUse" width="256" height="256">
           <rect width="256" height="256" fill="currentColor" />
           <circle className="profile-pane-icon-accent profile-pane-icon-accent-fill" cx="64" cy="128" r="36" fill={source} />
         </pattern>
-      </defs>
+      </defs>}
     </ShareNetwork>
   );
 });

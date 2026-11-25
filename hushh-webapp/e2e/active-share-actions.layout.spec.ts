@@ -224,6 +224,12 @@ test.describe("production Manage sharing comparison and Now banner", () => {
       const mode = await page.getByTestId("one-location-share-comparison").getAttribute("data-share-layout");
       if (mode === "comparison") {
         expect(right!.x).toBeGreaterThanOrEqual(left!.x + left!.width);
+        const headings = await page.getByTestId("one-location-share-comparison-headings").locator("span").all();
+        const locationHeading = await headings[1]!.boundingBox();
+        const smsHeading = await headings[2]!.boundingBox();
+        expect(Math.abs(locationHeading!.x - left!.x)).toBeLessThanOrEqual(1);
+        expect(Math.abs(smsHeading!.x - right!.x)).toBeLessThanOrEqual(1);
+        await expect(page.getByText("No active share").first()).toBeVisible();
       } else {
         expect(right!.y).toBeGreaterThanOrEqual(left!.y + left!.height);
         await expect(page.getByTestId("one-location-ordinary-shares").getByTestId("one-location-share-lane")).toHaveCount(3);

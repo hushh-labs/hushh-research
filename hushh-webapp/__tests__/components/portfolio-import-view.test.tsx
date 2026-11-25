@@ -63,6 +63,18 @@ describe("PortfolioImportView", () => {
     expect(onSkip).toHaveBeenCalledOnce();
   });
 
+  it("allows another statement only after the pending import finishes", () => {
+    const props = { onFileSelect: vi.fn(), onSkip: vi.fn() };
+    const { rerender } = render(<PortfolioImportView {...props} isUploading />);
+
+    expect(screen.getByRole("button", { name: /importing statement/i })).toBeDisabled();
+    expect(screen.getByLabelText("Choose a PDF or CSV brokerage statement")).toBeDisabled();
+
+    rerender(<PortfolioImportView {...props} />);
+    expect(screen.getByRole("button", { name: /upload a statement/i })).toBeEnabled();
+    expect(screen.getByLabelText("Choose a PDF or CSV brokerage statement")).toBeEnabled();
+  });
+
   it("leaves setup routes with one route-owned deferral action", () => {
     render(
       <PortfolioImportView
@@ -77,18 +89,14 @@ describe("PortfolioImportView", () => {
     ).toBeNull();
   });
 
-  it("selects a setup source without launching it until the primary action", () => {
+  it("starts a setup source as soon as its card is tapped", () => {
     const connect = vi.fn();
     const sample = vi.fn();
     render(<PortfolioImportView presentation="onboarding" onFileSelect={vi.fn()}
       onSkip={vi.fn()} onConnectPlaid={connect} onPreloadSchema={sample} plaidLocalDualEnvironmentEnabled />);
     fireEvent.click(screen.getByRole("button", { name: /Try a sample/ }));
-    expect(sample).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Load sample" }));
     expect(sample).toHaveBeenCalledOnce();
-    fireEvent.click(screen.getByRole("button", { name: /Recommended Connect an account/ }));
-    expect(connect).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Connect account", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: /Connect your Plaid account/ }));
     expect(connect).toHaveBeenCalledWith("sandbox");
   });
 
@@ -98,13 +106,14 @@ describe("PortfolioImportView", () => {
     const file = vi.fn();
     const { rerender } = render(<PortfolioImportView presentation="onboarding" onFileSelect={file}
       onSkip={skip} onConnectPlaid={connect} isConnectingPlaid />);
-    fireEvent.click(screen.getByRole("button", { name: "Opening Plaid…" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Opening Plaid…");
+    fireEvent.click(screen.getByRole("button", { name: /Connect your Plaid account/ }));
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
     expect(connect).not.toHaveBeenCalled();
     expect(skip).not.toHaveBeenCalled();
     rerender(<PortfolioImportView presentation="onboarding" onFileSelect={file}
       onSkip={skip} plaidConfigured={false} />);
-    expect(screen.getByRole("button", { name: "Choose statement" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Upload a statement/ })).toBeEnabled();
     fireEvent.change(screen.getByLabelText("Choose a PDF or CSV brokerage statement"), {
       target: { files: [new File(["bad"], "not-a-statement.txt", { type: "text/plain" })] },
     });

@@ -10,7 +10,7 @@ import re
 import uuid
 from typing import Any, cast
 
-from ag_ui.core import RunAgentInput
+from ag_ui.core import RunAgentInput, Tool
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
@@ -54,6 +54,7 @@ from hushh_mcp.one_adk.consent_continuation import (
     continued_outcomes,
 )
 from hushh_mcp.one_adk.conversation_titles import ensure_conversation_titles
+from hushh_mcp.one_adk.email_memory_turn import admit_email_memory
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
 from hushh_mcp.one_adk.external_read_boundary import (
     STATE_EXECUTION_SURFACE,
@@ -138,6 +139,12 @@ from hushh_mcp.one_adk.plaid_turn_admission import (
     admit_plaid_continuation,
     admit_plaid_posture,
     admit_plaid_tool,
+)
+from hushh_mcp.one_adk.portfolio_context_contract import (
+    PORTFOLIO_CONTEXT_DESCRIPTION,
+    PORTFOLIO_CONTEXT_PARAMETERS,
+    PORTFOLIO_CONTEXT_TOOL,
+    STATE_PORTFOLIO_CONTEXT_ENABLED,
 )
 from hushh_mcp.one_adk.queued_input import QueuedInputError
 from hushh_mcp.one_adk.queued_input import registry as queued_input_registry
@@ -382,16 +389,10 @@ def _selected_share_authorized(input_data: RunAgentInput) -> bool:
     )
 
 
-async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[str, Any]:
-    from time import time
-
-    turn_started_at = time()
-    if any(message.role == "system" for message in input_data.messages):
-        raise HTTPException(400, detail={"code": "AGENT_SYSTEM_MESSAGE_REFUSED"})
-    from hushh_mcp.one_adk.receipt_client_tools import (
-        STATE_RECEIPT_RESULT,
-    )
-
+async def _resolve_turn_credentials(
+    request: Request,
+) -> tuple[str | None, str | None, dict[str, Any] | None, str]:
+    """Resolve the existing chat credentials and refuse mixed owners."""
     authorization = request.headers.get("authorization")
     consent_header = request.headers.get("x-hushh-consent")
     token: dict[str, Any] | None = None
@@ -415,6 +416,20 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         firebase_uid = await run_in_threadpool(verify_firebase_bearer, authorization)
         if token is not None and firebase_uid != token["user_id"]:
             raise HTTPException(status_code=403, detail="Credential owner mismatch")
+    return authorization, consent_header, token, firebase_uid
+
+
+async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[str, Any]:
+    from time import time
+
+    turn_started_at = time()
+    if any(message.role == "system" for message in input_data.messages):
+        raise HTTPException(400, detail={"code": "AGENT_SYSTEM_MESSAGE_REFUSED"})
+    from hushh_mcp.one_adk.receipt_client_tools import (
+        STATE_RECEIPT_RESULT,
+    )
+
+    authorization, consent_header, token, firebase_uid = await _resolve_turn_credentials(request)
     owner_id = (token or {}).get("user_id") or firebase_uid  # Firebase-only is still an owner.
     await admit_hub_content(owner_id, "agent_chat", resolve_mode=get_owner_hosting_mode)
     forwarded = input_data.forwarded_props if isinstance(input_data.forwarded_props, dict) else {}
@@ -457,6 +472,18 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
                     "code": "CHAT_CONVERSATION_RETIRED",
                 },
             )
+    portfolio_contract = forwarded.pop("portfolioContextContract", None)
+    portfolio_enabled = bool(
+        token and user_id and type(portfolio_contract) is int and portfolio_contract == 1
+    )
+    if portfolio_enabled:
+        input_data.tools.append(
+            Tool(
+                name=PORTFOLIO_CONTEXT_TOOL,
+                description=PORTFOLIO_CONTEXT_DESCRIPTION,
+                parameters=PORTFOLIO_CONTEXT_PARAMETERS,
+            )
+        )
     drive_search_selection = await _admit_drive_search_selection(
         forwarded.get("driveSearchSelection"),
         request=request,
@@ -594,11 +621,16 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     raw_pkm_context = str(forwarded.pop("pkmContext", None) or "")
     if len(raw_pkm_context) > 128_000:
         raise HTTPException(413, detail="Private memory context exceeds the request budget")
+    try:
+        email_memory = admit_email_memory(
+            forwarded, user_id=user_id, admitted=bool(token and user_id)
+        )
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Email memory context is invalid.") from None
     # The owner's saved receipt index, decrypted on their device for this turn.
     # Only an unlocked owner turn keeps it; it never becomes conversation state.
     # Old clients may send it; never admit detailed PKM rows into a new turn.
     forwarded.pop("receiptMemory", None)
-    receipt_memory = ""
     # The owner's Settings style choices, sent apart from the memory packet.
     # Closed schema: anything outside it refuses the turn instead of clipping.
     try:
@@ -612,8 +644,6 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         turn_location = ""
         consume_request_secret(pending_email_draft)
         pending_email_draft = ""
-        consume_request_secret(receipt_memory)
-        receipt_memory = ""
         consume_request_secret(wiki_hot_digest)
         wiki_hot_digest = ""
         wiki_client_ready = False
@@ -627,6 +657,8 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_EXECUTION_SURFACE: "typed_chat",
         "temp:one_calendar_review_contract": type(forwarded.get("calendarReviewContract")) is int
         and forwarded.get("calendarReviewContract") == 1,
+        "temp:one_email_review_contract": type(forwarded.get("emailAgentContract")) is int
+        and forwarded.get("emailAgentContract") == 1,
         "temp:hussh:turn_started_at": turn_started_at,
         STATE_TURN_LOCATION: turn_location,
         STATE_MCP_CONFIGURATION: mcp_configuration,
@@ -645,6 +677,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         # Only a draft-contract-2 app fills the card from the result's envelope; older
         # installed apps show the call's own To, Cc and Bcc (mail_instruction.py).
         "temp:hussh:email_draft_envelope": forwarded.get("emailDraftContract") == 2,
+        "temp:hussh:email_read_coverage": forwarded.get("emailReadReceiptContract") == 2,
         # Typed chat carries the current screen snapshot in this request. It
         # must not inherit a stale live-voice publication that is still marked
         # as settling; that would suppress the consent confirmation card even
@@ -658,7 +691,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_PKM_CONTEXT: store_request_secret(raw_pkm_context, preserve_whitespace=True)
         if token
         else "",
+        **email_memory,
         STATE_NWS_REPORT: admit_nws_report(forwarded, owner_admitted=bool(token and user_id)),
+        STATE_PORTFOLIO_CONTEXT_ENABLED: portfolio_enabled,
         STATE_OWNER_STYLE: owner_style,
         STATE_OWNER_DISPLAY_NAME: store_request_secret(owner_display_name),
         STATE_GMAIL_INFORMATION_REQUEST_WORKFLOW_ID: workflow_id,
@@ -670,7 +705,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         **consent_continuation,
         **feed_attention,
         STATE_PENDING_EMAIL_DRAFT: pending_email_draft,
-        STATE_RECEIPT_MEMORY: receipt_memory,
+        STATE_RECEIPT_MEMORY: "",
         STATE_RECEIPT_RESULT: receipt_result,
         STATE_WIKI_HOT_DIGEST: wiki_hot_digest,
         STATE_WIKI_CLIENT_READY: wiki_client_ready,

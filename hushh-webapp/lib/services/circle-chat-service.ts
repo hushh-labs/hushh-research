@@ -8,13 +8,14 @@ import type { OneLocationMyRecipientKey } from "@/lib/one-location/types";
 import { sealNotificationPreview, type NotificationDevice } from "@/lib/notifications/chat-preview";
 import { openChatContent, openChatImage, sealChatMessage, sealChatMutation, type ChatContent, type ChatImageThumbnail, type ChatMemberKey, type ChatMessage, type SealedChatMessage } from "@/lib/circle-chat/crypto";
 
-export type CircleChatState = { members: ChatMemberKey[]; rosterVersion: string; membershipJoinedAt?: string; unreadCount: number; latestSequence: number; muted: boolean; notificationDevices?: NotificationDevice[] };
+export type CircleChatState = { members: ChatMemberKey[]; rosterVersion: string; membershipJoinedAt?: string; unreadCount: number; latestSequence: number; muted: boolean; notificationDevices?: NotificationDevice[]; latest?: CircleChatPage };
 export type CircleChatReceipt = { id: string; recipientCount: number | null; readCount: number };
 export type CircleMembershipEvent = { id: string; kind: "member_joined" | "member_left" | "member_removed"; subjectName: string; actorName: string | null; createdAt: string; batchId?: string | null };
 export type CircleChatPage = { items: ChatMessage[]; hasMore: boolean; receipts?: CircleChatReceipt[];
   replyTargets?: ChatMessage[];
   reactionUpdates?: { id: string; reactions: NonNullable<ChatMessage["reactions"]> }[]; events?: CircleMembershipEvent[] };
 type WireChatPage = CircleChatPage & { senders?: { userId: string; name: string; photoUrl: string | null }[] };
+type WireChatState = Omit<CircleChatState, "latest"> & { latest?: WireChatPage };
 export type CircleChatSession = { circleId: string; userId: string; vaultOwnerToken: string; vaultKey: string };
 export type CircleMessageState = { id: string; revision: number; hidden: boolean; deletedForEveryoneAt: string | null };
 export type ChatMutation = { ciphertext: string; iv: string; expectedRevision: number };
@@ -22,6 +23,12 @@ export type ChatMutationResult = { items?: ChatMessage[]; hiddenId?: string };
 const root = (session: CircleChatSession) => `/api/one/circles/${encodeURIComponent(session.circleId)}/chat`;
 function options(session: CircleChatSession, signal?: AbortSignal): RequestInit {
   return { headers: { Authorization: `Bearer ${session.vaultOwnerToken}`, "Content-Type": "application/json" }, signal, cache: "no-store" };
+}
+function normalizePage(response: WireChatPage): CircleChatPage {
+  const senders = new Map(response.senders?.map((sender) => [sender.userId, sender]));
+  return { ...response, items: response.items.map((message) => ({ ...message,
+    ...(senders.has(message.senderUserId) ? { senderPhotoUrl: senders.get(message.senderUserId)!.photoUrl } : {}),
+  })) };
 }
 // Encrypted historical backups only; a WeakMap does not extend a vault session.
 const backups = new WeakMap<CircleChatSession, Map<string, Promise<OneLocationMyRecipientKey>>>();
@@ -49,7 +56,10 @@ export const CircleChatService = {
     await bootstrapCurrentUserLocationRecipientKey({ userId: session.userId,
       vaultOwnerToken: session.vaultOwnerToken, vaultKey: session.vaultKey, strictRecovery: true });
   },
-  state: (session: CircleChatSession, signal?: AbortSignal) => apiJson<CircleChatState>(root(session), options(session, signal)),
+  state: async (session: CircleChatSession, signal?: AbortSignal, includeMessages = false): Promise<CircleChatState> => {
+    const response = await apiJson<WireChatState>(`${root(session)}${includeMessages ? "?includeMessages=true" : ""}`, options(session, signal));
+    return { ...response, latest: response.latest ? normalizePage(response.latest) : undefined };
+  },
   wait: (session: CircleChatSession, after: number, signal?: AbortSignal) => apiJson<{ latestSequence: number; changed: boolean; readChanged?: boolean; receiptsChanged?: boolean; reactionsChanged?: boolean; membershipChanged?: boolean; photoChanged?: boolean }>(
     // Native HTTP cannot cancel an underlying request. Keep it awaited through
     // a pause/resume instead of abandoning it and consuming another wait slot.
@@ -61,10 +71,7 @@ export const CircleChatService = {
     if (page.receiptAfter !== undefined) query.set("receiptAfter", String(page.receiptAfter));
     if (page.receiptThrough !== undefined) query.set("receiptThrough", String(page.receiptThrough));
     const response = await apiJson<WireChatPage>(`${root(session)}/messages?${query}`, options(session, signal));
-    const senders = new Map(response.senders?.map((sender) => [sender.userId, sender]));
-    return { ...response, items: response.items.map((message) => ({ ...message,
-      ...(senders.has(message.senderUserId) ? { senderPhotoUrl: senders.get(message.senderUserId)!.photoUrl } : {}),
-    })) };
+    return normalizePage(response);
   },
   async prepare(session: CircleChatSession, text: string, file: File | null, imagePreview?: { clientMessageId?: string; thumbnail?: ChatImageThumbnail; replyToMessageId?: string }): Promise<SealedChatMessage> {
     const state = await CircleChatService.state(session);

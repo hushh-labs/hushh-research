@@ -67,6 +67,8 @@ from hushh_mcp.one_adk.voice_domain_policy import (
     voice_domain_label,
 )
 from hushh_mcp.operons.location.policy import (
+    LOCATION_PEER_UNAVAILABLE,
+    LOCATION_PEER_UNAVAILABLE_MESSAGE,
     TIMED_LOCATION_SHARE_DURATION_MODE,
     UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE,
     normalize_duration_hours,
@@ -1295,6 +1297,7 @@ async def _execute_backend_direct_mutation(
         duration_hours = _parse_positive_hours(slots.get("duration_hours"), default=1.0)
         asked_names: list[str] = []
         failed_names = []
+        unavailable_count = 0
         for target in resolution.resolved:
             target_name = str(target.get("displayName") or "them")
             try:
@@ -1303,13 +1306,24 @@ async def _execute_backend_direct_mutation(
                     owner_user_id=str(target.get("userId") or ""),
                     requested_duration_hours=duration_hours,
                     requested_duration_mode="timed",
+                    enforce_peer_eligibility=True,
                 )
-            except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
-                logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
+            except Exception as exc:  # noqa: BLE001 - preserve the rest of the batch
+                if isinstance(exc, OneLocationAgentError) and exc.code in {
+                    LOCATION_PEER_UNAVAILABLE,
+                    "LOCATION_RECIPIENT_NOT_CONNECTED",
+                }:
+                    unavailable_count += 1
+                else:
+                    logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
                 failed_names.append(target_name)
                 continue
             asked_names.append(target_name)
         if not asked_names:
+            if unavailable_count and unavailable_count == len(failed_names):
+                raise OneLocationAgentError(
+                    LOCATION_PEER_UNAVAILABLE, LOCATION_PEER_UNAVAILABLE_MESSAGE, status_code=409
+                )
             raise OneLocationAgentError(
                 "LOCATION_REQUEST_SEND_FAILED",
                 f"Could not ask {join_names_for_speech(failed_names)} for their location. "

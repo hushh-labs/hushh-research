@@ -9,6 +9,7 @@ import { normalizeLossCapacity, type LossCapacity } from "@/lib/kai/investing-pe
 import { applyKaiPreferenceUpdates } from "@/lib/kai/profile-preferences";
 import { PkmStoreDomainError } from "@/lib/services/pkm-store-domain-error";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
+import { normalizeAdvisorService, type AdvisorService } from "@/lib/advisor-review/matching";
 
 export { resolveHorizonAnchorAt, shouldPromptForHorizonAnchor } from "@/lib/kai/profile-preferences";
 
@@ -45,6 +46,7 @@ export type KaiPreferences = {
 
   loss_capacity?: LossCapacity | null;
   detailed_assessment_v1?: DetailedPersonaAnswers | null;
+  advisor_service?: AdvisorService | null;
 
   risk_score: number | null; // 0..6
   risk_profile: RiskProfile | null;
@@ -82,7 +84,7 @@ export type KaiOnboardingCompletion = KaiSetupCompletion;
 export type KaiPreferencesUpdate = Partial<
   Pick<
     KaiPreferences,
-    "investment_horizon" | "drawdown_response" | "volatility_preference" | "loss_capacity" | "detailed_assessment_v1"
+    "investment_horizon" | "drawdown_response" | "volatility_preference" | "loss_capacity" | "detailed_assessment_v1" | "advisor_service"
   >
 >;
 
@@ -256,6 +258,7 @@ function normalizeProfileV2(raw: Record<string, unknown>): KaiProfileV2 {
       ),
       loss_capacity: normalizeLossCapacity(prefsRaw.loss_capacity),
       detailed_assessment_v1: normalizeDetailedPersona(prefsRaw.detailed_assessment_v1),
+      advisor_service: normalizeAdvisorService(prefsRaw.advisor_service),
       risk_score,
       risk_profile,
       risk_profile_selected_at: normalizeOptionalIso(
@@ -577,19 +580,20 @@ export class KaiProfileService {
       },
       build: (context) => {
         const current = selectProfile(context.baseFullBlob);
+        const investingAnswersChanged = Object.entries(params.updates).some(
+          ([key, value]) => key !== "advisor_service" && value !== undefined,
+        );
+        const preferences = applyKaiPreferenceUpdates(current.preferences, params, iso);
         const next: KaiProfileV2 = {
           ...current,
           schema_version: SCHEMA_VERSION,
           setup: {
             ...current.setup,
             version: 3,
-            // Saving preferences implies "not skipped".
-            skipped_preferences: false,
+            // Choosing an advisor service does not answer the investing assessment.
+            skipped_preferences: investingAnswersChanged ? false : current.setup.skipped_preferences,
           },
-          preferences: recomputeDerived(
-            applyKaiPreferenceUpdates(current.preferences, params, iso),
-            iso,
-          ),
+          preferences: investingAnswersChanged ? recomputeDerived(preferences, iso) : preferences,
           updated_at: iso,
         };
         committedProfile = next;

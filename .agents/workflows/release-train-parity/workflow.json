@@ -1,0 +1,59 @@
+{
+  "id": "release-train-parity",
+  "title": "Release Train Bidirectional Parity",
+  "goal": "Enforce upstream-first Dev/UAT/Main cross-sync, resolve migration and code collisions on Dev, stamp sequential Calendar Release Trains, and verify the 4-dimension Environment Parity Matrix.",
+  "owner_skill": "repo-operations",
+  "default_spoke": "release-train-parity",
+  "task_type": "release-train-parity",
+  "affected_surfaces": [
+    "scripts/ops",
+    "bin",
+    "consent-protocol/db/migrations",
+    "deploy"
+  ],
+  "required_reads": [
+    ".agents/skills/release-train-parity/references/parity-matrix-contract.md",
+    ".agents/skills/repo-operations/references/admin-release-sop.md",
+    ".agents/skills/repo-operations/references/maintainer-branch-freshness.md",
+    "docs/operations/releases/branch-governance.md",
+    "docs/operations/releases/migration-governance.md"
+  ],
+  "required_commands": [
+    "./bin/hushh agents release-parity --require-clean-upstream --text",
+    "./bin/hushh agents release-parity --live-cloud --text"
+  ],
+  "verification_bundle": {
+    "id": "release-train-parity",
+    "commands": [
+      "./bin/hushh agents release-parity --text",
+      "python3 scripts/ops/release_train_parity.py --text"
+    ],
+    "tests": [
+      "python3 .agents/skills/skill-authoring/scripts/skill_lint.py"
+    ]
+  },
+  "deliverables": [
+    "4-dimension Environment Parity Matrix report",
+    "Upstream-first back-sync receipt on Dev (when upstream was ahead)",
+    "Merge-only Dev-to-UAT promotion train summary",
+    "Post-deploy live cloud provenance and capability flag verification"
+  ],
+  "impact_fields": [
+    "Code parity counts before and after sync",
+    "Schema watermarks and resolved migration collisions",
+    "Calendar Release Train identifier",
+    "Live runtime capability flags across Dev, UAT, and Production"
+  ],
+  "handoff_chain": [
+    "repo-operations",
+    "release-train-parity",
+    "uat-scoped-deploy",
+    "quality-contracts"
+  ],
+  "common_failures": [
+    "cherry-picking commits from dev to uat instead of merging after upstream-first back-sync",
+    "leaving colliding migration sequence numbers unresolved across dev and uat",
+    "landing feature code to uat while cloud capability flags or gateway services stay disabled",
+    "mutating accepted uat or main migration files instead of re-sequencing dev-only migrations"
+  ]
+}

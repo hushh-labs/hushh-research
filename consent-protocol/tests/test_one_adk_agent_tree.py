@@ -792,6 +792,47 @@ def _tool_context(state: dict, *, session_id: str | None = None) -> SimpleNamesp
     return SimpleNamespace(state=state, session=session)
 
 
+def test_portfolio_answer_first_instruction_preserves_legacy_card_support():
+    from hushh_mcp.one_adk.portfolio_context_contract import STATE_PORTFOLIO_CONTEXT_ENABLED
+
+    state = {_tree.STATE_EXECUTION_SURFACE: "typed_chat", STATE_USER_ID: "owner"}
+    legacy = _one_runtime_instruction(SimpleNamespace(state=state))
+    assert (
+        "For portfolio holdings, allocation, performance or sources, call show_portfolio_card"
+        in legacy
+    )
+    state[STATE_PORTFOLIO_CONTEXT_ENABLED] = True
+    instruction = _one_runtime_instruction(SimpleNamespace(state=state))
+    assert "read_portfolio_context before answering" in instruction
+    assert (
+        "For portfolio holdings, allocation, performance or sources, call show_portfolio_card"
+        not in instruction
+    )
+    assert "Call show_portfolio_card for portfolio sources" in instruction
+    assert "chat was reopened" in instruction
+    assert "An active read needs no open card" in instruction
+
+
+def test_portfolio_card_offer_contains_only_valid_section():
+    state = {_tree.STATE_EXECUTION_SURFACE: "typed_chat", STATE_USER_ID: "owner"}
+    assert _tree.show_portfolio_card("holdings", _tool_context(state)) == {
+        "status": "card_offered",
+        "structured": {"type": "one.finance_portfolio.v1", "section": "holdings"},
+    }
+    assert _tree.show_portfolio_card("trade", _tool_context(state))["status"] == "invalid_section"
+    assert _tree.show_portfolio_card("holdings", _tool_context({}))["status"] == "unavailable"
+
+
+def test_stock_preview_offer_is_only_available_to_signed_in_typed_chat():
+    state = {_tree.STATE_EXECUTION_SURFACE: "typed_chat", STATE_USER_ID: "owner"}
+    assert _tree.show_stock_preview(" brk-b ", _tool_context(state)) == {
+        "status": "preview_offered",
+        "structured": {"type": "one.finance_stock_preview.v1", "ticker": "BRK-B"},
+    }
+    assert _tree.show_stock_preview("/one/kai", _tool_context(state))["status"] == "needs_ticker"
+    assert _tree.show_stock_preview("BRK-B", _tool_context({})) == {"status": "unavailable"}
+
+
 class TestSpecialistTurn:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("deploy_env", ["uat", "production"])
@@ -6478,7 +6519,7 @@ async def test_every_email_proposal_is_refused_and_never_executed(payload):
     assert not any(key.startswith(_STATE_PENDING_DIRECTIVE) for key in context.state)
 
 
-def test_one_routes_receipt_analysis_to_dedicated_functions_and_keeps_inbox_search_for_mail():
+def test_one_routes_gmail_receipts_live_and_keeps_saved_snapshot_explicit():
     enabled = _one_runtime_instruction(
         SimpleNamespace(
             state={
@@ -6489,18 +6530,18 @@ def test_one_routes_receipt_analysis_to_dedicated_functions_and_keeps_inbox_sear
         )
     )
     assert "MAIL READ ADMISSION: enabled" in enabled
-    assert "list_recent_receipts" in enabled and "receipt_spending" in enabled
-    assert "never ask_email_agent, an inbox search or memory arithmetic" in enabled
-    assert "State the coverage and limits the result gives" in enabled
-    assert "A request for emails that mention a receipt is an inbox search" in enabled
-    assert "never receipts or attachments" not in enabled
+    assert "ask_email_agent" in enabled
+    assert "Gmail receipts and invoices also use" in enabled
+    assert "unless the person explicitly asks for saved receipts" in enabled
+    assert "source-backed answer and coverage limits" in enabled
+    assert "never ask_email_agent, an inbox search or memory arithmetic" not in enabled
     # With Mail chat reads off (voice, signed out), nothing about receipts is promised.
     disabled = _one_runtime_instruction(
         SimpleNamespace(state={STATE_USER_ID: "owner", _tree.STATE_VOICE_CONTEXT: {}})
     )
     assert "MAIL READ ADMISSION: disabled" in disabled
     assert "saved receipt memory" not in disabled
-    assert "One's receipt functions, never this tool" in _tree.ask_email_agent.__doc__
+    assert "Search receipts, invoices and bills live" in _tree.ask_email_agent.__doc__
 
 
 def test_package_exports_keep_the_existing_agent_entrypoints():

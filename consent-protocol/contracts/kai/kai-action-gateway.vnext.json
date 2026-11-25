@@ -8,6 +8,7 @@
     "hushh-webapp/app/one/connect/page.voice-action-contract.json",
     "hushh-webapp/app/one/connected-systems/[systemId]/page.voice-action-contract.json",
     "hushh-webapp/app/one/email/page.voice-action-contract.json",
+    "hushh-webapp/app/one/feed/page.voice-action-contract.json",
     "hushh-webapp/app/one/files/page.voice-action-contract.json",
     "hushh-webapp/app/one/gmail/page.voice-action-contract.json",
     "hushh-webapp/app/one/kai/analysis/page.voice-action-contract.json",
@@ -51,6 +52,7 @@
     "hushh-webapp/components/consent/answer-request-card.voice-action-contract.json",
     "hushh-webapp/components/consent/consent-center-page.voice-action-contract.json",
     "hushh-webapp/components/consent/hosted-document-panel.voice-action-contract.json",
+    "hushh-webapp/components/kai/advisor/advisor-recommendations.voice-action-contract.json",
     "hushh-webapp/components/kai/analysis-controls.voice-action-contract.json",
     "hushh-webapp/components/kai/cards/stock-quote-header.voice-action-contract.json",
     "hushh-webapp/components/kai/kai-command-bar-global.voice-action-contract.json",
@@ -235,6 +237,37 @@
           "auth_signed_in"
         ],
         "speaker_persona": "one"
+      },
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_feed",
+      "surface_title": "Feed",
+      "docs_references": [],
+      "contract_file": "hushh-webapp/app/one/feed/page.voice-action-contract.json",
+      "defaults": {
+        "speaker_persona": "one",
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ],
+          "routes": [
+            "/one/feed"
+          ],
+          "screens": [
+            "one_feed"
+          ],
+          "hidden_navigable": false,
+          "navigation_prerequisites": []
+        }
       },
       "search": {},
       "orchestration": {
@@ -1456,6 +1489,38 @@
           ]
         },
         "speaker_persona": "one"
+      },
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "finance_advisor_recommendations",
+      "surface_title": "Finance advisor recommendations",
+      "docs_references": [
+        "hushh-webapp/docs/ui-contracts/finance.md"
+      ],
+      "contract_file": "hushh-webapp/components/kai/advisor/advisor-recommendations.voice-action-contract.json",
+      "defaults": {
+        "speaker_persona": "kai",
+        "reachability": {
+          "active_personas": [
+            "investor"
+          ],
+          "routes": [
+            "/one/kai/portfolio/analysis"
+          ],
+          "screens": [
+            "kai_portfolio_analysis"
+          ],
+          "hidden_navigable": false,
+          "navigation_prerequisites": []
+        }
       },
       "search": {},
       "orchestration": {
@@ -4874,6 +4939,121 @@
             "settlement_target": {
               "route": "/one/gmail",
               "screen": "email_agent"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "feed.search_activity",
+      "surface_id": "one_feed",
+      "label": "Search Feed",
+      "aliases": [
+        "search my feed",
+        "find earlier activity",
+        "filter feed by agent"
+      ],
+      "search_keywords": [
+        "feed search",
+        "activity history",
+        "agent filter"
+      ],
+      "meaning": "Opens the owner’s read-only Feed search and applies an explicitly supplied query and known agent scope. Urgent emergencies remain pinned. Does not grant access, mark activity read, alter notifications or invent people or results.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/feed"
+        ],
+        "screens": [
+          "one_feed"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "feed.search_activity"
+      },
+      "control_ids": [
+        "feed.search.open",
+        "feed.search.query",
+        "feed.search.scope"
+      ],
+      "state_exposure": [
+        "search open",
+        "selected public agent scope"
+      ],
+      "docs_references": [
+        "docs/architecture/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/feed"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.feed.search_activity",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {
+          "query": "string_optional",
+          "scope": "string_optional"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Search Feed",
+            "failure_behavior": "stop",
+            "action_id": "feed.search_activity",
+            "settlement_target": {
+              "route": "/one/feed",
+              "screen": "one_feed"
             }
           }
         ],
@@ -25673,19 +25853,17 @@
       }
     },
     {
-      "action_id": "phone_mandate.review_previous_deletion",
+      "action_id": "phone_mandate.send_real_sms",
       "surface_id": "phone_mandate",
-      "label": "Delete my previous account",
+      "label": "Send a real SMS code",
       "aliases": [
-        "delete my previous account",
-        "review previous account deletion"
+        "send a real SMS code"
       ],
       "search_keywords": [
         "phone",
-        "previous account",
-        "deletion review"
+        "recovery"
       ],
-      "meaning": "Starts a server-bound deletion review requiring independent sign-in to the previous account and a separate confirmation. This action never deletes an account.",
+      "meaning": "An explicit human choice starts a fresh SMS possession proof instead of a shared test code; it does not transfer a phone or grant account access.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -25701,7 +25879,7 @@
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
-          "The occupied-number conflict must be visible; previous-account sign-in and confirmation are required before deletion."
+          "The occupied test-number recovery choices must be visible."
         ],
         "active_personas": [
           "investor",
@@ -25713,7 +25891,7 @@
         "auth_signed_in",
         "manual_user_execution"
       ],
-      "risk_level": "high",
+      "risk_level": "medium",
       "execution_policy": "manual_only",
       "activation_policy": "none",
       "siri_mode": "unsupported",
@@ -25725,10 +25903,121 @@
         "intended_handler": "PhoneVerificationFlow"
       },
       "control_ids": [
-        "phone-flow-delete-review"
+        "phone-flow-fresh-sms"
       ],
       "state_exposure": [
-        "deletion review step only"
+        "phone recovery step only"
+      ],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/auth/phone-conflict-recovery.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /register-phone"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.phone_mandate.send_real_sms",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "phone_mandate.send_real_sms",
+            "label": "Send a real SMS code",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "phone_mandate.transfer_review",
+      "surface_id": "phone_mandate",
+      "label": "Use this number on this account",
+      "aliases": [
+        "use this number on this account"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "meaning": "Review a transfer after fresh real SMS verification; no account information moves or is erased.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The matching phone conflict choice or review must be visible."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-transfer-review"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
       ],
       "docs_references": [
         "docs/architecture/finance/kai-action-gateway-vnext.md",
@@ -25753,15 +26042,793 @@
         ]
       },
       "goal": {
-        "goal_id": "goal.phone_mandate.review_previous_deletion",
+        "goal_id": "goal.phone_mandate.transfer_review",
         "required_inputs": [],
         "input_resolvers": [],
         "slot_schema": {},
         "workflow_steps": [
           {
             "type": "action",
-            "action_id": "phone_mandate.review_previous_deletion",
+            "action_id": "phone_mandate.transfer_review",
+            "label": "Use this number on this account",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "phone_mandate.transfer_confirm",
+      "surface_id": "phone_mandate",
+      "label": "Confirm phone transfer",
+      "aliases": [
+        "confirm phone transfer"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "meaning": "Explicit human confirmation moves only the phone link; pending work must settle before completion.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The matching phone conflict choice or review must be visible."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-transfer-confirm"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
+      ],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /register-phone"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.phone_mandate.transfer_confirm",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "phone_mandate.transfer_confirm",
+            "label": "Confirm phone transfer",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "phone_mandate.recover",
+      "surface_id": "phone_mandate",
+      "label": "Recover my previous account",
+      "aliases": [
+        "recover my previous account"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "meaning": "Open the existing Google or Apple sign-in to recover the previous account without exposing its identity.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The matching phone conflict choice or review must be visible."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-recover"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
+      ],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /register-phone"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.phone_mandate.recover",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "phone_mandate.recover",
+            "label": "Recover my previous account",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "phone_mandate.delete_previous",
+      "surface_id": "phone_mandate",
+      "label": "Delete my previous account",
+      "aliases": [
+        "delete my previous account"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "meaning": "Open an in-place review to delete the account currently linked to this verified number. Deletion needs the number's fresh code and an explicit acknowledgement; while in-place deletion is unavailable it opens previous-account sign-in instead.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The matching phone conflict choice or review must be visible."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-delete-previous"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
+      ],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /register-phone"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.phone_mandate.delete_previous",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "phone_mandate.delete_previous",
             "label": "Delete my previous account",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "phone_mandate.delete_previous_confirm",
+      "surface_id": "phone_mandate",
+      "label": "Delete and continue",
+      "aliases": [
+        "delete and continue"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "meaning": "Explicit human confirmation deletes the account linked to this number with its fresh code, then verifies the number on this account. It cannot be undone.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The linked-account deletion review must be visible."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-delete-confirm"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
+      ],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /register-phone"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.phone_mandate.delete_previous_confirm",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "phone_mandate.delete_previous_confirm",
+            "label": "Delete and continue",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "phone_mandate.delete_previous_cancel",
+      "surface_id": "phone_mandate",
+      "label": "Cancel deletion review",
+      "aliases": [
+        "cancel deletion review"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "meaning": "Return to recovery choices before confirmation; an unconfirmed deletion keeps the review open until its status settles.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The linked-account deletion review must be visible."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-delete-cancel"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
+      ],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /register-phone"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.phone_mandate.delete_previous_cancel",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "phone_mandate.delete_previous_cancel",
+            "label": "Cancel deletion review",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "phone_mandate.delete_previous_verify_again",
+      "surface_id": "phone_mandate",
+      "label": "Verify this number again",
+      "aliases": [
+        "verify this number again"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "meaning": "Return to number entry after the code used for deletion expired; nothing is deleted.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The linked-account deletion review must be visible."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-delete-verify-again"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
+      ],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /register-phone"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.phone_mandate.delete_previous_verify_again",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "phone_mandate.delete_previous_verify_again",
+            "label": "Verify this number again",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "phone_mandate.review_previous_devices",
+      "surface_id": "phone_mandate",
+      "label": "Review previous device access",
+      "aliases": [
+        "review previous device access"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery",
+        "devices"
+      ],
+      "meaning": "Preserve device-review intent through previous-account Google or Apple sign-in. Reviewing devices grants no revocation; each unlink requires fresh own-phone proof and explicit confirmation.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The matching phone conflict choice or review must be visible."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-revoke-previous"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
+      ],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /register-phone"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.phone_mandate.review_previous_devices",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "phone_mandate.review_previous_devices",
+            "label": "Review previous device access",
             "failure_behavior": "stop"
           }
         ],
@@ -25796,7 +26863,7 @@
         "phone",
         "recovery"
       ],
-      "meaning": "Returns to phone entry without changing the existing email account that owns an occupied number.",
+      "meaning": "Retire this phone attempt and return to number entry before a transfer has been dispatched.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -25873,6 +26940,117 @@
             "type": "action",
             "action_id": "phone_mandate.change_number",
             "label": "Use a different number",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "phone_mandate.transfer_cancel",
+      "surface_id": "phone_mandate",
+      "label": "Cancel phone transfer review",
+      "aliases": [
+        "cancel phone transfer review"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "meaning": "Return to recovery choices before confirmation; pending transfers cannot be cancelled.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The matching phone conflict choice or review must be visible."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-transfer-cancel"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
+      ],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /register-phone"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.phone_mandate.transfer_cancel",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "phone_mandate.transfer_cancel",
+            "label": "Cancel phone transfer review",
             "failure_behavior": "stop"
           }
         ],
@@ -34414,6 +35592,109 @@
       }
     },
     {
+      "action_id": "finance.advisor.recommend",
+      "surface_id": "finance_advisor_recommendations",
+      "label": "Recommend advisor",
+      "aliases": [
+        "recommend an advisor",
+        "find matching advisors"
+      ],
+      "search_keywords": [
+        "advisor",
+        "recommendation",
+        "service",
+        "RIA"
+      ],
+      "meaning": "Switches All in Finance advisor discovery to optional service matching with an unlocked vault and saved portfolio. Reuses a saved service choice or presents four fixed choices. Opening or selecting a match never sends a connection request, shares Finance or calls a model.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai/portfolio/analysis"
+        ],
+        "screens": [
+          "kai_portfolio_analysis"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "control",
+        "target": "finance_recommend_advisor"
+      },
+      "control_ids": [
+        "finance_recommend_advisor"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "hushh-webapp/docs/ui-contracts/finance.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai/portfolio/analysis"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.finance.advisor.recommend",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "finance.advisor.recommend",
+            "label": "Recommend advisor",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "analysis.back_to_history",
       "surface_id": "kai_analysis_controls",
       "label": "Back to Analysis History",
@@ -34832,9 +36113,11 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
+          "/",
           "/one/kai?tab=analysis"
         ],
         "screens": [
+          "chat",
           "kai_analysis"
         ],
         "hidden_navigable": false,
@@ -37686,6 +38969,218 @@
             "type": "action",
             "action_id": "setup.hub_master_ack",
             "label": "Finish setup",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.memory_import_skip",
+      "surface_id": "one_setup_hub",
+      "label": "Skip",
+      "aliases": [
+        "skip memory import"
+      ],
+      "search_keywords": [
+        "memory",
+        "import",
+        "skip"
+      ],
+      "meaning": "Discards the unsubmitted draft and completes required setup without importing it.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Open the import step after phone, hosting and AI setup."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.memory_import_skip"
+      },
+      "control_ids": [
+        "one-memory-import-skip"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/onboarding/setup/memory-import-step.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.memory_import_skip",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.memory_import_skip",
+            "label": "Skip",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.hub_continue",
+      "surface_id": "one_setup_hub",
+      "label": "Continue",
+      "aliases": [
+        "continue setup",
+        "import my memory"
+      ],
+      "search_keywords": [
+        "continue",
+        "memory",
+        "import",
+        "setup"
+      ],
+      "meaning": "Validates phone, hosting and AI setup, then opens the optional memory import step. It does not acknowledge setup completion.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.hub_continue"
+      },
+      "control_ids": [
+        "one-setup-continue"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "docs/development/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/onboarding/setup/one-setup-hub.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.hub_continue",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.hub_continue",
+            "label": "Continue",
             "failure_behavior": "stop"
           }
         ],

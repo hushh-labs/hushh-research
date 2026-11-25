@@ -135,8 +135,12 @@ UPDATE feed_events AS f
        dismissal_token = gen_random_uuid()
   FROM feed_clear_candidates candidate
  WHERE f.user_id = candidate.recipient_user_id
-   AND f.source_domain = 'location' AND f.event_type = 'location_share_created'
-   AND f.source_row_id = candidate.grant_id::TEXT
+   AND f.source_domain = 'location'
+   AND f.event_type IN ('location_share_created','location_share_revoked',
+     'location_share_expired','location_share_shortened','location_share_duration_changed')
+   AND (split_part(f.source_row_id,':',1) = candidate.grant_id::TEXT
+     OR f.metadata->>'recorded_grant_id' = candidate.grant_id::TEXT
+     OR f.metadata->>'grant_id' = candidate.grant_id::TEXT)
 RETURNING f.id
 """
 

@@ -7,11 +7,11 @@ vi.mock("@/lib/observability/product-activity-client", async original => ({
   captureProductAttempt: attempts.capture.mockReturnValue({ started: attempts.started, settled: attempts.settled }),
 }));
 import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
-import { AuthService } from "@/lib/services/auth-service";
 import type { PwmMemory } from "@/lib/services/world-model-decision-service";
 
 import { PersonalWorldModelPage, usePersonalWorldModelModel } from "@/components/profile/personal-world-model-page";
 import { pwmClaimKey } from "@/lib/services/world-model-decision-service";
+import { AuthService } from "@/lib/services/auth-service";
 import { WorldModelFactSheet, type WorldModelDraftFact } from "@/components/profile/world-model-fact-sheet";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 

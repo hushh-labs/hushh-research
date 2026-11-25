@@ -2,6 +2,7 @@ import { cloneElement, useState } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { calendarTimeZone } from "@/lib/calendar/calendar-time-zone";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { bookingInstant } from "@/lib/calendar/calendar-booking-time";
 import { calendarDate } from "@/components/calendar/calendar-schedule-presentation";
 
@@ -146,9 +147,11 @@ describe("three-account Calendar board", () => {
       organizer: { email: "organizer-host@example.com", self: true }, attendees: guests, decline_view: { kind: "only_guest" as const, ...view } };
     const guestCopy = { ...event("second", "guest", "Testing", "2026-10-21T13:00:00Z", "2026-10-21T13:30:00Z"),
       attendees: [{ ...guests[1], self: true }], decline_view: { kind: "self" as const, ...view } };
-    mocks.boardDay.mockResolvedValue({ ...board, conflicts: [], accounts: [
-      { ...board.accounts[0], events: [hostCopy] }, { ...board.accounts[1], events: [guestCopy] }, board.accounts[2],
-    ] });
+    const photo = "data:image/png;base64,aGVsbG8=";
+    mocks.boardDay.mockResolvedValue({ ...board, conflicts: [],
+      people: { "second@example.com": { userId: "sam", displayName: "Sam", photoUrl: photo } },
+      accounts: [{ ...board.accounts[0], events: [hostCopy] }, { ...board.accounts[1], events: [guestCopy] }, board.accounts[2]],
+    });
     render(page());
     const host = within(await screen.findByRole("group", { name: "Calendar account default@example.com" }));
     const guest = within(screen.getByRole("group", { name: "Calendar account second@example.com" }));
@@ -159,6 +162,11 @@ describe("three-account Calendar board", () => {
     const note = within(await screen.findByTestId("calendar-declined-note"));
     expect(note.getByText("Sam declined this meeting")).toBeTruthy();
     expect(note.getByText(reason)).toBeTruthy();
+    expect(screen.getByTestId("calendar-declined-note").querySelector("[data-photo-source=hussh]")).toHaveAttribute("data-photo-url", photo);
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
+    fireEvent.click(guest.getByRole("button", { name: /^Open Testing/ }));
+    expect(within(screen.getByRole("dialog")).getByText("You declined this meeting")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Invitation actions")).not.toBeInTheDocument();
   });
 
   it("keeps a group meeting normal for the organiser and lists who declined with their reasons", async () => {
@@ -298,11 +306,9 @@ describe("three-account Calendar board", () => {
     expect(within(dialog).getByRole("combobox", { name: "Duration" })).toHaveValue("60");
     expect(dialog).not.toHaveTextContent("Primary calendar");
     expect(dialog).not.toHaveTextContent("No guests creates");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Review meeting" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Schedule meeting" }));
     await waitFor(() => expect(mocks.reviewBoardBooking).toHaveBeenCalledOnce());
     expect(mocks.reviewBoardBooking).toHaveBeenCalledWith(expect.objectContaining({ accountId: "default", checkedAccountIds: ["default"], title: "Bug Bash", startAt: "2026-10-21T12:00:00.000Z", endAt: "2026-10-21T13:00:00.000Z" }));
-    expect(mocks.executeProposal).not.toHaveBeenCalled();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Schedule personal block" }));
     await waitFor(() => expect(mocks.executeProposal).toHaveBeenCalledWith(expect.objectContaining({ accountId: "default", proposalId: "gcal_reviewed_booking" })));
     expect(mocks.onChat).not.toHaveBeenCalled();
   });
@@ -312,32 +318,60 @@ describe("three-account Calendar board", () => {
     await screen.findByText("Planning review");
     fireEvent.click(screen.getByRole("button", { name: /Schedule from shared free time/ }));
     const dialog = screen.getByRole("dialog", { name: "Schedule meeting" });
-    expect(within(dialog).getByRole("button", { name: "Review meeting" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Schedule meeting" })).toBeDisabled();
     expect(within(dialog).getByRole("option", { name: "third@example.com" })).toBeTruthy();
     expect(dialog).not.toHaveTextContent("Primary calendar");
     fireEvent.change(within(dialog).getByRole("combobox", { name: "Calendar account and destination" }), { target: { value: "third" } });
     fireEvent.change(within(dialog).getByRole("textbox", { name: "Title" }), { target: { value: "Bug Bash" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Review meeting" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Schedule meeting" }));
     await waitFor(() => expect(mocks.reviewBoardBooking).toHaveBeenCalledWith(expect.objectContaining({ accountId: "third", checkedAccountIds: ["default", "second", "third"] })));
-    fireEvent.click(within(dialog).getByRole("button", { name: "Schedule personal block" }));
     await waitFor(() => expect(mocks.executeProposal).toHaveBeenCalledWith(expect.objectContaining({ accountId: "third" })));
     expect(mocks.onChat).not.toHaveBeenCalled();
   });
 
-  it("requires a fresh review before confirming edited guests", async () => {
-    render(page());
-    fireEvent.click(await screen.findByRole("button", { name: /Schedule from shared free time/ }));
-    const dialog = screen.getByRole("dialog", { name: "Schedule meeting" });
-    fireEvent.change(within(dialog).getByRole("combobox", { name: "Calendar account and destination" }), { target: { value: "second" } });
-    fireEvent.change(within(dialog).getByRole("textbox", { name: "Title" }), { target: { value: "Bug Bash" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Review meeting" }));
-    await within(dialog).findByRole("button", { name: "Schedule personal block" });
-    expect(within(dialog).queryByRole("combobox", { name: /Guests/ })).toBeNull();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Edit details" }));
-    fireEvent.change(within(dialog).getByRole("combobox", { name: /Guests/ }), { target: { value: "new@example.com" } });
-    expect(within(dialog).queryByRole("button", { name: "Schedule personal block" })).toBeNull();
-    expect(mocks.executeProposal).not.toHaveBeenCalled();
-  });
+  it.each(["success", "conflict", "vault changed", "unconfirmed"] as const)(
+    "submits a guest once and handles a %s booking outcome",
+    async outcome => {
+      const review = mocks.reviewBoardBooking.getMockImplementation()!;
+      let finishReview!: () => void;
+      mocks.reviewBoardBooking.mockImplementationOnce(async input => {
+        await new Promise<void>(resolve => { finishReview = resolve; });
+        const result = await review(input);
+        return outcome === "conflict" ? { ...result, plan: { ...result.plan, board_conflicts: [
+          { account_id: "third", account_email: "third@example.com", start_at: input.startAt },
+        ] } } : result;
+      });
+      if (outcome === "unconfirmed") mocks.executeProposal.mockRejectedValueOnce(new TypeError("network"));
+      render(page());
+      fireEvent.click(await screen.findByRole("button", { name: /Schedule from shared free time/ }));
+      const dialog = screen.getByRole("dialog", { name: "Schedule meeting" });
+      fireEvent.change(within(dialog).getByRole("combobox", { name: "Calendar account and destination" }), { target: { value: "second" } });
+      fireEvent.change(within(dialog).getByRole("textbox", { name: "Title" }), { target: { value: "Bug Bash" } });
+      fireEvent.change(within(dialog).getByLabelText("Guests", { exact: true }), { target: { value: "new@example.com" } });
+      const submit = within(dialog).getByRole("button", { name: "Schedule meeting" });
+      fireEvent.click(submit);
+      fireEvent.click(submit);
+      expect(within(dialog).getByRole("button", { name: "Scheduling…" })).toBeDisabled();
+      expect(within(dialog).getByText("Guests will receive an invitation.")).toBeInTheDocument();
+      expect(mocks.reviewBoardBooking).toHaveBeenCalledOnce();
+      expect(mocks.reviewBoardBooking).toHaveBeenCalledWith(expect.objectContaining({ accountId: "second", attendees: ["new@example.com"] }));
+      expect(mocks.executeProposal).not.toHaveBeenCalled();
+
+      if (outcome === "vault changed") advanceVaultSessionEpoch();
+      await act(async () => finishReview());
+      if (outcome === "success" || outcome === "unconfirmed") {
+        expect(mocks.executeProposal).toHaveBeenCalledOnce();
+      } else {
+        expect(mocks.executeProposal).not.toHaveBeenCalled();
+      }
+      if (outcome === "success") expect(dialog).not.toBeInTheDocument();
+      if (outcome === "conflict") expect(within(dialog).getByRole("alert")).toHaveTextContent("Choose another time");
+      if (outcome === "unconfirmed") {
+        expect(within(dialog).getByRole("alert")).toHaveTextContent("may have been created");
+        expect(within(dialog).getByRole("button", { name: "Schedule meeting" })).toBeDisabled();
+      }
+    },
+  );
 
   it("returns to the event's Board date after booking in the detected time zone", async () => {
     const boardZone = calendarTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
@@ -351,10 +385,9 @@ describe("three-account Calendar board", () => {
     expect(within(dialog).queryByRole("combobox", { name: "Time zone" })).toBeNull();
     fireEvent.change(within(dialog).getByLabelText("Date"), { target: { value: date } });
     fireEvent.change(within(dialog).getByLabelText("Start"), { target: { value: "23:30" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Review meeting" }));
-    await waitFor(() => expect(mocks.reviewBoardBooking).toHaveBeenCalledWith(expect.objectContaining({ startAt, selectedDate: date, timeZone: boardZone })));
     const callsBeforeConfirmation = mocks.boardDay.mock.calls.length;
-    fireEvent.click(await within(dialog).findByRole("button", { name: "Schedule personal block" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Schedule meeting" }));
+    await waitFor(() => expect(mocks.reviewBoardBooking).toHaveBeenCalledWith(expect.objectContaining({ startAt, selectedDate: date, timeZone: boardZone })));
     await waitFor(() => expect(mocks.executeProposal).toHaveBeenCalledOnce());
     await waitFor(() => expect(mocks.boardDay.mock.calls.length).toBeGreaterThan(callsBeforeConfirmation));
     await waitFor(() => expect(mocks.boardDay.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({ date: boardDate, timeZone: boardZone })));
@@ -444,7 +477,7 @@ describe("three-account Calendar board", () => {
     mocks.boardDay.mockResolvedValue({ ...board, accounts: [{ ...board.accounts[0], checked_at: board.checked_at, events: [{ ...meetingA, conference_url: "https://meet.google.com/abc-defg-hij" }] }] });
     render(page());
     const join = await screen.findByRole("link", { name: "Join meeting: Planning review" });
-    expect(join).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij?authuser=default%40example.com");
+    expect(join).toHaveAttribute("href", "https://accounts.google.com/AccountChooser?Email=default%40example.com&continue=https%3A%2F%2Fmeet.google.com%2Fabc-defg-hij%3Fauthuser%3Ddefault%2540example.com");
     expect(join.closest("button")).toBeNull();
     expect(screen.getByText("Google Meet")).toBeInTheDocument();
     expect(screen.getByText("Connected", { exact: true })).toBeInTheDocument();
@@ -475,13 +508,14 @@ describe("three-account Calendar board", () => {
     view.rerender(cloneElement(node, { connectionRevision: 1 }));
     await screen.findByText("Planning review");
     const meet = joinAction();
-    expect(meet.web).toBe(true);
-    act(() => { void meet.run!(); });
-    const chooser = screen.getByRole("dialog", { name: "Check Google account" });
-    expect(within(chooser).getByRole("link", { name: "Open Meet" })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij?authuser=default%40example.com");
-    fireEvent.click(within(chooser).getByRole("button", { name: "Cancel" }));
+    expect(meet.web).toBe(false);
+    await act(async () => { await meet.run!(); });
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(mocks.openBrowser).toHaveBeenCalledTimes(1);
+    expect(mocks.openBrowser).toHaveBeenCalledTimes(2);
+    const meetUrl = new URL((mocks.openBrowser.mock.calls[1][0] as { url: string }).url);
+    expect(meetUrl.origin + meetUrl.pathname).toBe("https://accounts.google.com/AccountChooser");
+    expect(meetUrl.searchParams.get("Email")).toBe("default@example.com");
+    expect(meetUrl.searchParams.get("continue")).toBe("https://meet.google.com/abc-defg-hij?authuser=default%40example.com");
   });
 
   it("summarizes occasions after meetings and opens a responsive detail dialog", async () => {
@@ -591,8 +625,11 @@ describe("three-account Calendar board", () => {
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByRole("heading", { name: "Planning review" })).toBeInTheDocument();
     expect(within(dialog).getAllByText(/default@example\.com/)).toHaveLength(1);
-    expect(within(dialog).getByText("Organized by organizer-one@example.com")).toBeInTheDocument();
-    expect(within(dialog).getByRole("link", { name: "Join meeting" })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij?authuser=default%40example.com");
+    expect(within(dialog).getByText("Organized by")).toBeInTheDocument();
+    expect(within(dialog).getByText("organizer-one@example.com")).toBeInTheDocument();
+    const join = within(dialog).getByRole("link", { name: "Join meeting" });
+    expect(join).toHaveAttribute("href", "https://accounts.google.com/AccountChooser?Email=default%40example.com&continue=https%3A%2F%2Fmeet.google.com%2Fabc-defg-hij%3Fauthuser%3Ddefault%2540example.com");
+    expect(dialog.querySelector('[data-slot="dialog-header"]')).toContainElement(join);
     expect(within(dialog).queryByRole("link", { name: "Open in Google Calendar" })).toBeNull();
     expect(within(dialog).getByRole("button", { name: "Accept" })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Decline", exact: true })).toBeInTheDocument();

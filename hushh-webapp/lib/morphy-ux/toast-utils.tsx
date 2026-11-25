@@ -449,6 +449,7 @@ export const morphyToast = {
       loading: React.ReactNode;
       description?: React.ReactNode;
       variant?: ColorVariant;
+      className?: string;
       finally?: () => void | Promise<void>;
     } & ({
       // Owner-bound operations use already-authored labels. Sonner reads
@@ -477,7 +478,7 @@ export const morphyToast = {
       description: data.description,
       finally: data.finally,
       classNames: {
-        toast: cn("morphy-sonner-toast", accent),
+        toast: cn("morphy-sonner-toast", accent, data.className),
         loading: cn(getToastToneClassName("info", data.variant)),
         success: cn(getToastToneClassName("success", data.variant)),
         error: cn(getToastToneClassName("error", data.variant)),

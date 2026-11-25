@@ -204,6 +204,7 @@ export const MoreHorizontal = createCanonicalIcon(Phosphor.DotsThree, "regular")
 export const MoreVertical = createCanonicalIcon(Phosphor.DotsThreeVertical);
 export const Navigation = createCanonicalIcon(Phosphor.NavigationArrow);
 export const Newspaper = createCanonicalIcon(Phosphor.Newspaper);
+export const NewspaperClipping = createCanonicalIcon(Phosphor.NewspaperClipping);
 export const PanelLeftIcon = createCanonicalIcon(Phosphor.SidebarSimple, "regular");
 export const Pause = createCanonicalIcon(Phosphor.Pause);
 export const PauseCircle = createCanonicalIcon(Phosphor.PauseCircle);

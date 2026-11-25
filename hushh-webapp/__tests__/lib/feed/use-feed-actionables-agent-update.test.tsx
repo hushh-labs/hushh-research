@@ -14,6 +14,10 @@ const SIGN_IN = "https://login.microsoftonline.com/tenant/oauth2/v2.0/authorize?
 const follow = vi.hoisted(() => ({ deploymentTarget: "user_azure" as string | null }));
 const navigation = vi.hoisted(() => ({ assign: vi.fn() }));
 
+vi.mock("@/lib/finance-sharing/use-finance-share-context", () => ({
+  useFinanceShareContext: () => ({ ready: false, session: "", capture: () => null }),
+}));
+
 vi.mock("@/lib/feed/use-agent-deployment-follow", () => ({
   useAgentDeploymentFollow: () => ({
     update: {

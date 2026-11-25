@@ -45,6 +45,9 @@ _VAULT_KEYS_FK_RE = re.compile(
 )
 
 FROZEN_VAULT_KEYS_FK_ALLOWLIST: frozenset[str] = frozenset()
+# Already applied on live UAT prior to the >= 459 forward-governance floor;
+# retain byte-for-byte immutability to avoid schema-ledger checksum drift.
+FROZEN_OUTER_TX_ALLOWLIST: frozenset[str] = frozenset({"459_feed_request_realtime.sql"})
 FROZEN_DEFERRED_RELEASE_MIGRATIONS: frozenset[str] = frozenset(
     {"249_one_chat_history_legacy_cutover.sql"}
 )
@@ -177,7 +180,9 @@ def inspect_migration_sql_governance(
         and numeric_version is not None
         and numeric_version >= FORWARD_GOVERNANCE_FLOOR
     ):
-        if any(is_outer_transaction_control(stmt.keywords) for stmt in statements):
+        if filename not in FROZEN_OUTER_TX_ALLOWLIST and any(
+            is_outer_transaction_control(stmt.keywords) for stmt in statements
+        ):
             violations.append(f"forward_migration_outer_transaction_forbidden:{filename}")
         executable = strip_sql_comments_and_literals(sql)
         if (

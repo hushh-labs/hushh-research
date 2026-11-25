@@ -6,8 +6,8 @@ import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 export const CONNECTION_BADGE_DESCRIPTIONS = {
-  advisor: "Hussh verified this person's advisor profile.",
-  contacts: "You connected with this person through a match from your synced contacts.",
+  advisor: "Advisor verified by Hussh.",
+  contacts: "Matched from your contacts.",
 } as const;
 
 export function ConnectionStatusBadge({ verified, interactive = true, className, iconClassName }: {
@@ -46,13 +46,17 @@ export function ConnectionStatusBadge({ verified, interactive = true, className,
           </span>
         )}
       </TooltipTrigger>
+      {/* Opens below the icon, so it never covers the row above it; Radix still
+          flips it up when the icon sits at the very bottom of the screen. The
+          advisor badge is self-explanatory, so its tooltip is only its name. */}
       <TooltipContent
-        sideOffset={4}
+        side="bottom"
+        sideOffset={6}
         collisionPadding={12}
         className="max-w-[min(14rem,calc(100vw_-_1.5rem))] text-left"
       >
         <span className="block font-semibold">{label}</span>
-        <span className="mt-0.5 block">{description}</span>
+        {verified ? null : <span className="mt-0.5 block">{description}</span>}
       </TooltipContent>
     </Tooltip>
   );

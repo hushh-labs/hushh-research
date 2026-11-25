@@ -61,6 +61,8 @@ RouteKey = tuple[str, str]
 # One line per path: "<METHODS> <path> [@pending:<lane>]", grouped under its class.
 _INVENTORY = """
 [CONTENT]
+POST /api/one/feed/files/owner/search
+POST /api/one/feed/files/owner/file
 POST /api/one/finance/advisor-reviews/portfolio-analysis
 POST /api/one/finance/advisor-reviews/{request_id}/meeting/action
 GET,POST /api/connectors/google_drive/sharing/packets/{packet_id}/preview
@@ -160,7 +162,10 @@ POST /api/one/calendar/followups/list
 POST /api/one/calendar/followups/detail
 POST /api/one/calendar/followups/resolve
 POST /api/one/calendar/followups/source
+POST /api/one/calendar/followups/source/link
 POST /api/one/calendar/followups/request
+POST /api/one/calendar/followups/booking/review
+POST /api/one/calendar/followups/booking/execute
 POST /api/one/calendar/followups/booking/confirm
 POST /api/one/calendar/followups/scan
 POST /api/one/calendar/followups/mail/connect/start
@@ -276,6 +281,8 @@ POST /api/pkm/domains/{domain}/scope-exposure
 GET /api/pkm/memory/mutation-impact/{user_id}/{domain}
 GET /api/pkm/scopes/{user_id}
 [NETWORK]
+POST /api/one/feed/files/requester/search
+POST /api/one/feed/files/requester/file
 POST /api/one/finance/advisor-reviews/candidates
 POST /api/one/finance/advisor-reviews/{request_id}/decision
 POST /api/one/finance/advisor-reviews/{request_id}/meeting
@@ -283,6 +290,8 @@ POST /api/one/finance/advisor-reviews/{request_id}/meeting/decision
 POST /api/one/finance/advisor-reviews/{request_id}/plan
 POST /api/one/finance/advisor-reviews/{request_id}/checkout
 DELETE,GET /api/one/finance/advisor-reviews/{request_id}/billing
+GET /api/one/finance/advisor-reviews/{request_id}/sandbox-payout
+POST /api/one/finance/advisor-reviews/{request_id}/sandbox-payout/{action}
 GET /api/one/messages/unread-count
 POST /api/one/world-model/invitation-preview
 POST /api/one/calendar/rescheduling/options
@@ -363,6 +372,7 @@ POST /api/one/runtime/openai/validate
 [SUPPORT]
 GET /api/one/todos/suggestions/status
 GET /api/kai/market/company-facts/{user_id}
+GET /api/kai/market/fx/usd-inr/{user_id}
 GET /api/kai/market/history/{user_id}
 GET /api/one/wallet/card-access/artwork/assets/{digest}
 POST /api/one/wallet/card-access/artwork/resolve

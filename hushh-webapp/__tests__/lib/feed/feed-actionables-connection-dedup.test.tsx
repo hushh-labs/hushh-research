@@ -7,6 +7,8 @@
  *
  * The connections lane owns them. These tests hold that line.
  */
+import { foldFeedConnectorPrerequisites } from "@/lib/feed/connector-prerequisites";
+import { matchesCurrentFeedAction } from "@/lib/feed/agent-scopes";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -555,7 +557,7 @@ describe("useFeedActionables — connection request de-duplication", () => {
       photoUrl: "https://example.test/priya.png", userId: "friend-1",
     });
     const row = result.current.actionables[0];
-    expect(row.actions.map(action => action.key)).toEqual(["decline", "accept"]);
+    expect(row.actions.map(action => action.key)).toEqual(["review"]);
     expect(row.phoneActions?.map(action => action.key)).toEqual(["review"]);
     row.phoneActions?.[0]?.run();
     expect(mocks.push).toHaveBeenCalledWith(row.todo?.href);
@@ -582,7 +584,7 @@ describe("useFeedActionables — connection request de-duplication", () => {
     expect(result.current.actionables).toHaveLength(21);
     expect(overflow).toMatchObject({
       title: "View all pending requests",
-      description: "1 more pending request is waiting in Consent Center.",
+      description: "1 more",
       href: "/one/consent?tab=pending&from=%2Fone%2Ffeed",
       chevron: true,
       actions: [],
@@ -1255,6 +1257,29 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
       ["/one/profile/payouts?from=%2Fone%2Ffeed"],
     ]);
     expect(mocks.account).not.toHaveBeenCalled();
+  });
+
+  it("folds only Drive recovery in Feed while preserving exact requests and per-request To-dos", () => {
+    const second = "44444444-4444-4444-8444-444444444444";
+    const payout = "33333333-3333-4333-8333-333333333333";
+    const { result, rerender } = renderWith(
+      documentEntry(DOC_ID, { ownerDriveReady: false }),
+      documentEntry(second, { ownerDriveReady: false }, { counterpart_label: "Maya" }),
+      documentEntry(payout, { ownerDriveReady: true, ownerPayoutAccountReady: false }),
+    );
+    const source = result.current.actionables;
+    expect(source.filter(item => item.connectorPrerequisite).map(item => item.todo?.key)).toHaveLength(2);
+    const visible = foldFeedConnectorPrerequisites(source);
+    const group = visible.find(item => item.affectedRequests)!;
+    expect(visible.filter(item => item.affectedRequests)).toHaveLength(1);
+    expect(group.operationKeys).toEqual(expect.arrayContaining([`document:${DOC_ID}`, `document:${second}`]));
+    expect(group.affectedRequests).toEqual(expect.arrayContaining([expect.objectContaining({ label: "Maya",
+      href: `/one/consent?tab=pending&requestId=document_share_request%3A${second}&from=%2Fone%2Ffeed` })]));
+    expect(matchesCurrentFeedAction(group, "Maya")).toBe(true);
+    expect(visible.find(item => item.id.endsWith(payout))?.actions.map(action => action.label)).toEqual(["Link payouts"]);
+    mocks.consentItems = [documentEntry(DOC_ID, { ownerDriveReady: true }), documentEntry(second, { ownerDriveReady: true })];
+    rerender();
+    expect(foldFeedConnectorPrerequisites(result.current.actionables).some(item => item.affectedRequests)).toBe(false);
   });
 
   it.each(["row", "button"] as const)(

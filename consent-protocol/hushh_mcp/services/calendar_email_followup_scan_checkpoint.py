@@ -9,6 +9,7 @@ from typing import Any
 from hushh_mcp.services.calendar_email_followup_coverage import (
     PERMANENT_UNREADABLE,
     RECOVERABLE_SOURCE,
+    SLOW_SOURCE_RETRY_SECONDS,
     SOURCE_GONE,
     source_backoff_seconds,
     source_exhausted,
@@ -21,6 +22,23 @@ def _now_ms(now: datetime | None = None) -> int:
     return int((now or datetime.now(UTC)).timestamp() * 1000)
 
 
+# A first scan reads the most recent month only. Dated follow-ups rarely look
+# further ahead than that, and every later pass is incremental from the saved
+# Gmail history position, so older mail is never walked again.
+FIRST_SCAN_DAYS = 30
+_FIRST_SCAN_MS = FIRST_SCAN_DAYS * 86_400_000
+
+
+def bootstrap_window_is_stale(checkpoint: dict[str, Any]) -> bool:
+    """A first scan sealed before the 30-day cap that is still reading older mail."""
+    return (
+        checkpoint.get("mode") == "bootstrap"
+        and not checkpoint.get("history_recovery")
+        and int(checkpoint.get("cutoff_ms", 0))
+        < int(checkpoint.get("snapshot_ms", 0)) - _FIRST_SCAN_MS
+    )
+
+
 def _initial_checkpoint(
     monitor: Monitor,
     *,
@@ -28,14 +46,16 @@ def _initial_checkpoint(
     history_id: str,
     cutoff_ms: int | None = None,
 ) -> dict[str, Any]:
-    start_ms = int(monitor.historical_start_at.timestamp() * 1000)
+    approved_start = int(monitor.historical_start_at.timestamp() * 1000)
+    start_ms = max(approved_start, snapshot_ms - _FIRST_SCAN_MS)
     return {
         "version": 1,
         "assessment_version": ASSESSMENT_VERSION,
         "mode": "bootstrap",
         # Gap recovery narrows this to the unsynchronized period; a first scan
-        # always covers the owner's whole approved period.
-        "cutoff_ms": max(start_ms, cutoff_ms) if cutoff_ms is not None else start_ms,
+        # covers the approved period, never more than the most recent month.
+        "cutoff_ms": max(approved_start, cutoff_ms) if cutoff_ms is not None else start_ms,
+        "history_recovery": cutoff_ms is not None,
         "snapshot_ms": snapshot_ms,
         "history_id": history_id,
         "page_token": None,
@@ -96,9 +116,12 @@ def _mark_incomplete(
     else:
         thread["thread"] = code
     thread["attempts"] = int(thread.get("attempts", 0)) + 1
-    thread["retry_at_ms"] = _now_ms(now) + 1000 * source_backoff_seconds(
-        thread["attempts"], retry_after=retry_after
+    delay = (
+        SLOW_SOURCE_RETRY_SECONDS
+        if source_exhausted(thread)
+        else source_backoff_seconds(thread["attempts"], retry_after=retry_after)
     )
+    thread["retry_at_ms"] = _now_ms(now) + 1000 * delay
     checkpoint["failed_this_thread"] = True
 
 
@@ -113,11 +136,10 @@ def _clear_incomplete_thread(checkpoint: dict[str, Any], thread_id: str) -> None
 
 
 def _upgrade_checkpoint(checkpoint: dict[str, Any]) -> dict[str, Any]:
-    """Keep scan cursors; reassess partial work from an older extraction contract."""
+    """Restart partial extraction after a contract change, preserving scan progress."""
     if checkpoint.get("assessment_version") != ASSESSMENT_VERSION:
-        # A sealed legacy candidate has no current relevance verdict. Restart
-        # only this message, retaining page/thread/message positions and gaps.
         _clear_message(checkpoint)
+        checkpoint["reassess_seen"] = {}
         checkpoint["assessment_version"] = ASSESSMENT_VERSION
     for key, default in (
         ("partial_candidates", []),
@@ -135,6 +157,22 @@ def _upgrade_checkpoint(checkpoint: dict[str, Any]) -> dict[str, Any]:
     return checkpoint
 
 
+def _is_empty_retry_checkpoint(checkpoint: dict[str, Any]) -> bool:
+    """Recognize only the empty placeholder written by a pre-initialization Retry.
+
+    Inspect before upgrading: an assessment upgrade clears partial results and
+    must never make a populated or unknown cursor look safe to initialize.
+    """
+    defaults = _upgrade_checkpoint({})
+    assessment_version = checkpoint.get("assessment_version", ASSESSMENT_VERSION)
+    if type(assessment_version) is not int or not 1 <= assessment_version <= ASSESSMENT_VERSION:
+        return False
+    return all(
+        key in defaults and (key == "assessment_version" or value == defaults[key])
+        for key, value in checkpoint.items()
+    )
+
+
 def _record_unreadable(checkpoint: dict[str, Any]) -> None:
     checkpoint["unreadable"] = int(checkpoint.get("unreadable", 0)) + 1
 
@@ -149,24 +187,30 @@ def _clear_incomplete_message(checkpoint: dict[str, Any], thread_id: str, messag
 
 
 def _next_retry_batch(checkpoint: dict[str, Any], now: datetime | None = None) -> list[str]:
-    """Two retry-due, non-exhausted sources; exhausted ones wait for the owner."""
+    """Queue at most two due sources, including sources on the slow retry cadence."""
     due_ms = _now_ms(now)
     sources = checkpoint.get("incomplete_sources", {})
     threads = [
         thread_id
         for thread_id, entry in sources.items()
-        if not source_exhausted(entry) and int(entry.get("retry_at_ms", 0)) <= due_ms
+        if int(entry.get("retry_at_ms", 0)) <= due_ms
     ]
     if not threads:
         return []
     start = int(checkpoint.get("retry_cursor", 0)) % len(threads)
     batch = [threads[(start + offset) % len(threads)] for offset in range(min(2, len(threads)))]
     checkpoint["retry_cursor"] = (start + len(batch)) % len(threads)
+    # Advance the slow cooldown before reading so even an unresolved gap absent
+    # from the provider's thread listing cannot be selected on every pass.
+    for thread_id in batch:
+        entry = sources[thread_id]
+        if source_exhausted(entry):
+            entry["retry_at_ms"] = due_ms + 1000 * SLOW_SOURCE_RETRY_SECONDS
     return batch
 
 
 def _earliest_retry_in(checkpoint: dict[str, Any], now: datetime | None = None) -> int | None:
-    """Seconds until the next automatic retry, or None when nothing is waiting."""
+    """Schedule fast retries separately so slow retries never postpone history reads."""
     pending = [
         int(entry.get("retry_at_ms", 0))
         for entry in checkpoint.get("incomplete_sources", {}).values()

@@ -12,6 +12,7 @@ import {
 import { usePathname } from "next/navigation";
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { useFinanceShareContext } from "@/lib/finance-sharing/use-finance-share-context";
 import type {
@@ -32,6 +33,11 @@ import {
 import { FinanceSharedDetail } from "./finance-shared-detail";
 import finance from "@/components/kai/shared/finance-workspace.module.css";
 import styles from "./finance-sharing.module.css";
+
+const directionTabs: { value: "outgoing" | "received"; label: string }[] = [
+  { value: "outgoing", label: "Shared by you" },
+  { value: "received", label: "Shared with you" },
+];
 
 export function FinanceSharingManager({
   open,
@@ -273,10 +279,11 @@ export function FinanceSharingManager({
       ),
     );
   }, [items, direction]);
-  const renderGrant = (item: FinanceGrant) => (
+  const renderGrant = (item: FinanceGrant, showStatus = false) => (
     <FinanceGrantDetails
       key={item.id}
       item={item}
+      showStatus={showStatus}
       direction={direction}
       owner={owner}
       busy={busy}
@@ -289,43 +296,20 @@ export function FinanceSharingManager({
   return (
     <>
       <KaiControlSurface
-        open={open && !updateData}
+        open={open && !updateData && !selected}
         onOpenChange={onOpenChange}
         title="Finance sharing"
-        description="Review access person by person."
-        surfaceClassName={finance.detail}
+        presentation="sheet"
+        surfaceClassName={`${finance.detail} ${styles.managerSheet}`}
       >
-        <div
-          className={styles.managerTabs}
-          role="group"
-          aria-label="Sharing direction"
-        >
-          <ShellActionSurface
-            variant="pill"
-            wrapperClassName="w-full"
-            className="w-full min-h-11 justify-center"
-            disabled={!canManageOutgoing}
-            aria-pressed={direction === "outgoing"}
-            onClick={() => setDirection("outgoing")}
-          >
-            Shared by you
-          </ShellActionSurface>
-          <ShellActionSurface
-            variant="pill"
-            wrapperClassName="w-full"
-            className="w-full min-h-11 justify-center"
-            aria-pressed={direction === "received"}
-            onClick={() => setDirection("received")}
-          >
-            Shared with you
-          </ShellActionSurface>
-        </div>
-        {!hasPortfolio ? (
-          <p className={`${styles.caption} mt-3`}>
-            {canManageOutgoing
-              ? "Add a portfolio to share again. You can still manage previous shares."
-              : "Add a portfolio to share."}
-          </p>
+        <SegmentedTabs
+          value={direction}
+          options={canManageOutgoing ? directionTabs : directionTabs.slice(1)}
+          ariaLabel="Sharing direction"
+          onValueChange={(value) => setDirection(value === "received" ? "received" : "outgoing")}
+        />
+        {!hasPortfolio && canManageOutgoing && direction === "outgoing" ? (
+          <p className={`${styles.caption} mt-2`}>Add a portfolio to update access.</p>
         ) : null}
         {error ? (
           <div role="alert" className="my-4 text-sm text-destructive">
@@ -391,7 +375,7 @@ export function FinanceSharingManager({
                       .toUpperCase() || "?"}
                   </PersonProfileButton>
                   <div>
-                    <h3 className="text-sm font-semibold">
+                    <h3 className={styles.grantName}>
                       {direction === "outgoing"
                         ? item.recipientName
                         : item.senderName}
@@ -399,16 +383,20 @@ export function FinanceSharingManager({
                   </div>
                 </div>
                 <span className={styles.chip}>
-                  {shares.length} {shares.length === 1 ? "share" : "shares"}
+                  {item.status === "stopped"
+                    ? "Stopped"
+                    : item.status === "expired"
+                      ? "Expired"
+                      : "Active"}
                 </span>
               </div>
               {renderGrant(item)}
               {shares.length > 1 ? (
-                <details className="mt-4 border-t border-border pt-4">
-                  <summary className="cursor-pointer text-sm">
-                    Earlier shares ({shares.length - 1})
+                <details className={styles.grantEarlier}>
+                  <summary>
+                    Earlier ({shares.length - 1})
                   </summary>
-                  {shares.slice(1).map(renderGrant)}
+                  {shares.slice(1).map((earlier) => renderGrant(earlier, true))}
                 </details>
               ) : null}
             </article>
@@ -436,7 +424,7 @@ export function FinanceSharingManager({
           if (!value) setStopping(null);
         }}
         title={`Stop sharing with ${stopping?.recipientName || "this person"}?`}
-        description="Access to this shared view and its Agent One review will end. Other shares keep their own access."
+        description="Access to this shared view will end. Other shares keep their own access."
         surfaceClassName={finance.detail}
         footer={
           <div className={styles.toolbar}>

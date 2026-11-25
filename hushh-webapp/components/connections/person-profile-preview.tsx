@@ -11,6 +11,10 @@ import { getAuthSessionGeneration, subscribeAuthSessionGeneration } from "@/lib/
 import { PERSON_PROFILE_PREVIEW_EVENT, type PersonProfilePreviewIdentity } from "@/lib/connections/person-profile-preview";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { useBackLayer } from "@/lib/navigation/back-layers";
+import { TypographyScopeProvider } from "@/lib/morphy-ux/ui/typography-scope";
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
+import calendarPresentation from "@/components/calendar/calendar-presentation.module.css";
+import { cn } from "@/lib/utils";
 import { discoveryNetworkPages, NetworkPageCache } from "@/lib/connect/network-page-cache";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
 import { loadNetworkPreviewList, preloadedNetworkPreviewList, type NetworkListComponent } from "@/components/connect/network-preview-list-loader";
@@ -156,10 +160,12 @@ export function PersonProfilePreview() {
       if (!opening.current) returnFocus.current = detail.returnFocus;
       opening.current = true;
       const key = ++nextJourneyKey;
+      const fromPreview = detail.returnFocus && scroll.current?.contains(detail.returnFocus);
+      const presentation = detail.presentation ?? (fromPreview ? currentEntry.current?.presentation : undefined);
       const journeyPages = privatePages.current ?? new NetworkPageCache();
       privatePages.current = journeyPages;
       const visit: Visit = {
-        personRef: detail.personRef, userId: detail.userId, networkList: detail.networkList,
+        personRef: detail.personRef, userId: detail.userId, networkList: detail.networkList, presentation,
         owner: user.uid, generation: getAuthSessionGeneration(), route, key, journeyPages,
         listPages: detail.networkList === "discovery" ? discoveryNetworkPages(sessionOwner ?? user.uid) : journeyPages,
         listComponent: preloadedNetworkPreviewList(),
@@ -190,21 +196,22 @@ export function PersonProfilePreview() {
 
   const personRef = active?.personRef?.trim() || active?.resolvedRef || (resolved?.key === active?.key ? resolved?.personRef : null);
   const networkMode = active?.networkList;
+  const calendar = active?.presentation === "calendar";
   const NetworkList = active?.listComponent ?? LazyNetworkList;
   const title = networkMode === "discovery" ? "Your network" : networkMode === "mutuals" ? "Mutual connections" : networkMode === "connections" ? "Connections" : "Profile";
-  return <Dialog modal open={Boolean(active)} onOpenChange={open => { if (!open) close(); }}>
-    {active ? <DialogContent data-person-profile-preview aria-label={networkMode ? title : "Person profile"} showCloseButton={false}
-      className="!h-[min(42rem,calc(100dvh-2rem))] !w-[calc(100%-1rem)] !max-w-[880px] !gap-0 !overflow-hidden !p-0 [--preview-gutter:0.75rem] sm:!w-[calc(100%-2rem)] sm:[--preview-gutter:1.25rem]"
+  return <TypographyScopeProvider className={active?.presentation === "connect" ? connectTypography.surface : undefined}><Dialog modal open={Boolean(active)} onOpenChange={open => { if (!open) close(); }}>
+    {active ? <DialogContent data-person-profile-preview data-connect-type-scale={calendar ? "page" : undefined} aria-label={networkMode ? title : "Person profile"} showCloseButton={false}
+      className={cn(calendar && calendarPresentation.portal, "!h-[min(42rem,calc(100dvh-2rem))] !w-[calc(100%-1rem)] !max-w-[880px] !gap-0 !overflow-hidden !p-0 [--preview-gutter:0.75rem] sm:!w-[calc(100%-2rem)] sm:[--preview-gutter:1.25rem]")}
       onCloseAutoFocus={event => { event.preventDefault(); if (returnFocus.current?.isConnected) returnFocus.current.focus({ preventScroll: true }); }}>
       <div className="flex shrink-0 items-center gap-2 border-b bg-background px-[var(--preview-gutter)] py-2">
         <button type="button" aria-label="Back to previous screen" className="flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:ring-2 focus-visible:ring-ring" onClick={close}><ArrowLeft aria-hidden="true" className="size-5 rtl:rotate-180" /></button>
         <DialogTitle>{title}</DialogTitle>
       </div>
       <div ref={scroll} data-network-scroll-owner className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-[var(--preview-gutter)] pt-3 pb-4 [scrollbar-gutter:stable] sm:pt-4 sm:pb-5">
-        {active.networkList ? <PreviewBoundary key={active.key} unavailable="This connection list is unavailable."><Suspense fallback={<p role="status" className="text-sm text-muted-foreground">Loading connections…</p>}><NetworkList key={active.key} mode={active.networkList} personRef={active.personRef ?? undefined} visitKey={`journey:${active.key}`} embedded retainedPages={active.listPages} onReady={restoreVisit} onDismiss={close} /></Suspense></PreviewBoundary>
-          : personRef ? <PreviewBoundary key={active.key} unavailable="This profile is unavailable."><Suspense fallback={<p role="status" className="text-sm text-muted-foreground">Loading profile…</p>}><Profile key={`${active.key}:${personRef}`} personRef={personRef} initialProfile={null} embedded onNetworkReady={restoreVisit} /></Suspense></PreviewBoundary>
-          : <p role={resolved?.key === active.key ? "alert" : "status"} className="text-sm text-muted-foreground">{resolved?.key === active.key ? "This profile is unavailable." : "Loading profile…"}</p>}
+        {active.networkList ? <PreviewBoundary key={active.key} unavailable="This connection list is unavailable."><Suspense fallback={<p data-connect-role="description" role="status" className="text-sm text-muted-foreground">Loading connections…</p>}><NetworkList key={active.key} mode={active.networkList} personRef={active.personRef ?? undefined} visitKey={`journey:${active.key}`} embedded retainedPages={active.listPages} onReady={restoreVisit} onDismiss={close} /></Suspense></PreviewBoundary>
+          : personRef ? <PreviewBoundary key={active.key} unavailable="This profile is unavailable."><Suspense fallback={<p data-connect-role="description" role="status" className="text-sm text-muted-foreground">Loading profile…</p>}><Profile key={`${active.key}:${personRef}`} personRef={personRef} initialProfile={null} embedded calendarPresentation={calendar} onNetworkReady={restoreVisit} /></Suspense></PreviewBoundary>
+          : <p data-connect-role="description" role={resolved?.key === active.key ? "alert" : "status"} className="text-sm text-muted-foreground">{resolved?.key === active.key ? "This profile is unavailable." : "Loading profile…"}</p>}
       </div>
     </DialogContent> : null}
-  </Dialog>;
+  </Dialog></TypographyScopeProvider>;
 }

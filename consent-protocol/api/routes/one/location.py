@@ -29,6 +29,11 @@ from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.middlewares.rate_limit import RateLimits, limiter
+from hushh_mcp.operons.location.policy import (
+    LOCATION_PEER_UNAVAILABLE,
+    LOCATION_PEER_UNAVAILABLE_MESSAGE,
+)
+from hushh_mcp.services.account_deletion_lifecycle_service import is_account_deletion_write_guard
 from hushh_mcp.services.capability_run_service import (
     MAX_CAPABILITY_RUN_RETENTION_PURGE,
     get_capability_run_store,
@@ -607,6 +612,14 @@ def _handle_error(exc: Exception) -> HTTPException:
             detail={
                 "code": "LOCATION_COMMAND_CHANGED",
                 "message": "This command changed or expired. Refresh it before continuing.",
+            },
+        )
+    if is_account_deletion_write_guard(exc):
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": LOCATION_PEER_UNAVAILABLE,
+                "message": LOCATION_PEER_UNAVAILABLE_MESSAGE,
             },
         )
     if isinstance(exc, PlaceRatingError):

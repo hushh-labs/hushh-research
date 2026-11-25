@@ -176,6 +176,7 @@ type UseSetupCapabilityCoordinatorParams = {
   isOperationallyReady: boolean;
   finishActionId: `setup.finish_${string}`;
   skipActionId: `setup.skip_${string}`;
+  allowCompletedFinanceEntry?: boolean;
   /**
    * Finance source settlement is durable journey state, so an interrupted
    * import can resume its Finish action after a refresh. Other capabilities
@@ -239,6 +240,7 @@ export function useSetupCapabilityCoordinator({
   isOperationallyReady,
   finishActionId,
   skipActionId,
+  allowCompletedFinanceEntry = false,
   resumeReadinessFromCallback = false,
   enabled = true,
   settlementBlocked = false,
@@ -267,6 +269,7 @@ export function useSetupCapabilityCoordinator({
     : null;
   const cachedCompletedEntry = resolveCompletedSetupCapabilityEntry({
     capabilityId,
+    allowCompletedFinanceEntry,
     completedCapabilityIds: cachedJourney?.setupCapabilityIds ?? [],
     rootSetupResolved:
       PreVaultUserStateService.isSetupResolved(cachedJourney),
@@ -275,6 +278,10 @@ export function useSetupCapabilityCoordinator({
     cachedCompletedEntry.kind === "redirect"
       ? cachedCompletedEntry.target
       : null;
+  // A stale miss must not replay the Finance intro for a completed owner.
+  const entryJourney = allowCompletedFinanceEntry && !cachedCompletedTarget
+    ? null
+    : cachedJourney;
   const completionKey = userId ? `${userId}:${capabilityId}` : null;
   const isInitialSetup = Boolean(
     enabled &&
@@ -292,9 +299,9 @@ export function useSetupCapabilityCoordinator({
       confirmedCompletionKey === completionKey);
   const hasUsableCachedJourney = Boolean(
     enabled &&
-      cachedJourney &&
+      entryJourney &&
       !cachedCompletedTarget &&
-      !PreVaultUserStateService.isSetupResolved(cachedJourney),
+      !PreVaultUserStateService.isSetupResolved(entryJourney),
   );
   const routeReady = isReady || hasUsableCachedJourney || isAlreadyComplete;
 
@@ -336,11 +343,14 @@ export function useSetupCapabilityCoordinator({
     void (async () => {
       try {
         const initialJourney =
-          cachedJourney ??
-          (await PreVaultUserStateService.bootstrapState(userId));
+          entryJourney ??
+          (await (allowCompletedFinanceEntry
+            ? PreVaultUserStateService.bootstrapState(userId, { force: true })
+            : PreVaultUserStateService.bootstrapState(userId)));
         if (cancelled) return;
         const completedEntry = resolveCompletedSetupCapabilityEntry({
           capabilityId,
+          allowCompletedFinanceEntry,
           completedCapabilityIds: initialJourney.setupCapabilityIds,
           rootSetupResolved:
             PreVaultUserStateService.isSetupResolved(initialJourney),
@@ -424,12 +434,13 @@ export function useSetupCapabilityCoordinator({
       cancelled = true;
     };
   }, [
+    allowCompletedFinanceEntry,
     authLoading,
-    cachedJourney,
     cachedCompletedTarget,
     canonicalRoute,
     capabilityId,
     enabled,
+    entryJourney,
     journeyMode,
     resumeReadinessFromCallback,
     replaceRoute,
@@ -758,6 +769,6 @@ export function SetupCapabilityTerminalFooter({
   );
 }
 
-export function SetupCapabilityLoading({ label }: { label: string }) {
-  return <RouteLoadingState label={label} surface="onboarding" />;
+export function SetupCapabilityLoading({ label, className }: { label: string; className?: string }) {
+  return <RouteLoadingState label={label} surface="onboarding" className={className} />;
 }

@@ -29,6 +29,17 @@ describe("FeedService", () => {
 
   afterEach(() => cache.clear());
 
+  it("sends full-history criteria and an opaque cursor without changing browse unread", async () => {
+    const key=CACHE_KEYS.FEED_LIST("search-owner");
+    cache.set(key,{items:[],next_cursor:null,unread_count:7});
+    const criteria={query:"Singh Ank",scope:"location",persona:"investor" as const,cursor:"signed-opaque-page",limit:20};
+    mockApiFetch.mockResolvedValue(jsonResponse({items:[],next_cursor:null,top_hit:null}));
+    await FeedService.searchActivity({idToken:"memory-only",query:criteria});
+    expect(mockApiFetch).toHaveBeenCalledWith("/api/one/feed/search",expect.objectContaining({method:"POST",cache:"no-store",body:JSON.stringify(criteria)}));
+    expect(cache.get(key)).toMatchObject({unread_count:7});
+    expect(mockApiFetch).toHaveBeenCalledTimes(1);
+  });
+
   it("does not dispatch after token acquisition outlives its owner session", async () => {
     await expect(FeedService.list({ idToken: "old-token", userId: "user-1", isEffectCurrent: () => false })).rejects.toMatchObject({ name: "AbortError" });
     expect(mockApiFetch).not.toHaveBeenCalled();

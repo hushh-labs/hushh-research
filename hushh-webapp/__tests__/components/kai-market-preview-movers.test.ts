@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { createElement } from "react";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -20,6 +20,68 @@ import {
 import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 import { withStableOverviewFromCache } from "@/lib/kai/kai-market-home-resource";
 import type { KaiHomeInsightsV2, KaiHomeNewsItem } from "@/lib/services/api-service";
+
+describe("India movers", () => {
+  const row = (symbol: string, companyName: string, changePct: number) => ({
+    symbol, companyName, price: 100, changePct, volume: 1, sparkline: null, degraded: false, asOf: "2026-11-12T10:01:00Z",
+  });
+  const groups = {
+    gain: [row("TATASTEEL", "Tata Steel Limited", 3.1)],
+    lose: [row("WIPRO", "Wipro Limited", -1.4)],
+    active: [],
+  };
+
+  it("opens an India mover through the selected-stock handler", () => {
+    const onSelect = vi.fn();
+    render(createElement(OneMarketMovers, { groups, linkable: false, balanced: true, onSelect, note: "Among 50 large NSE stocks" }));
+    expect(screen.getByText("TATASTEEL")).toBeTruthy();
+    expect(screen.getByText(/Among 50 large NSE stocks/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /TATASTEEL/ }));
+    expect(onSelect).toHaveBeenCalledWith(groups.gain[0]);
+    expect(document.querySelectorAll("button[data-market-mover-rank]")).toHaveLength(2);
+  });
+
+  it("renders only real gainers in chat and delegates opening their details", () => {
+    const onSelect = vi.fn();
+    const props = { groups, gainersOnly: true, onSelect };
+    const { container } = render(createElement(OneMarketMovers, props));
+    const gainer = screen.getByRole("button", { name: /TATASTEEL/ });
+    const locationBefore = window.location.href;
+    expect(screen.queryByText("Losers")).toBeNull();
+    expect(container.querySelector("[data-market-mover-empty]")).toBeNull();
+    fireEvent.click(gainer);
+    expect(onSelect).toHaveBeenCalledWith(groups.gain[0]);
+    expect(window.location.href).toBe(locationBefore);
+    expect(gainer).toHaveAttribute("aria-haspopup", "dialog");
+  });
+
+  it("keeps US movers as buttons that open analysis", () => {
+    render(createElement(OneMarketMovers, { groups }));
+    expect(document.querySelectorAll("button[data-market-mover-rank]").length).toBeGreaterThan(0);
+  });
+});
+
+describe("India market strip", () => {
+  const row = (label: string, symbol: string, value: number) => ({
+    id: symbol.toLowerCase(), label, symbol, value, delta_pct: 0.4, as_of: "2026-11-12T10:00:00Z",
+    source: "Yahoo Chart (Batch)", degraded: false,
+  });
+  const payload = {
+    market_overview: [
+      row("NIFTY 50", "^NSEI", 25299.35), row("SENSEX", "^BSESN", 81911.01),
+      row("NIFTY Bank", "^NSEBANK", 61518.5), row("NIFTY IT", "^CNXIT", 32163.55),
+      row("S&P 500", "^GSPC", 7618.28),
+    ],
+  } as unknown as KaiHomeInsightsV2;
+
+  it("shows the four NSE/BSE indices for India and keeps the US strip as the default", () => {
+    expect(toIndexStripItems(payload, "IN").map((item) => item.label)).toEqual(["NIFTY 50", "SENSEX", "NIFTY Bank", "NIFTY IT"]);
+    expect(toIndexStripItems(payload, "IN")[0]?.detailPanel?.summary).toBe("India equity index · points");
+    // Without a region the strip is still the US one, so existing callers are unchanged.
+    expect(toIndexStripItems(payload).map((item) => item.label)).toEqual(["S&P 500", "NASDAQ Composite", "Dow Jones", "Russell 2000"]);
+    expect(toIndexStripItems(payload)[0]?.detailPanel?.summary).toBe("US equity index · points");
+  });
+});
 
 describe("market period and image evidence", () => {
   it("switches to actual weekly values and exposes the observed period", async () => {
@@ -163,12 +225,12 @@ describe("market index quote evidence", () => {
       { label: "Market Status", value: "Open", delta_pct: null, as_of: null, source: "Schedule", degraded: false },
     ] }, { market_overview: [{ ...quote, degraded: false, is_delayed: false }] });
     expect(payload.market_overview?.[0]).toMatchObject({ value: 7712.57, degraded: true, as_of: quote.as_of });
-    expect(toIndexStripItems(payload)[0].quoteStatus).toBe("");
+    expect(toIndexStripItems(payload)[0].quoteStatus).toBe("Saved quote");
     expect(toIndexStripItems(payload)[0].quotedAt).toBe(quote.as_of);
     const metrics = toIndexStripItems(payload);
     const { container } = render(createElement(OneMarketIndexStrip, { metrics, onMetricSelect: () => {} }));
     expect(container.textContent).not.toMatch(/cached/i);
-    expect(metrics[0].detailPanel?.statusLabel).toBe("");
+    expect(metrics[0].detailPanel?.statusLabel).toBe("Saved quote");
     expect(metrics[0].degraded).toBe(true);
     const next = withStableOverviewFromCache({ market_overview: [{ ...quote, value: 7800, degraded: false }] }, payload);
     expect(next.market_overview?.[0].value).toBe(7800);
@@ -208,7 +270,7 @@ describe("toMoverGroups", () => {
     expect(container.textContent).not.toMatch(/cached/i);
     expect(screen.queryByText("Cached", { exact: true })).not.toBeInTheDocument();
     expect(screen.queryByText("FOURTH", { exact: true })).not.toBeInTheDocument();
-    expect(container.querySelectorAll("[data-market-mover-pair]")).toHaveLength(3);
+    expect(within(screen.getByRole("region", { name: "Gainers" })).getAllByRole("button")).toHaveLength(3);
   });
 
   it("renders three real stocks on each side from complete directional observations", () => {
@@ -219,13 +281,13 @@ describe("toMoverGroups", () => {
     const { container } = render(createElement(OneMarketMovers, { groups }));
     expect(container.querySelectorAll("button")).toHaveLength(6);
     expect(container.querySelectorAll("[data-market-mover-empty]")).toHaveLength(0);
-    const pairs = [...container.querySelectorAll("[data-market-mover-pair]")];
-    expect(pairs).toHaveLength(3);
-    pairs.forEach((pair, index) => {
-      const cells = pair.querySelectorAll("button");
-      expect(cells).toHaveLength(2);
-      expect(cells[0]).toHaveTextContent(`UP${index + 1}`);
-      expect(cells[1]).toHaveTextContent(`DOWN${index + 1}`);
+    const gainers = within(screen.getByRole("region", { name: "Gainers" })).getAllByRole("button");
+    const losers = within(screen.getByRole("region", { name: "Losers" })).getAllByRole("button");
+    expect(gainers).toHaveLength(3);
+    expect(losers).toHaveLength(3);
+    gainers.forEach((gainer, index) => {
+      expect(gainer).toHaveTextContent(`UP${index + 1}`);
+      expect(losers[index]).toHaveTextContent(`DOWN${index + 1}`);
     });
   });
 
@@ -245,8 +307,9 @@ describe("toMoverGroups", () => {
     expect(container.querySelector("time")).toBeNull();
     expect(container.textContent).not.toMatch(/time unavailable/i);
     rerender(createElement(OneMarketMovers, { groups: groupsFor([], []) }));
-    expect(container.querySelectorAll("[data-market-mover-pair]")).toHaveLength(3);
+    // No text at all: six placeholders shaped like movers.
     expect(container.querySelectorAll("[data-market-mover-empty]")).toHaveLength(6);
+    expect(screen.queryByText(/unavailable|updating/i)).not.toBeInTheDocument();
     expect(container.querySelectorAll("button")).toHaveLength(0);
     expect(container.textContent).not.toMatch(/cached|[+-]\d/);
   });
@@ -375,7 +438,7 @@ describe("market route overlays", () => {
     );
 
     for (const source of [portfolioDashboard, portfolioImport, analysis]) {
-      expect(source).toContain("KaiWorkspaceHeader");
+      expect(source).toContain(source === portfolioImport ? "PageHeader" : "KaiWorkspaceHeader");
       expect(source).toContain("AppPageContentRegion");
     }
     expect(portfolioDashboard).toContain("Loading portfolio sources...");

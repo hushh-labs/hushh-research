@@ -4993,3 +4993,186 @@ async def test_discovery_79_files_deliver_in_four_batches_without_duplicate_effe
         ).all()
         assert sorted(size for size, count in counts) == [4, 25, 25, 25]
         assert sum(count for size, count in counts) == 79
+
+
+@pytest.mark.asyncio
+async def test_private_filename_search_continues_past_nonmatches_and_rechecks_access(
+    request_bulk, sharing
+):
+    from hushh_mcp.services.feed_file_search import FeedFileSearch
+
+    _owner_feed_schema(sharing.db)
+    prior_request = (await _request(sharing, purpose_text="Prior QA request"))["requestId"]
+    prior_search = _search(request_bulk, request_id=prior_request, count=1)
+    prior_share = await _approved_batch(
+        request_bulk, search=prior_search, request_id=prior_request, positions=[1]
+    )
+    _settle(request_bulk, prior_share, [1])
+    request_id = (await _request(sharing))["requestId"]
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders SET status='paid',paid_at=clock_timestamp()
+              WHERE request_id=:request"""),
+            {"request": prior_request},
+        )
+        connection.execute(
+            text("""INSERT INTO drive_request_payment_orders
+          (stripe_mode,request_id,user_id,requester_user_id,status,paid_at)
+          VALUES ('test',:request,'owner','recipient','paid',clock_timestamp())"""),
+            {"request": request_id},
+        )
+    search = _search(
+        request_bulk,
+        request_id=request_id,
+        count=101,
+        names={1: "x" * 400 + " archived title", 101: "Passport final.pdf"},
+    )
+    for start in range(1, 102, 25):
+        positions = list(range(start, min(start + 25, 102)))
+        share = await _approved_batch(
+            request_bulk, search=search, request_id=request_id, positions=positions
+        )
+        _settle(request_bulk, share, list(range(1, len(positions) + 1)))
+    verify = AsyncMock()
+    reader = FeedFileSearch(db=sharing.db, cipher=request_bulk.cipher, verify_recipient=verify)
+    long_name = await reader.search(user_id="owner", audience="owner", query="archived title")
+    assert long_name["files"][0]["name"].endswith("…")
+    assert len(long_name["files"][0]["name"]) <= 255
+    first = await reader.search(user_id="recipient", audience="requester", query="passport")
+    assert first["files"] == [] and first["nextCursor"]
+    assert verify.await_count == 1
+    second = await reader.search(
+        user_id="recipient", audience="requester", query="passport", cursor=first["nextCursor"]
+    )
+    assert [file["name"] for file in second["files"]] == ["Passport final.pdf"]
+    assert second["nextCursor"] is None
+    file = second["files"][0]
+    assert file["requestId"] == request_id
+    assert file["openUrl"] == "https://drive.google.com/file/d/standup-file-101/view"
+    for user, query in [("stranger", "passport"), ("recipient", "notes")]:
+        with pytest.raises(DriveSharingError, match="invalid_argument"):
+            await reader.search(
+                user_id=user, audience="requester", query=query, cursor=first["nextCursor"]
+            )
+    assert (await reader.search(user_id="stranger", audience="requester", query="passport"))[
+        "files"
+    ] == []
+
+    # Final candidate facts must be read while the request admission lock is
+    # already held. The old read-then-lock order lets this NOWAIT succeed.
+    from sqlalchemy import event
+    from sqlalchemy.exc import DBAPIError
+
+    candidate_reads = []
+
+    def check_final_lock(connection, cursor, statement, parameters, context, many):
+        if "WITH candidates AS" not in statement:
+            return
+        candidate_reads.append(statement)
+        if len(candidate_reads) == 2:
+            with sharing.db.engine.begin() as competing:
+                with pytest.raises(DBAPIError, match="could not obtain lock"):
+                    competing.execute(
+                        text(
+                            "SELECT request_id FROM drive_share_requests WHERE request_id=:id FOR UPDATE NOWAIT"
+                        ),
+                        {"id": request_id},
+                    )
+            _, share_id, position = file["fileRef"].split(":")
+            with sharing.db.engine.begin() as competing:
+                with pytest.raises(DBAPIError, match="could not obtain lock"):
+                    competing.execute(
+                        text("""SELECT share_id FROM drive_bulk_share_effects
+                      WHERE share_id=:share AND position=:position AND recipient_user_id='recipient'
+                      FOR UPDATE NOWAIT"""),
+                        {"share": share_id, "position": int(position)},
+                    )
+
+    event.listen(sharing.db.engine, "before_cursor_execute", check_final_lock)
+    try:
+        assert (await reader.search(user_id="recipient", audience="requester", exact=file))["files"]
+    finally:
+        event.remove(sharing.db.engine, "before_cursor_execute", check_final_lock)
+    assert len(candidate_reads) == 2
+
+    # Batch retention outlives actual request access. No expiry worker is needed
+    # to enforce the request's authoritative deadline on a filename read.
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE drive_share_requests SET v1_live_request=TRUE,requested_access_days=1,approved_access_days=1,access_expires_at=clock_timestamp()-interval '1 second' WHERE request_id=:id"
+            ),
+            {"id": request_id},
+        )
+    assert (await reader.search(user_id="recipient", audience="requester", exact=file))[
+        "files"
+    ] == []
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE drive_share_requests SET access_expires_at=clock_timestamp()+interval '1 hour' WHERE request_id=:id"
+            ),
+            {"id": request_id},
+        )
+
+    async def revoke_during_verification(_recipient):
+        with sharing.db.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE drive_share_requests SET access_stop_requested_at=clock_timestamp() WHERE request_id=:request"
+                ),
+                {"request": request_id},
+            )
+
+    reader.verify_recipient = revoke_during_verification
+    assert (await reader.search(user_id="recipient", audience="requester", exact=file))[
+        "files"
+    ] == []
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE drive_bulk_shares SET progressive_batch=FALSE WHERE origin_request_id=:request"
+            ),
+            {"request": request_id},
+        )
+    # The owner keeps their own authorized filename history after access ends.
+    owned = await reader.search(user_id="owner", audience="owner", query="passport")
+    while owned["nextCursor"] and not owned["files"]:
+        owned = await reader.search(
+            user_id="owner", audience="owner", query="passport", cursor=owned["nextCursor"]
+        )
+    assert owned["files"][0]["status"] == "access_changed"
+
+
+def test_feed_legacy_filename_admission_uses_the_sealed_drive_deadline(request_bulk):
+    from datetime import UTC, datetime, timedelta
+
+    from hushh_mcp.services.feed_file_search import FeedFileSearch
+
+    reader = FeedFileSearch(db=request_bulk.db, cipher=request_bulk.cipher)
+    now = datetime.now(UTC)
+    operation = str(uuid4())
+    row = {
+        "source_kind": "legacy",
+        "source_id": operation,
+        "owner_user_id": "owner",
+        "access_stop_requested_at": None,
+        "access_expires_at": None,
+        "removal_exists": False,
+    }
+
+    def plan(deadline):
+        return request_bulk.cipher.seal(
+            {"file_id": "private-file", "file_name": "Private.pdf", "expiration_time": deadline},
+            user_id="owner",
+            resource_id=operation,
+            purpose="permission-plan",
+        )
+
+    row["plan_envelope"] = plan((now - timedelta(seconds=1)).isoformat())
+    assert not reader._admitted(row, "requester", now)
+    assert reader._admitted(
+        row, "owner", now
+    )  # Own history is distinct from live recipient access.
+    row["plan_envelope"] = plan((now + timedelta(hours=1)).isoformat())
+    assert reader._admitted(row, "requester", now)

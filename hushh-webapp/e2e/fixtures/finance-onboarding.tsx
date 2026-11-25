@@ -33,13 +33,12 @@ export function FinanceOnboardingFixture() {
             <FinancePersonaForm
               onboarding
               onSave={async () => {}}
-              onSkip={() => setPhase("source")}
               onDone={() => setPhase("source")}
             />
           ) : phase === "source" ? (
             <PortfolioImportView
               presentation="onboarding"
-              onIntroductionBack={() => setPhase("persona")}
+              onSetupBack={() => setPhase("persona")}
               onSkip={() => setPhase("complete")}
               onFileSelect={() => record("statement")}
               onConnectPlaid={() => record("plaid")}

@@ -15,7 +15,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Save } from "@/components/icons";
 import type { Holding } from "@/components/kai/types/portfolio";
-import { holdingEditorErrors, isCashEquivalentHolding, withHoldingValues, type HoldingValidationIssue, type HoldingValidationField } from "@/lib/kai/holding-validation";
+import { holdingEditorErrors, normalizeHoldingAcquisitionDate, isCashEquivalentHolding, withHoldingValues, type HoldingValidationIssue, type HoldingValidationField } from "@/lib/kai/holding-validation";
+import { HoldingGainLoss } from "@/components/kai/holdings/holding-gain-loss";
+import { toHoldingViewModel } from "@/components/kai/holdings/holding-view-model";
 import { HoldingAcquisitionDateField } from "@/components/kai/holdings/holding-acquisition-date-field";
 import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import { cn } from "@/lib/utils";
@@ -124,12 +126,23 @@ export function EditHoldingModal({
   validationIssue,
 }: EditHoldingModalProps) {
   const maxAcquisitionDate = getLocalDateIso();
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const formRef = useRef<HTMLDivElement | null>(null);
   const [focusRequest, setFocusRequest] = useState<{ field: HoldingValidationField; attempt: number } | null>(null);
   const focusField = useCallback((field: HoldingValidationField) => {
-    const input = formRef.current?.querySelector<HTMLInputElement>(`#holding-${field.replaceAll("_", "-")}`);
-    input?.scrollIntoView?.({ block: "center" });
-    input?.focus({ preventScroll: true });
+    const form = formRef.current;
+    const input = form?.querySelector<HTMLInputElement>(`#holding-${field.replaceAll("_", "-")}`);
+    if (!form || !input) return;
+
+    input.focus({ preventScroll: true });
+    const fieldBounds = input.getBoundingClientRect();
+    const formTop = form.getBoundingClientRect().top;
+    if (fieldBounds.top >= formTop && fieldBounds.bottom <= formTop + form.clientHeight) return;
+
+    form.scrollTo({
+      top: form.scrollTop + fieldBounds.top - formTop - (form.clientHeight - fieldBounds.height) / 2,
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+    });
   }, []);
   useEffect(() => {
     if (isOpen && focusRequest) focusField(focusRequest.field);
@@ -173,6 +186,7 @@ export function EditHoldingModal({
 
   // Initialize form data when holding changes
   useEffect(() => {
+    setCalendarOpen(false);
     if (holding) {
       setFormData({
         ...holding,
@@ -184,7 +198,7 @@ export function EditHoldingModal({
         cost_basis: holding.cost_basis,
         unrealized_gain_loss: holding.unrealized_gain_loss,
         unrealized_gain_loss_pct: holding.unrealized_gain_loss_pct,
-        acquisition_date: holding.acquisition_date || "",
+        acquisition_date: normalizeHoldingAcquisitionDate(holding.acquisition_date, "month-first") ?? holding.acquisition_date ?? "",
       });
       setErrors(validationIssue ? { [validationIssue.field]: validationIssue.message } : {});
       setFocusRequest(validationIssue ? { field: validationIssue.field, attempt: 0 } : null);
@@ -258,7 +272,10 @@ export function EditHoldingModal({
   const handleChange = useCallback((field: keyof Holding, value: string | number | undefined) => {
     setFormData(prev => {
       const next = { ...prev, [field]: value };
-      return ["quantity", "price", "cost_basis", "market_value"].includes(field) ? withHoldingValues(next) : next;
+      if (field === "quantity" || field === "price") return withHoldingValues(next);
+      if (field === "market_value") return withHoldingValues({ ...next, market_value_unavailable: undefined }, next.market_value);
+      if (field === "cost_basis") return withHoldingValues(next, next.market_value);
+      return next;
     });
     // Clear error for this field
     setErrors(prev => {
@@ -306,18 +323,30 @@ export function EditHoldingModal({
   }, []);
 
   const handleSave = useCallback(() => {
-    const next = withHoldingValues(formData);
-    const newErrors = holdingEditorErrors(next, maxAcquisitionDate);
+    const quoteChanged = !holding || formData.quantity !== holding.quantity || formData.price !== holding.price;
+    const observedMarketValue = isCashEquivalentHolding(formData) ? formData.market_value : holding?.market_value;
+    const next = withHoldingValues(formData, quoteChanged ? undefined : observedMarketValue);
+    if (holding && !quoteChanged && next.market_value === holding.market_value &&
+        next.cost_basis === holding.cost_basis && next.symbol.trim().toUpperCase() === holding.symbol.trim().toUpperCase()) {
+      next.unrealized_gain_loss = holding.unrealized_gain_loss ?? next.unrealized_gain_loss;
+      next.unrealized_gain_loss_pct = holding.unrealized_gain_loss_pct ?? next.unrealized_gain_loss_pct;
+    }
+    const newErrors = holdingEditorErrors(next, maxAcquisitionDate, Number(holding?.quantity) < 0);
     setErrors(newErrors);
     const field = Object.keys(newErrors)[0] as HoldingValidationField | undefined;
     if (field) {
       setFocusRequest(previous => ({ field, attempt: (previous?.attempt ?? 0) + 1 }));
       return;
     }
-    onSave({ ...next, symbol: next.symbol.toUpperCase() });
-  }, [formData, maxAcquisitionDate, onSave]);
+    onSave({
+      ...next,
+      symbol: next.symbol.toUpperCase(),
+      acquisition_date: normalizeHoldingAcquisitionDate(next.acquisition_date),
+    });
+  }, [formData, holding, maxAcquisitionDate, onSave]);
 
   const cashLike = isCashEquivalentHolding(formData);
+  const gainPreview = toHoldingViewModel({ ...formData, client_id: "holding-editor" }, 0);
   const isNewHolding = !holding?.symbol;
 
   return (
@@ -328,21 +357,35 @@ export function EditHoldingModal({
       onOpenChange={(open) => !open && onClose()}
       repositionInputs={false}
     >
-      <DrawerContent className={financeStyles.detail} onOpenAutoFocus={event => { if (validationIssue) { event.preventDefault(); focusField(validationIssue.field); } }}>
-        <DrawerHeader>
-          <DrawerTitle>
+      <DrawerContent
+        className={cn(financeStyles.detail, financeStyles.holdingEditor)}
+        onOpenAutoFocus={(event) => {
+          if (validationIssue) {
+            event.preventDefault();
+            focusField(validationIssue.field);
+          }
+        }}
+        onEscapeKeyDown={(event) => {
+          if (calendarOpen) {
+            event.preventDefault();
+            setCalendarOpen(false);
+          }
+        }}
+      >
+        <DrawerHeader className="shrink-0">
+          <DrawerTitle className="ui-text-page-title">
             {isNewHolding ? "Add Holding" : "Edit Holding"}
           </DrawerTitle>
-          <DrawerDescription>
-            Update your portfolio details securely. All changes are encrypted.
+          <DrawerDescription className="sr-only">
+            Review the holding details before saving.
           </DrawerDescription>
         </DrawerHeader>
 
-        <div ref={formRef} className="px-4 py-2 space-y-4 max-h-[60vh] overflow-y-auto">
+        <div ref={formRef} className="min-h-0 space-y-4 overflow-y-auto px-4 py-2 md:space-y-2.5">
           {/* Symbol */}
           <div>
-            <label htmlFor="holding-symbol" className="block text-sm font-medium mb-1">
-              Symbol <span className="text-red-500">*</span>
+            <label htmlFor="holding-symbol" className="ui-text-form-label mb-1 block">
+              Symbol <span className="text-destructive" aria-hidden="true">*</span>
             </label>
             <div ref={symbolInputWrapRef} className="relative">
               <input
@@ -398,14 +441,14 @@ export function EditHoldingModal({
               )}
             </div>
             {errors.symbol && (
-              <p id="holding-symbol-error" className="text-sm text-red-500 mt-1">{errors.symbol}</p>
+              <p id="holding-symbol-error" className="ui-text-row-description mt-1 text-destructive">{errors.symbol}</p>
             )}
           </div>
 
           {/* Name */}
           <div>
-            <label htmlFor="holding-name" className="block text-sm font-medium mb-1">
-              Company Name <span className="text-red-500">*</span>
+            <label htmlFor="holding-name" className="ui-text-form-label mb-1 block">
+              Company Name <span className="text-destructive" aria-hidden="true">*</span>
             </label>
             <div ref={nameInputWrapRef} className="relative">
               <input
@@ -460,15 +503,15 @@ export function EditHoldingModal({
               )}
             </div>
             {errors.name && (
-              <p id="holding-name-error" className="text-sm text-red-500 mt-1">{errors.name}</p>
+              <p id="holding-name-error" className="ui-text-row-description mt-1 text-destructive">{errors.name}</p>
             )}
           </div>
 
           {/* Quantity & Price Row */}
-          {!cashLike ? <div className="grid grid-cols-2 gap-4">
+          {!cashLike ? <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label htmlFor="holding-quantity" className="block text-sm font-medium mb-1">
-                Quantity <span className="text-red-500">*</span>
+              <label htmlFor="holding-quantity" className="ui-text-form-label mb-1 block">
+                Quantity <span className="text-destructive" aria-hidden="true">*</span>
               </label>
 	              <input
                 id="holding-quantity"
@@ -488,13 +531,13 @@ export function EditHoldingModal({
                 )}
               />
               {errors.quantity && (
-                <p id="holding-quantity-error" className="text-sm text-red-500 mt-1">{errors.quantity}</p>
+                <p id="holding-quantity-error" className="ui-text-row-description mt-1 text-destructive">{errors.quantity}</p>
               )}
             </div>
 
             <div>
-              <label htmlFor="holding-price" className="block text-sm font-medium mb-1">
-                Price <span className="text-red-500">*</span>
+              <label htmlFor="holding-price" className="ui-text-form-label mb-1 block">
+                Price <span className="text-destructive" aria-hidden="true">*</span>
               </label>
 	              <input
                 id="holding-price"
@@ -514,7 +557,7 @@ export function EditHoldingModal({
                 )}
               />
               {errors.price && (
-                <p id="holding-price-error" className="text-sm text-red-500 mt-1">{errors.price}</p>
+                <p id="holding-price-error" className="ui-text-row-description mt-1 text-destructive">{errors.price}</p>
               )}
             </div>
           </div> : null}
@@ -539,13 +582,13 @@ export function EditHoldingModal({
               )}
             />
             {errors.market_value && (
-              <p id="holding-market-value-error" className="text-sm text-red-500 mt-1">{errors.market_value}</p>
+              <p id="holding-market-value-error" className="ui-text-row-description mt-1 text-destructive">{errors.market_value}</p>
             )}
           </div>
 
           {/* Cost Basis */}
           <div>
-            <label htmlFor="holding-cost-basis" className="block text-sm font-medium mb-1">
+            <label htmlFor="holding-cost-basis" className="ui-text-form-label mb-1 block">
               Cost Basis (Total)
             </label>
             <input
@@ -561,7 +604,7 @@ export function EditHoldingModal({
               className="w-full px-4 py-3 h-12 rounded-xl border border-border bg-background outline-none focus:border-primary transition-colors"
             />
             {errors.cost_basis && (
-              <p id="holding-cost-basis-error" className="text-sm text-red-500 mt-1">{errors.cost_basis}</p>
+              <p id="holding-cost-basis-error" className="ui-text-row-description mt-1 text-destructive">{errors.cost_basis}</p>
             )}
           </div>
 
@@ -569,33 +612,21 @@ export function EditHoldingModal({
             value={formData.acquisition_date}
             max={maxAcquisitionDate}
             error={errors.acquisition_date}
+            calendarOpen={calendarOpen}
+            onCalendarOpenChange={setCalendarOpen}
             onChange={(value) => handleChange("acquisition_date", value)}
           />
 
           {/* Gain/Loss Preview */}
-          {formData.cost_basis !== undefined && formData.cost_basis > 0 && (
+          {!cashLike && (gainPreview.gainLossValue !== null || gainPreview.gainLossPct !== null) && (
             <div className="p-4 rounded-2xl bg-muted/30 border border-border/50">
-              <p className="text-sm text-muted-foreground font-medium">Unrealized Gain/Loss</p>
-              <p
-                className={cn(
-                  "text-xl font-bold mt-1",
-                  (formData.unrealized_gain_loss || 0) >= 0
-                    ? "text-emerald-500"
-                    : "text-red-500"
-                )}
-              >
-                ${(formData.unrealized_gain_loss || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                {" "}
-                <span className="text-sm font-medium opacity-80">
-                  ({(formData.unrealized_gain_loss_pct || 0) >= 0 ? "+" : ""}
-                  {(formData.unrealized_gain_loss_pct || 0).toFixed(2)}%)
-                </span>
-              </p>
+              <p className="ui-text-row-description text-muted-foreground">Unrealized gain / loss</p>
+              <HoldingGainLoss holding={gainPreview} showPercentage className="ui-text-row-label-emphasized mt-1 block tabular-nums" />
             </div>
           )}
         </div>
  
-        <DrawerFooter className="border-t bg-background/80 backdrop-blur-lg pb-[calc(5rem+var(--app-safe-area-bottom-effective))]">
+        <DrawerFooter className="shrink-0 border-t bg-background/80 pb-[max(1rem,var(--app-safe-area-bottom-effective))]">
           <div className="flex gap-3 w-full">
             <DrawerClose asChild>
               <Button

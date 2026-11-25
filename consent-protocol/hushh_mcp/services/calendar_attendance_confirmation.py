@@ -13,6 +13,30 @@ if TYPE_CHECKING:
     from hushh_mcp.services.calendar_schedule_service import CalendarScheduleService
 
 
+async def selected_organizer_sender(
+    service: CalendarScheduleService, *, user_id: str, mail: Any, binding: tuple[str, ...]
+) -> dict[str, Any] | None:
+    """Use the existing Mail grant only when it proves the selected account."""
+    account_id = getattr(service.calendar.connections, "account_id", "default")
+    identity_reader = getattr(service.calendar.connections, "read_calendar_grant_identity", None)
+    sender_reader = getattr(getattr(mail, "gmail_service", None), "send_grant_identity", None)
+    identity = await identity_reader(user_id=user_id) if callable(identity_reader) else None
+    sender = await sender_reader(user_id=user_id) if callable(sender_reader) else None
+    if (
+        identity is None
+        or identity.account_id != account_id
+        or identity.binding != binding
+        or not isinstance(sender, dict)
+        or sender.get("google_sub") != identity.provider_subject
+    ):
+        raise GoogleConnectionError(
+            "The available Mail sender does not match this Calendar account. Connect the matching account in Mail, then review again.",
+            status_code=409,
+            reason_code="calendar_mail_account_mismatch",
+        )
+    return sender
+
+
 def require_review_account_email(expected: str | None, actual: str) -> None:
     if expected and actual.casefold() != expected.casefold():
         raise GoogleConnectionError(

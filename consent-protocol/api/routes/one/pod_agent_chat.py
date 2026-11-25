@@ -17,6 +17,7 @@ from api.routes.external_connectors import (
 from api.routes.one import pod_agent_chat_connectors, pod_command_proposals
 from api.routes.one.agent_context import sanitize_agent_context
 from api.routes.one.pod_chat_owner import owner_context
+from api.routes.one.pod_consent_chat import admit_continuation
 from api.routes.one.pod_turn import PodTurnRequest, _require_enabled
 from hushh_mcp.one_adk import owner_style
 from hushh_mcp.one_adk.agent_tree import ONE_APP_NAME
@@ -262,9 +263,10 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         ],
         # As on the hub: only a draft-contract-2 app fills the card from the envelope.
         "temp:hussh:email_draft_envelope": forwarded.get("emailDraftContract") == 2,
-        "temp:one_execution_surface": "typed_chat",
         "temp:one_calendar_review_contract": type(forwarded.get("calendarReviewContract")) is int
         and forwarded.get("calendarReviewContract") == 1,
+        "temp:hussh:email_read_coverage": forwarded.get("emailReadReceiptContract") == 2,
+        "temp:one_execution_surface": "typed_chat",
         "temp:hussh:workspace_chat_admission": False,
         "hussh:user_id": owner.owner,
         "hussh:consent_token": store_request_secret(
@@ -349,8 +351,6 @@ async def chat(input: RunAgentInput, owner: PodChatContext = Depends(context)):
         )
     except (ValueError, KeyError, TypeError):
         raise HTTPException(403, detail={"code": "POD_CHAT_PLAID_NOT_ADMITTED"}) from None
-    from api.routes.one.pod_consent_chat import admit_continuation
-
     state.update(await admit_continuation(forwarded, input, owner, ONE_APP_NAME))
     state["temp:hussh:split_dynamic_context"] = not bool(
         state.get("temp:hussh:consent_continuation")

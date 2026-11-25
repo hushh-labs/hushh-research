@@ -91,7 +91,10 @@ _GMAIL_COMPOSE_SCOPE = "https://www.googleapis.com/auth/gmail.compose"
 # Archive, labels, read state and trash. A Google restricted scope: requested
 # incrementally on first reviewed use, never as part of a read-only connect.
 _GMAIL_MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify"
-GmailConnectPurpose = Literal["read", "send", "compose", "modify"]
+# Filters, signatures, send-as display name & vacation responder. Requested
+# incrementally via purpose="settings" on top of existing grants.
+_GMAIL_SETTINGS_BASIC_SCOPE = "https://www.googleapis.com/auth/gmail.settings.basic"
+GmailConnectPurpose = Literal["read", "send", "compose", "modify", "settings", "full"]
 
 # Bounds for the inbox scan behind "Needs a reply" nudges: how far back to look,
 # how many recent threads to inspect, and how many cards to return.
@@ -985,12 +988,42 @@ class GmailReceiptsService:
             raise GmailApiError("OAuth state is invalid", status_code=400)
         if issued_at_ms <= 0 or issued_at_ms > int(_utcnow().timestamp() * 1000):
             raise GmailApiError("OAuth state is invalid", status_code=400)
-        if payload.get("purpose", "read") not in {"read", "send", "compose", "modify"}:
+        if payload.get("purpose", "read") not in {
+            "read",
+            "send",
+            "compose",
+            "modify",
+            "settings",
+            "full",
+        }:
             raise GmailApiError("Invalid Gmail OAuth purpose", status_code=400)
         return payload
 
     @staticmethod
     def _oauth_scopes_for_purpose(purpose: GmailConnectPurpose) -> tuple[str, ...]:
+        if purpose == "full":
+            # Google OAuth 2.0 Granular Consent renders individual checkboxes
+            # (plus "Select all") for every Mail capability in one authorization
+            # step. Partial checkbox grants remain valid and are reflected
+            # verbatim via scope_csv on completion.
+            return (
+                "openid",
+                "email",
+                "profile",
+                _GMAIL_READONLY_SCOPE,
+                _GMAIL_SEND_SCOPE,
+                _GMAIL_COMPOSE_SCOPE,
+                _GMAIL_MODIFY_SCOPE,
+            )
+        if purpose == "settings":
+            # Filters, signatures, and vacation responder (incremental add-on).
+            return (
+                "openid",
+                "email",
+                "profile",
+                _GMAIL_READONLY_SCOPE,
+                _GMAIL_SETTINGS_BASIC_SCOPE,
+            )
         if purpose == "compose":
             # Provider-side draft creation is a distinct, explicitly selected
             # capability. It does not silently opt every Mail connection into
@@ -1517,24 +1550,9 @@ class GmailReceiptsService:
         return access_token
 
     async def get_compose_access_token(self, *, user_id: str) -> str:
-        """Resolve a provider-draft token only for the connected owner."""
-        row = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
-        if not row or self._derive_connection_state(row) != "connected":
-            raise GmailApiError("Connect Gmail first", status_code=409, code="GMAIL_NOT_CONNECTED")
-        if _GMAIL_COMPOSE_SCOPE not in self._granted_scopes(row):
-            raise GmailApiError(
-                "Enable Gmail drafts before saving a draft.",
-                status_code=409,
-                code="GMAIL_COMPOSE_PERMISSION_REQUIRED",
-            )
-        access_token, current = await self._ensure_access_token(user_id=user_id)
-        if _GMAIL_COMPOSE_SCOPE not in self._granted_scopes(current):
-            raise GmailApiError(
-                "Enable Gmail drafts before saving a draft.",
-                status_code=409,
-                code="GMAIL_COMPOSE_PERMISSION_REQUIRED",
-            )
-        return access_token
+        from hushh_mcp.services.gmail_execution_grants import get_compose_access_token
+
+        return await get_compose_access_token(self, user_id=user_id)
 
     async def get_modify_access_token(self, *, user_id: str, expected_google_sub: str) -> str:
         """Resolve a mailbox-organization token only for the connected owner."""
@@ -1634,26 +1652,28 @@ class GmailReceiptsService:
         )
 
     async def get_read_access_token(self, *, user_id: str, force_refresh: bool = False) -> str:
-        """Admit owner-bound Gmail reads without granting send authority.
+        from hushh_mcp.services.gmail_execution_grants import get_read_access_token
 
-        ``force_refresh`` is for a caller whose token Google just rejected
-        before its recorded expiry; it never widens the granted scopes.
-        """
+        return await get_read_access_token(self, user_id=user_id, force_refresh=force_refresh)
 
-        await self.assert_read_ready(user_id=user_id)
-        if force_refresh:
-            access_token, current_row = await self._ensure_access_token(
-                user_id=user_id, force_refresh=True
-            )
-        else:
-            access_token, current_row = await self._ensure_access_token(user_id=user_id)
-        if _GMAIL_READONLY_SCOPE not in self._granted_scopes(current_row):
-            raise GmailApiError(
-                "Reconnect Gmail to grant email reading permission.",
-                status_code=409,
-                code="GMAIL_READ_PERMISSION_REQUIRED",
-            )
-        return access_token
+    def _execution_read_binding(
+        self, user_id: str, row: dict[str, Any] | None
+    ) -> tuple[str, ...] | None:
+        from hushh_mcp.services.gmail_execution_grants import _execution_read_binding
+
+        return _execution_read_binding(self, user_id, row)
+
+    async def read_execution_grant_binding(self, *, user_id: str) -> tuple[str, ...] | None:
+        from hushh_mcp.services.gmail_execution_grants import read_execution_grant_binding
+
+        return await read_execution_grant_binding(self, user_id=user_id)
+
+    async def get_bound_read_access_token(
+        self, *, user_id: str, compose: bool = False
+    ) -> tuple[str, tuple[str, ...]]:
+        from hushh_mcp.services.gmail_execution_grants import get_bound_read_access_token
+
+        return await get_bound_read_access_token(self, user_id=user_id, compose=compose)
 
     def _derive_sync_state(
         self, *, row: dict[str, Any] | None, latest_run: dict[str, Any] | None
@@ -1707,6 +1727,8 @@ class GmailReceiptsService:
             "compose_permission_granted": connected
             and _GMAIL_COMPOSE_SCOPE in self._granted_scopes(row),
             "modify_permission_granted": self.modify_permission_granted(row),
+            "settings_permission_granted": connected
+            and _GMAIL_SETTINGS_BASIC_SCOPE in self._granted_scopes(row),
             "send_permission_granted": self._send_permission_granted(row),
             "send_reconnect_required": connected and not self._send_permission_granted(row),
             "last_sync_at": row.get("last_sync_at") if row else None,
@@ -2306,7 +2328,7 @@ class GmailReceiptsService:
                 {"user_id": user_id, "watch_enabled": self._watch_enabled()},
                 row,
                 cleanup_sql="""DELETE FROM calendar_email_followup_monitors
-                WHERE user_id = :user_id AND account_id = 'default'""",
+                WHERE user_id = :user_id AND account_id = 'default' AND enabled=TRUE""",
             )
 
             active_runs = await self._execute_raw_async(
@@ -2379,7 +2401,7 @@ class GmailReceiptsService:
             # orphaned operational state. The grant is already absent here.
             await self._execute_raw_async(
                 """DELETE FROM calendar_email_followup_monitors
-                WHERE user_id = :user_id AND account_id = 'default'""",
+                WHERE user_id = :user_id AND account_id = 'default' AND enabled=TRUE""",
                 {"user_id": user_id},
             )
         confirmed = False

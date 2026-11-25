@@ -95,6 +95,7 @@ def dispatch(event: dict, environment: dict, policy: dict) -> dict:
     require(
         not any(inputs.get(key) for key in incompatible)
         and _phase_admitted(inputs, refresh=refresh)
+        and inputs.get("phone_rollback_qualification", "uat") == "uat"
         and inputs.get("backend_image_source", "build-from-source")
         == "build-from-source"
         and inputs.get("drive_live_mode", "preserve") == "preserve"

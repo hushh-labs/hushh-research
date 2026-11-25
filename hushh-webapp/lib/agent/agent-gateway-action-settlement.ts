@@ -1,6 +1,10 @@
 import type { AgentActionRuntimeResult } from "@/lib/agent/agent-action-runtime";
 import { waitForVoiceActionSettlement } from "@/lib/voice/voice-action-settlement";
-import type { VoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
+import {
+  getVoiceSurfaceMetadata,
+  type VoiceSurfaceMetadata,
+} from "@/lib/kai/actions/voice-surface-metadata";
+import { deriveVoiceRouteScreen } from "@/lib/kai/actions/route-screen-derivation";
 import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
 import { settleProductDispatch } from "@/lib/observability/product-activity-client";
 
@@ -9,6 +13,24 @@ type GatewaySettlementOptions = {
   getCurrentSurfaceMetadata: () => VoiceSurfaceMetadata | null;
   timeoutMs?: number;
 };
+
+/** Chat navigation may unmount the chat workspace before the destination publishes. */
+export async function settleChatLocationNavigation(result: AgentActionRuntimeResult) {
+  if (
+    typeof window === "undefined" ||
+    (result.actionId !== "route.one_location" && result.actionId !== "location.open_settings")
+  ) {
+    return result;
+  }
+  return settleAgentGatewayAction(result, {
+    getCurrentRoute: () => {
+      const pathname = window.location.pathname + window.location.search;
+      const { screen, subview } = deriveVoiceRouteScreen(pathname);
+      return { pathname, screen, subview: subview ?? null };
+    },
+    getCurrentSurfaceMetadata: getVoiceSurfaceMetadata,
+  });
+}
 
 /** Inputs may select an action; only the generated gateway executes it. */
 export async function settleAgentGatewayAction(

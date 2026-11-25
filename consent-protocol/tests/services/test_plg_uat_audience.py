@@ -32,6 +32,9 @@ def uat(monkeypatch):
         "ONE_PLG_UAT_AUDIENCE_SECRET": KEY,
     }.items():
         monkeypatch.setenv(name, value)
+    monkeypatch.setattr(
+        audience, "get_firebase_auth_app", lambda: SimpleNamespace(project_id="hushh-pda")
+    )
 
 
 def test_uat_directory_has_separate_authority_and_no_owner_override(uat, monkeypatch):
@@ -177,6 +180,53 @@ class Context:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("segment", ["all", "failed"])
+async def test_isolated_uat_directory_uses_its_registry_and_fences_cursors(
+    uat, monkeypatch, segment
+):
+    from firebase_admin import auth
+
+    app = SimpleNamespace(project_id="hushh-pda-uat")
+    monkeypatch.setattr(audience, "get_firebase_auth_app", lambda: app)
+    token = "next-identity-page" if segment == "all" else index.PREFIX + "next-owner"
+    source = SimpleNamespace(users=[], next_page_token=token)
+    listing = Mock(return_value=source)
+    indexed = AsyncMock(return_value=source)
+    monkeypatch.setattr(auth, "list_users", listing)
+    monkeypatch.setattr(index, "source_page", indexed)
+
+    request = audience.AudienceRequest(segment=segment)
+    result = await audience.audience_page(request, KEY, NOW, environment="uat")
+    following = request.model_copy(update={"cursor": result["nextCursor"]})
+    await audience.audience_page(following, KEY, NOW, environment="uat")
+    if segment == "all":
+        assert listing.call_args_list == [
+            ((), {"page_token": page, "max_results": 25, "app": app}) for page in (None, token)
+        ]
+        indexed.assert_not_awaited()
+    else:
+        assert [call.args[1] for call in indexed.await_args_list] == [None, token]
+        assert [call.kwargs for call in indexed.await_args_list] == [
+            {"project": app.project_id},
+            {"project": app.project_id},
+        ]
+        listing.assert_not_called()
+
+    issued = request.model_copy(
+        update={"cursor": audience._next_cursor(token, request, KEY, NOW, "hushh-pda-uat")}
+    )
+    with pytest.raises(audience.AudienceCursorError):
+        await audience.audience_page(issued, KEY, NOW, environment="uat")
+    app.project_id = "hushh-pda"
+    with pytest.raises(audience.AudienceCursorError):
+        await audience.audience_page(following, KEY, NOW, environment="uat")
+    app.project_id = "hushh-pda-dev"
+    with pytest.raises(RuntimeError, match="identity source unavailable"):
+        await audience.audience_page(request, KEY, NOW, environment="uat")
+    assert listing.call_count + indexed.await_count == 2
+
+
+@pytest.mark.asyncio
 async def test_uat_directory_includes_team_but_excludes_deleted_disabled_and_anonymous(
     uat, monkeypatch
 ):
@@ -220,7 +270,7 @@ async def test_uat_directory_includes_team_but_excludes_deleted_disabled_and_ano
         AsyncMock(return_value={uid: {"count": 0} for uid in ("team", "user")}),
     )
     result = await audience.audience_page(audience.AudienceRequest(), KEY, NOW, environment="uat")
-    source.assert_called_once_with(None)
+    source.assert_called_once_with(None, "hushh-pda")
     assert set(active.await_args.kwargs["user_ids"]) == {"team", "user", "deleted"}
     assert result["environment"] == "uat" and result["version"] == 2
     assert result["customerReporting"] is False and result["deliveryAuthorized"] is False
@@ -234,7 +284,7 @@ async def test_uat_directory_includes_team_but_excludes_deleted_disabled_and_ano
     await audience.audience_page(
         audience.AudienceRequest(segment="failed"), KEY, NOW, environment="uat"
     )
-    assert filtered.await_args.kwargs == {}
+    assert filtered.await_args.kwargs == {"project": "hushh-pda"}
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda")
     with pytest.raises(ValueError, match="unavailable"):
         await audience.audience_page(audience.AudienceRequest(), KEY, NOW, environment="uat")

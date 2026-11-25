@@ -12,13 +12,6 @@ import type {
 
 const ACTIVE = new Set(["needs_review", "pending", "snoozed"]);
 
-export function senderName(value: string): string {
-  const name = (value.split("<")[0] ?? "").trim().replace(/^"|"$/g, "");
-  if (name && !name.includes("@")) return name;
-  const address = value.match(/<([^>]+)>/)?.[1] ?? value;
-  return address.split("@")[0] || value;
-}
-
 export function shortDate(value: string | null | undefined): string | null {
   if (!value) return null;
   const date = new Date(`${value.slice(0, 10)}T12:00:00Z`);
@@ -46,6 +39,9 @@ export function dueText(request: FollowupPreviewRequest, zone = "UTC"): string {
     return time ? `${day}, ${time} · Proposed` : `${day} · Time to confirm`;
   }
   const day = shortDate(request.due_date);
+  if (day && request.bucket === "overdue") return `Overdue · was due ${day}`;
+  if (day && request.bucket === "history" && request.after_date === "lapses" && isActive(request)) return `Ended ${day}`;
+  if (day && request.category === "scheduled_event") return `On ${day}`;
   if (day) return request.due_relation === "before" ? `Due before ${day}` : `Due ${day}`;
   if (request.urgency === "asap") return "Urgent · No date given";
   return "No date given";
@@ -67,6 +63,8 @@ function categoryRank(category: FollowupPreviewRequest["category"]): number {
  * conversations the same way, so the row and the order agree.
  */
 export function primaryRequest(entry: Pick<FollowupConversation, "preview_requests">): FollowupPreviewRequest | undefined {
+  const first = entry.preview_requests[0];
+  if (first?.bucket) return first;
   const active = entry.preview_requests.filter(isActive);
   const pool = active.length ? active : entry.preview_requests;
   return [...pool].sort((left, right) => {
@@ -79,17 +77,14 @@ export function primaryRequest(entry: Pick<FollowupConversation, "preview_reques
   })[0];
 }
 
-export function rowSummary(entry: FollowupConversation, zone = "UTC"): { title: string; detail: string; more: number } {
-  const next = primaryRequest(entry);
-  const active = entry.preview_requests.filter(isActive).length || entry.active_count;
-  const when = next ? dueText(next, zone) : "Needs review";
-  const context = when === "No date given"
-    ? next?.category === "document_or_information" ? "Document to send"
-      : next?.category === "meeting_request" || next?.category === "schedule_change" ? "Meeting to arrange"
-      : "Action to review"
-    : when === "Urgent · No date given" ? "ASAP" : when;
-  const detail = [context, `From ${senderName(entry.sender)}`].join(" · ");
-  return { title: next?.title || entry.subject, detail, more: Math.max(0, active - 1) };
+export function rowSummary(entry: FollowupConversation, zone = "UTC"): { title: string; detail: string } {
+  const request = primaryRequest(entry);
+  if (!request) return { title: "Follow-up", detail: "" };
+  const more = Math.max(0, entry.active_count - 1);
+  return {
+    title: request.title,
+    detail: [dueText(request, zone), more ? `+${more} more` : null].filter(Boolean).join(" · "),
+  };
 }
 
 export function reminderText(request: FollowupRequest, zone: string): string {
@@ -106,10 +101,10 @@ export function reminderText(request: FollowupRequest, zone: string): string {
 }
 
 export function gmailMessageUrl(accountEmail: string, gmailMessageId: string): string {
-  return `https://mail.google.com/mail/u/${encodeURIComponent(accountEmail)}/#all/${encodeURIComponent(gmailMessageId)}`;
+  return `https://mail.google.com/mail/?authuser=${encodeURIComponent(accountEmail)}#all/${encodeURIComponent(gmailMessageId)}`;
 }
 
-export type CoverageNotice = { tone: "quiet" | "action"; text: string; action: "reconnect" | "retry" | null };
+export type CoverageNotice = { tone: "quiet" | "action"; text: string; action: "reconnect" | null };
 
 /**
  * A recoverable background retry is quiet. Only a state the owner can fix gets
@@ -118,13 +113,41 @@ export type CoverageNotice = { tone: "quiet" | "action"; text: string; action: "
  */
 export function coverageNotice(coverage: FollowupCoverage | null | undefined, vaultUnlocked = true): CoverageNotice | null {
   if (!coverage || coverage.coverage === "complete") return null;
-  if (coverage.coverage === "catching_up") return { tone: "quiet", text: "Catching up on your email…", action: null };
-  // Reconnecting or retrying needs the unlocked vault. Offering either while it is
-  // locked sends the owner through Google again without fixing anything.
   if (!vaultUnlocked) return { tone: "quiet", text: "Unlock One to check your email.", action: null };
-  if (coverage.attention === "reconnect_mail") return { tone: "action", text: "Email access needs to be renewed.", action: "reconnect" };
-  if (coverage.attention === "provider_unavailable") return { tone: "action", text: "Google is not responding right now. We’ll keep trying.", action: "retry" };
-  return { tone: "action", text: "A few emails could not be read yet.", action: "retry" };
+  if (coverage.coverage === "catching_up") return { tone: "quiet", text: "Updating follow-ups…", action: null };
+  if (coverage.attention === "provider_unavailable") return { tone: "quiet", text: "Email sync paused. Retrying automatically.", action: null };
+  if (coverage.attention === "retry_needed") return { tone: "quiet", text: "Checking remaining email in the background.", action: null };
+  if (coverage.attention !== "reconnect_mail") return null;
+  return { tone: "action", text: "Email access needs to be renewed.", action: "reconnect" };
+}
+
+/** Said once when the email check has finished, so "Catching up" visibly ends. */
+export const SYNCED_NOTICE = "Your email is synced.";
+
+const SYNCED_SEEN_PREFIX = "one:followups-synced:";
+
+/**
+ * Whether this account's "synced" line was already shown. It is a per-browser
+ * convenience, so an unavailable store (private window, blocked site data) just
+ * means the line may appear again; it never blocks the card.
+ */
+export function syncedNoticeSeen(userId: string, accountId: string): boolean {
+  try {
+    return window.localStorage.getItem(`${SYNCED_SEEN_PREFIX}${userId}:${accountId}`) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Remember the line was shown (`true`), or arm it again for the next finish (`false`). */
+export function rememberSyncedNotice(userId: string, accountId: string, seen: boolean): void {
+  try {
+    const key = `${SYNCED_SEEN_PREFIX}${userId}:${accountId}`;
+    if (seen) window.localStorage.setItem(key, "1");
+    else window.localStorage.removeItem(key);
+  } catch {
+    /* a convenience only */
+  }
 }
 
 /**
@@ -132,6 +155,7 @@ export function coverageNotice(coverage: FollowupCoverage | null | undefined, va
  * and says so; it is never reported as a failed check.
  */
 export function followupErrorText(error: unknown): string {
+  if (error instanceof Error && error.message === "FOLLOWUPS_SESSION_UNAVAILABLE") return "Your secure connection could not be restored. Try again.";
   if (error instanceof Error && error.message.startsWith("Unlock One")) return error.message;
   if (error instanceof Error && error.message === "FOLLOWUPS_DISABLED") return "Follow-ups are not available yet. Try again later.";
   if (error instanceof Error && error.message === "selected_mail_permission_required") return "Reconnect Mail for this account.";

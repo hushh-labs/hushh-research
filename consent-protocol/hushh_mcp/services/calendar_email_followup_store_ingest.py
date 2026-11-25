@@ -175,7 +175,10 @@ class _MessageIngest:
                                 open_value=open_row,
                             )
                         commit.merge_duplicates(conn, monitor, new_id, open_value=open_row)
-                    elif int(prior["assessment_version"]) < ASSESSMENT_VERSION:
+                    elif (
+                        not prior["hidden"]
+                        and int(prior["assessment_version"]) < ASSESSMENT_VERSION
+                    ):
                         row_id = str(prior["id"])
                         event = commit.sealed_event(self._seal, monitor, candidate, row_id)
                         title = self._seal(candidate.title, monitor, row_id, "title")

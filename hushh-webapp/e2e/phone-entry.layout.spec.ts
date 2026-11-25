@@ -106,7 +106,7 @@ for (const viewport of [
         await route.fulfill({ path: path.join(process.cwd(), "public", asset) });
       });
       await page.goto("https://phone-entry.test/");
-      await page.setContent('<html class="' + (theme === "dark" ? "dark" : "") + '" style="--app-safe-area-top-effective:24px;--app-safe-area-bottom-effective:34px"><head><base href="https://phone-entry.test/"><style>' + css + '</style></head><body><div id="root"></div></body></html>');
+      await page.setContent('<html class="' + (theme === "dark" ? "dark" : "") + '" style="--app-safe-area-top-effective:24px;--app-safe-area-bottom-effective:34px"><head><meta name="viewport" content="width=device-width, initial-scale=1"><base href="https://phone-entry.test/"><style>' + css + '</style></head><body><div id="root"></div></body></html>');
       await page.addScriptTag({content:script});
       await awaitProductFont(page);
       const accentColor = await page.getByTestId("shared-primary-reference").evaluate(element => getComputedStyle(element).backgroundColor);
@@ -132,8 +132,10 @@ for (const viewport of [
       const countrySearch = countryPanel.getByRole("searchbox", {name:"Search countries"});
       const searchShell = countrySearch.locator("..");
       const inactiveSearchFill = await searchShell.evaluate(element => getComputedStyle(element).backgroundColor);
+      await countrySearch.click();
       await countrySearch.fill("United States");
       await expect(countrySearch).toHaveCSS("outline-style", "none");
+      await expect(countrySearch).toHaveCSS("box-shadow", "none");
       await expect(countrySearch).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
       expect(await searchShell.evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe(inactiveSearchFill);
       await expect(searchShell).not.toHaveCSS("box-shadow", "none");
@@ -141,6 +143,11 @@ for (const viewport of [
       await countryPanel.getByRole("option", {name:"United States (+1)"}).click();
       await expect(countryPanel).toHaveCount(0);
       await expect(helper).toContainText("We may send SMS notifications.");
+      await page.getByRole("button", {name:"Learn more", exact:true}).click();
+      const smsDialog = page.getByRole("dialog", {name:"Text messages"});
+      await expect(smsDialog).toContainText("We’ll text you a verification code. We may also send notifications.");
+      await smsDialog.getByRole("button", {name:"Close", exact:true}).click();
+      await expect(smsDialog).toBeHidden();
       const continueButton = page.getByRole("button", {name:"Continue", exact:true});
       await expect(continueButton).toHaveCSS("height", "52px");
       await expect(continueButton).toHaveCSS("background-color", accentColor);

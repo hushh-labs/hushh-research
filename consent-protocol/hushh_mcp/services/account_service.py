@@ -2833,6 +2833,15 @@ class AccountService:
                     else:
                         graph_hint_committed = True
 
+                if graph_viewer_ids:
+                    try:
+                        with conn.begin_nested():
+                            publish_connection_graph_events(conn, graph_viewer_ids)
+                    except Exception:  # noqa: BLE001 - preserve erasure if the hint fails
+                        logger.warning("account.graph_commit_hint_failed", exc_info=True)
+                    else:
+                        graph_hint_committed = True
+
             logger.info("✅ FULL ACCOUNT DELETION completed for %s", user_id)
         except PersonalAgentDeprovisioningRequiredError:
             logger.warning(

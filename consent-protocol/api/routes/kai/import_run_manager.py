@@ -371,7 +371,7 @@ class KaiPortfolioImportRunManager:
                 user_id=run.user_id,
                 source_domain="kai",
                 event_type=f"kai_import_{run.status}",
-                actor_label="Kai",
+                actor_label="Finance",
                 metadata={},
                 source_row_id=run.run_id,
             )

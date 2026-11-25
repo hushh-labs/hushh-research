@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { Toaster } from "../../components/ui/sonner";
 import { AgentCalendarProposalCard } from "../../components/agent/agent-calendar-proposal-card";
 import { CalendarConnectedWorkspace } from "../../components/calendar/calendar-connected-workspace";
 import { authorizeSyntheticVault, lockSyntheticVault } from "./calendar-connected-boundaries";
@@ -20,11 +21,12 @@ function Fixture() {
   const boardAccounts = ["qa-owner@example.com", "qa-work@example.com", "qa-projects@example.com"]
     .map((google_email, index) => ({ account_id: index === 0 ? "default" : index === 1 ? "work" : "projects", google_email, google_email_verified: index < 2, status: "connected" as const, connected: true, access_level: "manage" as const, calendar_list_access: true }));
   return <>
+    <Toaster />
     <div className="fixed inset-x-0 top-0 z-50 flex h-12 items-center justify-center bg-background text-xs text-muted-foreground">{location.search.includes("providerReplay=1") ? "Explorer-backed local replay · sanitized dates · not live UAT" : "Synthetic Calendar QA fixture"}</div>
     <div data-testid="calendar-scroll-root" className="h-dvh overflow-y-auto pt-16 pb-[var(--app-bottom-content-clearance)]">
       {proposal ? <div className="mx-auto max-w-[820px] px-4">
         <p className="mb-4">Who should join?</p>
-        <AgentCalendarProposalCard action="create" accountId="default" title="Meeting with QA attendee" startAt="2030-01-17T08:30:00Z" endAt="2030-01-17T09:00:00Z" timeZone="Asia/Kolkata" attendees={["long-calendar-attendee-for-responsive-verification@example.test"]} location={null} sendUpdates googleMeet conflicts={[]} confirmLabel="Schedule meeting" busy={busy} timeOptions={["2030-01-17T08:30:00Z", "2030-01-17T08:45:00Z"]} onChangeTime={start => setAction(`change-time:${start}`)} onConfirm={() => { setBusy(true); setAction("confirmed-once"); }} onCancel={() => setAction("cancelled-without-event")} />
+        <AgentCalendarProposalCard accountId="default" action="create" title="Meeting with QA attendee" startAt="2030-01-17T08:30:00Z" endAt="2030-01-17T09:00:00Z" timeZone="Asia/Kolkata" attendees={["long-calendar-attendee-for-responsive-verification@example.test"]} location={null} sendUpdates googleMeet conflicts={[]} confirmLabel="Schedule meeting" busy={busy} timeOptions={["2030-01-17T08:30:00Z", "2030-01-17T08:45:00Z"]} onChangeTime={start => setAction(`change-time:${start}`)} onConfirm={() => { setBusy(true); setAction("confirmed-once"); }} onCancel={() => setAction("cancelled-without-event")} />
       </div> : <CalendarConnectedWorkspace userId={owner.id}
         status={{ configured: true, connected: true, status: "connected", google_email: owner.email, access_level: "manage", scope_csv: "calendar.events calendar.freebusy", calendar_list_access: true, ...(board ? { accounts: boardAccounts, account_limit: 3 } : {}) }}
         busy={false} getIdToken={async () => owner.token} onConnect={access => setAction(`connect:${access}`)}

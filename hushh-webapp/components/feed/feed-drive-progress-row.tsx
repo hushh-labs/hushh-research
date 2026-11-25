@@ -20,7 +20,7 @@ export function FeedDriveProgressRow({ item }: { item: FeedDriveProgress }) {
           ? "h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/60"
           : "h-1.5 w-1.5 shrink-0 rounded-full bg-accent animate-pulse motion-reduce:animate-none"} />
       } />}
-      textOverflow="truncate"
+      textOverflow="wrap"
       className={FEED_INLINE_ROW_CLASSNAME}
       trailing={<FeedRowTimestamp timestamp={item.queuedAt ?? item.requestedAt} />}
       chevron

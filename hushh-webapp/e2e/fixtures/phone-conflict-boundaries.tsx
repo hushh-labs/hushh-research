@@ -3,6 +3,7 @@
  * replaced. Every account/phone operation goes through the real HTTP API.
  */
 import React, { useSyncExternalStore } from "react";
+export { PhoneAuthCredential } from "@firebase/auth";
 
 type FixtureUser = {
   uid: string; email: string; displayName: string; emailVerified: boolean;
@@ -14,7 +15,9 @@ type FixtureUser = {
 };
 type Auth = { name: string; app: { name: string; options: Record<string, unknown> }; currentUser: FixtureUser | null; settings: Record<string, unknown> };
 const listeners = new Set<(user: FixtureUser | null) => void>();
-const apps: { name: string; options: Record<string, unknown> }[] = [];
+const apps: { name: string; options: Record<string, unknown> }[] = [
+  { name: "[DEFAULT]", options: { apiKey: "synthetic-only", projectId: "synthetic-auth" } },
+];
 const stores = new Map<string, Auth>();
 let selected = "previous";
 
@@ -108,8 +111,8 @@ export class PhoneAuthCredential {
     return { temporaryProof: record.temporaryProof, phoneNumber: record.phoneNumber };
   }
 }
-export async function signInWithCredential(auth: Auth, credential: { verificationId: string; verificationCode: string } | { temporaryProof: string; phoneNumber: string }) {
-  const result = await sdk("verify", credential);
+export async function signInWithCredential(auth: Auth, credential: { verificationId: string; verificationCode: string } | { temporaryProof: string; phoneNumber: string } | { toJSON: () => object }) {
+  const result = await sdk("verify", "toJSON" in credential ? credential.toJSON() : credential);
   const value = { ...user(result.user), getIdToken: async () => result.token };
   publish(auth, value); return { user: value };
 }

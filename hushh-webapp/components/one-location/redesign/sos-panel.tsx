@@ -459,7 +459,9 @@ export function SosPanel({
             type="button"
             size="prominent"
             onClick={onEditContacts}
-            className="h-[52px] min-h-[52px] w-full px-5"
+            data-location-action-fit=""
+            data-location-type-role="primary-action"
+            className="h-auto min-h-[52px] w-full px-5 py-3"
           >
             Add emergency contacts
           </Button>
@@ -685,10 +687,11 @@ export function SosPanel({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={stopBusy}>
+            <AlertDialogCancel size="standard" disabled={stopBusy}>
               Keep active
             </AlertDialogCancel>
             <AlertDialogAction
+              size="standard"
               variant="destructive"
               disabled={stopBusy}
               onClick={(event) => {

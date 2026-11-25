@@ -31,10 +31,12 @@ def request(**changes):
 async def test_rewrite_supplies_only_incremental_source_and_explicit_owner_model(monkeypatch):
     selected_model = object()
     build = __import__("unittest.mock", fromlist=["Mock"]).Mock(return_value="agent")
-    run = AsyncMock(return_value={"markdown": "# Memory\n\n## Preferences\n- Coffee.\n"})
+    prepared = "    indented_note()\n\n# Memory\n\n## Preferences\n- Coffee.\n"
+    run = AsyncMock(return_value={"markdown": prepared})
     monkeypatch.setattr(memory, "build_single_turn_agent", build)
     monkeypatch.setattr(memory, "run_single_turn", run)
     result = await memory.rewrite_chat_memory(request(), model=selected_model)
+    assert result.markdown == prepared
     assert "Coffee" in result.markdown
     assert build.call_args.kwargs["model"] is selected_model
     payload = json.loads(run.call_args.kwargs["prompt_parts"])
@@ -90,9 +92,10 @@ async def test_sandbox_default_chat_and_ltm_use_azure_without_vertex(monkeypatch
     vertex.assert_not_called()
 
 
-async def test_invalid_or_failed_generation_never_returns_a_replacement(monkeypatch):
+@pytest.mark.parametrize("markdown", ["", "   ", "\n\t\r\n"])
+async def test_invalid_or_failed_generation_never_returns_a_replacement(monkeypatch, markdown):
     monkeypatch.setattr(memory, "build_single_turn_agent", lambda *a, **kw: "agent")
-    run = AsyncMock(return_value={"markdown": ""})
+    run = AsyncMock(return_value={"markdown": markdown})
     monkeypatch.setattr(memory, "run_single_turn", run)
     with pytest.raises(ValidationError):
         await memory.rewrite_chat_memory(request())
@@ -107,6 +110,21 @@ def test_duplicate_or_oversize_sources_are_rejected_before_inference():
         request(messages=[item, item])
     with pytest.raises(ValidationError):
         request(messages=[{**item, "content": "x" * 192_001}])
+
+
+@pytest.mark.parametrize("content", [" ", "\n\t\r\n", "\u2003\u00a0"])
+def test_blank_incremental_source_is_rejected(content):
+    item = request().messages[0].model_dump()
+    with pytest.raises(ValidationError, match="Memory source message is blank"):
+        request(messages=[{**item, "content": content}])
+
+
+def test_source_validation_preserves_markdown_indentation_and_initial_empty_memory():
+    content = "    indented_note()\n\n- A meaningful memory.\n"
+    item = request().messages[0].model_dump()
+    body = request(current_markdown="", messages=[{**item, "content": content}])
+    assert body.current_markdown == ""
+    assert body.messages[0].content == content
 
 
 async def test_shared_rewrite_checks_owner_before_model(monkeypatch):

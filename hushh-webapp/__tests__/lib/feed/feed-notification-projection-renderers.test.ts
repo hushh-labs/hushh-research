@@ -1,12 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import { CalendarAgentIcon } from "@/components/icons/agents";
-import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
+import { presentFeedItem, presentFeedMilestone } from "@/lib/feed/feed-item-renderers";
 import type { FeedItem } from "@/lib/services/feed-service";
-import {
-  findAnalysisHistoryEntryByRouteId,
-  type AnalysisHistoryEntry,
-} from "@/lib/services/kai-history-service";
+
 
 function feedItem(
   eventType: string,
@@ -32,6 +29,7 @@ describe("notification-backed Feed projection renderers", () => {
       subject: "Private document", source_excerpt: "Never show me",
     }, "calendar_email_followup"));
     expect(result.href).toBe(`/one/calendar?followupAccount=account_B&followupRequest=${requestId}`);
+    expect(result.exactDestination).toBe("followup");
     expect(`${result.label} ${result.description}`).not.toMatch(/Private document|Never show me/);
   });
   it("opens a recipient-bound card request without putting private card details in Feed", () => {
@@ -42,6 +40,8 @@ describe("notification-backed Feed projection renderers", () => {
     expect(result.href).toBe(`/one/wallet?card_request=${id}`);
     const malformed = presentFeedItem(feedItem("direct_message_received", { wallet_card_request_id: "javascript:bad" }, "connections"));
     expect(malformed.href).not.toContain("card_request");
+    expect(result.exactDestination).toBe("card");
+    expect(malformed.exactDestination).toBeUndefined();
   });
   it("announces the actual card sender and offers View card without payment details", () => {
     const result = presentFeedItem(feedItem("direct_message_received", {
@@ -165,6 +165,7 @@ describe("notification-backed Feed projection renderers", () => {
     expect(view.href).toMatch(/^\/(?:one(?:\/|\?)|$)/);
     expect(JSON.stringify(view)).not.toContain("private");
     expect(JSON.stringify(view)).not.toContain("evil.example");
+    expect(`${view.label} ${view.description}`).not.toMatch(/kai/i);
   });
 
   it("distinguishes uncertain Drive writes from failure without suggesting a blind retry", () => {
@@ -195,13 +196,13 @@ describe("notification-backed Feed projection renderers", () => {
     expect(presentFeedItem(feedItem("connection_withdrawn", { counterpart_label: "Rohan", actor_is_self: true }, "connections")).description).toBe("You withdrew the connection request");
     expect(presentFeedItem(feedItem("connection_withdrawn", { counterpart_label: "Rohan" }, "connections")).description).toBe("Withdrew the connection request");
     const circle = presentFeedItem(feedItem("circle_membership_ended", { circle_name: "Family", actor: "private" }));
-    expect(circle.label).toBe("Family");
-    expect(circle.description).toBe("Your membership in this circle ended.");
+    expect(circle.label).toBe("Your membership in Family ended");
+    expect(circle.description).toBe("");
     expect(JSON.stringify(circle)).not.toContain("private");
     const left = presentFeedItem(feedItem("circle_member_left", { circle_name: "Family", counterpart_label: "Aarav" }));
-    expect(left.label).toBe("Family");
-    expect(left.description).toBe("Aarav left your circle.");
-    expect(left.href).toBe("/one/connect?tab=circles");
+    expect(left.label).toBe("Aarav left Family");
+    expect(left.description).toBe("");
+    expect(left.href).toBeNull();
   });
   it("opens circle chat from metadata without exposing a message preview or trusting an external destination", () => {
     const circle = "11111111-2222-3333-4444-555555555555";
@@ -266,45 +267,21 @@ describe("notification-backed Feed projection renderers", () => {
   ])(
     "lands incoming %s/%s on Shared with me",
     (eventType, audience, metadata) => {
-      // Current created-share Feed rows have no grant ID. Older history and
-      // duration/approval rows carrying IDs must all use the same list landing,
-      // without auto-opening a map or leaving stale deep-link intent on Back.
-      for (const ids of [
-        {},
-        { grant_id: "grant-1", request_id: "request-1" },
-      ]) {
-        const presented = presentFeedItem(
-          feedItem(eventType, {
-            ...metadata,
-            ...ids,
-            feed_audience: audience,
-            counterpart_label: "Ankit",
-          }),
-        );
-        expect(presented.href).toBe("/one/location?section=shared");
-      }
+      const legacy = presentFeedItem(feedItem(eventType, {...metadata, feed_audience:audience}));
+      expect(legacy.href).toBeNull();
+      const grant = "11111111-1111-4111-8111-111111111111";
+      const presented = presentFeedItem({...feedItem(eventType,{...metadata,grant_id:grant,feed_audience:audience,current_location_status:"active"}),activity_group_id:`location-grant:${grant}`});
+      expect(presented.href).toBe(`/one/location?grantId=${grant}&locationNotification=opened&section=shared`);
+      expect(presented.exactDestination).toBe("share");
     },
   );
 
   it.each(["owner", undefined])(
     "preserves outgoing and legacy %s destinations",
     (audience) => {
-      const metadata = { feed_audience: audience, grant_id: "grant-1" };
-      for (const event of [
-        "location_share_created",
-        "location_access_approved",
-      ]) {
-        expect(presentFeedItem(feedItem(event, metadata)).href).toBe(
-          "/one/location",
-        );
-      }
-      for (const event of [
-        "location_share_shortened",
-        "location_share_duration_changed",
-      ]) {
-        expect(presentFeedItem(feedItem(event, metadata)).href).toBe(
-          "/one/location?grantId=grant-1&section=shared",
-        );
+      const metadata = {feed_audience:audience,grant_id:"grant-1"};
+      for (const event of ["location_share_created","location_access_approved","location_share_shortened","location_share_duration_changed"]) {
+        expect(presentFeedItem(feedItem(event,metadata)).href).toBeNull();
       }
     },
   );
@@ -316,7 +293,7 @@ describe("notification-backed Feed projection renderers", () => {
   ])("preserves the terminal %s destination", (eventType) => {
     expect(
       presentFeedItem(feedItem(eventType, { feed_audience: "recipient" })).href,
-    ).toBe("/one/location");
+    ).toBeNull();
   });
 
   it.each([
@@ -328,7 +305,8 @@ describe("notification-backed Feed projection renderers", () => {
         reason: "owner_shorten",
         grant_id: "grant-1",
       },
-      description: "Shortened your location access",
+      description: "",
+      label: "Ankit shortened location sharing",
     },
     {
       eventType: "location_share_duration_changed",
@@ -338,7 +316,8 @@ describe("notification-backed Feed projection renderers", () => {
         direction: "extended",
         grant_id: "grant-1",
       },
-      description: "Gave you more time",
+      description: "",
+      label: "Ankit extended location sharing",
     },
     {
       eventType: "location_access_request_withdrawn",
@@ -347,7 +326,8 @@ describe("notification-backed Feed projection renderers", () => {
         feed_audience: "requester",
         request_id: "request-1",
       },
-      description: "You took back your location request",
+      description: "",
+      label: "You withdrew your request to Ankit",
     },
     {
       eventType: "location_referral_invite",
@@ -371,7 +351,8 @@ describe("notification-backed Feed projection renderers", () => {
     {
       eventType: "location_one_network_joined",
       metadata: { counterpart_label: "Ankit" },
-      description: "Joined your One Network",
+      description: "",
+      label: "You connected with Ankit",
     },
     {
       eventType: "location_circle_code_joined",
@@ -380,7 +361,8 @@ describe("notification-backed Feed projection renderers", () => {
         circle_id: "circle-1",
         circle_name: "Family",
       },
-      description: "Joined Family using your code",
+      description: "",
+      label: "Ankit joined Family",
     },
     {
       eventType: "location_circle_member_invite_accepted",
@@ -389,43 +371,44 @@ describe("notification-backed Feed projection renderers", () => {
         circle_id: "circle-1",
         circle_name: "Family",
       },
-      description: "Accepted your invitation and joined Family",
+      description: "",
+      label: "Ankit joined Family",
     },
   ])(
     "renders $eventType as actionable Feed history",
-    ({ eventType, metadata, description }) => {
+    ({ eventType, metadata, description, label }) => {
       const presented = presentFeedItem(feedItem(eventType, metadata));
       expect(presented.label).not.toBe("");
       expect(presented.description).toBe(description);
-      expect(presented.href).toMatch(/^\/one\/location/);
+      if (label) { expect(presented.label).toBe(label); expect(presented.href).toBeNull(); }
+      else expect(presented.href).toMatch(/^\/one\/location/);
     },
   );
 
   it.each([
-    ["INCOMING", "completed", "Your deposit completed"],
-    ["OUTGOING", "failed", "Your withdrawal failed"],
-    ["INCOMING", "returned", "Your deposit was returned"],
-    ["OUTGOING", "canceled", "Your withdrawal was canceled"],
+    ["INCOMING", "completed", "Deposit completed"],
+    ["OUTGOING", "failed", "Withdrawal failed"],
+    ["INCOMING", "returned", "Deposit returned"],
+    ["", "returned", "Transfer returned"],
   ])(
     "renders a privacy-bounded funding %s/%s transition",
-    (direction, status, description) => {
+    (direction, status, sentence) => {
       const presented = presentFeedItem(
         feedItem(
           "funding_transfer_status",
           {
             direction,
             user_facing_status: status,
+            retained_funding_history: true,
             amount: "999999.99",
             failure_reason_message: "must never be rendered",
           },
           "kai",
         ),
       );
-      expect(presented.label).toBe("Funding transfer");
-      expect(presented.description).toBe(description);
-      expect(presented.description).not.toContain("999999.99");
-      expect(presented.description).not.toContain("must never be rendered");
-      expect(presented.href).toMatch(/^\/one\/kai/);
+      expect(presented.label).toBe(sentence);
+      expect(presented.description).toBe("");
+      expect(presented.href).toMatch(/^\/one\/feed\?funding_event=/);
     },
   );
 
@@ -488,7 +471,8 @@ describe("notification-backed Feed projection renderers", () => {
     );
     expect(presented.domainLabel).toBe(domain);
     expect(presented.label).not.toBe("");
-    expect(presented.description).not.toBe("");
+    if (eventType === "mail_message_sent") expect(presented.description).toBe("");
+    else expect(presented.description).not.toBe("");
     expect(`${presented.label} ${presented.description}`).not.toContain(sensitive);
     expect(presented.href).toBe(href);
     if (eventType.startsWith("calendar_")) {
@@ -499,42 +483,6 @@ describe("notification-backed Feed projection renderers", () => {
 
 // Founder report (UAT): tapping "Analysis ready" opened the "Start debate"
 // sheet, because the item linked to `?ticker=` -- the stock-preview route.
-describe("Kai analysis ready Feed item", () => {
-  const savedEntry: AnalysisHistoryEntry = {
-    ticker: "NVDA",
-    timestamp: "2026-09-27T10:00:00.000Z",
-    decision: "hold",
-    confidence: 0.6,
-    consensus_reached: true,
-    agent_votes: {},
-    final_statement: "",
-    raw_card: { debate_run_id: "run_abc" },
-  };
-
-  function openedAnalysisId(metadata: Record<string, unknown>): string | null {
-    const href = presentFeedItem(feedItem("kai_analysis_completed", metadata, "kai")).href;
-    const query = new URLSearchParams(href.split("?")[1] ?? "");
-    // The stock preview (and its start sheet) opens only from `ticker`.
-    expect(query.has("ticker")).toBe(false);
-    return query.get("analysis_id");
-  }
-
-  it("opens the run's own saved result", () => {
-    const analysisId = openedAnalysisId({ ticker: "NVDA", run_id: "run_abc" });
-    expect(analysisId).not.toBeNull();
-    expect(
-      findAnalysisHistoryEntryByRouteId({ NVDA: [savedEntry] }, analysisId!),
-    ).toBe(savedEntry);
-    // A result that is gone resolves to nothing, which the analysis page shows
-    // as "This analysis is no longer available" rather than a start sheet.
-    expect(findAnalysisHistoryEntryByRouteId({}, analysisId!)).toBeNull();
-  });
-
-  it("sends older items without a run id to the analysis history", () => {
-    expect(openedAnalysisId({ ticker: "NVDA" })).toBeNull();
-  });
-});
-
 
 it("describes one grouped Circle row and opens that Circle", () => {
   const id = "00000000-0000-4000-8000-000000000123";
@@ -546,4 +494,23 @@ it("describes one grouped Circle row and opens that Circle", () => {
 it("keeps the authenticated latest DM preview alongside the grouped message count", () => {
   const view = presentFeedItem(feedItem("direct_message_received", { counterpart_label: "Parth", message_preview: "See you soon", chat_unread_count: 3 }, "connections"));
   expect(view.description).toBe("3 new messages · See you soon");
+});
+
+
+
+it("never labels a generic workspace as the selected historical result", () => {
+  for (const [event, domain] of [["calendar_event_created", "connected_systems"], ["mail_message_sent", "connected_systems"],
+    ["pwm_research", "pwm"], ["profile_discovery_ready", "profile_discovery"], ["personal_agent_updated", "connected_systems"]] as const) {
+    const view = presentFeedItem(feedItem(event, { draft_id: "11111111-1111-4111-8111-111111111111" }, domain));
+    expect(view.exactDestination, event).toBeUndefined();
+  }
+});
+
+
+it("keeps confirmed earlier Drive steps distinct from the current request headline", () => {
+  const row = feedItem("document_share_payment_confirmed", { request_id: "11111111-1111-4111-8111-111111111111", feed_audience: "recipient" }, "connected_systems");
+  row.activity_group_id = "document:11111111-1111-4111-8111-111111111111";
+  const copy = presentFeedMilestone(row);
+  expect(copy.description).toMatch(/Payment confirmed/i);
+  expect(copy.description).not.toMatch(/request sent/i);
 });

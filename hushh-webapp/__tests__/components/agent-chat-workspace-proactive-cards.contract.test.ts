@@ -3,8 +3,6 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { legacyCalendarProposalPayload } from "@/lib/agent/calendar-proposal-review";
-
 const source = [
   readFileSync(
     join(process.cwd(), "components/agent/agent-chat-workspace.tsx"),
@@ -222,28 +220,8 @@ describe("Agent One proactive Calendar cards wiring contract", () => {
 // and mounts a calendar-specific confirmation card only for the persisted
 // proposal. Connection authorization remains on the shared surface.
 describe("Agent One in-chat Calendar directive cards wiring contract", () => {
-  it("keeps Calendar directive parsing bounded to explicit action payloads", () => {
-    const parserStart = source.indexOf(
-      "export function getCalendarDirectiveFromToolEvent",
-    );
-    const parserEnd = source.indexOf(
-      "function getConsentActionsPayload",
-      parserStart,
-    );
-    const parser = source.slice(parserStart, parserEnd);
-    expect(parser).toContain('type: "calendar.connect"');
-    expect(parser).toContain("legacyCalendarProposalPayload(parsed, action)");
-    expect(legacyCalendarProposalPayload({
-      proposal_id: "synthetic-proposal",
-      plan: { account_id: "account-b" },
-    }, "create")).toMatchObject({
-      type: "calendar.execute_proposal",
-      proposalId: "synthetic-proposal",
-      accountId: "account-b",
-      confirmLabel: "Schedule meeting",
-    });
-    expect(parser).toContain("confirmLabel");
-  });
+  // Parser behavior and complete review facts are covered by the production-
+  // code tests in agent-chat-calendar-directive.test.ts and calendar-directive-runtime.test.ts.
 
   const normalized = source.replace(/\s+/g, " ");
 

@@ -1,7 +1,7 @@
 """Bounded public stock history, separate from a person's holdings and spot quote."""
 
 import math
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
@@ -21,21 +21,30 @@ router = APIRouter()
 @router.get("/market/history/{user_id}")
 async def get_stock_price_history(
     user_id: Annotated[str, Path(min_length=1, max_length=128)],
-    symbol: Annotated[str, Query(pattern=r"^[A-Z][A-Z0-9.-]{0,15}$")],
+    symbol: Annotated[str, Query(pattern=r"^[A-Z][A-Z0-9.&-]{0,15}$")],
     firebase_uid: str = Depends(require_firebase_auth),
+    market: Literal["US", "IN"] = "US",
 ) -> dict[str, Any]:
     """Observed month of daily closes; never synthesize intraday observations."""
     verify_user_id_match(firebase_uid, user_id)
-    metadata = get_symbol_master_service().get_ticker_metadata(symbol)
-    if not metadata or str(metadata.get("exchange") or "").upper() not in {
-        "NASDAQ",
-        "NYSE",
-        "AMEX",
-        "NYSE AMERICAN",
-        "NYSE ARCA",
-        "CBOE",
-        "BATS",
-    }:
+    from hushh_mcp.market_data.india_market import NSE_LARGE_CAPS
+
+    metadata = get_symbol_master_service().get_ticker_metadata(symbol) if market == "US" else None
+    if market == "IN" and symbol not in NSE_LARGE_CAPS:
+        raise HTTPException(status_code=422, detail="Select a supported NSE stock.")
+    if market == "US" and (
+        not metadata
+        or str(metadata.get("exchange") or "").upper()
+        not in {
+            "NASDAQ",
+            "NYSE",
+            "AMEX",
+            "NYSE AMERICAN",
+            "NYSE ARCA",
+            "CBOE",
+            "BATS",
+        }
+    ):
         raise HTTPException(status_code=422, detail="Select a supported US-listed stock.")
     # Use the existing shared L1/L2 owner, including its per-key single flight.
     from .market_insights import _get_or_refresh_public_module
@@ -43,7 +52,18 @@ async def get_stock_price_history(
     async def load() -> dict[str, Any]:
         token = start_provider_call_counts()
         try:
-            history = await fetch_daily_history(symbol)
+            if market == "IN":
+                from hushh_mcp.operons.kai.fetchers import _fetch_yahoo_quotes
+
+                rows = await _fetch_yahoo_quotes([symbol + ".NS"], range_period="1mo")
+                row = rows[0] if rows else {}
+                history = {
+                    "points": row.get("sparkline_points") or [],
+                    "retrieved_at": row.get("fetched_at"),
+                    "source": row.get("source"),
+                }
+            else:
+                history = await fetch_daily_history(symbol)
             if degraded_provider_resources():
                 raise RuntimeError("Provider history is cached after a failed refresh")
         finally:
@@ -70,7 +90,7 @@ async def get_stock_price_history(
     unavailable_reason = None
     try:
         value, stale, _, _, cached = await _get_or_refresh_public_module(
-            key=f"stock_history:v1:{symbol}:1mo",
+            key=f"{'india_stock_history' if market == 'IN' else 'stock_history'}:v1:{symbol}:1mo",
             fresh_ttl_seconds=120,
             stale_ttl_seconds=7 * 24 * 60 * 60,
             fetcher=load,
@@ -86,7 +106,7 @@ async def get_stock_price_history(
         )
     return {
         "symbol": symbol,
-        "currency": "USD",
+        "currency": "INR" if market == "IN" else "USD",
         "interval": "1d",
         "points": value["points"],
         "retrieved_at": value["retrieved_at"],

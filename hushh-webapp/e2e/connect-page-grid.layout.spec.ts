@@ -407,7 +407,9 @@ for (const dark of [false, true]) {
         else await glyph.hover();
         const contactDetails = page.locator('[data-slot="tooltip-content"]').filter({ hasText: "Via contacts" });
         await expect(contactDetails).toBeVisible();
-        await expect(contactDetails).toContainText("You connected with this person through a match from your synced contacts.");
+        await expect(contactDetails).toContainText("Matched from your contacts.");
+        const descriptionLines = await contactDetails.locator(":scope > span").nth(1).evaluate(node => node.getBoundingClientRect().height / parseFloat(getComputedStyle(node).lineHeight));
+        expect(descriptionLines).toBeLessThanOrEqual(1.1);
         const bounds = (await contactDetails.boundingBox())!;
         expect(bounds.x).toBeGreaterThanOrEqual(0);
         expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
@@ -417,7 +419,7 @@ for (const dark of [false, true]) {
         if (testInfo.project.use.hasTouch) await riaBadge.tap();
         else await riaBadge.hover();
         const riaDetails = page.getByRole("tooltip", { name: "Verified Advisor" });
-        await expect(riaDetails).toContainText("Hussh verified this person's advisor profile.");
+        await expect(riaDetails).toContainText("Advisor verified by Hussh.");
         await page.keyboard.press("Escape");
         await expect(riaDetails).toHaveCount(0);
 
@@ -689,7 +691,7 @@ for (const width of [320, 393, 1440]) {
     await page.getByRole("tab", { name: "Circles", exact: true }).click();
     const group = page.getByRole("region", { name: "Finance circles", exact: true });
     await expect(group.getByText("Investments", { exact: true })).toBeVisible();
-    await expect(group.getByRole("heading", { level: 3 })).toHaveCSS("font-size", "13px");
+    await expect(group.getByRole("heading", { level: 3 })).toHaveCSS("font-size", "14px");
     const owned = page.getByTestId("connect-circle-group-owned");
     const joined = page.getByTestId("connect-circle-group-joined");
     await expect(owned.getByRole("region", { name: "Family circles", exact: true })).toContainText("Weekend family");
@@ -703,7 +705,7 @@ for (const width of [320, 393, 1440]) {
     await group.getByRole("button", { name: "Open Investments", exact: true }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: test.info().outputPath(`circle-types-${width}.png`), animations: "disabled" });
     await group.getByRole("button", { name: "Delete Finance type" }).click();
-    await expect(page.getByRole("alertdialog")).toContainText("Your circles and their members will stay");
+    await expect(page.getByRole("alertdialog")).toContainText("This removes the “Finance” label from your circles. Your circles and members will stay.");
     await page.getByRole("button", { name: "Delete type", exact: true }).click();
     await expect(group).toBeHidden();
     await expect(page.getByTestId("connect-circle-group-owned").getByText("Investments", { exact: true })).toBeVisible();
@@ -732,7 +734,9 @@ for (const width of [320, 393, 768]) {
     await page.locator("[data-connect-page]").evaluate(node => {
       const scopedClass = [...node.classList].find(name => name.includes("workspace"));
       if (!scopedClass) throw new Error("Connect typography scope is missing");
-      node.classList.remove(scopedClass);
+      node.removeAttribute("class");
+      const outer = node.closest("[data-typography-scope]");
+      outer?.removeAttribute("class");
     });
     expect(await read(page, '[data-testid="directory-person-row"] [data-slot="settings-row-title"]')).not.toMatchObject({ size: "14px", line: "21px" });
     expect(await read(page, '[data-testid="top-app-bar-breadcrumb-trail"]')).toEqual(shell);
@@ -894,14 +898,14 @@ for (const width of [393, 1440]) {
       const form = page.getByTestId("one-location-create-circle-flow");
       const name = form.getByRole("textbox", { name: "Circle name" });
       await expect(name).toBeVisible();
-      await expect(name).toHaveCSS("font-size", "14px");
+      await expect(name).toHaveCSS("font-size", width <= 620 ? "16px" : "14px");
       await expect(name).toHaveCSS("line-height", "22px");
       await expect(form.getByText("Circle name", { exact: true })).toHaveCSS("font-size", "15px");
       await expect(form.getByText("Circle name", { exact: true })).toHaveCSS("font-weight", "550");
       await expect(form.getByRole("radio", { name: "Finance", exact: true })).toBeVisible();
       await form.getByRole("radio", { name: "Other", exact: true }).click();
       const type = form.getByRole("textbox", { name: "Type name (optional)" });
-      await assertThinFocusedCircleType(type);
+      await assertThinFocusedCircleType(type, width <= 620 ? "16px" : "14px");
       await expect(form.getByText("Type name (optional)", { exact: true })).toHaveCSS("font-size", "15px");
       const error = form.getByText("Enter a Circle name.", { exact: true });
       await expect(error).toHaveCSS("font-size", "12px");
@@ -919,12 +923,12 @@ for (const width of [393, 1440]) {
     await mine.click();
     const discover = tabs.getByRole("tab", { name: "Find people" });
     const refresh = page.getByRole("button", { name: "Refresh contacts" });
-    const message = page.getByRole("button", { name: "Message Jordan Lee", exact: true });
-    const options = page.getByRole("button", { name: "Options for Jordan Lee", exact: true });
     const profile = page.getByRole("button", { name: "Open Jordan Lee's profile", exact: true });
 
     await expect(discover).toHaveAttribute("aria-selected", "false");
-    for (const action of [discover, refresh, message, options]) {
+    // Message and Options are icon actions that keep a centred hover circle;
+    // their geometry is covered by the centering test below.
+    for (const action of [discover, refresh]) {
       await action.hover();
       await expect(action).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
       await expect(action.locator("md-ripple")).toHaveCSS("--md-ripple-hover-opacity", "0");
@@ -937,29 +941,35 @@ for (const width of [393, 1440]) {
     await page.screenshot({ path: test.info().outputPath(`inline-hover-${width}.png`), animations: "disabled" });
   });
 
-  test(`Connection icons halve their visible gap at ${width}px without shrinking targets`, async ({ page }) => {
+  test(`Connection icons and their feedback stay centered in 44px targets at ${width}px`, async ({ page }) => {
     await open(page, width, false);
     await settle(page, width);
     await page.getByRole("tab", { name: /My connections/ }).click();
     const row = page.getByTestId("connect-person-row").filter({ has: page.getByRole("button", { name: "Message Jordan Lee", exact: true }) });
-    const spacing = await row.evaluate(node => {
-      const message = node.querySelector('button[aria-label="Message Jordan Lee"]')!;
-      const options = node.querySelector('button[aria-label="Options for Jordan Lee"]')!;
-      const first = message.querySelector("svg")!;
-      const second = options.querySelector("svg")!;
-      const gap = () => second.getBoundingClientRect().left - first.getBoundingClientRect().right;
-      const tightened = gap();
-      first.classList.remove("translate-x-1.5");
-      second.classList.remove("-translate-x-1.5");
-      const previous = gap();
-      first.classList.add("translate-x-1.5");
-      second.classList.add("-translate-x-1.5");
-      const a = message.getBoundingClientRect(), b = options.getBoundingClientRect();
-      return { tightened, previous, targets: [a.width, a.height, b.width, b.height], overlap: a.right > b.left };
-    });
-    expect(spacing.tightened / spacing.previous).toBeCloseTo(0.5, 1);
-    expect(spacing.targets).toEqual([44, 44, 44, 44]);
-    expect(spacing.overlap).toBe(false);
+    for (const label of ["Message Jordan Lee", "Options for Jordan Lee"]) {
+      const action = row.getByRole("button", { name: label, exact: true });
+      await action.hover();
+      await expect(action.locator("md-ripple")).not.toHaveCSS("--md-ripple-hover-opacity", "0");
+      const geometry = await action.evaluate(node => {
+        const target = node.getBoundingClientRect();
+        const icon = node.querySelector("svg")!.getBoundingClientRect();
+        const feedback = node.querySelector(".morphy-ripple-host")!.getBoundingClientRect();
+        const centre = (box: DOMRect) => [box.left + box.width / 2, box.top + box.height / 2];
+        const apart = (a: number[], b: number[]) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]));
+        return {
+          target: [target.width, target.height],
+          glyphOffTarget: apart(centre(icon), centre(target)),
+          feedbackOffGlyph: apart(centre(feedback), centre(icon)),
+          feedbackInsideTarget: feedback.width < target.width && feedback.height < target.height,
+        };
+      });
+      expect(geometry.target, label).toEqual([44, 44]);
+      expect(geometry.glyphOffTarget, label).toBeLessThanOrEqual(0.5);
+      expect(geometry.feedbackOffGlyph, label).toBeLessThanOrEqual(1);
+      expect(geometry.feedbackInsideTarget, label).toBe(true);
+    }
+    const [message, options] = await Promise.all(["Message Jordan Lee", "Options for Jordan Lee"].map(label => row.getByRole("button", { name: label, exact: true }).boundingBox()));
+    expect(message!.x + message!.width).toBeLessThanOrEqual(options!.x + 0.5);
   });
   for (const joined of [false, true]) {
     test(`Join with code stays transparent with joined=${joined} at ${width}px`, async ({ page }) => {
@@ -988,4 +998,23 @@ for (const width of [393, 1440]) {
       expect(gap).toBeCloseTo(6, 1);
     });
   }
+}
+
+for (const width of [393, 1440]) {
+  test(`Network Connect action matches directory at ${width}px`, async ({ page }) => {
+    await open(page, width, false, undefined, () => { document.documentElement.dataset.networkActions = "1"; });
+    await settle(page, width);
+    const pillStyle = (node: Element) => {
+      const style = getComputedStyle(node);
+      return { color: style.color, background: style.backgroundColor, border: style.borderColor,
+        width: node.getBoundingClientRect().width, height: node.getBoundingClientRect().height,
+        font: style.fontSize, weight: style.fontWeight, radius: style.borderRadius };
+    };
+    const expected = await page.locator('[data-slot="connect-row-action-pill"]').first().evaluate(pillStyle);
+    await page.getByRole("button", { name: "Explore your network", exact: true }).click();
+    const button = page.getByRole("button", { name: "Connect with Avery Stone", exact: true });
+    await expect(button).toBeVisible();
+    expect(await button.locator('[data-slot="connect-row-action-pill"]').evaluate(pillStyle)).toEqual(expected);
+    await page.screenshot({ path: test.info().outputPath(`network-actions-${width}.png`), animations: "disabled" });
+  });
 }

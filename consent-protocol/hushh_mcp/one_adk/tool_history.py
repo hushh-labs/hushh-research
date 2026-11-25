@@ -13,14 +13,14 @@ def validate_one_tool_result_history(callback_context: Any, llm_request: Any) ->
 
 def _receipt_placeholder_matches(event: Any, result: Any, expected_name: str | None) -> bool:
     from hushh_mcp.one_adk.plaid_connector_tools import PLAID_TOOL_NAMES
-    from hushh_mcp.one_adk.receipt_client_tools import RECEIPT_TOOL_NAMES
+    from hushh_mcp.one_adk.receipt_client_tools import PRIVATE_DEVICE_READ_TOOLS
     from hushh_mcp.one_adk.wiki_recall_tools import WIKI_TOOL_NAMES
 
     # Tool-only AG-UI handback stores a value-free result with its exact call ID.
     # Receipt, Wiki, and Plaid admission check actual values separately before this callback.
     if event.author != "user" or not bool(result.id) or result.name != "unknown":
         return False
-    if expected_name in RECEIPT_TOOL_NAMES:
+    if expected_name in PRIVATE_DEVICE_READ_TOOLS:
         return result.response in (
             {"schema": "receipt_result.v1", "operation": expected_name, "ephemeral_result": True},
             {"content_redacted": True},

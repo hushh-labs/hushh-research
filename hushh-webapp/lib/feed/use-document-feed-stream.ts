@@ -12,7 +12,7 @@ import {
   createDocumentFeedStreamManager,
   type DocumentFeedStreamManager,
 } from "@/lib/feed/document-feed-stream-manager";
-import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
+import { dispatchFeedConnectionRequestsChanged, dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { dispatchSmsAlertsChanged } from "@/lib/one-location/sms-alarm-state";
 import { dispatchPayoutStateChanged } from "@/lib/payouts/payout-events";
 import { setPayoutStreamState } from "@/lib/payouts/payout-live-store";
@@ -86,16 +86,19 @@ function openSharedStream(user: FeedUser, ownerId: string): SharedStream {
     getToken: (forceRefresh) => shared.user.getIdToken(forceRefresh),
     isCurrent,
     isVisible: () => document.visibilityState !== "hidden",
-    dispatchFeed: ({ general, consent, requestId, historyMutated, reconcileSms, reconcileConnections, connectionGraphChanged }) => {
+    dispatchFeed: ({ general, consent, connections, requestId, historyMutated, reconcileSms, reconcileConnections, connectionGraphChanged }) => {
       if (reconcileSms) dispatchSmsAlertsChanged(uid);
       // This stream already relays frames to sibling tabs.
       if (reconcileConnections) CacheSyncService.onConnectionGraphMutated(uid, {
         broadcast: false,
         reason: connectionGraphChanged ? "mutation" : "reconcile",
       });
-      // Server activity invalidates both Feed projections and fences older reads.
       if (historyMutated) CacheSyncService.onFeedHistoryMutated(uid);
-      else if (!reconcileConnections) CacheSyncService.onFeedChanged(uid);
+      else if (general && !consent && !reconcileConnections) CacheSyncService.onFeedChanged(uid);
+      if (connections) {
+        if (!reconcileConnections) CacheSyncService.onFeedConnectionRequestsChanged(uid);
+        dispatchFeedConnectionRequestsChanged();
+      }
       if (general) dispatchFeedStateChanged("arrived");
       if (!consent) return;
       // Feed surfaces listen to this one signal and perform a forced

@@ -1,6 +1,6 @@
 import { FinanceImportOnboardingSetupClient } from "./import/finance-import-onboarding-setup-client";
 
-/** Finance begins with an illustrative tour and the existing source workflow. */
+/** Capture starter investing preferences before portfolio source selection. */
 export default function FinanceOnboardingSetupPage() {
-  return <FinanceImportOnboardingSetupClient showIntroduction />;
+  return <FinanceImportOnboardingSetupClient startWithPersona />;
 }

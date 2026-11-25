@@ -31,6 +31,8 @@ import {
 } from "@/components/app-ui/surfaces";
 import { Icon } from "@/lib/morphy-ux/ui";
 
+import { formatCurrency } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -59,15 +61,6 @@ interface TransactionActivityProps {
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
-
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
 
 function formatDate(dateStr?: string): string {
   if (!dateStr) return "";
@@ -184,6 +177,7 @@ export function TransactionActivity({
   maxItems = 5,
   className 
 }: TransactionActivityProps) {
+  useMarketCurrency();
   // Filter out invalid transactions and limit to maxItems
   const validTransactions = (transactions || [])
     .filter(tx => tx.symbol && tx.amount !== undefined)

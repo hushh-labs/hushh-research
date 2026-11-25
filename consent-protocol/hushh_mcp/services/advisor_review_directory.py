@@ -8,16 +8,34 @@ from hushh_mcp.services.finance_sharing_service import FinanceSharingError, one,
 from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
 
 
-def candidates(viewer, *, query="", crds=None, connected=False, page=1):
+def candidates(viewer, *, query="", crds=None, connected=False, page=1, service=None):
     database = get_db()
     has_more = False
     if crds is None:
         connections = ConnectionsService()
         directory = (
-            connections.list_connections_page(viewer, audience="ria", page=page, limit=30)
+            OneLocationAgentService().search_directory_candidates(
+                owner_user_id=viewer,
+                query=query,
+                typed_search=True,
+                audience="ria",
+                name_only=True,
+                page=page,
+                limit=30,
+                advisor_service=service,
+                include_recommendations=False,
+            )
+            if service is not None
+            else connections.list_connections_page(viewer, audience="ria", page=page, limit=30)
             if connected
             else connections.search_directory(
-                viewer, query=query, audience="ria", name_only=True, page=page, limit=30
+                viewer,
+                query=query,
+                audience="ria",
+                name_only=True,
+                typed_search=True,
+                page=page,
+                limit=30,
             )
         )
         has_more = directory["hasMore"]
@@ -35,7 +53,10 @@ def candidates(viewer, *, query="", crds=None, connected=False, page=1):
             )
     result = []
     visible = OneLocationAgentService().search_directory_candidates(
-        owner_user_id=viewer, candidate_user_ids=list(ids), limit=30
+        owner_user_id=viewer,
+        candidate_user_ids=list(ids),
+        limit=30,
+        include_recommendations=service is None,
     )
     eligible_ids = {person["userId"] for person in visible["items"]}
     with database.engine.begin() as conn:
@@ -51,6 +72,7 @@ def candidates(viewer, *, query="", crds=None, connected=False, page=1):
             row = one(
                 conn,
                 """SELECT p.public_person_ref,r.display_name,r.bio,
+                COALESCE(to_jsonb(r)->'services_offered', '[]'::jsonb) AS services_offered,
                 COALESCE(to_jsonb(r)->>'individual_crd',r.finra_crd) AS crd,
                 k.key_id,k.public_key_jwk
                 FROM ria_profiles r JOIN actor_profiles p ON p.user_id=r.user_id
@@ -69,6 +91,7 @@ def candidates(viewer, *, query="", crds=None, connected=False, page=1):
                         "bio": (row["bio"] or "")[:250],
                         "crd": row["crd"],
                         "verified": True,
+                        "servicesOffered": list(row["services_offered"] or []),
                         "keyId": row["key_id"],
                         "publicKeyJwk": row["public_key_jwk"],
                         "ready": bool(row["key_id"]),

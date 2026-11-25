@@ -18,7 +18,11 @@ from typing import Any, Sequence
 from google.genai import types
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
-from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
+from hushh_mcp.hushh_adk.single_turn import (
+    build_single_turn_agent,
+    run_single_turn,
+    single_turn_processing_scope,
+)
 from hushh_mcp.runtime_providers import build_managed_regional_gemini_adk_model
 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 
@@ -53,6 +57,9 @@ _HOLDING_ROW_SCHEMA: dict[str, Any] = {
         "asset_type": _TEXT,
         "sector": _TEXT,
         "industry": _TEXT,
+        "account_id": _TEXT,
+        "currency": _TEXT,
+        "acquisition_date": _TEXT,
     },
 }
 
@@ -62,6 +69,7 @@ _STATEMENT_DETAILS_SCHEMA: dict[str, Any] = {
         "institution_name": _TEXT,
         "account_number": _TEXT,
         "account_name": _TEXT,
+        "account_type": _TEXT,
         "statement_period_start": _TEXT,
         "statement_period_end": _TEXT,
         "client_address": _TEXT,
@@ -79,7 +87,12 @@ _PORTFOLIO_SUMMARY_KEYS = (
 )
 _PORTFOLIO_SUMMARY_SCHEMA: dict[str, Any] = {
     "type": "OBJECT",
-    "properties": {key: _NUMBER for key in _PORTFOLIO_SUMMARY_KEYS},
+    "properties": {
+        **{key: _NUMBER for key in _PORTFOLIO_SUMMARY_KEYS},
+        "declared_security_count": _NUMBER,
+        "securities_market_value": _NUMBER,
+        "pending_receivables": _NUMBER,
+    },
     "required": list(_PORTFOLIO_SUMMARY_KEYS),
 }
 
@@ -174,6 +187,11 @@ async def run_portfolio_gene(
         raise RuntimeError(f"Portfolio Import gene must run on managed Gemini: {gene_id}")
 
     resolved_model = _model_name(gene, model_name)
+    call_timeout_seconds = (
+        timeout_seconds
+        if timeout_seconds is not None
+        else max(30.0, gene.performance.latency_p95_ms / 1000)
+    )
     agent = build_single_turn_agent(
         gene,
         output_schema=output_schema,
@@ -182,7 +200,11 @@ async def run_portfolio_gene(
         # ADK 2.9's Gemini.client (typed genai.Client) rejects, so every import
         # failed before its request was sent. The regional model is the seam for
         # a tool-less single turn, with bounded failover across locations.
-        model=build_managed_regional_gemini_adk_model(resolved_model),
+        model=build_managed_regional_gemini_adk_model(
+            resolved_model,
+            timeout_seconds=call_timeout_seconds,
+            processing_scope=single_turn_processing_scope(gene_id),
+        ),
     )
     parts: list[Any] = [types.Part.from_text(text=str(prompt).strip())]
     parts.extend(document_parts)
@@ -193,9 +215,7 @@ async def run_portfolio_gene(
         message_content=types.Content(role="user", parts=parts),
         user_id=str(user_id),
         consent_token=str(consent_token),
-        timeout_seconds=timeout_seconds
-        if timeout_seconds is not None
-        else max(30.0, gene.performance.latency_p95_ms / 1000),
+        timeout_seconds=call_timeout_seconds,
     )
     payload = result.model_dump(mode="json") if hasattr(result, "model_dump") else result
     if not isinstance(payload, dict):

@@ -50,48 +50,23 @@ and [table row links](https://github.com/toss/frontend-fundamentals/blob/161d3d6
    and card-inside-card composition unless it adds semantic separation.
 5. Apply the Restraint Charter (`docs/development/quality/design.md` Visual
    Language rule 1) as a hard checklist, in precedence order:
-   - **One title per screen:** a single card under a `PageHeader` must not pass
+   - **One title per screen** — a single card under a `PageHeader` must not pass
      a `SettingsGroup`/section `title` or `description`; that double-headers by
      construction.
-   - **One primary action:** count primary-variant buttons per screen; there is
+   - **One primary action** — count primary-variant buttons per screen; there is
      exactly one. Two buttons calling the same handler collapse into one; the
      rest demote to ghost or a text link.
-   - **No decorative badge:** a badge that only restates a button's enabled
+   - **No decorative badge** — a badge that only restates a button's enabled
      state, or a status the row already shows, is removed.
-   - **Progressive disclosure:** commands, delegated grants, and advanced paths
+   - **Progressive disclosure** — commands, delegated grants, and advanced paths
      live behind a quiet toggle, not inline as competing blocks.
-   - **Earn every paragraph:** supporting copy that does not change a decision
+   - **Earn every paragraph** — supporting copy that does not change a decision
      (a footer `supportingText` restating a disabled reason, a rationale for a
      pre-filled value) is cut.
-6. Rebalance tablet and desktop layouts; wide screens should be recomposed, not
+5. Rebalance tablet and desktop layouts; wide screens should be recomposed, not
    merely stretched.
-7. Detail surfaces should be narrower and more focused than the page shell
+6. Detail surfaces should be narrower and more focused than the page shell
    unless real content requires more width.
-
-### Narrow-Container Row Budget And Outcome Audit
-
-1. **Single trailing accessory on compact rows:** A `SettingsRow` or drawer card
-   (`320-380px` width) carries at most one compact trailing control or short
-   value beside its chevron. Never stack multiple pill badges (`Connected` plus
-   a cloud provider chip) horizontally inside `trailing` against the primary
-   label and description; move secondary status/provider chips onto a wrapping
-   sub-row inside `description` so the primary identity keeps full measure.
-2. **Never truncate authored product, tier, or capability identities:** Reserve
-   `textOverflow="truncate"` for arbitrary user-supplied filenames, URLs, or
-   email addresses whose full text is one tap away. Truncating an authored
-   product or hosting tier name (`Hussh Confident...`) is a ship-blocking
-   defect; let authored labels wrap naturally.
-3. **Zero back-to-back identity duplication:** When a radio or choice card is
-   selected (`HostingChoiceCards`), an adjacent status or control strip directly
-   beneath it must not repeat the same product heading and descriptive paragraph
-   a second time; collapse active state into a single compact status line.
-4. **Mandatory real-browser truncation and squish audit:** Unit tests in jsdom
-   report `0px` layout widths (`scrollWidth === 0`, `clientWidth === 0`) and
-   pass silently while real flex/grid rows clip copy. Before claiming any UI
-   task complete, render the live route or drawer in headless Chromium at
-   `360px` (Profile drawer/sheet measure), `390px` (phone), and `1280px`
-   (desktop), inspect screenshots, and assert `el.scrollWidth <= el.clientWidth`
-   across visible row titles, descriptions, and pills.
 
 ### Reproducible alignment review
 
@@ -135,12 +110,9 @@ charter. Do not turn a jsdom class-name assertion into pixel evidence.
    attached to the primary unlock control.
 7. Consumer auth, onboarding, and verification copy should avoid provider names,
    backend systems, token formats, and protocol terms.
-8. Keep supporting copy focused on the next action; retain context needed for
-   an informed choice.
+8. Keep supporting copy to one short line that directly helps the next action.
 9. Apply the [Concise Product Copy Contract](../../../../docs/development/quality/app-surface-design-system.md#concise-product-copy-contract)
    to group, row, and button labels; retain required vault-export warnings.
-   Apply [Less Text Karma Ji](../../less-text-karma-ji/SKILL.md) for wording
-   craft while preserving the Consumer Copy Contract and consequential meaning.
 
 ## One/Kai/Nav Copy
 

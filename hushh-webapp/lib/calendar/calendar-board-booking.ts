@@ -4,6 +4,7 @@ import { scheduleRequest } from "@/lib/services/google-calendar-transport";
 
 export type CalendarExecution = {
   action: "create" | "reschedule" | "cancel";
+  gmail_reply?: { status: "sent" | "not_sent" | "outcome_unknown"; message_id?: string };
   event: {
     id?: string | null;
     title?: string | null;
@@ -54,7 +55,11 @@ export type CalendarBoardBookingReview = {
 
 export async function reviewBoardBooking(params: CalendarBoardBookingInput): Promise<CalendarBoardBookingReview> {
     if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError("Board booking");
-    return scheduleRequest<CalendarBoardBookingReview>("proposals", params.vaultOwnerToken, {
+    return scheduleRequest<CalendarBoardBookingReview>("proposals", params.vaultOwnerToken, boardBookingPayload(params));
+}
+
+export function boardBookingPayload(params: Omit<CalendarBoardBookingInput, "vaultOwnerToken">) {
+    return {
       user_id: params.userId,
       action: "create",
       account_id: params.accountId,
@@ -71,5 +76,5 @@ export async function reviewBoardBooking(params: CalendarBoardBookingInput): Pro
       meeting_link: params.meetingLink,
       location: params.location,
       send_updates: params.attendees.length > 0,
-    });
+    };
 }
