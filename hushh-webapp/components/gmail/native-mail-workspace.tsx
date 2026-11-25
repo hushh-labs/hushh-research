@@ -7,7 +7,7 @@ import { useNativeWorkspacePresentation } from "@/lib/capacitor/use-native-works
 import { normalizeStaticExportPathname, ROUTES } from "@/lib/navigation/routes";
 import { useVault } from "@/lib/vault/vault-context";
 import { NativeWorkspaceSurface, type NativeWorkspaceSurfaceRow, type NativeWorkspaceSurfaceSection, type NativeWorkspaceSurfaceConfirmation } from "@/lib/capacitor/native-workspace-surface";
-import type { GmailWorkspace } from "./gmail-workspace-navigation";
+import { gmailWorkspaceTab, type GmailWorkspace } from "./gmail-workspace-navigation";
 
 export type MailNativeRow = NativeWorkspaceSurfaceRow;
 export type MailNativeSection = NativeWorkspaceSurfaceSection;
@@ -47,8 +47,8 @@ export function NativeMailLayer(props: { active: boolean; title: string; section
   confirmation?: MailNativeConfirmation; webChild?: boolean; fallback: ReactNode }) {
   const scope = useContext(MailPresentation);
   if (!scope?.enabled || !props.active) return props.fallback;
-  const tabs = (["overview", "kyc", "receipts"] as const).map(view => ({ key: view,
-    label: view === "overview" ? "Overview" : view === "kyc" ? "KYC" : "Receipts", selected: scope.model.view === view,
+  const tabs = (["overview", "followups", "receipts"] as const).map(view => ({ key: view,
+    label: view === "overview" ? "Overview" : view === "followups" ? "Follow-ups" : "Receipts", selected: gmailWorkspaceTab(scope.model.view) === view,
     run: () => scope.model.selectView(view),
   }));
   return <NativeWorkspaceSurface {...props} owner={scope.model.owner!} workspace="mail" current={scope.current}

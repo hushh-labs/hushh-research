@@ -3,6 +3,8 @@ import { expect, test } from "@playwright/test";
 import { awaitProductFont } from "./fixtures/product-font";
 import { buildMailWorkspaceFixture } from "./fixtures/build-mail-workspace";
 
+test.use({ timezoneId: "Asia/Kolkata", locale: "en-IN" });
+
 let script: string;
 let css: string;
 let disposeFixture: (() => void) | undefined;
@@ -18,7 +20,7 @@ test.afterAll(() => disposeFixture?.());
 
 for (const width of [360, 393, 430, 768, 1024, 1440]) {
   for (const theme of ["light", "dark"] as const) {
-    for (const workspace of ["overview", "kyc", "receipts"] as const) {
+    for (const workspace of ["overview", "followups", "kyc", "receipts"] as const) {
       test(`Mail ${workspace} ${theme} at ${width}px uses the Connect frame`, async ({ page }, testInfo) => {
         await page.setViewportSize({ width, height: width >= 768 ? 1000 : 852 });
         await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
@@ -27,14 +29,15 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
         await page.route("http://localhost/fixture.js", route => route.fulfill({ contentType: "application/javascript; charset=utf-8", body: script }));
         await page.route("http://localhost/mail-workspace", route => route.fulfill({
           contentType: "text/html; charset=utf-8",
-          body: `<!doctype html><html class="${theme}" data-workspace="${workspace}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>`,
+          body: `<!doctype html><html class="${theme}" data-workspace="${workspace}" data-brief-rise="1"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>`,
         }));
         await page.goto("http://localhost/mail-workspace");
         await expect(page.getByRole("tablist", { name: "Gmail workspace" })).toBeVisible();
         await awaitProductFont(page);
         const frame = page.locator(".app-page-shell");
         const geometry = await frame.evaluate(element => ({ width: element.getBoundingClientRect().width, gutter: parseFloat(getComputedStyle(element).paddingLeft) }));
-        expect(geometry.width).toBe(Math.min(width, 728));
+        // Phones and tablets keep the reading measure; a wide screen gives all three tabs one wider column.
+        expect(geometry.width).toBe(Math.min(width, width >= 1100 ? 1224 : 728));
         expect(geometry.gutter).toBe(width <= 350 ? 16 : width <= 620 ? 20 : 24);
         const header = page.getByTestId("top-app-bar-breadcrumb-trail");
         await expect(header).toHaveText("Mail");
@@ -46,34 +49,48 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
         expect(tabType).toEqual(["15px", "20px", "550"]);
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
         if (workspace === "overview") {
-          const chat = page.getByRole("button", { name: "Chat with One", exact: true });
-          await expect(chat).toBeVisible();
-          const appearance = await chat.evaluate(element => { const style = getComputedStyle(element); return [style.fontSize, style.lineHeight, style.fontWeight, element.getBoundingClientRect().height]; });
-          expect(appearance).toEqual(["12px", "18px", "550", 44]);
-          const hero = page.getByRole("heading", { name: "Draft with One." });
-          const position = await hero.boundingBox();
-          const stack = (await page.getByTestId("mail-draft-cards").boundingBox())!;
-          const chatPosition = (await chat.boundingBox())!;
-          expect(Math.abs(chatPosition.x - position!.x)).toBeLessThanOrEqual(1);
-          await expect(page.getByRole("region", { name: "Mail overview" }).getByRole("button")).toHaveCount(1);
-          if (width >= 768) {
-            expect(stack.x).toBeGreaterThanOrEqual(position!.x + position!.width + 24);
-            const framePosition = (await frame.boundingBox())!;
-            expect(Math.abs(stack.x + stack.width - framePosition.x - framePosition.width + geometry.gutter)).toBeLessThanOrEqual(1);
-          } else {
-            expect(Math.abs(stack.x - position!.x)).toBeLessThanOrEqual(1);
-            expect(chatPosition.y).toBeGreaterThanOrEqual(stack.y + stack.height);
+          // The brief leads: header, three tabs, then the sections in the approved order.
+          await expect(page.getByTestId("mail-header")).toBeVisible();
+          await expect(page.getByTestId("mail-account-chip")).toContainText("neha@hushh.ai");
+          await expect(page.getByTestId("mail-attention-count")).toHaveText("4");
+          await expect(page.getByRole("heading", { name: "Needs your attention" })).toBeVisible();
+          const overviewPanel = page.getByRole("tabpanel", { name: "Overview" });
+          await expect(overviewPanel.getByTestId("attention-card")).toHaveCount(3);
+          await expect(page.getByRole("button", { name: "All 4 in Follow-ups" })).toBeVisible();
+          await expect(page.getByRole("heading", { name: "Recent updates" })).toBeVisible();
+          await expect(page.getByRole("heading", { name: "Recently completed" })).toBeVisible();
+          // Every control in the brief is a touch target that sits fully inside the frame.
+          const frameBox = (await frame.boundingBox())!;
+          const controls = await page.getByRole("tabpanel", { name: "Overview" }).getByRole("button").evaluateAll(elements =>
+            elements.filter(element => (element as HTMLElement).offsetParent !== null).map(element => { const box = element.getBoundingClientRect(); return { name: element.textContent?.trim() ?? "", left: box.left, right: box.right, height: box.height }; }));
+          for (const control of controls) {
+            expect(control.right, control.name).toBeLessThanOrEqual(frameBox.x + frameBox.width + 1);
+            expect(control.left, control.name).toBeGreaterThanOrEqual(frameBox.x - 1);
+            expect(control.height, control.name).toBeGreaterThanOrEqual(36);
           }
-          const manage = page.getByRole("button", { name: "Manage", exact: true });
-          await manage.click();
+          // Search, Recent mail and Write stay reachable as secondary tools.
+          await expect(overviewPanel.getByTestId("mail-write")).toBeVisible();
+          await overviewPanel.getByTestId("mail-tools-toggle").click();
+          await expect(page.getByRole("searchbox", { name: "Search mail" })).toBeVisible();
+          await expect(page.getByRole("heading", { name: "Recent mail" })).toBeVisible();
+          await expect(page.getByTestId("mail-row")).toHaveCount(5);
+          await expect(page.getByText("Draft with One.")).toHaveCount(0);
+          const chip = page.getByTestId("mail-account-chip");
+          await chip.click();
           const menu = page.getByRole("menu");
           await expect(menu).toBeVisible();
-          expect(await hero.boundingBox()).toEqual(position);
           const box = (await menu.boundingBox())!;
           expect(box.x).toBeGreaterThanOrEqual(0);
           expect(box.x + box.width).toBeLessThanOrEqual(width);
           await page.keyboard.press("Escape");
-          await expect(manage).toBeFocused();
+          await expect(chip).toBeFocused();
+        }
+        if (workspace === "followups") {
+          await expect(page.getByRole("heading", { name: "Follow-ups", level: 2 })).toBeVisible();
+          const followupsPanel = page.getByRole("tabpanel", { name: "Follow-ups" });
+          await expect(followupsPanel.getByTestId("attention-card")).toHaveCount(4);
+          await expect(followupsPanel.getByTestId("followups-count")).toHaveText("4 need you");
+          await expect(followupsPanel.getByTestId("open-kyc")).toBeVisible();
         }
         if (workspace === "kyc") {
           const paste = page.getByRole("button", { name: "Paste details", exact: true });
@@ -119,30 +136,346 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
   }
 }
 
-test("Mail desktop hover expands the original cards in the right column", async ({ page }, testInfo) => {
-  await page.setViewportSize({ width: 1280, height: 1000 });
-  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "no-preference" });
+/** `tools: true` (the default) opens "Search and recent mail", where Recent mail, Search and Open live. */
+async function openOverview(page: import("@playwright/test").Page, input: { width: number; height: number; scenario?: string; zoom?: number; tools?: boolean; attrs?: string; theme?: "light" | "dark"; shell?: boolean }) {
+  await page.setViewportSize({ width: input.width, height: input.height });
+  await page.emulateMedia({ colorScheme: input.theme ?? "light", reducedMotion: "reduce" });
   await page.route("http://localhost/fixture.js", route => route.fulfill({ contentType: "application/javascript; charset=utf-8", body: script }));
   await page.route("http://localhost/mail-workspace", route => route.fulfill({
     contentType: "text/html; charset=utf-8",
-    body: `<!doctype html><html class="dark" data-workspace="overview"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>`,
+    body: `<!doctype html><html class="${input.theme ?? "light"}" data-workspace="overview" data-overview="${input.scenario ?? "populated"}" ${input.shell ? 'data-shell="1"' : ""} ${input.attrs ?? ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>`,
   }));
   await page.goto("http://localhost/mail-workspace");
+  await expect(page.getByRole("tablist", { name: "Gmail workspace" })).toBeVisible();
   await awaitProductFont(page);
-  const stack = page.getByTestId("mail-draft-cards");
-  await expect(stack).toBeVisible();
-  const cards = page.getByTestId("mail-draft-card");
-  const spread = () => cards.evaluateAll(elements => elements[2].getBoundingClientRect().y - elements[0].getBoundingClientRect().y);
-  const collapsedSpread = await spread();
-  await stack.hover();
-  await expect.poll(spread).toBeGreaterThan(collapsedSpread + 40);
-  const copy = (await page.getByRole("heading", { name: "Draft with One." }).boundingBox())!;
-  for (const card of await cards.all()) {
-    const box = (await card.boundingBox())!;
-    expect(box.x).toBeGreaterThan(copy.x + copy.width + 16);
-    expect(box.x + box.width).toBeLessThan(1280);
+  if (input.zoom) await page.evaluate(value => { (document.body.style as CSSStyleDeclaration & { zoom: string }).zoom = String(value); }, input.zoom);
+  if (input.tools ?? true) {
+    await page.getByRole("tabpanel", { name: "Overview" }).getByTestId("mail-tools-toggle").click();
+    await expect(page.getByRole("searchbox", { name: "Search mail" })).toBeVisible();
   }
-  await page.screenshot({ path: testInfo.outputPath("mail-desktop-hover-right.png") });
+}
+
+for (const size of [{ width: 1280, height: 900 }, { width: 393, height: 852 }]) {
+  test(`Mail overview searches, opens an exact email and returns at ${size.width}px`, async ({ page }, testInfo) => {
+    await openOverview(page, size);
+    const rows = page.getByTestId("mail-row");
+    await expect(rows).toHaveCount(5);
+    const field = page.getByRole("searchbox", { name: "Search mail" });
+    await field.fill("invoice");
+    await field.press("Enter");
+    await expect(rows).toHaveCount(3);
+    await expect(page.getByText(/All mail \(Spam and Trash excluded\)/)).toBeVisible();
+    await expect(field).toHaveValue("invoice");
+    // Two rows share a subject; each opens its own message.
+    const second = rows.nth(2);
+    await second.click();
+    const body = page.getByTestId("mail-message-body");
+    await expect(body).toBeVisible();
+    // Mail text is shown as text: the markup in the fixture body stays literal.
+    await expect(body).toContainText("<b>markup</b>");
+    expect(await body.locator("b, a, img").count()).toBe(0);
+    await expect(page.getByRole("button", { name: "Reply", exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(size.width);
+    await page.screenshot({ path: testInfo.outputPath(`mail-overview-open-${size.width}.png`) });
+    await page.getByRole("button", { name: /Search results/ }).click();
+    await expect(rows).toHaveCount(3);
+    await expect(rows.nth(2)).toBeFocused();
+    await page.getByRole("button", { name: /Recent mail/ }).click();
+    await expect(rows).toHaveCount(5);
+    await expect(field).toHaveValue("");
+  });
+}
+
+test("Mail overview keeps its last row clear of the bottom bar, and the search field above the keyboard", async ({ page }, testInfo) => {
+  await openOverview(page, { width: 393, height: 852 });
+  await page.getByRole("button", { name: "View more" }).click();
+  const rows = page.getByTestId("mail-row");
+  await expect(rows).toHaveCount(8);
+  const reachable = async () => {
+    await page.locator("[data-app-scroll-root]").evaluate(element => { element.scrollTop = element.scrollHeight; });
+    const last = (await rows.last().boundingBox())!;
+    const bar = (await page.locator("nav[data-app-bottom-nav]").boundingBox())!;
+    return bar.y - (last.y + last.height);
+  };
+  // The tab pane resizes a frame after rows arrive, so poll until it has settled:
+  // the last row can then always be scrolled fully above the bottom bar.
+  await expect.poll(reachable).toBeGreaterThanOrEqual(0);
+  await page.screenshot({ path: testInfo.outputPath("mail-overview-last-row-393.png") });
+
+  // An open keyboard, as the shell publishes it: the viewport shrinks and --kb-height is set.
+  await page.evaluate(() => document.documentElement.style.setProperty("--kb-height", "336px"));
+  await page.setViewportSize({ width: 393, height: 852 - 336 });
+  await page.locator("[data-app-scroll-root]").evaluate(element => { element.scrollTop = 0; });
+  const field = page.getByRole("searchbox", { name: "Search mail" });
+  await field.focus();
+  await field.scrollIntoViewIfNeeded();
+  const input = (await field.boundingBox())!;
+  const submit = (await page.getByRole("button", { name: "Search", exact: true }).boundingBox())!;
+  expect(input.y).toBeGreaterThanOrEqual(0);
+  expect(input.y + input.height).toBeLessThanOrEqual(852 - 336);
+  expect(submit.y + submit.height).toBeLessThanOrEqual(852 - 336);
+  await page.screenshot({ path: testInfo.outputPath("mail-overview-keyboard-393.png") });
+});
+
+test("Mail overview stays usable at larger text (150% zoom) on a phone", async ({ page }, testInfo) => {
+  await openOverview(page, { width: 393, height: 852, zoom: 1.5 });
+  await expect(page.getByTestId("mail-row")).toHaveCount(5);
+  await expect(page.getByRole("button", { name: "Compose", exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(393);
+  await page.screenshot({ path: testInfo.outputPath("mail-overview-zoom-393.png") });
+});
+
+for (const [scenario, text, action] of [
+  ["empty", "No mail in your Inbox.", null],
+  ["failed", "Couldn't load your mail. Try again.", "Try again"],
+  ["reconnect", "Your mail connection needs attention. Reconnect to continue.", "Reconnect"],
+] as const) {
+  test(`Mail overview says "${scenario}" truthfully`, async ({ page }) => {
+    await openOverview(page, { width: 393, height: 852, scenario });
+    await expect(page.getByText(text)).toBeVisible();
+    if (action) await expect(page.getByRole("button", { name: action, exact: true })).toBeVisible();
+    await expect(page.getByTestId("mail-row")).toHaveCount(0);
+    // A failed read is never worded as an empty Inbox.
+    if (scenario !== "empty") await expect(page.getByText("No mail in your Inbox.")).toHaveCount(0);
+  });
+}
+
+for (const size of [{ width: 1280, height: 900 }, { width: 393, height: 852 }, { width: 360, height: 780 }]) {
+  test(`Mail overview shows how old the list is, with a reachable Refresh at ${size.width}px`, async ({ page }, testInfo) => {
+    await openOverview(page, size);
+    await expect(page.getByTestId("mail-row")).toHaveCount(5);
+    const tools = page.locator("#mail-tools-panel");
+    const updated = tools.getByText(/^Updated \d{1,2}:\d{2}/);
+    const refresh = tools.getByRole("button", { name: "Refresh", exact: true });
+    await expect(updated).toBeVisible();
+    await expect(refresh).toBeVisible();
+    // A touch-sized target that stays inside the frame and above the first row.
+    const box = await refresh.boundingBox();
+    const firstRow = await page.getByTestId("mail-row").first().boundingBox();
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(size.width);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(firstRow!.y + 1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(size.width);
+    await page.screenshot({ path: testInfo.outputPath(`mail-overview-freshness-${size.width}.png`) });
+    // Refresh reads again and leaves the list as it was when nothing is newer.
+    await refresh.click();
+    await expect(page.getByTestId("mail-row")).toHaveCount(5);
+    await expect(refresh).toBeEnabled();
+  });
+}
+
+test("Mail overview shows loading text while the first read is in flight", async ({ page }) => {
+  await openOverview(page, { width: 393, height: 852, scenario: "slow" });
+  await expect(page.getByText("Loading your mail…")).toBeVisible();
+  await expect(page.getByTestId("mail-row")).toHaveCount(0);
+});
+
+
+// ── The approved Overview: layout against the reference, then the journeys ─────────────────────────────────
+
+const REFERENCE_ATTRS = 'data-brief-rise="1"';
+
+async function openBrief(page: import("@playwright/test").Page, input: { width: number; height?: number; theme?: "light" | "dark"; attrs?: string }) {
+  await page.route("**/api/kai/gmail/receipts/notice*", route => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: { code: "GMAIL_RECEIPT_NOTICE_UNAVAILABLE" } }) }));
+  await openOverview(page, { width: input.width, height: input.height ?? (input.width >= 768 ? 1000 : 852), tools: false, shell: true, theme: input.theme, attrs: input.attrs ?? REFERENCE_ATTRS });
+  const overview = page.getByRole("tabpanel", { name: "Overview" });
+  await expect(overview.getByTestId("attention-card")).toHaveCount(3);
+  await expect(overview.getByTestId("receipt-update-row")).toHaveCount(1);
+  await expect(overview.getByTestId("completed-row")).toHaveCount(1);
+  return overview;
+}
+
+for (const width of [1440, 1100, 1024, 768, 430, 393, 360]) {
+  test(`Mail Overview lays out the approved brief at ${width}px`, async ({ page }, testInfo) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    const overview = await openBrief(page, { width });
+    const frame = (await page.locator(".app-page-shell").boundingBox())!;
+    const gutter = width <= 350 ? 16 : width <= 620 ? 20 : 24;
+    const cards = await overview.getByTestId("attention-card").evaluateAll(elements => elements.map(element => { const box = element.getBoundingClientRect(); return { left: box.left, top: box.top, width: box.width, height: box.height, right: box.right }; }));
+    expect(cards).toHaveLength(3);
+    if (width >= 1100) {
+      // The reference: three equal cards in one row.
+      for (const card of cards) expect(Math.abs(card.top - cards[0]!.top)).toBeLessThanOrEqual(1);
+      expect(cards[1]!.left).toBeGreaterThan(cards[0]!.right - 1);
+      expect(cards[2]!.left).toBeGreaterThan(cards[1]!.right - 1);
+      for (const card of cards) { expect(Math.abs(card.width - cards[0]!.width)).toBeLessThanOrEqual(2); expect(Math.abs(card.height - cards[0]!.height)).toBeLessThanOrEqual(2); }
+    } else if (width >= 620) {
+      expect(Math.abs(cards[1]!.top - cards[0]!.top)).toBeLessThanOrEqual(1); // two across, the third below
+      expect(cards[2]!.top).toBeGreaterThan(cards[0]!.top + cards[0]!.height - 1);
+    } else {
+      // A phone: one card per row, each the full width of the frame between its gutters.
+      for (const [index, card] of cards.entries()) {
+        expect(Math.abs(card.left - (frame.x + gutter))).toBeLessThanOrEqual(1);
+        expect(card.width).toBeGreaterThanOrEqual(frame.width - gutter * 2 - 2);
+        if (index) expect(card.top).toBeGreaterThan(cards[index - 1]!.top + cards[index - 1]!.height - 1);
+      }
+    }
+    // The lower sections: side by side on a wide screen, the updates wider; stacked otherwise.
+    const updates = (await overview.getByTestId("updates-list").boundingBox())!;
+    const completed = (await overview.getByTestId("completed-list").boundingBox())!;
+    if (width > 900) {
+      expect(Math.abs(updates.y - completed.y)).toBeLessThanOrEqual(2);
+      expect(completed.x).toBeGreaterThan(updates.x + updates.width - 1);
+      expect(updates.width).toBeGreaterThan(completed.width);
+    } else {
+      expect(completed.y).toBeGreaterThan(updates.y + updates.height - 1);
+      expect(Math.abs(updates.x - completed.x)).toBeLessThanOrEqual(1);
+    }
+    // Nothing is clipped or pushed off the side: every control sits inside the frame, and the page does not scroll sideways.
+    const controls = await overview.getByRole("button").evaluateAll(elements => elements.filter(element => (element as HTMLElement).offsetParent !== null).map(element => { const box = element.getBoundingClientRect(); return { name: element.textContent?.trim() ?? "", left: box.left, right: box.right, width: box.width }; }));
+    for (const control of controls) {
+      expect(control.left, control.name).toBeGreaterThanOrEqual(frame.x - 1);
+      expect(control.right, control.name).toBeLessThanOrEqual(frame.x + frame.width + 1);
+    }
+    // No label breaks across lines: a control reads as one line wherever it sits, so "All 4 in Follow-ups" never splits mid-word.
+    const wrapped = await overview.getByRole("button").evaluateAll(elements => elements.filter(element => (element as HTMLElement).offsetParent !== null).filter(element => {
+      // Text only: an icon sits at its own height and says nothing about wrapping.
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      const tops = new Set<number>();
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (!node.textContent?.trim()) continue;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        for (const box of Array.from(range.getClientRects())) if (box.width > 0) tops.add(Math.round(box.top));
+      }
+      return tops.size > 1;
+    }).map(element => element.textContent?.trim() ?? ""));
+    expect(wrapped).toEqual([]);
+    const clipped = await overview.locator("[data-testid=attention-card], [data-testid=update-row], [data-testid=receipt-update-row], [data-testid=completed-row]").evaluateAll(elements => elements.filter(element => element.scrollWidth > element.clientWidth + 1).length);
+    expect(clipped).toBe(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    // The production Talk to One bar and tab pill sit below the content, which can always scroll clear of them.
+    const bar = page.locator("[data-app-bottom-shell]");
+    await expect(bar).toBeVisible();
+    await page.locator("[data-app-scroll-root]").evaluate(element => { element.scrollTop = element.scrollHeight; });
+    const lastBottom = await overview.getByTestId("brief-updated").evaluate(element => element.getBoundingClientRect().bottom);
+    expect(lastBottom).toBeLessThanOrEqual((await bar.boundingBox())!.y + 1);
+    await page.locator("[data-app-scroll-root]").evaluate(element => { element.scrollTop = 0; });
+    expect(errors).toEqual([]);
+    await page.screenshot({ path: testInfo.outputPath(`reference-compare-${width}.png`) });
+  });
+}
+
+for (const width of [1440, 393]) {
+  test(`Mail Overview in dark mode at ${width}px keeps every section readable`, async ({ page }, testInfo) => {
+    const overview = await openBrief(page, { width, theme: "dark" });
+    for (const name of ["Needs your attention", "Recent updates", "Recently completed"]) await expect(overview.getByRole("heading", { name })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await page.screenshot({ path: testInfo.outputPath(`reference-compare-${width}-dark.png`) });
+  });
+}
+
+test("Mail Overview: a card's evidence is the exact message, and 'Draft follow-up' hands a reviewed reply on that thread to One without sending", async ({ page }) => {
+  const overview = await openBrief(page, { width: 1280 });
+  const sends: string[] = [];
+  page.on("request", request => { if (/email\/(prepare|send)/.test(request.url())) sends.push(request.url()); });
+
+  const first = overview.getByTestId("attention-card").first();
+  await expect(first).toContainText("IIT KGP · Follow-up");
+  await expect(first.getByTestId("attention-due")).toHaveText("Promised 20 November");
+  await first.getByTestId("why-this").click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("I will send the signed document by 20 Nov");
+  await dialog.getByTestId("brief-view-email").click();
+  const body = page.getByTestId("brief-message-body");
+  await expect(body).toContainText("Prof. Sen");
+  await expect(page.getByTestId("brief-quote-mark")).toHaveText("I will send the signed document by 20 Nov");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+
+  await first.getByTestId("attention-action").click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __mailHandoff: () => unknown }).__mailHandoff())).toMatchObject({
+    intent: "reply",
+    reply: { to: "sender@example.com", sourceId: expect.stringMatching(/^ms1\./), body: "Could you send the signed document when you can? Thank you." },
+  });
+  // Only a reply source was prepared; delivery was never prepared or sent.
+  expect(sends).toEqual([]);
+});
+
+test("Mail Overview: 'All 4 in Follow-ups' opens those four, and Thank, sent email and Receipts each open the right thing", async ({ page }) => {
+  const overview = await openBrief(page, { width: 1280 });
+
+  // Recent updates: the approval has a Thank draft; the renewal opens its exact Receipts finding.
+  const approval = overview.getByTestId("update-row");
+  await expect(approval).toContainText("Proposal approved");
+  await expect(approval).toContainText("Scope and ₹2.4 lakh budget confirmed.");
+  await approval.getByTestId("update-action").click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __mailHandoff: () => unknown }).__mailHandoff())).toMatchObject({
+    intent: "reply", reply: { body: "Thank you, Priya." },
+  });
+  const rise = overview.getByTestId("receipt-update-row");
+  await expect(rise).toContainText("Renewal increases by ₹600");
+  await expect(rise).toContainText("You paid ₹1,200. The 26 Nov renewal is ₹1,800.");
+
+  // Recently completed: a confirmed send, with its attachment, and the exact sent message behind it.
+  const done = overview.getByTestId("completed-row");
+  await expect(done).toContainText("Pricing sheet sent to Priya");
+  await expect(done).toContainText("Attached: pricing-sheet.pdf");
+  await expect(done).toContainText("22 Nov 2026 · 9:38 AM");
+  await done.getByTestId("view-sent-email").click();
+  await expect(page.getByTestId("brief-message-body")).toContainText("Attached is the approved pricing sheet.");
+  await page.keyboard.press("Escape");
+
+  await rise.getByTestId("open-in-receipts").click();
+  // That exact finding's review opens over the Receipts tab.
+  const review = page.getByTestId("insight-review");
+  await expect(review).toBeVisible();
+  await expect(review).toContainText("New price₹1,800");
+  await expect(review).toContainText("Last paid₹1,200");
+  await expect(page.getByRole("dialog")).toContainText("Your plan is going up");
+  // With the modal closed, Receipts is the tab that is showing.
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("tablist", { name: "Gmail workspace" }).getByRole("tab", { name: "Receipts" })).toHaveAttribute("aria-selected", "true");
+});
+
+test("Mail Overview: 'All N in Follow-ups' shows the real count and opens those same items", async ({ page }) => {
+  await openOverview(page, { width: 393, height: 852, tools: false, attrs: 'data-brief="many"' });
+  const overview = page.getByRole("tabpanel", { name: "Overview" });
+  await expect(overview.getByTestId("attention-card")).toHaveCount(3);
+  await expect(page.getByTestId("mail-attention-count")).toHaveText("6");
+  await overview.getByRole("button", { name: "All 6 in Follow-ups" }).click();
+  await expect(page.getByRole("tab", { name: "Follow-ups" })).toHaveAttribute("aria-selected", "true");
+  const followups = page.getByRole("tabpanel", { name: "Follow-ups" });
+  await expect(followups.getByTestId("attention-card")).toHaveCount(6);
+  await expect(followups.getByRole("heading", { name: "Get the signed document" })).toBeVisible();
+});
+
+for (const [scenario, expectations] of [
+  ["empty", ["Nothing needs a reply or a follow-up. One checked 14 recent messages", "No changes to report.", "Nothing sent through One in the last 30 days."]],
+  ["failed", ["One couldn't check your mail just now. Try again."]],
+] as const) {
+  test(`Mail Overview says "${scenario}" truthfully, section by section`, async ({ page }) => {
+    await openOverview(page, { width: 393, height: 852, tools: false, attrs: `data-brief="${scenario}"` });
+    const overview = page.getByRole("tabpanel", { name: "Overview" });
+    for (const text of expectations) await expect(overview.getByText(text).first()).toBeVisible();
+    await expect(overview.getByTestId("attention-card")).toHaveCount(0);
+    if (scenario === "failed") {
+      // A failed check is never worded as "nothing needs you", and the confirmed sends are unaffected.
+      await expect(overview.getByText(/nothing needs/i)).toHaveCount(0);
+      await expect(overview.getByTestId("completed-row")).toHaveCount(1);
+      await expect(overview.getByRole("button", { name: "Try again" }).first()).toBeVisible();
+    }
+  });
+}
+
+test("Mail Overview shows loading, not an empty brief, while One is checking", async ({ page }) => {
+  await openOverview(page, { width: 393, height: 852, tools: false, attrs: 'data-brief="slow"' });
+  const overview = page.getByRole("tabpanel", { name: "Overview" });
+  await expect(overview.getByLabel("Checking your recent mail")).toBeVisible();
+  await expect(overview.getByText(/nothing needs/i)).toHaveCount(0);
+  await expect(overview.getByTestId("attention-card")).toHaveCount(0);
+});
+
+test("a KYC deep link still lands on the KYC requests, under Follow-ups", async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 852 });
+  await page.route("http://localhost/fixture.js", route => route.fulfill({ contentType: "application/javascript; charset=utf-8", body: script }));
+  await page.route("http://localhost/mail-workspace", route => route.fulfill({ contentType: "text/html; charset=utf-8",
+    body: `<!doctype html><html class="light" data-workspace="kyc"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>` }));
+  await page.goto("http://localhost/mail-workspace");
+  await expect(page.getByRole("tab", { name: "Follow-ups" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("button", { name: "Paste details", exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "KYC" })).toHaveCount(0);
 });
 
 for (const width of [360, 393, 430, 768, 1024, 1440]) {
@@ -498,7 +831,15 @@ for (const width of [360, 1024]) {
         body: `<!doctype html><html class="light" data-workspace="${workspace}" data-stress="long"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>`,
       }));
       await page.goto("http://localhost/mail-stress");
-      await expect(page.getByText("Connected to alexander.morgan.with.a.very.long.name@international-research-and-services.example")).toBeVisible();
+      if (workspace === "overview") {
+        // The Overview names the mailbox in its header chip, which shortens a long address instead of pushing past the frame.
+        const chip = page.getByTestId("mail-account-chip");
+        await expect(chip).toContainText("alexander.morgan.with.a.very.long.name@international-research-and-services.example");
+        const box = (await chip.boundingBox())!;
+        expect(box.x + box.width).toBeLessThanOrEqual(width);
+      } else {
+        await expect(page.getByText("Connected to alexander.morgan.with.a.very.long.name@international-research-and-services.example")).toBeVisible();
+      }
       if (workspace === "receipts") {
         const merchant = page.getByText("The Very Long International Merchant and Services Group Limited", { exact: true });
         await expect(merchant).toBeVisible();

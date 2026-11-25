@@ -214,6 +214,10 @@ tests/services/test_connector_feature_admission.py
 tests/test_external_connector_oauth_routes.py
 tests/services/test_gmail_metadata_reader.py
 tests/services/test_gmail_chat_tools.py
+tests/services/test_mail_overview.py
+tests/test_mail_overview_routes.py
+tests/services/test_mail_overview_brief.py
+tests/test_mail_overview_brief_routes.py
 tests/services/test_email_delegated_read.py
 tests/services/test_receipt_memory_read.py
 tests/test_email_agent_a2a.py

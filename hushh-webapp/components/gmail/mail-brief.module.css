@@ -1,0 +1,365 @@
+/* Mail Overview brief. App tokens only; one place for the three sections. */
+
+/* ── Header: Mail, the connected mailbox with its count, the owner's initial ── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-block: 4px 12px;
+}
+.brand { display: flex; min-width: 0; align-items: center; gap: 14px; }
+.brandIcon {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  flex: none;
+  place-items: center;
+  border: 1px solid var(--app-card-border-standard);
+  border-radius: 999px;
+  background: var(--app-card-surface-default-solid);
+  color: var(--app-accent);
+}
+.brandName {
+  margin: 0;
+  font-size: 26px;
+  line-height: 32px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.who { display: flex; min-width: 0; align-items: center; gap: 10px; }
+.chip {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 44px;
+  align-items: center;
+  gap: 8px;
+  padding-inline: 6px 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 550;
+  cursor: pointer;
+}
+.chip:focus-visible,
+.link:focus-visible,
+.pill:focus-visible,
+.toolButton:focus-visible,
+.cardOpen:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+.chip:disabled { opacity: 0.6; }
+.chipEmail { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
+.badge {
+  display: inline-grid;
+  min-width: 24px;
+  height: 24px;
+  flex: none;
+  place-items: center;
+  padding-inline: 7px;
+  border-radius: 999px;
+  background: var(--app-accent);
+  color: #fff;
+  font-size: 13px;
+  line-height: 24px;
+  font-weight: 700;
+}
+.avatar {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  flex: none;
+  place-items: center;
+  border-radius: 999px;
+  background: #0b8f73;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+/* ── Sections ── */
+.brief {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding-block: 12px 8px;
+  /* The app sizes every heading from these tokens (with !important); the brief sets its own scale here. */
+  --foundation-title2-size: 20px;
+  --foundation-title2-line: 26px;
+  --foundation-title2-weight: 700;
+  --foundation-title3-size: 20px;
+  --foundation-title3-line: 26px;
+  --foundation-title3-weight: 700;
+}
+.section { display: flex; min-width: 0; flex-direction: column; gap: 12px; }
+.head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 12px; min-height: 44px; }
+.head .link { white-space: nowrap; }
+.h2 { margin: 0; letter-spacing: -0.005em; }
+.link {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--app-accent);
+  font: inherit;
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 550;
+  cursor: pointer;
+}
+.link:active, .pill:active { opacity: 0.7; }
+.link:disabled, .pill:disabled { opacity: 0.55; }
+
+/* ── Needs your attention ── */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 272px), 1fr));
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cardItem { display: flex; min-width: 0; }
+.card {
+  position: relative;
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid var(--app-card-border-standard);
+  border-radius: 24px;
+  background: var(--app-card-surface-default-solid);
+}
+.cardLabel {
+  margin: 0;
+  overflow: hidden;
+  color: var(--app-secondary-label);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cardTitle {
+  margin: 0;
+  min-height: 52px;
+  --foundation-headline-size: 20px;
+  --foundation-headline-line: 26px;
+  --foundation-headline-weight: 700;
+  --foundation-headline-tracking: -0.005em;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.rule { height: 1px; margin: 0; border: 0; background: var(--app-separator); }
+.meta { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; min-width: 0; }
+.people { display: flex; flex: none; align-items: center; padding-top: 2px; }
+.person {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 2px solid var(--app-card-surface-default-solid);
+  border-radius: 999px;
+  background: var(--app-accent-tint);
+  color: var(--app-accent);
+  font-size: 13px;
+  font-weight: 700;
+}
+.person + .person { margin-left: -9px; background: var(--app-neutral-fill); color: var(--app-secondary-label); }
+.facts { display: flex; min-width: 0; flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; }
+.fact {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  color: var(--app-secondary-label);
+  font-size: 14px;
+  line-height: 20px;
+}
+.fact > span { min-width: 0; overflow-wrap: anywhere; }
+.cardOpen {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pill {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  align-self: flex-start;
+  padding-inline: 20px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--app-accent-tint);
+  color: var(--app-accent);
+  font: inherit;
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pillPrimary { background: var(--app-accent); color: #fff; }
+.fail { margin: 0; color: var(--app-destructive); font-size: 13px; line-height: 18px; }
+
+/* ── Recent updates and Recently completed ── */
+.lower { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 32px; align-items: start; }
+.panel {
+  margin: 0;
+  padding: 4px 20px;
+  list-style: none;
+  border: 1px solid var(--app-card-border-standard);
+  border-radius: 24px;
+  background: var(--app-card-surface-default-solid);
+}
+.row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  grid-template-areas: "icon text action";
+  align-items: center;
+  gap: 4px 14px;
+  padding-block: 16px;
+}
+.row + .row { border-top: 1px solid var(--app-separator); }
+.rowIcon {
+  display: grid;
+  grid-area: icon;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--app-accent-tint);
+  color: var(--app-accent);
+}
+.rowDone {
+  background: color-mix(in srgb, #16a34a 14%, transparent);
+  color: #15803d;
+}
+.rowText { grid-area: text; min-width: 0; }
+.rowTitle {
+  margin: 0;
+  --foundation-headline-size: 17px;
+  --foundation-headline-line: 22px;
+  --foundation-headline-weight: 700;
+  --foundation-headline-tracking: normal;
+  overflow-wrap: anywhere;
+}
+.rowLine { margin: 2px 0 0; color: var(--app-secondary-label); font-size: 15px; line-height: 21px; overflow-wrap: anywhere; }
+.rowStamp { margin: 4px 0 0; color: var(--app-secondary-label); font-size: 13px; line-height: 18px; }
+.rowAction { grid-area: action; display: flex; flex-direction: column; align-items: flex-end; gap: 0; }
+.rowText .link { min-height: 36px; font-size: 14px; }
+
+/* ── Honest states ── */
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 16px 20px;
+  border: 1px solid var(--app-card-border-standard);
+  border-radius: 24px;
+  background: var(--app-card-surface-default-solid);
+  color: var(--app-secondary-label);
+  font-size: 15px;
+  line-height: 22px;
+}
+.state p { margin: 0; }
+.skeleton {
+  height: 132px;
+  border-radius: 24px;
+  background: var(--app-neutral-fill);
+  animation: briefPulse 1.4s ease-in-out infinite;
+}
+@keyframes briefPulse { 50% { opacity: 0.55; } }
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
+.updated {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 6px;
+  margin: 0;
+  color: var(--app-secondary-label);
+  font-size: 13px;
+  line-height: 18px;
+}
+.updated .link { min-height: 44px; font-size: 13px; line-height: 18px; }
+
+/* ── Secondary tools: search, recent mail, write ── */
+.tools { display: flex; flex-wrap: wrap; gap: 10px; }
+.toolButton {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 8px;
+  padding-inline: 16px;
+  border: 1px solid var(--app-card-border-standard);
+  border-radius: 999px;
+  background: var(--app-card-surface-default-solid);
+  color: var(--app-accent);
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.toolButton[aria-expanded="true"] { background: var(--app-accent-tint); }
+
+/* ── Why this? ── */
+.whyReason { margin: 0 0 12px; font-size: 15px; line-height: 22px; }
+.whyList { display: flex; flex-direction: column; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.whyItem {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--app-card-border-standard);
+  border-radius: 16px;
+  background: var(--app-card-surface-compact);
+}
+.whyFrom { margin: 0; color: var(--app-secondary-label); font-size: 13px; line-height: 18px; }
+.whyQuote { margin: 0; font-size: 15px; line-height: 22px; }
+.whyBody { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 22px; }
+.mark { border-radius: 4px; background: var(--app-accent-surface); color: inherit; padding-inline: 2px; }
+
+/* ── Phone and narrow widths ── */
+@media (max-width: 900px) {
+  .lower { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+}
+@media (max-width: 620px) {
+  .brandName { font-size: 22px; line-height: 28px; }
+  .brandIcon, .avatar { width: 40px; height: 40px; }
+  .avatar { font-size: 17px; }
+  .chip { font-size: 13px; }
+  .chipEmail { max-width: 148px; }
+  .brief { gap: 24px; }
+  .card { padding: 18px; }
+  .row { grid-template-columns: 40px minmax(0, 1fr); grid-template-areas: "icon text" ". action"; }
+  .rowIcon { width: 40px; height: 40px; }
+  .rowAction { align-items: flex-start; }
+  .panel { padding-inline: 16px; }
+}
+@media (max-width: 350px) {
+  .chipEmail { max-width: 104px; }
+  .brief { --foundation-title2-size: 19px; --foundation-title3-size: 19px; }
+}

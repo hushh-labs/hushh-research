@@ -3,6 +3,7 @@ import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GmailRecentReceipts } from "@/components/gmail/gmail-recent-receipts";
+import { MailBriefPanel } from "@/components/gmail/mail-brief-panel";
 import { ReceiptNoticeProvider } from "@/components/gmail/receipts/receipt-notice-context";
 import { ReceiptTrackingProvider } from "@/components/gmail/receipts/receipt-tracking-context";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
@@ -283,5 +284,118 @@ describe("the card on Receipts", () => {
     expect(card).toHaveTextContent("Possible double charge at Zomato");
     expect(within(card).getByTestId("insight-caption")).toHaveTextContent("From your saved receipts");
     await waitFor(() => expect(within(screen.getByTestId("insight-card")).getByTestId("insight-caption")).toHaveTextContent("Couldn’t check your mailbox. From your saved receipts."), { timeout: 5000 });
+  });
+});
+
+describe("opened from the Overview", () => {
+  const rows = rowsOf(netflix);
+  const priceRise = () => finding({
+    id: "nf_price_cccc", kind: "price_rise", headline: "Netflix is going up", reason: "Netflix announced a new price for your renewal.",
+    action: { id: "review_bill", label: "Review bill" }, score: 40, attribution: null,
+    evidence: [
+      { evidence_id: "ev_ann_0000001", open_key: sealed("ann"), role: "announcement", quote: "your new price will be ₹1,800", on: "2026-11-10", subject: "Price change", from: "Netflix", domain: "netflix.com" },
+      { evidence_id: "ev_paid_000002", open_key: sealed("paid2"), role: "paid", quote: "Total ₹1,200.00 paid", on: "2026-11-02", subject: "Your payment receipt", from: "Netflix", domain: "netflix.com" },
+    ],
+    facts: { currency: "INR", last_paid_minor: 120000, new_minor: 180000, new_is_announced: true, base_minor: 120000, base_kind: "median_of_last_three", percent: "50.0", effective_on: "2026-11-26" },
+  });
+  const tree = (request: { id: string; nonce: number } | null) => (
+    <ReceiptTrackingProvider userId="owner" vaultKey={KEY} vaultOwnerToken="token" accountKey="acct" enabled>
+      <ReceiptNoticeProvider userId="owner" vaultOwnerToken="token" accountKey="acct" getIdToken={async () => "id-token"} rows={rows} enabled>
+        <GmailRecentReceipts accountKey="acct" receipts={[]} savedRows={rows} reviewRequest={request} />
+      </ReceiptNoticeProvider>
+    </ReceiptTrackingProvider>
+  );
+  const seed = async () => {
+    const loaded = await loadTracking(session, "acct");
+    const digest = selectNoticeInput(rows, new Date()).digest;
+    await saveTracking(session, "acct", applyNoticeCheck(loaded.doc, parseNoticeResponse(answer([finding(), priceRise()], { account_key: "acct" }), "acct"), digest, ctx()), loaded.version);
+  };
+
+  it("opens the exact finding it was asked for, not the top card, and only once per request", async () => {
+    await seed();
+    const view = render(tree(null));
+    // Receipts alone leads with its highest-ranked finding.
+    expect(await screen.findByTestId("insight-card")).toHaveTextContent("Still using this ₹499 plan?");
+    expect(screen.queryByTestId("insight-review")).toBeNull();
+
+    view.rerender(tree({ id: "nf_price_cccc", nonce: 1 }));
+    const review = await screen.findByTestId("insight-review");
+    // The price finding's own facts and evidence, not the plan finding that leads the list.
+    expect(review).toHaveTextContent("New price₹1,800");
+    expect(review).toHaveTextContent("“your new price will be ₹1,800”");
+    expect(screen.getByRole("dialog")).toHaveTextContent("Netflix is going up");
+
+    // Closing it does not reopen it for the same request; a new request does.
+    fireEvent.keyDown(review, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("insight-review")).toBeNull());
+    view.rerender(tree({ id: "nf_price_cccc", nonce: 1 }));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(screen.queryByTestId("insight-review")).toBeNull();
+    view.rerender(tree({ id: "nf_price_cccc", nonce: 2 }));
+    expect(await screen.findByTestId("insight-review")).toHaveTextContent("New price₹1,800");
+  });
+
+  it("opens nothing for a finding that is not there", async () => {
+    await seed();
+    render(tree({ id: "nf_missing_zzzz", nonce: 1 }));
+    expect(await screen.findByTestId("insight-card")).toBeVisible();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(screen.queryByTestId("insight-review")).toBeNull();
+  });
+});
+
+describe("the Overview's price rises", () => {
+  const rows = rowsOf(netflix);
+  const idle = { status: "idle" as const, data: null, error: null, refreshing: false, fetchedAt: 0 };
+  const panel = (onOpenReceipt = vi.fn()) => (
+    <ReceiptTrackingProvider userId="owner" vaultKey={KEY} vaultOwnerToken="token" accountKey="acct" enabled>
+      <MailBriefPanel
+        brief={{ ...idle, status: "ready", fetchedAt: 1, data: { account: "acct", generatedAt: new Date().toISOString(), coverage: { messages: 3, windowDays: 21, mayBePartial: false }, attention: [], updates: [] } }}
+        completed={{ ...idle, status: "ready", fetchedAt: 1, data: { account: "acct", items: [] } }}
+        ownerInitial="N" draftBusy={null} draftFailure={null}
+        onWhy={vi.fn()} onDraft={vi.fn()} onOpenReceipt={onOpenReceipt} onViewSent={vi.fn()}
+        onOpenFollowups={vi.fn()} onRetry={vi.fn()} onReconnect={vi.fn()} onUnlock={vi.fn()}
+      />
+    </ReceiptTrackingProvider>
+  );
+  const price = (over: Record<string, unknown> = {}) => finding({
+    id: "nf_price_cccc", kind: "price_rise", headline: "Netflix is going up", reason: "Netflix announced a new price for your renewal.",
+    action: { id: "review_bill", label: "Review bill" }, attribution: null,
+    evidence: [{ evidence_id: "ev_ann_0000001", open_key: sealed("ann"), role: "announcement", quote: "your new price will be ₹1,800", on: "2026-11-10", subject: "Price change", from: "Netflix", domain: "netflix.com" },
+      { evidence_id: "ev_paid_000002", open_key: sealed("paid2"), role: "paid", quote: "Total ₹1,200.00 paid", on: "2026-11-02", subject: "Your payment receipt", from: "Netflix", domain: "netflix.com" }],
+    facts: { currency: "INR", last_paid_minor: 120000, new_minor: 180000, new_is_announced: true, base_minor: 120000, base_kind: "median_of_last_three", percent: "50.0", effective_on: "2026-11-26" },
+    ...over,
+  });
+  const seed = async (findings: unknown[], after?: (doc: ReturnType<typeof emptyTrackingDoc>) => ReturnType<typeof emptyTrackingDoc>) => {
+    const loaded = await loadTracking(session, "acct");
+    const digest = selectNoticeInput(rows, new Date()).digest;
+    let doc = applyNoticeCheck(loaded.doc, parseNoticeResponse(answer(findings, { account_key: "acct" }), "acct"), digest, ctx());
+    if (after) doc = after(doc);
+    await saveTracking(session, "acct", doc, loaded.version);
+  };
+
+  it("shows a saved price rise as one update and opens that exact finding, with no mailbox check", async () => {
+    await seed([finding(), price()]);
+    const check = vi.spyOn(GmailReceiptsService, "checkReceiptNotice");
+    const onOpenReceipt = vi.fn();
+    render(panel(onOpenReceipt));
+
+    const row = await screen.findByTestId("receipt-update-row");
+    expect(row).toHaveTextContent("Netflix renewal increases by ₹600");
+    expect(row).toHaveTextContent("You paid ₹1,200. The 26 Nov renewal is ₹1,800.");
+    // Only a price rise is an Overview update; the plan finding stays in Receipts.
+    expect(screen.getAllByTestId("receipt-update-row")).toHaveLength(1);
+    fireEvent.click(within(row).getByRole("button", { name: /Open in Receipts/ }));
+    expect(onOpenReceipt).toHaveBeenCalledWith("nf_price_cccc");
+    // Reading what Receipts already saved starts no model call.
+    await new Promise((resolve) => setTimeout(resolve, 1_800));
+    expect(check).not.toHaveBeenCalled();
+  });
+
+  it("leaves out a rise the owner already answered", async () => {
+    await seed([price()], (doc) => recordInsightReviewed(doc, "nf_price_cccc", "Netflix is going up", ctx()));
+    render(panel());
+    expect(await screen.findByText("No changes to report.")).toBeVisible();
+    expect(screen.queryByTestId("receipt-update-row")).toBeNull();
   });
 });

@@ -282,9 +282,11 @@ export const ROUTES = {
 
 /**
  * Mail tabs a link may open directly (`/one/gmail?workspace=kyc`). Overview is
- * the page's own default, so it never needs a link.
+ * the page's own default, so it never needs a link. `kyc` is where personal-detail
+ * requests are answered; it sits under Follow-ups and every existing link to it
+ * keeps working.
  */
-export const GMAIL_DEEP_LINK_WORKSPACES = ["kyc", "receipts"] as const;
+export const GMAIL_DEEP_LINK_WORKSPACES = ["kyc", "followups", "receipts"] as const;
 export type GmailDeepLinkWorkspace = (typeof GMAIL_DEEP_LINK_WORKSPACES)[number];
 
 /** The Mail tab a `workspace` query names, or undefined for anything else. */
