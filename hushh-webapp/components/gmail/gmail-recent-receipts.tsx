@@ -34,9 +34,9 @@ import { surfaceDataTableShellClassName } from "@/lib/morphy-ux/surfaces";
 import {
   DEFAULT_FILTERS, TYPE_FILTERS, filterReceiptRows, loadFilterSelection, saveFilterSelection, type ReceiptFilterSelection,
 } from "@/lib/mail/receipt-filters";
-import { buildReceiptInsights, type ReceiptInsight } from "@/lib/mail/receipt-insights";
+import type { ReceiptInsight } from "@/lib/mail/receipt-insights";
 import { summarizeMonth } from "@/lib/mail/receipt-month-summary";
-import { InsightCard, InsightReviewSheet, InsightsSheet, useCancellationConfirmation, useVisibleInsights } from "./receipts/receipt-insights-ui";
+import { InsightCard, InsightReviewSheet, InsightsSheet, useCancellationConfirmation, useNoticeInsights } from "./receipts/receipt-insights-ui";
 import { MonthHeader, ReceiptControls, ReceiptRowButton } from "./receipts/receipt-list-ui";
 import { useReceiptTracking } from "./receipts/receipt-tracking-context";
 import { pendingCancellations } from "@/lib/mail/receipt-tracking";
@@ -368,8 +368,7 @@ export function GmailRecentReceipts({
     saveFilterSelection(next);
     setDisplayPage(1);
   };
-  const found = useMemo(() => buildReceiptInsights(mailRows), [mailRows]);
-  const insights = useVisibleInsights(found);
+  const { insights, caption: insightCaption, canRetry: insightCanRetry, retry: retryInsights } = useNoticeInsights(mailRows);
   useCancellationConfirmation(mailRows);
   const waiting = tracking?.doc ? pendingCancellations(tracking.doc) : [];
   const [insightsOpen, setInsightsOpen] = useState(false);
@@ -533,6 +532,8 @@ export function GmailRecentReceipts({
           total={insights.length}
           onSeeAll={() => setInsightsOpen(true)}
           onReview={setReviewing}
+          caption={insightCaption}
+          onTryAgain={insightCanRetry ? retryInsights : null}
           waitingNote={!insights.length && waiting.length ? {
             title: `${waiting.length} cancellation${waiting.length === 1 ? "" : "s"} waiting for the provider`,
             detail: "Savings count only after each provider confirms the change.",
@@ -795,6 +796,8 @@ export function GmailRecentReceipts({
         open={insightsOpen}
         onOpenChange={setInsightsOpen}
         insights={insights}
+        caption={insightCaption}
+        onTryAgain={insightCanRetry ? retryInsights : null}
         onReview={(insight) => { setInsightsOpen(false); setReviewing(insight); }}
       />
       <InsightReviewSheet insight={reviewing} onClose={() => setReviewing(null)} rows={mailRows} onOpenReceipt={openReceipt} />

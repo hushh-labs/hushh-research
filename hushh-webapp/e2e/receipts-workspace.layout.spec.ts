@@ -17,7 +17,7 @@ test.beforeAll(async () => {
 });
 test.afterAll(() => disposeFixture?.());
 
-async function openReceipts(page: Page, width: number, options: { rise?: boolean; theme?: "light" | "dark" } = {}) {
+async function openReceipts(page: Page, width: number, options: { rise?: boolean; notice?: boolean; theme?: "light" | "dark" } = {}) {
   const theme = options.theme ?? "light";
   await page.setViewportSize({ width, height: width < 500 ? 852 : 1000 });
   await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
@@ -25,7 +25,7 @@ async function openReceipts(page: Page, width: number, options: { rise?: boolean
   await page.route("http://localhost/fixture.js", (route) => route.fulfill({ contentType: "application/javascript; charset=utf-8", body: script }));
   await page.route("http://localhost/mail-workspace", (route) => route.fulfill({
     contentType: "text/html; charset=utf-8",
-    body: `<!doctype html><html class="${theme}" data-workspace="receipts" data-stress="receipts-ref"${options.rise ? ' data-rise="1"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>`,
+    body: `<!doctype html><html class="${theme}" data-workspace="receipts" data-stress="receipts-ref"${options.rise ? ' data-rise="1"' : ""}${options.notice ? ' data-notice="1"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>`,
   }));
   await page.goto("http://localhost/mail-workspace");
   await awaitProductFont(page);
@@ -231,4 +231,141 @@ test("A long merchant name wraps without pushing the amount off screen", async (
   const box = (await rows.first().boundingBox())!;
   const amount = (await rows.first().locator("span.tabular-nums").first().boundingBox())!;
   expect(amount.x + amount.width).toBeLessThanOrEqual(box.x + box.width);
+});
+
+
+// ---- One noticed, from the mailbox check ---------------------------------------------------------------
+// MODEL STAND-IN: the backend answer below is scripted. It proves how the real Receipts component shows an
+// answer, opens its sources, remembers a choice and checks again only when the evidence changes. The real
+// model is exercised separately (see consent-protocol/tests/live).
+const sealed = (seed: string) => `grs1_${seed}`.padEnd(48, "x");
+const PLAN_NAMES = ["Alpha TV", "Beta Stream", "Gamma Play", "Delta Sports", "Epsilon Kids"];
+const PLAN_MINOR = [29900, 39900, 19900, 24900, 24900];
+const noticeAnswer = (over: Record<string, unknown> = {}) => ({
+  account_key: "synthetic-account", generated_at: "2026-12-10T10:00:00+00:00", model: "stand-in", coverage: { providers: 5, messages: 22 },
+  findings: [
+    {
+      id: "nf_plans_0001", kind: "plan_review", headline: "You pay for 5 TV and streaming plans", reason: "₹1,395 a month. Do you still use them all?", strength: "question",
+      provider: null, action: { id: "review_plans", label: "Review plans" }, evidence: [],
+      plans: PLAN_NAMES.map((name, index) => ({ label: name, domain: `${name.toLowerCase().replace(/[^a-z]/g, "")}.example`, category: "streaming", period: "monthly", amount_minor: PLAN_MINOR[index], currency: "INR", evidence_id: `ev_plan_${index}0000000`, open_key: sealed(`plan${index}`), paid_on: "2026-11-04" })),
+      facts: { count: 5, currency: "INR", monthly_total_minor: 139500, category: "streaming" }, attribution: null, score: 60, generated_at: "2026-12-10T10:00:00+00:00",
+    },
+    {
+      id: "nf_inactive_0001", kind: "inactive_plan", headline: "Still using this ₹399 plan?", reason: "Beta Stream says this account hasn't watched anything in 60 days.", strength: "clear",
+      provider: { name: "Beta Stream", domain: "betastream.example" }, action: { id: "review_plan", label: "Review plan" },
+      evidence: [
+        { evidence_id: "ev_paid_0000001", open_key: sealed("paid"), role: "paid", quote: "Total ₹399.00 paid", on: "2026-11-04", subject: "Your payment receipt", from: "Beta Stream", domain: "betastream.example" },
+        { evidence_id: "ev_note_0000001", open_key: sealed("note"), role: "provider_notice", quote: "you haven't watched anything on this account in 60 days", on: "2026-12-02", subject: "We haven't seen you", from: "Beta Stream", domain: "betastream.example" },
+      ],
+      plans: [], facts: { amount_minor: 39900, currency: "INR", last_paid_on: "2026-11-04", notice_on: "2026-12-02", stated: "60 days", period: "monthly" },
+      attribution: { by: "Beta Stream", on: "2026-12-02", statement: "you haven't watched anything on this account in 60 days", evidence_id: "ev_note_0000001" }, score: 75, generated_at: "2026-12-10T10:00:00+00:00",
+    },
+  ],
+  resolved: [], cancellations: [], none_reason: "", ...over,
+});
+
+/** Mail asks whether the owner's content is private before any read; this owner is on shared hosting. */
+async function stubHosting(page: Page) {
+  await page.route("http://localhost/api/one/personal-agent/status", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ hostingMode: "shared" }) }));
+}
+
+async function stubNotice(page: Page, answer: () => unknown, calls: Array<Record<string, unknown>>) {
+  await stubHosting(page);
+  await page.route("http://localhost/api/kai/gmail/receipts/notice", async (route) => {
+    calls.push(route.request().postDataJSON());
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(answer()) });
+  });
+  await page.route("http://localhost/api/kai/gmail/receipts/notice/source", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ subject: "We haven't seen you", from_name: "Beta Stream", from_domain: "betastream.example", received_at: "2026-12-02T08:00:00+00:00", excerpt: "Hi Alex. Hi, you haven't watched anything on this account in 60 days. We'd love to have you back.", truncated: false }),
+  }));
+}
+
+for (const width of [393, 1440]) {
+  test(`One noticed from the mailbox check: card, evidence and email at ${width}px`, async ({ page }, testInfo) => {
+    const calls: Array<Record<string, unknown>> = [];
+    await stubNotice(page, () => noticeAnswer(), calls);
+    await openReceipts(page, width, { notice: true });
+    const card = page.getByTestId("insight-card");
+    await expect(card).toContainText("You pay for 5 TV and streaming plans");
+    await expect(card).toContainText("₹1,395 a month. Do you still use them all?");
+    await expect(card.getByRole("button", { name: "Review plans" })).toBeVisible();
+    await expect(card.getByRole("button", { name: /See all \(2\)/ })).toBeVisible();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ user_id: "synthetic-owner", account_key: "synthetic-account" });
+    expect((calls[0]!.receipt_keys as string[]).every((key) => key.startsWith("grs1_"))).toBe(true);
+    await expect(page.getByPlaceholder("Search receipts")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await page.screenshot({ path: testInfo.outputPath(`notice-card-${width}.png`), animations: "disabled" });
+
+    // Why is One showing me this: the card opens the plans and the emails behind them.
+    await card.getByRole("button", { name: "Review plans" }).click();
+    const review = page.getByTestId("insight-review");
+    await expect(review).toContainText("Why you’re seeing this");
+    await expect(review.getByTestId("insight-plan")).toHaveCount(5);
+    await expect(review.getByTestId("insight-plan").first()).toContainText("₹299 a month");
+    await page.screenshot({ path: testInfo.outputPath(`notice-review-plans-${width}.png`), animations: "disabled" });
+    await page.keyboard.press("Escape");
+
+    // The second finding: a provider's own statement, quoted and dated, with the email one tap away.
+    await page.getByRole("button", { name: /See all/ }).click();
+    await page.getByTestId("insights-list").getByRole("button", { name: /Still using this ₹399 plan/ }).click();
+    await expect(review).toContainText("Their email · Beta Stream · 2 Dec");
+    await expect(review).toContainText("“you haven't watched anything on this account in 60 days”");
+    await page.screenshot({ path: testInfo.outputPath(`notice-review-inactive-${width}.png`), animations: "disabled" });
+    await review.getByRole("button", { name: "View email" }).nth(1).click();
+    await expect(page.getByTestId("notice-source-excerpt")).toContainText("We'd love to have you back.");
+    await expect(page.getByTestId("notice-quote-mark")).toHaveText("you haven't watched anything on this account in 60 days");
+    await page.screenshot({ path: testInfo.outputPath(`notice-email-${width}.png`), animations: "disabled" });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+  });
+}
+
+test("Keep it is remembered across a reload, and the same evidence never asks a model again", async ({ page }) => {
+  const calls: Array<Record<string, unknown>> = [];
+  await stubNotice(page, () => noticeAnswer({ findings: [noticeAnswer().findings[1]] }), calls);
+  await openReceipts(page, 393, { notice: true });
+  const card = page.getByTestId("insight-card");
+  await expect(card).toContainText("Still using this ₹399 plan?");
+  await card.getByRole("button", { name: "Review plan" }).click();
+  await page.getByRole("button", { name: "Keep it" }).click();
+  await expect(card).toHaveCount(0);
+  await page.reload();
+  await awaitProductFont(page);
+  await expect(page.getByRole("heading", { name: "Receipts", level: 2 })).toBeVisible();
+  await expect(page.getByTestId("receipt-month-group").first()).toBeVisible();
+  await expect(page.getByTestId("insight-card")).toHaveCount(0);
+  await page.waitForTimeout(2500);
+  expect(calls).toHaveLength(1);
+});
+
+test("a failed check keeps the saved finding, says so, and the receipts stay usable", async ({ page }) => {
+  let healthy = true;
+  const calls: Array<Record<string, unknown>> = [];
+  await stubHosting(page);
+  await page.route("http://localhost/api/kai/gmail/receipts/notice", async (route) => {
+    calls.push(route.request().postDataJSON());
+    if (healthy) return route.fulfill({ contentType: "application/json", body: JSON.stringify(noticeAnswer()) });
+    return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: { code: "GMAIL_RECEIPT_NOTICE_UNAVAILABLE", message: "One can't check right now.", retryable: true } }) });
+  });
+  await openReceipts(page, 393, { notice: true });
+  await expect(page.getByTestId("insight-card")).toContainText("You pay for 5 TV and streaming plans");
+  healthy = false;
+  // Time moves on past a day: the saved check is stale and One asks again, and cannot.
+  await page.clock.setFixedTime(new Date("2026-12-12T10:00:00"));
+  await page.reload();
+  await awaitProductFont(page);
+  await expect(page.getByTestId("insight-card")).toContainText("You pay for 5 TV and streaming plans");
+  await expect(page.getByTestId("insight-caption")).toContainText(/Couldn’t update\. From 10 Dec\./, { timeout: 8000 });
+  await expect(page.getByTestId("receipt-row").first()).toBeVisible();
+  await expect(page.getByPlaceholder("Search receipts")).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Try again" }).first()).toBeVisible();
+});
+
+test("an answer for another mailbox is refused and nothing is shown", async ({ page }) => {
+  const calls: Array<Record<string, unknown>> = [];
+  await stubNotice(page, () => noticeAnswer({ account_key: "someone-elses-mailbox" }), calls);
+  await openReceipts(page, 393, { notice: true });
+  await expect(page.getByTestId("insight-caption")).toContainText("Couldn’t check your mailbox. From your saved receipts.", { timeout: 8000 });
+  await expect(page.getByTestId("insight-card")).not.toContainText("5 TV and streaming plans");
 });

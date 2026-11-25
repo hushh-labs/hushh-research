@@ -34,6 +34,11 @@ const GMAIL_LIVE_RECEIPTS_TIMEOUT_MS = resolveSlowRequestTimeoutMs(75_000, {
   developmentFloorMs: 75_000,
   overrideEnvKey: "HUSHH_KAI_GMAIL_LIVE_RECEIPTS_TIMEOUT_MS",
 });
+// The backend reads the mailbox, then waits for one model answer (up to about 70 s in all).
+const GMAIL_RECEIPT_NOTICE_TIMEOUT_MS = resolveSlowRequestTimeoutMs(90_000, {
+  developmentFloorMs: 90_000,
+  overrideEnvKey: "HUSHH_KAI_GMAIL_RECEIPT_NOTICE_TIMEOUT_MS",
+});
 // Nudges do a bounded live inbox read after the Gmail shell has rendered. Give
 // that non-blocking panel enough time for Google to answer instead of turning a
 // healthy, merely slow mailbox into a false load failure.
@@ -61,7 +66,12 @@ function isGmailPath(path: string): boolean {
 }
 
 function isLiveReceiptPath(path: string): boolean {
-  return path === "gmail/receipts/scan" || path === "gmail/receipts/detail";
+  return path === "gmail/receipts/scan" || path === "gmail/receipts/detail" || isReceiptNoticePath(path);
+}
+
+/** One's mailbox check and the email behind a finding. The check includes a model call, so it gets a longer budget. */
+function isReceiptNoticePath(path: string): boolean {
+  return path === "gmail/receipts/notice" || path === "gmail/receipts/notice/source";
 }
 
 function isPrivateProviderPath(path: string): boolean {
@@ -106,6 +116,9 @@ const LIVE_RECEIPT_ERROR_MESSAGES: Readonly<Record<string, string>> = {
     "Receipt extraction could not be verified from the message.",
   GMAIL_RECEIPT_EXTRACTION_UNAVAILABLE:
     "Receipt extraction is temporarily unavailable.",
+  GMAIL_RECEIPT_NOTICE_TIMEOUT: "One couldn't finish checking in time.",
+  GMAIL_RECEIPT_NOTICE_UNAVAILABLE: "One can't check right now.",
+  GMAIL_RECEIPT_NOTICE_INVALID: "One got an unusable answer.",
   GMAIL_RECEIPT_UNAVAILABLE:
     "Receipts are temporarily unavailable. Please try again.",
 };
@@ -141,7 +154,8 @@ function sanitizeLiveReceiptErrorPayload(
               ["GMAIL_CONNECTION_CHANGED", "GMAIL_RECEIPT_SCAN_IN_PROGRESS",
                 "GMAIL_PROVIDER_UNAVAILABLE", "GMAIL_RECEIPT_SCAN_TIMEOUT",
                 "GMAIL_RECEIPT_DETAIL_TIMEOUT", "GMAIL_RECEIPT_EXTRACTION_TIMEOUT",
-                "GMAIL_RECEIPT_EXTRACTION_UNAVAILABLE"].includes(code),
+                "GMAIL_RECEIPT_EXTRACTION_UNAVAILABLE", "GMAIL_RECEIPT_NOTICE_TIMEOUT",
+                "GMAIL_RECEIPT_NOTICE_UNAVAILABLE"].includes(code),
           },
         };
       }
@@ -269,6 +283,18 @@ function buildUpstreamFailurePayload(path: string, error: unknown) {
     };
   }
 
+  if (isReceiptNoticePath(path)) {
+    return {
+      detail: {
+        code: isUpstreamTimeoutError(error) ? "GMAIL_RECEIPT_NOTICE_TIMEOUT" : "GMAIL_RECEIPT_NOTICE_UNAVAILABLE",
+        message: isUpstreamTimeoutError(error)
+          ? LIVE_RECEIPT_ERROR_MESSAGES.GMAIL_RECEIPT_NOTICE_TIMEOUT
+          : LIVE_RECEIPT_ERROR_MESSAGES.GMAIL_RECEIPT_NOTICE_UNAVAILABLE,
+        retryable: true,
+      },
+    };
+  }
+
   if (path === "gmail/receipts/detail") {
     return {
       error: "Receipt detail unavailable",
@@ -298,6 +324,9 @@ function resolveKaiUpstreamTimeoutMs(path: string): number | null {
   }
   if (path.startsWith("gmail/status/")) {
     return GMAIL_STATUS_TIMEOUT_MS;
+  }
+  if (isReceiptNoticePath(path)) {
+    return GMAIL_RECEIPT_NOTICE_TIMEOUT_MS;
   }
   if (isLiveReceiptPath(path)) {
     return GMAIL_LIVE_RECEIPTS_TIMEOUT_MS;

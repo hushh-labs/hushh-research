@@ -31,7 +31,7 @@ export function eventText(event: TrackingEvent): string {
     case "pattern_hidden": return `You said ${name} is not a recurring bill`;
     case "review_saved": return `You reviewed your plans: cancel ${Number(d.cancel ?? 0)}, keep ${Number(d.keep ?? 0)}`;
     case "cancellation_confirmed": return `${name} confirmed the cancellation`;
-    case "insight_reviewed": return `You marked “${String(d.title ?? "an item")}” as not an issue`;
+    case "insight_reviewed": return d.choice === "keep" ? `You kept the plan: “${String(d.title ?? "an item")}”` : `You marked “${String(d.title ?? "an item")}” as not an issue`;
   }
 }
 
