@@ -23,8 +23,12 @@ import datetime as dt
 import json
 import os
 import re
+import shutil
+import ssl
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -40,10 +44,39 @@ TRACKED_CAPABILITY_KEYS: tuple[str, ...] = (
     "HUSSH_HOSTED_POD_TIER_ENABLED",
     "HUSSH_USER_GCP_LIVE",
     "HUSSH_USER_GCP_SUBSTRATE_APPLY",
+    "HUSSH_CONSENT_PLANE_SA",
     "HUSSH_POD_FILES_ENABLED",
     "HUSSH_TRUSTED_DEVICE_ENABLED",
     "PERSONAL_AGENT_ENABLED",
+    "POD_HUB_IDENTITY_AUTH_ENABLED",
+    "POD_HUB_ALLOWED_SERVICE_ACCOUNT",
+    "CONSENT_TOKEN_SIGNING_ALG",
+    "CONSENT_ED25519_KID",
+    "CONSENT_ED25519_PRIVATE_KEY",
+    "CONSENT_ED25519_PUBLIC_KEYS",
+    "OWNER_FEED_SIGNING_ALG",
+    "OWNER_FEED_ED25519_KID",
+    "OWNER_FEED_ED25519_PRIVATE_KEY",
+    "OWNER_FEED_ED25519_PUBLIC_KEYS",
+    "HUSSH_CUSTODY_BROKER_SEAL_KEY",
+    "HUSSH_SANDBOX_IDENTITY_MASTER_KEY",
     "HUSHH_DEV_SIMULATION_ENABLED",
+)
+
+SANDBOX_CUTOVER_REQUIRED_KEYS: tuple[str, ...] = (
+    "HUSSH_SANDBOX_EDGE_PUBLIC_URL",
+    "PERSONAL_AGENT_ENABLED",
+    "HUSSH_TRUSTED_DEVICE_ENABLED",
+    "CONSENT_TOKEN_SIGNING_ALG",
+    "CONSENT_ED25519_KID",
+    "CONSENT_ED25519_PRIVATE_KEY",
+    "CONSENT_ED25519_PUBLIC_KEYS",
+    "OWNER_FEED_SIGNING_ALG",
+    "OWNER_FEED_ED25519_KID",
+    "OWNER_FEED_ED25519_PRIVATE_KEY",
+    "OWNER_FEED_ED25519_PUBLIC_KEYS",
+    "HUSSH_CUSTODY_BROKER_SEAL_KEY",
+    "HUSSH_SANDBOX_IDENTITY_MASTER_KEY",
 )
 
 DEFAULT_CLOUD_LANES: dict[str, dict[str, str]] = {
@@ -254,6 +287,20 @@ def compute_calendar_trains(
     }
 
 
+def _resolve_gcloud_bin(env: dict[str, str]) -> str:
+    found = shutil.which("gcloud", path=env.get("PATH"))
+    if found:
+        return found
+    for candidate in (
+        Path.home() / "google-cloud-sdk" / "bin" / "gcloud",
+        Path("/opt/homebrew/bin/gcloud"),
+        Path("/usr/local/bin/gcloud"),
+    ):
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return "gcloud"
+
+
 def _describe_cloud_run_service(
     *,
     project: str,
@@ -263,7 +310,7 @@ def _describe_cloud_run_service(
 ) -> dict[str, Any] | None:
     proc = subprocess.run(  # noqa: S603 - read-only gcloud describe
         [
-            "gcloud",
+            _resolve_gcloud_bin(env),
             "run",
             "services",
             "describe",
@@ -318,17 +365,163 @@ def parse_cloud_run_capabilities(service_doc: dict[str, Any] | None) -> dict[str
     }
 
 
+def _ssl_context() -> ssl.SSLContext:
+    try:
+        import certifi  # type: ignore[import-not-found]
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:  # noqa: BLE001 - fall back to OS trust store
+        return ssl.create_default_context()
+
+
+def _default_http_probe(url: str) -> tuple[int, dict[str, Any]]:
+    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=4.0, context=_ssl_context()) as resp:  # noqa: S310 - Cloud Run HTTPS health/verification URLs
+            raw = resp.read(65536).decode("utf-8", errors="replace")
+            try:
+                body = json.loads(raw) if raw.strip() else {}
+            except json.JSONDecodeError:
+                body = {}
+            return int(resp.status), body if isinstance(body, dict) else {}
+    except urllib.error.HTTPError as exc:
+        return int(exc.code), {}
+    except Exception:  # noqa: BLE001 - network failure fails closed as status 0
+        return 0, {}
+
+
+def _is_truthy_flag(value: Any) -> bool:
+    return str(value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _extract_env_names(service_doc: dict[str, Any] | None) -> set[str]:
+    if not service_doc:
+        return set()
+    spec = ((service_doc.get("spec") or {}).get("template") or {}).get("spec") or {}
+    containers = spec.get("containers") or [{}]
+    env_list = containers[0].get("env") or []
+    return {str(entry.get("name") or "") for entry in env_list if entry.get("name")}
+
+
+def evaluate_lane_capability_closure(
+    *,
+    lane_name: str,
+    backend_doc: dict[str, Any] | None,
+    edge_doc: dict[str, Any] | None,
+    backend_flags: dict[str, str],
+    http_prober: Any = None,
+) -> list[str]:
+    violations: list[str] = []
+    probe = http_prober or _default_http_probe
+
+    if lane_name in ("uat", "production"):
+        for forbidden_key in (
+            "HUSHH_DEV_SIMULATION_ENABLED",
+            "POD_HUB_ALLOWED_SERVICE_ACCOUNT",
+            "HUSSH_USER_GCP_LIVE",
+            "HUSSH_USER_GCP_SUBSTRATE_APPLY",
+        ):
+            val = str(backend_flags.get(forbidden_key, "absent")).strip()
+            if val.lower() not in ("absent", "", "false", "0"):
+                violations.append(
+                    f"{forbidden_key} must never be active on {lane_name} (found {val})"
+                )
+
+    cutover_active = _is_truthy_flag(
+        backend_flags.get("HUSSH_AGENT_SANDBOX_CUTOVER_ENABLED", "absent")
+    )
+    if cutover_active:
+        for req_key in SANDBOX_CUTOVER_REQUIRED_KEYS:
+            val = str(backend_flags.get(req_key, "absent")).strip()
+            if val.lower() in ("absent", "", "false", "0"):
+                violations.append(
+                    f"Capability closure on {lane_name}: Confidential Sandbox requires {req_key} (found {val})"
+                )
+        if lane_name != "dev" and not _is_truthy_flag(
+            backend_flags.get("POD_HUB_IDENTITY_AUTH_ENABLED", "absent")
+        ):
+            violations.append(
+                f"Capability closure on {lane_name}: Confidential Sandbox requires POD_HUB_IDENTITY_AUTH_ENABLED=true"
+            )
+        if not edge_doc:
+            violations.append(
+                f"Capability closure on {lane_name}: sandbox-edge-gateway service is missing"
+            )
+        else:
+            edge_env_names = _extract_env_names(edge_doc)
+            if edge_env_names:
+                for edge_req in (
+                    "CONSENT_ED25519_PUBLIC_KEYS",
+                    "OWNER_FEED_ED25519_PUBLIC_KEYS",
+                ):
+                    if edge_req not in edge_env_names:
+                        violations.append(
+                            f"Capability closure on {lane_name}: sandbox-edge-gateway missing {edge_req}"
+                        )
+            edge_url = str(((edge_doc.get("status") or {}).get("url") or "")).rstrip(
+                "/"
+            )
+            if edge_url:
+                edge_code, _ = probe(f"{edge_url}/health")
+                if edge_code != 200:
+                    violations.append(
+                        f"Capability closure on {lane_name}: sandbox-edge-gateway /health returned {edge_code}"
+                    )
+
+        hub_url = str(
+            (((backend_doc or {}).get("status") or {}).get("url") or "")
+        ).rstrip("/")
+        if hub_url:
+            vk_code, vk_body = probe(
+                f"{hub_url}/api/one/personal-agent/verification-keys"
+            )
+            expected_kid = str(backend_flags.get("CONSENT_ED25519_KID", "")).strip()
+            keys_map = vk_body.get("keys") if isinstance(vk_body, dict) else None
+            if (
+                vk_code != 200
+                or not isinstance(keys_map, dict)
+                or (expected_kid and expected_kid not in keys_map)
+            ):
+                violations.append(
+                    f"Capability closure on {lane_name}: verification-keys endpoint returned {vk_code} or lacked {expected_kid}"
+                )
+    else:
+        edge_flag = str(
+            backend_flags.get("HUSSH_SANDBOX_EDGE_PUBLIC_URL", "absent")
+        ).strip()
+        if edge_flag.lower() not in ("absent", ""):
+            violations.append(
+                f"Capability closure on {lane_name}: HUSSH_SANDBOX_EDGE_PUBLIC_URL set while sandbox cutover is off"
+            )
+        hub_url = str(
+            (((backend_doc or {}).get("status") or {}).get("url") or "")
+        ).rstrip("/")
+        if hub_url:
+            h_code, _ = probe(f"{hub_url}/health")
+            if h_code != 200:
+                violations.append(
+                    f"Capability closure on {lane_name}: backend /health returned {h_code}"
+                )
+    return violations
+
+
 def collect_live_cloud_parity(
     *,
     lanes: dict[str, dict[str, str]] | None = None,
     fetcher: Any = None,
+    http_prober: Any = None,
 ) -> dict[str, Any]:
     lane_cfg = lanes or DEFAULT_CLOUD_LANES
     env = dict(os.environ)
     env["CLOUDSDK_CORE_DISABLE_PROMPTS"] = "1"
     if not env.get("CLOUDSDK_AUTH_ACCESS_TOKEN") and fetcher is None:
         tok_proc = subprocess.run(  # noqa: S603 - read-only ADC token fetch
-            ["gcloud", "auth", "application-default", "print-access-token"],
+            [
+                _resolve_gcloud_bin(env),
+                "auth",
+                "application-default",
+                "print-access-token",
+            ],
             text=True,
             capture_output=True,
             check=False,
@@ -353,22 +546,23 @@ def collect_live_cloud_parity(
         backend_caps = parse_cloud_run_capabilities(backend_doc)
         webapp_caps = parse_cloud_run_capabilities(webapp_doc)
         edge_present = bool(edge_doc)
+        lane_violations = evaluate_lane_capability_closure(
+            lane_name=lane_name,
+            backend_doc=backend_doc,
+            edge_doc=edge_doc,
+            backend_flags=backend_caps["flags"],
+            http_prober=http_prober,
+        )
         lane_summary = {
             "project": project,
             "backend_revision": backend_caps["revision"],
             "webapp_revision": webapp_caps["revision"],
             "sandbox_edge_gateway_present": edge_present,
             "flags": backend_caps["flags"],
+            "closure_ok": len(lane_violations) == 0,
         }
         result["lanes"][lane_name] = lane_summary
-        if lane_name in ("uat", "production"):
-            sim_val = str(
-                backend_caps["flags"].get("HUSHH_DEV_SIMULATION_ENABLED", "absent")
-            ).lower()
-            if sim_val not in ("absent", "", "false", "0"):
-                result["safety_violations"].append(
-                    f"HUSHH_DEV_SIMULATION_ENABLED must never be active on {lane_name} (found {sim_val})"
-                )
+        result["safety_violations"].extend(lane_violations)
     return result
 
 
@@ -381,6 +575,7 @@ def build_parity_report(
     include_live_cloud: bool = False,
     require_clean_upstream: bool = False,
     live_cloud_fetcher: Any = None,
+    live_http_prober: Any = None,
     now_utc: dt.datetime | None = None,
 ) -> dict[str, Any]:
     for label, ref in (("dev", dev_ref), ("uat", uat_ref), ("main", main_ref)):
@@ -423,7 +618,10 @@ def build_parity_report(
 
     live_cloud = None
     if include_live_cloud:
-        live_cloud = collect_live_cloud_parity(fetcher=live_cloud_fetcher)
+        live_cloud = collect_live_cloud_parity(
+            fetcher=live_cloud_fetcher,
+            http_prober=live_http_prober,
+        )
         blockers.extend(live_cloud["safety_violations"])
 
     return {
