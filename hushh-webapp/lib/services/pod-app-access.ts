@@ -1,6 +1,7 @@
+import { Capacitor } from "@capacitor/core";
 import { isPrivateHostingMode } from "@/lib/one/owner-cloud";
 import { AuthService } from "./auth-service";
-import { snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { hasAuthSessionIdentity, snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import {
   forgetAgentAnswers as clearTransportAgentAnswers,
   markAgentAnswered,
@@ -894,10 +895,14 @@ export async function agentChatRequest(
  */
 export async function introMayReachHub(
   hosting: () => Promise<{ hostingMode?: string }>,
+  confirmedNativeGuest = false,
 ): Promise<boolean> {
-  if (!AuthService.getCurrentUser()) return true;
   const admittedOwner = snapshotValidatedAuthSessionPrincipal();
-  if (!admittedOwner || !podOwnerIsCurrent(admittedOwner)) return false;
+  if (!admittedOwner) {
+    return !hasAuthSessionIdentity() && !AuthService.getCurrentUser()
+      && (!Capacitor.isNativePlatform() || confirmedNativeGuest);
+  }
+  if (!podOwnerIsCurrent(admittedOwner)) return false;
   const uid = admittedOwner.ownerId;
   const ownerPod = await import("./owner-pod-endpoint");
   if (await ownerPod.loadPinnedEndpoint(uid).catch(() => null)) return false;

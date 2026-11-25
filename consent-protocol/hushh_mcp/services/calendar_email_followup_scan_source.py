@@ -7,6 +7,7 @@ decides what to read next.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Any
 
@@ -14,6 +15,7 @@ from hushh_mcp.services.calendar_email_followup_account import SelectedMailAcces
 from hushh_mcp.services.calendar_email_followup_coverage import (
     MAX_MESSAGE_FAILURES,
     source_disposition,
+    source_exhausted,
 )
 from hushh_mcp.services.calendar_email_followup_extraction import ValidatedCandidate
 from hushh_mcp.services.calendar_email_followup_reader import (
@@ -32,6 +34,8 @@ from hushh_mcp.services.calendar_email_followup_store import (
     FollowupStateError,
     Monitor,
 )
+
+logger = logging.getLogger(__name__)
 
 # State a gap recovery must not forget: what is still unverified stays unverified.
 _CARRIED = ("incomplete_sources", "unreadable", "message_failures", "reassess_seen")
@@ -121,7 +125,8 @@ async def _fail_message(
     """
     failures = checkpoint.setdefault("message_failures", {})
     count = int(failures.get(message.message_id, 0)) + 1
-    if count < MAX_MESSAGE_FAILURES:
+    source = checkpoint.get("incomplete_sources", {}).get(message.thread_id, {})
+    if count < MAX_MESSAGE_FAILURES and not source_exhausted(source):
         failures[message.message_id] = count
         raise CompleteMailReadError("analysis_unavailable", retryable=True)
     failures.pop(message.message_id, None)
@@ -149,6 +154,13 @@ async def _failure_result(
     known = isinstance(exc, CompleteMailReadError | SelectedMailAccessError | FollowupStateError)
     code = exc.code if known else "analysis_unavailable"  # type: ignore[attr-defined]
     report = {"reason": code, "sections": progress["sections"], "messages": progress["messages"]}
+    # Machine-readable and value-free: without it a stalled scan is invisible.
+    logger.warning(
+        "calendar_followup_scan_ended reason=%s sections=%d messages=%d",
+        code,
+        progress["sections"],
+        progress["messages"],
+    )
     if code == "monitor_changed":
         # Consent or schedule changed under this pass; the next one starts clean.
         return {"state": "partial", **report}

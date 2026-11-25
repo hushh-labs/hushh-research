@@ -22,6 +22,10 @@ def admitted_review_scope(monkeypatch):
     # These leaf tests isolate target/grant/slot and rendering contracts.
     # The real invocation-bound assessment is exercised by test_calendar_request_scope.
     monkeypatch.setattr(
+        "hushh_mcp.agents.calendar.request_scope.scope_receipt",
+        lambda _: {"actions": ["create", "reschedule", "cancel", "respond"], "continuation": False},
+    )
+    monkeypatch.setattr(
         "hushh_mcp.agents.calendar.request_scope.request_scope",
         AsyncMock(return_value=("create", "reschedule", "cancel", "respond")),
     )
@@ -57,7 +61,13 @@ class _Calendar:
     async def find_openings(self, **kwargs: object) -> dict[str, object]:
         return {
             "duration_minutes": kwargs["duration_minutes"],
-            "openings": [{"start_at": "2026-08-11T10:00:00Z", "end_at": "2026-08-11T10:30:00Z"}],
+            "openings": [
+                {
+                    "start_at": "2026-08-11T10:00:00Z",
+                    "end_at": "2026-08-11T10:30:00Z",
+                    "available_until": kwargs["end_at"],
+                }
+            ],
         }
 
     async def propose(self, **kwargs: object) -> dict[str, object]:
@@ -183,6 +193,20 @@ def test_calendar_read_tools_resolve_selected_calendar_and_event_from_private_of
     monkeypatch,
 ) -> None:  # noqa: ANN001
     calendar = _Calendar()
+
+    async def owner_cloud_grant(**_: object) -> tuple[str, ...]:
+        return (
+            "user-1",
+            "calendar",
+            "credential-id",
+            "google-sub",
+            "connected-at",
+            "calendar.events",
+            "calendar.freebusy",
+            "openid",
+        )
+
+    calendar.connections.read_grant_binding = owner_cloud_grant
     monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
     context = _context()
     calendars = asyncio.run(tools.calendar_calendars(context))
@@ -678,6 +702,51 @@ def test_a_reschedule_review_counts_the_events_real_guests(monkeypatch) -> None:
     }
 
 
+def test_extended_calendar_review_requires_a_capable_client_and_shows_every_field(monkeypatch):
+    plan = {
+        "account_id": "default",
+        "calendar_id": "primary",
+        "title": "Day off",
+        "start_at": "2026-11-01T07:00:00Z",
+        "end_at": "2026-11-02T08:00:00Z",
+        "time_zone": "America/Los_Angeles",
+        "all_day": True,
+        "start_date": "2026-11-01",
+        "end_date": "2026-11-02",
+        "review_contract": 1,
+        "weekly_recurrence": {"count": 3},
+        "recurrence_last_date": "2026-11-15",
+        "attendees": [],
+        "send_updates": False,
+        "reminders": {"useDefault": False, "overrides": [{"method": "popup", "minutes": 30}]},
+    }
+    context, calendar = _review(monkeypatch, plan)
+    arguments = dict(
+        title="Day off",
+        start_date="2026-11-01",
+        end_date="2026-11-02",
+        repeat_weekly=True,
+        repeat_count=3,
+        reminder_minutes=[30],
+    )
+    refused = asyncio.run(tools.propose_calendar_event(context, **arguments))
+    assert refused["reason_code"] == "calendar_review_upgrade_required"
+    assert calendar.proposal_payload is None
+    context.state["temp:one_calendar_review_contract"] = True
+    result = asyncio.run(tools.propose_calendar_event(context, **arguments))
+    payload = result["directive"]["payload"]
+    assert payload["startAt"] == "2026-11-01" and payload["endAt"] == "2026-11-02"
+    assert payload["allDay"] is True and payload["reviewContract"] == 1
+    assert payload["weeklyRecurrence"] == {
+        "count": 3,
+        "lastDate": "2026-11-15",
+        "conflictCoverage": "all_occurrences",
+    }
+    assert payload["reminders"] == plan["reminders"]
+    assert calendar.proposal_payload["review_contract"] == 1
+    assert calendar.proposal_payload["start_at"] == ""
+
+
 def test_a_reschedule_review_names_every_attendee_it_removes(monkeypatch) -> None:  # noqa: ANN001
     plan = {
         "event_id": "evt-1",
@@ -746,6 +815,139 @@ def test_calendar_events_searches_within_a_bound_and_reports_truncation(monkeypa
     assert result["truncated"] is True
 
 
+async def test_calendar_next_page_retains_exact_search_and_refuses_a_foreign_conversation(
+    monkeypatch,
+) -> None:
+    calls = []
+
+    class Listing(_Calendar):
+        async def list_events(self, **kwargs):
+            calls.append(kwargs)
+            return (
+                {"events": [{"id": "event-1"}], "next_page_token": "cursor-1"}
+                if len(calls) == 1
+                else {"events": []}
+            )
+
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: Listing())
+    context = _context()
+    context.state["temp:one_execution_surface"] = "typed_chat"
+    first = await tools.calendar_events(
+        context,
+        start_at="2026-08-11T00:00:00Z",
+        end_at="2026-08-18T00:00:00Z",
+        query="dentist",
+        limit=12,
+    )
+    assert first["status"] == "ok"
+    assert first["next_page_available"] and "next_page_token" not in first
+    foreign = SimpleNamespace(state={**context.state, "hussh:conversation_id": "elsewhere"})
+    rejected = await tools.calendar_events(foreign, next_page=True)
+    assert rejected["reason_code"] == "calendar_page_required"
+    assert len(calls) == 1
+    assert (await tools.calendar_events(context, next_page=True))["status"] == "ok"
+    assert calls[1] == {**calls[0], "page_token": "cursor-1"}
+    assert (await tools.calendar_events(context, next_page=True))[
+        "reason_code"
+    ] == "calendar_page_required"
+
+
+async def test_creator_filter_retains_exact_paging_and_84_results_without_model_assessment(
+    monkeypatch,
+):
+    calls = []
+    assess = AsyncMock(side_effect=AssertionError("A list must not assess each event"))
+    monkeypatch.setattr("hushh_mcp.hushh_adk.single_turn.run_single_turn", assess)
+    proposal = AsyncMock(side_effect=AssertionError("A list must not prepare an action"))
+
+    class Listing(_Calendar):
+        async def creator_account_email(self, **kwargs):
+            return "owner@example.com"
+
+        async def list_events(self, **kwargs):
+            calls.append(kwargs)
+            if len(calls) == 1:
+                return {
+                    "events": [
+                        {"id": "other", "creator": {"self": True, "email": "other@example.com"}},
+                        {"id": "unknown", "creator": None},
+                    ],
+                    "truncated": True,
+                    "next_page_token": "creator-page",
+                }
+            return {
+                "events": [
+                    {"id": "mine-" + str(i), "creator": {"email": "OWNER@example.com"}}
+                    for i in range(84)
+                ],
+                "truncated": False,
+            }
+
+    service = Listing()
+    service.propose = proposal
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: service)
+    context = _context()
+    context.state["temp:one_execution_surface"] = "typed_chat"
+    await tools.calendar_calendars(context)
+    first = await tools.calendar_events(
+        context,
+        start_at="2026-11-01T00:00:00",
+        end_at="2026-12-01T00:00:00",
+        query="planning",
+        created_by_me=True,
+        calendar_ordinal=1,
+    )
+    assert first["events"] == [] and first["creator_unknown_count"] == 1
+    assert first["provider_returned_count"] == 2 and first["next_page_available"] is True
+    assert first["truncated"] is True  # No matching first-page rows is not no results.
+    next_result = await tools.calendar_events(context, next_page=True)
+    assert next_result["returned_count"] == 84 and next_result["truncated"] is False
+    assert calls[1] == {**calls[0], "page_token": "creator-page"}
+    assert calls[0]["calendar_id"] == "team@example.com"
+    assert datetime.fromisoformat(calls[0]["start_at"]) == datetime.fromisoformat(
+        "2026-10-31T18:30:00+00:00"
+    )
+    assert datetime.fromisoformat(calls[0]["end_at"]) == datetime.fromisoformat(
+        "2026-11-30T18:30:00+00:00"
+    )
+    assess.assert_not_called()
+    proposal.assert_not_called()
+
+
+async def test_creator_filter_reports_unknown_when_connection_identity_is_unavailable(monkeypatch):
+    service = _Calendar()
+    service.creator_account_email = AsyncMock(return_value=None)
+    service.list_events = AsyncMock(
+        return_value={
+            "events": [{"id": "copy", "creator": {"self": True, "email": "other@example.com"}}],
+            "truncated": False,
+        }
+    )
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: service)
+    result = await tools.calendar_events(
+        _context(),
+        start_at="2026-11-01T00:00:00Z",
+        end_at="2026-11-02T00:00:00Z",
+        created_by_me=False,
+    )
+    assert result["events"] == [] and result["creator_unknown_count"] == 1
+    assert result["creator_identity_available"] is False
+
+
+@pytest.mark.parametrize("value", ["Friday", "2026-03-08", "2026-03-08T02:30:00"])
+async def test_invalid_calendar_time_returns_input_required_without_provider_io(monkeypatch, value):
+    context = _context()
+    context.state["hussh:timezone"] = "America/Los_Angeles"
+    service = _Calendar()
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: service)
+    result = await tools.calendar_events(context, start_at=value, end_at="2026-03-09T00:00:00Z")
+    proposal = await tools.propose_calendar_event(
+        context, title="Meeting", start_at=value, end_at="2026-03-09T00:00:00Z"
+    )
+    assert result["status"] == proposal["status"] == "input_required"
+    assert service.last_list is None and service.proposal_payload is None
+
+
 def test_invitation_ordinal_review_is_client_only_and_owner_conversation_grant_bound(monkeypatch):
     from hushh_mcp.agents.calendar.read_offer import STATE_INVITATION_OFFER
     from hushh_mcp.services import calendar_schedule_service
@@ -791,12 +993,12 @@ def test_invitation_ordinal_review_is_client_only_and_owner_conversation_grant_b
     opened = asyncio.run(tools.open_calendar_invitation(ctx, 1, "accepted"))
     assert opened["status"] == "review_required"
     assert opened["directive"]["payload"] == {
-        "accountId": "default",
         "type": "calendar.invitations",
         "filter": "all",
         "calendarId": "selected-calendar",
         "eventId": "instance-id",
         "decision": "accepted",
+        "accountId": "default",
         "accountEmail": "owner@example.com",
         "timeZone": "Asia/Kolkata",
         "startAt": "2030-10-14T00:00:00Z",
@@ -1071,15 +1273,133 @@ class _AccountCalendar(_Calendar):
             ],
         }
 
+    async def find_openings(self, **kwargs):
+        return {
+            "duration_minutes": 30,
+            "openings": [
+                {
+                    "start_at": "2099-11-04T10:00:00Z",
+                    "end_at": "2099-11-04T10:30:00Z",
+                    "available_until": "2099-11-04T11:00:00Z",
+                },
+                {
+                    "start_at": "2099-11-04T12:00:00Z",
+                    "end_at": "2099-11-04T12:30:00Z",
+                    "available_until": "2099-11-04T13:00:00Z",
+                },
+            ],
+        }
+
 
 def _account_ports(monkeypatch):
     ports = {key: _AccountCalendar(key) for key in ("default", "account-b", "account-c")}
     monkeypatch.setattr(tools, "get_google_calendar_service", lambda: ports["default"])
     monkeypatch.setattr(
         "hushh_mcp.services.calendar_account_board_service.account_schedule",
-        lambda account_id: SimpleNamespace(calendar=ports[account_id]),
+        lambda account_id, **_: SimpleNamespace(calendar=ports[account_id]),
     )
     return ports
+
+
+async def test_calendar_reads_resolve_the_named_account_and_keep_its_event_reference(monkeypatch):
+    ports = _account_ports(monkeypatch)
+    inventory = AsyncMock(
+        return_value={
+            "accounts": [
+                {
+                    "account_id": "default",
+                    "google_email": "work@example.test",
+                    "status": "connected",
+                },
+                {
+                    "account_id": "account-b",
+                    "google_email": "home@example.test",
+                    "status": "connected",
+                },
+            ]
+        }
+    )
+    ports["default"].connections.calendar_accounts_status = inventory
+    context = _context()
+
+    listed = await tools.calendar_events(
+        context,
+        start_at="2026-11-16T00:00:00+05:30",
+        end_at="2026-11-17T00:00:00+05:30",
+        account_id="Home@example.test",
+        time_zone="Asia/Kolkata",
+    )
+    detailed = await tools.calendar_event_detail(context, ordinal=1, account_id="home@example.test")
+    mismatch = await tools.calendar_event_detail(context, ordinal=1, account_id="work@example.test")
+
+    assert listed["status"] == detailed["status"] == "ok"
+    assert listed["account_id"] == detailed["account_id"] == "account-b"
+    assert detailed["event"]["id"] == "event-1"
+    assert mismatch["reason_code"] == "calendar_account_mismatch"
+    assert ports["default"].last_list is ports["default"].last_detail is None
+    assert (
+        ports["account-b"].last_detail["expected_binding"]
+        == await ports["account-b"]._read_grant_binding()
+    )
+    assert all(
+        call.kwargs == {"user_id": "user-1", "include_pictures": False}
+        for call in inventory.await_args_list
+    )
+
+
+@pytest.mark.parametrize("reference", ["other@example.test", "ome@example.test", []])
+async def test_unknown_or_malformed_calendar_reference_does_not_fall_back(monkeypatch, reference):
+    ports = _account_ports(monkeypatch)
+    ports["default"].connections.calendar_accounts_status = AsyncMock(
+        return_value={
+            "accounts": [
+                {
+                    "account_id": "default",
+                    "google_email": "home@example.test",
+                    "status": "connected",
+                },
+            ]
+        }
+    )
+
+    result = await tools.calendar_summary(_context(), account_id=reference)
+
+    assert result["status"] == "input_required"
+    assert result["reason_code"] == "calendar_account_unavailable"
+    assert "directive" not in result
+    assert all(port.last_list is None for port in ports.values())
+
+
+async def test_stale_calendar_handle_does_not_offer_reconnect(monkeypatch):
+    from hushh_mcp.services.google_calendar_service import GoogleCalendarService
+    from hushh_mcp.services.google_connection_service import GoogleConnectionService
+
+    db = SimpleNamespace(execute_raw=lambda *_: SimpleNamespace(data=[]))
+    owner = GoogleConnectionService(db=db)
+    calendar = GoogleCalendarService(db=db, connections=owner.for_calendar_account("stale"))
+    monkeypatch.setattr(
+        "hushh_mcp.services.calendar_account_board_service.account_schedule",
+        lambda _: SimpleNamespace(calendar=calendar),
+    )
+
+    result = await tools.calendar_summary(_context(), account_id="stale")
+
+    assert result["status"] == "input_required"
+    assert result["reason_code"] == "calendar_account_unavailable"
+    assert "directive" not in result
+
+
+async def test_named_calendar_read_on_private_pod_never_resolves_shared_inventory(monkeypatch):
+    from hushh_mcp.services import pod_owner_cloud
+
+    monkeypatch.setattr(pod_owner_cloud, "private_pod_runtime", lambda: True)
+    service = AsyncMock(side_effect=AssertionError("Shared Calendar access from a private pod"))
+    monkeypatch.setattr(tools, "get_google_calendar_service", service)
+
+    result = await tools.calendar_summary(_context(), account_id="home@example.test")
+
+    assert result["reason_code"] == "calendar_account_unavailable"
+    service.assert_not_called()
 
 
 def test_calendar_account_references_keep_their_own_sources_across_other_reads(monkeypatch):
@@ -1169,165 +1489,124 @@ def test_calendar_additional_account_permission_control_preserves_its_target(mon
     assert ports["default"].last_list is None
 
 
-def test_extended_calendar_review_requires_a_capable_client_and_shows_every_field(monkeypatch):
-    plan = {
-        "account_id": "default",
-        "calendar_id": "primary",
-        "title": "Day off",
-        "start_at": "2026-11-01T07:00:00Z",
-        "end_at": "2026-11-02T08:00:00Z",
-        "time_zone": "America/Los_Angeles",
-        "all_day": True,
-        "start_date": "2026-11-01",
-        "end_date": "2026-11-02",
-        "review_contract": 1,
-        "weekly_recurrence": {"count": 3},
-        "recurrence_last_date": "2026-11-15",
-        "attendees": [],
-        "send_updates": False,
-        "reminders": {"useDefault": False, "overrides": [{"method": "popup", "minutes": 30}]},
-    }
-    context, calendar = _review(monkeypatch, plan)
-    arguments = dict(
-        title="Day off",
-        start_date="2026-11-01",
-        end_date="2026-11-02",
-        repeat_weekly=True,
-        repeat_count=3,
-        reminder_minutes=[30],
-    )
-    refused = asyncio.run(tools.propose_calendar_event(context, **arguments))
-    assert refused["reason_code"] == "calendar_review_upgrade_required"
-    assert calendar.proposal_payload is None
-    context.state["temp:one_calendar_review_contract"] = True
-    result = asyncio.run(tools.propose_calendar_event(context, **arguments))
-    payload = result["directive"]["payload"]
-    assert payload["startAt"] == "2026-11-01" and payload["endAt"] == "2026-11-02"
-    assert payload["allDay"] is True and payload["reviewContract"] == 1
-    assert payload["weeklyRecurrence"] == {
-        "count": 3,
-        "lastDate": "2026-11-15",
-        "conflictCoverage": "all_occurrences",
-    }
-    assert payload["reminders"] == plan["reminders"]
-    assert calendar.proposal_payload["review_contract"] == 1
-    assert calendar.proposal_payload["start_at"] == ""
-
-
-async def test_calendar_next_page_retains_exact_search_and_refuses_a_foreign_conversation(
-    monkeypatch,
-) -> None:
-    calls = []
-
-    class Listing(_Calendar):
-        async def list_events(self, **kwargs):
-            calls.append(kwargs)
-            return (
-                {"events": [{"id": "event-1"}], "next_page_token": "cursor-1"}
-                if len(calls) == 1
-                else {"events": []}
-            )
-
-    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: Listing())
+async def _offered_openings(monkeypatch, zone="America/New_York"):
+    ports = _account_ports(monkeypatch)
     context = _context()
-    context.state["temp:one_execution_surface"] = "typed_chat"
-    first = await tools.calendar_events(
+    context.state["hussh:timezone"] = zone
+    result = await tools.calendar_free_slots(
         context,
-        start_at="2026-08-11T00:00:00Z",
-        end_at="2026-08-18T00:00:00Z",
-        query="dentist",
-        limit=12,
+        start_at="2099-11-04T09:00:00Z",
+        end_at="2099-11-04T17:00:00Z",
+        duration_minutes=30,
+        account_id="account-b",
     )
-    assert first["status"] == "ok"
-    assert first["next_page_available"] and "next_page_token" not in first
-    foreign = SimpleNamespace(state={**context.state, "hussh:conversation_id": "elsewhere"})
-    rejected = await tools.calendar_events(foreign, next_page=True)
-    assert rejected["reason_code"] == "calendar_page_required"
-    assert len(calls) == 1
-    assert (await tools.calendar_events(context, next_page=True))["status"] == "ok"
-    assert calls[1] == {**calls[0], "page_token": "cursor-1"}
-    assert (await tools.calendar_events(context, next_page=True))[
-        "reason_code"
-    ] == "calendar_page_required"
+    assert result["status"] == "ok"
+    return ports, context
 
 
-async def test_creator_filter_retains_exact_paging_and_84_results_without_model_assessment(
-    monkeypatch,
+@pytest.mark.parametrize("zone", ["America/New_York", "Asia/Calcutta"])
+def test_calendar_slot_reference_retains_exact_account_interval_and_zone_after_restore(
+    monkeypatch, zone
 ):
-    calls = []
-    assess = AsyncMock(side_effect=AssertionError("A list must not assess each event"))
-    monkeypatch.setattr("hushh_mcp.hushh_adk.single_turn.run_single_turn", assess)
-    proposal = AsyncMock(side_effect=AssertionError("A list must not prepare an action"))
+    import copy
 
-    class Listing(_Calendar):
-        async def creator_account_email(self, **kwargs):
-            return "owner@example.com"
+    from hushh_mcp.agents.calendar.read_offer import STATE_OPENING_OFFER
 
-        async def list_events(self, **kwargs):
-            calls.append(kwargs)
-            if len(calls) == 1:
-                return {
-                    "events": [
-                        {"id": "other", "creator": {"self": True, "email": "other@example.com"}},
-                        {"id": "unknown", "creator": None},
-                    ],
-                    "truncated": True,
-                    "next_page_token": "creator-page",
-                }
-            return {
-                "events": [
-                    {"id": "mine-" + str(i), "creator": {"email": "OWNER@example.com"}}
-                    for i in range(84)
-                ],
-                "truncated": False,
-            }
-
-    service = Listing()
-    service.propose = proposal
-    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: service)
-    context = _context()
-    context.state["temp:one_execution_surface"] = "typed_chat"
-    await tools.calendar_calendars(context)
-    first = await tools.calendar_events(
-        context,
-        start_at="2026-11-01T00:00:00",
-        end_at="2026-12-01T00:00:00",
-        query="planning",
-        created_by_me=True,
-        calendar_ordinal=1,
+    ports, context = asyncio.run(_offered_openings(monkeypatch, zone))
+    original = copy.deepcopy(context.state[STATE_OPENING_OFFER])
+    restored = SimpleNamespace(state=copy.deepcopy(context.state))
+    restored.state["hussh:timezone"] = "Pacific/Auckland"
+    result = asyncio.run(tools.propose_calendar_event(restored, title="Planning", slot_ordinal=2))
+    assert result["status"] == "confirmation_required"
+    payload = ports["account-b"].proposal_payload
+    assert payload["start_at"] == "2099-11-04T12:00:00+00:00"
+    assert payload["end_at"] == "2099-11-04T12:30:00+00:00"
+    assert payload["account_id"] == "account-b"
+    assert payload["opening_selection"]["calendar_ids"] == ["primary"]
+    assert (
+        payload["time_zone"]
+        == result["directive"]["payload"]["timeZone"]
+        == ("Asia/Kolkata" if zone == "Asia/Calcutta" else zone)
     )
-    assert first["events"] == [] and first["creator_unknown_count"] == 1
-    assert first["provider_returned_count"] == 2 and first["next_page_available"] is True
-    assert first["truncated"] is True  # No matching first-page rows is not no results.
-    next_result = await tools.calendar_events(context, next_page=True)
-    assert next_result["returned_count"] == 84 and next_result["truncated"] is False
-    assert calls[1] == {**calls[0], "page_token": "creator-page"}
-    assert calls[0]["calendar_id"] == "team@example.com"
-    assert datetime.fromisoformat(calls[0]["start_at"]) == datetime.fromisoformat(
-        "2026-10-31T18:30:00+00:00"
-    )
-    assert datetime.fromisoformat(calls[0]["end_at"]) == datetime.fromisoformat(
-        "2026-11-30T18:30:00+00:00"
-    )
-    assess.assert_not_called()
-    proposal.assert_not_called()
+    assert restored.state[STATE_OPENING_OFFER] == original
+    assert ports["default"].last_propose is None
 
 
-async def test_creator_filter_reports_unknown_when_connection_identity_is_unavailable(monkeypatch):
-    service = _Calendar()
-    service.creator_account_email = AsyncMock(return_value=None)
-    service.list_events = AsyncMock(
-        return_value={
-            "events": [{"id": "copy", "creator": {"self": True, "email": "other@example.com"}}],
-            "truncated": False,
-        }
+@pytest.mark.parametrize(
+    "change",
+    [
+        "expired",
+        "future",
+        "owner",
+        "chat",
+        "binding",
+        "account",
+        "calendar",
+        "boolean",
+        "range",
+        "mixed",
+    ],
+)
+def test_calendar_slot_reference_rejects_invalid_or_substituted_selection(monkeypatch, change):
+    from hushh_mcp.agents.calendar.read_offer import STATE_OPENING_OFFER
+
+    ports, context = asyncio.run(_offered_openings(monkeypatch))
+    offer = context.state[STATE_OPENING_OFFER]
+    kwargs = {"title": "Planning", "slot_ordinal": 1}
+    if change == "expired":
+        offer["created_at_ms"] -= 300_001
+    elif change == "future":
+        offer["created_at_ms"] += 60_000
+    elif change == "owner":
+        context.state["hussh:user_id"] = "another-owner"
+    elif change == "chat":
+        context.state["hussh:conversation_id"] = "another-chat"
+    elif change == "binding":
+        ports["account-b"].revision = "new-grant"
+    elif change == "account":
+        kwargs["account_id"] = "account-c"
+    elif change == "calendar":
+        kwargs["calendar_id"] = "other"
+    elif change == "boolean":
+        kwargs["slot_ordinal"] = True
+    elif change == "range":
+        kwargs["slot_ordinal"] = 3
+    elif change == "mixed":
+        kwargs["start_at"] = "2099-11-04T10:00:00Z"
+    result = asyncio.run(tools.propose_calendar_event(context, **kwargs))
+    assert result["status"] in {"input_required", "failed"}
+    assert all(port.last_propose is None for port in ports.values())
+    assert context.state.get("hussh:pending_directive:calendar") is None
+
+
+@pytest.mark.parametrize("replacement", ["empty", "failure", "invalid", "grant_change"])
+def test_calendar_failed_opening_replacement_never_leaves_old_slot_usable(monkeypatch, replacement):
+    from hushh_mcp.agents.calendar.read_offer import STATE_OPENING_OFFER
+
+    ports, context = asyncio.run(_offered_openings(monkeypatch))
+
+    async def replaced(**_):
+        if replacement == "failure":
+            raise TimeoutError()
+        if replacement == "grant_change":
+            ports["account-b"].revision = "new-grant"
+        return {"openings": []}
+
+    ports["account-b"].find_openings = replaced
+    asyncio.run(
+        tools.calendar_free_slots(
+            context,
+            start_at="bad" if replacement == "invalid" else "2099-11-04T09:00:00Z",
+            end_at="2099-11-04T17:00:00Z",
+            duration_minutes=30,
+            account_id="account-b",
+        )
     )
-    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: service)
-    result = await tools.calendar_events(
-        _context(),
-        start_at="2026-11-01T00:00:00Z",
-        end_at="2026-11-02T00:00:00Z",
-        created_by_me=False,
+    assert context.state[STATE_OPENING_OFFER] is None
+    assert (
+        asyncio.run(tools.propose_calendar_event(context, title="Planning", slot_ordinal=1))[
+            "status"
+        ]
+        == "input_required"
     )
-    assert result["events"] == [] and result["creator_unknown_count"] == 1
-    assert result["creator_identity_available"] is False
+    assert ports["account-b"].last_propose is None

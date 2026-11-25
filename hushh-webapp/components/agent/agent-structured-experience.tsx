@@ -3,7 +3,7 @@ import type { InformationRequestPrice } from "@/lib/services/person-profile-serv
 import { PersonProfileLink } from "@/components/connections/person-profile-link";
 import { InformationRequestReceipt } from "@/components/agent/information-request-receipt";
 
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { usePersonInformationRequest } from "@/lib/consent/use-person-information-request";
@@ -34,6 +34,11 @@ import { PersonProfileService, mergePersonScopePage, type InformationRequestBund
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
 import { ConnectorReadReceipt, TurnLocationPermissionCard, WorkspaceConnectorSetupCard } from "@/components/agent/connector-read-receipt";
 import { MailChatCard } from "@/components/agent/mail-chat-card";
+import { ExperienceShell } from "@/components/agent/agent-experience-shell";
+import { FinanceStockPreviewCard } from "@/components/agent/finance-stock-preview-card";
+import { FinancePortfolioCard } from "@/components/agent/finance-portfolio-card";
+import { FinancePortfolioUploadCard } from "@/components/agent/finance-portfolio-upload-card";
+import { FinanceTopGainersCard } from "@/components/agent/finance-top-gainers-card";
 import { CustomConnectorProbeCard } from "@/components/agent/custom-connector-probe-card";
 import type { DriveCompilationUiState } from "@/lib/agent/drive-batch-progress";
 import type { DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
@@ -113,21 +118,39 @@ export { AgentTranscriptRevealContext };
 
 export function AgentStructuredExperienceView({
   experience,
+  conversationId,
+  allowPortfolioUpload,
+  allowFinancePreviewStart,
+  onConfirmFinanceAnalysis,
   onOpenConnections,
   onInformationRequestSubmitted,
   onCompileDriveNotes,
   onDownloadDriveNotes,
   driveCompilation,
+  onMailQuickAction,
 }: {
   experience: AgentStructuredExperience;
+  conversationId?: string | null;
+  allowPortfolioUpload?: boolean;
+  allowFinancePreviewStart?: boolean;
+  onConfirmFinanceAnalysis?: (confirmation: string) => Promise<void>;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
   onInformationRequestSubmitted?: (receipt: InformationRequestSubmissionReceipt) => Promise<void>;
   onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
   onDownloadDriveNotes?: () => void;
   driveCompilation?: DriveCompilationUiState;
+  onMailQuickAction?: (prompt: string) => void;
 }) {
   const selectPerson = useContext(AgentPersonSelectionContext);
   switch (experience.type) {
+    case "one.finance_top_gainers.v1":
+      return <FinanceTopGainersCard historical={experience.historical} />;
+    case "one.finance_portfolio.v1":
+      return <FinancePortfolioCard section={experience.section} conversationId={conversationId} />;
+    case "one.finance_portfolio_upload.v1":
+      return <FinancePortfolioUploadCard offerId={experience.offerId} allowUpload={allowPortfolioUpload && !experience.historical} />;
+    case "one.finance_stock_preview.v1":
+      return <FinanceStockPreviewCard ticker={experience.ticker} allowStart={allowFinancePreviewStart} onConfirm={onConfirmFinanceAnalysis} />;
     case "one.shared_with_me_card.v1":
       return <div className="space-y-3">
         {experience.cards.map((card) => (
@@ -137,7 +160,7 @@ export function AgentStructuredExperienceView({
     case "one.connector_read.v1":
       return <ConnectorReadReceipt experience={experience} onOpenConnections={onOpenConnections}
         onCompileDriveNotes={onCompileDriveNotes} onDownloadDriveNotes={onDownloadDriveNotes}
-        driveCompilation={driveCompilation} />;
+        driveCompilation={driveCompilation} onMailQuickAction={onMailQuickAction} />;
     case "one.workspace_connector_setup.v1":
       return <WorkspaceConnectorSetupCard experience={experience} onOpenConnections={onOpenConnections} />;
     case "one.turn_location_permission.v1":
@@ -239,42 +262,6 @@ function DocumentRequestReviewView({ experience }: { experience: DocumentRequest
       draft={{clientRequestId: experience.clientRequestId, purpose: experience.purpose,
         periodStart: experience.periodStart, periodEnd: experience.periodEnd}}
     /></ExperienceShell>;
-}
-
-function ExperienceShell({
-  experienceType,
-  label,
-  title,
-  summary,
-  icon,
-  children,
-}: {
-  experienceType: AgentStructuredExperience["type"];
-  label: string;
-  title: string;
-  summary: string;
-  icon: ReactNode;
-  children: ReactNode;
-}) {
-  const isConsentReview = ["one.information_request_review.v1", "one.document_request_review.v1", "one.drive_share_review.v1", "one.drive_bulk_share_review.v1"].includes(experienceType);
-  return (
-    <section data-experience-type={experienceType} className={`${isConsentReview ? "consent-presentation-surface " : ""}overflow-hidden rounded-[var(--app-card-radius-standard)] border border-border/60 bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]`}>
-      <header className="flex items-start gap-3 border-b border-border/40 px-4 pb-3.5 pt-4 sm:px-5 sm:pt-5">
-        {/* /one iconography: a bare duotone glyph on a transparent well. A
-            registry capability glyph keeps its own colour; a utility glyph
-            stays neutral. Never a filled tile with a white glyph. */}
-        <span data-slot="card-header-icon" className="inline-flex h-10 w-10 shrink-0 items-center justify-center text-muted-foreground">
-          {icon}
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="ui-text-section-label text-muted-foreground">{label}</p>
-          <h3 data-consent-role="row-title" className="mt-1 text-base font-semibold tracking-[-0.015em] text-foreground">{title}</h3>
-          {summary ? <p data-consent-role="body" className="mt-1 text-sm leading-5 text-muted-foreground">{summary}</p> : null}
-        </div>
-      </header>
-      <div className="px-4 py-4 sm:px-5">{children}</div>
-    </section>
-  );
 }
 
 function sensitivityLabel(

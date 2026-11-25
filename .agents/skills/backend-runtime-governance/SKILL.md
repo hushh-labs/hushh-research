@@ -49,7 +49,6 @@ Non-owned surfaces:
 3. `consent-protocol/docs/README.md`
 4. `.agents/skills/backend-runtime-governance/references/async-runtime-performance.md`
 5. `docs/architecture/schema-migration-discipline.md`
-6. `docs/development/quality/floci-multicloud-wire-verification.md`
 
 ## Workflow
 
@@ -61,7 +60,6 @@ Non-owned surfaces:
 6. For backend bootstrap, packaging, or runtime-governance changes, rerun the authoritative service checks once directly and once again through the canonical repo entrypoint.
 7. When a backend runtime failure is visible in UAT or CI, use `./bin/hushh agents rca --surface runtime --text` or `--surface uat --text` first so service fixes are anchored to the blocking runtime classification instead of log-chasing.
 8. For slow or intermittently "unreachable" endpoints, run the async runtime performance health check before editing: confirm whether the asyncio event loop is blocked by a synchronous call (DB client, external SDK) rather than a slow DB, then apply the `run_in_threadpool`/`asyncio.to_thread` offload and the layered caching strategy in `references/async-runtime-performance.md`. Never call the synchronous `db/db_client.py` client or a blocking SDK directly from an `async def` handler.
-9. For multi-cloud storage, KMS/Key Vault AAD, capability-prefix gateways, or BYOC/sandbox service changes, accelerate local verification with `./bin/hushh protocol floci` before container builds or live cloud round-trips; keep Tier-1.5 distinct from live cloud qualification.
 
 ## Handoff Rules
 
@@ -73,7 +71,6 @@ Non-owned surfaces:
 ## Required Checks
 
 ```bash
-./bin/hushh protocol floci
 cd consent-protocol && python3 -m pytest tests/services -q
 ./bin/hushh agents data-model-audit
 ```

@@ -144,7 +144,7 @@ DIRECTORY_CANDIDATE_SQL = """
                 {name_rank_sql}
                 ELSE 4
               END,
-              LOWER(COALESCE(NULLIF(BTRIM(a.display_name), ''), a.phone_number, a.user_id)),
+              {secondary_order_sql},
               a.user_id
             LIMIT :fetch_limit OFFSET :offset
 """
@@ -158,6 +158,7 @@ def build_directory_candidate_statement(
     verified_email_clause: str,
     mutual_filter_clause: str,
     typed_name_sql: str | None = None,
+    secondary_order_sql: str = "LOWER(COALESCE(NULLIF(BTRIM(a.display_name), ''), a.phone_number, a.user_id))",
     priority_order_sql: str = "",
 ) -> str:
     """Fill only internal static SQL fragments; caller binds every value."""
@@ -191,5 +192,6 @@ def build_directory_candidate_statement(
         verified_email_clause=verified_email_clause,
         mutual_filter_clause=mutual_filter_clause,
         profile_eligibility=DIRECTORY_PROFILE_ELIGIBILITY_SQL,
+        secondary_order_sql=secondary_order_sql,
         priority_order_sql=priority_order_sql,
     )  # nosec B608 # All substitutions are internal static SQL fragments.

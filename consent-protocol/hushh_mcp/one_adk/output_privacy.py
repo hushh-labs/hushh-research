@@ -19,6 +19,7 @@ from hushh_mcp.one_adk.owner_ai_run_errors import (
     owner_ai_bridge_error,
     owner_ai_error_for_exception,
 )
+from hushh_mcp.one_adk.portfolio_context_contract import PRIVATE_PORTFOLIO_ANSWER
 from hushh_mcp.one_adk.receipt_client_tools import PRIVATE_RECEIPT_ANSWER
 from hushh_mcp.one_adk.run_errors import (
     content_filtered_error,
@@ -86,12 +87,21 @@ _PRIVATE_STATE_KEYS = frozenset(
     {
         "temp:hussh:mcp_approval",
         "hussh:mail_read_offer",
+        "hussh:email_page",
+        "hussh:email_selection",
+        "hussh:email_memory_pending",
+        "hussh:contact_attendee_offer",
+        "temp:one_contact_calendar_read",
         "hussh:calendar_event_read_offer",
         "hussh:calendar_invitation_read_offer",
         "hussh:calendar_list_read_offer",
-        "hussh:calendar_events_page",
+        "hussh:calendar_opening_read_offer",
+        "hussh:calendar_guest_clarification",
+        "temp:hussh:calendar_guest_recovery",
         "temp:hussh:calendar_request_scope",
         "temp:hussh:turn_started_at",
+        "hussh:calendar_events_page",
+        "hussh:calendar_event_attendees",
     }
 )
 
@@ -293,7 +303,10 @@ def _replay_placeholder(part: Any, role: Any, answered: set[str]) -> bool:
     if call is not None:
         # ADK prunes a result without its call, never a call without its result.
         return bool(call.id) and call.id not in answered
-    return role == "model" and getattr(part, "text", None) == PRIVATE_RECEIPT_ANSWER
+    return role == "model" and getattr(part, "text", None) in (
+        PRIVATE_RECEIPT_ANSWER,
+        PRIVATE_PORTFOLIO_ANSWER,
+    )
 
 
 def drop_replayed_tool_placeholders(llm_request: Any) -> int:

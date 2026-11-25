@@ -17,6 +17,7 @@ import {
   AI_SELECTED_PROVIDER_REF,
   type SavedAiConfiguration,
 } from "@/lib/one/ai-selection-vault";
+import type { KaiPreferencesUpdate } from "@/lib/services/kai-profile-service";
 import {
   addSavedLocation,
   defaultLabelForCategory,
@@ -65,6 +66,7 @@ export type PreVaultAiDraftState = {
 
 const geminiDrafts = new Map<string, PreVaultGeminiRuntimeDraft>();
 const aiConfigDrafts = new Map<string, PreVaultAiDraftState>();
+const financePreferences = new Map<string, KaiPreferencesUpdate>();
 const financeIntents = new Map<string, PreVaultFinanceIntent>();
 const savedLocationDrafts = new Map<string, PreVaultSavedLocationDraft>();
 const finalizeInFlight = new Map<string, Promise<void>>();
@@ -218,7 +220,13 @@ export class PreVaultSensitiveDraftService {
     this.clearGeminiRuntime(userId);
     this.clearAiConfigurations(userId);
     this.clearFinanceIntent(userId);
+    financePreferences.delete(userId);
     this.clearSavedLocation(userId);
+  }
+
+  static stageFinancePreferences(userId: string, updates: KaiPreferencesUpdate): void {
+    if (!userId) throw new Error("A signed-in user is required.");
+    financePreferences.set(userId, { ...updates });
   }
 
   static stageFinanceIntent(
@@ -313,7 +321,8 @@ export class PreVaultSensitiveDraftService {
     if (
       !geminiDrafts.has(params.userId) &&
       !aiConfigDrafts.has(params.userId) &&
-      !savedLocationDrafts.has(params.userId)
+      !savedLocationDrafts.has(params.userId) &&
+      !financePreferences.has(params.userId)
     ) {
       return;
     }
@@ -497,10 +506,34 @@ export class PreVaultSensitiveDraftService {
         this.clearSavedLocation(params.userId);
       }
 
+      if (wasCancelled()) return;
+      const preferences = financePreferences.get(params.userId);
+      if (preferences) {
+        const { KaiProfileService } = await import("@/lib/services/kai-profile-service");
+        if (wasCancelled()) return;
+        if (financePreferences.get(params.userId) !== preferences) continue;
+        await KaiProfileService.savePreferences({
+          ...params,
+          mode: "onboarding",
+          updates: preferences,
+          beforeEffect: async () => {
+            await params.beforeEffect?.();
+            if (wasCancelled() || financePreferences.get(params.userId) !== preferences) {
+              throw new Error("Finance setup has changed.");
+            }
+          },
+        });
+        if (wasCancelled()) return;
+        if (financePreferences.get(params.userId) === preferences) {
+          financePreferences.delete(params.userId);
+        }
+      }
+
       if (
         !geminiDrafts.has(params.userId) &&
         !aiConfigDrafts.has(params.userId) &&
-        !savedLocationDrafts.has(params.userId)
+        !savedLocationDrafts.has(params.userId) &&
+        !financePreferences.has(params.userId)
       ) {
         return;
       }

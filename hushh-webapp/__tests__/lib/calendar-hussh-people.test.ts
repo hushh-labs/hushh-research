@@ -53,6 +53,11 @@ describe("Calendar HUSSH identity resolution", () => {
   it("keeps ambiguous owner and peer email claims as initials", () => {
     const people = resolve([connection("peer", "owner@example.test", husshPhoto)]);
     expect(calendarHusshPerson(people, "owner@example.test")).toBeNull();
+    const known = resolve([], { ownerAliases: [alias("linked@example.test")] });
+    const eventPeople = calendarEventPeople(known, {
+      "linked@example.test": { userId: "peer", displayName: "Peer", photoUrl: googlePhoto },
+    }, "owner");
+    expect(calendarHusshPerson(eventPeople, "linked@example.test")).toBeNull();
   });
 
   it("reflects updated and removed profile photos on the next bounded read", () => {
@@ -96,15 +101,4 @@ describe("Calendar HUSSH identity resolution", () => {
     expect(calendarHusshPerson(calendarEventPeople(known, {}, "owner"), "owner@example.test")?.photoUrl).toBe(husshPhoto);
   });
 
-  it("shows the owner's own HUSSH avatar on every Google account they connected", () => {
-    const people = resolve([connection("peer", "peer@example.test", husshPhoto)], {
-      ownerAccountEmails: ["Work@Example.Test", "second@example.test", "peer@example.test"],
-    });
-    for (const email of ["work@example.test", "second@example.test"]) {
-      expect(calendarHusshPerson(people, email)).toMatchObject({ userId: "owner", photoUrl: husshPhoto });
-    }
-    // An address another person has proven as theirs keeps that person.
-    expect(calendarHusshPerson(people, "peer@example.test")?.userId).toBe("peer");
-    expect(calendarHusshPerson(people, "stranger@example.test")).toBeNull();
-  });
 });

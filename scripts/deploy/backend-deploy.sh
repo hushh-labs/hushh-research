@@ -961,6 +961,46 @@ if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
   fi
   # END DEV ACE SANDBOX PARITY
 fi
+# BEGIN UAT ACE SANDBOX PARITY
+# Enable UAT Confidential Sandbox (ACE) runtime parity on shared UAT when the
+# Edge Gateway and both custody/identity Secret Manager keys exist in
+# hushh-pda-uat. Production, commerce preview, and bootstrap projects stay
+# byte-identical by construction, and HUSHH_DEV_SIMULATION_ENABLED stays unset.
+if [[ "${_DEPLOY_ENV}" == "uat" && "${PROJECT_ID}" == "hushh-pda-uat" && -z "${commerce_preview_prefix:-}" ]]; then
+  _uat_ace_edge_url="$(gcloud run services describe "sandbox-edge-gateway" \
+    --project="$PROJECT_ID" --region="${_REGION}" --format='value(status.url)' 2>/dev/null || true)"
+  if [[ -n "${_uat_ace_edge_url}" ]] \
+    && gcloud secrets describe "hussh-custody-broker-seal-key" --project="$PROJECT_ID" >/dev/null 2>&1 \
+    && gcloud secrets describe "sandbox-edge-identity-master-key" --project="$PROJECT_ID" >/dev/null 2>&1; then
+    hub_url="$(gcloud run services describe "${_BACKEND_SERVICE}" \
+      --region="${_REGION}" --format='value(status.url)' 2>/dev/null || true)"
+    append_optional_env "HUSSH_HUB_BASE_URL" "${hub_url}"
+    personal_agent_enabled="true"
+    personal_agent_backend="gcp"
+    personal_agent_autoprovision="true"
+    hosted_pod_tier="true"
+    hosted_pod_project="${PROJECT_ID}"
+    pod_turn_enabled="true"
+    pod_directive_transport="true"
+    pod_data_door="true"
+    pod_local_pkm="true"
+    pod_durable_identity="true"
+    pod_migration="true"
+    pod_files_enabled="true"
+    trusted_device_enabled="true"
+    agent_sandbox_cutover_enabled="1"
+    hub_storage_prefix_base_url="${hub_url:+${hub_url}/api/one/pod/storage-gateway}"
+    hub_storage_token_provider="ace_prefix_bearer"
+    pod_storage_gateway_gcs_bucket="hussh-hosted-pods-uat"
+    sandbox_edge_public_url="${_uat_ace_edge_url}"
+    source_pod_retirement_sweep_enabled="true"
+    dev_custody_broker_seal_key_secret="hussh-custody-broker-seal-key"
+    dev_sandbox_identity_master_key_secret="sandbox-edge-identity-master-key"
+  else
+    echo "UAT ACE sandbox parity: edge gateway or custody secrets absent; skipping ACE bindings." >&2
+  fi
+fi
+# END UAT ACE SANDBOX PARITY
 append_optional_env "PERSONAL_AGENT_ENABLED" "${personal_agent_enabled}"
 append_optional_env "PERSONAL_AGENT_BACKEND" "${personal_agent_backend}"
 append_optional_env "PERSONAL_AGENT_AUTOPROVISION_ENABLED" "${personal_agent_autoprovision}"

@@ -42,6 +42,10 @@ from google.genai import types as genai_types
 from hushh_mcp.adk_bridge.contract import A2AAuthorityContext, A2ATask
 from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.adk_bridge.dispatch import dispatch
+from hushh_mcp.agents.calendar.opening_tools import (
+    calendar_opening_detail,
+    calendar_shared_free_slots,
+)
 from hushh_mcp.agents.calendar.tools import (
     calendar_availability,
     calendar_calendars,
@@ -55,10 +59,12 @@ from hushh_mcp.agents.calendar.tools import (
     propose_calendar_event,
     propose_calendar_reschedule,
 )
+from hushh_mcp.agents.email.chat_tools import GMAIL_CHAT_TOOLS
 from hushh_mcp.agents.email.mailbox_tools import (
     propose_gmail_mailbox_change,
     propose_gmail_todo,
 )
+from hushh_mcp.agents.email.workspace_tools import GMAIL_WORKSPACE_TOOLS
 from hushh_mcp.agents.onboarding.agent import (
     OnboardingAssessmentV1,
     OnboardingJourneyContext,
@@ -125,6 +131,10 @@ from hushh_mcp.one_adk.drive_write_tools import (
     propose_drive_file_share,
     propose_drive_file_trash,
 )
+from hushh_mcp.one_adk.email_memory_turn import (
+    email_memory_before_model,
+)
+from hushh_mcp.one_adk.email_specialist_context import admit_email_directive, email_task_context
 from hushh_mcp.one_adk.external_read_boundary import (
     STATE_EXECUTION_SURFACE,
     after_external_read_tool,
@@ -134,6 +144,12 @@ from hushh_mcp.one_adk.feed_attention import (
     block_tools_during_feed_attention,
     feed_attention_instruction,
 )
+from hushh_mcp.one_adk.finance_chat_cards import (
+    show_market_gainers,
+    show_portfolio_card,
+    show_portfolio_upload,
+    show_stock_preview,
+)
 from hushh_mcp.one_adk.finance_market_tools import (
     MARKET_QUOTES_TOOL_NAME,
     TICKER_NEWS_TOOL_NAME,
@@ -141,6 +157,9 @@ from hushh_mcp.one_adk.finance_market_tools import (
     get_ticker_news,
 )
 from hushh_mcp.one_adk.follow_up_suggestions import follow_up_instruction, suggest_follow_ups
+from hushh_mcp.one_adk.legacy_navigation import APP_ROUTES as APP_ROUTES
+from hushh_mcp.one_adk.legacy_navigation import CRM_PRODUCT_AVAILABLE as _CRM_PRODUCT_AVAILABLE
+from hushh_mcp.one_adk.legacy_navigation import open_screen
 from hushh_mcp.one_adk.mail_instruction import (
     legacy_draft_addressing,
     mail_admission_instruction,
@@ -152,8 +171,11 @@ from hushh_mcp.one_adk.one_persona import build_one_persona_grounding
 from hushh_mcp.one_adk.owner_style import owner_style_instruction, propose_style_settings
 from hushh_mcp.one_adk.pending_email_draft import pending_email_draft_instruction
 from hushh_mcp.one_adk.pod_connector_tools import owner_cloud_agent, pod_connector_roster
+from hushh_mcp.one_adk.portfolio_context_contract import (
+    PORTFOLIO_CONTEXT_TOOL,
+    STATE_PORTFOLIO_CONTEXT_ENABLED,
+)
 from hushh_mcp.one_adk.queued_input import club_queued_input
-from hushh_mcp.one_adk.receipt_memory_turn import resolve_receipt_memory
 from hushh_mcp.one_adk.registered_mcp_toolset import (
     RegisteredMcpToolset,
     inspect_private_connectors,
@@ -167,6 +189,9 @@ from hushh_mcp.one_adk.specialist_availability import (
     specialist_label,
 )
 from hushh_mcp.one_adk.specialist_focus import specialist_focus_instruction as focus_instruction
+from hushh_mcp.one_adk.state_keys import STATE_PENDING_DIRECTIVE as STATE_PENDING_DIRECTIVE
+from hushh_mcp.one_adk.state_keys import STATE_USER_ID as STATE_USER_ID
+from hushh_mcp.one_adk.state_keys import STATE_VOICE_CONTEXT as STATE_VOICE_CONTEXT
 from hushh_mcp.one_adk.turn_location import get_my_location
 from hushh_mcp.one_adk.web_search import (
     instruction_for_head,
@@ -203,7 +228,6 @@ from hushh_mcp.services.agent_task_context import (
     record_pending_specialist_directive,
     specialist_directive_fingerprint,
 )
-from hushh_mcp.services.crm_product_availability import crm_product_available
 from hushh_mcp.services.pod_owner_cloud import hosted_ace_runtime
 
 logger = logging.getLogger(__name__)
@@ -241,7 +265,6 @@ _WALLET_MANIFEST = _load_product_agent_manifest("agent_wallet")
 
 # Session-state keys the relay seeds before the first turn. Tools read them
 # via tool_context.state; the model neither sees nor supplies them.
-STATE_USER_ID = "hussh:user_id"
 # State KEY name, not a credential value (the token itself arrives at runtime).
 STATE_CONSENT_TOKEN = "hussh:consent_token"  # noqa: S105
 STATE_CONVERSATION_ID = "hussh:conversation_id"
@@ -255,7 +278,6 @@ STATE_DATA_DOOR_GRANTS = "hussh:data_door_grants"
 # Redacted browser state used by action tools to avoid proposing controls the
 # current surface did not declare available. It never contains vault content,
 # credentials, or raw page text.
-STATE_VOICE_CONTEXT = "hussh:voice_context"
 # Optional, turn-bounded PKM projection supplied after vault unlock. The value
 # is seeded into an ephemeral text session and never logged or persisted by
 # the One runtime. Voice sessions do not set this key.
@@ -267,7 +289,8 @@ STATE_OWNER_DISPLAY_NAME = "hussh:owner_display_name"
 # arrive as a clipped sample while the device-computed summaries (derived_v1)
 # are placed first. A total summed from the sample reads as fact and is wrong.
 SPENDING_GROUNDING_RULE = (
-    "\nSPENDING: Purchases, receipts and invoices use the receipt functions. For bank or "
+    "\nSPENDING: Receipts and invoices in Gmail use ask_email_agent for a live search. "
+    "Use receipt functions only when the owner explicitly asks about their saved receipt snapshot. For bank or "
     "card cash flow, income or recurring bills, answer from the "
     "precomputed summaries in this packet (Financial > Derived V1: Monthly Cash Flow, "
     "Recurring Bills, Cash Flow Trend), which the person's device computed from every "
@@ -312,7 +335,6 @@ STATE_MEMORY_DIGEST = "hussh:memory_digest"
 STATE_MEMORY_AVAILABLE = "hussh:memory_available"
 # Pending client directive (navigation etc.) the relay forwards to the browser
 # after the current event batch; written by tools, cleared by the relay.
-STATE_PENDING_DIRECTIVE = "hussh:pending_directive"
 # Where the last Email receipts list stopped, so "show more" continues it. It
 # holds the list's filters and offset only, never a receipt, and expires on its
 # own. Unlike the request secrets it must outlive one HTTP request, so it lives
@@ -323,25 +345,6 @@ STATE_RECEIPT_CURSOR = "hussh:receipt_cursor"
 # shape as STATE_PENDING_DIRECTIVE, kept as its own prefix since a trace is
 # never executed and never settles -- it is just forwarded and rendered.
 STATE_PENDING_TOOL_TRACE = "hussh:tool_trace"
-
-_CRM_PRODUCT_AVAILABLE = crm_product_available()
-
-# Governed navigation allowlist: screen id -> app route. Mirrors the /one
-# roster plus core account surfaces. One can ONLY navigate here; anything
-# else is refused by construction.
-APP_ROUTES: dict[str, str] = {
-    "home": "/one",
-    "setup": "/one/setup",
-    "finance": "/one/kai",
-    "ria": "/ria",
-    "email": "/one/email",
-    "location": "/one/location",
-    "personal_data": "/one/pkm",
-    "consent": "/one/consent",
-    "profile": "/profile",
-}
-if _CRM_PRODUCT_AVAILABLE:
-    APP_ROUTES["connected_systems"] = "/one/connected-systems"
 
 # Keep the pod Live compatibility surface on the same manifest/env contract as
 # the existing infrastructure runtime.  The ordinary text head below uses the
@@ -496,7 +499,9 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "'why?', 'how?', 'tell me more', or 'what do you mean?' as replies to "
     "your immediately preceding statement. Answer their underlying question "
     "directly in one or two concrete sentences before offering any setup step, "
-    "tool, or specialist. Never treat a conversational challenge as missing "
+    "tool, or specialist. This applies to explanation requests; a request to retry "
+    "or finish an unfinished read should carry the earlier task into its existing "
+    "specialist handoff. Never treat a conversational challenge as missing "
     "onboarding input, silence, or an instruction to repeat your introduction.\n\n"
     "If the person sends a different request while an action is proposed, treat "
     "the old proposal as cancelled and respond only to the new intent. Never "
@@ -516,15 +521,14 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "Gmail information-request thread replies only through "
     "open_gmail_information_request_reply, and reviewing those requests is "
     "run_app_action route.one_gmail_kyc. Reading or triaging Gmail uses ask_email_agent "
-    "only when MAIL READ ADMISSION below enables it. Spending, receipts and invoices use "
-    "the receipt functions, never ask_email_agent; finding an email that mentions one is "
-    "an inbox search.\n"
+    "only when MAIL READ ADMISSION below enables it. Gmail receipts and invoices also use "
+    "ask_email_agent for live search, body and supported attachment evidence.\n"
     "- Calendar: use tools. Ask missing date, zone, times, duration, guests; keep supplied title. "
     "Else use 'Meeting with <verified owner name>' or 'Meeting invitation'; never guest name. "
     "Describe inviter and exact date/time/zone. Never invent; 'at 8pm' is not today. "
     "Resolve relative dates from the current turn clock or get_current_time. Select "
     "listed events by event_ordinal, never a guessed id; preserve unnamed fields. "
-    "Name conflicts. "
+    "Use recent_booking only for a verified booking in this conversation. Name conflicts. "
     "Confirm actions in browser; connect Calendar for missing access.\n"
     "- Location: live sharing with trusted people and local context.\n"
     "- Memory: 'what you know about me' means their memory: answer from CONSENTED TURN "
@@ -547,11 +551,9 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "'take me to location' selects route.one_location, while 'share my location' "
     "selects the governed location action below; questions about Gmail information "
     "requests belong in Email rather than a retired KYC route. "
-    "When the user "
-    "asks to analyze, "
-    "research, or run a debate on a stock or company ('analyze Nvidia'), act "
-    "immediately: call start_app_goal with action id 'analysis.start' and "
-    "slots {'symbol': <ticker>}; ask only when you cannot infer the ticker. "
+    "To explicitly open the Finance analysis screen, or analyze a stock outside typed Chat, "
+    "call start_app_goal with action 'analysis.start' and slots {'symbol': <ticker>}; "
+    "ask only if the ticker is unclear. "
     "After start_app_goal reports navigation_started, wait for the correlated "
     "route settlement and fresh Analysis context, then call continue_app_goal. "
     "It opens a preview only; never start the debate until the person explicitly "
@@ -964,6 +966,42 @@ def _compose_one_instruction_parts(
     state_getter = getattr(state, "get", None)
     from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 
+    identity_instruction = ONE_IDENTITY_INSTRUCTION
+    if (
+        callable(state_getter)
+        and state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
+        and state_getter(STATE_USER_ID)
+    ):
+        identity_instruction += (
+            "\n\nFINANCE IN CHAT: Keep these requests in Chat. Call show_market_gainers for "
+            "U.S. or unspecified gainers. Acknowledge opening the card without claiming quotes "
+            "or ranks. For importing, uploading or adding a statement or portfolio, call "
+            "show_portfolio_upload. Say the upload is available in Chat. The card reports "
+            "processing and save results. For a specific brokerage connection, use its setup flow. "
+            "To preview, research, analyze or debate a stock, call "
+            "show_stock_preview with its ticker and say it is ready for review. The person "
+            "confirms in the card before the debate starts."
+        )
+        if state_getter(STATE_PORTFOLIO_CONTEXT_ENABLED):
+            identity_instruction += (
+                " For facts about saved holdings, allocation, or performance, call "
+                "read_portfolio_context before answering. This includes summaries and questions "
+                "about the largest holdings or portfolio impact. Read the active portfolio for "
+                "an unqualified or current question, including when chat was reopened or earlier "
+                "turns contain a privacy receipt. An active read needs no open card. Use last_card "
+                "only for an explicit reference to the figures previously shown in a card. "
+                "Use a ticker filter only for a named holding. End the first pass at the device "
+                "call, then answer in prose or a concise table from the returned facts. "
+                "Call show_portfolio_card for portfolio sources or when the person wants an "
+                "interactive view of their holdings, allocation, or performance. Live prices "
+                "and news use the market tools."
+            )
+        else:
+            identity_instruction += (
+                " For portfolio holdings, allocation, performance or sources, call "
+                "show_portfolio_card."
+            )
+
     mail_admitted = (
         callable(state_getter)
         and state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
@@ -977,6 +1015,38 @@ def _compose_one_instruction_parts(
         timezone=timezone_val,
         include_clock=not split_clock,
     )
+    if (
+        callable(state_getter)
+        and state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
+        and (owner_cloud_agent() or hosted_ace_runtime())
+    ):
+        mail_core_instruction += (
+            "\n\nCALENDAR AND CONTACTS: For a guest explicitly selected from a Calendar "
+            "event detail, pass event_attendee_ordinals. To schedule with the sender of an "
+            "inbound Gmail message selected in this chat, pass mail_sender_ordinal. If the "
+            "owner asks to both schedule and reply in that thread, pass mail_reply_body in "
+            "the same Calendar proposal. The owner reviews both effects together. "
+            "When the owner asks to schedule with a named person "
+            "and has not supplied an address or chosen a contact in this conversation, call "
+            "search_my_contacts with their name and for_calendar=true. Use the numbered "
+            "choice in propose_calendar_event(contact_ordinals=[...]); never copy its address "
+            "into attendees. For multiple named guests, pass their names separately as queries "
+            "in one lookup and select one address per name. "
+            "If multiple people or addresses match, or a name matches only "
+            "partially, ask the owner to choose using numbered names and mailbox hints. If the "
+            "owner requested open times and supplied a window and duration, include those exact "
+            "availability arguments in the initial Contacts lookup and then pass the same "
+            "arguments to calendar_free_slots after a successful lookup. "
+            "Those are the owner's open times. Say which availability scope the tool returned. "
+            "Carry the exact slot_ordinal into the proposal "
+            "when the owner selects a listed time or asks you to choose one. For an exact "
+            "requested time, prepare the normal "
+            "Calendar proposal, which checks conflicts. Send an invitation only after the owner "
+            "confirms the proposal. For more of the same event search, use "
+            "calendar_events(next_page=true). Use recent_booking=true for an explicit "
+            "reference to the meeting just booked here, or the latest Calendar event position "
+            "for a reschedule or cancellation of a listed meeting."
+        )
     split_mail_clock = owner_clock_line(timezone_val) if (split_clock and mail_admitted) else ""
     legacy_draft_instruction = legacy_draft_addressing(state_getter)
     drive_admitted = (
@@ -1024,7 +1094,7 @@ def _compose_one_instruction_parts(
         else ""
     )
     static_prefix = (
-        ONE_IDENTITY_INSTRUCTION + mail_core_instruction + drive_instruction + pod_files_instruction
+        identity_instruction + mail_core_instruction + drive_instruction + pod_files_instruction
     )
     selected_drive_ref = (
         state_getter(STATE_DRIVE_SEARCH_SELECTION) if callable(state_getter) else None
@@ -1186,8 +1256,9 @@ def _compose_one_instruction_parts(
     # were still on.
     voice_settings = voice_context.get("voice_settings")
     voice_settings = voice_settings if isinstance(voice_settings, dict) else {}
+    is_typed_chat = callable(state_getter) and state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
     voice_disabled_instruction = ""
-    if voice_settings.get("voice_enabled") is False:
+    if not is_typed_chat and voice_settings.get("voice_enabled") is False:
         voice_disabled_instruction = (
             "\n\nVOICE CONTROL IS OFF: the person has turned off voice control "
             "in their own settings (Profile, Preferences, Voice). Every app "
@@ -1281,6 +1352,14 @@ def _compose_one_instruction_parts(
                 if unrendered
                 else ""
             )
+            + "\nDIRECT DOMAIN-TOOL PRIORITY: If the person asks to search, list, read, "
+            "summarize, or reply to their Mail/Gmail, check Calendar events/availability, "
+            "query Drive files, check Memory/PKM, inspect Connections/Consent, or search "
+            "the web, call the owning domain tool directly (e.g. gmail_search_mail, "
+            "gmail_read_thread, gmail_list_needs_reply, open_gmail_reply_draft, "
+            "calendar_events, ask_documents_agent) WITHOUT calling list_app_actions first. "
+            "Only check ACTIVE EXECUTABLE CONTROLS / list_app_actions for UI navigation "
+            "or screen-control actions."
             + "\nFirst check whether the person's own words closely echo one of the "
             "labels above. If so, call run_app_action with that exact id. A clear "
             "provider request selects its exact Apple or Google action; never "
@@ -1606,14 +1685,6 @@ async def _task_from_context(
         )
     conversation_id = str(state.get(STATE_CONVERSATION_ID) or "").strip() or None
     timezone_name = str(state.get(STATE_TIMEZONE) or "").strip() or None
-    receipt_memory = None
-    receipt_cursor = None
-    if agent_id == "agent_email":
-        # The owner's saved receipts, sent by their device for this turn. Only
-        # the Email specialist's receipts read ever sees them.
-        receipt_memory = resolve_receipt_memory(state.get)
-        stored_cursor = state.get(STATE_RECEIPT_CURSOR)
-        receipt_cursor = stored_cursor if isinstance(stored_cursor, str) and stored_cursor else None
     previous_answer = None
     if agent_id == "agent_documents":
         # History is already part of this owner's chat session. Supply only
@@ -1647,9 +1718,9 @@ async def _task_from_context(
         if state.get(STATE_EXECUTION_SURFACE) == "typed_chat"
         else None,
         previous_answer=previous_answer,
-        receipt_memory=receipt_memory,
-        receipt_cursor=receipt_cursor,
-        mail_read_offer=state.get(STATE_MAIL_READ_OFFER) if agent_id == "agent_email" else None,
+        **email_task_context(
+            tool_context, owner_id=user_id, conversation_id=conversation_id or "", agent_id=agent_id
+        ),
     )
 
 
@@ -1720,6 +1791,7 @@ async def _specialist_turn(
         user_id=user_id,
         consent_token=consent_token,
         voice_context=voice_context,
+        execution_surface=tool_context.state.get(STATE_EXECUTION_SURFACE),
     )
     availability_payload = availability.as_dict()
     if availability.state == "setup_required":
@@ -1908,6 +1980,8 @@ async def _specialist_turn(
             # Provider IDs stay in the owner-scoped encrypted session state.
             # They never join the model-visible tool payload below.
             tool_context.state[STATE_MAIL_READ_OFFER] = result.mail_read_offer
+            tool_context.state["hussh:email_page"] = result.email_page
+            tool_context.state["hussh:email_selection"] = result.email_selection
         elif result.structured.status in {
             "connect_required",
             "reconnect_required",
@@ -1926,7 +2000,11 @@ async def _specialist_turn(
     )
     if result.structured is not None:
         payload["structured"] = result.structured.model_dump(mode="json")
+        if tool_context.state.get("temp:hussh:email_read_coverage") is not True:
+            payload["structured"].pop("truncation_reasons", None)
         payload["status"] = result.structured.status
+    if result.performance is not None:
+        payload["performance"] = result.performance
     if payload["status"] == "receipt_functions_required":
         payload["next_step"] = _RECEIPT_FUNCTIONS_STEP
     if getattr(result, "mail_brief", None):
@@ -2027,18 +2105,23 @@ async def _specialist_turn(
                 "Do not claim the change has happened."
             )
             return payload
-        if agent_id == "agent_email":
-            # The Email read lane proposes nothing: host code never runs an action
-            # (such as opening Receipts) on the specialist's behalf.
+        if agent_id == "agent_email" and not admit_email_directive(
+            tool_context, kind=result.directive.kind, payload=directive_payload
+        ):
             return {
+                **payload,
                 "status": "invalid_proposal",
-                "message": "The proposed action could not be verified.",
+                "next_step": "The proposed Gmail action could not be verified. Nothing executed.",
             }
         session_id = getattr(getattr(tool_context, "session", None), "id", None)
         fingerprint = specialist_directive_fingerprint(
             agent_id,
             result.directive.kind,
-            str(directive_payload.get("type") or ""),
+            (
+                f"{directive_payload.get('type') or directive_payload.get('request_id') or ''}:{tool_context.invocation_id}"
+                if agent_id == "agent_email"
+                else str(directive_payload.get("type") or "")
+            ),
         )
         # Already on screen, unanswered.
         #
@@ -2087,48 +2170,6 @@ async def _specialist_turn(
                 "The app is showing the user a choice card. Tell the user to pick an option there."
             )
     return payload
-
-
-async def open_screen(screen: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Legacy non-live navigation helper.
-
-    Live One sessions must use a generated action currently published by the
-    browser. Keeping this compatibility tool fail-closed in a live session
-    prevents it from bypassing route, setup, and visible-control authority.
-    """
-    voice_context = tool_context.state.get(STATE_VOICE_CONTEXT)
-    if isinstance(voice_context, dict) and voice_context.get("route_family"):
-        return {
-            "status": "action_required",
-            "message": (
-                "Use one of the generated actions available on the current screen; "
-                "I cannot navigate around its controls directly."
-            ),
-        }
-    key = str(screen or "").strip().lower().replace("-", "_").replace(" ", "_")
-    route = APP_ROUTES.get(key)
-    if not route:
-        return {
-            "status": "unknown_screen",
-            "message": f"'{screen}' is not a screen I can open.",
-            "valid_screens": sorted(APP_ROUTES),
-        }
-    tool_context.state[f"{STATE_PENDING_DIRECTIVE}:{key}"] = {
-        "kind": "navigate",
-        "payload": {"route": route, "screen": key},
-    }
-    return {
-        "status": "ok",
-        "message": f"Opening {key.replace('_', ' ')}.",
-        "route": route,
-        # Proactive-prompting: this text becomes the tool RESULT the model
-        # reads on its next turn (there is no separate server-injected
-        # system turn for tool results, unlike the greeting/screen-change
-        # notes in adk_live.py). Nudging here means One offers a next step
-        # after every screen it opens, not only after onboarding-tagged
-        # screen changes.
-        "next_step": "Wait for route settlement before describing the next step.",
-    }
 
 
 async def open_gmail_email_draft(
@@ -2263,8 +2304,9 @@ async def ask_email_agent(request: str, tool_context: ToolContext) -> dict[str, 
 
     Covers recent or unread mail, mail from someone, possible replies, what an email
     says, and briefs of what needs them: action items, requests for their details,
-    security notices and meetings. Spending, receipts, invoices and bills use
-    One's receipt functions, never this tool. Never sends mail or syncs receipts.
+    security notices and meetings. Search receipts, invoices and bills live with
+    their requested dates; read supported attachments when needed. Sending and
+    destructive changes require existing review authority. Never syncs receipts.
     """
     from hushh_mcp.adk_bridge.contract import SpecialistReadResult
     from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
@@ -2296,7 +2338,35 @@ async def ask_email_agent(request: str, tool_context: ToolContext) -> dict[str, 
                 "message": message,
                 "is_complete": True,
             }
-    return await _specialist_turn("agent_email", request, tool_context)
+    result = await _specialist_turn("agent_email", request, tool_context)
+    # Only a sole, complete Email delegation may own the final answer. Compound
+    # cross-domain batches keep One's normal continuation for their other tools.
+    from hushh_mcp.one_adk.search_answer import _ANSWER, EMAIL_TERMINAL_STATUSES, _sole_search
+
+    invocation = getattr(tool_context, "_invocation_context", None)
+    handoff = _ANSWER.get()
+    if (
+        handoff is not None
+        and handoff.email_preview
+        and (
+            result.get("status") not in EMAIL_TERMINAL_STATUSES
+            or not result.get("is_complete")
+            or not str(result.get("text") or "").startswith("".join(handoff.preview))
+        )
+    ):
+        raise ValueError("Email stream did not complete its published answer")
+    if (
+        invocation is not None
+        and handoff is not None
+        and handoff.invocation_id == invocation.invocation_id
+        and result.get("status") in EMAIL_TERMINAL_STATUSES
+        and result.get("is_complete")
+        and isinstance(result.get("text"), str)
+        and result["text"].strip()
+        and _sole_search(invocation, "ask_email_agent")
+    ):
+        tool_context.actions.skip_summarization = True
+    return result
 
 
 async def ask_location_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
@@ -2775,6 +2845,10 @@ def _one_roster_tools(
         start_app_goal,
         continue_app_goal,
         list_app_actions,
+        show_stock_preview,
+        show_portfolio_card,
+        show_portfolio_upload,
+        show_market_gainers,
         open_gmail_email_draft,
         open_gmail_information_request_reply,
         AgentTool(agent=_build_finance_agent(model=specialist_model)),
@@ -2817,6 +2891,8 @@ def _one_roster_tools(
         calendar_event_detail,
         calendar_availability,
         calendar_free_slots,
+        calendar_shared_free_slots,
+        calendar_opening_detail,
         propose_calendar_event,
         propose_calendar_reschedule,
         propose_calendar_cancellation,
@@ -2824,7 +2900,14 @@ def _one_roster_tools(
         react_to_message,
     ]
     tools.extend(
-        pod_connector_roster() if pod_mode() else [propose_gmail_mailbox_change, propose_gmail_todo]
+        pod_connector_roster()
+        if pod_mode()
+        else [
+            *GMAIL_CHAT_TOOLS,
+            *GMAIL_WORKSPACE_TOOLS,
+            propose_gmail_mailbox_change,
+            propose_gmail_todo,
+        ]
     )
     if _CRM_PRODUCT_AVAILABLE:
         tools.insert(tools.index(ask_consent_agent), ask_connected_systems_agent)
@@ -2907,10 +2990,13 @@ def _one_roster_tools(
         from hushh_mcp.one_adk.receipt_client_tools import RECEIPT_TOOL_NAMES
         from hushh_mcp.one_adk.wiki_recall_tools import WIKI_TOOL_NAMES, pod_files_wiki_enabled
 
-        client_tool_names = set(RECEIPT_TOOL_NAMES) | set(PLAID_TOOL_NAMES)
+        tools.append(AGUIToolset(tool_filter=sorted(RECEIPT_TOOL_NAMES)))
+        tools.append(AGUIToolset(tool_filter=sorted(PLAID_TOOL_NAMES)))
         if not pod_files_wiki_enabled():
-            client_tool_names |= set(WIKI_TOOL_NAMES)
-        tools.append(AGUIToolset(tool_filter=sorted(client_tool_names)))
+            tools.append(AGUIToolset(tool_filter=sorted(WIKI_TOOL_NAMES)))
+        # The typed hub advertises this separate contract only to compatible,
+        # owner-authorized browsers. Offline receipt evaluations omit it.
+        tools.append(AGUIToolset(tool_filter=[PORTFOLIO_CONTEXT_TOOL]))
     return tools
 
 
@@ -3012,6 +3098,7 @@ def build_one_text_agent(
     """
     text_model = _resolve_text_model(model, vertex_project=vertex_project)
     google_search_model = search_model_for_text_head(text_model, google_search_model)
+    from hushh_mcp.agents.calendar.guest_clarification import guest_before_model
     from hushh_mcp.one_adk.chat_memory import chat_memory_after_model, chat_memory_before_model
     from hushh_mcp.one_adk.finance_share_context import finance_model_callbacks
     from hushh_mcp.one_adk.plaid_connector_tools import plaid_after_model, plaid_before_model
@@ -3064,6 +3151,8 @@ def build_one_text_agent(
             wiki_before_model,
             plaid_before_model,
             document_period_before_model,
+            email_memory_before_model,
+            guest_before_model,
             scope_leaf_tools_before_model,
             compact_horizon_before_model,
             timed_one_before_model,

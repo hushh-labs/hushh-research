@@ -30,10 +30,9 @@
   flex: 1;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
+  scrollbar-gutter: stable both-edges;
   container: one-profile-content / inline-size;
-  padding: 12px var(--page-inline-gutter-standard)
-    max(24px, var(--app-safe-area-bottom-effective, 0px));
+  padding: 0 0 max(24px, var(--app-safe-area-bottom-effective, 0px));
 }
 .hero {
   display: flex;
@@ -67,17 +66,13 @@
   line-height: 27px;
   letter-spacing: normal;
 }
-.presenceSlot {
-  margin-top: 4px;
-  min-height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
 .tabs {
   min-height: 0;
   min-width: 0;
   flex: 1;
+  margin-inline: var(--page-inline-gutter-standard);
+  border-radius: var(--app-card-radius-standard);
+  background: var(--app-card-surface-default-solid);
   gap: 0;
   overflow: hidden;
 }
@@ -85,46 +80,35 @@
   flex: none;
   padding: 0 var(--page-inline-gutter-standard) 12px;
 }
+.tabRail {
+  flex: none;
+  min-width: 0;
+  overflow: hidden;
+  /* Match the scrollport's reserved space without moving the tab controls. */
+  scrollbar-gutter: stable both-edges;
+}
 .tabList {
   flex: none;
   width: auto;
-  margin-inline: var(--page-inline-gutter-standard);
+  margin-inline: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 .tabList button {
   min-height: 44px;
+  padding-inline: 4px;
 }
-.activity,
+.feed,
 .todo,
 .profile {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-}
-.terminalSection {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.terminalToggle {
-  display: flex;
-  width: 100%;
-  min-height: 36px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 2px 4px;
-  border: 0;
-  background: transparent;
-  color: var(--foreground);
-  text-align: left;
-  cursor: pointer;
-}
-.terminalToggle h3 {
-  margin: 0;
-  font-size: var(--app-side-pane-section-size);
-  font-weight: 600;
+  gap: 10px;
 }
 .sectionHeading {
   display: flex;
@@ -177,4 +161,37 @@
   height: 100%;
 }
 
-.todo { --muted-foreground: color-mix(in oklab, var(--foreground) 68%, var(--background)); }
+/* The approved To-do pane owns a bounded detail frame, including its footer. */
+/* Smooth size/position transition so switching to To-do does not glitch/jump. */
+.sheet { transition: width 220ms ease, height 220ms ease, top 220ms ease, right 220ms ease, border-radius 220ms ease; }
+.sheet:has([data-todo-active="true"]) { width: min(430px, calc(100vw - 36px)) !important; height: min(820px, calc(100dvh - 36px)) !important; max-height: none; top: max(18px, calc((100dvh - 820px)/2)) !important; right: 18px !important; bottom: auto !important; border-radius: 25px !important; }
+/* Align hero padding-inline and tabs margin with Feed/Profile so content doesn't shift horizontally. */
+.content[data-todo-active="true"] .hero { padding: 15px var(--page-inline-gutter-standard) 18px; }
+.content[data-todo-active="true"] .avatar { --one-profile-artwork-size: 208px; margin-bottom: -20px; }
+.content[data-todo-active="true"] .tabs { margin: 0 var(--page-inline-gutter-standard) 16px; border-radius: 18px; }
+.content[data-todo-active="true"] .tabList { padding: 0 10px; border-bottom: 1px solid var(--border); }
+.content[data-todo-active="true"] .tabList button { min-height: 48px; font-size: 12px; background: transparent; border-radius: 0; box-shadow: none; color: var(--muted-foreground); }
+.content[data-todo-active="true"] .tabList button[data-state="active"] { color: var(--app-accent); border-bottom: 2px solid var(--app-accent); }
+.content[data-todo-active="true"] .tabList button svg { width: 15px; height: 15px; }
+.content[data-todo-active="true"] .scroll { padding: 0; overflow: hidden; scrollbar-gutter: auto; }
+.todoTab { display: flex; flex-direction: column; flex: 1; height: 100%; min-height: 0; }
+.content[data-todo-detail="true"] .hero, .content[data-todo-detail="true"] .modelControl, .content[data-todo-detail="true"] .tabRail { display: none; }
+.content[data-todo-detail="true"] .tabs { margin: 0; border-radius: 0; background: transparent; }
+@media (max-width: 600px) {
+  .sheet:has([data-todo-active="true"]) { width: calc(100vw - 24px) !important; right: 12px !important; top: max(12px, env(safe-area-inset-top)) !important; height: calc(100dvh - 54px - env(safe-area-inset-top)) !important; }
+  .content[data-todo-active="true"] .hero { padding-top: 6px; padding-bottom: 15px; }
+  .content[data-todo-active="true"] .avatar { --one-profile-artwork-size: 178px; margin-bottom: -17px; }
+  .content[data-todo-active="true"] .tabs { margin: 0 var(--page-inline-gutter-standard) 12px; border-radius: 16px; }
+  .content[data-todo-detail="true"] .tabs { margin: 0; border-radius: 0; }
+}
+@media (max-height: 650px) { .content[data-todo-active="true"] .avatar { --one-profile-artwork-size: 128px; margin-bottom: -12px; } }
+@media (max-height: 650px) {
+  .content:has([data-todo-editor-pane]) .hero,
+  .content:has([data-todo-editor-pane]) .modelControl,
+  .content:has([data-todo-editor-pane]) .tabRail { display: none; }
+}
+:global(html.kb-open) .content:has([data-todo-editor-pane]) .hero,
+:global(html.kb-open) .content:has([data-todo-editor-pane]) .modelControl,
+:global(html.kb-open) .content:has([data-todo-editor-pane]) .tabRail { display: none; }
+
+.todoTab[data-state="inactive"] { display: none; }

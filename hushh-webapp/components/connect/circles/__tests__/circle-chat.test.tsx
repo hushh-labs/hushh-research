@@ -422,6 +422,24 @@ it("shows the photo before preparation, retries identical ciphertext and reconci
   expect(allocate).toHaveBeenCalled();
 });
 
+it("keeps a text message visible before sealing and after an uncertain delivery", async () => {
+  api.messages.mockResolvedValue({ items: [], hasMore: false });
+  api.prepare.mockResolvedValue({ clientMessageId: "text-client", ciphertext: "sealed" });
+  api.send.mockRejectedValueOnce(new ApiError("Timed out", 504)).mockResolvedValueOnce({
+    ...message, id: "sent-text", clientMessageId: "text-client", sequence: 2, senderUserId: "alice",
+  });
+  render(<CircleChat session={session} circleName="Family" initialOpen />);
+  await screen.findByText("Start the conversation. Say hello or share a file.");
+  fireEvent.change(screen.getByRole("textbox", { name: "Message" }), { target: { value: "A message that must not disappear" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  await waitFor(() => expect(screen.getByRole("log")).toHaveTextContent("A message that must not disappear"));
+  await screen.findByText("Delivery unconfirmed");
+  expect(screen.getByRole("button", { name: "Retry message" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "Retry message" }));
+  await waitFor(() => expect(api.send).toHaveBeenCalledTimes(2));
+  expect(api.prepare).toHaveBeenCalledTimes(1);
+});
+
 it("removes a definitely rejected photo and ignores preparation completing after a session change", async () => {
   vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:local-photo");
   vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
@@ -708,6 +726,15 @@ it("continues reconnect catch-up beyond the first five pages without waiting for
     vi.useRealTimers();
   }
 }, 15_000);
+
+it("uses a 15-second repair interval while long-poll and doorbells provide live updates", async () => {
+  const intervals = vi.spyOn(window, "setInterval");
+  render(<CircleChat session={session} circleName="Family" initialOpen />);
+  await screen.findByText("Incoming private message");
+  expect(intervals).toHaveBeenCalled();
+  expect(intervals.mock.calls.map(([, delay]) => delay)).toContain(15_000);
+  expect(intervals.mock.calls.map(([, delay]) => delay)).not.toContain(5_000);
+});
 
 it("retains a newer receipt when the committed send response arrives late", async () => {
   const own = { ...message, id: "own", sequence: 2, senderUserId: "alice", receipt: { recipientCount: 1, readCount: 0 } };

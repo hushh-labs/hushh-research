@@ -10,6 +10,8 @@ import {
   type AnalysisHistoryEntry,
 } from "@/lib/services/kai-history-service";
 import { enforceMinimumRetryDelayMs } from "@/lib/runtime/retry-delay";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { subscribeDurableOwnerReset } from "@/lib/services/secure-durable-resource-service";
 import {
   getLocalItem,
   getSessionItem,
@@ -106,8 +108,8 @@ function readReattachPointer(): RunReattachPointer | null {
 }
 
 interface RunSecrets {
-  vaultOwnerToken: string;
   vaultKey?: string;
+  vaultEpoch: number;
 }
 
 type StateListener = (state: DebateRunManagerState) => void;
@@ -342,7 +344,6 @@ class DebateRunManager {
   private runBuffers = new Map<string, KaiStreamEnvelope[]>();
   private runSeenSeq = new Map<string, Set<number>>();
   private runSecrets = new Map<string, RunSecrets>();
-  private runHistoryEntries = new Map<string, AnalysisHistoryEntry>();
   private streamControllers = new Map<string, AbortController>();
   private ensureRunInFlight = new Map<string, InFlightEnsureRun>();
   private debateSessionId: string;
@@ -400,7 +401,7 @@ class DebateRunManager {
     const payload: PersistedDebateRunManagerState = {
       version: 1,
       debateSessionId: this.debateSessionId,
-      tasks: Array.from(this.tasks.values()),
+      tasks: Array.from(this.tasks.values(), (task) => ({ ...task, finalDecision: null })),
     };
     setSessionItem(RUN_MANAGER_STORAGE_KEY, JSON.stringify(payload));
     this.syncReattachPointer();
@@ -595,68 +596,6 @@ class DebateRunManager {
     };
   }
 
-  getHistoryEntriesForUser(
-    userId: string,
-  ): Array<{ entry: AnalysisHistoryEntry; task: DebateRunTask }> {
-    const normalizedUserId = String(userId || "").trim();
-    if (!normalizedUserId) return [];
-    const items: Array<{ entry: AnalysisHistoryEntry; task: DebateRunTask }> =
-      [];
-    for (const task of this.tasks.values()) {
-      if (task.userId !== normalizedUserId || task.dismissedAt) continue;
-      const existingEntry = this.runHistoryEntries.get(task.runId);
-      if (existingEntry) {
-        items.push({ entry: existingEntry, task });
-        continue;
-      }
-      if (task.status !== "completed" || !task.finalDecision) continue;
-      const buffer = this.runBuffers.get(task.runId) || [];
-      const decisionEnvelope = [...buffer]
-        .reverse()
-        .find((event) => event.event === "decision");
-      const payload =
-        decisionEnvelope?.payload &&
-        typeof decisionEnvelope.payload === "object"
-          ? (decisionEnvelope.payload as Record<string, unknown>)
-          : {};
-      const rawCard = buildDecisionHistoryRawCard(payload, task.runId);
-      const transcript = buildTranscriptFromEnvelopes(buffer);
-      items.push({
-        task,
-        entry: {
-          ticker: toUpperTicker(String(payload.ticker || task.ticker)),
-          timestamp:
-            typeof payload.analysis_updated_at === "string" &&
-            payload.analysis_updated_at.trim().length > 0
-              ? payload.analysis_updated_at
-              : task.completedAt || task.updatedAt || nowIso(),
-          decision: String(
-            payload.decision || task.finalDecision.decision || "hold",
-          ),
-          confidence: toFiniteNumber(
-            payload.confidence,
-            task.finalDecision.confidence || 0,
-          ),
-          consensus_reached: Boolean(payload.consensus_reached),
-          agent_votes:
-            payload.agent_votes && typeof payload.agent_votes === "object"
-              ? (payload.agent_votes as Record<string, string>)
-              : {},
-          final_statement: String(
-            payload.final_statement || task.finalDecision.finalStatement || "",
-          ),
-          raw_card: rawCard as Record<string, any>,
-          debate_transcript:
-            transcript as AnalysisHistoryEntry["debate_transcript"],
-        },
-      });
-    }
-    return items.sort(
-      (left, right) =>
-        Date.parse(right.entry.timestamp) - Date.parse(left.entry.timestamp),
-    );
-  }
-
   subscribeRunEvents(
     runId: string,
     listener: RunEnvelopeListener,
@@ -724,13 +663,19 @@ class DebateRunManager {
     userId: string;
     vaultOwnerToken: string;
     vaultKey?: string;
+    expectedTicker?: string;
+    onRunFound?: (task: DebateRunTask) => void;
+    signal?: AbortSignal;
   }): Promise<DebateRunTask | null> {
     const { userId, vaultOwnerToken, vaultKey } = params;
+    const vaultEpoch = snapshotVaultSessionEpoch();
     const response = await ApiService.getActiveKaiDebateRun({
       userId,
       debateSessionId: this.debateSessionId,
       vaultOwnerToken,
+      ...(params.signal ? { signal: params.signal } : {}),
     });
+    if (params.signal?.aborted) return null;
     if (!response.ok) {
       if (response.status === 404) {
         this.markMissingActiveRun(userId);
@@ -741,20 +686,33 @@ class DebateRunManager {
     const payload = (await response.json()) as {
       run?: Record<string, unknown>;
     };
+    if (params.signal?.aborted) return null;
     if (!payload.run) {
       this.markMissingActiveRun(userId);
       return null;
     }
 
-    const task = this.upsertTask(this.makeTaskFromServer(payload.run));
-    this.runSecrets.set(task.runId, { vaultOwnerToken, vaultKey });
+    if (!isVaultSessionEpochCurrent(vaultEpoch)) return null;
+    const discovered = this.makeTaskFromServer(payload.run);
+    if (!discovered.runId || discovered.userId !== userId ||
+        discovered.debateSessionId !== this.debateSessionId ||
+        (params.expectedTicker && discovered.ticker !== toUpperTicker(params.expectedTicker))) {
+      return null;
+    }
+    const known = this.getTask(discovered.runId);
+    const task = known?.status === "running" && discovered.status === "running"
+      ? known
+      : this.upsertTask(discovered);
     if (task.status !== "running") {
       return null;
     }
+    this.runSecrets.set(task.runId, { vaultKey, vaultEpoch });
+    params.onRunFound?.(task);
     await this.connectRunStream(task.runId, {
       userId,
       vaultOwnerToken,
       vaultKey,
+      vaultEpoch,
       resetBuffer: this.getOrCreateBuffer(task.runId).length === 0,
     });
     return this.getTask(task.runId);
@@ -764,8 +722,21 @@ class DebateRunManager {
     userId: string;
     vaultOwnerToken: string;
     vaultKey?: string;
+    expectedTicker?: string;
+    onRunFound?: (task: DebateRunTask) => void;
+    signal?: AbortSignal;
   }): Promise<DebateRunTask | null> {
     return this.verifyActiveRunWithBackend(params);
+  }
+
+  async reconnectRun(params: { userId: string; runId: string; vaultOwnerToken: string; vaultKey?: string }): Promise<void> {
+    const task = this.getTask(params.runId);
+    if (task?.userId !== params.userId || task.status !== "running") return;
+    await this.connectRunStream(params.runId, {
+      ...params,
+      vaultEpoch: snapshotVaultSessionEpoch(),
+      resetBuffer: false,
+    });
   }
 
   private ensureRunStartKey(userId: string): string {
@@ -818,6 +789,7 @@ class DebateRunManager {
       vaultOwnerToken,
       vaultKey,
     } = params;
+    const vaultEpoch = snapshotVaultSessionEpoch();
     const activeTask = this.getActiveTaskForUser(userId);
     if (activeTask) {
       const verifiedActiveTask = await this.verifyActiveRunWithBackend({
@@ -832,15 +804,12 @@ class DebateRunManager {
       // browser selection cannot relabel a run that already has an authorized
       // source snapshot.
       const refreshedActiveTask = this.upsertTask(verifiedActiveTask);
-      this.runSecrets.set(refreshedActiveTask.runId, {
-        vaultOwnerToken,
-        vaultKey,
-      });
       if (refreshedActiveTask.status === "running") {
         await this.connectRunStream(refreshedActiveTask.runId, {
           userId,
           vaultOwnerToken,
           vaultKey,
+          vaultEpoch,
           resetBuffer:
             this.getOrCreateBuffer(refreshedActiveTask.runId).length === 0,
         });
@@ -871,11 +840,11 @@ class DebateRunManager {
         );
       }
       const task = this.upsertTask(this.makeTaskFromServer(run));
-      this.runSecrets.set(task.runId, { vaultOwnerToken, vaultKey });
       await this.connectRunStream(task.runId, {
         userId,
         vaultOwnerToken,
         vaultKey,
+        vaultEpoch,
         resetBuffer: true,
       });
       return { kind: "blocked", task };
@@ -891,6 +860,7 @@ class DebateRunManager {
       pickSource,
       vaultOwnerToken,
       vaultKey,
+      vaultEpoch,
     });
   }
 
@@ -909,6 +879,7 @@ class DebateRunManager {
       pickSource?: string;
       vaultOwnerToken: string;
       vaultKey?: string;
+      vaultEpoch: number;
     },
   ): Promise<EnsureRunResult> {
     return new Promise<EnsureRunResult>((resolve, reject) => {
@@ -939,8 +910,8 @@ class DebateRunManager {
           });
           this.resetRunBuffer(announced);
           this.runSecrets.set(announced, {
-            vaultOwnerToken: params.vaultOwnerToken,
             vaultKey: params.vaultKey,
+            vaultEpoch: params.vaultEpoch,
           });
           this.streamControllers.set(announced, controller);
           resolve({ kind: "started", task });
@@ -973,6 +944,7 @@ class DebateRunManager {
             userId: params.userId,
             vaultOwnerToken: params.vaultOwnerToken,
             vaultKey: params.vaultKey,
+            vaultEpoch: params.vaultEpoch,
             resetBuffer: false,
           });
         })
@@ -990,6 +962,7 @@ class DebateRunManager {
       userId: string;
       vaultOwnerToken: string;
       vaultKey?: string;
+      vaultEpoch: number;
       resetBuffer: boolean;
     },
   ): Promise<void> {
@@ -1001,8 +974,8 @@ class DebateRunManager {
       this.resetRunBuffer(runId);
     }
     this.runSecrets.set(runId, {
-      vaultOwnerToken: params.vaultOwnerToken,
       vaultKey: params.vaultKey,
+      vaultEpoch: params.vaultEpoch,
     });
 
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
@@ -1130,20 +1103,13 @@ class DebateRunManager {
     }
   }
 
-  private async persistDecisionHistory(
-    runId: string,
-    task: DebateRunTask,
-  ): Promise<void> {
-    const secrets = this.runSecrets.get(runId);
-    if (!secrets?.vaultKey || !secrets.vaultOwnerToken) {
-      this.upsertTask({
-        ...task,
-        persistenceState: "failed",
-        persistenceError: "Missing vault credentials for history persistence.",
-      });
-      return;
-    }
+  getResultForRun(runId: string, userId: string): AnalysisHistoryEntry | null {
+    const task = this.getTask(runId);
+    if (!task || task.userId !== userId || task.status !== "completed" || !task.finalDecision) return null;
+    return this.buildResultEntry(runId, task);
+  }
 
+  private buildResultEntry(runId: string, task: DebateRunTask): AnalysisHistoryEntry {
     const buffer = this.runBuffers.get(runId) || [];
     const decisionEnvelope = [...buffer]
       .reverse()
@@ -1155,13 +1121,13 @@ class DebateRunManager {
     const transcript = buildTranscriptFromEnvelopes(buffer);
     const rawCard = buildDecisionHistoryRawCard(payload, runId);
 
-    const entry: AnalysisHistoryEntry = {
+    return {
       ticker: toUpperTicker(String(payload.ticker || task.ticker)),
       timestamp:
         typeof payload.analysis_updated_at === "string" &&
         payload.analysis_updated_at.trim().length > 0
           ? payload.analysis_updated_at
-          : nowIso(),
+          : task.completedAt || nowIso(),
       decision: String(
         payload.decision || task.finalDecision?.decision || "hold",
       ),
@@ -1181,9 +1147,25 @@ class DebateRunManager {
       debate_transcript:
         transcript as AnalysisHistoryEntry["debate_transcript"],
     };
+  }
 
-    this.runHistoryEntries.set(runId, entry);
-    let pendingTask = this.upsertTask({
+  private async persistDecisionHistory(
+    runId: string,
+    task: DebateRunTask,
+  ): Promise<void> {
+    const secrets = this.runSecrets.get(runId);
+    if (!secrets?.vaultKey || !isVaultSessionEpochCurrent(secrets.vaultEpoch)) {
+      this.upsertTask({
+        ...task,
+        persistenceState: "failed",
+        persistenceError: "Missing vault credentials for history persistence.",
+      });
+      return;
+    }
+
+    const entry = this.buildResultEntry(runId, task);
+
+    const pendingTask = this.upsertTask({
       ...task,
       persistenceState: "pending",
       persistenceError: null,
@@ -1193,30 +1175,39 @@ class DebateRunManager {
     }
 
     let success = false;
-    for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
-      try {
+    const unsubscribeReset = subscribeDurableOwnerReset((owner) => {
+      if (owner === task.userId) this.runSecrets.delete(runId);
+    });
+    const isCurrent = () => this.runSecrets.get(runId) === secrets && isVaultSessionEpochCurrent(secrets.vaultEpoch);
+    try {
+      for (let attempt = 0; isCurrent() && attempt <= RETRY_DELAYS_MS.length; attempt++) {
         const saved = await KaiHistoryService.saveAnalysis({
           userId: task.userId,
           vaultKey: secrets.vaultKey,
-          vaultOwnerToken: secrets.vaultOwnerToken,
           entry,
+          isCurrent,
         });
         if (saved) {
           success = true;
           break;
         }
-      } catch {
-        // Persistence diagnostics can include protected manifest or provider
-        // detail. The durable task stores only a consumer-safe recovery state.
+        if (isCurrent() && attempt < RETRY_DELAYS_MS.length) {
+          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+        }
       }
-      if (attempt < RETRY_DELAYS_MS.length) {
-        await new Promise((resolve) =>
-          setTimeout(resolve, RETRY_DELAYS_MS[attempt]),
-        );
-      }
+    } finally {
+      unsubscribeReset();
     }
 
-    if (success) {
+    if (success && isCurrent()) {
+      this.runSecrets.delete(runId);
+      for (const previous of this.tasks.values()) {
+        if (previous.userId === task.userId && previous.ticker === task.ticker &&
+            previous.status === "completed" && !previous.dismissedAt &&
+            Date.parse(previous.completedAt ?? previous.updatedAt) < Date.parse(task.completedAt ?? task.updatedAt)) {
+          this.dismissTask(previous.runId);
+        }
+      }
       const savedTask = this.upsertTask({
         ...pendingTask,
         persistenceState: "saved",
@@ -1235,10 +1226,16 @@ class DebateRunManager {
     });
   }
 
-  async retryTaskPersistence(runId: string): Promise<void> {
+  async retryTaskPersistence(runId: string, credentials?: { userId: string; vaultKey: string }): Promise<void> {
     const task = this.tasks.get(runId);
-    if (!task) return;
-    if (task.status !== "completed") return;
+    if (task?.status !== "completed" || task.persistenceState !== "failed") return;
+    if (credentials) {
+      if (task.userId !== credentials.userId) return;
+      this.runSecrets.set(runId, {
+        vaultKey: credentials.vaultKey,
+        vaultEpoch: snapshotVaultSessionEpoch(),
+      });
+    }
     await this.persistDecisionHistory(runId, task);
   }
 

@@ -242,6 +242,7 @@ def _plan(
     writer_id: str,
     client_version: str | None = "2.0.0",
     operation: str = "create",
+    surface: str = "web",
 ) -> dict:
     plan_id = "pkm_plan_reserved_route_001"
     payload = {
@@ -261,7 +262,7 @@ def _plan(
             "plan_id": plan_id,
             "confirmed_by_user_id": _OWNER,
             "confirmed_at": datetime.now(UTC).isoformat(),
-            "surface": "web",
+            "surface": surface,
             "displayed_domain": domain,
             "displayed_scope": scope,
         },
@@ -418,6 +419,28 @@ def test_enforce_answers_an_unknown_writer_with_422(enforce) -> None:
     )
     assert listed_elsewhere.status_code == 403
     assert service.stored == []
+
+
+def test_enforce_allows_the_owner_confirmed_chat_portfolio_import(enforce) -> None:
+    service = enforce()
+    client = _client()
+    for writer_id, status_code in (
+        ("one_chat_portfolio_import", 200),
+        ("agent_chat_owner_request", 403),
+    ):
+        response = client.post(
+            "/api/pkm/store-domain",
+            json=_store_body(
+                _plan(
+                    domain="financial",
+                    scope="portfolio",
+                    writer_id=writer_id,
+                    surface="chat",
+                ),
+            ),
+        )
+        assert response.status_code == status_code, response.text
+    assert len(service.stored) == 1
 
 
 def _status(body: dict) -> int:

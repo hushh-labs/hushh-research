@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
@@ -36,10 +37,12 @@ from hushh_mcp.services.calendar_email_followup_scan_checkpoint import (
     _clear_message,
     _cutoff_ms,
     _initial_checkpoint,
+    _is_empty_retry_checkpoint,
     _mark_incomplete,
     _reset_exhausted,
     _save,
     _upgrade_checkpoint,
+    bootstrap_window_is_stale,
 )
 from hushh_mcp.services.calendar_email_followup_scan_navigation import _step_page, _step_thread
 from hushh_mcp.services.calendar_email_followup_scan_source import (
@@ -60,6 +63,21 @@ logger = logging.getLogger(__name__)
 
 Reconcile = Callable[..., Awaitable[tuple[ValidatedCandidate, ...]]]
 _MODES = frozenset({"bootstrap", "history", "retry", "reassess"})
+
+# A pass is bounded by wall-clock time, not by a handful of steps: every step is
+# durable, so stopping between two of them loses nothing, and the same code then
+# serves a quick on-screen catch-up and a longer scheduled one.
+#   interactive: answers while the owner is looking; must return well inside the
+#                web proxy's 45 s limit even when its last model call is slow.
+#   background:  the scheduled worker, which does the bulk of the first month.
+INTERACTIVE_BUDGET_SECONDS = 8.0
+INTERACTIVE_SECTIONS = 8
+BACKGROUND_BUDGET_SECONDS = 35.0
+BACKGROUND_SECTIONS = 40
+MAX_SECTIONS_PER_PASS = 60
+# Without a time budget (direct callers, tests) a pass keeps its small step cap.
+_UNTIMED_STEPS = 12
+_TIMED_STEPS = 600
 
 
 @dataclass(frozen=True)
@@ -84,6 +102,7 @@ async def _step(
     sections_left: int,
     now: datetime | None,
     reconcile: Reconcile,
+    deadline: float | None = None,
 ) -> tuple[int, int, bool]:
     """Advance one durable section, message, thread, or provider page boundary."""
     if checkpoint.get("version") != 1 or checkpoint.get("mode") not in _MODES:
@@ -98,7 +117,7 @@ async def _step(
         "now": now,
     }
     if checkpoint["thread_messages"]:
-        return await _step_message(**common, reconcile=reconcile)
+        return await _step_message(**common, reconcile=reconcile, deadline=deadline)
     if checkpoint["pending_threads"]:
         return await _step_thread(**common)
     return await _step_page(**common)
@@ -114,6 +133,7 @@ async def _step_message(
     sections_left: int,
     now: datetime | None,
     reconcile: Reconcile,
+    deadline: float | None = None,
 ) -> tuple[int, int, bool]:
     messages = checkpoint["thread_messages"]
     index = checkpoint["message_index"]
@@ -184,6 +204,7 @@ async def _step_message(
         prior=prior,
         sections_left=sections_left,
         now=now,
+        deadline=deadline,
     )
     if moved_on:
         return consumed, 0, False
@@ -211,11 +232,15 @@ async def _assess_sections(
     prior: list[dict[str, str]],
     sections_left: int,
     now: datetime | None,
+    deadline: float | None = None,
 ) -> tuple[int, bool]:
     consumed = 0
     while checkpoint["section_index"] < len(message.sections) and consumed < sections_left:
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         section = message.sections[checkpoint["section_index"]]
         drops = dict(checkpoint["partial_drops"])
+        started = time.monotonic()
         try:
             found, changed = await assess_section(
                 message=message,
@@ -242,8 +267,16 @@ async def _assess_sections(
                 now=now,
             )
             return consumed, True
-        except Exception:
-            # The model failed or answered in a shape that did not validate.
+        except Exception as exc:
+            # The model failed or answered in a shape that did not validate. The
+            # class and elapsed time are value-free; without them a model that is
+            # timing out looks exactly like one that is returning bad output.
+            logger.warning(
+                "calendar_followup_assessment_failed error_type=%s elapsed_ms=%d section=%d",
+                type(exc).__name__,
+                int((time.monotonic() - started) * 1000),
+                checkpoint["section_index"],
+            )
             await _fail_message(
                 monitor=monitor, checkpoint=checkpoint, store=store, message=message, now=now
             )
@@ -339,10 +372,13 @@ async def _prepare(
     expired history only needs the unsynchronized period, and keeps what was
     still unverified.
     """
-    if force and checkpoint.get("mode") != "gap":
+    if checkpoint and force and checkpoint.get("mode") != "gap":
         _reset_exhausted(checkpoint)
-    if checkpoint and checkpoint.get("mode") != "gap":
+    if checkpoint and checkpoint.get("mode") != "gap" and not bootstrap_window_is_stale(checkpoint):
         return checkpoint
+    # A first scan sealed before the 30-day cap restarts inside it: everything it
+    # already assessed is skipped without a fetch or a model call, and what it
+    # still had unverified is carried forward.
     recovering = checkpoint.get("mode") == "gap"
     carried = {key: checkpoint[key] for key in _CARRIED if key in checkpoint}
     history_id = await profile_history_id(
@@ -375,9 +411,10 @@ async def _drain(
     now: datetime | None,
     reconcile: Reconcile,
     progress: dict[str, Any],
+    deadline: float | None = None,
 ) -> None:
     """Take bounded steps until the budget is spent or the scan is complete."""
-    for _ in range(12):
+    for _ in range(_UNTIMED_STEPS if deadline is None else _TIMED_STEPS):
         used, completed, progress["done"] = await _step(
             monitor=monitor,
             checkpoint=checkpoint,
@@ -387,11 +424,29 @@ async def _drain(
             sections_left=max_sections - progress["sections"],
             now=now,
             reconcile=reconcile,
+            deadline=deadline,
         )
         progress["sections"] += used
         progress["messages"] += completed
         if progress["done"] or progress["sections"] >= max_sections:
             break
+        if deadline is not None and time.monotonic() >= deadline:
+            break
+
+
+async def _schedule_meeting_reminders(
+    store: CalendarEmailFollowupStore, monitor: Monitor, now: datetime | None
+) -> None:
+    """A finished pass also reminds about proposals stored before meetings had reminders.
+
+    Best effort: it must never turn a finished scan into a failed one.
+    """
+    try:
+        await store.refresh_meeting_reminders(monitor, now=now)
+    except Exception as exc:
+        logger.warning(
+            "calendar_followup_meeting_reminders_deferred error_type=%s", type(exc).__name__
+        )
 
 
 async def scan_once(
@@ -404,21 +459,32 @@ async def scan_once(
     max_sections: int = 2,
     force: bool = False,
     reconcile: Reconcile | None = None,
+    budget_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Bound one drain while retaining every page, thread, and section cursor.
 
     ``force`` is the owner's manual Retry: it runs now and gives every source
     that exhausted its automatic attempts a fresh bounded allowance.
+    ``budget_seconds`` keeps stepping until that much wall-clock time has passed
+    (or the section cap is reached) instead of stopping after a few steps.
     """
     store = store or CalendarEmailFollowupStore()
-    if not 1 <= max_sections <= 4:
+    if not 1 <= max_sections <= MAX_SECTIONS_PER_PASS or (
+        budget_seconds is not None and not 0 < budget_seconds <= 120
+    ):
         raise ValueError("invalid_scan_budget")
+    deadline = None if budget_seconds is None else time.monotonic() + budget_seconds
     monitor = await store.acquire_scan(
         user_id=user_id, account_id=account_id, **({"force": True} if force else {})
     )
     if not monitor:
         return {"state": "not_due", "sections": 0, "messages": 0}
-    checkpoint = _upgrade_checkpoint(dict(monitor.checkpoint)) if monitor.checkpoint else {}
+    checkpoint = dict(monitor.checkpoint or {})
+    recovering_empty_retry = bool(checkpoint) and _is_empty_retry_checkpoint(checkpoint)
+    if recovering_empty_retry:
+        checkpoint = {}
+    elif checkpoint:
+        checkpoint = _upgrade_checkpoint(checkpoint)
     progress: dict[str, Any] = {"sections": 0, "messages": 0, "done": False}
     try:
         selected = await open_selected_mail_grant(user_id=user_id, account_id=account_id)
@@ -432,6 +498,10 @@ async def scan_once(
             checkpoint = await _prepare(
                 store, monitor, checkpoint, client=client, grant=grant, now=now, force=force
             )
+            if recovering_empty_retry:
+                logger.info(
+                    "calendar_followup_checkpoint_reinitialized reason=empty_retry_checkpoint"
+                )
             await _drain(
                 monitor=monitor,
                 checkpoint=checkpoint,
@@ -442,7 +512,10 @@ async def scan_once(
                 now=now,
                 reconcile=reconcile or reconcile_candidates,
                 progress=progress,
+                deadline=deadline,
             )
+        if progress["done"]:
+            await _schedule_meeting_reminders(store, monitor, now)
         state = (
             "partial"
             if checkpoint.get("incomplete_sources")

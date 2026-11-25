@@ -1,3 +1,4 @@
+import { feedPageTestMocks } from "./fixtures/feed-page-setup";
 import {
   act,
   fireEvent,
@@ -6,245 +7,16 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import type { ReactNode } from "react";
-import type { FeedRow as RealFeedRow } from "@/components/feed/feed-row";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
+import { FEED_SEARCH_OPEN_EVENT } from "@/lib/feed/feed-search-events";
 import { bumpFeedPresentationRevision } from "@/lib/cache/feed-invalidation-epoch";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => {
-  const user = {
-    uid: "feed-user",
-    getIdToken: vi.fn().mockResolvedValue("firebase-token"),
-  };
-  return {
-    user,
-    native: false,
-    workspace: null as Parameters<typeof import("@/lib/capacitor/use-native-workspace").useNativeWorkspace>[0] | null,
-    // Who useAuth reports; a test switches it to sign out or change account.
-    currentUser: user as typeof user | null,
-    listRequests: vi.fn(),
-    acceptRequest: vi.fn(),
-    rejectRequest: vi.fn(),
-    connectionChanged: vi.fn(),
-    data: {
-      items: [
-        {
-          id: "5",
-          source_domain: "connections",
-          event_type: "connection_accepted",
-          actor_label: "Alex",
-          metadata: {},
-          read: false,
-          created_at: "2026-01-02T00:00:00.000Z",
-        },
-      ],
-      next_cursor: null as string | null,
-      unread_count: 1,
-    },
-    refresh: vi.fn().mockResolvedValue(undefined),
-    resourceMissing: false,
-    historyLoading: false,
-    historyError: null as string | null,
-    actionablesLoading: false,
-    actionablesError: null as string | null,
-    progressLoading: false,
-    progressError: null as string | null,
-    retryActionables: vi.fn().mockResolvedValue(undefined),
-    actionables: [] as FeedActionable[],
-    clearSmsEmergencies: vi.fn(),
-    markRead: vi.fn().mockResolvedValue(undefined),
-    list: vi.fn(),
-    clear: vi.fn().mockResolvedValue(undefined),
-    dismiss: vi.fn().mockResolvedValue({ token: "dismissal-token", itemIds: null }),
-    restore: vi.fn().mockResolvedValue(true),
-    readStarted: vi.fn(),
-    readSettled: vi.fn(),
-    readFailed: vi.fn(),
-    dispatchFeedStateChanged: vi.fn(),
-    routerPush: vi.fn(),
-    toastSuccess: vi.fn(),
-    toastError: vi.fn(),
-    toastDismiss: vi.fn(),
-    feedRowRender: vi.fn(),
-    useRealFeedRow: false,
-    useActionTestRow: false,
-    // Undefined leaves the Feed on its closed default price step.
-    documentPricePrompt: undefined as Record<string, unknown> | undefined,
-  };
-});
-
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: mocks.routerPush }),
-  // FeedPage publishes its voice surface, and the publisher reads the current
-  // pathname to scope its route lease. Without this the whole tree throws
-  // before any Clear behaviour runs.
-  usePathname: () => "/one/feed",
-  useSearchParams: () => new URLSearchParams(),
-}));
-
-vi.mock("@/lib/capacitor/native-presentation-policy", () => ({ customNativePresentationEnabled: () => mocks.native }));
-vi.mock("@/lib/capacitor/use-native-workspace", () => ({
-  useNativeWorkspace: (options: typeof mocks.workspace) => { mocks.workspace = options; return "native"; },
-  useNativeWorkspacePresentation: () => ({ owner: {}, status: { phase: "native", reason: "active", held: false } }),
-}));
-vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: true }) }));
-vi.mock("@/components/consent/payouts/use-payout-snapshot", () => ({ usePayoutSnapshot: () => ({ token: null, data: null, failed: false }) }));
-
-vi.mock("sonner", () => ({
-  toast: {
-    success: mocks.toastSuccess,
-    error: mocks.toastError,
-    dismiss: mocks.toastDismiss,
-  },
-}));
-
-vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: mocks.currentUser, userId: mocks.currentUser?.uid ?? null, loading: false }),
-}));
-
-vi.mock("@/lib/cache/use-stale-resource", () => ({
-  useStaleResource: () => ({
-    data: mocks.resourceMissing ? null : mocks.data,
-    loading: mocks.historyLoading,
-    error: mocks.historyError,
-    refresh: mocks.refresh,
-  }),
-}));
-
-vi.mock("@/lib/cache/cache-sync-service", () => ({
-  CacheSyncService: {
-    onConnectionCapabilityMutated: mocks.connectionChanged,
-    onConnectionGraphMutated: mocks.connectionChanged,
-    onFeedReadStarted: mocks.readStarted,
-    onFeedReadSettled: mocks.readSettled,
-    onFeedReadFailed: mocks.readFailed,
-  },
-}));
-
-vi.mock("@/lib/services/cache-service", async (original) => {
-  const actual = await original<typeof import("@/lib/services/cache-service")>();
-  return { ...actual, CACHE_KEYS: { ...actual.CACHE_KEYS, FEED_LIST: (userId: string) => `feed:${userId}` } };
-});
-
-vi.mock("@/lib/services/feed-service", () => ({
-  FeedService: {
-    markRead: mocks.markRead,
-    clear: mocks.clear,
-    dismiss: mocks.dismiss,
-    restore: mocks.restore,
-    list: mocks.list,
-  },
-}));
-
-vi.mock("@/lib/feed/feed-events", () => ({
-  dispatchFeedStateChanged: mocks.dispatchFeedStateChanged,
-}));
-
-vi.mock("@/lib/feed/use-feed-live-refresh", () => ({
-  useFeedLiveRefresh: vi.fn(),
-}));
-
-vi.mock("@/lib/feed/use-feed-briefing", () => ({
-  useFeedBriefing: () => ({
-    upcomingEvents: [],
-    pendingKyc: null,
-    needsReplyCount: 0,
-  }),
-}));
-
-vi.mock("@/lib/feed/use-feed-actionables", () => ({
-  useFeedActionables: () => ({
-    actionables: mocks.actionables,
-    loading: mocks.actionablesLoading,
-    error: mocks.actionablesError,
-    progressLoading: mocks.progressLoading,
-    progressError: mocks.progressError,
-    retry: mocks.retryActionables,
-    hasClearableSmsEmergencies: true,
-    clearSmsEmergencies: mocks.clearSmsEmergencies,
-    consentUnlockPrompt: {
-      open: false,
-      title: "",
-      description: "",
-      cancel: () => undefined,
-    },
-    documentPricePrompt: mocks.documentPricePrompt,
-  }),
-}));
-
-vi.mock("@/components/feed/feed-row", async (importOriginal) => {
-  const { FeedRow } =
-    await importOriginal<typeof import("@/components/feed/feed-row")>();
-  return {
-    FeedRow: (props: Parameters<typeof RealFeedRow>[0]) => {
-      mocks.feedRowRender(props.item.id);
-      return mocks.useRealFeedRow ? (
-        <FeedRow {...props} />
-      ) : mocks.useActionTestRow ? (
-        <button type="button" onClick={() => { void props.onRemove?.(props.item); }}>
-          row-{props.item.id}
-        </button>
-      ) : (
-        <div>row-{props.item.id}</div>
-      );
-    },
-  };
-});
-
-// The push prompt reads the app-wide notification provider; this suite only
-// covers clearing, and feed-push-prompt.test.tsx owns the prompt.
-vi.mock("@/components/feed/feed-shared-files-sheet", () => ({
-  FeedSharedFilesSheet: ({ requestId, sharedCount }: { requestId: string; sharedCount: number }) => (
-    <div data-testid="shared-files-sheet" data-request-id={requestId} data-count={sharedCount} />
-  ),
-}));
-
-vi.mock("@/components/feed/feed-push-prompt", () => ({
-  FeedPushPrompt: () => <div>Reconnect notifications</div>,
-  useFeedPushPrompt: () => null,
-}));
-
-vi.mock("@/components/feed/feed-actionable-row", () => ({
-  FeedActionableRow: ({ item }: { item: FeedActionable }) => <div data-testid={`actionable:${item.id}`}>{item.title}</div>,
-}));
-
-vi.mock("@/components/consent/document-payout-account", () => ({
-  DocumentBankPayoutStatusCard: () => null,
-  DocumentPayoutAccountCard: () => null,
-}));
-
-vi.mock("@/components/app-ui/app-page-shell", () => ({
-  AppPageShell: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-  AppPageContentRegion: ({ children }: { children: ReactNode }) => (
-    <main>{children}</main>
-  ),
-}));
-
-vi.mock("@/components/app-ui/native-test-beacon", () => ({
-  NativeTestBeacon: () => null,
-}));
-
-vi.mock("@/components/app-ui/typography", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/components/app-ui/typography")>()),
-  SectionLabel: ({ children }: { children: ReactNode }) => <h2>{children}</h2>,
-}));
-
-vi.mock("@/lib/morphy-ux/button", () => ({
-  Button: ({ children, ...props }: { children: ReactNode }) => (
-    <button {...props}>{children}</button>
-  ),
-}));
-
 import { FeedPage } from "@/components/feed/feed-page";
+const mocks = feedPageTestMocks();
 import { CacheService } from "@/lib/services/cache-service";
-import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 beforeEach(() => {
-  mocks.native = false;
-  mocks.workspace = null;
   CacheService.getInstance().clear();
   mocks.resourceMissing = false;
   mocks.historyLoading = false;
@@ -254,15 +26,45 @@ beforeEach(() => {
   mocks.progressLoading = false;
   mocks.progressError = null;
 });
+
+it("publishes a received request outcome while reading older Feed history", async () => {
+  const original = mocks.data;
+  const renderPage = () => <div data-app-scroll-root="true"><FeedPage /></div>;
+  const view = render(renderPage());
+  try {
+    const originalRow = await screen.findByText("row-5");
+    const root = view.container.querySelector<HTMLElement>("[data-app-scroll-root]")!;
+    vi.spyOn(root, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 320, 500));
+    vi.spyOn(originalRow, "getBoundingClientRect").mockImplementation(() =>
+      new DOMRect(0, screen.queryByText("row-6") ? 152 : 100, 320, 52));
+    mocks.readStarted.mockClear();
+    root.scrollTop = 150;
+    fireEvent.scroll(root);
+    mocks.data = {
+      ...original,
+      items: [
+        { ...original.items[0], id: "7", source_domain: "kai", event_type: "kai_analysis_completed" },
+        { ...original.items[0], id: "6", source_domain: "connected_systems", event_type: "document_share_payment_confirmed" },
+        ...original.items,
+      ],
+    };
+    view.rerender(renderPage());
+    expect(await screen.findByText("row-6")).toBeInTheDocument();
+    expect(screen.getByText("row-5")).toBeInTheDocument();
+    expect(screen.queryByText("row-7")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New activity" })).toBeInTheDocument();
+    expect(root.scrollTop).toBe(202);
+    expect(mocks.readStarted).not.toHaveBeenCalled();
+    root.scrollTop = 0;
+    fireEvent.scroll(root);
+    expect(mocks.readStarted).toHaveBeenCalledWith("feed-user", "6");
+  } finally {
+    mocks.data = original;
+    view.unmount();
+  }
+});
 import { resolveLocalOnboardingHandler, prepareLocalOnboardingAction } from "@/lib/agent/local-onboarding-actions";
 
-vi.mock("@/lib/services/connections-service", () => ({
-  ConnectionsService: {
-    listRequests: mocks.listRequests,
-    accept: mocks.acceptRequest,
-    reject: mocks.rejectRequest,
-  },
-}));
 
 describe("Feed connection action ID binding", () => {
   beforeEach(() => {
@@ -566,7 +368,19 @@ describe("Feed history interactions", () => {
     });
   });
 
-  it("keeps only the current SMS in each sender's live or ended lane", async () => {
+  it("does not acknowledge unseen activity when search opens during token acquisition", async () => {
+    let resolve!: (token: string) => void;
+    mocks.markRead.mockClear();
+    mocks.user.getIdToken.mockReturnValue(new Promise<string>(done => { resolve=done; }));
+    render(<FeedPage/>);
+    await waitFor(()=>expect(resolve).toBeDefined());
+    act(()=>window.dispatchEvent(new Event(FEED_SEARCH_OPEN_EVENT)));
+    await act(async()=>resolve("firebase-token"));
+    expect(mocks.markRead).not.toHaveBeenCalled();
+    mocks.user.getIdToken.mockResolvedValue("firebase-token");
+  });
+
+  it("keeps each active emergency separate and uses dated receipts for ended incidents", async () => {
     const sms = (id: string, sender: string, live = false): FeedActionable => ({
       id, title: sender, person: { displayName: sender, photoUrl: null },
       description: live ? "Emergency SMS · Active" : "Emergency SMS · Revoked",
@@ -574,18 +388,68 @@ describe("Feed history interactions", () => {
       smsEmergency: { senderId: sender }, emphasis: live ? "emergency" : undefined,
       displayTimestamp: Date.parse("2026-08-12T09:00:00Z"),
     });
-    mocks.actionables = [sms("a1", "Alex", true), sms("a2", "Alex"), sms("b1", "Blair"), sms("b2", "Blair"), {
+    mocks.actionables = [sms("a1", "Alex", true), sms("a3", "Alex", true), sms("a2", "Alex"), sms("b1", "Blair"), sms("b2", "Blair"), {
       id: "request", title: "Pending request", description: "Needs a decision", icon: () => null,
       iconTone: "capability", actions: [], sortAt: 0,
     }];
     await renderAfterAutomaticRead();
-    expect(within(screen.getByRole("region", { name: "Live" })).getByTestId("actionable:a1")).toBeInTheDocument();
-    expect(screen.queryByTestId("actionable:a2")).toBeNull();
-    expect(within(screen.getByRole("region", { name: "Recent SMS alerts" })).getAllByText("Blair")).toHaveLength(1);
-    expect(within(screen.getByRole("region", { name: "Needs you" })).queryByText(/SMS alerts/)).toBeNull();
+    const live = within(screen.getByRole("region", { name: "Live" }));
+    expect(live.getByTestId("feed-actionable-a1")).toBeInTheDocument();
+    expect(live.getByTestId("feed-actionable-a3")).toBeInTheDocument();
+    expect(live.queryByTestId("feed-sms-alert-group")).toBeNull();
+    expect(screen.queryByTestId("feed-actionable-a2")).toBeNull();
+    expect(screen.getByText("row-5")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Needs you" })).toBeNull();
+    expect(screen.getByTestId("feed-actionable-request")).toBeInTheDocument();
   });
 
-  it("opens Shared with me when the actual incoming location Feed row is tapped", async () => {
+  it("pins server-confirmed incidents outside loaded history across agent scopes", async () => {
+    const original = mocks.data;
+    const incidents = ["old-live-one", "old-live-two"].map(id => ({ ...original.items[0], id,
+      source_domain:"location", event_type:"location_share_created", activity_group_id:`location-grant:${id}`,
+      metadata:{grant_id:id,share_kind:"sos",feed_audience:"recipient",current_location_status:"active"},
+      created_at:"2025-01-01T00:00:00Z" }));
+    mocks.data = { ...original, live_incidents:{items:incidents,next_cursor:null} } as typeof mocks.data;
+    mocks.actionables = [];
+    try {
+      render(<FeedPage />);
+      const live = within(await screen.findByRole("region", { name:"Live" }));
+      expect(live.getByText("row-old-live-one")).toBeVisible();
+      expect(live.getByText("row-old-live-two")).toBeVisible();
+      act(() => window.dispatchEvent(new Event(FEED_SEARCH_OPEN_EVENT)));
+      fireEvent.change(screen.getByRole("combobox", { name:"Agent scope" }), {target:{value:"finance"}});
+      expect(live.getByText("row-old-live-one")).toBeVisible();
+      expect(screen.getAllByText("row-old-live-one")).toHaveLength(1);
+    } finally { mocks.data = original; }
+  });
+
+  it("acknowledges a newly observed receipt after a same-ID update between fetch queries", async () => {
+    const receipt = { up_to_id: "5", through_time: "2026-01-03T00:00:00Z", fingerprint: "a".repeat(32) };
+    mocks.data = { ...mocks.data, read_snapshot: receipt } as typeof mocks.data;
+    const view = render(<FeedPage />);
+    await waitFor(() => expect(mocks.markRead).toHaveBeenCalledWith(expect.objectContaining({ snapshotFingerprint: receipt.fingerprint })));
+    mocks.markRead.mockClear();
+    mocks.data = { ...mocks.data, read_snapshot: { ...receipt, fingerprint: "b".repeat(32) } } as typeof mocks.data;
+    view.rerender(<FeedPage />);
+    await waitFor(() => expect(mocks.markRead).toHaveBeenCalledWith(expect.objectContaining({ snapshotFingerprint: "b".repeat(32) })));
+    mocks.markRead.mockClear();
+    mocks.data = { ...mocks.data, read_snapshot: { ...receipt, fingerprint: "b".repeat(32), through_time: "2026-01-04T00:00:00Z" } } as typeof mocks.data;
+    view.rerender(<FeedPage />);
+    await act(async () => {});
+    expect(mocks.markRead).not.toHaveBeenCalled();
+  });
+
+  it("settles a cached KYC review after the same workflow has a confirmed sent reply", async () => {
+    mocks.actionables = [{ id: "kyc-review", operationKey: "kyc-workflow:one", title: "Information request",
+      description: "", icon: () => null, iconTone: "capability", actions: [], sortAt: 1 }];
+    mocks.data.items = [{ ...mocks.data.items[0], source_domain: "connected_systems", event_type: "mail_message_sent",
+      activity_group_id: "kyc-workflow:one" } as typeof mocks.data.items[number]];
+    await renderAfterAutomaticRead();
+    expect(screen.queryByRole("region", { name: "Needs you" })).toBeNull();
+    expect(screen.getByText("row-5")).toBeInTheDocument();
+  });
+
+  it("opens the selected legacy receipt instead of an unselected location workspace", async () => {
     mocks.useRealFeedRow = true;
     mocks.data.items = [
       {
@@ -604,13 +468,12 @@ describe("Feed history interactions", () => {
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Open Ankit",
+        name: "Open Ankit shared their location with you",
       }),
     );
 
-    expect(mocks.routerPush).toHaveBeenCalledExactlyOnceWith(
-      "/one/location?section=shared",
-    );
+    await waitFor(() => expect(mocks.activityDetail).toHaveBeenCalledWith(expect.objectContaining({ itemId: "5" })));
+    expect(mocks.routerPush).not.toHaveBeenCalled();
   });
 
   it("opens the owner's shared files in place instead of routing", async () => {
@@ -639,6 +502,23 @@ describe("Feed history interactions", () => {
     expect(mocks.routerPush).not.toHaveBeenCalled();
   });
 
+  it("opens an unread Circle conversation directly through its validated destination", async () => {
+    mocks.useRealFeedRow = true;
+    mocks.data.items = [{...mocks.data.items[0],source_domain:"location",event_type:"location_circle_message",metadata:{circle_id:"11111111-2222-4333-8444-555555555555",circle_name:"Family"}}];
+    await renderAfterAutomaticRead();
+    fireEvent.click(screen.getByRole("button",{name:"Open Family"}));
+    expect(mocks.routerPush).toHaveBeenCalledWith(expect.stringContaining("circleChat=1"));
+    expect(mocks.activityDetail).not.toHaveBeenCalled();
+  });
+
+  it("lets a confirmed terminal receipt supersede a cached Live alert for only that grant", async () => {
+    mocks.actionables=[{id:"sms-emergency:one",operationKey:"location-grant:one",title:"Emergency alert from Ankit",description:"",icon:()=>null,iconTone:"capability",emphasis:"emergency",smsEmergency:{senderId:"sender"},sortAt:1,actions:[]}];
+    mocks.data.items=[{...mocks.data.items[0],source_domain:"location",event_type:"location_share_expired",activity_group_id:"location-grant:one"} as typeof mocks.data.items[number]];
+    await renderAfterAutomaticRead();
+    expect(screen.queryByRole("region",{name:"Live"})).toBeNull();
+    expect(screen.getByText("row-5")).toBeInTheDocument();
+  });
+
   it("refreshes the displayed details when the server updates an existing notification", async () => {
     mocks.useRealFeedRow = true;
     mocks.data.items = [
@@ -656,7 +536,7 @@ describe("Feed history interactions", () => {
     ];
     const view = await renderAfterAutomaticRead();
     expect(
-      screen.getByText("Shared location with you for 2 hours"),
+      screen.getByText("Ankit shared their location with you"),
     ).toBeInTheDocument();
 
     mocks.data = {
@@ -671,9 +551,9 @@ describe("Feed history interactions", () => {
     await act(async () => view.rerender(<FeedPage />));
 
     expect(
-      screen.getByText("Shared location with you for 3 hours"),
+      screen.getByText("3 hours"),
     ).toBeInTheDocument();
-    expect(screen.queryByText("Shared location with you for 2 hours")).toBeNull();
+    expect(screen.queryByText("2 hours")).toBeNull();
   });
 
   it("retires an unsafe legacy timestamp watermark without hiding a later id", async () => {
@@ -771,33 +651,16 @@ describe("Feed history interactions", () => {
     expect(screen.queryByText("row-5")).toBeNull();
   });
 
-  it("routes native history through the same confirmed removal and Undo callbacks", async () => {
-    mocks.native = true;
-    await renderAfterAutomaticRead();
-    const tap = async (label: string) => {
-      const state = mocks.workspace!;
-      const row = state.content.sections.flatMap(section => section.rows).find(row => row.label === label);
-      expect(row, label).toBeDefined();
-      await act(async () => { await state.actions.get(row!.id)!({} as never); });
-    };
-    await waitFor(() => expect(mocks.workspace!.content.sections.some(section => section.rows.some(row => row.chevron))).toBe(true));
-    const label = mocks.workspace!.content.sections.flatMap(section => section.rows).find(row => row.chevron)!.label;
-    await tap(label);
-    expect(mocks.workspace!.content.backEnabled).toBe(false);
-    await act(async () => { expect(unwindBackLayer("/one/feed")).toBe(true); });
-    expect(mocks.workspace!.content.sections.flatMap(section => section.rows).some(row => row.label === "Remove from Feed")).toBe(false);
-    await tap(label);
-    await tap("Remove from Feed");
-    expect(mocks.dismiss).not.toHaveBeenCalled();
-    await tap("Cancel");
-    expect(mocks.dismiss).not.toHaveBeenCalled();
-    await tap("Remove from Feed");
-    await tap("Confirm remove from Feed");
-    expect(mocks.dismiss).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ userId: "feed-user", itemId: "5" }));
-    const notice = mocks.toastSuccess.mock.calls.find(call => call[0] === "Removed from Feed")![1];
-    await act(async () => { notice.action.onClick(); });
-    await waitFor(() => expect(mocks.restore).toHaveBeenCalledOnce());
-    expect(mocks.workspace!.content.backEnabled).toBe(false);
+  it("releases the local Clear barrier only after the server confirms that clear version", async () => {
+    mocks.clear.mockResolvedValueOnce("100");
+    const view = await renderAfterAutomaticRead();
+    fireEvent.click(screen.getByRole("button", { name: "Clear feed notifications" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm clear feed notifications" }));
+    await waitFor(() => expect(mocks.toastSuccess).toHaveBeenCalledWith("Feed cleared"));
+    expect(screen.queryByText("row-5")).toBeNull();
+    mocks.data = { ...mocks.data, clear_version: "100", items: [{ ...mocks.data.items[0], created_at: "2026-01-03T00:00:00.000Z" }] } as typeof mocks.data;
+    await act(async () => view.rerender(<FeedPage />));
+    await waitFor(() => expect(screen.getByText("row-5")).toBeInTheDocument());
   });
 
   it("removes only after server acknowledgement and restores through Undo", async () => {
@@ -948,18 +811,18 @@ describe("Feed history interactions", () => {
 
   it("retires a pending Undo when the account signs out", async () => {
     mocks.useActionTestRow = true;
-    mocks.toastSuccess.mockImplementationOnce((_message, data) => data.id);
+    mocks.toastSuccess.mockReturnValueOnce("undo-toast");
     const view = await renderAfterAutomaticRead();
     fireEvent.click(screen.getByRole("button", { name: "row-5" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: "row-5" })).toBeNull());
     const undo = mocks.toastSuccess.mock.calls.find((call) => call[0] === "Removed from Feed")?.[1] as
-      | { id: string; action?: { onClick?: () => void } }
+      | { action?: { onClick?: () => void } }
       | undefined;
 
     try {
       mocks.currentUser = null;
       await act(async () => view.rerender(<FeedPage />));
-      expect(mocks.toastDismiss).toHaveBeenCalledWith(undo!.id);
+      expect(mocks.toastDismiss).toHaveBeenCalledWith("undo-toast");
       mocks.currentUser = { uid: "next-user", getIdToken: vi.fn().mockResolvedValue("next-token") };
       await act(async () => view.rerender(<FeedPage />));
       await act(async () => { undo?.action?.onClick?.(); });

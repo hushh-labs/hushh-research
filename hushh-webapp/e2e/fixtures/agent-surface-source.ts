@@ -61,7 +61,7 @@ const brandTileClass = one(
 
 const nameMatch = one(
   header,
-  /<div data-profile-role=\{!isPuppySurface \? "label" : undefined\} className="(truncate text-base[^"]+)">\s*\{([^}]+)\}/,
+  /<div data-profile-role="([^"]+)" className="(truncate text-base[^"]+)">\s*\{([^}]+)\}/,
   "agent name",
   WORKSPACE_PATH,
 );
@@ -417,9 +417,10 @@ export const AGENT_SURFACE_SOURCE = {
     actionOrder,
     profileClass,
     profilePhotoClass,
-    nameClass: nameMatch[1],
+    nameRole: nameMatch[1],
+    nameClass: nameMatch[2],
     /** `isPuppySurface ? "Puppy One" : "One"`, run by the fixture. */
-    nameExpression: flatten(nameMatch[2]),
+    nameExpression: flatten(nameMatch[3]),
     subtitleClass,
     subtitleExpression,
     profileButton: {

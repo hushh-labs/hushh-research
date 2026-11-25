@@ -76,6 +76,7 @@ vi.mock("@/lib/services/api-service", () => ({
     apiFetch: h.api,
     ownerPodRequest: h.pod,
     getPersonalAgentStatus: h.hosting,
+    getPersonalAgentStatusForRouting: h.hosting,
   },
 }));
 vi.mock("@/lib/services/auth-service", () => ({

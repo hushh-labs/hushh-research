@@ -150,7 +150,7 @@ describe("Connectors owner and mutation fences", () => {
     vi.spyOn(AuthService, "getCurrentUser").mockImplementation(
       () => ({ uid: state.uid, getIdToken: async () => "firebase" }) as ReturnType<typeof AuthService.getCurrentUser>,
     );
-    vi.spyOn(ApiService, "getPersonalAgentStatus").mockResolvedValue({ hostingMode: "shared" });
+    vi.spyOn(ApiService, "getPersonalAgentStatusForRouting").mockResolvedValue({ hostingMode: "shared" });
     state.overview.mockResolvedValue(overview());
     state.documents.mockResolvedValue([]);
     state.remove.mockResolvedValue(undefined);

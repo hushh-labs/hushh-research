@@ -1,5 +1,8 @@
 "use client";
 
+import { onePerPersonSharedCard } from "@/lib/agent/structured-experience-order";
+export { onePerPersonSharedCard } from "@/lib/agent/structured-experience-order";
+
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import {
@@ -126,8 +129,12 @@ export function connectorBrandForTool(toolName: unknown, provider?: unknown): Co
 
 const GMAIL_TOOLS: ReadonlySet<string> = new Set([
   "ask_email_agent",
+  "gmail_search_mail",
+  "gmail_read_thread",
+  "gmail_list_needs_reply",
   "open_gmail_email_draft",
   "open_gmail_information_request_reply",
+  "open_gmail_reply_draft",
   "propose_gmail_mailbox_change",
   "propose_gmail_todo",
 ]);
@@ -151,6 +158,8 @@ const CALENDAR_TOOLS: ReadonlySet<string> = new Set([
   "calendar_event_detail",
   "calendar_availability",
   "calendar_free_slots",
+  "calendar_shared_free_slots",
+  "calendar_opening_detail",
   "propose_calendar_event",
   "propose_calendar_reschedule",
   "propose_calendar_cancellation",
@@ -195,6 +204,9 @@ export function isInformativeActivityEvent(
 }
 
 export type AgentTurnStreamPanelProps = {
+  allowFinancePreviewStart?: boolean;
+  conversationId?: string | null;
+  onConfirmFinanceAnalysis?: (confirmation: string) => Promise<void>;
   streamEvents: AgentVisibleStreamEvent[];
   responseText: string;
   isStreaming: boolean;
@@ -216,6 +228,7 @@ export type AgentTurnStreamPanelProps = {
   onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
   onDownloadDriveNotes?: () => void;
   driveCompilation?: DriveCompilationUiState;
+  onMailQuickAction?: (prompt: string) => void;
 };
 
 const MAX_VISIBLE_SOURCES = 8;
@@ -376,30 +389,10 @@ export const CONSENT_ASK_EXPERIENCE_TYPES: ReadonlySet<string> = new Set([
   "one.shared_with_me_card.v1",
 ]);
 
-/**
- * One secure card per person in a turn. One may both list and show what a
- * person shared; the reader sees that person's card once, where it last
- * arrived.
- */
-export function onePerPersonSharedCard<T extends { id: string; experience: AgentStructuredExperience }>(items: T[]): T[] {
-  const seen = new Set<string>();
-  const kept: T[] = [];
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index]!;
-    if (item.experience.type !== "one.shared_with_me_card.v1") {
-      kept.unshift(item);
-      continue;
-    }
-    const cards = item.experience.cards.filter((card) => !seen.has(card.person.personRef));
-    cards.forEach((card) => seen.add(card.person.personRef));
-    if (!cards.length) continue;
-    kept.unshift(cards.length === item.experience.cards.length
-      ? item : { ...item, experience: { ...item.experience, cards } });
-  }
-  return kept;
-}
-
 export function AgentTurnStreamPanel({
+  allowFinancePreviewStart,
+  conversationId,
+  onConfirmFinanceAnalysis,
   streamEvents = [],
   responseText,
   isStreaming,
@@ -418,6 +411,7 @@ export function AgentTurnStreamPanel({
   onCompileDriveNotes,
   onDownloadDriveNotes,
   driveCompilation,
+  onMailQuickAction,
 }: AgentTurnStreamPanelProps) {
   const turnStartedAt = useRef<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState<number | null>(null);
@@ -533,12 +527,17 @@ export function AgentTurnStreamPanel({
               return <AgentStructuredExperienceView
                 key={id}
                 experience={experience}
+                conversationId={conversationId}
+                  allowPortfolioUpload={!isStreaming && !isError}
+                allowFinancePreviewStart={allowFinancePreviewStart && !isStreaming && !isError}
+                onConfirmFinanceAnalysis={onConfirmFinanceAnalysis}
                 onOpenConnections={onOpenConnections}
                 onInformationRequestSubmitted={onInformationRequestSubmitted
                   ? (receipt) => onInformationRequestSubmitted(id, receipt) : undefined}
                 onCompileDriveNotes={onCompileDriveNotes}
                 onDownloadDriveNotes={scopedCompilation ? onDownloadDriveNotes : undefined}
                 driveCompilation={scopedCompilation}
+                onMailQuickAction={onMailQuickAction}
               />;
             })}
           </div>

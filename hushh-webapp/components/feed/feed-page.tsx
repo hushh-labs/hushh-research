@@ -1,17 +1,17 @@
 "use client";
 
+import { foldFeedConnectorPrerequisites } from "@/lib/feed/connector-prerequisites";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
-import { NativeFeedWorkspace } from "./native-feed-workspace";
-import Link from "next/link";
-import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
+import { toast } from "sonner";
 import type { User } from "firebase/auth";
 
 import {
@@ -26,7 +26,6 @@ import { Button as StockButton } from "@/components/ui/button";
 import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
 import {
-  CalendarAgentIcon,
   GmailAgentIcon,
   KycAgentIcon,
 } from "@/components/icons/agents";
@@ -38,6 +37,14 @@ import { currentFeedInvalidationEpoch, currentFeedPresentationRevision } from "@
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
+import { consumeFeedSearchReturn, armFeedSearchReturn } from "@/lib/feed/feed-search-memory";
+import { usePersonaState } from "@/lib/persona/persona-context";
+import { openFeedResult, feedResultHref } from "@/lib/feed/result-navigation";
+import { feedScopeLabel } from "@/lib/feed/agent-scopes";
+import { FeedActivitySearch } from "@/components/feed/feed-activity-search";
+import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
+import { FeedActivityDetail } from "@/components/feed/feed-activity-detail";
+import { isFeedPaymentMatch } from "@/lib/feed/payment-result-selection";
 import { FeedRow } from "@/components/feed/feed-row";
 import {
   feedClearedThroughStorageKey,
@@ -46,9 +53,6 @@ import {
   removeRetiredFeedSoundPreference,
 } from "@/lib/feed/feed-clear-watermark";
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
-import { FeedSmsAlertGroup } from "@/components/feed/feed-sms-alert-group";
-import { groupFeedSmsAlerts } from "@/lib/feed/feed-sms-grouping";
-import { FeedDriveProgressRow } from "@/components/feed/feed-drive-progress-row";
 import { FeedSharedFilesSheet } from "@/components/feed/feed-shared-files-sheet";
 import { FeedPaymentReturnNotice } from "@/components/feed/feed-payment-return-notice";
 import { OwnerConsentUnlockPrompt } from "@/components/consent/owner-consent-unlock-prompt";
@@ -66,16 +70,15 @@ import {
   type FeedActionable,
 } from "@/lib/feed/use-feed-actionables";
 import { useFeedBriefing } from "@/lib/feed/use-feed-briefing";
-import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
+import { useFeedLiveRefresh, type FeedRefreshScope } from "@/lib/feed/use-feed-live-refresh";
 import { useFeedHistoryPresentation } from "@/lib/feed/use-feed-history-presentation";
 import { feedItemPresentationTime } from "@/lib/feed/feed-pagination";
+import { selectKycRequestFromFeed } from "@/lib/feed/kyc-selection";
 import { useDocumentFeedStream } from "@/lib/feed/use-document-feed-stream";
 import { ROUTES } from "@/lib/navigation/routes";
 import { getAppScrollRoot } from "@/lib/navigation/use-scroll-reset";
-import { openExternalUrl } from "@/lib/utils/browser-navigation";
 import { listKaiActionsForSurface } from "@/lib/kai/actions/kai-action-gateway";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
-import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
 import { isFeedItemHidden } from "@/lib/feed/feed-visibility";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import {
@@ -83,7 +86,7 @@ import {
   type FeedItem,
   type FeedListResponse,
 } from "@/lib/services/feed-service";
-import { daysSinceToday } from "@/lib/feed/feed-timestamp";
+import { feedDayLabel as dayLabel } from "@/lib/feed/feed-timestamp";
 import {
   appendFeedPage,
   feedItemIdentity,
@@ -91,32 +94,6 @@ import {
   isFeedIdAtOrBefore,
   latestFeedId,
 } from "@/lib/feed/feed-pagination";
-
-function dayLabel(value: string): string {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "";
-  const diffDays = daysSinceToday(date);
-  if (diffDays === 0) return "Today";
-  if (diffDays === 1) return "Yesterday";
-  return date.toLocaleDateString(undefined, {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
-}
-
-function groupItemsByDay(
-  items: FeedItem[],
-): Array<{ label: string; items: FeedItem[] }> {
-  const groups: Array<{ label: string; items: FeedItem[] }> = [];
-  for (const item of items) {
-    const label = dayLabel(feedItemPresentationTime(item));
-    const current = groups[groups.length - 1];
-    if (current && current.label === label) current.items.push(item);
-    else groups.push({ label, items: [item] });
-  }
-  return groups;
-}
 
 const CONSENT_BUNDLE_EVENTS = new Set([
   "consent_requested", "consent_granted", "consent_revoked",
@@ -170,35 +147,6 @@ function eventInstant(value: { dateTime?: string; date?: string } | null): numbe
   if (!raw) return 0;
   const instant = new Date(raw).getTime();
   return Number.isFinite(instant) ? instant : 0;
-}
-
-function upcomingEventDescription(event: {
-  start: { dateTime?: string; date?: string } | null;
-}): string {
-  if (!event.start?.dateTime) return event.start?.date ? "All day" : "Upcoming";
-  const date = new Date(event.start.dateTime);
-  if (!Number.isFinite(date.getTime())) return "Upcoming";
-  const now = new Date();
-  const isToday = date.toDateString() === now.toDateString();
-  const tomorrow = new Date(now);
-  tomorrow.setDate(now.getDate() + 1);
-  const day = isToday
-    ? "Today"
-    : date.toDateString() === tomorrow.toDateString()
-      ? "Tomorrow"
-      : date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-  return `${day} · ${date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
-}
-
-function canJoinGoogleMeet(event: {
-  start: { dateTime?: string; date?: string } | null;
-  end: { dateTime?: string; date?: string } | null;
-  conferenceUrl?: string;
-}): boolean {
-  const start = eventInstant(event.start);
-  const end = eventInstant(event.end);
-  const now = Date.now();
-  return Boolean(event.conferenceUrl && start && end && now >= start - 15 * 60_000 && now <= end);
 }
 
 /**
@@ -329,6 +277,14 @@ function FeedPageSession({
     return token;
   }, [user, isSessionCurrent]);
   const router = useRouter();
+  const persona = usePersonaState().activePersona === "ria" ? "ria" : "investor";
+  const [restoredSearch] = useState(() => userId ? consumeFeedSearchReturn(userId) : null);
+  const [searchScope, setSearchScope] = useState<{ owner: string | null | undefined; generation: number | null; active: boolean } | null>(() => userId ? { owner: userId, generation: sessionGeneration, active: Boolean(restoredSearch?.open || restoredSearch?.submitted) } : null);
+  const searchingActivity = Boolean(searchScope && searchScope.owner === userId && searchScope.generation === sessionGeneration && searchScope.active);
+  const searchingActivityRef = useRef(searchingActivity);
+  useLayoutEffect(() => { searchingActivityRef.current = searchingActivity; }, [searchingActivity]);
+  const setSearchingActivity = useCallback((active: boolean) => { searchingActivityRef.current=active;setSearchScope({ owner: userId, generation: sessionGeneration, active }); }, [userId, sessionGeneration]);
+  const [activityDetail, setActivityDetail] = useState<{ owner: string; generation: number | null; item: FeedItem } | null>(null);
   const {
     data,
     loading,
@@ -359,6 +315,22 @@ function FeedPageSession({
     },
   });
   const { page: visiblePage, pagination, setPagination, hasNew, showNew } = useFeedHistoryPresentation(userId ?? undefined, data);
+  const [liveContinuation, setLiveContinuation] = useState<{ source: FeedListResponse; items: FeedItem[]; cursor: string | null } | null>(null);
+  const [loadingLive, setLoadingLive] = useState(false);
+  const [liveError, setLiveError] = useState(false);
+  const livePage = liveContinuation?.source === data ? liveContinuation : null;
+  const serverLive = useMemo(() => [...(data?.live_incidents?.items || []), ...(livePage?.items || [])], [data?.live_incidents, livePage]);
+  const liveCursor = livePage ? livePage.cursor : data?.live_incidents?.next_cursor;
+  const loadLive = async () => {
+    if (!liveCursor || !data || loadingLive) return;
+    setLoadingLive(true); setLiveError(false);
+    try {
+      const result = await FeedService.liveIncidents({ idToken: await getSessionToken(), cursor: liveCursor, isEffectCurrent: isSessionCurrent });
+      if (isSessionCurrent()) setLiveContinuation(previous => ({ source: data,
+        items: [...(previous?.source === data ? previous.items : []), ...result.items], cursor: result.next_cursor }));
+    } catch { if (isSessionCurrent()) setLiveError(true); }
+    finally { if (isSessionCurrent()) setLoadingLive(false); }
+  };
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const loadMoreInFlightRef = useRef(false);
@@ -398,6 +370,14 @@ function FeedPageSession({
   // The legacy watermark is read before the first client paint so previously
   // cleared history does not flash while its server migration is in flight.
   const readPersistedWatermark = () => readFeedClearedThroughId(userId);
+  const [clearReceipt, setClearReceipt] = useState<{ owner: string; generation: number | null; version: string; watermark: string } | null>(null);
+  useEffect(() => {
+    if (clearReceipt && clearReceipt.owner === userId && clearReceipt.generation === sessionGeneration
+      && visiblePage?.clear_version && isFeedIdAtOrBefore(clearReceipt.version, visiblePage.clear_version)) {
+      setClearedThroughId(current => current === clearReceipt.watermark ? null : current);
+      setClearReceipt(null);
+    }
+  }, [clearReceipt, visiblePage?.clear_version, userId, sessionGeneration]);
   const [clearedThroughId, setClearedThroughId] = useState<string | null>(
     readPersistedWatermark,
   );
@@ -445,10 +425,6 @@ function FeedPageSession({
 
   const {
     actionables,
-    inProgress = [],
-    progressOverflow = [],
-    progressLoading = false,
-    progressError = null,
     loading: actionablesLoading,
     error: actionablesError,
     retry: retryActionables,
@@ -456,32 +432,34 @@ function FeedPageSession({
     clearSmsEmergencies,
     consentUnlockPrompt,
     documentPricePrompt = CLOSED_DOCUMENT_PRICE_PROMPT,
-  } = useFeedActionables();
-  const { upcomingEvents, pendingKyc, needsReplyCount } = useFeedBriefing();
+  } = useFeedActionables({ navigationOrigin: "/one/feed" });
+  const { pendingKycRequests, needsReplyCount } = useFeedBriefing({ includeCalendar: false });
+  const openKycRequest = useCallback((workflowId: string) => {
+    if (!userId) return;
+    selectKycRequestFromFeed(userId, workflowId);
+    openFeedResult(router, `${ROUTES.GMAIL}?workspace=kyc`);
+  }, [router, userId]);
 
   const briefingActionables = useMemo<FeedActionable[]>(() => {
     const items: FeedActionable[] = [];
-    const kycSortAt = eventInstant({
-      dateTime: pendingKyc?.receivedAt ?? pendingKyc?.createdAt ?? undefined,
-    });
-    if (pendingKyc) {
+    for (const request of pendingKycRequests ?? []) {
+      const kycSortAt = eventInstant({ dateTime: request.receivedAt ?? request.createdAt ?? undefined });
+      const openRequest = () => openKycRequest(request.workflowId);
       items.push({
-        id: `kyc-request:${pendingKyc.workflowId}`,
-        icon: KycAgentIcon,
+        id: `kyc-request:${request.workflowId}`,
+        operationKey: `kyc-workflow:${request.workflowId}`,
+        scopeId: "kyc", icon: KycAgentIcon,
         iconTone: "capability",
-        title: "Information request ready to review",
-        description:
-          pendingKyc.count > 1
-            ? `${pendingKyc.count} requests are waiting. Nothing is shared until you choose.`
-            : "Nothing is shared until you choose what to send.",
-        onSelect: () => router.push(`${ROUTES.GMAIL}?workspace=kyc`),
+        title: "Information request",
+        description: "",
+        onSelect: openRequest,
         chevron: true,
         actions: [
           {
             key: "review",
             label: "Review",
             tone: "primary",
-            run: () => router.push(`${ROUTES.GMAIL}?workspace=kyc`),
+            run: openRequest,
           },
         ],
         sortAt: kycSortAt,
@@ -492,7 +470,7 @@ function FeedPageSession({
     if (needsReplyCount > 0) {
       items.push({
         id: "gmail-needs-reply",
-        icon: GmailAgentIcon,
+        scopeId: "email", icon: GmailAgentIcon,
         iconTone: "capability",
         title:
           needsReplyCount === 1
@@ -501,14 +479,14 @@ function FeedPageSession({
         // No supporting line: the title says what is waiting and the button
         // already says where to go, so a third line would only repeat them.
         description: "",
-        onSelect: () => router.push(ROUTES.GMAIL),
+        onSelect: () => openFeedResult(router, ROUTES.GMAIL),
         chevron: true,
         actions: [
           {
             key: "open-mail",
             label: "Open Mail",
             tone: "primary",
-            run: () => router.push(ROUTES.GMAIL),
+            run: () => openFeedResult(router, ROUTES.GMAIL),
           },
         ],
         sortAt: 0,
@@ -517,37 +495,8 @@ function FeedPageSession({
     }
 
     return items.sort((a, b) => b.sortAt - a.sortAt);
-  }, [needsReplyCount, pendingKyc, router]);
+  }, [needsReplyCount, openKycRequest, pendingKycRequests, router]);
 
-  const upcomingActionables = useMemo<FeedActionable[]>(() => {
-    return [...upcomingEvents]
-      .sort((a, b) => eventInstant(a.start) - eventInstant(b.start))
-      .slice(0, 3)
-      .map((event, index) => {
-        const joinable = canJoinGoogleMeet(event);
-        return {
-          id: `calendar:${event.title}:${event.start?.dateTime ?? event.start?.date ?? index}`,
-          icon: CalendarAgentIcon,
-          iconTone: "capability",
-          title: event.title || "Calendar event",
-          description: upcomingEventDescription(event),
-          onSelect: () => router.push(ROUTES.CALENDAR),
-          chevron: true,
-          actions: joinable
-            ? [
-                {
-                  key: "join-meet",
-                  label: "Join Meet",
-                  tone: "primary",
-                  run: () => openExternalUrl(event.conferenceUrl!),
-                },
-              ]
-            : [],
-          sortAt: eventInstant(event.start) || Number.MAX_SAFE_INTEGER,
-          displayTimestamp: null,
-        };
-      });
-  }, [router, upcomingEvents]);
 
   // Counts only -- never who, and never what any item says. The Feed is a list
   // of other people's names and activity; the only thing voice needs from it is
@@ -615,7 +564,8 @@ function FeedPageSession({
   // from another session after this session removed a row. The service seeds
   // the shared Feed cache, so the page and the profile preview update together.
   useFeedLiveRefresh(
-    useCallback(() => {
+    useCallback((scope?: FeedRefreshScope) => {
+      if (scope === "connections") return;
       if (!userId || dismissedGroupsRef.current.size === 0) {
         void refresh({ force: true });
         return;
@@ -671,23 +621,36 @@ function FeedPageSession({
   }, [data?.items, refresh, userId]);
 
   const latestIdRef = useRef<string | null>(null);
+  const latestTimeRef = useRef<string | undefined>(undefined);
+  const latestFingerprintRef = useRef<string | null>(null);
+  const latestSnapshotKeyRef = useRef("");
 
   useEffect(() => {
-    latestIdRef.current = latestFeedId(visiblePage?.items ?? []);
+    latestIdRef.current = visiblePage?.read_snapshot?.up_to_id || latestFeedId(visiblePage?.items ?? []);
+    latestFingerprintRef.current = visiblePage?.read_snapshot?.fingerprint || null;
+    latestSnapshotKeyRef.current = `${latestIdRef.current}:${latestFingerprintRef.current || ""}:${visiblePage?.items.map(item => `${item.id}:${item.activity_revision || ""}:${item.created_at}`).join("|")}`;
+    latestTimeRef.current = visiblePage?.read_snapshot?.through_time || visiblePage?.items.map(item => item.created_at)
+      .filter(value => Number.isFinite(Date.parse(value)))
+      .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
   }, [visiblePage]);
 
   const markSeen = useCallback(() => {
     const latestId = latestIdRef.current;
-    if (!userId || !latestId || markedReadUpToRef.current === latestId)
-      return;
-    markedReadUpToRef.current = latestId;
+    // Outcomes above the viewport remain unread until seen. Search never acknowledges hidden activity.
+    if ((getAppScrollRoot()?.scrollTop ?? 0) > 100) return;
+    const throughTime = latestTimeRef.current;
+    const snapshotFingerprint = latestFingerprintRef.current;
+    const snapshot = latestSnapshotKeyRef.current;
+    if (searchingActivityRef.current || !userId || !latestId || markedReadUpToRef.current === snapshot) return;
+    markedReadUpToRef.current = snapshot;
     CacheSyncService.onFeedReadStarted(userId, latestId);
     dispatchFeedStateChanged("read");
 
     void (async () => {
       try {
         const idToken = await getSessionToken();
-        await FeedService.markRead({ idToken, upToId: latestId, isEffectCurrent: isSessionCurrent });
+        if(searchingActivityRef.current){markedReadUpToRef.current=null;CacheSyncService.onFeedReadFailed(userId);dispatchFeedStateChanged("read");return;}
+        await FeedService.markRead({ idToken, upToId: latestId, throughTime, snapshotFingerprint, isEffectCurrent: isSessionCurrent });
         CacheSyncService.onFeedReadSettled(userId);
         // Recount after success so a row that arrived above the posted
         // watermark remains unread instead of being swallowed by optimistic 0.
@@ -705,6 +668,8 @@ function FeedPageSession({
   // newer live row. Keep the hidden/unmount calls as a final settlement path
   // for platforms that suspend network work while the page is active.
   useEffect(() => {
+    const root = getAppScrollRoot();
+    root?.addEventListener("scroll", markSeen, { passive: true });
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
         markSeen();
@@ -714,6 +679,7 @@ function FeedPageSession({
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
+      root?.removeEventListener("scroll", markSeen);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       markSeen();
     };
@@ -732,8 +698,8 @@ function FeedPageSession({
   }, [visiblePage, pagination.additionalItems]);
 
   useEffect(() => {
-    if (visiblePage?.items[0]?.id) markSeen();
-  }, [visiblePage?.items, markSeen]);
+    if (!searchingActivity && visiblePage?.items[0]?.id) markSeen();
+  }, [visiblePage?.items, visiblePage?.read_snapshot?.fingerprint, markSeen, searchingActivity]);
 
   // Keep unchanged rows stable, but include the presentation metadata: bundled
   // consent details and current counterpart photos can change under the same id.
@@ -759,7 +725,7 @@ function FeedPageSession({
         && actionables.some(action => action.id === `sms-emergency:${item.metadata.grant_id}`)) continue;
       if (seen.has(feedItemIdentity(item))) continue;
       if (dismissedItemIds.has(item.id)) continue;
-      if (clearedThroughId && isFeedIdAtOrBefore(item.id, clearedThroughId)) {
+      if (clearedThroughId && isFeedIdAtOrBefore(item.activity_revision ?? item.id, clearedThroughId)) {
         continue;
       }
       seen.add(feedItemIdentity(item));
@@ -771,7 +737,9 @@ function FeedPageSession({
           previous.presentationCreatedAt === item.presentationCreatedAt &&
           previous.source_domain === item.source_domain &&
           previous.event_type === item.event_type &&
-          previous.actor_label === item.actor_label &&
+        previous.actor_label === item.actor_label &&
+        previous.activity_group_id === item.activity_group_id &&
+        previous.activity_revision === item.activity_revision &&
           JSON.stringify(previous.metadata) === JSON.stringify(item.metadata)
           ? previous
           : item,
@@ -843,6 +811,20 @@ function FeedPageSession({
 
   const openItem = useCallback(
     (item: FeedItem) => {
+      if (isFeedPaymentMatch(item) && userId) {
+        setActivityDetail({ owner: userId, generation: sessionGeneration, item });
+        return;
+      }
+      const destination=presentFeedItem(item);
+      if(destination.exactDestination && destination.href) {
+        if(searchingActivityRef.current)armFeedSearchReturn(feedResultHref(destination.href));
+        router.push(searchingActivityRef.current ? feedResultHref(destination.href) : destination.href);return;
+      }
+      if (item.event_type === "location_circle_message") {
+        const view = presentFeedItem(item);
+        if (view.exactDestination === "conversation" && view.href) router.push(view.href);
+        return;
+      }
       const requestId = item.metadata?.request_id;
       if (item.event_type === "document_share_files_sent" && typeof requestId === "string") {
         const label = item.metadata?.counterpart_label;
@@ -854,18 +836,17 @@ function FeedPageSession({
         });
         return;
       }
-      const href = presentFeedItem(item).href;
-      if (href) router.push(href);
+      if (userId) setActivityDetail({ owner: userId, generation: sessionGeneration, item });
     },
-    [router],
+    [userId, sessionGeneration, router],
   );
 
-  const restoreItem = useCallback(async (itemId: string, dismissalToken: string) => {
+  const restoreItem = useCallback(async (itemId: string, dismissalToken: string, sourceId = itemId) => {
     if (!userId) return;
     try {
       const idToken = await getSessionToken();
       const restored = await FeedService.restore({
-        idToken, userId, itemId, dismissalToken, isEffectCurrent: isSessionCurrent,
+        idToken, userId, itemId: sourceId, dismissalToken, isEffectCurrent: isSessionCurrent,
       });
       if (!restored) {
         toast.error("This item can no longer be restored.");
@@ -889,12 +870,13 @@ function FeedPageSession({
   const removeItem = useCallback(async (item: FeedItem) => {
     if (!userId || removalInFlightRef.current.has(item.id)) return;
     const startingUndoEpoch = undoEpochRef.current;
+    const sourceId = item.activity_revision ?? item.id;
     removalInFlightRef.current.add(item.id);
     setRemovingItemId(item.id);
     try {
       const idToken = await getSessionToken();
       const dismissal = await FeedService.dismiss({
-        idToken, userId, itemId: item.id, isEffectCurrent: isSessionCurrent,
+        idToken, userId, itemId: sourceId, isEffectCurrent: isSessionCurrent,
       });
       if (startingUndoEpoch !== undoEpochRef.current) {
         void refresh({ force: true });
@@ -925,13 +907,12 @@ function FeedPageSession({
       dispatchFeedStateChanged("action");
       void refresh({ force: true });
       const undoEpoch = undoEpochRef.current;
-      const toastId = toast.noticeText("Removed from Feed", {
-        id: `feed-undo-${crypto.randomUUID()}`,
-        action: { token: "undo-feed-removal", label: "Undo", onClick: () => {
+      const toastId = toast.success("Removed from Feed", {
+        action: { label: "Undo", onClick: () => {
           if (undoEpoch !== undoEpochRef.current) return;
-          void restoreItem(item.id, dismissalToken);
+          void restoreItem(item.id, dismissalToken, sourceId);
         } },
-      }, "success");
+      });
       if (typeof toastId === "string" || typeof toastId === "number") {
         undoToastIdsRef.current.add(toastId);
       }
@@ -950,9 +931,9 @@ function FeedPageSession({
     try {
       if (items.length > 0) {
         const idToken = await getSessionToken();
-        const latestId = latestFeedId(items);
+        const latestId = visiblePage?.read_snapshot?.up_to_id || latestFeedId(items);
         if (!latestId) throw new Error("Feed contains no valid row id");
-        await FeedService.clear({ idToken, userId, upToId: latestId, isEffectCurrent: isSessionCurrent });
+        const clearVersion = await FeedService.clear({ idToken, userId, upToId: latestId, snapshotFingerprint: visiblePage?.read_snapshot?.fingerprint, ...(visiblePage?.read_snapshot?.through_time ? { throughTime: visiblePage.read_snapshot.through_time } : {}), isEffectCurrent: isSessionCurrent });
         undoEpochRef.current += 1;
         for (const toastId of undoToastIdsRef.current) toast.dismiss?.(toastId);
         undoToastIdsRef.current.clear();
@@ -960,6 +941,7 @@ function FeedPageSession({
         markedReadUpToRef.current = latestId;
         setPagination(createFeedPaginationState());
         setClearedThroughId(latestId);
+        if (clearVersion) setClearReceipt({ owner: userId, generation: sessionGeneration, version: clearVersion, watermark: latestId });
         if (clearedIdStorageKey && legacyClearedStorageKey) {
           try {
             window.localStorage.removeItem(clearedIdStorageKey);
@@ -977,6 +959,7 @@ function FeedPageSession({
       if (hasClearableSmsEmergencies) await clearSmsEmergencies();
       toast.success("Feed cleared");
     } catch {
+      void refresh({ force: true });
       toast.error("Couldn't clear your feed.");
     } finally {
       setClearing(false);
@@ -985,6 +968,8 @@ function FeedPageSession({
     userId,
     clearing,
     items,
+    visiblePage?.read_snapshot,
+    sessionGeneration,
     clearedIdStorageKey,
     legacyClearedStorageKey,
     hasClearableSmsEmergencies,
@@ -996,47 +981,59 @@ function FeedPageSession({
   ]);
 
   // Present strictly newest-first by wall-clock time, then club into day
-  // sections. The backend paginates by row id (append-only), which normally
-  // equals created_at order; sorting here keeps the feed correct even when it
-  // doesn't, so a day never appears split across the list.
+  // sections. The backend anchors its cursor to meaningful time and row ID.
+  const currentActionables = useMemo(() => {
+    // The confirmed send closes this exact workflow; cached review input can
+    // settle immediately without applying that rule to partial consent bundles.
+    const sentKyc = new Set(items.filter(item => item.event_type === "mail_message_sent"
+      && item.activity_group_id?.startsWith("kyc-workflow:")).map(item => item.activity_group_id));
+    const endedLocation = new Set(items.filter(item => item.source_domain === "location" &&
+      (["location_share_revoked","location_share_expired"].includes(item.event_type) || ["revoked","expired"].includes(String(item.metadata.current_location_status))))
+      .flatMap(item => item.activity_group_id ? [item.activity_group_id] : []));
+    return foldFeedConnectorPrerequisites([...actionables, ...briefingActionables].filter(item => (!item.smsEmergency || !item.operationKey || !endedLocation.has(item.operationKey)) && item.feedVisibility !== "routine"
+      && (!item.updateProgress || item.updateProgress.failed || item.updateProgress.presentationState === "blocked")
+      && (!item.operationKey || !sentKyc.has(item.operationKey))))
+      .map(item=>({...item,sourceLabel:feedScopeLabel(item.scopeId||"one")})).sort((a, b) => b.sortAt - a.sortAt);
+  }, [items, actionables, briefingActionables]);
+  const actionableOperations = useMemo(() => new Set(
+    currentActionables.flatMap(item => item.operationKey && (!item.smsEmergency || item.emphasis === "emergency") ? [item.operationKey, ...(item.operationKeys ?? [])] : []),
+  ), [currentActionables]);
+  const historyItems = useMemo(() => items.filter(item =>
+    !serverLive.some(live => (live.activity_group_id || live.id) === (item.activity_group_id || item.id)) && (!item.activity_group_id || !actionableOperations.has(item.activity_group_id))
+  ), [items, actionableOperations, serverLive]);
   const dayGroups = useMemo(() => {
-    const sorted = [...items].sort(
-      (a, b) =>
-        new Date(feedItemPresentationTime(b)).getTime() - new Date(feedItemPresentationTime(a)).getTime(),
-    );
-    return groupItemsByDay(sorted);
-  }, [items]);
-  // Repeated SMS incidents stay together by sender. Ended alerts are history,
-  // not pending tasks; a sender with a live alert stays in Live, with all of
-  // their available incidents accessible in the same disclosure.
-  const allActionables = [...actionables, ...briefingActionables].sort(
-    (a, b) => b.sortAt - a.sortAt,
+    const timeline = [
+      ...historyItems.map(item=>({kind:"history" as const,item,created_at:feedItemPresentationTime(item)})),
+      ...currentActionables.filter(item=>item.emphasis!=="emergency"&&!item.smsEmergency).map(item=>({kind:"action" as const,item,created_at:item.displayTimestamp ? new Date(item.displayTimestamp).toISOString() : ""})),
+    ].sort((a,b)=>(Date.parse(b.created_at)||0)-(Date.parse(a.created_at)||0));
+    const groups:Array<{label:string;items:typeof timeline}>=[];
+    for(const row of timeline){const label=dayLabel(row.created_at)||"Pending";const last=groups[groups.length-1];if(last?.label===label)last.items.push(row);else groups.push({label,items:[row]});}
+    return groups;
+  }, [historyItems,currentActionables]);
+  // Each live incident remains separate; ended incidents use dated source receipts.
+  const allActionables = currentActionables;
+  const serverLiveKeys = new Set(serverLive.map(item => item.activity_group_id || item.id));
+  const liveActionables = allActionables.filter(item => item.emphasis === "emergency" && !serverLiveKeys.has(item.operationKey || item.id)).filter(
+    (item, index, entries) => entries.findIndex(candidate => (candidate.operationKey || candidate.id) === (item.operationKey || item.id)) === index,
   );
-  const liveActionables = allActionables.filter(
-    (item) => item.emphasis === "emergency" && !item.smsEmergency,
-  );
+  const liveOperations = new Set([...serverLiveKeys, ...liveActionables.map(item => item.operationKey || item.id)]);
   const regularActionables = allActionables.filter(
     (item) => item.emphasis !== "emergency" && !item.smsEmergency,
-  );
-  const smsGroups = groupFeedSmsAlerts(allActionables);
-  const liveSmsGroups = smsGroups.filter((group) => group.activeCount > 0);
-  const endedSmsGroups = smsGroups.filter((group) => group.activeCount === 0);
-  const hasLiveActionables = liveActionables.length > 0 || liveSmsGroups.length > 0;
+  ).filter((item, index, entries) => entries.findIndex(candidate => (candidate.operationKey || candidate.id) === (item.operationKey || item.id)) === index);
+  const hasLiveActionables = liveActionables.length > 0 || serverLive.length > 0;
   const hasRegularActionables = regularActionables.length > 0;
-  const hasActionables = hasLiveActionables || hasRegularActionables || endedSmsGroups.length > 0;
-  const hasUpcomingEvents = upcomingActionables.length > 0;
-  const hasProgress = inProgress.length > 0 || progressOverflow.length > 0;
+  const hasActionables = hasLiveActionables || hasRegularActionables;
   // Once cleared this session, the loaded history rows are hidden even though
   // `items` still holds them (no backend delete yet), so the empty state shows.
-  const hasHistory = items.length > 0;
+  const hasHistory = historyItems.length > 0;
   const contentLoading =
-    !clearWatermarkHydrated || loading || actionablesLoading || progressLoading;
-  const hasRefreshError = Boolean(resourceError || actionablesError || progressError);
+    !clearWatermarkHydrated || loading || actionablesLoading;
+  const hasRefreshError = Boolean(resourceError || actionablesError);
   const showEmpty =
-    !contentLoading && !hasActionables && !hasUpcomingEvents && !hasProgress && !hasHistory && !hasBankPayout && !hasRefreshError;
+    !contentLoading && !hasActionables && !hasHistory && !hasBankPayout && !hasRefreshError;
   const showColdError =
-    !contentLoading && !hasActionables && !hasUpcomingEvents && !hasProgress && !hasHistory && !hasBankPayout && hasRefreshError;
-  const showStaleWarning = hasRefreshError && (hasActionables || hasProgress || hasHistory);
+    !contentLoading && !hasActionables && !hasHistory && !hasBankPayout && hasRefreshError;
+  const showStaleWarning = hasRefreshError && (hasActionables || hasHistory);
   // The Clear affordance only makes sense when there is dismissable history
   // showing. Actionables ("Needs you") are otherwise deliberately NOT
   // cleared — they're pending tasks the user must still act on — except a
@@ -1047,7 +1044,7 @@ function FeedPageSession({
     const available = typeof IntersectionObserver !== "undefined";
     setAutomaticPaginationAvailable(available);
     const sentinel = loadMoreSentinelRef.current;
-    if (!available || !sentinel || !pagination.nextCursor || loadingMore ||
+    if (searchingActivity || !available || !sentinel || !pagination.nextCursor || loadingMore ||
         loadMoreError || !clearWatermarkHydrated || !visiblePage || clearing) return;
     let active = true;
     const observer = new IntersectionObserver((entries) => {
@@ -1060,17 +1057,17 @@ function FeedPageSession({
     // Reobserve after each page: short/grouped pages may leave the end visible.
     // Errors deliberately stop automatic reads until the person chooses Retry.
     return () => { active = false; observer.disconnect(); };
-  }, [pagination.nextCursor, loadingMore, loadMoreError, clearWatermarkHydrated, visiblePage, clearing, loadMore]);
-  const hasUsableContent = hasActionables || hasUpcomingEvents || hasProgress || hasHistory || hasBankPayout;
+  }, [searchingActivity, pagination.nextCursor, loadingMore, loadMoreError, clearWatermarkHydrated, visiblePage, clearing, loadMore]);
+  const hasUsableContent = hasActionables || hasHistory || hasBankPayout;
   const beaconDataState = hasUsableContent ? "loaded" : contentLoading
     ? "loading"
     : showColdError
       ? "error"
-      : hasActionables || hasUpcomingEvents || hasProgress || hasHistory || hasBankPayout
+      : hasActionables || hasHistory || hasBankPayout
         ? "loaded"
         : "empty-valid";
 
-  const fallback = (
+  return (
     <AppPageShell
       as="main"
       width="reading"
@@ -1101,82 +1098,20 @@ function FeedPageSession({
                   testId="feed-live-group"
                   shellClassName="!bg-accent/[0.04] shadow-none ring-1 ring-inset ring-accent/10"
                 >
-                  {liveSmsGroups.map((group) => (
-                    <FeedSmsAlertGroup key={group.id} group={group} />
-                  ))}
+                  {serverLive.map(item => <FeedRow key={`live:${item.id}`} item={item} openable onOpen={openItem} />)}
                   {liveActionables.map((item) => (
                     <FeedActionableRow key={item.id} item={item} />
                   ))}
                 </SettingsGroup>
+                {liveCursor ? <Button variant="none" disabled={loadingLive} onClick={() => void loadLive()}>{loadingLive ? "Loading…" : liveError ? "Retry live alerts" : "More live alerts"}</Button> : null}
               </section>
             ) : null}
 
-          {hasRegularActionables ? (
-            <section aria-label="Needs you">
-              <SectionLabel>Needs you</SectionLabel>
-              <div
-                className="divide-y divide-[color:var(--foundation-hairline)]"
-              >
-                {regularActionables.map((item) => (
-                  <FeedActionableRow key={item.id} item={item} />
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-            {endedSmsGroups.length > 0 ? (
-              <section aria-label="Recent SMS alerts">
-                <SectionLabel>Recent SMS alerts</SectionLabel>
-                <SettingsGroup separatorInset testId="feed-ended-sms-group">
-                  {endedSmsGroups.map((group) => (
-                    <FeedSmsAlertGroup key={group.id} group={group} />
-                  ))}
-                </SettingsGroup>
-              </section>
-            ) : null}
-
-            {hasUpcomingEvents ? (
-              <section aria-label="Coming up">
-                <SectionLabel>Coming up</SectionLabel>
-                <SettingsGroup separatorInset testId="feed-upcoming-events-group">
-                  {upcomingActionables.map((item) => (
-                    <FeedActionableRow key={item.id} item={item} />
-                  ))}
-                </SettingsGroup>
-              </section>
-            ) : null}
-
-            {hasProgress ? (
-              <section aria-label="In progress" aria-live="polite">
-                <SectionLabel>In progress</SectionLabel>
-                {inProgress.length > 0 ? (
-                  <SettingsGroup separatorInset testId="feed-drive-progress-group">
-                    {inProgress.map((item) => (
-                      <FeedDriveProgressRow key={item.id} item={item} />
-                    ))}
-                  </SettingsGroup>
-                ) : null}
-                {progressOverflow.length > 0 ? (
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 pt-2">
-                    {progressOverflow.map((link) => (
-                      <Link
-                        key={link.href}
-                        href={link.href}
-                        prefetch={false}
-                        data-profile-role="action"
-                        className="text-accent underline-offset-4 hover:underline"
-                      >
-                        {link.label}
-                      </Link>
-                    ))}
-                  </div>
-                ) : null}
-              </section>
-            ) : null}
-
+            <FeedActivitySearch key={`${userId}:${sessionGeneration}`} ownerId={userId || "signed-out"} getToken={getSessionToken} isCurrent={isSessionCurrent} onOpen={openItem} onModeChange={setSearchingActivity} pinnedOperations={liveOperations} initial={restoredSearch} actionables={regularActionables} persona={persona} />
+            <FeedPaymentReturnNotice />
+            {!searchingActivity ? <>
             {hasUsableContent ? <>
               <FeedLaneStatus label="Needs you" loading={actionablesLoading && !hasActionables} error={actionablesError} retry={retryActionables} />
-              <FeedLaneStatus label="In progress" loading={progressLoading && !hasProgress} error={progressError} retry={retryActionables} />
               <FeedLaneStatus label="Recent activity" loading={loading && !hasHistory} error={resourceError} retry={() => refresh({ force: true })} />
             </> : null}
             {!hasUsableContent && contentLoading && hasRefreshError ? <div role="status" className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
@@ -1184,7 +1119,7 @@ function FeedPageSession({
               <Button type="button" variant="none" size="compact" onClick={() => void retryFeed()}>Retry</Button>
             </div> : null}
 
-            {contentLoading && !hasHistory && !hasActionables && !hasProgress ? (
+            {contentLoading && !hasHistory && !hasActionables ? (
               <FeedRowsSkeleton />
             ) : null}
 
@@ -1230,7 +1165,7 @@ function FeedPageSession({
               </div>
             ) : null}
 
-            {showEmpty ? (
+            {!searchingActivity && showEmpty ? (
               <div
                 role="status"
                 className="flex min-h-[100px] flex-col items-center justify-center gap-1 rounded-[16px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-6 text-center"
@@ -1242,15 +1177,16 @@ function FeedPageSession({
             ) : null}
 
             {hasNew ? <div role="status"><Button type="button" variant="none" onClick={showNew}>New activity</Button></div> : null}
-            {hasHistory
+            {!searchingActivity && dayGroups.length > 0
               ? dayGroups.map((group) => (
                   <section key={group.label} aria-label={group.label}>
                     <SectionLabel>{group.label}</SectionLabel>
                     <SettingsGroup separatorInset>
-                      {group.items.map((item) => (
+                      {group.items.map(({kind,item}) => kind === "action" ? <FeedActionableRow key={item.id} item={item} /> : (
                         <FeedRow
-                          key={item.id}
+                          key={feedItemIdentity(item)}
                           item={item}
+                          openable
                           unread={
                             !item.read || visitUnreadIdsRef.current.has(item.id)
                           }
@@ -1290,6 +1226,7 @@ function FeedPageSession({
                 </Button> : null}
               </div>
             ) : null}
+
             <DocumentBankPayoutStatusCard compact refreshOnFeedChange onVisibleChange={setHasBankPayout} />
             {/* Clearing is housekeeping, not a task: it sits quietly after the
                 history, never under a "Needs you" row where it read as a
@@ -1329,11 +1266,13 @@ function FeedPageSession({
                 </StockButton>
               </div>
             ) : null}
+            </> : null}
           </AppPageContentRegion>
         </SettingsPresentationProvider>
       </div>
       <OwnerConsentUnlockPrompt prompt={consentUnlockPrompt} />
       {/* Mounted only while open: it reads the vault for owner-only calls. */}
+      {activityDetail && activityDetail.owner === userId && activityDetail.generation === sessionGeneration ? <FeedActivityDetail key={`${userId}:${activityDetail.item.id}`} item={activityDetail.item} getToken={getSessionToken} isCurrent={isSessionCurrent} onClose={() => setActivityDetail(null)} /> : null}
       {sharedFiles ? (
         <FeedSharedFilesSheet
           open
@@ -1368,30 +1307,6 @@ function FeedPageSession({
       />
     </AppPageShell>
   );
-  return <NativeFeedWorkspace model={{
-    owner: userId, current: isSessionCurrent,
-    records: [
-      ...liveSmsGroups.map(value => ({ key: `live-sms:${value.id}`, lane: "Live", kind: "sms" as const, value })),
-      ...liveActionables.map(value => ({ key: `action:${value.id}`, lane: "Live", kind: "action" as const, value })),
-      ...regularActionables.map(value => ({ key: `action:${value.id}`, lane: "Needs you", kind: "action" as const, value })),
-      ...endedSmsGroups.map(value => ({ key: `ended-sms:${value.id}`, lane: "Recent SMS alerts", kind: "sms" as const, value })),
-      ...upcomingActionables.map(value => ({ key: `upcoming:${value.id}`, lane: "Coming up", kind: "action" as const, value })),
-      ...inProgress.map(value => ({ key: `progress:${value.id}`, lane: "In progress", kind: "progress" as const, value })),
-      ...dayGroups.flatMap(group => group.items.map(value => ({ key: `history:${value.id}`, lane: group.label, kind: "history" as const, value, unread: !value.read || visitUnreadIdsRef.current.has(value.id) }))),
-    ],
-    loading: contentLoading,
-    errors: [
-      ...(actionablesError ? ["Some requests couldn't refresh."] : []),
-      ...(progressError ? ["Some work in progress couldn't refresh."] : []),
-      ...(resourceError ? ["Recent activity couldn't refresh."] : []),
-    ],
-    retry: retryFeed, overflow: progressOverflow, hasNew, showNew,
-    canLoadMore: !!pagination.nextCursor, loadingMore, loadMoreError, loadMore,
-    canClear, clearing, clearArmed,
-    clear: () => { if (!clearArmed) setClearArmed(true); else void handleClearAll(); }, cancelClear: () => setClearArmed(false),
-    removing: removingItemId, openHistory: openItem, removeHistory: removeItem,
-    webChildOpen: !!sharedFiles || documentPricePrompt.open || consentUnlockPrompt.open,
-  }} fallback={fallback} />;
 }
 
 function FeedLaneStatus({ label, loading, error, retry }: { label: string; loading: boolean; error: string | null; retry: () => Promise<unknown> }) {

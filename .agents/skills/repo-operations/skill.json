@@ -27,7 +27,8 @@
     "mobile-parity-check",
     "docs-sync",
     "github-contribution-governance",
-    "uat-scoped-deploy"
+    "uat-scoped-deploy",
+    "release-train-parity"
   ],
   "required_reads": [
     "docs/operations/README.md",
@@ -54,8 +55,7 @@
       "id": "repo-operations",
       "commands": [
         "./bin/hushh agents ci-status",
-        "CI_VALIDATION_LEVEL=focused CI_CHANGED_FILES_FILE=/path/to/changed-files.txt scripts/ci/repo-governance-check.sh",
-        "CI_VALIDATION_LEVEL=diagnostic scripts/ci/repo-governance-check.sh",
+        "./scripts/ci/orchestrate.sh core",
         "./bin/hushh agents rca --surface uat --text",
         "./bin/hushh docs verify",
         "./scripts/ci/verify-main-branch-protection.sh",
@@ -78,6 +78,7 @@
     "contributor-onboarding",
     "subtree-upstream-governance",
     "uat-scoped-deploy",
+    "release-train-parity",
     "backend",
     "security-audit"
   ],
@@ -90,7 +91,8 @@
     "oss-license-governance",
     "contributor-onboarding",
     "subtree-upstream-governance",
-    "uat-scoped-deploy"
+    "uat-scoped-deploy",
+    "release-train-parity"
   ],
   "risk_tags": [
     "ci-drift",

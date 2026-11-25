@@ -1,3 +1,5 @@
+import { parseConsentAccess, type AgentChatConsentAccess } from "@/lib/agent/chat-consent-access";
+export { parseConsentAccess, type AgentChatConsentAccess } from "@/lib/agent/chat-consent-access";
 import { loadAgentTurnFinancialProjection } from "@/lib/kai/plaid-vault/agent-turn-nws";
 import {
   PLAID_TOOL_DECLARATIONS,
@@ -32,10 +34,13 @@ import { describeDirectiveForOwner } from "@/lib/agent/action-directive-summary"
 import { parseMcpCallReview, type McpCallApproval, type McpCallReviewReference } from "@/lib/agent/mcp-call-review";
 import { REACTION_TOOL_NAME, parseMessageReaction, type MessageReactionResult } from "@/lib/agent/agent-message-reaction";
 import { FOLLOW_UP_TOOL_NAME, parseFollowUpSuggestions } from "@/lib/agent/follow-up-suggestions";
-import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { snapshotAuthSessionGeneration, snapshotValidatedAuthSessionOwner, snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { isFirebaseSessionOwnerCurrent } from "@/lib/auth/firebase-session-owner";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import { subscribeDurableOwnerReset } from "@/lib/services/secure-durable-resource-service";
 import { resolveTurnLocation } from "@/lib/agent/turn-location";
+import { parseGmailReviewDirective, type PendingEmailDraftContext } from "@/lib/chat/email-agent-contract";
+import { emailMemoryCommitPayload, parseEmailMemorySaveDirective, type EmailMemoryCommitReceipt, type EmailMemoryProjection } from "@/lib/chat/email-memory-bridge";
 import {
   QUEUED_INPUT_EVENT,
   parseQueuedInputNotice,
@@ -93,6 +98,13 @@ import { PENDING_CHAT_TURNS_HEADER } from "@/lib/pkm/live-activity/live-activity
 import { managedChatRunErrorMessage, MODEL_CAPACITY_MESSAGE } from "@/lib/agent/managed-chat-run-errors";
 import { ownerPodTurnErrorMessage, refusalCode } from "@/lib/agent/owner-pod-turn-errors";
 import { wakingChatTransport } from "@/lib/agent/one-chat-transport";
+import {
+  parsePortfolioContextRequest,
+  PORTFOLIO_CONTEXT_CONTRACT,
+  PORTFOLIO_CONTEXT_TOOL,
+  readPortfolioContext,
+  type PortfolioContextRequest,
+} from "@/lib/kai/portfolio-chat-context";
 import type { ReceiptCanonicalIndex } from "@/lib/profile/gmail-receipt-memory-index";
 import { RECEIPT_FUNCTIONS, RECEIPT_TOOL_DECLARATIONS, type ReceiptAnalysisRequest, type ReceiptFunction } from "@/lib/mail/receipt-analysis";
 import { receiptCallRequest, receiptCallRunner, settleReceiptCalls, type ReceiptSetupState } from "./agent-chat-receipt-calls";
@@ -130,51 +142,6 @@ export type AgentChatMessage = {
     consentAccess?: AgentChatConsentAccess;
   } | null;
 };
-
-/**
- * `metadata.consentAccess` on an answer that used another person's shared
- * information (contract C3). Names and human labels only, never values.
- */
-export type AgentChatConsentAccess = {
-  bundleId: string;
-  state: "live" | "ended";
-  /** Why access ended; null while it is live. */
-  outcome: "revoked" | "expired" | null;
-  personName: string | null;
-  labels: string[];
-};
-
-function endedReason(value: unknown): "revoked" | "expired" | null {
-  return value === "revoked" || value === "expired" ? value : null;
-}
-
-/**
- * Read `metadata.consentAccess`, falling back to the response's
- * `consentAccessEnded` map for the reason. Anything malformed reads as absent.
- */
-export function parseConsentAccess(
-  value: unknown,
-  endedByBundle: Readonly<Record<string, unknown>> = {},
-): AgentChatConsentAccess | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const record = value as Record<string, unknown>;
-  const bundleId = typeof record.bundleId === "string" ? record.bundleId.trim() : "";
-  if (!bundleId) return undefined;
-  const outcome = endedReason(record.outcome) ?? endedReason(endedByBundle[bundleId]);
-  const labels = Array.isArray(record.labels)
-    ? record.labels.filter((label): label is string => typeof label === "string" && Boolean(label.trim()))
-      .map((label) => label.trim().slice(0, 120)).slice(0, 20)
-    : [];
-  const personName = typeof record.personName === "string" && record.personName.trim()
-    ? record.personName.trim().slice(0, 120) : null;
-  return {
-    bundleId,
-    state: record.state === "ended" || outcome ? "ended" : "live",
-    outcome,
-    personName,
-    labels,
-  };
-}
 
 function utf8ToBase64(text: string): string {
   const bytes = new TextEncoder().encode(text);
@@ -252,6 +219,8 @@ export type SpecialistDirectiveEvent = {
   stateChanged: boolean;
 };
 
+export { parseGmailReviewDirective, type GmailReviewDirective } from "@/lib/chat/email-agent-contract";
+
 export type AgentSource = {
   agentId: string;
   label: string;
@@ -263,7 +232,7 @@ export type AgentChatStreamHandlers = {
   /** Invocation metadata triggers owner-pod rediscovery, never private browser content. */
   onBrowserTaskCreated?: () => void;
   /** Receipt detail/answer is current-turn only, excluded from replay and PKM. */
-  onReceiptPrivate?: () => void;
+  onReceiptPrivate?: (kind?: "portfolio") => void;
   /** At most once per turn: receipts need Gmail connected, or a sync on this device. */
   onReceiptSetupNeeded?: (state: ReceiptSetupState) => void;
   /** Ephemeral native review: never append its references or receipt to history/debug events. */
@@ -667,6 +636,31 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Asking the finance specialist.",
     activity: "Checking your finances",
   },
+  show_market_gainers: {
+    label: "Top gainers",
+    message: "Opening the market gainers card.",
+    activity: "Opening top gainers",
+  },
+  show_portfolio_card: {
+    label: "Portfolio",
+    message: "Opening the portfolio card.",
+    activity: "Opening portfolio",
+  },
+  [PORTFOLIO_CONTEXT_TOOL]: {
+    label: "Portfolio",
+    message: "Reading saved portfolio details.",
+    activity: "Reading portfolio",
+  },
+  show_portfolio_upload: {
+    label: "Portfolio upload",
+    message: "Opening the portfolio upload card.",
+    activity: "Opening portfolio upload",
+  },
+  show_stock_preview: {
+    label: "Stock analysis preview",
+    message: "Opening the stock analysis preview.",
+    activity: "Opening stock analysis preview",
+  },
   wallet: {
     label: "Wallet",
     message: "Checking your wallet.",
@@ -822,6 +816,16 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Finding free time on your calendar.",
     activity: "Finding free time",
   },
+  calendar_shared_free_slots: {
+    label: "Google Calendar",
+    message: "Checking free time across your Calendar accounts.",
+    activity: "Finding shared free time",
+  },
+  calendar_opening_detail: {
+    label: "Google Calendar",
+    message: "Reading a saved free-time option.",
+    activity: "Showing a free-time option",
+  },
   propose_calendar_event: {
     label: "Google Calendar",
     message: "Preparing an event for your confirmation.",
@@ -886,6 +890,61 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Gmail",
     message: "Opening a reply draft.",
     activity: "Drafting a reply",
+  },
+  open_gmail_reply_draft: {
+    label: "Gmail",
+    message: "Opening a threaded reply draft.",
+    activity: "Drafting a reply",
+  },
+  open_gmail_forward_draft: {
+    label: "Gmail",
+    message: "Opening a forwarded email draft.",
+    activity: "Drafting a forward",
+  },
+  gmail_search_mail: {
+    label: "Gmail",
+    message: "Searching your Gmail.",
+    activity: "Searching your Gmail",
+  },
+  gmail_scan_receipts: {
+    label: "Gmail",
+    message: "Scanning your Gmail receipts and invoices.",
+    activity: "Scanning receipts and invoices",
+  },
+  gmail_read_thread: {
+    label: "Gmail",
+    message: "Reading the email conversation.",
+    activity: "Reading an email thread",
+  },
+  gmail_read_attachment: {
+    label: "Gmail",
+    message: "Reading the email attachment.",
+    activity: "Reading an email attachment",
+  },
+  gmail_list_needs_reply: {
+    label: "Gmail",
+    message: "Checking emails waiting on your reply.",
+    activity: "Checking replies needed",
+  },
+  gmail_mailbox_insights: {
+    label: "Gmail",
+    message: "Checking your Gmail status and insights.",
+    activity: "Checking Gmail insights",
+  },
+  gmail_manage_labels: {
+    label: "Gmail",
+    message: "Updating your Gmail labels.",
+    activity: "Managing Gmail labels",
+  },
+  gmail_manage_drafts: {
+    label: "Gmail",
+    message: "Managing your Gmail drafts.",
+    activity: "Managing Gmail drafts",
+  },
+  gmail_manage_settings: {
+    label: "Gmail",
+    message: "Managing your Gmail settings.",
+    activity: "Managing Gmail settings",
   },
   propose_gmail_mailbox_change: {
     label: "Gmail",
@@ -1055,10 +1114,28 @@ export type RestoredActivityStep = {
   connectorId?: string;
 };
 
+const DIRECT_MAIL_READ_TOOLS = new Set([
+  "gmail_search_mail",
+  "gmail_scan_receipts",
+  "gmail_read_thread",
+  "gmail_read_attachment",
+  "gmail_list_needs_reply",
+  "gmail_mailbox_insights",
+]);
+
 /** A specialist read's Activity sentence: chosen by its receipt status, never by the card it renders. */
 function specialistReadMessage(toolName: string, status: unknown, metadataOnly = false): string {
-  const source = toolName === "ask_email_agent" ? "Mail" : "Drive";
-  if (status === "ok") return source === "Drive" && metadataOnly ? "Drive search finished." : `${source} read finished.`;
+  const source = toolName === "ask_email_agent" || DIRECT_MAIL_READ_TOOLS.has(toolName) ? "Mail" : "Drive";
+  if (status === "ok") {
+    if (toolName === "gmail_search_mail") return "Mail search finished.";
+    if (toolName === "gmail_scan_receipts") return "Scanned Mail receipts and invoices.";
+    if (toolName === "gmail_read_thread") return "Mail thread read.";
+    if (toolName === "gmail_read_attachment") return "Mail attachment read.";
+    if (toolName === "gmail_list_needs_reply") return "Checked emails needing a reply.";
+    if (toolName === "gmail_mailbox_insights") return "Checked Gmail status and insights.";
+    return source === "Drive" && metadataOnly ? "Drive search finished." : `${source} read finished.`;
+  }
+  if (status === "no_match" && source === "Mail") return "No matching emails found.";
   if (status === "input_required") return `${source} needs more detail.`;
   if (status === "connect_required") return `${source} isn't connected yet.`;
   if (status === "reconnect_required") return `${source} needs to be reconnected.`;
@@ -1121,7 +1198,12 @@ export function parseRestoredTurnActivity(descriptor: unknown): RestoredActivity
         : step.readStatus === "input_required" ? "Choose the file again."
           : "Drive file could not be checked.";
     }
-    else if (toolName === "ask_email_agent" || toolName === "ask_documents_agent" || toolName === "inspect_selected_drive_files") {
+    else if (
+      toolName === "ask_email_agent" ||
+      DIRECT_MAIL_READ_TOOLS.has(toolName) ||
+      toolName === "ask_documents_agent" ||
+      toolName === "inspect_selected_drive_files"
+    ) {
       message = step.readStatus === "status_checked" ? "Drive status checked." : specialistReadMessage(toolName, step.readStatus);
     }
     return [{ id, toolName, label: presentation.label, message, status, ...(provider ? { provider } : {}) }];
@@ -1233,21 +1315,7 @@ export type AgentChatConsentContinuation = {
   sharedInformation?: string;
 };
 
-/**
- * The person's unsent mail draft as it is on screen, so a follow-up turn can
- * revise it. It grants nothing: One can only open a replacement review card,
- * and sending still needs the person's Send click on that card.
- */
-export type PendingEmailDraftContext = {
-  to: string;
-  cc: string;
-  bcc: string;
-  subject: string;
-  body: string;
-  driveFileId?: string;
-  /** A reply to the selected Gmail request; its envelope stays server-derived. */
-  sourceBound: boolean;
-};
+export type { PendingEmailDraftContext } from "@/lib/chat/email-agent-contract";
 
 /** Start the first catalog read beside memory preparation, without adding a cache. */
 export function prepareAgentChatConnectorConfigurations(input: {
@@ -1327,6 +1395,10 @@ async function streamAgentChatAttempt(input: {
   /** One saved Drive result, checked against the current owner and live Drive before use. */
   driveSearchSelection?: { jobId: string; position: number };
   pendingEmailDraft?: PendingEmailDraftContext | null;
+  /** Same canonical, owner-authorized RAM document; never a legacy-domain fallback. */
+  emailMemoryProjection?: EmailMemoryProjection | null;
+  /** A confirmed commit locator; ingress independently checks the PKM ledger. */
+  emailMemoryCommit?: EmailMemoryCommitReceipt;
   /**
    * Deprecated compatibility input. Ignored: receipt detail is admitted only
    * through a current owner-authorized dedicated function continuation.
@@ -1469,7 +1541,8 @@ async function streamAgentChatAttempt(input: {
     tools.push(...(PLAID_TOOL_DECLARATIONS as unknown as Tool[]));
   }
   const plaidEligible = Boolean(plaidToolsEligible && !input.consentContinuation);
-  const wikiEligible = plaidEligible;
+  const wikiToolsEligible = plaidToolsEligible;
+  const wikiEligible = Boolean(wikiToolsEligible && !input.consentContinuation);
   const resolveTurnSharedWiki = async (): Promise<{
     wiki: SharedWikiLibrary | null;
     wikiHotDigest: string;
@@ -1578,7 +1651,7 @@ async function streamAgentChatAttempt(input: {
   // (keeping Gemini 4 implicit prefix caching hot without adding a pre-turn fetch).
   const warmContinuationWiki =
     !turnWiki.wiki &&
-    plaidToolsEligible &&
+    wikiToolsEligible &&
     Boolean(input.consentContinuation) &&
     mcpSessionCurrent()
       ? peekActiveSharedWiki()
@@ -1638,7 +1711,7 @@ async function streamAgentChatAttempt(input: {
           markTiming("wire-start");
           return true;
         },
-      } as ApiFetchOptions, () => handlers.onStreamHealth?.({ kind: "waking" }), () => {});
+      } as ApiFetchOptions, () => handlers.onStreamHealth?.({ kind: "waking" }), () => {}, turnSessionCurrent);
       markTiming("response-headers");
       return response;
     },
@@ -1821,17 +1894,12 @@ async function streamAgentChatAttempt(input: {
     agent.abortRun();
   };
   const toolNames = new Map<string, string>();
-  const receiptCalls = new Map<string, Promise<{ toolCallId: string; toolName: ReceiptFunction; request: ReceiptAnalysisRequest; result: unknown }>>();
-  const wikiCalls = new Map<
-    string,
-    Promise<{
-      toolCallId: string;
-      toolName: WikiToolName;
-      request: Record<string, unknown>;
-      result: WikiRecallEnvelope;
-    }>
-  >();
-  const wikiArgs = new Map<string, string>();
+  const receiptCalls = new Map<string, Promise<{
+    toolCallId: string;
+    toolName: ReceiptFunction | typeof PORTFOLIO_CONTEXT_TOOL;
+    request: ReceiptAnalysisRequest | PortfolioContextRequest;
+    result: unknown;
+  }>>();
   const plaidCalls = new Map<
     string,
     Promise<{
@@ -1845,6 +1913,8 @@ async function streamAgentChatAttempt(input: {
   let receiptPrivate = false;
   let receiptReset = false;
   const receiptSessionCurrent = () => !receiptReset && mcpSessionCurrent();
+  const portfolioContextEnabled = Boolean(input.vaultKey && input.vaultOwnerToken && input.message.trim() &&
+    !recovered && !input.consentContinuation && !input.financeShare && !input.feedAttention);
   const runReceiptCall = receiptCallRunner({ userId: input.userId, vaultKey: input.vaultKey, vaultOwnerToken: input.vaultOwnerToken,
     isCurrent: receiptSessionCurrent }, state => handlers.onReceiptSetupNeeded?.(state));
   let reactionShown = false;
@@ -1862,6 +1932,16 @@ async function streamAgentChatAttempt(input: {
   // Parse the confirmation from its own streamed deltas instead.
   const confirmationArgs = new Map<string, string>();
   const receiptArgs = new Map<string, string>();
+  const wikiCalls = new Map<
+    string,
+    Promise<{
+      toolCallId: string;
+      toolName: WikiToolName;
+      request: Record<string, unknown>;
+      result: WikiRecallEnvelope;
+    }>
+  >();
+  const wikiArgs = new Map<string, string>();
   const publishedMcpReviews = new Set<string>();
   const emittedStateDirectivePaths = new Set<string>();
   const toolPayload = (callId: string, name: string, args: Record<string, unknown> = {}): AgentChatToolEvent => {
@@ -1918,11 +1998,13 @@ async function streamAgentChatAttempt(input: {
               timezone,
               turnLocation,
               pkmContext: input.pkmContext,
+              emailMemoryProjection: input.emailMemoryProjection,
+              ...(input.emailMemoryCommit ? { emailMemoryCommit: emailMemoryCommitPayload(input.emailMemoryCommit) } : {}),
               communicationPreferences,
               personSelectionHandle: input.personSelectionHandle,
               gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
               ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
-              ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}), emailDraftContract: 2, calendarReviewContract: 1,
+              ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}), emailDraftContract: 2, emailAgentContract: 1, calendarReviewContract: 1, emailReadReceiptContract: 2,
               screenContext: input.screenContext,
             },
             resume: [{ interruptId, status, payload }],
@@ -2041,6 +2123,31 @@ async function streamAgentChatAttempt(input: {
       })),
     );
   };
+  const startPortfolioContextCall = (toolCallId: string) => {
+    if (receiptCalls.has(toolCallId)) return;
+    const streamed = receiptArgs.get(toolCallId);
+    receiptArgs.delete(toolCallId);
+    receiptPrivate = true;
+    handlers.onReceiptPrivate?.("portfolio");
+    let request: PortfolioContextRequest | null = null;
+    try {
+      request = parsePortfolioContextRequest(JSON.parse(streamed || "null"));
+    } catch {
+      // The server projects a closed request. Malformed arguments have no authority.
+    }
+    const { userId, vaultKey, vaultOwnerToken } = input;
+    if (!request || !portfolioContextEnabled || !vaultKey || !vaultOwnerToken ||
+        !receiptSessionCurrent() || receiptCalls.size) {
+      failure = new Error("The portfolio read could not be verified. Please ask again.");
+      handlers.onError?.(failure.message);
+      agent.abortRun();
+      finishTerminalRun();
+      return;
+    }
+    receiptCalls.set(toolCallId, readPortfolioContext({ userId, vaultKey, vaultOwnerToken, threadId }, request, receiptSessionCurrent)
+      .catch(() => ({ status: "unavailable", reason: "source_unavailable" }))
+      .then(result => ({ toolCallId, toolName: PORTFOLIO_CONTEXT_TOOL, request, result })));
+  };
   const subscriber: AgentSubscriber = {
     ...publicOutputSubscriber,
     onEvent: ({ event }) => {
@@ -2059,6 +2166,10 @@ async function streamAgentChatAttempt(input: {
       if (event.type === "TOOL_CALL_END") {
         const id = event.toolCallId;
         const name = typeof id === "string" ? toolNames.get(id) : undefined;
+        if (typeof id === "string" && name === PORTFOLIO_CONTEXT_TOOL) {
+          startPortfolioContextCall(id);
+          return { stopPropagation: true };
+        }
         if (typeof id === "string" && RECEIPT_FUNCTIONS.includes(name as ReceiptFunction)) {
           // Native snapshots redact arguments and may replace streamed IDs.
           // Consume the bounded streamed call before the SDK's message lookup.
@@ -2129,7 +2240,8 @@ async function streamAgentChatAttempt(input: {
       // Follow-ups are chips under the answer, not a step the person waits on.
       if (event.toolCallName === FOLLOW_UP_TOOL_NAME || event.toolCallName === REACTION_TOOL_NAME) return;
       if (event.toolCallName === "adk_request_confirmation") confirmationArgs.set(event.toolCallId, "");
-      if (RECEIPT_FUNCTIONS.includes(event.toolCallName as ReceiptFunction)) receiptArgs.set(event.toolCallId, "");
+      if (event.toolCallName === PORTFOLIO_CONTEXT_TOOL ||
+          RECEIPT_FUNCTIONS.includes(event.toolCallName as ReceiptFunction)) receiptArgs.set(event.toolCallId, "");
       if (WIKI_TOOL_NAMES.includes(event.toolCallName as WikiToolName)) wikiArgs.set(event.toolCallId, "");
       if (PLAID_TOOL_NAMES.includes(event.toolCallName as PlaidToolName)) plaidArgs.set(event.toolCallId, "");
       handlers.onToolStart?.(toolPayload(event.toolCallId, event.toolCallName));
@@ -2161,6 +2273,10 @@ async function streamAgentChatAttempt(input: {
       else confirmationArgs.set(event.toolCallId, next);
     },
     onToolCallEndEvent: ({ event, toolCallName, toolCallArgs }) => {
+      if (toolCallName === PORTFOLIO_CONTEXT_TOOL) {
+        startPortfolioContextCall(event.toolCallId);
+        return;
+      }
       if (RECEIPT_FUNCTIONS.includes(toolCallName as ReceiptFunction)) {
         startReceiptCall(event.toolCallId, toolCallName as ReceiptFunction, toolCallArgs);
         return;
@@ -2228,10 +2344,17 @@ async function streamAgentChatAttempt(input: {
         handlers.onToolResult?.({ ...toolPayload(event.toolCallId, toolName, {}), ...result.event });
         return;
       }
-      if (RECEIPT_FUNCTIONS.includes(toolName as ReceiptFunction)) {
+      if (toolName === PORTFOLIO_CONTEXT_TOOL || RECEIPT_FUNCTIONS.includes(toolName as ReceiptFunction)) {
         const payload = toolPayload(event.toolCallId, toolName);
         payload.raw = { protocol: "ag-ui", toolName };
-        payload.message = "Receipt function finished for this turn.";
+        payload.message = toolName === PORTFOLIO_CONTEXT_TOOL ? "Private portfolio read finished." : "Receipt function finished for this turn.";
+        handlers.onToolResult?.(payload);
+        return;
+      }
+      if (WIKI_TOOL_NAMES.includes(toolName as WikiToolName)) {
+        const payload = toolPayload(event.toolCallId, toolName);
+        payload.raw = { protocol: "ag-ui", toolName };
+        payload.message = "Personal note checked for this turn.";
         handlers.onToolResult?.(payload);
         return;
       }
@@ -2329,19 +2452,23 @@ async function streamAgentChatAttempt(input: {
       }
       // External-read receipts are display-only, even if an invalid result attempts to
       // smuggle a parked navigation/send directive alongside it.
-      if (toolName === "ask_email_agent" || toolName === "ask_documents_agent" || toolName === "inspect_selected_drive_files") {
+      const isDirectMailRead = DIRECT_MAIL_READ_TOOLS.has(toolName);
+      if (toolName === "ask_email_agent" || isDirectMailRead || toolName === "ask_documents_agent" || toolName === "inspect_selected_drive_files") {
         const experience = parseAgentToolResultExperience(toolName, event.content);
         const payload = toolPayload(event.toolCallId, toolName);
         payload.execution = "server";
         // The row reads the result's own receipt, so a brief card, a receipt card or no card all report the same read.
-        const receipt = asRecord(unwrapParkedActionResult(event.content)?.structured);
-        const own = receipt?.connector === (toolName === "ask_email_agent" ? "mail" : "drive") ? receipt : null;
+        const unwrapped = unwrapParkedActionResult(event.content);
+        const receipt = asRecord(unwrapped?.structured);
+        const isMail = toolName === "ask_email_agent" || isDirectMailRead;
+        const own = receipt?.connector === (isMail ? "mail" : "drive") ? receipt : null;
+        const statusForMessage = unwrapped?.status === "no_match" ? "no_match" : own?.status;
         payload.message = toolName === "inspect_selected_drive_files"
           ? parseRecord(event.content)?.status === "ok" ? "Drive status checked." : "Drive status could not be checked."
-          : specialistReadMessage(toolName, own?.status, own?.metadata_only === true);
+          : specialistReadMessage(toolName, statusForMessage, own?.metadata_only === true);
         payload.raw = { protocol: "ag-ui", toolName };
         handlers.onToolResult?.(payload);
-        if (experience) {
+        if (experience && unwrapped?.status !== "no_match") {
           if (experience.type === "one.workspace_connector_setup.v1") {
             sawConnectorSetupCard = true;
           }
@@ -2534,6 +2661,10 @@ async function streamAgentChatAttempt(input: {
             typeof val.delegateAgentId === "string"
           ) {
             const directivePayload = (val.payload || {}) as Record<string, unknown>;
+            if (directivePayload.kind === "email_memory_save" &&
+                (val.delegateAgentId !== "agent_email" || !parseEmailMemorySaveDirective(directivePayload))) continue;
+            if (directivePayload.type === "gmail.review_requested" &&
+                (val.delegateAgentId !== "agent_email" || !parseGmailReviewDirective(directivePayload))) continue;
             const directiveEvent: SpecialistDirectiveEvent = {
               delegateAgentId: val.delegateAgentId,
               directive: {
@@ -2541,7 +2672,7 @@ async function streamAgentChatAttempt(input: {
                 payload: directivePayload,
               },
               message: String(directivePayload.summary || val.message || ""),
-              stateChanged: true,
+              stateChanged: directivePayload.kind !== "email_memory_save" && directivePayload.type !== "gmail.review_requested",
             };
             handlers.onSpecialistDirective?.(directiveEvent);
             continue;
@@ -2627,10 +2758,12 @@ async function streamAgentChatAttempt(input: {
                   forwardedProps: {
                     ...await connectorProjection(),
                     timezone, turnLocation, pkmContext: input.pkmContext, communicationPreferences,
+                    emailMemoryProjection: input.emailMemoryProjection,
+                    ...(input.emailMemoryCommit ? { emailMemoryCommit: emailMemoryCommitPayload(input.emailMemoryCommit) } : {}),
                     personSelectionHandle: input.personSelectionHandle,
                     gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
                     ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
-                    ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}), emailDraftContract: 2, calendarReviewContract: 1,
+                    ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}), emailDraftContract: 2, emailAgentContract: 1, calendarReviewContract: 1, emailReadReceiptContract: 2,
                     screenContext: input.screenContext,
                     ...(approval ? { mcpApproval: {
                       directiveId: approval.directiveId, connectorId: approval.connectorId,
@@ -2770,15 +2903,18 @@ async function streamAgentChatAttempt(input: {
         timezone,
         turnLocation,
         pkmContext: effectivePkmContext,
-        ...(sharedWikiSession ? { wikiClientReady: true } : {}),
-        ...(turnWiki.wikiHotDigest ? { wikiHotDigest: turnWiki.wikiHotDigest } : {}),
+        emailMemoryProjection: input.emailMemoryProjection,
+        ...(input.emailMemoryCommit ? { emailMemoryCommit: emailMemoryCommitPayload(input.emailMemoryCommit) } : {}),
         communicationPreferences,
         personSelectionHandle: input.personSelectionHandle,
         gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
         ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
         ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}),
         // The mail draft envelope version this client reads. The server reads it per request, so resumed runs send it too.
-        emailDraftContract: 2, calendarReviewContract: 1,
+        emailDraftContract: 2, emailAgentContract: 1, calendarReviewContract: 1, emailReadReceiptContract: 2,
+        ...(portfolioContextEnabled ? { portfolioContextContract: PORTFOLIO_CONTEXT_CONTRACT } : {}),
+        ...(sharedWikiSession ? { wikiClientReady: true } : {}),
+        ...(turnWiki.wikiHotDigest ? { wikiHotDigest: turnWiki.wikiHotDigest } : {}),
         screenContext: input.screenContext,
         ...(input.consentContinuation ? { consentContinuation: input.consentContinuation } : {}),
         ...(input.financeShare ? { financeShare: input.financeShare } : {}),
@@ -2802,15 +2938,18 @@ async function streamAgentChatAttempt(input: {
     if (receiptCalls.size && !failure && !detached && !input.signal?.aborted) {
       const receiptToolResults = await settleReceiptCalls(receiptCalls.values(), input.signal, () => handlers.onStreamHealth?.({ kind: "activity" }));
       receiptCalls.clear();
-      if (mcpReviews.size) throw new Error("Receipt analysis must complete in its own authorized turn. Ask again.");
-      if (!receiptSessionCurrent()) throw new Error("Receipt authority changed. Unlock and ask again.");
+      const portfolioRead = receiptToolResults.some(item => item.toolName === PORTFOLIO_CONTEXT_TOOL);
+      const privateReadLabel = portfolioRead ? "Portfolio read" : "Receipt analysis";
+      if (mcpReviews.size) throw new Error(`${privateReadLabel} must complete in its own authorized turn. Ask again.`);
+      if (!receiptSessionCurrent()) throw new Error(`${privateReadLabel} authority changed. Unlock and ask again.`);
       // Only the receipt replies: replaying run A's question made the bridge start a second run beside the receipt call.
       agent.setMessages(receiptToolResults.map(item => ({ id: crypto.randomUUID(), role: "tool" as const, toolCallId: item.toolCallId,
         content: JSON.stringify({ schema: "receipt_result.v1", operation: item.toolName, ephemeral_result: true }) })));
       await runUntilTerminal({ tools, context: [], forwardedProps: {
-        timezone, screenContext: input.screenContext, communicationPreferences, receiptToolResults, emailDraftContract: 2, calendarReviewContract: 1,
+        timezone, screenContext: input.screenContext, communicationPreferences, receiptToolResults, emailDraftContract: 2, emailAgentContract: 1, calendarReviewContract: 1, emailReadReceiptContract: 2,
+        ...(portfolioRead ? { portfolioContextContract: PORTFOLIO_CONTEXT_CONTRACT } : {}),
       } });
-      if (!receiptSessionCurrent()) throw new Error("Receipt authority changed. Ask again.");
+      if (!receiptSessionCurrent()) throw new Error(`${privateReadLabel} authority changed. Ask again.`);
     }
     for (
       let wikiRound = 0;
@@ -2857,11 +2996,14 @@ async function streamAgentChatAttempt(input: {
           ...(plaidEligible ? { plaidClientReady: true } : {}),
           ...(plaidPosture ? { plaidPosture } : {}),
           wikiToolResults,
-          emailDraftContract: 2, calendarReviewContract: 1,
+          emailDraftContract: 2,
+          emailAgentContract: 1,
+          calendarReviewContract: 1,
+          emailReadReceiptContract: 2,
         },
       });
       if (!receiptSessionCurrent()) {
-        throw new Error("Vault authority changed. Ask again.");
+        throw new Error("Vault authority changed. Unlock and ask again.");
       }
     }
     for (
@@ -2931,7 +3073,10 @@ async function streamAgentChatAttempt(input: {
           ...(plaidEligible ? { plaidClientReady: true } : {}),
           ...(plaidPosture ? { plaidPosture } : {}),
           plaidToolResults,
-          emailDraftContract: 2, calendarReviewContract: 1,
+          emailDraftContract: 2,
+          emailAgentContract: 1,
+          calendarReviewContract: 1,
+          emailReadReceiptContract: 2,
         },
       });
       if (!receiptSessionCurrent()) {
@@ -2976,14 +3121,23 @@ export const PRIVATE_AGENT_INTRO_REPLY =
  */
 export async function streamAgentIntro(input: {
   message: string;
+  confirmedNativeGuest?: boolean;
   screenContext?: Record<string, unknown> | null;
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
 }): Promise<{ conversationId: string | null; model: string | null; text: string }> {
   const threadId = crypto.randomUUID();
   const handlers = input.handlers ?? {};
+  const authEpisode = snapshotAuthSessionGeneration();
+  const principal = snapshotValidatedAuthSessionPrincipal();
+  const current = () => Boolean(authEpisode && isValidatedAuthSessionOwnerCurrent(authEpisode)
+    && (!principal || isFirebaseSessionOwnerCurrent(principal))
+    && !input.signal?.aborted);
   const access = await import("./pod-app-access");
-  if (!(await access.introMayReachHub(() => ApiService.getPersonalAgentStatus()))) {
+  if (!current() || !(await access.introMayReachHub(
+    () => ApiService.getPersonalAgentStatusForRouting({ fresh: true, signal: input.signal }),
+    input.confirmedNativeGuest,
+  )) || !current()) {
     handlers.onToken?.(PRIVATE_AGENT_INTRO_REPLY);
     handlers.onComplete?.({ conversationId: threadId });
     return { conversationId: null, model: null, text: PRIVATE_AGENT_INTRO_REPLY };
@@ -3005,7 +3159,10 @@ export async function streamAgentIntro(input: {
     loseStream();
     agent.abortRun();
   };
-  const liveness = createAgentStreamLiveness((init) => nativeStreamFetch("/api/one/agent-chat", init), onLostTransport);
+  const liveness = createAgentStreamLiveness(
+    (init) => nativeStreamFetch("/api/one/agent-chat", { ...init, isEffectCurrent: current }),
+    onLostTransport,
+  );
   const agent = new HttpAgent({
     url: "/api/one/agent-chat",
     threadId,
@@ -3055,7 +3212,7 @@ export async function streamAgentIntro(input: {
     await agent.runAgent({
       tools: [],
       context: [],
-      forwardedProps: { screenContext: input.screenContext, timezone: browserTimeZone(), calendarReviewContract: 1 },
+      forwardedProps: { screenContext: input.screenContext, timezone: browserTimeZone(), emailAgentContract: 1, calendarReviewContract: 1 },
     }, subscriber);
   } finally {
     liveness.stop();

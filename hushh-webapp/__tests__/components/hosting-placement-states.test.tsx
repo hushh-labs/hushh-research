@@ -52,6 +52,7 @@ vi.mock("@/lib/services/api-service", () => ({
     getFirebaseIdToken: vi.fn(),
     getByocSetupStatus: vi.fn(),
     getPersonalAgentStatus: vi.fn(),
+    getPersonalAgentStatusForRouting: vi.fn(),
     suggestByocProject: vi.fn(),
     selectHostedCloud: vi.fn(),
     selectSharedHosting: vi.fn(),
@@ -85,7 +86,9 @@ const NO_JOB = {
 };
 
 function given(agent: Record<string, unknown>, job: Record<string, unknown> = NO_JOB) {
-  vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({ featureEnabled: true, ...agent } as never);
+  const status = { featureEnabled: true, ...agent } as never;
+  vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue(status);
+  vi.mocked(ApiService.getPersonalAgentStatusForRouting).mockResolvedValue(status);
   vi.mocked(ApiService.getByocSetupStatus).mockResolvedValue(job as never);
 }
 

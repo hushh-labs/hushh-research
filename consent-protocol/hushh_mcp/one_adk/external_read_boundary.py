@@ -14,6 +14,7 @@ from typing import Any
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
 
+from hushh_mcp.pod_connectors.contacts_tool import STATE_CONTACT_CALENDAR_READ
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,9 @@ STATE_CALENDAR_READ_OUTCOME = "temp:one_calendar_read_outcome"
 STATE_SELECTED_DRIVE_SHARE = "temp:one_selected_drive_share"
 STATE_RECEIPT_HANDBACK = "temp:one_receipt_handback_invocation"
 STATE_READ_CALL_REFUSED = "temp:one_read_call_refused_invocation"
+STATE_MAIL_EMPTY_RETRIES = "temp:one_mail_empty_retries"
+STATE_MAIL_DRILLDOWN_USED = "temp:one_mail_drilldown_used"
+_MAX_EMPTY_MAIL_RETRIES = 2
 _DRIVE_READ_FAILED_ANSWER = (
     "I couldn’t complete a fresh Drive check. Earlier filenames and links in this chat "
     "have not been verified again, so I can’t confirm the current result. Please try again."
@@ -123,8 +127,24 @@ _CALENDAR_REASON_TO_OUTCOME = {
     "calendar_permission_required": "permission_required",
 }
 MAIL_TOOL = "ask_email_agent"
+DIRECT_MAIL_READ_TOOLS = frozenset(
+    {
+        "gmail_search_mail",
+        "gmail_scan_receipts",
+        "gmail_read_thread",
+        "gmail_read_attachment",
+        "gmail_list_needs_reply",
+        "gmail_mailbox_insights",
+    }
+)
 READ_TOOLS = {
     MAIL_TOOL: "gmail_chat_reads",
+    "gmail_search_mail": "gmail_chat_reads",
+    "gmail_scan_receipts": "gmail_chat_reads",
+    "gmail_read_thread": "gmail_chat_reads",
+    "gmail_read_attachment": "gmail_chat_reads",
+    "gmail_list_needs_reply": "gmail_chat_reads",
+    "gmail_mailbox_insights": "gmail_chat_reads",
     # Resolves bounded Gmail metadata into an owner-confirmation card. It is
     # still a connector read, so no later tool in this model turn can act on
     # the selected email text.
@@ -143,6 +163,9 @@ READ_TOOLS = {
     "calendar_event_detail": None,
     "calendar_availability": None,
     "calendar_free_slots": None,
+    "calendar_shared_free_slots": None,
+    "calendar_opening_detail": None,
+    "search_my_contacts": None,
     # Per-provider admission and owner authority are checked inside the tool.
     # Establish the content barrier before dispatch, regardless of provider.
     "read_workspace_tool": None,
@@ -185,6 +208,12 @@ def _reviewable_draft_tool(tool: Any) -> bool:
         from hushh_mcp.agents.calendar import tools as calendar_tools
 
         return type(tool) is FunctionTool and tool.func is getattr(calendar_tools, tool.name)
+    if getattr(tool, "name", None) in {"open_gmail_reply_draft", "open_gmail_forward_draft"}:
+        from google.adk.tools import FunctionTool
+
+        from hushh_mcp.agents.email import chat_tools as email_chat_tools
+
+        return type(tool) is FunctionTool and tool.func is getattr(email_chat_tools, tool.name)
     if getattr(tool, "name", None) != "open_gmail_email_draft":
         return False
     from google.adk.tools import FunctionTool
@@ -192,6 +221,60 @@ def _reviewable_draft_tool(tool: Any) -> bool:
     from hushh_mcp.one_adk.agent_tree import open_gmail_email_draft
 
     return type(tool) is FunctionTool and tool.func is open_gmail_email_draft
+
+
+def _mail_ordinal_drilldown_available(context: Any) -> bool:
+    """True when one strict ordinal-only thread drill-down is still permitted."""
+    invocation = getattr(context, "invocation_id", None)
+    if not invocation or context.state.get(STATE_EXECUTION_SURFACE) != "typed_chat":
+        return False
+    if context.state.get(STATE_MAIL_DRILLDOWN_USED) == invocation:
+        return False
+    offer = context.state.get("hussh:mail_read_offer")
+    return isinstance(offer, dict) and bool(offer.get("message_ids"))
+
+
+def _mail_ordinal_drilldown_tool(tool: Any, args: dict | None, context: Any) -> bool:
+    """Allow at most ONE ordinal-only ``gmail_read_thread`` or ``gmail_read_attachment`` drill-down.
+
+    CaMeL safety boundary:
+    - Only the exact application-owned ``gmail_read_thread`` or ``gmail_read_attachment``
+      function is admitted.
+    - For ``gmail_read_thread``, ``query`` MUST be empty and ``ordinals`` MUST be a
+      non-empty list of 1..25 integers referencing only messages already offered in
+      ``STATE_MAIL_READ_OFFER``.
+    - For ``gmail_read_attachment``, ``ordinal`` MUST be an integer in 1..25 referencing
+      an offered message.
+    - Allowed at most once per invocation (enforced via ``STATE_MAIL_DRILLDOWN_USED``).
+    """
+    tool_name = getattr(tool, "name", None)
+    if tool_name not in {"gmail_read_thread", "gmail_read_attachment"}:
+        return False
+    if not _mail_ordinal_drilldown_available(context):
+        return False
+    from google.adk.tools import FunctionTool
+
+    from hushh_mcp.agents.email.chat_tools import gmail_read_attachment, gmail_read_thread
+
+    expected_func = gmail_read_thread if tool_name == "gmail_read_thread" else gmail_read_attachment
+    if not (type(tool) is FunctionTool and tool.func is expected_func):
+        return False
+    if args is None:
+        return True
+    if tool_name == "gmail_read_attachment":
+        ordinal = args.get("ordinal")
+        return type(ordinal) is int and 1 <= ordinal <= 25
+    raw_query = args.get("query")
+    if isinstance(raw_query, str) and raw_query.strip():
+        return False
+    if raw_query not in (None, ""):
+        return False
+    ordinals = args.get("ordinals")
+    return (
+        isinstance(ordinals, list)
+        and 1 <= len(ordinals) <= 5
+        and all(type(item) is int and 1 <= item <= 25 for item in ordinals)
+    )
 
 
 def _reviewable_selected_drive_share_tool(tool: Any) -> bool:
@@ -202,6 +285,32 @@ def _reviewable_selected_drive_share_tool(tool: Any) -> bool:
     from hushh_mcp.one_adk.agent_tree import propose_drive_share
 
     return type(tool) is FunctionTool and tool.func is propose_drive_share
+
+
+def _contact_calendar_openings_tool(
+    tool: Any, context: Any, args: dict[str, Any] | None = None
+) -> bool:
+    availability = context.state.get(STATE_CONTACT_CALENDAR_READ)
+    if (
+        getattr(tool, "name", None) != "calendar_free_slots"
+        or not isinstance(availability, dict)
+        or not availability.get("invocation")
+        or availability["invocation"] != context.invocation_id
+    ):
+        return False
+    from google.adk.tools import FunctionTool
+
+    from hushh_mcp.agents.calendar.tools import calendar_free_slots
+
+    if type(tool) is not FunctionTool or tool.func is not calendar_free_slots:
+        return False
+    return args is None or (
+        args.get("account_id") in {None, "default"}
+        and all(
+            args.get(key, 3 if key == "limit" else None) == availability.get(key)
+            for key in ("start_at", "end_at", "duration_minutes", "limit")
+        )
+    )
 
 
 def _selected_share_ready(context: Any) -> bool:
@@ -275,6 +384,24 @@ def before_external_read_tool(tool: Any, args: dict, tool_context: Any) -> dict 
         tool_context.state[STATE_EXTERNAL_READ] = invocation
         return None
     if external_read_active(tool_context):
+        # A named Contacts lookup explicitly prepared for scheduling may lead
+        # to one read of the owner's open times after the lookup returns.
+        # Other connectors and all provider mutations stay behind the barrier.
+        if (
+            tool_context.state.get(STATE_EXECUTION_SURFACE) == "typed_chat"
+            and tool_context.state.get(STATE_EXTERNAL_READ_CONTINUATION)
+            == tool_context.invocation_id
+            and _contact_calendar_openings_tool(tool, tool_context, args)
+        ):
+            tool_context.state[STATE_CONTACT_CALENDAR_READ] = None
+            return None
+        if (
+            _mail_ordinal_drilldown_tool(tool, args, tool_context)
+            and tool_context.state.get(STATE_EXTERNAL_READ_CONTINUATION)
+            == tool_context.invocation_id
+        ):
+            tool_context.state[STATE_MAIL_DRILLDOWN_USED] = tool_context.invocation_id
+            return None
         if (
             (
                 _reviewable_draft_tool(tool)
@@ -356,6 +483,30 @@ def after_external_read_tool(tool: Any, args: dict, tool_context: Any, tool_resp
         return None
     safe_args = args if isinstance(args, Mapping) else {}
     name = getattr(tool, "name", "")
+    if (
+        name in DIRECT_MAIL_READ_TOOLS
+        and isinstance(tool_response, dict)
+        and tool_response.get("status") == "no_match"
+        and external_read_active(tool_context)
+    ):
+        # Zero external content entered the model context, so the turn is still
+        # untainted: clear the read barrier up to _MAX_EMPTY_MAIL_RETRIES times
+        # so One can broaden its Gmail query and retry automatically.
+        invocation = getattr(tool_context, "invocation_id", None)
+        tracker = tool_context.state.get(STATE_MAIL_EMPTY_RETRIES)
+        count = (
+            int(tracker.get("count", 0))
+            if isinstance(tracker, dict) and tracker.get("invocation") == invocation
+            else 0
+        )
+        if invocation and count < _MAX_EMPTY_MAIL_RETRIES:
+            tool_context.state[STATE_MAIL_EMPTY_RETRIES] = {
+                "invocation": invocation,
+                "count": count + 1,
+            }
+            tool_context.state[STATE_EXTERNAL_READ] = None
+            tool_context.state[STATE_EXTERNAL_READ_CONTINUATION] = None
+        return
     if (
         name == MAIL_TOOL
         and tool_response.get("status") == "receipt_functions_required"
@@ -558,6 +709,8 @@ def before_external_read_model(callback_context: Any, llm_request: Any) -> LlmRe
             if scheduled_finish_tool(tool, callback_context)
             or _reviewed_mcp_tool(tool)
             or _reviewable_draft_tool(tool)
+            or _contact_calendar_openings_tool(tool, callback_context)
+            or _mail_ordinal_drilldown_tool(tool, None, callback_context)
             or (
                 _selected_share_ready(callback_context)
                 and _reviewable_selected_drive_share_tool(tool)

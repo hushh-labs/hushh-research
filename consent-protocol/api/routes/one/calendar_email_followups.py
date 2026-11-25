@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import verify_user_id_match
+from api.routes.one.calendar import CalendarProposal
 from hushh_mcp.services.calendar_account_board_service import account_schedule
 from hushh_mcp.services.calendar_email_followup_account import (
     SelectedMailAccessError,
@@ -20,12 +21,23 @@ from hushh_mcp.services.calendar_email_followup_account import (
     selected_mail_epoch_digest,
     selected_mail_status,
 )
+from hushh_mcp.services.calendar_email_followup_booking import (
+    require_booking_request,
+    seal_booking_review,
+    verify_booking_review,
+)
 from hushh_mcp.services.calendar_email_followup_crypto import FollowupCryptoError
 from hushh_mcp.services.calendar_email_followup_reader import (
     CompleteMailReadError,
     read_complete_message,
 )
-from hushh_mcp.services.calendar_email_followup_scan import scan_once
+from hushh_mcp.services.calendar_email_followup_relevance import sanitize_source_body
+from hushh_mcp.services.calendar_email_followup_scan import (
+    INTERACTIVE_BUDGET_SECONDS,
+    INTERACTIVE_SECTIONS,
+    scan_once,
+)
+from hushh_mcp.services.calendar_email_followup_scan_checkpoint import _reset_exhausted
 from hushh_mcp.services.calendar_email_followup_status import monitor_status
 from hushh_mcp.services.calendar_email_followup_store import (
     CalendarEmailFollowupStore,
@@ -51,6 +63,7 @@ class _Selection(BaseModel):
 
 class PreferenceChange(_Selection):
     enabled: bool
+    initialize_only: bool = False
     notifications_enabled: bool = False
     historical_start_at: datetime | None = None
     time_zone: str | None = Field(default=None, min_length=1, max_length=128)
@@ -70,7 +83,7 @@ class ListSelection(_Selection):
     offset: int = Field(default=0, ge=0, le=100000)
     # Which list to page: what is coming up (the default), unresolved overdue
     # work, snoozed until later, or history (expired, finished, dismissed).
-    view: Literal["upcoming", "overdue", "snoozed", "history"] = "upcoming"
+    view: Literal["all", "upcoming", "overdue", "snoozed", "history"] = "upcoming"
 
 
 class RequestChange(RequestSelection):
@@ -84,6 +97,26 @@ class BookingConfirmed(RequestSelection):
     expected_revision: int = Field(ge=1)
     idempotency_key: UUID
     event_id: str = Field(min_length=1, max_length=2048)
+
+
+class FollowupBookingReview(CalendarProposal):
+    action: Literal["create"] = "create"
+    booking_source: Literal["board"] = "board"
+    calendar_id: Literal["primary"] = "primary"
+    event_id: None = None
+    request_id: UUID
+    expected_revision: int = Field(ge=1)
+
+
+class FollowupBookingExecute(RequestSelection):
+    expected_revision: int = Field(ge=1)
+    proposal_id: str = Field(min_length=8, max_length=256)
+    review_token: str = Field(min_length=1, max_length=4096)
+
+
+class ScanRequest(_Selection):
+    # The owner's Retry: run now and give waiting sources a fresh allowance.
+    retry: bool = False
 
 
 class MailConnectStart(_Selection):
@@ -190,10 +223,9 @@ async def preferences(
     payload: PreferenceChange,
     response: Response,
     firebase_uid: str = Depends(hub_content_firebase),
-    owner: dict = Depends(hub_content_owner),
 ):
     _available()
-    _owner(payload.user_id, firebase_uid, owner)
+    _owner(payload.user_id, firebase_uid)
     response.headers["Cache-Control"] = "private, no-store"
     try:
         if payload.enabled and payload.notifications_enabled and not _background_available():
@@ -226,6 +258,7 @@ async def preferences(
             notifications_enabled=payload.notifications_enabled,
             reminder_lead_days=payload.reminder_lead_days,
             reminder_hour=payload.reminder_hour,
+            initialize_only=payload.initialize_only,
         )
         return {
             "account_id": payload.account_id,
@@ -241,15 +274,18 @@ async def list_followups(
     payload: ListSelection,
     response: Response,
     firebase_uid: str = Depends(hub_content_firebase),
-    owner: dict = Depends(hub_content_owner),
 ):
     _available()
-    _owner(payload.user_id, firebase_uid, owner)
+    _owner(payload.user_id, firebase_uid)
     response.headers["Cache-Control"] = "private, no-store"
     try:
         store, monitor, grant = await _current_monitor(firebase_uid, payload.account_id)
         result = await store.list_conversations(
-            monitor, limit=FOLLOWUP_PAGE_SIZE, offset=payload.offset, view=payload.view
+            monitor,
+            limit=FOLLOWUP_PAGE_SIZE,
+            offset=payload.offset,
+            view=payload.view,
+            calendar_only=True,
         )
         await _require_current(store, monitor, grant)
         return result
@@ -262,14 +298,13 @@ async def detail_followup(
     payload: ConversationSelection,
     response: Response,
     firebase_uid: str = Depends(hub_content_firebase),
-    owner: dict = Depends(hub_content_owner),
 ):
     _available()
-    _owner(payload.user_id, firebase_uid, owner)
+    _owner(payload.user_id, firebase_uid)
     response.headers["Cache-Control"] = "private, no-store"
     try:
         store, monitor, grant = await _current_monitor(firebase_uid, payload.account_id)
-        result = await store.detail(monitor, str(payload.conversation_id))
+        result = await store.detail(monitor, str(payload.conversation_id), calendar_only=True)
         await _require_current(store, monitor, grant)
         return result
     except Exception as exc:
@@ -281,10 +316,9 @@ async def resolve_followup(
     payload: RequestSelection,
     response: Response,
     firebase_uid: str = Depends(hub_content_firebase),
-    owner: dict = Depends(hub_content_owner),
 ):
     _available()
-    _owner(payload.user_id, firebase_uid, owner)
+    _owner(payload.user_id, firebase_uid)
     response.headers["Cache-Control"] = "private, no-store"
     try:
         store, monitor, grant = await _current_monitor(firebase_uid, payload.account_id)
@@ -321,8 +355,33 @@ async def source_message(
             "account_id": payload.account_id,
             "subject": message.subject,
             "sender": message.sender,
-            "body": message.body,
+            # Links and image markers are removed; the original stays in Gmail.
+            "body": sanitize_source_body(message.body),
+            "gmail_message_id": message_id,
             "internal_date_ms": message.internal_date_ms,
+        }
+    except Exception as exc:
+        raise _http(exc) from None
+
+
+@router.post("/source/link")
+async def source_link(
+    payload: RequestSelection,
+    response: Response,
+    firebase_uid: str = Depends(hub_content_firebase),
+):
+    """The Gmail message reference for one request, without reading the message."""
+    _available()
+    _owner(payload.user_id, firebase_uid)
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        store, monitor, grant = await _current_monitor(firebase_uid, payload.account_id)
+        message_id = await store.source_message_id(monitor, str(payload.request_id))
+        await _require_current(store, monitor, grant)
+        return {
+            "request_id": str(payload.request_id),
+            "account_id": payload.account_id,
+            "gmail_message_id": message_id,
         }
     except Exception as exc:
         raise _http(exc) from None
@@ -333,10 +392,9 @@ async def change_request(
     payload: RequestChange,
     response: Response,
     firebase_uid: str = Depends(hub_content_firebase),
-    owner: dict = Depends(hub_content_owner),
 ):
     _available()
-    _owner(payload.user_id, firebase_uid, owner)
+    _owner(payload.user_id, firebase_uid)
     response.headers["Cache-Control"] = "private, no-store"
     try:
         store, monitor, grant = await _current_monitor(firebase_uid, payload.account_id)
@@ -359,10 +417,9 @@ async def confirm_booking(
     payload: BookingConfirmed,
     response: Response,
     firebase_uid: str = Depends(hub_content_firebase),
-    owner: dict = Depends(hub_content_owner),
 ):
     _available()
-    _owner(payload.user_id, firebase_uid, owner)
+    _owner(payload.user_id, firebase_uid)
     response.headers["Cache-Control"] = "private, no-store"
     try:
         store, monitor, grant = await _current_monitor(firebase_uid, payload.account_id)
@@ -388,16 +445,117 @@ async def confirm_booking(
         raise _http(exc) from None
 
 
-@router.post("/scan")
-async def refresh_followups(
-    payload: _Selection,
+@router.post("/booking/review")
+async def review_booking(
+    payload: FollowupBookingReview,
+    response: Response,
     firebase_uid: str = Depends(hub_content_firebase),
-    owner: dict = Depends(hub_content_owner),
 ):
     _available()
-    _owner(payload.user_id, firebase_uid, owner)
+    _owner(payload.user_id, firebase_uid)
+    response.headers["Cache-Control"] = "private, no-store"
     try:
-        return await scan_once(user_id=firebase_uid, account_id=payload.account_id)
+        store, monitor, grant = await _current_monitor(firebase_uid, payload.account_id)
+        await require_booking_request(
+            store, monitor, grant, str(payload.request_id), payload.expected_revision
+        )
+        review = await account_schedule(payload.account_id).calendar.propose(
+            user_id=firebase_uid,
+            action="create",
+            payload=payload.model_dump(
+                exclude={"user_id", "action", "request_id", "expected_revision"}
+            ),
+        )
+        await require_booking_request(
+            store, monitor, grant, str(payload.request_id), payload.expected_revision
+        )
+        return {
+            **review,
+            "review_token": seal_booking_review(
+                store, monitor, str(payload.request_id), payload.expected_revision, review
+            ),
+        }
+    except Exception as exc:
+        raise _http(exc) from None
+
+
+@router.post("/booking/execute")
+async def execute_booking(
+    payload: FollowupBookingExecute,
+    response: Response,
+    firebase_uid: str = Depends(hub_content_firebase),
+):
+    _available()
+    _owner(payload.user_id, firebase_uid)
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        store, monitor, grant = await _current_monitor(firebase_uid, payload.account_id)
+        verify_booking_review(
+            store,
+            monitor,
+            str(payload.request_id),
+            payload.expected_revision,
+            payload.proposal_id,
+            payload.review_token,
+        )
+
+        async def current():
+            await require_booking_request(
+                store, monitor, grant, str(payload.request_id), payload.expected_revision
+            )
+
+        await current()
+        return await account_schedule(payload.account_id).calendar.execute(
+            user_id=firebase_uid,
+            account_id=payload.account_id,
+            proposal_id=payload.proposal_id,
+            before_create=current,
+        )
+    except Exception as exc:
+        raise _http(exc) from None
+
+
+@router.post("/scan")
+async def refresh_followups(
+    payload: ScanRequest,
+    firebase_uid: str = Depends(hub_content_firebase),
+):
+    _available()
+    _owner(payload.user_id, firebase_uid)
+    try:
+        if _background_available():
+            store, monitor, grant = await _current_monitor(firebase_uid, payload.account_id)
+            if payload.retry:
+                leased = await store.acquire_scan(
+                    user_id=firebase_uid, account_id=payload.account_id, force=True
+                )
+                if not leased:
+                    await _require_current(store, monitor, grant)
+                    return {"state": "not_due", "retry_accepted": False}
+                if leased:
+                    try:
+                        if leased.grant_epoch_digest != grant.epoch_digest:
+                            raise SelectedMailAccessError("mail_grant_changed")
+                        await _require_current(store, leased, grant)
+                        checkpoint = dict(leased.checkpoint or {})
+                        if checkpoint and checkpoint.get("mode") != "gap":
+                            _reset_exhausted(checkpoint)
+                        await store.save_checkpoint(leased, checkpoint, state="pending")
+                        await _require_current(store, leased, grant)
+                    finally:
+                        await store.release_scan(leased)
+            await _require_current(store, monitor, grant)
+            # The durable scheduler owns extraction. Page visits neither wait
+            # for model inference nor change the saved cursor or next due time.
+            return {"state": "scheduled"}
+        # Compatibility for environments without the scheduled drain.
+        return await scan_once(
+            user_id=firebase_uid,
+            account_id=payload.account_id,
+            force=payload.retry,
+            max_sections=INTERACTIVE_SECTIONS,
+            budget_seconds=INTERACTIVE_BUDGET_SECONDS,
+        )
     except Exception as exc:
         raise _http(exc) from None
 

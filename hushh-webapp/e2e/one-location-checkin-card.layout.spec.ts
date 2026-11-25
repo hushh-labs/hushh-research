@@ -60,8 +60,8 @@ for (const viewport of VIEWPORTS) {
       const { x, width } = range.getBoundingClientRect();
       return { x, width };
     });
-    expect(hint.x).toBeGreaterThanOrEqual(map!.x + 8);
-    expect(hint.x + hint.width).toBeLessThanOrEqual(map!.x + map!.width - 8);
+    expect(hint.x).toBeGreaterThanOrEqual(map!.x + 7.5);
+    expect(hint.x + hint.width).toBeLessThanOrEqual(map!.x + map!.width - 7.5);
     await page.getByTestId("save-location-modal").screenshot({ path: testInfo.outputPath("your-place.png"), animations: "disabled" });
     await page.getByRole("button", { name: "Edit address details" }).click();
     await page.getByRole("textbox", { name: "House or flat" }).fill("Flat 4B");

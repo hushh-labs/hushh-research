@@ -13,7 +13,7 @@ import { writeLastMessagesSelection, type LastMessagesSelection } from "@/lib/di
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
+import { toast } from "sonner";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
@@ -45,7 +45,6 @@ import { useLongPress } from "@/lib/morphy-ux/hooks/use-long-press";
 import { DirectMessageVoiceRecorder } from "./direct-message-voice-recorder";
 import { DirectMessageVoicePlayer } from "./direct-message-voice-player";
 import { DirectMessageInboxRow } from "./direct-message-inbox-row";
-import { DirectCallControl } from "./direct-call-control";
 import { shareFile } from "@/lib/share/share-file";
 import { isShareCancellationError } from "@/lib/share/share-link";
 import { CircleMessagesPane } from "@/components/connect/circles/circle-messages-pane";
@@ -78,6 +77,7 @@ import {
   Mic,
   ChevronDown,
   Pencil,
+  PhoneCall,
   Play,
   RefreshCw,
   Search,
@@ -121,28 +121,10 @@ import { useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadat
 
 import styles from "./direct-messages-page.module.css";
 import quietStyles from "./messages-quiet-action.module.css";
+import { DirectMessageSharedContent, directMessagePlainText } from "./direct-message-shared-content";
 import { copyToClipboard } from "@/lib/utils/clipboard";
-import { advisorReviewReference } from "@/lib/advisor-review/contract";
-import { financeReference } from "@/lib/finance-sharing/contract";
-import { cardAccessReference } from "@/lib/services/wallet-card-access-service";
-import { cardRequestReference } from "@/lib/wallet/card-request";
-import { DirectMessageSharedContent } from "./direct-message-shared-content";
 import { isWalletCardShare } from "@/lib/wallet/wallet-card-share";
 import { connectionMessagePreview as walletMessagePreview } from "@/lib/finance-sharing/message-preview";
-
-/** Only ordinary message text may be copied; opaque shares keep their own owner. */
-function directMessagePlainText(content: string): string | null {
-  if (
-    advisorReviewReference(content) ||
-    financeReference(content) ||
-    cardRequestReference(content) ||
-    cardAccessReference(content) ||
-    isWalletCardShare(content)
-  ) {
-    return null;
-  }
-  return content;
-}
 
 type ThreadState = {
   conversation: DirectMessageConversation | null;
@@ -500,7 +482,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const [composerError, setComposerError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [recordingVoice, setRecordingVoice] = useState(false);
-  const [callButtonTarget, setCallButtonTarget] = useState<HTMLSpanElement | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [chatDeleteRequest, setChatDeleteRequest] = useState<{ ownerId: string; conversation: DirectMessageConversation } | null>(null);
   const [, setChatDeleteRevision] = useState(0);
@@ -1875,9 +1856,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
 
   return (
     <AppPageShell width="expanded" fitContent={false} nativeTest={nativeTest} className={styles.shell}>
-      {user && userId ? <DirectCallControl key={userId} ownerId={userId} getIdToken={() => user.getIdToken()}
-        conversationId={thread.conversation?.id ?? null} personRef={thread.peerPersonRef} peerName={selectedLabel} buttonTarget={callButtonTarget}
-        canCall={lane === "people" && canCompose && !recordingVoice && !blockingLayer} className={styles.headerAction ?? ""} /> : null}
       <section
         ref={pageRef}
         className={styles.page}
@@ -1921,7 +1899,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                 onChange={(event) => setInboxSearch(event.target.value)}
                 placeholder="Search messages or people"
                 aria-label="Search conversations"
-                data-message-call-focus-anchor
               />
             </label>
           </div>
@@ -2086,7 +2063,15 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                         </button>
                       </label>
                     ) : null}
-                    <span className="inline-flex" ref={setCallButtonTarget} />
+                    <button
+                      type="button"
+                      className={styles.headerAction}
+                      aria-label="Start voice call"
+                      title="Calls are not available yet"
+                      disabled
+                    >
+                      <PhoneCall className="h-4 w-4" aria-hidden="true" />
+                    </button>
                     <button
                       type="button"
                       className={styles.headerAction}
@@ -2376,15 +2361,12 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                       composerRef.current?.focus();
                                     }}
                                   >
-                                    {!message.deletedForEveryoneAt ? <>
-                                      <MessageReactionMenu onSelect={(emoji) => saveReaction(message, emoji)} />
-                                      <DropdownMenuItem className="min-h-11" onSelect={() => {
+                                    {!message.deletedForEveryoneAt ? (
+                                      <MessageReactionMenu onSelect={(emoji) => saveReaction(message, emoji)} onMore={() => {
                                         reactionPickerTarget.current = message.id;
                                         setOpenReactionPicker(message.id);
-                                      }}>
-                                        More reactions…
-                                      </DropdownMenuItem>
-                                    </> : null}
+                                      }} />
+                                    ) : null}
                                     {!message.deletedForEveryoneAt ? (
                                       <DropdownMenuItem disabled={sending || hasUnconfirmedSend} onSelect={() => startReply(message)}>
                                         <ArrowBendUpLeft weight="fill" className="h-3.5 w-3.5" aria-hidden="true" />

@@ -69,8 +69,12 @@ class Grant:
 
 @pytest.fixture
 def journey(monkeypatch, tmp_path, active_account_lifecycle):
-    # These real service/route tests isolate availability and confirmation.
-    # Invocation-scoped semantic admission is covered by the SDK scope suite.
+    # This service/route replay isolates grant, coverage and dispatch contracts;
+    # real request-scope enforcement is covered through One's SDK runner separately.
+    monkeypatch.setattr(
+        "hushh_mcp.agents.calendar.request_scope.scope_receipt",
+        lambda _: {"actions": ["create", "reschedule", "cancel", "respond"], "continuation": False},
+    )
     monkeypatch.setattr(
         "hushh_mcp.agents.calendar.request_scope.request_scope",
         AsyncMock(return_value=("create",)),
@@ -204,6 +208,35 @@ def test_free_time_route_queries_full_day_and_excludes_captured_late_busy(journe
         assert result["windows"][1]["start_at"] == "2030-01-17T18:00:00Z"
     assert len(result["calendar_options"]) == 5
     assert len(result["calendars"]) == 4
+
+
+def test_chat_openings_use_board_coverage_and_normalize_the_primary_alias(journey):
+    request = FULL_DAY["request"]
+    context = SimpleNamespace(
+        state={
+            "hussh:user_id": "owner",
+            "hussh:timezone": "Asia/Kolkata",
+            "hussh:conversation_id": "same-conversation",
+            "temp:one_execution_surface": "typed_chat",
+        }
+    )
+    result = asyncio.run(
+        tools.calendar_free_slots(
+            context, request["timeMin"], request["timeMax"], duration_minutes=30
+        )
+    )
+    assert result["availability_scope"] == "included_calendars"
+    assert journey.state["requests"] == [
+        {
+            **request,
+            "items": [
+                {"id": identifier}
+                for identifier in ("calendar-1", "calendar-2", "calendar-4", "primary")
+            ],
+        }
+    ]
+    assert [item["opening_ordinal"] for item in result["openings"]] == [1, 2, 3]
+    assert all(item["end_at"] <= "2030-01-17T17:30:00Z" for item in result["openings"])
 
 
 def test_chat_real_tool_preview_and_route_executor_once_with_pinned_meeting_window(journey):

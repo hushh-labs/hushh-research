@@ -74,6 +74,7 @@ export type FeedStreamRole = "leader" | "follower";
 export type FeedChange = {
   general: boolean;
   consent: boolean;
+  connections?: boolean;
   requestId?: string;
   historyMutated?: boolean;
   reconcileSms?: boolean;
@@ -210,6 +211,8 @@ function readFeedChange(data: string): FeedChange | null {
   if (payload.connection_graph === true) {
     return { general: true, consent: true, reconcileConnections: true, connectionGraphChanged: true };
   }
+  if (payload.reason === "consent_mutated") return { general: false, consent: true };
+  if (payload.reason === "connection_mutated") return { general: false, consent: false, connections: true };
   // Committed Feed writes in general carry no request; they skip the consent cascade.
   if (!("request_id" in payload)) return { general: true, consent: false,
     ...(payload.reason === "history_mutated" ? { historyMutated: true } : {}),
@@ -222,6 +225,7 @@ function readFeedChange(data: string): FeedChange | null {
 
 function mergeChange(burst: FeedChange, change: FeedChange): FeedChange {
   const merged: FeedChange = { general: burst.general || change.general, consent: burst.consent || change.consent };
+  if (burst.connections || change.connections) merged.connections = true;
   if (burst.historyMutated || change.historyMutated) merged.historyMutated = true;
   if (burst.reconcileSms || change.reconcileSms) merged.reconcileSms = true;
   if (burst.reconcileConnections || change.reconcileConnections) merged.reconcileConnections = true;

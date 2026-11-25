@@ -84,27 +84,27 @@ export function VoiceErrorCard({
       data-testid="one-voice-error-card"
       data-error-code={error.code}
       className={cn(
-        "rounded-[var(--app-card-radius-standard,24px)] border bg-[color:var(--app-primary-surface)] p-4 shadow-[var(--app-card-shadow-standard)] dark:shadow-none",
+        "rounded-[var(--app-card-radius-standard,18px)] border bg-[color:var(--app-primary-surface)] p-3 shadow-[var(--app-card-shadow-standard)] dark:shadow-none",
         danger.border,
         className,
       )}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-2.5">
         <span
           className={cn(
-            "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+            "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
             danger.tile,
             danger.glyph,
           )}
           aria-hidden
         >
-          <Icon className="h-4 w-4" aria-hidden />
+          <Icon className="h-3.5 w-3.5" aria-hidden />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-[15px] font-semibold leading-5 text-[color:var(--app-label)]">
+          <p className="text-[13px] font-semibold leading-[18px] text-[color:var(--app-label)]">
             {voiceErrorTitle(error)}
           </p>
-          <p className="mt-0.5 text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+          <p className="mt-0.5 text-[12px] leading-[16px] text-[color:var(--app-secondary-label)]">
             {error.message}
           </p>
         </div>
@@ -116,12 +116,12 @@ export function VoiceErrorCard({
             data-testid="one-voice-error-dismiss"
             className="-mr-2 -mt-2 flex h-11 w-11 shrink-0 touch-manipulation items-center justify-center rounded-full text-[color:var(--app-secondary-label)] hover:bg-[color:var(--app-neutral-fill)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]"
           >
-            <X className="h-4 w-4" aria-hidden />
+            <X className="h-3.5 w-3.5" aria-hidden />
           </button>
         ) : null}
       </div>
       {showSettings || showRetry ? (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
+        <div className="mt-2.5 flex flex-wrap items-center gap-2">
           {showSettings ? (
             <Button
               type="button"
@@ -129,9 +129,9 @@ export function VoiceErrorCard({
               variant="default"
               onClick={onOpenSettings}
               data-testid="one-voice-error-open-settings"
-              className="min-h-11 flex-1 px-4"
+              className="min-h-8 px-3 text-[12px]"
             >
-              <Settings className="h-4 w-4" aria-hidden />
+              <Settings className="h-3.5 w-3.5" aria-hidden />
               Open Settings
             </Button>
           ) : null}
@@ -142,7 +142,7 @@ export function VoiceErrorCard({
               variant={showSettings ? "secondary" : "default"}
               onClick={onRetry}
               data-testid="one-voice-error-retry"
-              className="min-h-11 flex-1 px-4"
+              className="min-h-8 px-3 text-[12px]"
             >
               Try again
             </Button>

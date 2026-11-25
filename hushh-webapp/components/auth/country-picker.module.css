@@ -107,15 +107,22 @@
 :global(.dark) .inlineSearch input { color: #f5f5f7; }
 .search:is(:hover, :focus-within),
 .inlineSearch:is(:hover, :focus-within) {
-  background: color-mix(in oklab, var(--app-accent) 8%, var(--app-secondary-surface));
+  background: color-mix(in oklab, var(--app-accent) 6%, var(--app-secondary-surface));
   border-color: var(--app-accent-border);
 }
 .search:focus-within,
 .inlineSearch:focus-within {
-  box-shadow: 0 0 0 2px var(--app-focus-ring);
+  box-shadow: 0 0 0 1px var(--app-focus-ring);
 }
-.search input:focus-visible,
-.inlineSearch input:focus-visible {
+@media (forced-colors: active) {
+  .search:focus-within,
+  .inlineSearch:focus-within {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+}
+.search input:focus,
+.inlineSearch input:focus {
   outline: none;
   box-shadow: none;
 }

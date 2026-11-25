@@ -79,7 +79,8 @@ def known_requests(
         return {}
     rows = (
         conn.execute(
-            text("""SELECT id,evidence_hmac,assessment_version
+            text("""SELECT id,evidence_hmac,assessment_version,
+            (suppressed_at IS NOT NULL OR merged_into IS NOT NULL) AS hidden
             FROM calendar_email_followup_requests
             WHERE user_id=:user_id AND account_id=:account_id
               AND evidence_hmac=ANY(CAST(:keys AS TEXT[]))"""),
@@ -135,12 +136,13 @@ def adopt_legacy_rows(
     rows = (
         conn.execute(
             text("""SELECT id,kind,due_date,proposed_date,proposed_at,
-            quote_ciphertext,title_ciphertext,assessment_version
+            quote_ciphertext,title_ciphertext,assessment_version,
+            (suppressed_at IS NOT NULL OR merged_into IS NOT NULL) AS hidden
             FROM calendar_email_followup_requests
             WHERE user_id=:user_id AND account_id=:account_id
               AND source_message_hmac=:message_hmac
-              AND assessment_version<:version AND suppressed_at IS NULL
-            ORDER BY created_at,id"""),
+              AND assessment_version<:version
+            ORDER BY hidden,created_at,id"""),
             {
                 "user_id": monitor.user_id,
                 "account_id": monitor.account_id,
@@ -161,18 +163,22 @@ def adopt_legacy_rows(
             if row["kind"] != candidate.kind or not _same_dates(row, candidate):
                 continue
             quote = open_value(row["quote_ciphertext"], row_id, "quote")
-            title = open_value(row["title_ciphertext"], row_id, "title")
-            if _squash(quote) != _squash(candidate.quote) and not similar_titles(
-                title, candidate.title
-            ):
-                continue
+            if _squash(quote) != _squash(candidate.quote):
+                if row["hidden"]:
+                    continue
+                title = open_value(row["title_ciphertext"], row_id, "title")
+                if not similar_titles(title, candidate.title):
+                    continue
+            known[candidate.evidence_key] = row
+            rows.remove(row)
+            # A matching settled source stays sealed under its original evidence key.
+            if row["hidden"]:
+                break
             conn.execute(
                 text("""UPDATE calendar_email_followup_requests SET evidence_hmac=:key
                 WHERE id=CAST(:id AS UUID)"""),
                 {"id": row_id, "key": candidate.evidence_key},
             )
-            known[candidate.evidence_key] = row
-            rows.remove(row)
             break
 
 
@@ -242,9 +248,8 @@ def upgrade_request(
         text("""UPDATE calendar_email_followup_requests SET
         relevance='actionable', category=:category, urgency=:urgency,
         meeting_state=:meeting_state, after_date=:after_date, assessment_version=:version,
-        suppressed_at=NULL, suppression_reason=NULL,
         title_ciphertext=:title, linked_event_ciphertext=:linked_event, updated_at=NOW()
-        WHERE id=CAST(:id AS UUID)"""),
+        WHERE id=CAST(:id AS UUID) AND suppressed_at IS NULL AND merged_into IS NULL"""),
         {
             "id": row_id,
             "category": candidate.category,
@@ -307,7 +312,7 @@ def insert_request(
             "source_body_digest": message.body_digest,
             "source_internal_date_ms": message.internal_date_ms,
             "kind": candidate.kind,
-            "state": "pending" if reminder_at and candidate.kind != "meeting" else "needs_review",
+            "state": "pending" if reminder_at else "needs_review",
             "title_ciphertext": seal(candidate.title, monitor, request_id, "title"),
             "quote_ciphertext": seal(candidate.quote, monitor, request_id, "quote"),
             "due_wording_ciphertext": wording,

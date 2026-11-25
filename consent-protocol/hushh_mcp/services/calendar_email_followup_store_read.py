@@ -24,6 +24,7 @@ from sqlalchemy.engine import Connection
 
 from hushh_mcp.services.calendar_email_followup_coverage import coverage
 from hushh_mcp.services.calendar_email_followup_relevance import (
+    ASSESSMENT_VERSION,
     UNDATED_FRESH_DAYS,
     sanitize_excerpt,
 )
@@ -32,8 +33,8 @@ from hushh_mcp.services.calendar_email_followup_store_types import FollowupState
 # Opens one sealed field: (ciphertext, monitor, row id, purpose) -> value.
 Opener = Callable[[str, Monitor, str, str], Any]
 
-View = Literal["upcoming", "overdue", "snoozed", "history"]
-VIEWS: tuple[View, ...] = ("upcoming", "overdue", "snoozed", "history")
+View = Literal["all", "upcoming", "overdue", "snoozed", "history"]
+VIEWS: tuple[View, ...] = ("all", "upcoming", "overdue", "snoozed", "history")
 
 # The calendar day a request is about, in the owner's time zone.
 _DAY = "COALESCE(r.due_date,r.proposed_date,(r.proposed_at AT TIME ZONE :tz)::date)"
@@ -75,6 +76,7 @@ _LIVE = f"""WITH live AS (
   FROM calendar_email_followup_requests r
   WHERE r.user_id=:user_id AND r.account_id=:account_id
     AND r.suppressed_at IS NULL AND r.merged_into IS NULL
+    AND r.assessment_version>=:min_assessment_version
 ), ranked AS (
   SELECT live.*,
     -- Verified urgency and a close date first, then later dates, then undated.
@@ -85,8 +87,11 @@ _LIVE = f"""WITH live AS (
 
 # Static per view. Fewer ambiguities is the available confidence signal.
 _ORDER: dict[str, str] = {
-    "upcoming": """tier,owner_rank,day ASC NULLS LAST,urgency_rank,ambiguity_count,
-      category_rank,source_internal_date_ms DESC,request_id""",
+    "all": """CASE bucket WHEN 'overdue' THEN 0 WHEN 'upcoming' THEN 1 ELSE 2 END,
+      tier,owner_rank,day ASC NULLS LAST,urgency_rank,category_rank,ambiguity_count,
+      source_internal_date_ms DESC,request_id""",
+    "upcoming": """tier,owner_rank,day ASC NULLS LAST,urgency_rank,category_rank,ambiguity_count,
+      source_internal_date_ms DESC,request_id""",
     "overdue": """day DESC NULLS LAST,owner_rank,source_internal_date_ms DESC,request_id""",
     "snoozed": """reminder_at ASC NULLS LAST,request_id""",
     "history": """source_internal_date_ms DESC,request_id""",
@@ -96,26 +101,27 @@ _ORDER: dict[str, str] = {
 def _page_sql(view: str) -> str:
     order = _ORDER[view]
     return f"""{_LIVE}, best AS (
-  SELECT DISTINCT ON (conversation_id) ranked.* FROM ranked WHERE bucket=:view
+  SELECT DISTINCT ON (conversation_id) ranked.* FROM ranked WHERE (bucket=:view OR (:view='all' AND bucket<>'history'))
   ORDER BY conversation_id,{order}
 )
 SELECT c.id,c.subject_ciphertext,c.sender_ciphertext,c.thread_ref_ciphertext,
   c.latest_internal_date_ms,
   (SELECT count(*) FROM live l WHERE l.conversation_id=c.id) AS request_count,
-  (SELECT count(*) FROM live l WHERE l.conversation_id=c.id AND l.bucket=:view) AS active_count
+  (SELECT count(*) FROM live l WHERE l.conversation_id=c.id AND (l.bucket=:view OR (:view='all' AND l.bucket<>'history'))) AS active_count
 FROM best JOIN calendar_email_followup_conversations c ON c.id=best.conversation_id
 ORDER BY {order},c.latest_internal_date_ms DESC,c.id DESC LIMIT :limit OFFSET :offset"""  # nosec B608 # composed only from module-constant SQL fragments; no request data is interpolated; order is from a fixed dict keyed by a validated view
 
 
 _COUNTS = f"""{_LIVE}
-SELECT bucket,count(DISTINCT conversation_id) FROM live GROUP BY bucket"""  # nosec B608 # composed only from module-constant SQL fragments; no request data is interpolated
+SELECT bucket,count(DISTINCT conversation_id) FROM live GROUP BY bucket
+UNION ALL SELECT 'all',count(DISTINCT conversation_id) FROM live WHERE bucket<>'history'"""  # nosec B608 # composed only from module-constant SQL fragments; no request data is interpolated
 
 
 def _previews_sql(view: str) -> str:
     return f"""{_LIVE}
 SELECT r.*,ranked.bucket FROM ranked
 JOIN calendar_email_followup_requests r ON r.id=ranked.request_id
-WHERE ranked.conversation_id=ANY(CAST(:conversation_ids AS UUID[])) AND ranked.bucket=:view
+WHERE ranked.conversation_id=ANY(CAST(:conversation_ids AS UUID[])) AND (ranked.bucket=:view OR (:view='all' AND ranked.bucket<>'history'))
 ORDER BY ranked.conversation_id,{_ORDER[view]}"""  # nosec B608 # composed only from module-constant SQL fragments; no request data is interpolated; order is from a fixed dict keyed by a validated view
 
 
@@ -127,6 +133,7 @@ SELECT r.*,ranked.bucket,
    WHERE m.merged_into=r.id AND m.user_id=r.user_id AND m.account_id=r.account_id) AS repeat_count
 FROM ranked JOIN calendar_email_followup_requests r ON r.id=ranked.request_id
 WHERE ranked.conversation_id=CAST(:conversation_id AS UUID)
+  AND (NOT :calendar_only OR ranked.bucket<>'history')
 ORDER BY r.source_internal_date_ms,r.id"""  # nosec B608 # composed only from module-constant SQL fragments; no request data is interpolated
 
 
@@ -134,7 +141,9 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-def clock_params(monitor: Monitor, now: datetime | None) -> dict[str, Any]:
+def clock_params(
+    monitor: Monitor, now: datetime | None, *, calendar_only: bool = False
+) -> dict[str, Any]:
     """The owner's local day and the recency floor for one read."""
     instant = now or _utcnow()
     if instant.tzinfo is None:
@@ -144,6 +153,7 @@ def clock_params(monitor: Monitor, now: datetime | None) -> dict[str, Any]:
         "account_id": monitor.account_id,
         "tz": monitor.time_zone,
         "now": instant,
+        "min_assessment_version": ASSESSMENT_VERSION if calendar_only else 0,
         "today": instant.astimezone(ZoneInfo(monitor.time_zone)).date(),
         "fresh_ms": int((instant - timedelta(days=UNDATED_FRESH_DAYS)).timestamp() * 1000),
     }
@@ -175,11 +185,12 @@ def read_page(
     offset: int,
     view: str = "upcoming",
     now: datetime | None = None,
+    calendar_only: bool = False,
 ) -> tuple[int, list[Any], list[Any], dict[str, int]]:
     """One page of the owner's conversations for a view, with previews and counts."""
     if view not in VIEWS:
         raise FollowupStateError("invalid_view")
-    scope = clock_params(monitor, now)
+    scope = clock_params(monitor, now, calendar_only=calendar_only)
     counts = {name: 0 for name in VIEWS}
     for bucket, total in conn.execute(text(_COUNTS), scope).all():
         counts[bucket] = int(total)
@@ -206,18 +217,30 @@ def read_page(
 
 
 def read_detail(
-    conn: Connection, monitor: Monitor, conversation_id: str, *, now: datetime | None = None
+    conn: Connection,
+    monitor: Monitor,
+    conversation_id: str,
+    *,
+    now: datetime | None = None,
+    calendar_only: bool = False,
 ) -> list[Any]:
     return list(
         conn.execute(
-            text(_DETAIL), {**clock_params(monitor, now), "conversation_id": conversation_id}
+            text(_DETAIL),
+            {
+                **clock_params(monitor, now, calendar_only=calendar_only),
+                "conversation_id": conversation_id,
+                "calendar_only": calendar_only,
+            },
         )
         .mappings()
         .all()
     )
 
 
-def preview_view(open_value: Opener, monitor: Monitor, row: Any) -> dict[str, Any]:
+def preview_view(
+    open_value: Opener, monitor: Monitor, row: Any, *, calendar_only: bool = False
+) -> dict[str, Any]:
     row_id = str(row["id"])
     due_wording = row["due_wording_ciphertext"]
     return {
@@ -226,7 +249,7 @@ def preview_view(open_value: Opener, monitor: Monitor, row: Any) -> dict[str, An
         "state": row["state"],
         "title": open_value(row["title_ciphertext"], monitor, row_id, "title"),
         "original_due_wording": open_value(due_wording, monitor, row_id, "due_wording")
-        if due_wording
+        if due_wording and not calendar_only
         else None,
         "due_date": _iso(row["due_date"]),
         "due_relation": row["due_relation"],
@@ -249,11 +272,14 @@ def page_view(
     page: tuple[int, list[Any], list[Any], dict[str, int]],
     offset: int,
     view: str = "upcoming",
+    calendar_only: bool = False,
 ) -> dict[str, Any]:
     count, rows, previews, counts = page
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for preview in previews:
-        grouped[str(preview["conversation_id"])].append(preview_view(open_value, monitor, preview))
+        grouped[str(preview["conversation_id"])].append(
+            preview_view(open_value, monitor, preview, calendar_only=calendar_only)
+        )
     conversations = []
     for row in rows:
         row_id = str(row["id"])
@@ -261,8 +287,12 @@ def page_view(
         conversations.append(
             {
                 "id": row_id,
-                "subject": open_value(row["subject_ciphertext"], monitor, row_id, "subject"),
-                "sender": open_value(row["sender_ciphertext"], monitor, row_id, "sender"),
+                "subject": ""
+                if calendar_only
+                else open_value(row["subject_ciphertext"], monitor, row_id, "subject"),
+                "sender": ""
+                if calendar_only
+                else open_value(row["sender_ciphertext"], monitor, row_id, "sender"),
                 "latest_internal_date_ms": row["latest_internal_date_ms"],
                 "request_count": int(row["request_count"]),
                 "active_count": int(row["active_count"]),
@@ -289,7 +319,12 @@ def page_view(
 
 
 def conversation_view(
-    open_value: Opener, monitor: Monitor, conversation: dict[str, Any], rows: list[Any]
+    open_value: Opener,
+    monitor: Monitor,
+    conversation: dict[str, Any],
+    rows: list[Any],
+    *,
+    calendar_only: bool = False,
 ) -> dict[str, Any]:
     conversation_id = str(conversation["id"])
     thread_ref = open_value(
@@ -298,17 +333,24 @@ def conversation_view(
     return {
         "id": conversation_id,
         "account_id": monitor.account_id,
-        "subject": open_value(
-            conversation["subject_ciphertext"], monitor, conversation_id, "subject"
-        ),
-        "sender": open_value(conversation["sender_ciphertext"], monitor, conversation_id, "sender"),
+        "subject": ""
+        if calendar_only
+        else open_value(conversation["subject_ciphertext"], monitor, conversation_id, "subject"),
+        "sender": ""
+        if calendar_only
+        else open_value(conversation["sender_ciphertext"], monitor, conversation_id, "sender"),
         "latest_internal_date_ms": conversation["latest_internal_date_ms"],
         "source_completeness": _is_partial(monitor, thread_ref),
-        "requests": [request_view(open_value, monitor, dict(row)) for row in rows],
+        "requests": [
+            request_view(open_value, monitor, dict(row), calendar_only=calendar_only)
+            for row in rows
+        ],
     }
 
 
-def request_view(open_value: Opener, monitor: Monitor, row: dict[str, Any]) -> dict[str, Any]:
+def request_view(
+    open_value: Opener, monitor: Monitor, row: dict[str, Any], *, calendar_only: bool = False
+) -> dict[str, Any]:
     row_id = str(row["id"])
     due_wording = row["due_wording_ciphertext"]
     linked = row["linked_event_ciphertext"]
@@ -317,18 +359,18 @@ def request_view(open_value: Opener, monitor: Monitor, row: dict[str, Any]) -> d
         "kind": row["kind"],
         "state": row["state"],
         "title": open_value(row["title_ciphertext"], monitor, row_id, "title"),
-        # Brief and link-free: the full source stays behind the authorized
-        # source view, never in the default surface.
-        "source_excerpt": sanitize_excerpt(
-            open_value(row["quote_ciphertext"], monitor, row_id, "quote")
-        ),
+        # Empty compatibility fields let previously installed clients read the
+        # response without exposing raw email evidence to the Calendar view.
+        "source_excerpt": ""
+        if calendar_only
+        else sanitize_excerpt(open_value(row["quote_ciphertext"], monitor, row_id, "quote")),
         "category": row["category"],
         "urgency": row["urgency"],
         "meeting_state": row["meeting_state"],
         "linked_event": open_value(linked, monitor, row_id, "linked_event") if linked else None,
         "reminder_status": reminder_status(row),
         "original_due_wording": open_value(due_wording, monitor, row_id, "due_wording")
-        if due_wording
+        if due_wording and not calendar_only
         else None,
         "due_date": _iso(row["due_date"]),
         "due_relation": row["due_relation"],

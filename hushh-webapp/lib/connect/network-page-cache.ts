@@ -46,7 +46,7 @@ export class NetworkPageCache {
     if (cached) return Promise.resolve(cached);
     const abort = new AbortController();
     const isCurrent = () => !abort.signal.aborted && this.generation === getAuthSessionGeneration();
-    const promise = Promise.resolve().then(getToken).then(idToken => {
+    const promise = Promise.resolve().then(getToken).then<NetworkPage>(idToken => {
       if (!isCurrent()) throw new DOMException("Network session changed", "AbortError");
       const { mode, personRef, degree, query, page } = read;
       return mode === "mutuals" && personRef

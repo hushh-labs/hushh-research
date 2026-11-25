@@ -356,6 +356,57 @@ def test_calendar_status_requires_an_active_provider_connection() -> None:
     assert status["scope_csv"] == ""
 
 
+@pytest.mark.parametrize("service", ["calendar", "gmail"])
+def test_status_for_missing_additional_account_is_disconnected(service: str) -> None:
+    db = _Db()
+    status = asyncio.run(
+        GoogleConnectionService(db=db).status(
+            user_id="user-1", service=service, account_id="stale-account"
+        )
+    )
+
+    assert status["connected"] is False
+    assert status["status"] == "disconnected"
+    assert status["google_email"] is None
+    assert db.calls[0][1] == {"user_id": "user-1", "account_id": "stale-account"}
+
+
+async def test_read_inventory_lists_owner_accounts_without_profile_enrichment(monkeypatch) -> None:
+    from unittest.mock import AsyncMock
+
+    class _AccountDb(_ConnectionStatusDb):
+        def execute_raw(self, sql: str, params: dict | None = None):
+            if "google_calendar_additional_accounts" in sql:
+                return SimpleNamespace(data=[])
+            return super().execute_raw(sql, params)
+
+    service = GoogleConnectionService(db=_AccountDb())
+    photo = AsyncMock()
+    monkeypatch.setattr(service, "_calendar_picture", photo)
+
+    status = await service.calendar_accounts_status(user_id="user-1", include_pictures=False)
+
+    assert status["accounts"][0]["account_id"] == "default"
+    assert status["accounts"][0]["connected"] is True
+    photo.assert_not_awaited()
+
+
+@pytest.mark.parametrize("account_id", ["default", "additional"])
+async def test_named_calendar_read_cannot_use_reconnected_account(account_id: str) -> None:
+    class _ReconnectedDb(_Db):
+        def execute_raw(self, sql: str, params: dict | None = None):
+            return SimpleNamespace(data=[{"provider_email": "replacement@example.test"}])
+
+    account = GoogleConnectionService(db=_ReconnectedDb()).for_calendar_account(
+        account_id, expected_email="original@example.test"
+    )
+
+    with pytest.raises(GoogleConnectionError) as exc:
+        await account.read_grant_binding(user_id="user-1", service="calendar")
+
+    assert exc.value.reason_code == "calendar_connection_changed"
+
+
 def test_calendar_access_token_rejects_partial_granted_scopes(shared_hub_owner) -> None:
     class _PartialScopeDb(_Db):
         def execute_raw(self, sql: str, params: dict | None = None):  # noqa: ANN001
@@ -685,11 +736,19 @@ def test_find_openings_merges_overlapping_busy_intervals(
             "available_until": "2026-08-11T05:30:00Z",
         },
         {
+            "start_at": "2026-08-11T05:00:00Z",
+            "end_at": "2026-08-11T05:30:00Z",
+            "available_until": "2026-08-11T05:30:00Z",
+        },
+        {
             "start_at": "2026-08-11T06:30:00Z",
             "end_at": "2026-08-11T07:00:00Z",
             "available_until": "2026-08-11T09:30:00Z",
         },
     ]
+
+    assert result["available_slot_count"] == 8
+    assert result["suggestion_limit"] == 3 and result["suggestions_limited"] is True
 
 
 def test_calendar_execute_rejects_conflicts_that_changed_after_review(
@@ -1068,6 +1127,32 @@ def test_rescheduling_an_all_day_event_keeps_it_all_day() -> None:
     assert patch["payload"] == {"start": {"date": "2026-10-05"}, "end": {"date": "2026-10-06"}}
 
 
+@pytest.mark.parametrize(
+    "change",
+    [{"recurrence": ["RRULE:FREQ=WEEKLY"]}, {"attendeesOmitted": True}, {"etag": None}],
+)
+def test_reschedule_refuses_unreviewable_event_without_creating_a_proposal(change):
+    service, requests, stored = _reschedule_harness(_event(**change))
+    with pytest.raises(GoogleConnectionError):
+        _reschedule(service)
+    assert stored == {}
+    assert [request["method"] for request in requests] == ["GET"]
+
+
+def test_reschedule_clears_explicit_fields_on_one_occurrence():
+    service, requests, _ = _reschedule_harness(
+        _event(recurringEventId="series-1", originalStartTime={"dateTime": "2026-10-01T16:00:00Z"})
+    )
+    _reschedule(service, location="", description="", attendees=[])
+    asyncio.run(service.execute(user_id="user-1", proposal_id="gcal_example"))
+    [patch] = [request for request in requests if request["method"] == "PATCH"]
+    assert patch["payload"]["description"] == patch["payload"]["location"] == ""
+    assert {item["email"] for item in patch["payload"]["attendees"]} == {
+        _OWNER["email"],
+        _ROOM["email"],
+    }
+
+
 def test_a_new_guest_list_is_reviewed_as_exact_adds_and_removes() -> None:
     service, requests, _ = _reschedule_harness(_event())
     result = _reschedule(service, attendees=["new@example.com"])
@@ -1419,7 +1504,7 @@ def test_weekly_conflicts_use_source_calendar_zone_for_date_only_events() -> Non
         series_conflicts(plan, [{**event, "calendar_time_zone": None}])
 
 
-def test_metadata_update_keeps_large_existing_guest_lists(
+def test_metadata_update_keeps_large_existing_guest_lists_and_contacts_authority(
     monkeypatch,
 ) -> None:
     service, requests, _ = _reschedule_harness(
@@ -1447,6 +1532,37 @@ def test_metadata_update_keeps_large_existing_guest_lists(
     )
     patch = next(call for call in requests if call["method"] == "PATCH")
     assert patch["payload"] == {"summary": "Updated title"}
+
+    service, requests, _ = _reschedule_harness(_event())
+    checked = []
+    monkeypatch.setattr(
+        service,
+        "_check_attendee_grant",
+        lambda plan: checked.append(plan.get("attendee_grant_binding")),
+    )
+    review = asyncio.run(
+        service.propose(
+            user_id="user-1",
+            action="reschedule",
+            payload={"event_id": "evt-1"},
+            contact_selection=(["new@example.com"], ("contacts", "grant")),
+        )
+    )
+    assert review["plan"]["preserve_time"] is True
+    assert review["plan"]["attendee_change"]["added"] == ["new@example.com"]
+    assert ["contacts", "grant"] in checked
+
+    def revoked(plan):
+        raise GoogleConnectionError("Contacts connection changed", status_code=409)
+
+    monkeypatch.setattr(service, "_check_attendee_grant", revoked)
+    with pytest.raises(GoogleConnectionError, match="Contacts connection changed"):
+        asyncio.run(
+            service.execute(
+                user_id="user-1", proposal_id=review["proposal_id"], client_review_contract=1
+            )
+        )
+    assert all(call["method"] == "GET" for call in requests)
 
 
 def test_creator_identity_uses_selected_connection_and_rechecks_binding() -> None:
@@ -2246,14 +2362,13 @@ def test_booking_seals_exact_account_and_primary_calendar(account_id, action):
     )
 
 
-@pytest.mark.parametrize("action", ["create", "reschedule", "cancel"])
-def test_secondary_calendar_booking_never_substitutes_primary(action):
+def test_secondary_calendar_booking_never_substitutes_primary():
     service, requests, _ = _reschedule_harness(_event())
     with pytest.raises(GoogleConnectionError, match="primary calendar"):
         asyncio.run(
             service.propose(
                 user_id="user-1",
-                action=action,
+                action="create",
                 payload={
                     "calendar_id": "secondary@example.com",
                     "event_id": "evt-1",
@@ -2415,4 +2530,142 @@ def test_malformed_edits_never_become_implicit_removals(change):
     with pytest.raises(GoogleConnectionError) as caught:
         _reschedule(service, **change)
     assert caught.value.status_code == 422
+    assert requests == []
+
+
+def _opening_payload():
+    return {
+        "account_id": "account-b",
+        "calendar_id": "primary",
+        "title": "Exact slot",
+        "start_at": "2099-11-04T12:00:00Z",
+        "end_at": "2099-11-04T12:30:00Z",
+        "time_zone": "America/New_York",
+        "opening_selection": {
+            "calendar_id": "primary",
+            "calendar_ids": ["primary"],
+            "query_start": "2099-11-04T09:00:00Z",
+            "query_end": "2099-11-04T17:00:00Z",
+            "duration_minutes": 30,
+            "time_zone": "America/New_York",
+            "slot": {
+                "start_at": "2099-11-04T12:00:00Z",
+                "end_at": "2099-11-04T12:30:00Z",
+                "available_until": "2099-11-04T13:00:00Z",
+            },
+        },
+    }
+
+
+def _opening_harness():
+    service, requests, stored = _reschedule_harness(_event())
+    service.connections.account_id = "account-b"
+    service.connections.binding = (
+        "user-1",
+        "calendar",
+        "account-b",
+        "subject",
+        "connected",
+        "generation",
+        "scopes",
+    )
+    status = {"mode": "free"}
+    original = service._request
+
+    async def request(**kwargs):
+        if kwargs["path"] != "/freeBusy":
+            return await original(**kwargs)
+        requests.append(kwargs)
+        if status["mode"] == "partial":
+            return {"calendars": {}}
+        if status["mode"] == "grant":
+            service.connections.binding = (*service.connections.binding[:-1], "new-scopes")
+        return {
+            "calendars": {
+                "primary": {
+                    "busy": []
+                    if status["mode"] != "busy"
+                    else [{"start": "2099-11-04T12:00:00Z", "end": "2099-11-04T12:10:00Z"}]
+                }
+            }
+        }
+
+    service._request = request
+    return service, requests, stored, status
+
+
+@pytest.mark.parametrize("stage", ["review", "execution"])
+@pytest.mark.parametrize("mode", ["busy", "partial", "grant"])
+def test_exact_slot_revalidates_complete_live_availability_before_review_and_dispatch(stage, mode):
+    service, requests, stored, status = _opening_harness()
+    if stage == "execution":
+        review = asyncio.run(
+            service.propose(
+                user_id="user-1",
+                action="create",
+                payload=_opening_payload(),
+                expected_binding=service.connections.binding,
+            )
+        )
+        assert review["plan"]["opening_selection"] == _opening_payload()["opening_selection"]
+        requests.clear()
+    status["mode"] = mode
+    with pytest.raises(GoogleConnectionError):
+        if stage == "review":
+            asyncio.run(
+                service.propose(
+                    user_id="user-1",
+                    action="create",
+                    payload=_opening_payload(),
+                    expected_binding=service.connections.binding,
+                )
+            )
+        else:
+            asyncio.run(
+                service.execute(
+                    user_id="user-1", proposal_id="gcal_example", account_id="account-b"
+                )
+            )
+    assert not any(
+        call["method"] in {"PATCH", "DELETE"} or call["path"].endswith("/events")
+        for call in requests
+    )
+    if stage == "review":
+        assert not stored
+
+
+def test_exact_slot_confirmed_execution_uses_the_original_coverage_and_target():
+    service, requests, _, _ = _opening_harness()
+    asyncio.run(
+        service.propose(
+            user_id="user-1",
+            action="create",
+            payload=_opening_payload(),
+            expected_binding=service.connections.binding,
+        )
+    )
+    assert all(call["path"] == "/freeBusy" for call in requests)
+    result = asyncio.run(
+        service.execute(user_id="user-1", proposal_id="gcal_example", account_id="account-b")
+    )
+    reads = [call for call in requests if call["path"] == "/freeBusy"]
+    assert len(reads) == 2
+    assert all(call["payload"]["items"] == [{"id": "primary"}] for call in reads)
+    writes = [call for call in requests if call["path"].endswith("/events")]
+    assert len(writes) == 1
+    assert writes[0]["expected_binding"] == service.connections.binding
+    assert result["account_id"] == "account-b"
+
+
+def test_exact_slot_cannot_shift_interval_zone_or_coverage_in_a_review():
+    service, requests, _, _ = _opening_harness()
+    for field, replacement in [("start_at", "2099-11-04T12:01:00Z"), ("time_zone", "UTC")]:
+        payload = _opening_payload()
+        payload[field] = replacement
+        with pytest.raises(GoogleConnectionError, match="slot review changed"):
+            asyncio.run(service.propose(user_id="user-1", action="create", payload=payload))
+    payload = _opening_payload()
+    payload["opening_selection"]["calendar_ids"] = ["other"]
+    with pytest.raises(GoogleConnectionError, match="slot review changed"):
+        asyncio.run(service.propose(user_id="user-1", action="create", payload=payload))
     assert requests == []

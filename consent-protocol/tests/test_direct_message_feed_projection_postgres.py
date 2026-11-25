@@ -369,9 +369,12 @@ def test_delete_chat_is_viewer_only_durable_and_new_messages_restore_it(
     ]
     assert service.list_messages(viewer, conversation, before=new["message"]["id"])["items"] == []
     assert service.list_conversations(viewer)["items"][0]["id"] == conversation
+    # A new message restores the Chat unread state. Ordinary chat remains in
+    # Chat; it must not create unread Feed noise under the shared Feed policy.
+    assert service.list_conversations(viewer)["unreadCount"] == 1
     with projection_db.engine.connect() as connection:
         assert (
-            connection.execute(text(_GROUPED_FEED_COUNT_SQL), {"user_id": viewer}).scalar_one() == 1
+            connection.execute(text(_GROUPED_FEED_COUNT_SQL), {"user_id": viewer}).scalar_one() == 0
         )
 
 

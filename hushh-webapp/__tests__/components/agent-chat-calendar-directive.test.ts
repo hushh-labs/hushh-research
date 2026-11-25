@@ -7,6 +7,7 @@ import {
   getCalendarDirectiveFromToolEvent,
   getGmailEmailDraftPayload,
   getGmailInformationRequestReplyPayload,
+  getGmailReplyDraftPayload,
 } from "@/components/agent/agent-chat-workspace";
 import { calendarProposalReviewError, calendarProposalReviewExtras, legacyCalendarProposalPayload } from "@/lib/agent/calendar-proposal-review";
 import type { AgentChatToolEvent } from "@/lib/services/agent-chat-client";
@@ -72,6 +73,8 @@ describe("getCalendarDirectiveFromToolEvent", () => {
     expect(connectAt).toBeGreaterThanOrEqual(0);
     expect(renderEnd).toBeGreaterThan(connectAt);
     const block = source.slice(connectAt, renderEnd);
+    expect(block).toContain('calendarDirectiveAccountId(payload)');
+    expect(block).toContain('requestedAccount !== selectedAccount');
     expect(block).toContain('runDirectiveConnect("calendar", requestedAccount)');
     const runnerAt = source.indexOf("const runDirectiveConnect = ");
     const runner = source.slice(runnerAt, runnerAt + 3_000);
@@ -394,6 +397,51 @@ describe("getGmailInformationRequestReplyPayload", () => {
   });
 });
 
+describe("getGmailReplyDraftPayload", () => {
+  const validRef = `rs1.${"A".repeat(48)}`;
+
+  it("extracts server-pinned source_mail_ref and envelope from open_gmail_reply_draft", () => {
+    const event = makeToolEvent(
+      "open_gmail_reply_draft",
+      {
+        status: "draft_opened",
+        source_mail_ref: validRef,
+        recipient_display: "Ravi Gupta <ravi@sequoia.example>",
+        subject: "Re: Term sheet catchup",
+      },
+      { ordinal: 1, body: "Tuesday 3pm works great!" },
+    );
+
+    expect(getGmailReplyDraftPayload(event)).toEqual({
+      sourceMailRef: validRef,
+      to: "Ravi Gupta <ravi@sequoia.example>",
+      subject: "Re: Term sheet catchup",
+      body: "Tuesday 3pm works great!",
+    });
+  });
+
+  it("refuses malformed or unsealed reply refs and non-opened statuses", () => {
+    expect(
+      getGmailReplyDraftPayload(
+        makeToolEvent(
+          "open_gmail_reply_draft",
+          { status: "draft_opened", source_mail_ref: "raw-provider-id" },
+          { ordinal: 1, body: "Hi" },
+        ),
+      ),
+    ).toBeNull();
+    expect(
+      getGmailReplyDraftPayload(
+        makeToolEvent(
+          "open_gmail_reply_draft",
+          { status: "source_changed", source_mail_ref: validRef },
+          { ordinal: 1, body: "Hi" },
+        ),
+      ),
+    ).toBeNull();
+  });
+});
+
 describe("getGmailEmailDraftPayload", () => {
   it("uses One's active tool-call draft without storing it in a directive", () => {
     const draft = getGmailEmailDraftPayload(
@@ -512,6 +560,21 @@ describe("buildPendingEmailDraftContext", () => {
       body: "The details are attached.",
       sourceBound: true,
     });
+  });
+
+  it("keeps a generic Gmail reply's sealed source across revisions without retargeting KYC", () => {
+    const sourceMailRef = "rs1.nX4-qL9_c2VhbGVkLXJlcGx5LXNvdXJjZQ";
+    const envelope = { to: "original@example.com", subject: "Re: Original thread" };
+    expect(buildPendingEmailDraftContext({ ...draft, sourceMailRef }, envelope, true)).toEqual({
+      ...envelope, cc: "", bcc: "", body: draft.body, sourceBound: true, sourceMailRef,
+    });
+    for (const invalid of ["provider-thread-id", ` ${sourceMailRef}`, `rs1.${"a".repeat(2045)}`]) {
+      expect(buildPendingEmailDraftContext({ ...draft, sourceMailRef: invalid }, envelope, true)).toBeNull();
+    }
+    expect(buildPendingEmailDraftContext({ ...draft, sourceMailRef }, null, false)).toBeNull();
+    expect(buildPendingEmailDraftContext({ ...draft, sourceMailRef, sourceWorkflowId: "kyc-workflow" }, envelope, true)).toBeNull();
+    expect(buildPendingEmailDraftContext({ ...draft, sourceWorkflowId: "kyc-workflow" }, envelope, true))
+      .not.toHaveProperty("sourceMailRef");
   });
 
   it("sends nothing when no draft is on screen", () => {

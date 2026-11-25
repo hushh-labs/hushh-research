@@ -276,7 +276,7 @@
       "runtime": {
         "adk_mode": "task",
         "factory": null,
-        "kind": "adk",
+        "kind": "hybrid",
         "transport": [
           "in_process",
           "chat"
@@ -1351,12 +1351,13 @@
       "exact_tables": [
         "advisor_review_requests",
         "advisor_review_subscriptions",
-        "advisor_billing_cleanup"
+        "advisor_billing_cleanup",
+        "advisor_review_payments"
       ],
       "id": "finance_advisor_handshake",
       "lifecycle_status": "release_schema_qualification",
       "owner": "iam-consent-governance",
-      "primary_access_path": "One explicitly approved connection and full Finance snapshot request; participant-scoped review workspaces, Calendar time agreement and test-only recurring Stripe plans."
+      "primary_access_path": "One explicitly approved connection and full Finance snapshot request, participant-scoped review workspaces, Calendar time agreement and test-only one-time Stripe payments."
     },
     {
       "data_class": "personal_encrypted",
@@ -2635,6 +2636,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "analysis.confirm_preview",
           "calendar.invitation.review",
           "onboarding.claim_one",
           "wallet.add",
@@ -2904,6 +2906,29 @@
         "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.delete.account"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/design-system/page.tsx",
+      "pathname": "/design-system",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.design.system"
       }
     },
     {
@@ -3860,7 +3885,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "feed.search_activity"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.feed"
       }
@@ -4364,6 +4391,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "finance.advisor.recommend",
           "route.kai_portfolio_analysis"
         ],
         "delegate_agent_ids": [],
@@ -6168,7 +6196,9 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "setup.hub_continue",
           "setup.hub_master_ack",
+          "setup.memory_import_skip",
           "setup.open_calendar",
           "setup.open_cloud",
           "setup.open_connected_systems",
@@ -7395,27 +7425,27 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
-    "action_gateway": "e1328d15be5c7374b1411f5611291d07f15966196f34d0e6761fccfb0dbc641c",
-    "agent_registry": "de079a7f08d3303bbe3ad04f13101d8da2f6daac9d6b0f07af415930b527e8ec",
-    "cache_manifest": "f9b92a949b2c047310d063459256dcdbe8570df034ffd6b4dae61cbb2853664b",
-    "data_plane": "c8fbcc295480ad1d07e9571e563f93e7e711b1b7154e965fcff4b67d89f907b1",
+    "action_gateway": "c32c391775489a31f2bf5a2025fbdeb927604776b32182de38ccf805d78fb3d7",
+    "agent_registry": "7103a453404f3d6ad1879dc965c19b902647d64fbec1e52f71042442b05d0e18",
+    "cache_manifest": "0b19f1db5ebf5399aa22430bba75e85ebf0e2ee84f7553cd6a722d985ee8de90",
+    "data_plane": "80f3365bd25e7a5067f868967fb35c4edc9a993d6ef27a8201ce8729b8b05b77",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
-    "one_specialist_tools": "0d6997a4e9f1b3d2f14930a0bb156ee4265c281a7150e1a82deacafb65763e83",
-    "route_index": "e20aee3096ec5b97a40d7121d89eda12abe94ff080bdad3346be08da85b930a7",
-    "route_layout": "9fb74e8587921c894e6c75abb90e02741468686ada932c7225ced940e77e56c9",
-    "surface_map": "ac0c011fa8cc28f777c3778eff539b6b94cfcebc1313189fe422eb2784ba9d5f",
+    "one_specialist_tools": "1af4badea5099908aa16463d04147aa7a97a195b5de530ed318ef76161dbadbf",
+    "route_index": "2deec9f992466d334f06a3aba1f0336cd360a05962f9e13e60b8fb5b27e9384b",
+    "route_layout": "bbd9c75d7ace617938d27071e72a0e579001df1cd93b0829f7c0a59a4159b328",
+    "surface_map": "b7b5b358e6274a47a8c02cf78765376329b62760387f01c1b6cefda2b106e727",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 334,
+    "actions": 347,
     "agents": 23,
     "aliases": 4,
     "decision_required": 2,
     "in_process_specialists": 7,
     "one_specialist_tools": 6,
-    "physical_routes": 164,
+    "physical_routes": 165,
     "semantic_routes": 17,
     "table_families": 146
   }

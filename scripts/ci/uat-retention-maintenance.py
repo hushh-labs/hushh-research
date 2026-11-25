@@ -1731,6 +1731,8 @@ def checkpoint(args, run_id, observed, pending, status):
     receipt_file = args.state_dir / "completed.json"
     prior = json.loads(receipt_file.read_text()) if receipt_file.exists() else {}
     bridge = capacity_bridge.receipt_state(prior.get("capacity_bridge"))
+    template_owner = importlib.import_module("production_template_restore")
+    restored = template_owner.receipt(prior.get("serving_template_restore"), retention.UnsafeState)
     retention.atomic_state(
         receipt_file,
         {
@@ -1743,6 +1745,7 @@ def checkpoint(args, run_id, observed, pending, status):
             "pass_status": status,
             "pending_services": list(pending),
             **({"capacity_bridge": bridge} if bridge is not None else {}),
+            **({"serving_template_restore": restored} if restored is not None else {}),
             **({"phone_rollback_qualification": args.phone_anchor} if getattr(args, "phone_anchor", None) else {}),
             **({"operational_backend": args.operational_anchor} if isinstance(getattr(args, "operational_anchor", None), dict) else {}),
             **({"pending_retirement": args.pending_context} if isinstance(getattr(args, "pending_context", None), dict) else {}),
@@ -1823,6 +1826,11 @@ def assert_no_pending_mutations(repository, directory, environment):
     if receipt.exists():
         state = json.loads(receipt.read_text())
         bridge = capacity_bridge.receipt_state(state.get("capacity_bridge"))
+        restored = importlib.import_module("production_template_restore").receipt(
+            state.get("serving_template_restore"), retention.UnsafeState
+        )
+        if restored is not None and restored["status"] != "verified":
+            raise retention.UnsafeState("Serving-template provider outcome requires maintenance reconciliation")
         if bridge is not None and bridge["status"] != "verified":
             raise retention.UnsafeState("Capacity bridge provider outcome requires maintenance reconciliation")
         if state.get("pass_status", "complete") == "unresolved":
@@ -1856,6 +1864,7 @@ def maintenance_cli():
     parser.add_argument("--state-dir", type=Path, required=True)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--production-capacity-bridge", action="store_true")
+    parser.add_argument("--restore-serving-template", action="store_true")
     parser.add_argument("--verify-source-only", action="store_true")
     parser.add_argument("--check-mutations", action="store_true")
     parser.add_argument(
@@ -1869,6 +1878,15 @@ def maintenance_cli():
     parser.add_argument("--operational-backend-proof-attempt", type=production_retention_context.optional_attempt)
     parser.add_argument("--staged-worker-run-id", default="")
     args = parser.parse_args()
+    if args.restore_serving_template and (
+        args.environment != "production" or not args.apply or not args.force_inspection
+        or args.verify_source_only or args.check_mutations or args.production_capacity_bridge
+        or args.qualified_cold_checkpoint_run_id or args.operational_backend_proof_run_id
+        or args.staged_worker_run_id or not args.release_run_id
+        or os.getenv("GITHUB_EVENT_NAME") != "workflow_dispatch"
+        or os.getenv("GITHUB_REF_NAME") != "main"
+    ):
+        parser.error("serving-template restoration requires a separate manual main production apply and exact healthy release")
     if args.production_capacity_bridge and (args.environment != "production" or not args.apply
             or args.verify_source_only or args.check_mutations or not args.force_inspection
             or os.getenv("GITHUB_EVENT_NAME") != "workflow_dispatch" or os.getenv("GITHUB_REF_NAME") != "main"):
@@ -1957,6 +1975,21 @@ def maintenance_pass() -> int:
         except (retention.BudgetExpired, retention.MutationUncertain) as exc:
             bridge = capacity_bridge.receipt_state(json.loads((args.state_dir / "completed.json").read_text()).get("capacity_bridge"))
             outcome = "unresolved" if isinstance(exc, retention.MutationUncertain) or (bridge is not None and bridge["status"] == "intent" and bridge["requested"]) else "deferred"
+            checkpoint(args, run_id, observation, pending, outcome)
+            record_uat_cleanup_outcome(args, outcome)
+            return 0
+        pass_diagnostics.CURRENT_STAGE.set("serving_template_restore")
+        try:
+            if not live_release_matches(release, environment="production"):
+                raise retention.UnsafeState("Live release changed before template restoration")
+            importlib.import_module("production_template_restore").maintain(
+                release, args.state_dir / "completed.json",
+                create=getattr(args, "restore_serving_template", False), owner=retention,
+            )
+            if not live_release_matches(release, environment="production"):
+                raise retention.UnsafeState("Live release changed after template restoration")
+        except (retention.BudgetExpired, retention.MutationUncertain) as exc:
+            outcome = "unresolved" if isinstance(exc, retention.MutationUncertain) else "deferred"
             checkpoint(args, run_id, observation, pending, outcome)
             record_uat_cleanup_outcome(args, outcome)
             return 0

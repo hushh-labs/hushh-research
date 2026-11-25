@@ -64,6 +64,9 @@ RUNTIME_CONTRACTS = (
     # Secret-span patterns (2026-10-01): read by the memory proposal route's
     # second net on every proposal, so it must ship inside the image.
     ("pkm", "secret-patterns.v1.json"),
+    # Authored Feed activity policy (2026-11-21): read at server import time by
+    # feed_activity_policy, so both the root copy and in-context mirror must match.
+    ("feed", "activity-policy.v1.json"),
 )
 
 

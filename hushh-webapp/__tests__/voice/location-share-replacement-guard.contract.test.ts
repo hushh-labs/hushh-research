@@ -142,4 +142,16 @@ describe("the tapped share cannot post past its own warning", () => {
     expect(HUB_SOURCE).toContain("shareReplacementCount");
     expect(HUB_SOURCE).toContain("setShareReplacementConfirmOpen(false)");
   });
+
+  it("keeps the share confirmation actions without a horizontal divider line", () => {
+    const shareActionsIdx = HUB_SOURCE.indexOf(
+      "className={SHARE_CONFIRM_ACTIONS_CLASSNAME}",
+    );
+    expect(shareActionsIdx).toBeGreaterThan(-1);
+    const actionsBlock = HUB_SOURCE.slice(
+      shareActionsIdx,
+      shareActionsIdx + 300,
+    );
+    expect(actionsBlock).toContain("separateSecondary={false}");
+  });
 });

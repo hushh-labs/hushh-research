@@ -55,22 +55,10 @@ describe("One profile To-do live-source parity", () => {
     mocks.load.mockResolvedValue({ tasks: [] });
     mocks.save.mockResolvedValue({ success: true });
     mocks.remove.mockResolvedValue({ success: true });
-  });
-
-  it("uses the shared task editor and retains the draft and identity after a failed save", async () => {
-    mocks.create.mockResolvedValueOnce({ result: { success: false } })
-      .mockImplementationOnce(async (input) => ({ task: buildTodo(input), result: { success: true } }));
-    render(<OneTodoPreview {...props()} />);
-    await screen.findByText("All clear.");
-    fireEvent.click(screen.getByRole("button", { name: "Add item" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Title" }), { target: { value: "Arrange files" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await screen.findByRole("alert");
-    expect(screen.getByRole("textbox", { name: "Title" })).toHaveValue("Arrange files");
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(await screen.findByText("Arrange files")).toBeVisible();
-    expect(mocks.create.mock.calls[1]?.[0].id).toBe(mocks.create.mock.calls[0]?.[0].id);
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    mocks.create.mockResolvedValue({
+      task: buildTodo({ id: "manual-item", title: "Plan trip", type: "manual", date: "2099-01-02", time: "09:30", notes: "Tickets" }),
+      result: { success: true },
+    });
   });
 
   it("fetches Calendar, explicit agent tasks and KYC even when saved tasks are empty", async () => {
@@ -113,6 +101,38 @@ describe("One profile To-do live-source parity", () => {
     expect(mocks.sourceAction).not.toHaveBeenCalled();
   });
 
+  it("rediscovers completed tasks after remount and restores them from the same profile pane", async () => {
+    const task = buildTodo({ id: "recover-completed", title: "Recover completed task", type: "manual" });
+    mocks.load.mockResolvedValue({ tasks: [task] });
+    const view = render(<OneTodoPreview {...props()} />);
+    fireEvent.click(await screen.findByRole("checkbox", { name: `Mark ${task.title} as completed` }));
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ status: "done" })));
+    view.unmount();
+    mocks.load.mockResolvedValue({ tasks: [{ ...task, status: "done" }] });
+    render(<OneTodoPreview {...props()} />);
+    const summary = await screen.findByText("Completed (1)");
+    fireEvent.click(summary);
+    fireEvent.click(screen.getByRole("button", { name: task.title, exact: true }));
+    const detail = screen.getByRole("region", { name: "Task details" });
+    fireEvent.click(within(detail).getByRole("button", { name: "Mark as not completed", exact: true }));
+    await waitFor(() => expect(within(detail).getByRole("button", { name: "Back to tasks" })).toBeEnabled());
+    expect(mocks.save).toHaveBeenLastCalledWith(expect.objectContaining({ status: "pending", task: expect.objectContaining({ id: task.id }) }));
+    fireEvent.click(within(detail).getByRole("button", { name: "Back to tasks" }));
+    expect(await screen.findByRole("checkbox", { name: `Mark ${task.title} as completed` })).toBeEnabled();
+    expect(screen.queryByText("Completed (1)")).not.toBeInTheDocument();
+  });
+
+  it("rolls back a resolved unsuccessful write and offers retry", async () => {
+    mocks.events = [event];
+    mocks.save.mockResolvedValue({ success: false });
+    render(<OneTodoPreview {...props()} />);
+    await screen.findByText(event.title);
+    fireEvent.click(select(event.title));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn’t save. Try again.");
+    expect(screen.getByText(event.title)).toBeVisible();
+    expect(select(event.title)).toBeEnabled();
+  });
+
   it("reports failed completion in detail and clears the error after a successful retry", async () => {
     mocks.events = [event];
     mocks.save.mockResolvedValueOnce({ success: false });
@@ -122,10 +142,8 @@ describe("One profile To-do live-source parity", () => {
     fireEvent.click(within(detail).getByRole("button", { name: "Mark as completed", exact: true }));
     expect(await within(detail).findByRole("alert")).toHaveTextContent("Couldn’t save. Try again.");
     fireEvent.click(within(detail).getByRole("button", { name: "Mark as completed", exact: true }));
-    await waitFor(() => expect(within(detail).getByRole("button", { name: "Mark as not completed", exact: true })).toBeEnabled());
-    expect(within(detail).queryByRole("alert")).not.toBeInTheDocument();
-    fireEvent.click(within(detail).getByRole("button", { name: "Back to tasks" }));
     expect(await screen.findByRole("button", { name: "Task sources", exact: true })).toBeEnabled();
+    expect(screen.queryByRole("region", { name: "Task details" })).not.toBeInTheDocument();
     expect(screen.queryByText("Your saved tasks could not refresh.")).not.toBeInTheDocument();
   });
 
@@ -158,38 +176,6 @@ describe("One profile To-do live-source parity", () => {
     expect(await screen.findByText("All clear.")).toBeVisible();
     expect(mocks.remove).toHaveBeenCalledTimes(2);
     expect(mocks.sourceAction).not.toHaveBeenCalled();
-  });
-
-  it("rediscovers completed tasks after remount and restores them from the same profile pane", async () => {
-    const task = buildTodo({ id: "recover-completed", title: "Recover completed task", type: "manual" });
-    mocks.load.mockResolvedValue({ tasks: [task] });
-    const view = render(<OneTodoPreview {...props()} />);
-    fireEvent.click(await screen.findByRole("checkbox", { name: `Mark ${task.title} as completed` }));
-    await waitFor(() => expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ status: "done" })));
-    view.unmount();
-    mocks.load.mockResolvedValue({ tasks: [{ ...task, status: "done" }] });
-    render(<OneTodoPreview {...props()} />);
-    const summary = await screen.findByText("Completed (1)");
-    fireEvent.click(summary);
-    fireEvent.click(screen.getByRole("button", { name: task.title, exact: true }));
-    const detail = screen.getByRole("region", { name: "Task details" });
-    fireEvent.click(within(detail).getByRole("button", { name: "Mark as not completed", exact: true }));
-    await waitFor(() => expect(within(detail).getByRole("button", { name: "Back to tasks" })).toBeEnabled());
-    expect(mocks.save).toHaveBeenLastCalledWith(expect.objectContaining({ status: "pending", task: expect.objectContaining({ id: task.id }) }));
-    fireEvent.click(within(detail).getByRole("button", { name: "Back to tasks" }));
-    expect(await screen.findByRole("checkbox", { name: `Mark ${task.title} as completed` })).toBeEnabled();
-    expect(screen.queryByText("Completed (1)")).not.toBeInTheDocument();
-  });
-
-  it("rolls back a resolved unsuccessful write and offers retry", async () => {
-    mocks.events = [event];
-    mocks.save.mockResolvedValue({ success: false });
-    render(<OneTodoPreview {...props()} />);
-    await screen.findByText(event.title);
-    fireEvent.click(select(event.title));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn’t save. Try again.");
-    expect(screen.getByText(event.title)).toBeVisible();
-    expect(select(event.title)).toBeEnabled();
   });
 
   it("retains saved rows on a source failure, retries sources, and avoids false empty success", async () => {
@@ -253,7 +239,8 @@ describe("One profile To-do live-source parity", () => {
     mocks.events = [event];
     const view = render(<OneTodoPreview {...props()} />);
     await screen.findByText(event.title);
-    fireEvent.click(screen.getByRole("button", { name: `Delete ${event.title}` }));
+    fireEvent.click(screen.getByRole("button", { name: event.title, exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove task", exact: true }));
     await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith(expect.objectContaining({ task: expect.objectContaining({ sourceAgent: "calendar", title: event.title }) })));
     view.rerender(<OneTodoPreview {...props()} />);
     expect(await screen.findByText("All clear.")).toBeVisible();
@@ -269,6 +256,75 @@ describe("One profile To-do live-source parity", () => {
     const task = buildTodo(calendarTodoInput(event)!);
     await act(async () => resolve({ tasks: [{ ...task, status: "deleted" }] }));
     expect(await screen.findByText("All clear.")).toBeVisible();
+  });
+
+  it("adds a manual encrypted task from the profile tab and keeps the entered schedule", async () => {
+    render(<OneTodoPreview {...props()} />);
+    await screen.findByRole("button", { name: "Add item" });
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }));
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Plan trip" } });
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2099-01-02" } });
+    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "09:30" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add a note" }));
+    fireEvent.change(screen.getByLabelText("Notes"), { target: { value: "Tickets" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(
+      { title: "Plan trip", type: "manual", date: "2099-01-02", time: "09:30", notes: "Tickets" },
+      expect.objectContaining({ userId: "owner", vaultKey: "fixture-key", vaultOwnerToken: "fixture-token" }),
+    ));
+    expect(await screen.findByText("Plan trip")).toBeVisible();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("keeps the editor open and reports a failed manual save without adding a row", async () => {
+    mocks.create.mockResolvedValueOnce({ task: buildTodo({ title: "Lost task" }), result: { success: false } });
+    render(<OneTodoPreview {...props()} />);
+    await screen.findByRole("button", { name: "Add item" });
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }));
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Lost task" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    const editor = screen.getByRole("dialog", { name: "Add item" });
+    expect(await within(editor).findByRole("alert")).toHaveTextContent("Couldn’t save. Try again.");
+    expect(editor).toBeVisible();
+    expect(within(editor).getByLabelText("Title")).toHaveValue("Lost task");
+    expect(screen.queryByText("Lost task")).not.toBeInTheDocument();
+    mocks.create.mockResolvedValueOnce({ task: buildTodo({ title: "Lost task", type: "manual" }), result: { success: true } });
+    fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Lost task")).toBeVisible();
+    expect(screen.queryByRole("dialog", { name: "Add item" })).not.toBeInTheDocument();
+  });
+
+  it("does not expose manual creation while the owner vault is locked", () => {
+    render(<OneTodoPreview {...props("owner", false)} />);
+    expect(screen.getByRole("button", { name: "Add item" })).toBeDisabled();
+    expect(screen.getByText("Unlock your vault to view your to-do list.")).toBeVisible();
+  });
+
+  it("keeps Add item inside One and consumes Back until a pending save settles", async () => {
+    let settle!: (value: { task: TodoItem; result: { success: boolean } }) => void;
+    mocks.create.mockReturnValueOnce(new Promise(resolve => { settle = resolve; }));
+    const onDetailBackChange = vi.fn();
+    const onDetailModeChange = vi.fn();
+    render(<OneTodoPreview {...props()} onDetailBackChange={onDetailBackChange} onDetailModeChange={onDetailModeChange} />);
+    const add = await screen.findByRole("button", { name: "Add item" });
+    fireEvent.click(add);
+    const editor = screen.getByRole("dialog", { name: "Add item" });
+    expect(editor.closest('[data-profile-type-scale="todo"]')).not.toBeNull();
+    expect(onDetailModeChange).toHaveBeenLastCalledWith(false);
+    fireEvent.change(within(editor).getByLabelText("Title"), { target: { value: "Keep my draft" } });
+    fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
+    const back = onDetailBackChange.mock.calls.at(-1)?.[0];
+    act(() => expect(back()).toBe(true));
+    expect(editor).toBeVisible();
+    await act(async () => settle({ task: buildTodo({ title: "Keep my draft" }), result: { success: false } }));
+    expect(await within(editor).findByRole("alert")).toBeVisible();
+    fireEvent.keyDown(within(editor).getByLabelText("Title"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add item" })).not.toBeInTheDocument());
+    expect(onDetailModeChange).toHaveBeenLastCalledWith(false);
+    expect(onDetailBackChange).toHaveBeenLastCalledWith(null);
+    await waitFor(() => expect(add).toHaveFocus());
   });
 
   it.each(["lock", "owner", "epoch"])("drops late saved reads after a %s change", async change => {

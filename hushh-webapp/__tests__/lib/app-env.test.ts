@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { resolveAppEnvironment } from "@/lib/app-env";
+import { isObservabilityDebugEnabled } from "@/lib/observability/env";
 
 describe("resolveAppEnvironment", () => {
   const ORIGINAL_ENV = process.env;
@@ -61,5 +62,25 @@ describe("resolveAppEnvironment", () => {
     process.env.NODE_ENV = "development";
 
     expect(resolveAppEnvironment()).toBe("development");
+  });
+});
+
+describe("verbose observability", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it.each([
+    ["uat", "staging", true],
+    ["development", "", true],
+    ["production", "production", false],
+    ["uat", "production", false],
+    ["unknown", "uat", false],
+    ["", "uat", false],
+  ])("requires a recognised build declaration (%s, %s)", (app, telemetry, enabled) => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", app);
+    vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_ENV", telemetry);
+    vi.stubEnv("NEXT_PUBLIC_ENVIRONMENT_MODE", "");
+    vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_DEBUG", "true");
+    expect(isObservabilityDebugEnabled()).toBe(enabled);
   });
 });

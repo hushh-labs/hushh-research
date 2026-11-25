@@ -119,8 +119,7 @@ Each rule names the check that enforces it today, or its gap.
      IAM are available, independently of backend deployment. Ordinary UAT core mode
      runs the configured provider; full diagnostics retain concurrent Azure/Vertex
      qualification. Only the existing complete fallback evidence can qualify a
-     classified Azure outage as `degraded_fallback`; core mode and Dev's
-     configured-provider policy grant no fallback.
+     classified Azure outage as `degraded_fallback`; core mode grants no fallback.
      Missing required evidence and PWM trust failures remain blocking.
    - Gap: the verdict still travels through log search, and individual stages
      inside each provider exam remain sequential. Ending the build from a provider step cancels sibling steps

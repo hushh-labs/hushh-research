@@ -8,6 +8,9 @@ import { createRoot } from "react-dom/client";
 import { ImportProgressView } from "../../components/kai/views/import-progress-view";
 import { DecisionCard } from "../../components/kai/views/decision-card";
 import { HoldingRowActions } from "../../components/kai/holdings/holding-row-actions";
+import { PortfolioReviewHoldingsTable } from "../../components/kai/holdings/portfolio-review-holdings-table";
+import { ReviewEntriesSheet } from "../../components/kai/holdings/review-entries-sheet";
+import { PortfolioReviewHoldingsPanel } from "../../components/kai/views/portfolio-review-layout";
 import { RiaPicksList } from "../../components/kai/cards/renaissance-market-list";
 import { OneMarketNewsBriefing } from "../../components/kai/cards/market-news-briefing";
 import { SectorRotationChart } from "../../components/kai/cards/sector-rotation-chart";
@@ -24,9 +27,8 @@ import { FinanceSharedDetail } from "../../components/kai/sharing/finance-shared
 import { seedActiveFinanceShare, sharingModel } from "./finance-sharing-boundaries";
 import { PortfolioOverview } from "../../components/kai/views/portfolio-overview";
 import { PortfolioBriefing } from "../../components/kai/views/portfolio-briefing";
-import { FinancePortfolioSharing } from "../../components/kai/sharing/finance-portfolio-sharing";
+import { PortfolioDashboardEmpty } from "../../components/kai/views/portfolio-dashboard-empty";
 import { AnalysisHistoryList } from "../../components/kai/views/analysis-history-list";
-import { VersionOptions } from "../../components/kai/views/analysis-history-version-options";
 import { AnalysisSummaryView } from "../../components/kai/views/analysis-summary-view";
 import { StockComparisonPreview } from "../../components/kai/cards/stock-comparison-preview";
 import { PortfolioAllocationBar } from "../../components/kai/charts/portfolio-allocation-bar";
@@ -39,6 +41,7 @@ import type { PortfolioData } from "../../components/kai/types/portfolio";
 import type { HoldingsListItem } from "../../components/kai/holdings/holding-view-model";
 import { groupHoldingPositions, prepareHoldingEntryEdit } from "../../lib/kai/holding-positions";
 import { EditHoldingModal } from "../../components/kai/modals/edit-holding-modal";
+import { SwipeViews } from "../../lib/morphy-ux/ui/swipe-views";
 import { SettingsGroup, SettingsRow } from "../../components/app-ui/settings-ui";
 import type { StockQuoteLoader } from "../../lib/services/public-stock-quote";
 
@@ -47,7 +50,7 @@ const samplePortfolio: PortfolioData = { account_summary: { beginning_value: 240
 const sampleModel = mapPortfolioToDashboardViewModel(samplePortfolio);
 const savedEntry = { ticker: "TEST", timestamp: "2026-10-20T20:00:00Z", decision: "hold", confidence: .82, consensus_reached: false,
   agent_votes: { fundamental: "buy", sentiment: "hold", valuation: "reduce" }, final_statement: "Consider valuation alongside company strength and your portfolio exposure.",
-  raw_card: { company_strength_score: 7, market_trend_score: 6, fair_value_score: 5, short_recommendation: "Consider valuation alongside company strength and your portfolio exposure." }, version: 3, companyName: "Sample Company With A Deliberately Long Name" };
+  raw_card: { company_strength_score: 7, market_trend_score: 6, fair_value_score: 5, short_recommendation: "Consider valuation alongside company strength and your portfolio exposure." }, companyName: "Sample Company With A Deliberately Long Name" };
 
 const observedFixture = Array.from({ length: 31 }, (_, index) => ({
   date: new Date(Date.UTC(2026, 8, 20 + index)).toISOString(),
@@ -73,6 +76,31 @@ function FinanceSharingFixture() {
     <FinanceShareFlow open={open} onOpenChange={setOpen} model={sharingModel} source={{ kind: "statement", snapshotId: null }} />
     <FinanceSharedDetail grantId={received ? "22222222-2222-4222-8222-222222222222" : null} onClose={() => setReceived(false)} />
   </section>;
+}
+
+const importReviewPositions = groupHoldingPositions([
+  { client_id: "aapl", symbol: "AAPL", name: "Apple Inc.", quantity: 42, price: 229.14, market_value: 9623.88, cost_basis: 8405.46 },
+  { client_id: "vti", symbol: "VTI", name: "Vanguard Total Stock Market ETF", quantity: 36, price: 296.24, market_value: 10664.64, cost_basis: 9956.16 },
+]);
+const importReviewValue = importReviewPositions.reduce((total, row) => total + row.market_value, 0);
+
+function PortfolioImportReviewFixture() {
+  const [selected, setSelected] = useState<string | null>(null);
+  const position = importReviewPositions.find((row) => row.client_id === selected);
+  return <div data-testid="import-holdings-review-fixture" className={financeStyles.detail}>
+    <PortfolioReviewHoldingsPanel>
+      <PortfolioReviewHoldingsTable positions={importReviewPositions} totalValue={importReviewValue} onManageEntries={setSelected} />
+    </PortfolioReviewHoldingsPanel>
+    <ReviewEntriesSheet
+      open={Boolean(position)}
+      position={position ? toHoldingViewModel(position, importReviewValue) : null}
+      entries={position?.entries.map((entry) => toHoldingViewModel(entry, importReviewValue)) ?? []}
+      onOpenChange={(open) => { if (!open) setSelected(null); }}
+      onEditEntry={() => {}}
+      onToggleDeleteEntry={() => {}}
+      onAddEntry={() => {}}
+    />
+  </div>;
 }
 
 function GroupedHoldingsFixture() {
@@ -106,6 +134,7 @@ function GroupedHoldingsFixture() {
 }
 
 function Fixture() {
+  const [swipeTab, setSwipeTab] = useState("market");
   const [holdingOpen, setHoldingOpen] = useState(false);
   const [updated, setUpdated] = useState(false);
   const [action, setAction] = useState("");
@@ -113,12 +142,16 @@ function Fixture() {
   return <main className="mx-auto max-w-3xl p-4">
     <section data-testid="finance-import-fixture"><FullscreenFlowShell width="agent"><PortfolioImportView onFileSelect={() => {}} onSkip={() => {}} /></FullscreenFlowShell></section>
     <section data-testid="finance-preferences-fixture"><KaiPreferencesWizard mode="onboarding" onComplete={() => setAction("Preferences saved")} /></section>
-    <section data-testid="finance-received-only-fixture" className="mt-4"><FinancePortfolioSharing /></section>
+    <section data-testid="finance-received-only-fixture" className="-mx-4 mt-4 p-4">
+      <PortfolioDashboardEmpty onFileSelect={() => setAction("Upload statement")}
+        onConnectPlaid={() => setAction("Connect Plaid")} onPreloadSchema={() => setAction("Try sample")} />
+    </section>
     <GroupedHoldingsFixture />
-    <button onClick={() => setUpdated(true)}>Update progress</button>
-    <ImportProgressView stage="extracting" isStreaming progressPct={updated ? 77 : undefined}
-      statusMessage="Reading your statement"
-      rawStreamLines={updated ? Array.from({ length: 15 }, (_, i) => `[THINKING] Processing holding ${i}`) : ["[THINKING] Reading statement"]} />
+    <PortfolioImportReviewFixture />
+    <section data-testid="finance-import-status">
+      <button onClick={() => setUpdated(true)}>Finish reading statement</button>
+      <ImportProgressView stage={updated ? "validating" : "extracting"} onCancel={() => setAction("Cancelled")} />
+    </section>
     <FinanceSharingFixture />
     <AdvisorReviewFixture /><PortfolioAnalysisFixture />
     <div data-testid="after-import">After import</div>
@@ -132,9 +165,14 @@ function Fixture() {
       agent_votes: { fundamental: "buy", technical: "hold", sentiment: "reduce" },
       dissenting_opinions: ["Example dissent"], raw_card: {} }} />
     <section data-testid="market-news-iphone-fixture" className="mt-8 [--one-link:var(--app-accent-deep)]">
-      <OneMarketNewsBriefing rows={[0, 1, 2, 3].map((index) => ({ symbol: "TEST", title: `Market fixture story ${index}: a deliberately long company headline for a narrow phone`,
+      <OneMarketNewsBriefing rows={[0, 1, 2, 3].map((index) => ({ symbol: "TEST", title: index === 0
+          ? "Foreign investors bought shares across several Indian sectors in November, reversing a sharp outflow over the previous two months and setting a new monthly record for the domestic market"
+          : `Market fixture story ${index}`,
+        summary: index === 1 ? "A short summary from the publisher." : undefined,
         url: `https://publisher.test/story-${index}`, published_at: "2026-10-20T20:00:00Z", source_name: "Publisher", provider: "fixture", degraded: false,
-        image_url: "https://images.example.test/large.png", image_thumbnail_url: "https://images.example.test/small.png" }))} />
+        image_url: index >= 2 ? null : "https://images.example.test/large.png",
+        image_thumbnail_url: index === 0 ? "https://images.example.test/small.png" : `https://images.example.test/story-${index}-small.png`,
+        source_logo_url: index === 2 ? "https://images.example.test/publisher.png" : null }))} />
     </section>
     <section data-testid="portfolio-chart-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full`}>
       <PortfolioValueCard source="Sample" value={24680.42} change={584.24} changePct={2.43} period="Sample portfolio · September 20 – October 20"
@@ -142,7 +180,7 @@ function Fixture() {
     </section>
     <section data-testid="portfolio-overview-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full`}>
       <p className="mb-4 text-xs text-muted-foreground">Design verification · Sample figures only</p>
-      <PortfolioOverview briefing={<PortfolioBriefing model={sampleModel} portfolio={samplePortfolio} onOpen={() => setAction("Open analysis")} />} model={sampleModel} portfolio={samplePortfolio} source="Sample" period="Sample statement · October 2026" onImport={() => setAction("Import portfolio")} onOpenSection={section => setAction(`Open ${section}`)} action={<PortfolioReportAction model={sampleModel} source="Sample" period="October 2026" onExport={() => setAction("Export report")} />} />
+      <PortfolioOverview briefing={<PortfolioBriefing review={{ score: 72, takeaway: "Most of your money is in one company. A bad quarter there could pull down your whole balance." }} onOpen={() => setAction("Open analysis")} />} model={sampleModel} portfolio={samplePortfolio} source="Statement" period="Sample statement · October 2026" onImport={() => setAction("Import portfolio")} onOpenSection={section => setAction(`Open ${section}`)} action={<PortfolioReportAction model={sampleModel} source="Sample" period="October 2026" onExport={() => setAction("Export report")} />} />
       <button className="mt-4 min-h-11" onClick={() => setHoldingOpen(true)}>Open sample holding</button>
       <HoldingDetailsDrawer loadHistory={loadSampleHistory} open={holdingOpen} onOpenChange={setHoldingOpen} holding={toHoldingViewModel({ ...samplePortfolio.holdings![0]!, client_id: "sample" }, 24680.42)} onEdit={() => setAction("Edit sample")} onToggleDelete={() => setAction("Delete sample")} />
     </section>
@@ -150,8 +188,7 @@ function Fixture() {
       <DataTable columns={holdingTableColumns(24680.42)} data={samplePortfolio.holdings!.map((row, index) => ({ ...row, client_id: `sample-${index}` }))} tableClassName="w-full [&_th]:px-2 [&_td]:px-2 [&_td]:align-middle" />
     </section>
     <section data-testid="finance-history-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full`}>
-      <AnalysisHistoryList entries={[savedEntry]} onOpen={() => setAction("Open saved")} onVersions={() => setAction("Open versions")} onDelete={() => setAction("Delete saved")} onDeleteTicker={() => setAction("Delete ticker")} />
-      <VersionOptions entries={[savedEntry]} onOpen={() => setAction("Open version 3")} onDelete={() => setAction("Delete version 3")} />
+      <AnalysisHistoryList entries={[savedEntry]} onOpen={() => setAction("Open saved")} onDelete={() => setAction("Delete saved")} />
     </section>
     <section data-testid="finance-subpages-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full space-y-5`}>
       <PortfolioAllocationBar data={sampleModel.allocation} totalValue={sampleModel.hero.totalValue} />
@@ -188,6 +225,16 @@ function Fixture() {
       })}>Open {label} detail</button>)}
       <MarketIndexDetailSurface metric={indexMetric} open={Boolean(indexMetric)} onOpenChange={(open) => { if (!open) setIndexMetric(null); }} />
     </section>
+    <section data-testid="finance-swipe-gap" className="mt-8 w-full">
+      <button onClick={() => setSwipeTab("market")}>Swipe market</button><button onClick={() => setSwipeTab("portfolio")}>Swipe portfolio</button>
+      <SwipeViews tabSetId="finance-gap-fixture" activeValue={swipeTab} onSelectionChange={setSwipeTab} panelGap={24} heightMode="active"
+        options={[{ value: "market", label: "Market" }, { value: "portfolio", label: "Portfolio" }]}>
+        <div data-testid="swipe-card-market" style={{ height: 180, width: "100%", background: "#ddd" }}>Market</div>
+        <div data-testid="swipe-card-portfolio" style={{ height: 180, width: "100%", background: "#aaa" }}>Portfolio</div>
+      </SwipeViews>
+    </section>
   </main>;
 }
-createRoot(document.getElementById("root")!).render(document.body.dataset.financeOnboarding ? <FinanceOnboardingFixture /> : <Fixture />);
+createRoot(document.getElementById("root")!).render(document.body.dataset.financeOnboarding ? <FinanceOnboardingFixture />
+  : document.body.dataset.advisorOnly ? <main className={`${financeStyles.workspace} mx-auto max-w-3xl p-4`}><AdvisorReviewFixture /><PortfolioAnalysisFixture /></main>
+  : <Fixture />);

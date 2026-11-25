@@ -174,7 +174,6 @@
         "path": "route",
         "target": "/one/kai/portfolio/analysis"
       },
-      "control_ids": [],
       "state_exposure": [],
       "docs_references": [
         "components/kai/kai-portfolio-detail-page.tsx"

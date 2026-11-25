@@ -23,7 +23,16 @@ export function DirectMessagesRoute() {
   const router = useRouter();
   const { user, userId, loading } = useAuth();
   const historySelection = useSyncExternalStore(subscribeMessageHistory, readMessageHistory, () => "");
-  const stored = historySelection ? JSON.parse(historySelection) as { owner: string; token: string } : null;
+  const stored = (() => {
+    if (!historySelection) return null;
+    try {
+      const parsed = JSON.parse(historySelection) as { owner: string; token: string };
+      if (parsed && typeof parsed.owner === "string" && typeof parsed.token === "string") return parsed;
+      return null;
+    } catch {
+      return null;
+    }
+  })();
   const lastSelection = useSyncExternalStore(
     subscribeLastMessagesSelection,
     () => readLastMessagesSelection(userId),

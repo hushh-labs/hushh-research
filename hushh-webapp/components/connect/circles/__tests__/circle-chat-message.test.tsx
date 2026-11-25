@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { vi, test, expect, beforeEach } from "vitest";
 import { CircleChatMessage, type OpenChatMessage } from "../circle-chat-message";
 import { ChatSharedFile } from "../circle-chat-media";
@@ -36,7 +36,9 @@ test("hides contact-only Circle sender, reply and membership labels without chan
 });
 
 test("touch actions wait for a stationary hold, cancel on scroll, and retain quick reactions", async () => {
-  api.react.mockResolvedValue({ messageId: message.id, reactions: [{ emoji: "❤️", count: 1, reactedByViewer: true }] });
+  const savedReaction = { messageId: message.id, reactions: [{ emoji: "❤️", count: 1, reactedByViewer: true }] };
+  let finishReaction!: (value: typeof savedReaction) => void;
+  api.react.mockImplementationOnce(() => new Promise(resolve => { finishReaction = resolve; }));
   const props = { message, session, messagesLane: true, visible: true, layoutBlocked: false, scrollRoot: { current: null }, onMediaError: () => {}, onViewerChange: () => {}, onAction: vi.fn() };
   const view = render(<CircleChatMessage {...props} />);
   const bubble = screen.getByText("Hello");
@@ -71,8 +73,24 @@ test("touch actions wait for a stationary hold, cancel on scroll, and retain qui
   const copyIsCurrent = api.copy.mock.calls[0][1] as () => boolean;
   expect(copyIsCurrent()).toBe(true);
   fireEvent.contextMenu(bubble);
+  const quickReactions = screen.getByRole("group", { name: "Quick reactions" });
+  expect(within(quickReactions).getAllByRole("menuitem", { name: /^React / })).toHaveLength(5);
+  const moreReactions = within(quickReactions).getByRole("menuitem", { name: "More reactions…" });
+  expect(moreReactions.textContent).toBe("");
+  expect(screen.queryByText("More reactions…")).toBeNull();
+  fireEvent.click(moreReactions);
+  expect(await screen.findByRole("dialog", { name: "Emoji picker" })).toHaveFocus();
+  expect(screen.queryByRole("menu")).toBeNull();
+  fireEvent.keyDown(screen.getByRole("dialog", { name: "Emoji picker" }), { key: "Escape" });
+  fireEvent.contextMenu(bubble);
   await act(async () => fireEvent.click(screen.getByRole("menuitem", { name: "React ❤️" })));
   expect(api.react).toHaveBeenCalledWith(session, message, "❤️", true);
+  fireEvent.contextMenu(bubble);
+  const busyMore = screen.getByRole("menuitem", { name: "More reactions…" });
+  expect(busyMore).toHaveAttribute("aria-disabled", "true");
+  fireEvent.click(busyMore);
+  expect(screen.queryByRole("dialog", { name: "Emoji picker" })).toBeNull();
+  await act(async () => finishReaction(savedReaction));
   expect(screen.getByRole("button", { name: "❤️, 1 reactions, you reacted" })).toBeTruthy();
   // Retained panes must discard pending holds before they can open a portal.
   pointer("pointerdown");

@@ -759,7 +759,6 @@ def main():
     import google.auth
     from google.auth.transport.requests import AuthorizedSession
     from requests.adapters import HTTPAdapter
-    from scripts.ops.recover_dev_cloud_removal import dev_database
 
     credentials, _ = google.auth.default(
         scopes=["https://www.googleapis.com/auth/cloud-platform"],
@@ -778,6 +777,8 @@ def main():
             ):
                 print(canonical(operate(conn, session, installed["source"], args)))
         else:
+            from scripts.ops.recover_dev_cloud_removal import dev_database
+
             with dev_database(args.database_port, readonly=readonly) as (
                 engine,
                 source,

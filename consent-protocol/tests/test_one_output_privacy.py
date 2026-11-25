@@ -55,6 +55,8 @@ def test_mail_selection_provider_ids_stay_out_of_wire_state():
     delta = StateDeltaEvent(
         delta=[
             {"op": "add", "path": "/" + key, "value": offer},
+            {"op": "copy", "from": "/" + key + "/ids", "path": "/copied"},
+            {"op": "move", "from": "/" + key, "path": "/moved"},
             {"op": "replace", "path": "", "value": {key: offer, "visible": 2}},
         ]
     )
@@ -70,6 +72,9 @@ def test_mail_selection_provider_ids_stay_out_of_wire_state():
         "hussh:calendar_list_read_offer",
         "hussh:calendar_events_page",
         "hussh:calendar_invitation_read_offer",
+        "hussh:calendar_opening_read_offer",
+        "hussh:calendar_guest_clarification",
+        "temp:hussh:calendar_guest_recovery",
         "temp:hussh:calendar_request_scope",
         "temp:hussh:turn_started_at",
     ],
@@ -81,6 +86,8 @@ def test_calendar_selection_provider_ids_stay_out_of_wire_state(key: str) -> Non
     delta = StateDeltaEvent(
         delta=[
             {"op": "add", "path": "/" + key, "value": offer},
+            {"op": "copy", "from": "/" + key + "/ids", "path": "/copied"},
+            {"op": "move", "from": "/" + key, "path": "/moved"},
             {"op": "replace", "path": "", "value": {key: offer, "visible": 2}},
         ]
     )

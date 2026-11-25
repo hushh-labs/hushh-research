@@ -325,6 +325,44 @@ for (const dark of [false, true]) test(`shared dock retains mode materials and i
   }
 });
 
+for (const dark of [false, true]) {
+  test(`Messages footer matches the shared centered frame in ${dark ? "dark" : "light"} mode`, async ({ page }, testInfo) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    for (const width of [320, 768, 1191, 1440]) {
+      await open(page, width, dark, { name: "Location", html: { path: "/one/location" } }, errors);
+      const reference = await page.locator(".kai-bottom-nav-pill").boundingBox();
+      expect(reference).not.toBeNull();
+      for (const composer of [false, true]) {
+        const label = `${width}px Messages ${composer ? "conversation" : "inbox"}`;
+        await open(page, width, dark, {
+          name: label,
+          html: { path: "/one/messages", reserveFullDock: "true", composer: String(composer) },
+        }, errors);
+        assertOneColumn(await measure(page), label);
+        const navigation = await page.locator(".kai-bottom-nav-pill").boundingBox();
+        expect(navigation).not.toBeNull();
+        for (const dimension of ["x", "y", "width", "height"] as const) {
+          expect.soft(Math.abs(navigation![dimension] - reference![dimension]), `${label}: shared ${dimension}`)
+            .toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
+        }
+        const viewportWidth = await page.evaluate(() => document.documentElement.clientWidth);
+        expect.soft(Math.abs(navigation!.x + navigation!.width / 2 - viewportWidth / 2), `${label}: viewport center`)
+          .toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+        if (width === 1191 && composer) {
+          await page.screenshot({ path: testInfo.outputPath(`messages-footer-${dark ? "dark" : "light"}.png`) });
+        }
+      }
+    }
+    // Prove the diagnostic detects the removed split-pane offset.
+    await page.addStyleTag({ content: "[data-messages-dock] { padding-inline-start: calc(var(--app-messages-sidebar-width) + var(--app-bottom-shell-inline-inset)); }" });
+    const shifted = await page.locator(".kai-bottom-nav-pill").boundingBox();
+    expect(Math.abs(shifted!.x + shifted!.width / 2 - 1440 / 2)).toBeGreaterThan(10);
+    expect(errors).toEqual([]);
+  });
+}
+
 test("Messages dock remains above the keyboard when the transcript reserves the full shell", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));

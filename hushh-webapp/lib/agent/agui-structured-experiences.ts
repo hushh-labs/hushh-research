@@ -1,9 +1,22 @@
+import {
+  FINANCE_PORTFOLIO_EXPERIENCE_TYPE,
+  FINANCE_PORTFOLIO_UPLOAD_EXPERIENCE_TYPE,
+  FINANCE_STOCK_PREVIEW_EXPERIENCE_TYPE,
+  FINANCE_TOP_GAINERS_EXPERIENCE_TYPE,
+  parseFinancePortfolio,
+  parseFinancePortfolioUpload,
+  parseFinanceStockPreview,
+  parseFinanceTopGainers,
+  parseFinanceToolResult,
+  type FinanceCardExperience,
+} from "./finance-chat-experiences";
 import { asRecord, parseRecord, unwrapToolResult } from "./tool-result-envelope";
 import type { PersonScopeCatalog } from "@/lib/services/person-profile-service";
 import { parseScopeProposal, type ScopeProposal } from "./scope-proposal";
 import { parseSharedFieldSensitivities, type SharedFieldSensitivity } from "@/lib/consent/field-sensitivity";
 import {
   parseConnectorReadReceipt,
+  parseLiveMailSources,
   parseWorkspaceConnectorSetup,
   parseWorkspaceConnectorSetupDescriptor,
   WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE,
@@ -268,6 +281,7 @@ export type AgentStructuredExperience =
   | EvidenceBriefExperience
   | StyleSettingsOfferExperience
   | TurnLocationPermissionExperience
+  | FinanceCardExperience
   | MailBriefExperience
   | ReceiptSetupExperience;
 
@@ -792,6 +806,10 @@ function parseTurnLocationPermissionDescriptor(
 }
 
 const EXPERIENCE_REGISTRY: Record<string, ExperienceParser> = {
+  [FINANCE_PORTFOLIO_EXPERIENCE_TYPE]: parseFinancePortfolio,
+  [FINANCE_PORTFOLIO_UPLOAD_EXPERIENCE_TYPE]: parseFinancePortfolioUpload,
+  [FINANCE_TOP_GAINERS_EXPERIENCE_TYPE]: parseFinanceTopGainers,
+  [FINANCE_STOCK_PREVIEW_EXPERIENCE_TYPE]: parseFinanceStockPreview,
   [SHARED_WITH_ME_CARD_EXPERIENCE_TYPE]: parseSharedWithMeCard,
   [SCOPE_DISCOVERY_EXPERIENCE_TYPE]: parseScopeDiscovery,
   [INFORMATION_REQUEST_REVIEW_EXPERIENCE_TYPE]: parseInformationRequestReview,
@@ -838,12 +856,24 @@ export function parseAgentToolResultExperience(
   // shared-with-me card renders it.
   const sharedCard = parseSharedWithMeCard(content);
   if (sharedCard) return sharedCard;
-  if (toolName === "ask_email_agent" || toolName === "ask_documents_agent") {
-    const brief = toolName === "ask_email_agent" ? parseMailBriefExperience(unwrapToolResult(content)) : null;
+  const financeCard = parseFinanceToolResult(toolName, content);
+  if (financeCard) return financeCard;
+  const directMailReadTool =
+    toolName === "gmail_search_mail" ||
+    toolName === "gmail_read_thread" ||
+    toolName === "gmail_list_needs_reply";
+  if (toolName === "ask_email_agent" || directMailReadTool || toolName === "ask_documents_agent") {
+    const unwrapped = unwrapToolResult(content);
+    const brief = toolName === "ask_email_agent" ? parseMailBriefExperience(unwrapped) : null;
     if (brief) return brief;
-    const receipt = parseConnectorReadReceipt(unwrapToolResult(content)?.structured);
-    return receipt?.connector === (toolName === "ask_email_agent" ? "mail" : "drive")
-      ? receipt : null;
+    const receipt = parseConnectorReadReceipt(unwrapped?.structured);
+    const expectedConnector = toolName === "ask_documents_agent" ? "drive" : "mail";
+    if (receipt?.connector !== expectedConnector) return null;
+    if (expectedConnector === "mail") {
+      const liveSources = parseLiveMailSources(unwrapped?.live_sources);
+      if (liveSources) return { ...receipt, liveSources };
+    }
+    return receipt;
   }
   if (toolName === "read_workspace_tool") {
     const result = unwrapToolResult(content);

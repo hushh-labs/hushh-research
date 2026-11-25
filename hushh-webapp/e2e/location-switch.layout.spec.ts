@@ -199,7 +199,7 @@ for (const width of [320, 393, 430, 1440]) {
     await page.setViewportSize({ width, height: 844 });
     await page.setContent(`<html><head><style>${css}</style></head><body data-compact="true"><div id="root"></div></body></html>`);
     await page.addScriptTag({ content: script });
-    const toggle = page.getByRole("switch");
+    const toggle = page.locator('[data-slot="top-bar-route-accessory"]').getByRole("switch");
     await expect(toggle).toHaveCSS("width", "54px");
     await expect(toggle).toHaveCSS("height", "24px");
     await expect(toggle.locator('[data-slot="switch-thumb"]')).toHaveCSS("width", "20px");
@@ -212,7 +212,7 @@ for (const width of [320, 393, 430, 1440]) {
     await awaitProductFont(page);
     const status = page.getByTestId("one-location-header-status");
     const geometry = await status.evaluate((node) => ({ size: parseFloat(getComputedStyle(node).fontSize), width: node.clientWidth, scrollWidth: node.scrollWidth, tapHeight: node.closest("label")!.getBoundingClientRect().height }));
-    expect(geometry.size).toBe(13);
+    expect(geometry.size).toBe(12);
     expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width);
     expect(geometry.tapHeight).toBeGreaterThanOrEqual(44);
     const alignment = await status.evaluate(node => {
@@ -220,9 +220,10 @@ for (const width of [320, 393, 430, 1440]) {
       range.selectNodeContents(node);
       const text = range.getBoundingClientRect();
       const track = node.closest("label")!.querySelector("[role=switch]")!.getBoundingClientRect();
-      return { textCenter: text.left + text.width / 2, trackCenter: track.left + track.width / 2 };
+      return { textTop: text.top, trackBottom: track.bottom };
     });
-    expect(Math.abs(alignment.textCenter - alignment.trackCenter)).toBeLessThan(1);
+    // The status reads under the switch, not beside it.
+    expect(alignment.textTop).toBeGreaterThanOrEqual(alignment.trackBottom - 1);
     await status.click();
     await expect(toggle).toBeChecked();
     await expect.poll(() => toggle.evaluate(node => {
@@ -247,6 +248,12 @@ for (const width of [320, 393, 430, 1440]) {
     await page.locator("html").evaluate(node => { node.style.fontSize = ""; });
     const share = page.getByRole("button", { name: "Share location", exact: true });
     const caption = page.getByText("Choose a Circle or contact.", { exact: true });
+    const shareTitle = page.getByText("You're not sharing", { exact: true });
+    // The card title shares the Ask / Check In tiles' Connect v14 row role.
+    await expect(shareTitle).toHaveCSS("font-size", "14px");
+    await expect(shareTitle).toHaveCSS("line-height", "21px");
+    await expect(shareTitle).toHaveCSS("font-weight", "550");
+    await expect(caption).toHaveCSS("font-size", "12px");
     if (width < 640) expect(Math.abs((await share.boundingBox())!.x - (await caption.boundingBox())!.x)).toBeLessThanOrEqual(1);
     await share.click();
     await expect(page.locator("body")).toHaveAttribute("data-shared", "true");

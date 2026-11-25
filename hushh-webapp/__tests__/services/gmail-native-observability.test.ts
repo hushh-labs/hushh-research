@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     apiFetch: mocks.apiFetch,
-    getPersonalAgentStatus: mocks.getPersonalAgentStatus,
+    getPersonalAgentStatusForRouting: mocks.getPersonalAgentStatus,
   },
 }));
 vi.mock("@/lib/observability/client", () => ({

@@ -591,6 +591,69 @@ def test_uat_mutation_refuses_without_reviewed_apply_before_credentials(
     assert not list(tmp_path.iterdir())
 
 
+def test_uat_cli_uses_only_its_qualified_database_adapter(monkeypatch, tmp_path, capsys):
+    import builtins
+    from contextlib import contextmanager
+
+    import google.auth
+    from google.auth.transport import requests as google_requests
+
+    from scripts.ops import firebase_identity_preflight as preflight
+
+    native_import = builtins.__import__
+
+    def bounded_import(name, *args, **kwargs):
+        assert name != "scripts.ops.recover_dev_cloud_removal", "Dev erasure dependency in UAT"
+        return native_import(name, *args, **kwargs)
+
+    class Session:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def mount(self, *args):
+            pass
+
+    connection = object()
+
+    @contextmanager
+    def database(session, port, *, readonly):
+        assert port == 63394 and readonly and isinstance(session, Session)
+        yield connection, {"source": "qualified-uat-source"}
+
+    def operate(conn, session, source, args):
+        assert conn is connection and source == "qualified-uat-source"
+        assert args.environment == "uat" and args.action == "plan"
+        return {"phase": "planned_not_applied"}
+
+    monkeypatch.setattr(builtins, "__import__", bounded_import)
+    monkeypatch.setattr(google.auth, "default", lambda **kwargs: (object(), None))
+    monkeypatch.setattr(google_requests, "AuthorizedSession", Session)
+    monkeypatch.setattr(preflight, "uat_database", database)
+    monkeypatch.setattr(migration, "operate", operate)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "operator",
+            "plan",
+            "--environment",
+            "uat",
+            "--database-port",
+            "63394",
+            "--manifest",
+            str(tmp_path / "plan.json"),
+        ],
+    )
+    migration.main()
+    assert json.loads(capsys.readouterr().out) == {"phase": "planned_not_applied"}
+
+
 def test_uat_preflight_foreign_project_refuses_before_secrets_or_sql():
     from scripts.ops import firebase_identity_preflight as preflight
 

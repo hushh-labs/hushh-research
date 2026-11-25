@@ -374,6 +374,8 @@ function resolveSelectedIndex(api: EmblaCarouselType, optionsLength: number): nu
 interface SwipeViewsProps {
   /** Prevent gestures while the workspace cannot accept a selection. */
   disabled?: boolean;
+  /** Let a new press reach controls inside a touch-paged form. */
+  preserveControlActivationAfterSwipe?: boolean;
   children: React.ReactNode;
   options: readonly { label: string; value: string }[];
   tabSetId: string;
@@ -388,6 +390,8 @@ interface SwipeViewsProps {
   onSelectionCommit?: (value: string) => void;
   /** Keeps route content and surface shadows inside the canonical page gutter. */
   panelInset?: "none" | "page";
+  /** Space between panels while preserving the content width of a settled panel. */
+  panelGap?: number;
   /**
    * Opt into a parent-owned vertical viewport. Workspace managers use this
    * when their toolbar and pagination live outside the scrollable row rail.
@@ -411,6 +415,7 @@ interface SwipeViewsProps {
 
 export function SwipeViews({
   disabled = false,
+  preserveControlActivationAfterSwipe = false,
   children,
   options,
   tabSetId,
@@ -418,6 +423,7 @@ export function SwipeViews({
   onSelectionChange,
   onSelectionCommit,
   panelInset = "none",
+  panelGap = 0,
   viewportMinHeight = SWIPE_VIEWPORT_MIN_HEIGHT,
   heightMode = "max",
   holdHeightDuringTransition = true,
@@ -426,6 +432,19 @@ export function SwipeViews({
   // Embla compares callback source text when resolving option changes, so a
   // new closure alone cannot refresh a loading/locked gesture guard.
   const disabledRef = useRef(disabled);
+  const dragClickPending = useRef(false);
+  const releaseDragClick = (event: React.SyntheticEvent<HTMLDivElement>) => {
+    if (!dragClickPending.current || !event.nativeEvent.isTrusted ||
+      !isInteractiveTarget(event.target) ||
+      isNestedSwipeViewsTarget(event.target, event.currentTarget) ||
+      isNestedHorizontalScrollTarget(event.target)) return;
+
+    // Embla clears its private drag-click latch on the next click or drag
+    // start. A touch swipe can emit no click, and controls opt out of drags.
+    // Consume the latch on the inert viewport only after a new control press.
+    dragClickPending.current = false;
+    event.currentTarget.dispatchEvent(new MouseEvent("click", { cancelable: true }));
+  };
   useLayoutEffect(() => {
     disabledRef.current = disabled;
   }, [disabled]);
@@ -1029,6 +1048,7 @@ export function SwipeViews({
       }
     };
     const onPointerDown = () => {
+      dragClickPending.current = false;
       gestureStartValueRef.current = selectionValueRef.current;
       programmaticSelectionRef.current = false;
       isDraggingRef.current = true;
@@ -1042,6 +1062,7 @@ export function SwipeViews({
       // real horizontal move. A tap or vertical intent has no settle motion,
       // so it can return to route-driven state immediately.
       if (hasMovedSincePointerDownRef.current) {
+        dragClickPending.current = preserveControlActivationAfterSwipe;
         syncTabIndicator(true);
         return;
       }
@@ -1065,6 +1086,7 @@ export function SwipeViews({
   }, [
     emblaApi,
     options.length,
+    preserveControlActivationAfterSwipe,
     releaseHeightFloor,
     syncTabIndicator,
   ]);
@@ -1072,6 +1094,12 @@ export function SwipeViews({
   return (
     <div
       data-swipe-views-root="true"
+      onPointerDownCapture={preserveControlActivationAfterSwipe ? (event) => {
+        if (event.isPrimary && event.button === 0) releaseDragClick(event);
+      } : undefined}
+      onKeyDownCapture={preserveControlActivationAfterSwipe ? (event) => {
+        if (event.key === "Enter" || event.key === " ") releaseDragClick(event);
+      } : undefined}
       data-swipe-views-height-mode={heightMode}
       data-swipe-views-height-settling={
         heightMode === "active" && heightSettling ? "true" : undefined
@@ -1139,13 +1167,15 @@ export function SwipeViews({
               tabIndex={isActive ? 0 : -1}
               data-swipe-panel-inset={panelInset}
               className={cn(
-                "flex-[0_0_100%] min-h-0 min-w-0 max-w-full",
+                "flex-[0_0_100%] min-h-0 min-w-0",
+                panelGap <= 0 && "max-w-full",
                 heightMode === "active" ? "h-auto" : "h-full",
                 panelInset === "page" &&
                   "px-[var(--page-inline-gutter-standard)]",
               )}
               style={{
                 minHeight: "inherit",
+                ...(panelGap > 0 ? { flexBasis: `calc(100% + ${panelGap}px)`, paddingInlineEnd: panelInset === "page" ? `calc(var(--page-inline-gutter-standard) + ${panelGap}px)` : `${panelGap}px` } : null),
                 ...inactiveHeightClamp,
               }}
             >

@@ -61,7 +61,7 @@
       "playbookId": "route.one.home",
       "purpose": "Help the person understand and use the one screen through its generated controls.",
       "screen": "one_agents",
-      "entryCue": "You can say “Open Agents” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Agents\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_agents",
       "happyPathActionIds": [
@@ -190,7 +190,7 @@
       "playbookId": "route.one.setup",
       "purpose": "Help the person choose, resume, skip, or finish one setup capability.",
       "screen": "one_setup_hub",
-      "entryCue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
+      "entryCue": "Choose your setup options, then Continue to the optional memory import.",
       "proactivity": "on_entry",
       "primaryActionId": "setup.open_cloud",
       "happyPathActionIds": [
@@ -201,6 +201,8 @@
         "setup.open_email",
         "setup.open_finance",
         "setup.open_ria",
+        "setup.memory_import_skip",
+        "setup.hub_continue",
         "setup.hub_master_ack"
       ],
       "requiredInputs": [],
@@ -212,8 +214,8 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Only the hub finish or skip action resolves root onboarding.",
-      "nextRoute": "/one",
+      "completionBoundary": "Continue opens optional memory import. Finish setup or Skip retains the required vault and setup-save boundaries; a submitted import runs through the shared Chat memory writer in the background after completion.",
+      "nextRoute": "/",
       "returnPolicy": "resolve_root",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     },
@@ -225,7 +227,7 @@
         }
       ],
       "kind": "root",
-      "reason": "Setup cannot retrace into completed phone verification."
+      "reason": "Setup cannot retrace into completed phone verification. The memory import is a local Back layer that returns to the setup checklist and discards its unsubmitted draft."
     }
   },
   {
@@ -392,7 +394,7 @@
       "playbookId": "route.login",
       "purpose": "Let the person choose Google or Apple and begin the matching sign-in flow.",
       "screen": "login",
-      "entryCue": "Say ‘Continue with Google’ or ‘Continue with Apple’.",
+      "entryCue": "Say \u2018Continue with Google\u2019 or \u2018Continue with Apple\u2019.",
       "proactivity": "on_entry",
       "primaryActionId": "auth.sign_in_google",
       "happyPathActionIds": [
@@ -701,7 +703,7 @@
       "playbookId": "route.one.location",
       "purpose": "Help the person understand and use the location screen through its generated controls.",
       "screen": "one_location",
-      "entryCue": "You can say “Open Location” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Location\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_location",
       "happyPathActionIds": [
@@ -1691,7 +1693,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.calendar",
-      "purpose": "Connect Google Calendar; use the account Board, Invitations and Insights tabs. Board Free time opens an account-bound booking dialog with exact review and confirmation; the legacy single-account Schedule view keeps its chat handoff. Invitations lists real upcoming received invitations and supports reviewed RSVP and same-conversation alternate-time Mail. Insights shows live weekly totals and a permission-checked Recordings & Notes library. Meeting context continues the existing conversation without Memory capture.",
+      "purpose": "Connect Google Calendar; use the account Board, Invitations and Insights tabs. Board Free time opens an account-bound booking form whose Schedule meeting action confirms the displayed details; the legacy single-account Schedule view keeps its chat handoff. Invitations lists real upcoming received invitations and supports reviewed RSVP and same-conversation alternate-time Mail. Insights shows live weekly totals and a permission-checked Recordings & Notes library. Meeting context continues the existing conversation without Memory capture.",
       "screen": "calendar",
       "entryCue": "Connect Calendar when you want schedule help from One.",
       "proactivity": "ambient",
@@ -1908,7 +1910,7 @@
       "playbookId": "route.one.pkm",
       "purpose": "Memory has Saved and Add tabs. Saved category rows open Sharing and price at the domain level. Review listing and exact section prices, or a whole-bundle price when owner discovery permits it. Chat opens the same review without changing listing or prices. Agent One memory remains private; editing and encrypted persistence retain their existing authority.",
       "screen": "pkm",
-      "entryCue": "You can say “Open Memory” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Memory\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_pkm",
       "happyPathActionIds": [
@@ -1966,7 +1968,7 @@
       "playbookId": "route.one.pkm.recent",
       "purpose": "Help the person browse the latest memories One has kept, through its generated controls.",
       "screen": "pkm_recent",
-      "entryCue": "You can say “Open Memory” to return to the Memory home from this list.",
+      "entryCue": "You can say \u201cOpen Memory\u201d to return to the Memory home from this list.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_pkm",
       "happyPathActionIds": [
@@ -2017,7 +2019,7 @@
       "playbookId": "route.one.pkm.location",
       "purpose": "Help the person read saved places and visit details directly in Location memory.",
       "screen": "pkm_location",
-      "entryCue": "You can say “Open Memory” to return to the Memory home from this list.",
+      "entryCue": "You can say \u201cOpen Memory\u201d to return to the Memory home from this list.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_pkm_location_home",
       "happyPathActionIds": [
@@ -2068,7 +2070,7 @@
       "playbookId": "route.one.pkm.location.detail",
       "purpose": "Help the person manage a selected Location memory detail through its verified controls.",
       "screen": "pkm_location_detail",
-      "entryCue": "You can say “Open Memory” to return to the Memory home from this list.",
+      "entryCue": "You can say \u201cOpen Memory\u201d to return to the Memory home from this list.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_pkm_location_home",
       "happyPathActionIds": [
@@ -2276,7 +2278,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.files",
-      "purpose": "Manage the owner’s encrypted Files library while the vault is unlocked. Private pods additionally require admission. Organization requires explicit analysis consent.",
+      "purpose": "Manage the owner\u2019s encrypted Files library while the vault is unlocked. Private pods additionally require admission. Organization requires explicit analysis consent.",
       "screen": "one_files",
       "entryCue": "",
       "proactivity": "ambient",
@@ -2448,7 +2450,7 @@
       "playbookId": "route.one.connected.systems",
       "purpose": "Help the person understand and use the connected systems screen through its generated controls.",
       "screen": "connected_systems",
-      "entryCue": "You can say “Open Connected Systems Panel” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Connected Systems Panel\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile_connected_systems",
       "happyPathActionIds": [
@@ -2718,7 +2720,7 @@
     "exemptionReason": "Mandatory post-login phone verification flow intentionally bypasses the signed-in app shell.",
     "voicePlaybook": {
       "playbookId": "route.register.phone",
-      "purpose": "Verify the signed-in person’s phone before setup continues.",
+      "purpose": "Verify the signed-in person\u2019s phone before setup continues.",
       "screen": "register_phone",
       "entryCue": "Say your phone number including country code, or type it below.",
       "proactivity": "on_entry",
@@ -2737,7 +2739,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Phone verification completes only after the backend confirms the number belongs to the signed-in account. A number linked to another email account requires that existing account sign-in or a different number.",
+      "completionBoundary": "Phone verification completes only after the backend confirms the phone binding and any transfer provider work is settled.",
       "nextRoute": "/one/setup",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2754,7 +2756,7 @@
         }
       ],
       "kind": "surface-owned",
-      "reason": "Mandatory phone verification owns nested Back: an occupied-number conflict returns to phone entry; active verification or deletion-review handoff consumes Back until the request settles. Deletion requires independent previous-account sign-in and confirmation; phone proof cannot transfer or delete the number holder. Behavioral proof: phone-verification-flow-interaction.test.tsx and phone-verification-transport-recovery.test.tsx. Opaque recovery review owns Back: deletion review returns to choices; outer Back clears the continuation query. Behavioral proof: register-phone-conflict-runtime.test.tsx."
+      "reason": "Mandatory phone verification owns nested Back: transfer review and linked-account deletion review return to recovery choices, choices return to phone entry, and a dispatched transfer or unconfirmed deletion consumes Back until status settles. Behavioral proof: phone-verification-flow-interaction.test.tsx and phone-verification-transport-recovery.test.tsx. Opaque recovery review owns Back: deletion review returns to choices; outer Back clears the continuation query. Behavioral proof: register-phone-conflict-runtime.test.tsx."
     }
   },
   {
@@ -2811,7 +2813,7 @@
       "playbookId": "route.consents",
       "purpose": "Help the person understand and use the consents screen through its generated controls.",
       "screen": "consents",
-      "entryCue": "You can say “Open RIA Requests” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen RIA Requests\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_requests_compat",
       "happyPathActionIds": [
@@ -2885,6 +2887,38 @@
             "href": "/one",
             "mode": "push",
             "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/feed?statement_id=qa-statement",
+          "expected": {
+            "href": "/one/feed",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/feed?institution_id=qa-item",
+          "expected": {
+            "href": "/one/feed",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/feed?funding_event=12",
+          "expected": {
+            "href": "/one/feed",
+            "mode": "replace",
+            "transitionMode": "contextual"
+          }
+        },
+        {
+          "href": "/one/feed?analysis_id=run%3Aqa-report",
+          "expected": {
+            "href": "/one/feed",
+            "mode": "replace",
+            "transitionMode": "contextual"
           }
         }
       ],
@@ -3434,7 +3468,7 @@
       "playbookId": "route.one.kai.import",
       "purpose": "Help the person understand and use the import screen through its generated controls.",
       "screen": "import",
-      "entryCue": "You can say “Open Portfolio Import” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Portfolio Import\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.kai_import",
       "happyPathActionIds": [
@@ -3466,6 +3500,14 @@
         },
         {
           "href": "/one/kai/import?from=%2Fone%2Fkai%3Ftab%3Dportfolio",
+          "expected": {
+            "href": "/one/kai?tab=portfolio",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/kai/import?from=%2Fone%2Fkai%3Ftab%3Dportfolio&stage=reviewing",
           "expected": {
             "href": "/one/kai?tab=portfolio",
             "mode": "push",
@@ -3961,7 +4003,7 @@
   {
     "route": "/one/setup/finance",
     "mode": "flow",
-    "exemptionReason": "Finance introduction, investing preferences and source selection share the existing fullscreen setup coordinator.",
+    "exemptionReason": "Investing preferences and portfolio source selection share the existing fullscreen setup coordinator.",
     "shellVerification": {
       "file": "app/one/setup/finance/import/finance-import-onboarding-setup-client.tsx",
       "includes": [
@@ -3970,9 +4012,9 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.setup.finance",
-      "purpose": "Explore Finance, choose an optional portfolio source, then explicitly finish setup.",
+      "purpose": "Answer or skip investing preferences, choose an optional portfolio source, then finish setup.",
       "screen": "one_setup_finance",
-      "entryCue": "Explore the introduction, then answer or skip investing preferences.",
+      "entryCue": "Answer or skip the three investing questions, then choose how to add a portfolio.",
       "proactivity": "on_entry",
       "primaryActionId": "setup.finish_finance",
       "happyPathActionIds": [
@@ -4784,7 +4826,7 @@
         }
       ],
       "kind": "parent",
-      "reason": "Advisor request preview returns to advisor selection before closing. Advisor workspace closes before parent navigation; in-flight mutations consume Back. Opaque advisorReview query selects a participant-authorized workspace."
+      "reason": "Advisor recommendations close before parent navigation and consume Back while saving the service choice. The investing persona assessment dismisses before route navigation. Advisor request preview returns to advisor selection before closing. Advisor workspace closes before parent navigation; in-flight mutations consume Back. Opaque advisorReview query selects a participant-authorized workspace. Stripe returns may open Plan; closing the workspace clears both query fields."
     }
   },
   {
@@ -5062,7 +5104,7 @@
       "playbookId": "route.profile",
       "purpose": "Help the person understand and use the profile screen through its generated controls.",
       "screen": "profile_account",
-      "entryCue": "You can say “Open Profile” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Profile\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile",
       "happyPathActionIds": [
@@ -5676,7 +5718,7 @@
       "playbookId": "route.profile.security",
       "purpose": "Help the person understand and use the security screen through its generated controls.",
       "screen": "profile_security_panel",
-      "entryCue": "You can say “Open Vault Security Panel” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Vault Security Panel\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile_security_panel",
       "happyPathActionIds": [
@@ -6559,7 +6601,7 @@
       "playbookId": "route.profile.support",
       "purpose": "Help the person understand and use the support screen through its generated controls.",
       "screen": "profile_support_panel",
-      "entryCue": "You can say “Open Support Panel” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen Support Panel\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile_support_panel",
       "happyPathActionIds": [
@@ -7031,7 +7073,7 @@
       "playbookId": "route.ria.clients",
       "purpose": "Review advisor introduction requests and existing approved clients; public nearby prospects remain a separate discovery view.",
       "screen": "ria_clients",
-      "entryCue": "You can say “Open RIA Clients” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen RIA Clients\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_clients",
       "happyPathActionIds": [
@@ -7063,7 +7105,7 @@
         }
       ],
       "kind": "parent",
-      "reason": "Advisor request preview returns to advisor selection before closing. Advisor workspace closes before parent navigation; in-flight mutations consume Back. Opaque advisorReview query selects a participant-authorized workspace."
+      "reason": "Advisor request preview returns to advisor selection before closing. Advisor workspace closes before parent navigation; in-flight mutations consume Back. Opaque advisorReview query selects a participant-authorized workspace. Stripe returns may open Plan; closing the workspace clears both query fields."
     }
   },
   {
@@ -7082,7 +7124,7 @@
       "playbookId": "route.ria.clients.userid",
       "purpose": "Help the person understand and use the clients screen through its generated controls.",
       "screen": "ria_client_workspace",
-      "entryCue": "You can say “Open RIA Client Workspace” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen RIA Client Workspace\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_client_workspace",
       "happyPathActionIds": [
@@ -7132,7 +7174,7 @@
       "playbookId": "route.ria.clients.userid.accounts.accountid",
       "purpose": "Help the person understand and use the accounts screen through its generated controls.",
       "screen": "ria_client_account_detail",
-      "entryCue": "You can say “Return To Client Information Explorer” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cReturn To Client Information Explorer\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "ria.client_account.open_workspace_fallback",
       "happyPathActionIds": [
@@ -7182,7 +7224,7 @@
       "playbookId": "route.ria.clients.userid.requests.requestid",
       "purpose": "Help the person understand and use the requests screen through its generated controls.",
       "screen": "ria_client_request_detail",
-      "entryCue": "You can say “Return To Client Access” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cReturn To Client Access\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "ria.client_request.open_access_fallback",
       "happyPathActionIds": [
@@ -7230,7 +7272,7 @@
       "playbookId": "route.ria.claim",
       "purpose": "Help the person claim their SEC advisor or firm profile with their office number.",
       "screen": "ria_claim",
-      "entryCue": "You can say “Claim RIA Profile” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cClaim RIA Profile\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_claim",
       "happyPathActionIds": [
@@ -7279,7 +7321,7 @@
       "playbookId": "route.ria.onboarding",
       "purpose": "Help the person understand and use the onboarding screen through its generated controls.",
       "screen": "ria_onboarding",
-      "entryCue": "You can say “Open RIA Onboarding” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen RIA Onboarding\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_onboarding",
       "happyPathActionIds": [
@@ -7329,7 +7371,7 @@
       "playbookId": "route.ria.picks",
       "purpose": "Help the person understand and use the picks screen through its generated controls.",
       "screen": "ria_picks",
-      "entryCue": "You can say “Open RIA Picks” to use the primary control on this screen.",
+      "entryCue": "You can say \u201cOpen RIA Picks\u201d to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_picks",
       "happyPathActionIds": [
@@ -7742,7 +7784,7 @@
       "playbookId": "route.ria.profile",
       "purpose": "Help the advisor view and manage their RIA profile.",
       "screen": "profile_regulatory",
-      "entryCue": "You can say “Open RIA Profile” to return here.",
+      "entryCue": "You can say \u201cOpen RIA Profile\u201d to return here.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_profile",
       "happyPathActionIds": [
@@ -7840,6 +7882,14 @@
           "href": "/people/sample?from=%2Fone%2Fconnect%3Ftab%3Dall%26mutuals%3Dtarget",
           "expected": {
             "href": "/one/connect?tab=all&mutuals=target",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/people/sample?from=%2Fone%2Fkai%2Fportfolio%2Fanalysis",
+          "expected": {
+            "href": "/one/kai/portfolio/analysis",
             "mode": "push",
             "transitionMode": "full"
           }

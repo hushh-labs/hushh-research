@@ -35,6 +35,10 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { hasReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
+import {
+  captureProductAttempt,
+  type ProductAttempt,
+} from "@/lib/observability/product-activity-client";
 import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { isNative, getPlatform } from "@/lib/capacitor/platform";
 import { resolveLocationRecoveryGuide } from "@/lib/one-location/location-permission-recovery";
@@ -1343,6 +1347,20 @@ export function LocationRedesignHub({ vm, nativeFrame }: { vm: LocationHubViewMo
     [pathname, router, searchParams],
   );
 
+  const settingsAttempt = useRef<ProductAttempt | null>(null);
+  const openSettings = () => {
+    if (vm.userId && !settingsAttempt.current) {
+      settingsAttempt.current = captureProductAttempt("location.open_settings", vm.userId);
+      settingsAttempt.current.started();
+    }
+    openFlow("settings");
+  };
+  useEffect(() => {
+    if (flow !== "settings") return;
+    settingsAttempt.current?.settled("returned");
+    settingsAttempt.current = null;
+  }, [flow]);
+
   // A chat offer ("Add as Home in Location") staged a saved-place prefill in
   // memory (lib/pkm/reserved-offer.ts). Saved places live in Settings, so open
   // it once; SavedLocationsSection takes the prefill there.
@@ -1856,7 +1874,7 @@ export function LocationRedesignHub({ vm, nativeFrame }: { vm: LocationHubViewMo
       data-location-type-scale="connect"
       className="min-w-0 w-full space-y-[var(--page-header-section-gap)]"
     >
-      <div className="flex min-w-0 items-center justify-end" data-testid="one-location-status-row">
+      <div className="contents" data-testid="one-location-status-row">
         <h1 className="sr-only">Location</h1>
         <LocationHeaderActions vm={vm} />
       </div>
@@ -1912,7 +1930,7 @@ export function LocationRedesignHub({ vm, nativeFrame }: { vm: LocationHubViewMo
               // entirely. onOpenLocationSettings stays where it belongs:
               // the permission recovery cards, whose whole job is sending
               // someone to the OS to grant access.
-              onOpenSettings={() => openFlow("settings")}
+              onOpenSettings={openSettings}
               onCheckIn={() =>
                 nearbyCheckInAvailable
                   ? router.push(ROUTES.ONE_LOCATION_CHECK_IN)
@@ -3474,7 +3492,7 @@ function LocationSettingsFlow({
               stacked
               separateSecondary={false}
               measure="decision"
-              className="max-w-[244px]"
+              className="mx-auto max-w-44"
               primary={
                 <Button
                   type="button"
@@ -5606,6 +5624,7 @@ function ShareFlow({
         <div className={SHARE_CONFIRM_ACTIONS_CLASSNAME}>
           <FlowActionGroup
             stacked
+            separateSecondary={false}
             primary={
               <Button
                 // Unchanged for every share that takes nothing away. When one

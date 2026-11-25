@@ -164,15 +164,7 @@ async def _assert_linked_deleted(conn, recorded, baseline):
         "SELECT user_id FROM actor_identity_cache WHERE phone_number=$1 AND phone_verified=TRUE",
         PHONE,
     )
-    assert owner is None
-    assert (
-        await conn.fetchval("SELECT cleanup_last_outcome FROM account_deletion_tombstones")
-        == "identity_retained"
-    )
-    assert recorded.phone == PHONE
-    assert recorded.linked_phone_owner is None
-    assert recorded.sends == 1
-    assert len(recorded.proofs) == 1 and all(proof["spent"] for proof in recorded.proofs.values())
+    assert owner == OWNERS["receiving-a"]
     # The holder's final erasure detaches its spent receipt: the proof stays
     # single-use, the requester can still read it, and no holder identity remains.
     receipts = await conn.fetch(

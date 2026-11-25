@@ -24,7 +24,7 @@ export function toHoldingViewModel(
   const costBasis = finiteNumber(holding.cost_basis);
   const gainLossValue =
     finiteNumber(holding.unrealized_gain_loss) ??
-    (explicitMarketValue !== null && costBasis !== null
+    (!holding.entries?.length && !holding.market_value_unavailable && explicitMarketValue !== null && costBasis !== null
       ? explicitMarketValue - costBasis
       : null);
   const gainLossPct =
@@ -40,6 +40,7 @@ export function toHoldingViewModel(
     id: holding.client_id,
     symbol: String(holding.symbol || "").trim() || "—",
     name: String(holding.name || "").trim() || "Unnamed security",
+    currency: holding.currency || holding.iso_currency_code,
     marketValue,
     shares,
     gainLossValue,

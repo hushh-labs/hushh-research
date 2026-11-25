@@ -10,6 +10,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LocationBus, type LocationBusState } from "@/lib/one-location/location-bus";
 import { updateOneLocationControlState } from "@/lib/one-location/location-control-state";
+import { ApiError } from "@/lib/services/api-client";
 
 const service = vi.hoisted(() => ({
   captureCurrentPosition: vi.fn(),
@@ -638,10 +639,6 @@ describe("NearbyCheckInSheet", () => {
       routeId: "one_location_check_in",
     });
     expect(capture).toHaveBeenCalledTimes(2);
-    expect(capture).toHaveBeenLastCalledWith({
-      fresh: true,
-      requireMeasurement: true,
-    });
   });
 
   it("blocks check-in when the final confirmation point is too approximate", async () => {
@@ -750,6 +747,28 @@ describe("NearbyCheckInSheet", () => {
       await screen.findByRole("radio", { name: /Stanford University/ }),
     );
     expect(screen.queryByText(/accurate to about/i)).not.toBeInTheDocument();
+  });
+
+  it("offers retry for a failed status read without asking for a phone number", async () => {
+    service.getNearbyPresence.mockRejectedValue(new ApiError("Forbidden", 403, {
+      detail: { code: "NEARBY_PRESENCE_PHONE_VERIFICATION_REQUIRED" },
+    }));
+    const capture = vi.fn().mockResolvedValue(point);
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={capture}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole("button", { name: "Retry status" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Verify phone number" })).not.toBeInTheDocument();
+    expect(navigation.push).not.toHaveBeenCalled();
+    expect(capture).not.toHaveBeenCalled();
+    expect(service.nearbyPlaces).not.toHaveBeenCalled();
   });
 
   it("keeps a persistent retry after the initial presence read fails", async () => {

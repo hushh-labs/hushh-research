@@ -68,6 +68,18 @@ function project(actionId: string, app = runtime(), context = snapshot()) {
 }
 
 describe("capability projection", () => {
+  it("keeps advisor recommendations unavailable until the vault is unlocked", () => {
+    const actionId = "finance.advisor.recommend";
+    const controlId = "finance_recommend_advisor";
+    const app = runtime({ route: { pathname: "/one/kai/portfolio/analysis", screen: "kai_portfolio_analysis", subview: null } });
+    const context = snapshot({
+      available_action_ids: [actionId],
+      ui: { visible_modules: [], visible_control_ids: [controlId], selected_entity_present: false },
+    });
+    expect(project(actionId, app, context).status).toBe("current_control_executable");
+    expect(project(actionId, { ...app, vault: { unlocked: false, token_available: false, token_valid: false } }, context)).toMatchObject({ status: "blocked", reason: "Unlock the vault to use this action." });
+  });
+
   it("makes Claim One terminal after sign-in or resolved setup", () => {
     expect(project("onboarding.claim_one").status).toBe("terminal");
   });

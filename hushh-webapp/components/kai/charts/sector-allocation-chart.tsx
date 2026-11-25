@@ -5,19 +5,11 @@ import { ChevronDown, ChevronUp } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { allocationColor } from "@/lib/kai/allocation-colors";
+import { formatCurrencyAdaptive as formatCurrency } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 import styles from "@/components/kai/shared/finance-workspace.module.css";
 import { cn } from "@/lib/utils";
 import { AllocationSection } from "./allocation-section";
-
-function formatCurrency(value: number): string {
-  if (value >= 1000000) {
-    return `$${(value / 1000000).toFixed(1)}M`;
-  }
-  if (value >= 1000) {
-    return `$${(value / 1000).toFixed(0)}K`;
-  }
-  return `$${value.toFixed(0)}`;
-}
 
 interface Holding {
   symbol: string;
@@ -36,6 +28,7 @@ interface SectorAllocationChartProps {
 }
 
 export function SectorAllocationChart({ holdings, className, responsive = true, title = "Sector Allocation", subtitle, embedded }: SectorAllocationChartProps) {
+  useMarketCurrency();
   const [windowWidth, setWindowWidth] = useState(1024);
   const [pages, setPages] = useState<Record<string, number>>({});
   const [openSectors, setOpenSectors] = useState<Record<string, boolean>>({});

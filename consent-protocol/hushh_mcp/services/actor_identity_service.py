@@ -205,10 +205,10 @@ class ActorIdentityService:
         *,
         user_id: str,
         phone_number: str,
-        allow_owner_transfer: bool = False,
+        allow_owner_transfer: bool = True,
         release_deleted_holders: bool = True,
     ) -> bool:
-        """Serialize a phone claim without displacing another active account.
+        """Serialize one verified-phone owner transfer inside its transaction.
 
         The advisory lock closes the empty-set race where two first claims can
         both observe no prior owner. The ordered row lock also prevents two
@@ -216,9 +216,6 @@ class ActorIdentityService:
         rows in opposite order. Every verified-phone writer in this service
         must use this seam before its identity upsert.
         """
-
-        if allow_owner_transfer:
-            raise ActorIdentityPhoneClaimConflictError()
 
         await conn.execute(
             "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",

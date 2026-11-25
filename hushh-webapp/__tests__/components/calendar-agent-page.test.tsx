@@ -299,6 +299,9 @@ describe("CalendarAgentPage", () => {
     render(<CalendarAgentPage journeyVariant={journeyVariant} />);
     const connect = await waitForConnectButton();
     expect(screen.getByTestId("calendar-connect-hero")).toBeTruthy();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByText(/Optional\. Setup asks/)).toBeNull();
+    expect(screen.queryByText("What you allow on Google")).toBeNull();
     expect(screen.queryByRole("button", { name: "Disconnect Calendar" })).toBeNull();
     expect(connect.getAttribute("data-voice-control-id")).toBe("open_calendar_connector");
     expect(connect.getAttribute("data-voice-action-id")).toBe(journeyVariant === "onboarding" ? "setup.connect_calendar" : null);

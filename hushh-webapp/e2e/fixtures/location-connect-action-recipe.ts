@@ -6,6 +6,7 @@ import { JSDOM } from "jsdom";
 import {
   LOCATION_CONNECT_ACTION_PILL_CLASSNAME,
   LOCATION_CONNECT_ACTION_TARGET_CLASSNAME,
+  LOCATION_LINK_COPY_PILL_CLASSNAME,
   LOCATION_PEOPLE_ACTION_LABEL_CLASSNAME,
   LOCATION_PEOPLE_ACTION_TARGET_CLASSNAME,
 } from "../../components/one-location/redesign/location-action-styles";
@@ -49,7 +50,7 @@ export function alignInviteAndPublicActionsWithMountedRecipe(markup: string): st
       const pill = document.createElement("span");
       pill.setAttribute("data-location-type-role", "compact-action");
       pill.setAttribute("data-location-action-surface", "true");
-      pill.className = `${LOCATION_CONNECT_ACTION_PILL_CLASSNAME} ${groupId === "circle-invite-actions" ? "w-full min-w-0 px-2" : label === "Copy link" ? "w-[116px]" : ""}`;
+      pill.className = `${LOCATION_CONNECT_ACTION_PILL_CLASSNAME} ${groupId === "circle-invite-actions" ? "w-full min-w-0 px-2" : label === "Copy link" ? LOCATION_LINK_COPY_PILL_CLASSNAME : ""}`;
       pill.innerHTML = icon;
       pill.append(document.createTextNode(label));
       button.append(pill);

@@ -185,8 +185,9 @@ export type ConnectorDetailPresentation =
       files: readonly { key: string; name: string; status: string; background: boolean; changeBackground?: (next: boolean) => void; sync?: ConnectorDetailAction; remove: ConnectorDetailAction }[];
       collection: DriveCollectionModel | null; groups: DriveDataPacketsModel | null; packets: DrivePacketCatalogModel; packet: OwnerPacketPageModel; publications: PacketPublicationsModel; trust: TrustedDocumentRulesModel }
   | { kind: "gmail"; account: string; status: string; message: string; note?: string; connected: boolean;
-      sendAllowed: boolean; draftsAllowed: boolean; connect?: ConnectorDetailAction; disconnect?: ConnectorDetailAction;
-      retry?: ConnectorDetailAction; enableDrafts?: ConnectorDetailAction; cancelSignIn?: ConnectorDetailAction }
+      sendAllowed: boolean; draftsAllowed: boolean; modifyAllowed: boolean; connect?: ConnectorDetailAction; disconnect?: ConnectorDetailAction;
+      retry?: ConnectorDetailAction; enableSend?: ConnectorDetailAction; enableDrafts?: ConnectorDetailAction;
+      enableModify?: ConnectorDetailAction; enableAll?: ConnectorDetailAction; cancelSignIn?: ConnectorDetailAction }
   | { kind: "calendar"; description: string; status: string; message: string; helper: string | null;
       permissions: readonly CalendarPermission[]; enableChanges?: ConnectorDetailAction;
       connection: ConnectorDetailAction; retry?: ConnectorDetailAction; cancelSignIn?: ConnectorDetailAction }
@@ -1492,10 +1493,12 @@ function OwnerConnectorsPanel({
       }
     });
   };
-  const connectMail = (purpose: "send" | "compose" = "send") => {
+  const connectMail = (purpose: "full" | "send" | "compose" | "modify" = "full") => {
     const signal = controller.current?.signal;
     if (!user || !applicationOwnerId || !signal || signal.aborted || mailLock.current) return;
     const native = Capacitor.isNativePlatform();
+    if (native && purpose === "modify") return;
+    const nativePurpose: "send" | "compose" = purpose === "compose" ? "compose" : "send";
     const attempt = createGmailOAuthPopupAttempt(applicationOwnerId, purpose === "send" ? "send" : "read");
     const popup = native ? null : openGmailOAuthPopup(attempt);
     if (!native && !popup) {
@@ -1523,7 +1526,7 @@ function OwnerConnectorsPanel({
           const start = await GmailReceiptsService.startNativeConnect({
             idToken,
             userId: applicationOwnerId,
-            purpose,
+            purpose: nativePurpose,
           });
           if (signal.aborted || !start.configured) return;
           let result: Awaited<ReturnType<typeof HushhAuth.connectGmail>>;
@@ -1531,7 +1534,7 @@ function OwnerConnectorsPanel({
             result = await HushhAuth.connectGmail({
               serverClientId: start.server_client_id,
               purpose: start.purpose,
-              preserveSend: purpose === "compose" && gmail.status?.send_permission_granted === true,
+              preserveSend: nativePurpose === "compose" && gmail.status?.send_permission_granted === true,
               preserveModify: gmail.status?.modify_permission_granted === true,
             });
           } catch (error) {
@@ -1553,7 +1556,7 @@ function OwnerConnectorsPanel({
             serverAuthCode: result.serverAuthCode,
             // Native completion records the ordinary connection capability;
             // compose is an additive provider grant retained by the plugin.
-            purpose: purpose === "compose" ? "read" : purpose,
+            purpose: nativePurpose === "compose" ? "read" : nativePurpose,
           });
         } else if (popup) {
           const start = await GmailReceiptsService.startConnect({
@@ -1611,7 +1614,17 @@ function OwnerConnectorsPanel({
                   ? status.compose_permission_granted
                     ? "Gmail drafts enabled. Review your draft in Chat before saving."
                     : "Gmail drafts permission was not granted. Try again."
-                  : "Mail connected. You can send after reviewing each email."
+                  : purpose === "modify"
+                    ? status.modify_permission_granted
+                      ? "Gmail organization enabled. Review changes in Chat before applying."
+                      : "Gmail organization permission was not granted. Try again."
+                    : purpose === "full" && !native
+                      ? status.send_permission_granted &&
+                        status.compose_permission_granted &&
+                        status.modify_permission_granted
+                        ? "All Mail permissions enabled."
+                        : "Mail connected. You can enable remaining permissions anytime."
+                      : ""
                 : "Mail is not connected yet. You can retry.",
             );
         }
@@ -1654,6 +1667,7 @@ function OwnerConnectorsPanel({
       accessLevel,
       includeCalendarList: true,
       includeMeetingFiles: true,
+      includeMailAccess: true,
       signal,
       cancelSignal: attemptCancel.signal,
     });
@@ -2048,6 +2062,9 @@ function OwnerConnectorsPanel({
     (gmail.status?.connected || gmail.status?.needs_reauth)
       ? connectorAccountDetail(gmail.status.google_email, gmail.status.needs_reauth ? "needs_reauth" : "connected")
       : undefined;
+  // Connected / sign-in-needed lines that already name the account carry the
+  // state themselves; only then is the separate status line redundant.
+  const mailStatusInAccount = Boolean(mailAccountDetail && gmail.status?.google_email?.trim());
   const calendarAccountDetail = calendar.loaded && !calendar.error &&
     (calendar.connected || calendarNeedsReconnect)
       ? connectorAccountDetail(calendar.status?.google_email, calendarNeedsReconnect ? "needs_reauth" : "connected")
@@ -2410,17 +2427,30 @@ function OwnerConnectorsPanel({
     collection: collectionActive ? driveCollection : null, groups: groupsActive ? driveGroups : null,
     packets: drivePackets, packet: ownerPacket, publications: drivePublications, trust: documentTrust,
   };
+  const isNativeMailSurface = Capacitor.isNativePlatform();
+  const missingMailPermissionsCount = gmail.status?.connected
+    ? [
+        gmail.status.send_permission_granted !== true,
+        gmail.status.compose_permission_granted !== true,
+        !isNativeMailSurface && gmail.status.modify_permission_granted !== true,
+      ].filter(Boolean).length
+    : 0;
   const mailDetail: Extract<ConnectorDetailPresentation, { kind: "gmail" }> = {
     kind: "gmail", account: gmail.status?.google_email || "Gmail",
     status: gmail.loadingStatus ? "Checking Mail…" : gmail.statusError ? "Status unavailable" : gmail.status?.needs_reauth ? "Sign-in needed" : gmail.status?.connected ? "Connected" : "Not connected",
     message: mailBusy ? "Updating Mail…" : mailMessage,
     ...(showGoogleClearanceNote ? { note: GOOGLE_APPS_CLEARANCE_NOTE } : {}),
     connected: gmail.status?.connected === true,
-    sendAllowed: gmail.status?.send_permission_granted === true, draftsAllowed: gmail.status?.compose_permission_granted === true,
+    sendAllowed: gmail.status?.send_permission_granted === true,
+    draftsAllowed: gmail.status?.compose_permission_granted === true,
+    modifyAllowed: gmail.status?.modify_permission_granted === true,
     ...(!gmail.status?.connected || gmail.status?.needs_reauth ? { connect: detailAction("Connect Mail", mailBusy || gmail.loadingStatus, () => { void connectMail(); }) } : {}),
     ...(gmail.status?.connected || gmail.status?.needs_reauth ? { disconnect: detailAction("Disconnect Mail", mailBusy, () => setConfirm("mail"), true) } : {}),
     ...(gmail.statusError ? { retry: detailAction("Retry Mail", mailBusy, () => { void gmail.refreshStatus({ force: true, reconcile: false }); }) } : {}),
+    ...(gmail.status?.connected && !gmail.status.send_permission_granted ? { enableSend: detailAction("Enable Gmail sending", mailBusy || gmail.loadingStatus, () => { void connectMail("send"); }) } : {}),
     ...(gmail.status?.connected && !gmail.status.compose_permission_granted ? { enableDrafts: detailAction("Enable Gmail drafts", mailBusy || gmail.loadingStatus, () => { void connectMail("compose"); }) } : {}),
+    ...(gmail.status?.connected && !isNativeMailSurface && !gmail.status.modify_permission_granted ? { enableModify: detailAction("Enable Gmail organize", mailBusy || gmail.loadingStatus, () => { void connectMail("modify"); }) } : {}),
+    ...(gmail.status?.connected && !isNativeMailSurface && missingMailPermissionsCount >= 2 ? { enableAll: detailAction("Enable all Mail permissions", mailBusy || gmail.loadingStatus, () => { void connectMail("full"); }) } : {}),
     ...(mailPopupPending ? { cancelSignIn: detailAction("Cancel sign-in", false, () => mailPopupCancel.current?.abort()) } : {}),
   };
   const baseCalendarHelper = !calendar.error && !calendar.connected && !calendarNeedsReconnect ? "Private by default. Disconnect anytime." : calendar.connected ? "Disconnect anytime." : null;
@@ -2758,11 +2788,16 @@ function OwnerConnectorsPanel({
               <h3 id="connection-mail-title" className="font-semibold">
                 Gmail
               </h3>
-              {mailAccountDetail ? (
+              {mailAccountDetail && !mailStatusInAccount ? (
                 <p className="break-all text-sm text-muted-foreground">{mailAccountDetail}</p>
               ) : null}
-              <p role="status" className="text-sm">
-                {mailDetail.status}
+              {/* "Connected as <email>" already says connected, so the status
+                  line carries the account instead of repeating the state. */}
+              <p
+                role="status"
+                className={mailStatusInAccount ? "break-all text-sm text-muted-foreground" : "text-sm"}
+              >
+                {mailStatusInAccount ? mailAccountDetail : mailDetail.status}
               </p>
               {googleClearanceNote}
               <div className="flex flex-wrap gap-2">
@@ -2773,6 +2808,16 @@ function OwnerConnectorsPanel({
                     onClick={() => connectMail()}
                   >
                     Connect Mail
+                  </Button>
+                )}
+                {mailDetail.enableAll && (
+                  <Button
+                    className={touch}
+                    disabled={mailDetail.enableAll.disabled}
+                    aria-label="Enable all Mail permissions"
+                    onClick={mailDetail.enableAll.run}
+                  >
+                    Enable all permissions
                   </Button>
                 )}
                 {(gmail.status?.connected || gmail.status?.needs_reauth) && (
@@ -2804,12 +2849,24 @@ function OwnerConnectorsPanel({
               {gmail.status?.connected && (
                 <div className="divide-y rounded-lg border border-border px-3 text-sm" aria-label="Gmail permissions">
                   <div className="flex min-h-11 items-center justify-between gap-3"><span>Read mail</span><span className="text-muted-foreground">Allowed</span></div>
-                  <div className="flex min-h-11 items-center justify-between gap-3"><span>Send mail</span><span className="text-muted-foreground">{gmail.status.send_permission_granted ? "Allowed · review required" : "Not enabled"}</span></div>
+                  <div className="flex min-h-11 flex-wrap items-center justify-between gap-2 py-1">
+                    <span>Send mail</span>
+                    {gmail.status.send_permission_granted ? <span className="text-muted-foreground">Allowed · review required</span>
+                      : <Button size="compact" variant="outline" aria-label="Enable Gmail sending" disabled={mailBusy || gmail.loadingStatus}
+                        onClick={() => connectMail("send")}>Enable</Button>}
+                  </div>
                   <div className="flex min-h-11 flex-wrap items-center justify-between gap-2 py-1">
                     <span>Drafts</span>
                     {gmail.status.compose_permission_granted ? <span className="text-muted-foreground">Allowed · review required</span>
                       : <Button size="compact" variant="outline" aria-label="Enable Gmail drafts" disabled={mailBusy || gmail.loadingStatus}
                         onClick={() => connectMail("compose")}>Enable</Button>}
+                  </div>
+                  <div className="flex min-h-11 flex-wrap items-center justify-between gap-2 py-1">
+                    <span>Organize mail</span>
+                    {gmail.status.modify_permission_granted ? <span className="text-muted-foreground">Allowed · review required</span>
+                      : isNativeMailSurface ? <span className="text-muted-foreground">Web only</span>
+                        : <Button size="compact" variant="outline" aria-label="Enable Gmail organize" disabled={mailBusy || gmail.loadingStatus}
+                          onClick={() => connectMail("modify")}>Enable</Button>}
                   </div>
                 </div>
               )}

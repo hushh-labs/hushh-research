@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 462,
+  "expected_migration_version": 463,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -278,6 +278,7 @@
     "retain_erasure_writer_receipt",
     "retain_personal_agent_provision_ack",
     "retain_prepared_account_projection",
+    "retire_advisor_payment_checkout",
     "retire_erased_account_generation",
     "retire_superseded_pod_signing_key",
     "rollback_pkm_domain_revision_v1",
@@ -570,6 +571,19 @@
       "ria_profile_id",
       "status",
       "updated_at"
+    ],
+    "advisor_review_payments": [
+      "request_id",
+      "plan_revision",
+      "plan_hash",
+      "amount_cents",
+      "payee_account",
+      "attempt",
+      "attempt_started_at",
+      "checkout_session_id",
+      "payment_intent_id",
+      "status",
+      "paid_at"
     ],
     "advisor_review_requests": [
       "id",
@@ -5041,5 +5055,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 462
+  "expected_schema_head": 463
 }

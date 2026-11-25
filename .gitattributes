@@ -2,3 +2,6 @@
 
 *.bat text eol=crlf
 *.sh text eol=lf
+
+# Immutable, never-executed upstream evidence retains original bytes and whitespace.
+consent-protocol/hushh_mcp/services/email_oss/vendor/*/original/** -text -whitespace

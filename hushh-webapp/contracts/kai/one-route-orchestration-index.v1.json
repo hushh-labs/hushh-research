@@ -41,6 +41,7 @@
       "canonical_screen": "chat",
       "voice_contract_file": "app/page.voice-action-contract.json",
       "action_ids": [
+        "analysis.confirm_preview",
         "calendar.invitation.review",
         "onboarding.claim_one",
         "wallet.add",
@@ -1568,7 +1569,7 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.calendar",
-        "purpose": "Connect Google Calendar; use the account Board, Invitations and Insights tabs. Board Free time opens an account-bound booking dialog with exact review and confirmation; the legacy single-account Schedule view keeps its chat handoff. Invitations lists real upcoming received invitations and supports reviewed RSVP and same-conversation alternate-time Mail. Insights shows live weekly totals and a permission-checked Recordings & Notes library. Meeting context continues the existing conversation without Memory capture.",
+        "purpose": "Connect Google Calendar; use the account Board, Invitations and Insights tabs. Board Free time opens an account-bound booking form whose Schedule meeting action confirms the displayed details; the legacy single-account Schedule view keeps its chat handoff. Invitations lists real upcoming received invitations and supports reviewed RSVP and same-conversation alternate-time Mail. Insights shows live weekly totals and a permission-checked Recordings & Notes library. Meeting context continues the existing conversation without Memory capture.",
         "screen": "calendar",
         "entry_cue": "Connect Calendar when you want schedule help from One.",
         "proactivity": "ambient",
@@ -1986,7 +1987,7 @@
       "route_pattern": "/one/feed",
       "page_file": "app/one/feed/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.feed",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -2015,14 +2016,16 @@
         "allowed_families": []
       },
       "canonical_screen": "one_feed",
-      "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "voice_contract_file": "app/one/feed/page.voice-action-contract.json",
+      "action_ids": [
+        "feed.search_activity"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "auth",
       "native_surface_id": "native-route-feed"
     },
     {
@@ -3009,6 +3012,7 @@
       "canonical_screen": "kai_portfolio_analysis",
       "voice_contract_file": null,
       "action_ids": [
+        "finance.advisor.recommend",
         "route.kai_portfolio_analysis"
       ],
       "action_coverage": "inherited",
@@ -3016,7 +3020,7 @@
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "vault",
       "native_surface_id": "native-route-kai-portfolio-analysis"
     },
     {
@@ -5817,7 +5821,7 @@
         "playbook_id": "route.one.setup",
         "purpose": "Help the person choose, resume, skip, or finish one setup capability.",
         "screen": "one_setup_hub",
-        "entry_cue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
+        "entry_cue": "Choose your setup options, then Continue to the optional memory import.",
         "proactivity": "on_entry",
         "primary_action_id": "setup.open_cloud",
         "happy_path_action_ids": [
@@ -5828,6 +5832,8 @@
           "setup.open_email",
           "setup.open_finance",
           "setup.open_ria",
+          "setup.memory_import_skip",
+          "setup.hub_continue",
           "setup.hub_master_ack"
         ],
         "required_inputs": [],
@@ -5839,8 +5845,8 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Only the hub finish or skip action resolves root onboarding.",
-        "next_route": "/one",
+        "completion_boundary": "Continue opens optional memory import. Finish setup or Skip retains the required vault and setup-save boundaries; a submitted import runs through the shared Chat memory writer in the background after completion.",
+        "next_route": "/",
         "return_policy": "resolve_root",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
@@ -5850,7 +5856,9 @@
       "canonical_screen": "one_setup_hub",
       "voice_contract_file": null,
       "action_ids": [
+        "setup.hub_continue",
         "setup.hub_master_ack",
+        "setup.memory_import_skip",
         "setup.open_calendar",
         "setup.open_cloud",
         "setup.open_connected_systems",
@@ -6209,9 +6217,9 @@
       "context_policy": "publish",
       "voice_playbook": {
         "playbook_id": "route.one.setup.finance",
-        "purpose": "Explore Finance, choose an optional portfolio source, then explicitly finish setup.",
+        "purpose": "Answer or skip investing preferences, choose an optional portfolio source, then finish setup.",
         "screen": "one_setup_finance",
-        "entry_cue": "Explore the introduction, then answer or skip investing preferences.",
+        "entry_cue": "Answer or skip the three investing questions, then choose how to add a portfolio.",
         "proactivity": "on_entry",
         "primary_action_id": "setup.finish_finance",
         "happy_path_action_ids": [
@@ -7070,7 +7078,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Phone verification completes only after the backend confirms the number belongs to the signed-in account. A number linked to another email account requires that existing account sign-in or a different number.",
+        "completion_boundary": "Phone verification completes only after the backend confirms the phone binding and any transfer provider work is settled.",
         "next_route": "/one/setup",
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."

@@ -2049,6 +2049,14 @@ jobs:
             fi
           fi
 
+      - name: Reconcile UAT Sandbox Edge Gateway
+        id: reconcile-uat-sandbox-edge
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/deploy/reconcile-uat-sandbox-edge.sh
+
       - name: Deploy backend using Cloud Build
         id: deploy-backend
         if: steps.scope.outputs.deploy_backend == 'true'

@@ -241,6 +241,7 @@ final class NativeProfileNameScene: NSObject, NativeProfileOwnedForm {
     var identity: NativeDrawerIdentity { model.projection.identity }
     var sceneName: String { model.projection.scene }
     func receipt(_ phase: String) -> [String: Any] { model.projection.receipt(phase: phase) }
+    private let isQuarantined: @MainActor () -> Bool
     private lazy var sheet: NativeProfileOwnedSheet = {
         let model = model
         let isQuarantined = isQuarantined

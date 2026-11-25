@@ -10,9 +10,8 @@ import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-i
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { CheckCircle2, Loader2 } from "@/components/icons";
-import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
+import { toast } from "sonner";
 
-import { NativeCalendarRoute, NativeCalendarReactOnly, type CalendarNativeSection } from "./native-calendar-workspace";
 import { CalendarConnectedWorkspace } from "@/components/calendar/calendar-connected-workspace";
 import { connectGmailInPlace } from "@/lib/connections/google-connect-in-place";
 import { CalendarFollowupsService } from "@/lib/services/calendar-followups-service";
@@ -105,8 +104,7 @@ export function CalendarAgentPage({
 }: CalendarAgentPageProps) {
   const { user, userId, loading } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
-  const nativeFrame = useRef<HTMLDivElement | null>(null);
-  const { confirmTransition, transitionDialog, transitionPending } = useGoogleConnectorTransitionReview(userId ?? undefined, snapshotVaultSessionEpoch());
+  const { confirmTransition, transitionDialog } = useGoogleConnectorTransitionReview(userId ?? undefined, snapshotVaultSessionEpoch());
   const renderedOwnerId = userId;
   const latestUserRef = useRef(user);
   const latestOwnerIdRef = useRef(userId);
@@ -209,6 +207,7 @@ export function CalendarAgentPage({
         error instanceof Error
           ? error.message
           : "Unable to load Calendar connection.",
+        { className: presentationStyles.toast },
       );
     });
   }, [refresh, identity]);
@@ -217,7 +216,7 @@ export function CalendarAgentPage({
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("calendar") === "error") {
-      morphyToast.error("Google Calendar was not connected. Please try again.");
+      morphyToast.error("Google Calendar was not connected. Please try again.", { className: presentationStyles.toast });
     }
   }, []);
 
@@ -288,7 +287,7 @@ export function CalendarAgentPage({
     };
     if (additional) void reconcile(2);
     else window.setTimeout(() => { void reconcile(2); }, 1500);
-    morphyToast.success("Google Calendar connected.");
+    morphyToast.success("Google Calendar connected.", { className: presentationStyles.toast });
     onVerified?.();
     onSettled?.();
   };
@@ -331,12 +330,12 @@ export function CalendarAgentPage({
         popup?.close();
         if (strictMeetingUpgrade) {
           activity.settled("blocked");
-          toast.error("Meeting file access is not available for private Google connections yet.");
+          toast.error("Meeting file access is not available for private Google connections yet.", { className: presentationStyles.toast });
           return;
         }
         if (!vaultKey || !vaultOwnerToken) {
           activity.settled("blocked");
-          toast.error('Unlock your vault to connect Google.');
+          toast.error('Unlock your vault to connect Google.', { className: presentationStyles.toast });
           return;
         }
         const outcome = await connectGoogleConnector('calendar', {
@@ -347,7 +346,7 @@ export function CalendarAgentPage({
         if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
         if (!outcome.ok) {
           if (outcome.code === 'PHONE_HANDOFF_REQUIRED') requestGoogleConnectorPhoneHandoff('calendar');
-          else toast.error(connectRefusalMessage(outcome.code, 'Calendar'));
+          else toast.error(connectRefusalMessage(outcome.code, 'Calendar'), { className: presentationStyles.toast });
           if (outcome.code === 'SIGN_IN_CANCELLED') activity.settled("cancelled");
           return;
         }
@@ -420,7 +419,7 @@ export function CalendarAgentPage({
         setStatus(completed);
         setBusy(false);
         trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "success" });
-        morphyToast.success("Google Calendar connected.");
+        morphyToast.success("Google Calendar connected.", { className: presentationStyles.toast });
         return;
       }
 
@@ -508,7 +507,7 @@ export function CalendarAgentPage({
         } else {
           if (settled.outcome === "cancelled") activity.settled("cancelled");
           if (settled.outcome === "failed")
-            morphyToast.error(settled.message || "Google Calendar could not be connected.");
+            morphyToast.error(settled.message || "Google Calendar could not be connected.", { className: presentationStyles.toast });
           acknowledge();
         }
       } else {
@@ -538,6 +537,7 @@ export function CalendarAgentPage({
       setPopupWaiting(false);
       toast.error(
         error instanceof Error ? error.message : "Unable to connect Calendar.",
+        { className: presentationStyles.toast },
       );
       setBusy(false);
     } finally {
@@ -563,6 +563,7 @@ export function CalendarAgentPage({
           : GoogleCalendarService.disconnect(idToken, operationOwnerId, accountId);
       });
     void morphyToast.promise(operation, {
+      className: presentationStyles.toast,
       loading: "Disconnecting Google Calendar…",
       success: "Google Calendar disconnected.",
       error: "Google Calendar couldn’t be disconnected. Try again.",
@@ -620,12 +621,12 @@ export function CalendarAgentPage({
 
   const popupWaitingNotice = popupWaiting ? (
     <div className="flex flex-col items-center gap-2 pt-3 text-center">
-      <p role="status" aria-live="polite" className="text-xs text-muted-foreground">
+      <p role="status" aria-live="polite" className={`${presentationStyles.support} text-muted-foreground`}>
         Finish signing in with Google in the window that opened.
       </p>
       <button
         type="button"
-        className="min-h-11 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none"
+        className={`${presentationStyles.utility} text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none`}
         onClick={() => popupCancelRef.current?.abort()}
       >
         Cancel sign-in
@@ -634,15 +635,15 @@ export function CalendarAgentPage({
   ) : null;
 
   const disconnectDialog = (
-      <NativeCalendarReactOnly><AlertDialog
+      <AlertDialog
         open={disconnectConfirmOpen}
         onOpenChange={setDisconnectConfirmOpen}
       >
-        <AlertDialogContent size="sm" className={presentationStyles.portal} data-profile-type-scale="calendar" onCloseAutoFocus={event => { const target = disconnectTriggerRef.current?.isConnected ? disconnectTriggerRef.current : document.querySelector<HTMLButtonElement>('[data-voice-control-id="open_calendar_connector"]'); if (target) { event.preventDefault(); target.focus(); } }}>
+        <AlertDialogContent size="sm" className={presentationStyles.portal} data-connect-type-scale="page" onCloseAutoFocus={event => { const target = disconnectTriggerRef.current?.isConnected ? disconnectTriggerRef.current : document.querySelector<HTMLButtonElement>('[data-voice-control-id="open_calendar_connector"]'); if (target) { event.preventDefault(); target.focus(); } }}>
           <AlertDialogHeader className="text-center">
             <AlertDialogTitle>Disconnect Google Calendar?</AlertDialogTitle>
             <AlertDialogDescription>
-              This disconnects the selected Calendar account. Your Mail connection and other Calendar accounts stay available.
+              Mail and your other calendars stay connected.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-row justify-center gap-2">
@@ -662,7 +663,7 @@ export function CalendarAgentPage({
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
-      </AlertDialog></NativeCalendarReactOnly>
+      </AlertDialog>
   );
 
   const connectMail = async () => {
@@ -671,7 +672,7 @@ export function CalendarAgentPage({
     const cancel = new AbortController();
     popupCancelRef.current = cancel;
     const started = connectGmailInPlace({
-      owner: user, purpose: "send", signal: popupLifetimeRef.current?.signal,
+      owner: user, purpose: "send", presentation: "calendar", signal: popupLifetimeRef.current?.signal,
       cancelSignal: cancel.signal,
       isCurrent: () => identityRef.current === attemptIdentity && activeOwnerIdRef.current === userId,
     });
@@ -680,31 +681,12 @@ export function CalendarAgentPage({
       const outcome = await started.result;
       if (identityRef.current !== attemptIdentity) return;
       if (outcome !== "connected") throw new Error("Mail sending was not enabled. Your draft is still here.");
-      morphyToast.success("Mail sending enabled. Review your message again.");
+      morphyToast.success("Mail sending enabled. Review your message again.", { className: presentationStyles.toast });
     } finally {
       if (identityRef.current === attemptIdentity) { setBusy(false); setPopupWaiting(false); }
     }
   };
 
-  const hasWorkspace = (connected || Boolean(status?.accounts?.length)) && journeyVariant === "workspace" && Boolean(user && userId && status);
-  const nativeRoot: CalendarNativeSection[] = [{ key: "connection", rows: [
-    { key: "status", label: checkingConnection ? "Checking Calendar connection…" : statusError || connectionLabel, detail },
-    ...(!status && statusError ? [{ key: "retry", label: "Try again", run: refresh }] : []),
-    ...(!checkingConnection && !statusError && !connected ? [{ key: "connect", label: needsReauth ? "Reconnect Calendar" : "Connect Calendar", enabled: !busy && Boolean(user), web: true,
-      run: () => connect("read", false, false, undefined, status?.status !== "needs_reauth" && !status?.accounts?.length) }] : []),
-    ...(connected ? [{ key: "chat", label: "Try Calendar Agent with One", enabled: !busy, run: () => openCalendarChat("Summarize my calendar events and help me plan meetings") },
-      { key: "disconnect", label: "Disconnect Calendar", enabled: !busy, destructive: true, run: () => setDisconnectConfirmOpen(true) }] : []),
-  ] }];
-  if (journeyVariant === "onboarding" && onFinishSetup && onSkipSetup) nativeRoot.push({ key: "setup", rows: [{
-    key: "complete", label: connected ? "Finish Calendar setup" : "Skip Calendar setup", enabled: !busy && !(connected ? finishingSetup : skippingSetup),
-    pending: connected ? finishingSetup : skippingSetup, run: connected ? onFinishSetup : onSkipSetup,
-  }] });
-  const nativeModel = { owner: userId, onboarding: journeyVariant === "onboarding", rootOnly: !hasWorkspace, root: nativeRoot,
-    webChild: popupWaiting || transitionPending, confirmation: disconnectConfirmOpen ? {
-      title: "Disconnect Google Calendar?", description: "This disconnects the selected Calendar account. Your Mail connection and other Calendar accounts stay available.",
-      confirm: { key: "confirm-disconnect", label: "Disconnect", destructive: true, enabled: !busy, pending: busy, run: () => disconnect(disconnectAccountId) },
-      cancelLabel: "Cancel", cancel: () => setDisconnectConfirmOpen(false),
-    } : undefined };
   const connectSelectedFollowupMail = async (accountId: string) => {
     if (!user || !userId || busyRef.current) return false;
     const operationOwnerId = userId;
@@ -713,7 +695,7 @@ export function CalendarAgentPage({
       const cancel = new AbortController();
       popupCancelRef.current = cancel;
       const started = connectGmailInPlace({
-        owner: user, purpose: "read", signal: popupLifetimeRef.current?.signal,
+        owner: user, purpose: "read", presentation: "calendar", signal: popupLifetimeRef.current?.signal,
         cancelSignal: cancel.signal,
         isCurrent: () => identityRef.current === operationIdentity && activeOwnerIdRef.current === operationOwnerId,
       });
@@ -744,7 +726,7 @@ export function CalendarAgentPage({
         if (identityRef.current !== operationIdentity || activeOwnerIdRef.current !== operationOwnerId) return false;
         return (await CalendarFollowupsService.status(operationOwnerId, accountId, await user.getIdToken())).mail_connected;
       } catch (error) {
-        if (identityRef.current === operationIdentity) morphyToast.error(error instanceof Error ? error.message : "Mail connection could not be completed.");
+        if (identityRef.current === operationIdentity) morphyToast.error(error instanceof Error ? error.message : "Mail connection could not be completed.", { className: presentationStyles.toast });
         return false;
       } finally {
         if (identityRef.current === operationIdentity) setBusy(false);
@@ -754,7 +736,7 @@ export function CalendarAgentPage({
       ownerId: operationOwnerId, calendarAdditional: true, targetAccountId: accountId,
     });
     const popup = openGoogleOAuthPopup(attempt);
-    if (!popup) { morphyToast.error("Allow a Google sign-in window to connect this Mail account."); return false; }
+    if (!popup) { morphyToast.error("Allow a Google sign-in window to connect this Mail account.", { className: presentationStyles.toast }); return false; }
     const cancel = new AbortController();
     popupCancelRef.current = cancel;
     setBusy(true); setPopupWaiting(true);
@@ -788,7 +770,7 @@ export function CalendarAgentPage({
       const verified = await CalendarFollowupsService.status(operationOwnerId, accountId, await user.getIdToken());
       return verified.mail_connected;
     } catch (error) {
-      if (identityRef.current === operationIdentity) morphyToast.error(error instanceof Error ? error.message : "Mail connection could not be completed.");
+      if (identityRef.current === operationIdentity) morphyToast.error(error instanceof Error ? error.message : "Mail connection could not be completed.", { className: presentationStyles.toast });
       return false;
     } finally {
       popup.close();
@@ -805,12 +787,12 @@ export function CalendarAgentPage({
   const connectFirstAccount = () => { void connect("manage", true, false, undefined, firstConnection, { mailAccess: firstConnection }); };
 
   if ((connected || Boolean(status?.accounts?.length)) && journeyVariant === "workspace" && user && userId && status) {
-    return <NativeCalendarRoute frame={nativeFrame} model={nativeModel}>
+    return <>
       <CalendarConnectedWorkspace userId={userId} status={status} busy={busy}
-        onConnect={(access, includeCalendarList) => connect(access, includeCalendarList)}
-        onAddAccount={() => connect("manage", true, true, undefined, true, { mailAccess: true })}
-        onReconnectAccount={(accountId) => connect("manage", true, true, accountId)}
-        onAllowMeetingFiles={(accountId, returnContext) => connect("manage", true, accountId !== "default", accountId === "default" ? undefined : accountId, true, { meetingReturn: returnContext })}
+        onConnect={(access, includeCalendarList) => { void connect(access, includeCalendarList); }}
+        onAddAccount={() => { void connect("manage", true, true, undefined, true, { mailAccess: true }); }}
+        onReconnectAccount={(accountId) => { void connect("manage", true, true, accountId); }}
+        onAllowMeetingFiles={(accountId, returnContext) => { void connect("manage", true, accountId !== "default", accountId === "default" ? undefined : accountId, true, { meetingReturn: returnContext }); }}
         onDisconnectAccount={(accountId) => { setDisconnectAccountId(accountId); setDisconnectConfirmOpen(true); }}
         onChat={(prompt, slot, invitation, attendance) => openCalendarChat(slot || invitation || attendance ? undefined : prompt?.trim() || "Summarize my calendar events and help me plan meetings", slot, invitation, attendance)}
         onDisconnect={() => { const trigger = document.activeElement; disconnectTriggerRef.current = trigger instanceof HTMLButtonElement ? trigger : null; setDisconnectConfirmOpen(true); }}
@@ -818,15 +800,15 @@ export function CalendarAgentPage({
         connectionNotice={popupWaitingNotice} getIdToken={() => user.getIdToken()} connectionRevision={statusRequestRef.current} />
       {disconnectDialog}
       {transitionDialog}
-    </NativeCalendarRoute>;
+    </>;
   }
 
   return (
-    <NativeCalendarRoute frame={nativeFrame} model={nativeModel}><AppPageShell ref={nativeFrame}
-      data-profile-type-scale="page"
+    <AppPageShell
       width="reading"
       headerContentSpacing={journeyVariant === "workspace" ? "compact" : "standard"}
-      className={CALENDAR_SETUP_SHELL_CLASSNAME}
+      className={`${CALENDAR_SETUP_SHELL_CLASSNAME} ${presentationStyles.scope}`}
+      data-connect-type-scale="page"
       nativeTest={{
         routeId: journeyVariant === "onboarding" ? ROUTES.ONE_SETUP_CALENDAR : ROUTES.CALENDAR,
         marker: journeyVariant === "onboarding" ? "native-route-one-setup-calendar" : "native-route-calendar",
@@ -856,7 +838,7 @@ export function CalendarAgentPage({
             <p role="status" className={`${presentationStyles.support} text-muted-foreground`}>{statusError}</p>
             <CalendarCompactAction
               type="button"
-              onClick={() => void refresh().catch(() => toast.error("Calendar connection couldn’t load. Try again."))}
+              onClick={() => void refresh().catch(() => toast.error("Calendar connection couldn’t load. Try again.", { className: presentationStyles.toast }))}
             >
               Try again
             </CalendarCompactAction>
@@ -888,7 +870,7 @@ export function CalendarAgentPage({
 
             <div className="space-y-4 pt-[var(--page-header-section-gap)] w-full flex flex-col items-center">
               {checkingConnection ? (
-                <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+                <span className={`${presentationStyles.support} inline-flex items-center gap-2 text-muted-foreground`}>
                   <Loader2 className="size-4 animate-spin" />
                   {connectionPending
                     ? "Finishing Calendar connection…"
@@ -1004,6 +986,6 @@ export function CalendarAgentPage({
       </AppPageContentRegion>
 
       {disconnectDialog}
-    </AppPageShell></NativeCalendarRoute>
+    </AppPageShell>
   );
 }

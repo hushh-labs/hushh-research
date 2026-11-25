@@ -273,6 +273,11 @@ runpy.run_path(script, run_name='__main__')
                  "GITHUB_ACTOR": actor, "RELEASE_ENV": inputs.get("environment", ""),
                  "RELEASE_RUN_ID": inputs.get("healthy_release_run_id", ""),
                  "CAPACITY_BRIDGE": inputs.get("production_capacity_bridge", ""),
+                 "RESTORE_SERVING_TEMPLATE": inputs.get("restore_serving_template", ""),
+                 "COLD_CHECKPOINT_RUN_ID": inputs.get("qualified_cold_checkpoint_run_id", ""),
+                 "OPERATIONAL_RUN_ID": inputs.get("operational_backend_proof_run_id", ""),
+                 "OPERATIONAL_ATTEMPT": inputs.get("operational_backend_proof_attempt", ""),
+                 "STAGED_WORKER_RUN_ID": inputs.get("staged_worker_run_id", ""),
                  "APPLY": inputs.get("apply", ""),
                  "CLOCK_EVENT_TYPE": action},
             capture_output=True, text=True, check=False,
@@ -343,6 +348,18 @@ def test_fixed_bridge_requires_governed_manual_production_apply() -> None:
         assert _validate_capacity_trigger("workflow_dispatch", wrong).returncode != 0
     for actor, ref in (("unapproved-contributor", "main"), ("kushaltrivedi5", "feature/example")):
         assert _validate_capacity_trigger("workflow_dispatch", event, actor=actor, ref=ref).returncode != 0
+
+
+def test_serving_template_restore_is_a_separate_manual_production_apply() -> None:
+    inputs = {"environment": "production", "healthy_release_run_id": "43", "apply": "true", "restore_serving_template": "true"}
+    accepted = _validate_capacity_trigger("workflow_dispatch", {"inputs": inputs})
+    assert accepted.returncode == 0, accepted.stderr
+    for event in ("schedule", "repository_dispatch"):
+        assert _validate_capacity_trigger(event, {"inputs": inputs}, action="capacity-maintenance-tick-production").returncode != 0
+    for field, value in (("environment", "uat"), ("apply", "false"), ("production_capacity_bridge", "true"),
+                         ("staged_worker_run_id", "44"), ("operational_backend_proof_run_id", "44")):
+        assert _validate_capacity_trigger("workflow_dispatch", {"inputs": {**inputs, field: value}}).returncode != 0
+    assert _validate_capacity_trigger("workflow_dispatch", {"inputs": inputs}, actor="unapproved-contributor").returncode != 0
 
 
 def test_capacity_clock_tick_carries_only_scheduled_authority() -> None:

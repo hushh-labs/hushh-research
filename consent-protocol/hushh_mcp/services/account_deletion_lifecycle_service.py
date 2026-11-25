@@ -178,6 +178,26 @@ def account_deletion_user_hash(user_id: str) -> str:
     return "sha256:" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
+def is_account_deletion_write_guard(exc: BaseException) -> bool:
+    """Recognize the database erasure fence through driver and service wrappers."""
+    seen: set[int] = set()
+    while id(exc) not in seen:
+        seen.add(id(exc))
+        constraint = getattr(getattr(exc, "diag", None), "constraint_name", None)
+        if (constraint or getattr(exc, "constraint_name", None)) in {
+            "account_deletion_tombstone_guard",
+            "account_retired_generation_update_guard",
+        }:
+            return True
+        nested = getattr(exc, "orig", None) or exc.__cause__
+        if nested is None and not exc.__suppress_context__:
+            nested = exc.__context__
+        if not isinstance(nested, BaseException):
+            return False
+        exc = nested
+    return False
+
+
 def account_deletion_phone_digest(phone_number: str) -> str:
     """Return a domain-separated keyed proof without retaining a phone number."""
     from hushh_mcp.config import APP_SIGNING_KEY
@@ -249,26 +269,6 @@ def _validated_intent_metadata(
     if normalized_digest is None or not _PHONE_DIGEST_RE.fullmatch(normalized_digest):
         raise ValueError("phone-orphan cleanup requires a valid expected phone digest")
     return intent_kind, normalized_digest
-
-
-def is_account_deletion_write_guard(exc: BaseException) -> bool:
-    """Recognize the database erasure fence through driver and service wrappers."""
-    seen: set[int] = set()
-    while id(exc) not in seen:
-        seen.add(id(exc))
-        constraint = getattr(getattr(exc, "diag", None), "constraint_name", None)
-        if (constraint or getattr(exc, "constraint_name", None)) in {
-            "account_deletion_tombstone_guard",
-            "account_retired_generation_update_guard",
-        }:
-            return True
-        nested = getattr(exc, "orig", None) or exc.__cause__
-        if nested is None and not exc.__suppress_context__:
-            nested = exc.__context__
-        if not isinstance(nested, BaseException):
-            return False
-        exc = nested
-    return False
 
 
 class AccountDeletionLifecycleService:
@@ -1410,6 +1410,7 @@ class AccountDeletionLifecycleService:
                     )
                     if validation_result is not None:
                         return validation_result
+                assert_firebase_identity_mutation_allowed(firebase_app)
                 from firebase_admin import auth as firebase_auth
 
                 await asyncio.wait_for(

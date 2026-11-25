@@ -109,10 +109,17 @@ describe("Feed briefing invalidation", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     expect(result.current.kycError).toBe(true);
     expect(result.current.kycLoading).toBe(false);
-    state.list.mockResolvedValue({ workflows: [{ workflow_id: "fixture-kyc", status: "detected" }], total_count: 2 });
+    state.list.mockResolvedValue({ workflows: [
+      { workflow_id: "fixture-kyc", status: "detected" },
+      { workflow_id: "fixture-second", status: "detected" },
+      { workflow_id: "fixture-sent", status: "sent" },
+    ], total_count: 2 });
     await act(async () => { await result.current.retryKyc(); await vi.advanceTimersByTimeAsync(0); });
     expect(result.current.kycError).toBe(false);
     expect(result.current.pendingKyc).toMatchObject({ workflowId: "fixture-kyc", count: 2 });
+    expect(result.current.pendingKycRequests?.map((request) => request.workflowId)).toEqual([
+      "fixture-kyc", "fixture-second",
+    ]);
   });
 
 });

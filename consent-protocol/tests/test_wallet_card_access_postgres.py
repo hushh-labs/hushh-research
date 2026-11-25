@@ -165,6 +165,13 @@ def test_card_request_is_metadata_only_targeted_and_not_folded_into_later_messag
     # The ordinary message remains in Chat; it must not displace or duplicate
     # the wallet decision in Feed under the incoming-only presentation policy.
     assert len(items) == 1
+    # Cards use the authenticated source classification even though their
+    # transport event shares Connect's backend domain; scope precedes paging.
+    scoped = feed.search_activity("alice", scope="wallet")
+    assert len(scoped["items"]) == 1
+    assert scoped["items"][0]["scope_id"] == "wallet"
+    assert feed.search_activity("alice", scope="connections")["items"] == []
+    assert feed.search_activity("charu", scope="wallet")["items"] == []
     assert DirectMessagesService(db=db).list_conversations("alice")["unreadCount"] == 2
     assert (
         sum(item["metadata"].get("wallet_card_request_id") == result["id"] for item in items) == 1

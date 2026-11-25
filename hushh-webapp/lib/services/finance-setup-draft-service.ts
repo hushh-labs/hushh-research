@@ -1,15 +1,6 @@
 "use client";
 
-import { CacheSyncService } from "@/lib/cache/cache-sync-service";
-import {
-  buildFinancialDomainSummary,
-  buildStatementSource,
-} from "@/lib/kai/brokerage/financial-sources";
-import {
-  computeStatementImportId,
-  upsertStatementSnapshot,
-} from "@/lib/kai/brokerage/statement-import-identity";
-import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+import { commitStatementPortfolio } from "@/lib/kai/import/commit-statement-portfolio";
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
 
 const RESOURCE_KEY = "setup_finance_review_draft:v1";
@@ -27,15 +18,6 @@ function asRecord(value: unknown): FinancialRecord {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as FinancialRecord)
     : {};
-}
-
-function asArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
-function text(value: unknown): string | null {
-  const normalized = String(value ?? "").trim();
-  return normalized || null;
 }
 
 function normalizeDraft(value: unknown): FinanceSetupReviewDraft | null {
@@ -114,109 +96,12 @@ export class FinanceSetupDraftService {
     const draft = await this.load(params.userId);
     if (!draft) return false;
 
-    const savedAt = new Date().toISOString();
-    const portfolio = asRecord(draft.portfolio);
-    const accountInfo = asRecord(portfolio.account_info);
-    const existingStatementPeriodEnd = text(accountInfo.statement_period_end);
-    // The same id the review save derives, so a statement committed here and
-    // again from the review (or by a retried Finish) stays one snapshot.
-    const snapshotId = await computeStatementImportId(portfolio);
-
-    const result = await PkmWriteCoordinator.saveMergedDomain({
-      userId: params.userId,
-      domain: "financial",
-      vaultKey: params.vaultKey,
-      vaultOwnerToken: params.vaultOwnerToken,
-      confirmation: {
-        confirmedByUser: true,
-        surface: "web",
-        source: "one_setup_finance_finalize",
-      },
-      build: (context) => {
-        const current = asRecord(context.currentDomainData);
-        const existingDocuments = asRecord(current.documents);
-        const canonicalPortfolio: FinancialRecord = {
-          ...portfolio,
-          source_metadata: {
-            source_type: "statement",
-            source_label: "Setup portfolio",
-            source_id: snapshotId,
-            active_snapshot_id: snapshotId,
-            is_editable: true,
-          },
-          domain_intent: {
-            primary: "financial",
-            secondary: "portfolio",
-            source: "one_setup_finance",
-            captured_sections: ["account_info", "account_summary", "holdings"],
-            updated_at: savedAt,
-          },
-        };
-        const snapshot: FinancialRecord = {
-          id: snapshotId,
-          imported_at: savedAt,
-          schema_version: 2,
-          source: {
-            brokerage: text(accountInfo.brokerage) ?? text(accountInfo.brokerage_name),
-            statement_period_end: existingStatementPeriodEnd,
-            account_type: text(accountInfo.account_type),
-          },
-          canonical_v2: canonicalPortfolio,
-          holdings: asArray(portfolio.holdings),
-          account_info: accountInfo,
-          account_summary: asRecord(portfolio.account_summary),
-          asset_allocation: portfolio.asset_allocation ?? null,
-          transactions: asArray(portfolio.transactions),
-          parse_context: {
-            setup_staged: true,
-          },
-        };
-        const statements = upsertStatementSnapshot(existingDocuments.statements, snapshot);
-        const documents: FinancialRecord = {
-          ...existingDocuments,
-          schema_version: 1,
-          statements,
-          last_statement_end: existingStatementPeriodEnd,
-          last_brokerage:
-            text(accountInfo.brokerage) ?? text(accountInfo.brokerage_name),
-          last_updated: savedAt,
-        };
-        const sources = asRecord(current.sources);
-        const domainData: FinancialRecord = {
-          ...current,
-          schema_version: 3,
-          portfolio: canonicalPortfolio,
-          documents,
-          sources: {
-            ...sources,
-            active_source: "statement",
-            statement: buildStatementSource(current, statements, snapshotId, savedAt),
-          },
-          updated_at: savedAt,
-        };
-
-        return {
-          domainData,
-          summary: {
-            ...buildFinancialDomainSummary(domainData),
-            intent_source: "one_setup_finance",
-            setup_staged_at: draft.stagedAt,
-          },
-          mergeDecision: {
-            merge_mode: "replace_domain",
-            target_domain: "financial",
-            match_reason: "The reviewed setup portfolio becomes the active statement source.",
-          },
-        };
-      },
+    await commitStatementPortfolio({
+      ...params,
+      portfolio: draft.portfolio,
+      setupStagedAt: draft.stagedAt,
     });
-
-    if (!result.success) {
-      throw new Error(result.message || "Your portfolio could not be protected yet.");
-    }
-
     await this.clear(params.userId);
-    CacheSyncService.onPortfolioUpserted(params.userId, portfolio as never);
     return true;
   }
 }

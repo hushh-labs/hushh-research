@@ -24,13 +24,13 @@ afterEach(() => {
 });
 
 describe("Finance introduction", () => {
-  it("only continues after the final deliberate step and supports authored Back", () => {
+  it("continues from the introduction and supports authored Back", () => {
     const done = vi.fn();
     render(<FinanceOnboardingDemo onContinue={done} />);
     expect(
       screen.getByRole("heading", { name: "Follow the market." }),
     ).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show Portfolio introduction" }));
     expect(done).not.toHaveBeenCalled();
     act(() => {
       expect(unwindBackLayer("/one/setup/finance")).toBe(true);

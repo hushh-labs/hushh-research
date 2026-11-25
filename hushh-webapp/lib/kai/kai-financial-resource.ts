@@ -259,6 +259,24 @@ async function loadNetworkResource(
 }
 
 export class KaiFinancialResourceService {
+  /** A fresh, vault-fenced snapshot for a chat card or answer, with no cache publication. */
+  static async readForAnswer(params: KaiFinancialResourceRequest, isCurrent: () => boolean) {
+    if (!isCurrent()) return null;
+    const generation = readGeneration(params.userId);
+    const { financial } = await loadFinancialContext(params);
+    if (!isCurrent() || generation !== readGeneration(params.userId)) return null;
+    return {
+      resource: buildResource({
+        userId: params.userId,
+        financialDomain: financial,
+        plaidStatus: buildVaultPlaidStatus(financial, params.userId),
+        cacheTier: "network",
+        source: "network",
+      }),
+      isCurrent: () => isCurrent() && generation === readGeneration(params.userId),
+    };
+  }
+
   static peek(userId: string) {
     return CacheService.getInstance().peek<KaiFinancialResource>(
       CACHE_KEYS.KAI_FINANCIAL_RESOURCE(userId)

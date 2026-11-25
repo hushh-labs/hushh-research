@@ -52,7 +52,7 @@ class FollowupCandidateV1(BaseModel):
     time_zone: str | None = None
     responsibility: Literal["owner", "other", "unclear"]
     ambiguities: list[Literal["date", "time", "time_zone", "responsibility", "duration"]] = Field(
-        default_factory=list, max_length=5
+        default_factory=list
     )
     # The relevance verdict. A missing verdict is "uncertain": an unexplained
     # guess is never shown to the owner as Calendar work.
@@ -72,6 +72,15 @@ class FollowupCandidateV1(BaseModel):
     # An item in prior_requests that this one restates with a changed date or
     # replaces. Only an offered request ID is accepted.
     supersedes_request_id: str | None = Field(default=None, min_length=36, max_length=36)
+
+    @field_validator("ambiguities")
+    @classmethod
+    def bounded_ambiguities(cls, value: list[str]) -> list[str]:
+        # Keep the bound after decoding: nested maxItems multiplies Vertex's
+        # structured-output schema complexity before any email is assessed.
+        if len(value) > 5:
+            raise ValueError("at most five ambiguities are allowed")
+        return value
 
     @field_validator("due_date", "proposed_date")
     @classmethod
@@ -114,12 +123,21 @@ class FollowupUpdateV1(BaseModel):
 class FollowupChunkAssessmentV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    candidates: list[FollowupCandidateV1] = Field(default_factory=list, max_length=20)
-    updates: list[FollowupUpdateV1] = Field(default_factory=list, max_length=20)
+    candidates: list[FollowupCandidateV1] = Field(default_factory=list)
+    updates: list[FollowupUpdateV1] = Field(default_factory=list)
     overflow: bool = False
     # Audit only: what kind of message this section belongs to. It never
     # promotes a candidate; each candidate carries its own verdict.
     message_relevance: Relevance = "uncertain"
+
+    @field_validator("candidates", "updates")
+    @classmethod
+    def bounded_items(cls, value: list[Any]) -> list[Any]:
+        # Vertex rejects the multiplied array bounds before inference. Keep
+        # the same acceptance limit in the canonical decoded-output validator.
+        if len(value) > 20:
+            raise ValueError("at most twenty assessment items are allowed")
+        return value
 
 
 @dataclass(frozen=True)
@@ -383,6 +401,14 @@ async def assess_complete_message(
     return merge_sections(validated, drops)
 
 
+# One section's model call. The gene declares a 30 s p95, and measured UAT
+# latency on the managed model sits at 25-35 s, so a 30 s limit cancelled about
+# half the calls; each cancelled call was replayed once, so a pass ended after
+# 61 s with nothing assessed and the account then backed off. Twice the declared
+# p95 lets a normal call finish while still bounding a hung one.
+ASSESSMENT_TIMEOUT_SECONDS = 60.0
+
+
 async def assess_section(
     *,
     message: CompleteMailMessage,
@@ -402,6 +428,11 @@ async def assess_section(
             "section_index": section.index,
             "section_text": section.text,
             "message_received_at_ms": message.internal_date_ms,
+            # The owner's local day and weekday, so "before the 20th" or "by Friday"
+            # is resolved from what the message says rather than from epoch maths.
+            "message_received_on": datetime.fromtimestamp(
+                message.internal_date_ms / 1000, tz=ZoneInfo(owner_time_zone)
+            ).strftime("%Y-%m-%d %A"),
             "subject": message.subject,
             "sender": message.sender,
             "automated_signals": list(message.signals),
@@ -416,7 +447,7 @@ async def assess_section(
         user_id=user_id,
         consent_token=consent_token,
         output_schema=FollowupChunkAssessmentV1,
-        timeout_seconds=30,
+        timeout_seconds=ASSESSMENT_TIMEOUT_SECONDS,
     )
     await require_current()
     return validate_chunk(

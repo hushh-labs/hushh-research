@@ -350,3 +350,36 @@ test("Adaptive task frame stays inside native reserved chrome after CSS optimiza
   expect(close!.y).toBeGreaterThanOrEqual(frame!.y);
   expect(close!.y + close!.height).toBeLessThanOrEqual(frame!.y + frame!.height);
 });
+
+for (const width of [620, 621]) {
+  test(`Connect v14 survives Add people portal at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await setFixtureContent(page, `<html data-connect-scope="true"><head><style>${css}</style></head><body><div id="root"></div></body></html>`);
+    await page.addScriptTag({ content: script });
+    const dialog = page.getByRole("dialog", { name: "Add people to Trusted" });
+    await expect(dialog).toBeVisible();
+    await awaitProductFont(page);
+    await expect(dialog).toHaveAttribute("data-typography-scope", /surface/);
+    await expect(dialog.locator('[data-slot="sheet-title"]')).toHaveCSS("font-size", "20px");
+    await expect(dialog.locator('[data-slot="sheet-title"]')).toHaveCSS("line-height", "28px");
+    await expect(dialog.getByPlaceholder("Search connections")).toHaveCSS("font-size", width <= 620 ? "16px" : "14px");
+    await expect(dialog.getByPlaceholder("Search connections")).toHaveCSS("line-height", "22px");
+    const person = dialog.getByRole("button", { name: "Select Connected person 1 for Circle invitation" });
+    await expect(person).toBeVisible();
+    const action = dialog.getByRole("button", { name: "Select people", exact: true });
+    await expect(action).toBeDisabled();
+    await person.click();
+    const enabledAction = dialog.getByRole("button", { name: "Invite 1 person", exact: true });
+    await expect(enabledAction).toBeEnabled();
+    await expect(enabledAction).toHaveCSS("font-size", "12px");
+    await expect(enabledAction).toHaveCSS("line-height", "18px");
+    expect((await enabledAction.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await enabledAction.hover();
+    await expect(enabledAction).toHaveCSS("font-size", "12px");
+    await enabledAction.focus();
+    await expect(enabledAction).toBeFocused();
+    await expect(person).toHaveAttribute("aria-pressed", "true");
+    await expect(dialog.getByText("Connected person 1", { exact: true })).toHaveCSS("font-size", "14px");
+    await expect(dialog.getByText("Connected person 1", { exact: true })).toHaveCSS("line-height", "21px");
+  });
+}

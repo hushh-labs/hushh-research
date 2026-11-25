@@ -1284,3 +1284,18 @@ def test_ledger_mode_strips_outer_transaction_envelope_and_keeps_inner_sql():
     assert prepare_execution_sql(entry, wrapped, mode_value=MigrationMode.REPLAY.value) == wrapped
     assert _migration_version("099_legacy.sql") == 99
     assert _migration_version("1000_four_digit.sql") == 1000
+
+
+def test_firebase_erasure_adoption_skips_419_backfill_on_replay_when_987_installed():
+    from db.firebase_erasure_adoption import FOOTPRINT, replay_sql
+
+    entry_419 = build_manifest_entries(
+        Path(__file__).resolve().parents[1] / "db/migrations",
+        ("419_account_generations.sql",),
+    )[0]
+    adapted = replay_sql(entry_419)
+    assert (
+        f"DO $preserve_firebase_erasure_backfill$ BEGIN\n IF {FOOTPRINT} THEN RETURN; END IF;"
+        in adapted
+    )
+    assert "INSERT INTO public.account_generations(" in adapted

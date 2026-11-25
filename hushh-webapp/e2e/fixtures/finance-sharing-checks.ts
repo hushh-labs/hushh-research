@@ -1,15 +1,40 @@
 import { expect, test, type Page } from "@playwright/test";
+import path from "node:path";
 
 export function registerFinanceSharingChecks(mount: (page: Page, width: number) => Promise<void>) {
 for (const width of [393, 1024]) {
   test(`Finance received-only management ${width}px`, async ({ page }) => {
+    await page.route("**/icons/connectors/plaid.svg", route => route.fulfill({
+      path: path.join(process.cwd(), "public/icons/connectors/plaid.svg"),
+      contentType: "image/svg+xml",
+    }));
+    await page.route(url => url.pathname === "/brand/hushh-mark.png" ||
+      (url.pathname === "/_next/image" && url.searchParams.get("url")?.startsWith("/brand/hushh-mark.png?") === true),
+    route => route.fulfill({ path: path.join(process.cwd(), "public/brand/hushh-mark.png"), contentType: "image/png" }));
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await mount(page, width);
     const sharing = page.getByTestId("finance-received-only-fixture");
+    await expect(sharing.getByRole("heading", { name: "Add your portfolio" })).toBeVisible();
+    const options = sharing.getByRole("group", { name: "Portfolio source" });
+    await expect(options.getByRole("button", { name: /Connect your Plaid account/ })).toBeEnabled();
+    await expect(options.getByRole("button", { name: /Upload a statement/ })).toBeEnabled();
+    await expect(options.getByRole("button", { name: /Try a sample/ })).toBeEnabled();
+    await expect(sharing.getByText("View net worth score", { exact: true })).toHaveCount(0);
+    await expect(sharing.getByRole("button", { name: "Skip for now" })).toHaveCount(0);
     await expect(sharing.getByRole("button", { name: "Ask an advisor", exact: true })).toHaveCount(0);
-    await expect(sharing.getByRole("button", { name: "Share portfolio", exact: true })).toBeDisabled();
+    const sharingHeading = await sharing.getByRole("heading", { name: "Sharing", exact: true }).boundingBox();
+    const sourceCards = await options.boundingBox();
+    expect(sharingHeading!.y).toBeGreaterThan(sourceCards!.y + sourceCards!.height);
+    for (const logo of await options.locator("img").all()) {
+      await logo.scrollIntoViewIfNeeded();
+      await expect.poll(() => logo.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+    }
+    await sharing.screenshot({ path: test.info().outputPath(`finance-empty-portfolio-${width}.png`), animations: "disabled" });
+    await sharing.getByRole("button", { name: "Share portfolio", exact: true }).click();
+    await expect(sharing.getByRole("status")).toHaveText("Add a portfolio to share.");
     await sharing.getByRole("button", { name: "Manage sharing", exact: true }).click();
     const manager = page.getByRole("dialog", { name: "Finance sharing", exact: true });
-    await expect(manager.getByRole("button", { name: "Shared by you", exact: true })).toBeDisabled();
+    await expect(manager.getByText("Shared by you", { exact: true })).toHaveCount(0);
     await expect(manager.getByRole("heading", { name: "Sample sender", exact: true })).toBeVisible();
     const view = manager.getByRole("button", { name: "View", exact: true });
     await expect(view).toBeVisible();
@@ -82,9 +107,8 @@ for (const width of [393, 1440]) for (const theme of ["light", "dark"]) {
     await expect(edit.getByRole("heading", { name: "Access", exact: true })).toBeFocused();
     expect((await edit.boundingBox())!.height).toBeCloseTo(frameHeight, 0);
     const dollars = edit.getByRole("checkbox", { name: /Show dollar amounts/ });
-    const model = edit.getByRole("checkbox", { name: /Allow their Agent One to review/ });
     await expect(dollars).not.toBeChecked();
-    await expect(model).not.toBeChecked();
+    await expect(edit.getByRole("checkbox", { name: /Agent One/ })).toHaveCount(0);
     await expect(page.locator("body")).not.toHaveAttribute("data-finance-publishes");
     const forward = edit.getByRole("button", { name: "Preview", exact: true });
     const manage = edit.getByRole("button", { name: "Back", exact: true });
@@ -143,13 +167,12 @@ for (const width of [393, 1440]) for (const theme of ["light", "dark"]) {
     await page.evaluate(mode => document.documentElement.classList.toggle("dark", mode === "dark"), theme);
     await page.getByRole("button", { name: "Open sample received Finance", exact: true }).click();
     const received = page.getByRole("dialog", { name: "Sample sender · Finance", exact: true });
+    await received.getByRole("tab", { name: "Allocation" }).click();
     await expect(received.getByRole("region", { name: "Shared allocation" })).toBeVisible();
+    await received.getByRole("tab", { name: "Portfolio" }).click();
     await expect(page.locator("body")).not.toHaveAttribute("data-finance-reviews");
-    await received.getByRole("button", { name: "Review with Agent One", exact: true }).click();
-    await expect(received.getByText(/^Synthetic review:/)).toBeVisible();
     await page.evaluate(() => { document.body.dataset.financeEnded = "true"; window.dispatchEvent(new Event("finance-sharing-changed")); });
     await expect(page.getByRole("dialog", { name: "Shared Finance", exact: true }).getByText("The owner stopped sharing this information.", { exact: true })).toBeVisible();
-    await expect(page.getByText(/^Synthetic review:/)).toHaveCount(0);
     await expect(page.getByRole("region", { name: "Shared allocation" })).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(errors).toEqual([]);

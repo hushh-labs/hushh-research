@@ -118,7 +118,6 @@ async def _account(service, tag, email):
         ),
         response=Response(),
         firebase_uid=OWNER,
-        owner={"user_id": OWNER},
     )
     return account_id
 
@@ -197,7 +196,13 @@ async def test_expired_opportunity_leaves_upcoming_and_overdue_work_stays_reacha
 
     upcoming = await _listing(store, account_id)
     assert _titles(upcoming) == ["Attend the exam", "Send the project documents"]
-    assert upcoming["view_counts"] == {"upcoming": 2, "overdue": 2, "snoozed": 0, "history": 1}
+    assert upcoming["view_counts"] == {
+        "all": 4,
+        "upcoming": 2,
+        "overdue": 2,
+        "snoozed": 0,
+        "history": 1,
+    }
     assert _titles(await _listing(store, account_id, "overdue")) == [
         "Send the signed agreement",
         "Pay the invoice",
@@ -265,7 +270,6 @@ async def test_eligibility_and_ranking_happen_before_the_15_item_page_is_chosen(
         routes.ListSelection(user_id=OWNER, account_id=account_id),
         response=Response(),
         firebase_uid=OWNER,
-        owner={"user_id": OWNER},
     )
     assert routes.FOLLOWUP_PAGE_SIZE == 15
     assert len(first["conversations"]) == 15
@@ -276,14 +280,12 @@ async def test_eligibility_and_ranking_happen_before_the_15_item_page_is_chosen(
         routes.ListSelection(user_id=OWNER, account_id=account_id, offset=15),
         response=Response(),
         firebase_uid=OWNER,
-        owner={"user_id": OWNER},
     )
     assert _titles(second) == ["Submit item 15"] and second["next_offset"] is None
     history = await routes.list_followups(
         routes.ListSelection(user_id=OWNER, account_id=account_id, view="history"),
         response=Response(),
         firebase_uid=OWNER,
-        owner={"user_id": OWNER},
     )
     assert history["total_conversations"] == 6
 
@@ -426,7 +428,6 @@ async def test_the_same_obligation_in_two_emails_is_one_request_that_keeps_both_
         routes.RequestSelection(user_id=OWNER, account_id=account_id, request_id=old_id),
         response=Response(),
         firebase_uid=OWNER,
-        owner={"user_id": OWNER},
     )
     assert target == {
         "account_id": account_id,
@@ -731,9 +732,9 @@ async def test_version_bump_rereads_only_messages_that_back_an_older_request(fol
         connection.execute(text("UPDATE calendar_email_followup_monitors SET next_scan_at=NOW()"))
     # The previous contract assessed both; only one still backs a visible request.
     with engine.begin() as connection:
-        connection.execute(text("UPDATE calendar_email_followup_requests SET assessment_version=2"))
+        connection.execute(text("UPDATE calendar_email_followup_requests SET assessment_version=3"))
         connection.execute(
-            text("UPDATE calendar_email_followup_scanned_messages SET assessment_version=2")
+            text("UPDATE calendar_email_followup_scanned_messages SET assessment_version=3")
         )
     monitor = await store.monitor(user_id=OWNER, account_id=account_id)
     assert (await store.scanned_state(monitor, settled.message_id)).current
@@ -781,9 +782,9 @@ async def test_reassessed_noise_is_hidden_not_deleted(followup_pg):
         _ask(promo, "Upgrade to Ultra before 2 November.", "Upgrade to Ultra", "2026-11-02"),
     )
     with engine.begin() as connection:
-        connection.execute(text("UPDATE calendar_email_followup_requests SET assessment_version=2"))
+        connection.execute(text("UPDATE calendar_email_followup_requests SET assessment_version=3"))
         connection.execute(
-            text("UPDATE calendar_email_followup_scanned_messages SET assessment_version=2")
+            text("UPDATE calendar_email_followup_scanned_messages SET assessment_version=3")
         )
     await _reassess(store, account_id, promo, [])  # the current contract finds nothing
     rows = _rows(engine)
@@ -793,6 +794,41 @@ async def test_reassessed_noise_is_hidden_not_deleted(followup_pg):
         name: (await _listing(store, account_id, name))["total_conversations"]
         for name in ("upcoming", "overdue", "history")
     } == {"upcoming": 0, "overdue": 0, "history": 0}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reworded", [False, True])
+async def test_reassessing_a_visible_request_keeps_a_settled_sibling_hidden(followup_pg, reworded):
+    service, store, engine = followup_pg
+    account_id = await _monitored_account(service)
+    report = "Send the signed agreement before 20 November."
+    promo = "Upgrade to Ultra before 2 November."
+    message = _message("m-mixed", f"{report}\n\n{promo}")
+    visible = _ask(message, report, "Send the signed agreement", "2026-11-20")
+    settled = _ask(message, promo, "Upgrade to Ultra", "2026-11-02")
+    await _reassess(store, account_id, message, [visible, settled])
+    with engine.begin() as connection:
+        connection.execute(
+            text("UPDATE calendar_email_followup_scanned_messages SET assessment_version=3")
+        )
+        connection.execute(text("UPDATE calendar_email_followup_requests SET assessment_version=3"))
+        connection.execute(
+            text("""UPDATE calendar_email_followup_requests
+                 SET suppressed_at=now(),suppression_reason='reassessed_not_relevant'
+                 WHERE evidence_hmac=:key"""),
+            {"key": settled.evidence_key},
+        )
+    if reworded:
+        settled = dataclasses.replace(settled, title="Switch to Ultra", evidence_key="a" * 64)
+
+    await _reassess(store, account_id, message, [visible, settled])
+    rows = _rows(engine)
+    assert len(rows) == 2
+    assert {(row["assessment_version"], row["suppressed"]) for row in rows} == {
+        (ASSESSMENT_VERSION, False),
+        (3, True),
+    }
+    assert (await _listing(store, account_id, "overdue"))["total_conversations"] == 0
 
 
 @pytest.mark.asyncio
@@ -984,6 +1020,7 @@ async def test_read_projections_are_owner_and_account_scoped(followup_pg):
         first_page["view_counts"]
         == other_page["view_counts"]
         == {
+            "all": 1,
             "upcoming": 1,
             "overdue": 0,
             "snoozed": 0,
@@ -1014,3 +1051,112 @@ async def test_read_projections_are_owner_and_account_scoped(followup_pg):
     assert [request["repeat_count"] for request in detail["requests"]] == [0]
     with pytest.raises(FollowupStateError, match="request_unavailable"):
         await store.resolve_request(other_monitor, other_request)
+
+
+@pytest.mark.asyncio
+async def test_calendar_projection_hides_legacy_history_and_raw_evidence(followup_pg):
+    service, store, engine = followup_pg
+    account_id = await _monitored_account(service)
+    current = _message("m-current-projection", "Please send the signed agenda by 20 November.")
+    legacy = _message("m-legacy-projection", "Pay this old invoice by 20 November.")
+    finished = dataclasses.replace(
+        _message("m-finished-projection", "Please reserve the meeting room by 21 November."),
+        thread_id=current.thread_id,
+    )
+    for message, title, due in (
+        (current, "Send the signed agenda", "2026-11-20"),
+        (legacy, "Pay the old invoice", "2026-11-20"),
+        (finished, "Reserve the meeting room", "2026-11-21"),
+    ):
+        await _put(
+            store,
+            account_id,
+            message,
+            _ask(message, message.body, title, due, original_due_wording=due),
+        )
+    monitor, old_request = await _request_for(store, account_id, "Pay the old invoice")
+    _, finished_request = await _request_for(store, account_id, "Reserve the meeting room")
+    await store.mutate_request(
+        monitor,
+        request_id=finished_request["id"],
+        expected_revision=finished_request["revision"],
+        idempotency_key=str(uuid.uuid4()),
+        action="dismiss",
+    )
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE calendar_email_followup_requests SET assessment_version=:version WHERE id=:id"
+            ),
+            {"version": ASSESSMENT_VERSION - 1, "id": old_request["id"]},
+        )
+    listing = await _listing(store, account_id, calendar_only=True)
+    assert _titles(listing) == ["Send the signed agenda"]
+    [conversation] = listing["conversations"]
+    assert conversation["subject"] == conversation["sender"] == ""
+    assert conversation["preview_requests"][0]["original_due_wording"] is None
+
+    detail = await store.detail(monitor, conversation["id"], now=TODAY, calendar_only=True)
+    assert detail["subject"] == detail["sender"] == ""
+    [request] = detail["requests"]
+    assert request["title"] == "Send the signed agenda"
+    assert request["due_date"] == "2026-11-20"
+    assert request["source_excerpt"] == ""
+    assert request["original_due_wording"] is None
+
+
+@pytest.mark.asyncio
+async def test_all_unions_active_buckets_before_distinct_conversation_pagination(followup_pg):
+    service, store, _ = followup_pg
+    account_id = await _monitored_account(service)
+    message = _message("mixed", "Send overdue report. Send upcoming document. Send snoozed file.")
+    await _reassess(
+        store,
+        account_id,
+        message,
+        (
+            _ask(message, "Send overdue report.", "Overdue report", "2026-11-01"),
+            _ask(message, "Send upcoming document.", "Upcoming document", "2026-11-20"),
+            _ask(message, "Send snoozed file.", "Snoozed file", "2026-11-30"),
+        ),
+    )
+    monitor, request = await _request_for(store, account_id, "Snoozed file")
+    await store.mutate_request(
+        monitor,
+        request_id=request["id"],
+        expected_revision=request["revision"],
+        idempotency_key=str(uuid.uuid4()),
+        action="snooze",
+        reminder_at=datetime.now(UTC) + timedelta(days=2),
+    )
+    for i in range(16):
+        item = _message(f"page-{i}", f"Send document {i}.")
+        await _put(store, account_id, item, _ask(item, item.body, f"Document {i}", "2026-11-20"))
+    expired = _message("expired", "Register by August.")
+    await _put(
+        store,
+        account_id,
+        expired,
+        _ask(expired, expired.body, "Expired registration", "2026-08-01", after_date="lapses"),
+    )
+    monitor = await store.monitor(user_id=OWNER, account_id=account_id)
+    first = await store.list_conversations(
+        monitor, view="all", limit=15, now=TODAY, calendar_only=True
+    )
+    second = await store.list_conversations(
+        monitor, view="all", limit=15, offset=first["next_offset"], now=TODAY, calendar_only=True
+    )
+    assert first["total_conversations"] == first["view_counts"]["all"] == 17
+    assert sum(first["view_counts"][bucket] for bucket in ("upcoming", "overdue", "snoozed")) == 19
+    rows = first["conversations"] + second["conversations"]
+    assert len(rows) == len({row["id"] for row in rows}) == 17
+    assert second["next_offset"] is None
+    mixed = next(row for row in rows if row["active_count"] == 3)
+    assert {request["bucket"] for request in mixed["preview_requests"]} == {
+        "upcoming",
+        "overdue",
+        "snoozed",
+    }
+    assert all(
+        request["bucket"] != "history" for row in rows for request in row["preview_requests"]
+    )

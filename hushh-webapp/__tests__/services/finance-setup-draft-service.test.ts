@@ -33,15 +33,8 @@ vi.mock("@/lib/cache/cache-sync-service", () => ({
   },
 }));
 
-vi.mock("@/lib/kai/brokerage/financial-sources", () => ({
-  buildStatementSource: (
-    _current: Record<string, unknown>,
-    snapshots: unknown[],
-    activeSnapshotId: string,
-  ) => ({ active_snapshot_id: activeSnapshotId, snapshots }),
-  buildFinancialDomainSummary: () => ({ holdings_count: 1 }),
-}));
-
+import { getActiveStatementSnapshotId, getFinancialCompatibilityView, getStatementSnapshotOptions } from "@/lib/kai/brokerage/financial-sources";
+import { commitStatementPortfolio } from "@/lib/kai/import/commit-statement-portfolio";
 import { FinanceSetupDraftService } from "@/lib/services/finance-setup-draft-service";
 
 describe("FinanceSetupDraftService", () => {
@@ -118,6 +111,30 @@ describe("FinanceSetupDraftService", () => {
     ).rejects.toThrow("write failed");
 
     await expect(FinanceSetupDraftService.hasPending("user-1")).resolves.toBe(true);
+  });
+
+  it("makes the chat import active and preserves earlier statement sources", async () => {
+    const importedAt = "2026-11-23T10:00:00.000Z";
+    await commitStatementPortfolio({
+      userId: "user-1",
+      vaultKey: "vault-key",
+      vaultOwnerToken: "owner-token",
+      fileName: "November.csv",
+      importedAt,
+      portfolio: { holdings: [{ symbol: "AAPL", quantity: 1, price: 10, market_value: 10 }] },
+    });
+
+    const { build } = mocks.saveMergedDomain.mock.calls[0][0];
+    const { domainData } = build({ currentDomainData: {
+      sources: { active_source: "plaid", statement: { snapshots: [{ id: "earlier" }] } },
+    } });
+    const view = getFinancialCompatibilityView(domainData);
+    expect(view.activeSource).toBe("statement");
+    expect(view.activePortfolio?.holdings).toMatchObject([{ symbol: "AAPL" }]);
+    expect(getStatementSnapshotOptions(domainData)).toMatchObject([
+      { id: getActiveStatementSnapshotId(domainData), fileName: "November.csv", importedAt },
+      { id: "earlier" },
+    ]);
   });
 
   // A brokerage statement committed twice (a retried Finish, or the setup draft

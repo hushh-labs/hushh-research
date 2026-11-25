@@ -50,25 +50,7 @@ export function NearbyDirectories({
     });
   };
 
-  return (
-    <div className="space-y-4" data-testid="nearby-directories">
-      {/* Chips, not a segmented strip.
-
-          Two reasons, and the second is why it changed now.
-
-          It never fitted: measured at 320px, "Insurance" needed 69px and had
-          59px, so this shipped as "Insuranc…" on the narrowest phones. A
-          segmented strip divides its width between its options, so the labels
-          were always going to lose. A chip sizes to its own content and the
-          row wraps, which removes the constraint rather than tightening the
-          padding against it.
-
-          And Connect now has a strip above the People/RIAs/Around-you one, so
-          this would have been the third pill strip on a 375px screen. These
-          three are not three places you go -- they are three sources filtered
-          by one location, a slice of the list below. Saying that with chips
-          leaves one grammar on the surface: strip for where you are, chips for
-          which slice. */}
+  const filters = (
       <FilterChipRow testId="nearby-directory-filters">
         {DIRECTORY_TABS.map((option) => (
           <FilterChip
@@ -81,20 +63,23 @@ export function NearbyDirectories({
           </FilterChip>
         ))}
       </FilterChipRow>
+  );
 
+  return (
+    <div className="space-y-4" data-testid="nearby-directories">
       {visitedDirectories.has("advisors") ? (
         <div hidden={directory !== "advisors"} aria-hidden={directory !== "advisors"}>
-          <AdvisorsNearby getIdToken={getIdToken} />
+          <AdvisorsNearby getIdToken={getIdToken} filters={directory === "advisors" ? filters : undefined} />
         </div>
       ) : null}
       {visitedDirectories.has("insurance") ? (
         <div hidden={directory !== "insurance"} aria-hidden={directory !== "insurance"}>
-          <InsuranceAgentsNearby getIdToken={getIdToken} />
+          <InsuranceAgentsNearby getIdToken={getIdToken} filters={directory === "insurance" ? filters : undefined} />
         </div>
       ) : null}
       {visitedDirectories.has("places") ? (
         <div hidden={directory !== "places"} aria-hidden={directory !== "places"}>
-          <PlacesNearby getIdToken={getIdToken} />
+          <PlacesNearby getIdToken={getIdToken} filters={directory === "places" ? filters : undefined} />
         </div>
       ) : null}
     </div>

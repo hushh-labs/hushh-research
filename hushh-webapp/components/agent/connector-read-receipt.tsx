@@ -44,6 +44,14 @@ const STATUS_TEXT: Record<ConnectorReadExperience["status"], string> = {
   invalid_argument: "Ask for an inbox search or messages needing a reply",
   unavailable: "Mail is temporarily unavailable",
 };
+const MAIL_TRUNCATION_TEXT: Record<NonNullable<ConnectorReadExperience["truncationReasons"]>[number], string> = {
+  more_pages: "More matching messages are available.",
+  failed_reads: "Some matching messages could not be read.",
+  shortened_body: "Some message text was shortened.",
+  incomplete_attachment_inventory: "Some attachment details were unavailable.",
+  source_limit: "The source list reached its limit.",
+  attachment_unresolved: "Some attachments could not be read.",
+};
 const DRIVE_STATUS: Record<ConnectorReadExperience["status"], string> = {
   ok: "Drive files checked",
   input_required: "Drive needs more detail",
@@ -65,34 +73,115 @@ const COMPILATION_ERROR_TEXT: Record<NonNullable<DriveCompilationUiState["errorR
   unavailable: "Drive could not finish the compilation. Try again.",
 };
 
+function formatMailSourceDate(value: string | null): string | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return null;
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(new Date(parsed));
+  } catch {
+    return null;
+  }
+}
+
 export function ConnectorReadReceipt({ experience, onOpenConnections, onCompileDriveNotes,
-  onDownloadDriveNotes, driveCompilation }: {
+  onDownloadDriveNotes, driveCompilation, onMailQuickAction }: {
   experience: ConnectorReadExperience;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
   onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
   onDownloadDriveNotes?: () => void;
   driveCompilation?: DriveCompilationUiState;
+  onMailQuickAction?: (prompt: string) => void;
 }) {
   const needsConnection = ["connect_required", "reconnect_required", "permission_denied"].includes(experience.status);
   const drive = experience.connector === "drive";
-  if (!drive && experience.status === "ok" && !experience.truncated) return null;
+  const liveMailSources = !drive && experience.liveSources?.length ? experience.liveSources : null;
+  if (!drive && experience.status === "ok" && !experience.truncated && !liveMailSources) return null;
   return (
     <section aria-label={drive ? "Drive read details" : "Mail read details"} className="min-w-0 space-y-2 text-sm text-muted-foreground">
       {(!drive && experience.status === "ok") ? null : <div className="flex items-center gap-2">
       <ConnectorBrandMark brand={drive ? "drive" : "gmail"} size="sm" />
       <p role="status">{!drive && experience.status === "ok" && !experience.metadataOnly
-        ? "Mail messages read"
+        ? "Mail text checked"
         : (drive ? DRIVE_STATUS : STATUS_TEXT)[experience.status]}</p>
       </div>}
       {experience.status === "ok" ? (
         <>
           {drive ? <p>{experience.metadataOnly ? "Drive file matches" : "Drive excerpts"} · {experience.sourceRefs.length} cited {experience.sourceRefs.length === 1 ? "source" : "sources"}</p> : null}
-          {drive && experience.sourceRefs.length > 0 && !experience.ownerCompileAvailable ? (
+          {liveMailSources ? (
+            <ul aria-label="Mail sources" className="space-y-1.5">
+              {liveMailSources.map((source) => {
+                const when = formatMailSourceDate(source.receivedAt);
+                return (
+                  <li
+                    key={source.sourceRef}
+                    className="flex flex-col gap-1.5 rounded-xl bg-foreground/[0.03] px-3 py-2 dark:bg-white/[0.04]"
+                  >
+                    <div className="flex min-w-0 items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <span className="font-medium text-foreground">#{source.ordinal}</span>
+                          {source.unread ? (
+                            <span
+                              aria-label="Unread"
+                              className="inline-block size-1.5 shrink-0 rounded-full bg-primary"
+                            />
+                          ) : null}
+                          <span className="truncate font-medium text-foreground/90">{source.sender}</span>
+                        </div>
+                        <p className="truncate text-sm font-medium text-foreground">{source.subject}</p>
+                        {source.attachments.length > 0 ? (
+                          <p className="truncate text-xs text-muted-foreground">
+                            {source.attachments.length} {source.attachments.length === 1 ? "attachment" : "attachments"}: {source.attachments.join(", ")}
+                          </p>
+                        ) : null}
+                      </div>
+                      {when ? (
+                        <span className="shrink-0 text-xs text-muted-foreground">{when}</span>
+                      ) : null}
+                    </div>
+                    {onMailQuickAction ? (
+                      <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                        <Button
+                          type="button"
+                          variant="muted"
+                          size="compact"
+                          data-testid={`mail-source-read-${source.ordinal}`}
+                          onClick={() => onMailQuickAction(`Read email #${source.ordinal} in full.`)}
+                        >
+                          Read thread
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="muted"
+                          size="compact"
+                          data-testid={`mail-source-reply-${source.ordinal}`}
+                          onClick={() => onMailQuickAction(`Draft a reply to email #${source.ordinal}.`)}
+                        >
+                          Reply
+                        </Button>
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : drive && experience.sourceRefs.length > 0 && !experience.ownerCompileAvailable ? (
             <ul aria-label={drive ? "Document sources" : "Mail sources"} className="flex flex-wrap gap-x-3 gap-y-1">
               {experience.sourceRefs.map((ref, index) => <li key={ref}>{drive ? `${experience.metadataOnly ? "File" : "Document excerpt"} ${index + 1}${experience.sourcePages?.[index] ? ` · page ${experience.sourcePages[index]}` : ""}` : `Mail ${ref.slice(5)}`}</li>)}
             </ul>
           ) : null}
-          {experience.truncated ? <p>{experience.metadataOnly ? "Some matches or metadata were omitted." : drive ? "Some document content was omitted." : "Long or older messages were shortened."}</p> : null}
+          {experience.truncated && (
+            drive ? <p>{experience.metadataOnly ? "Some matches or metadata were omitted." : "Some document content was omitted."}</p>
+              : <p>{experience.truncationReasons?.length
+                ? experience.truncationReasons.map(reason => MAIL_TRUNCATION_TEXT[reason]).join(" ")
+                : "Mail coverage was incomplete."}</p>
+          )}
         </>
       ) : null}
       {needsConnection && onOpenConnections ? (
