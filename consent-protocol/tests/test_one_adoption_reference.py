@@ -1,9 +1,11 @@
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
 
+from hushh_mcp.services import metrics_adoption
 from scripts.ops import one_adoption_reference as reference
 
 
@@ -11,6 +13,28 @@ from scripts.ops import one_adoption_reference as reference
 def test_reference_requires_closed_utc_day(day):
     with pytest.raises(ValueError):
         reference.period(day, datetime(2026, 11, 23).date())
+
+
+@pytest.mark.asyncio
+async def test_production_admits_one_aggregate_at_a_time_before_pool_acquisition(monkeypatch):
+    active = peak = 0
+
+    async def aggregate(request, _binding, *, environment):
+        nonlocal active, peak
+        assert environment == "production"
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0)
+        active -= 1
+        return request
+
+    monkeypatch.setattr(metrics_adoption, "adoption_aggregate", aggregate)
+    monkeypatch.setattr(metrics_adoption, "_production_aggregate_lock", asyncio.Lock())
+    outcomes = await asyncio.gather(
+        *(metrics_adoption.bounded_adoption_aggregate(request, {}) for request in range(4))
+    )
+    assert outcomes == list(range(4))
+    assert peak == 1
 
 
 @pytest.mark.asyncio

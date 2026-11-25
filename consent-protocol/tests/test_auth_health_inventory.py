@@ -121,7 +121,7 @@ def test_observer_capacity_is_zero_only_for_the_immutable_reviewed_workload(chan
             budget["evaluate"](profile, "production", inventory, phase="post-release")
     else:
         result = budget["evaluate"](profile, "production", inventory, phase="post-release")
-        assert result["projected_connections"] == result["administrative_reserve"] == 30
+        assert result["projected_connections"] == result["administrative_reserve"] == 40
         assert result["jobs"][0]["uid"] == owner["UID"]
         assert job == original
 

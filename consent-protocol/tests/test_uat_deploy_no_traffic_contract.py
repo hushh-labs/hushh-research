@@ -1923,28 +1923,30 @@ def test_hosted_backend_bounds_database_connection_fanout(tmp_path: Path) -> Non
     assert "_CONSENT_SSE_ENABLED=false" in production_workflow
     assert "_CLOUD_RUN_MIN_INSTANCES=1" in production_workflow
     assert "_CLOUD_RUN_MAX_INSTANCES=5" in production_workflow
-    # Production: 8 per worker, 16 per instance, 80 total across 5 instances
+    # Production: 8 per worker, 1 async worker per container (WEB_CONCURRENCY=1
+    # via configure_backend_process_bounds), 40 total across 5 instances
     # (overflow pinned to 0 so the ceiling is deterministic, not a burstable
     # QueuePool overflow that can exhaust Cloud SQL slots).
+    prod_workers = 1
     prod_per_worker = 4 + 4 + 0
     assert prod_per_worker == 8
-    assert prod_per_worker * gunicorn_workers == 16
-    prod_total = prod_per_worker * gunicorn_workers * 5
-    assert prod_total == 80
+    assert prod_per_worker * prod_workers == 8
+    prod_total = prod_per_worker * prod_workers * 5
+    assert prod_total == 40
     prod_candidate = budget["environments"]["production"]["services"]["consent-protocol"][
         "candidate"
     ]
-    assert prod_candidate["workers_per_instance"] == gunicorn_workers
+    assert prod_candidate["workers_per_instance"] == prod_workers
     prod_policy = budget["environments"]["production"]["connection_policy"]
     assert prod_policy == {
         "database_max_connections": 400,
-        "admission_limit": 300,
-        "administrative_reserve": 30,
+        "admission_limit": 360,
+        "administrative_reserve": 40,
     }
-    # Serving + retained rollback + candidate, optional worker and overlapping
-    # readiness jobs all fit without inheriting UAT's larger database ceiling.
+    # Serving + retained rollback + primary & fallback candidates, optional worker
+    # and overlapping readiness jobs all fit within the 400-connection SQL limit.
     assert (
-        prod_total * 3 + 6 + 16 + prod_policy["administrative_reserve"]
+        prod_total * 4 + 6 * 3 + 16 + prod_policy["administrative_reserve"]
         <= prod_policy["admission_limit"]
     )
 
