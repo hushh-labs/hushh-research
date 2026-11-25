@@ -305,6 +305,8 @@ describe("a settled answer in the chat column", () => {
     const bubble = screen.getByText("Nothing new today.").closest("[data-agent-response-bubble]");
     expect(bubble).not.toBeNull();
     expect(bubble?.className).toContain("bg-[color:var(--one-chat-bubble)]");
+    expect(bubble?.className).toContain("w-full");
+    expect(bubble?.className).not.toContain("w-fit");
   });
 
   it("keeps an error's Try again in plain sight rather than on hover", () => {
@@ -496,5 +498,29 @@ describe("a turn whose stream was lost", () => {
     expect(await planLostTurnRetry({ ...input, lostTurn: undefined })).toBe("rerun");
     expect(history).not.toHaveBeenCalled();
     history.mockRestore();
+  });
+
+  it("clears header working status subtitle when activeToolCalls resets on error", () => {
+    const running = chatHeaderSubtitle({
+      isPuppySurface: false,
+      activeToolCalls: [{ id: "call-1", label: "Private Files", activity: "Checking Private Files" }],
+      statusText: null,
+    });
+    expect(running).toBe("Checking Private Files…");
+
+    const settled = chatHeaderSubtitle({
+      isPuppySurface: false,
+      activeToolCalls: [],
+      statusText: null,
+    });
+    expect(settled).toBe("");
+
+    render(
+      <ChatAgentSubtitle
+        text={settled}
+        working={false}
+      />,
+    );
+    expect(screen.queryByTestId("agent-chat-header-status")).not.toBeInTheDocument();
   });
 });

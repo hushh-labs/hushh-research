@@ -201,6 +201,11 @@ def _query_read_options(kind: str, options: dict[str, Any]) -> dict[str, Any]:
             "directory",
             "catalog",
             "pending",
+            "granted_shares",
+            "pending_incoming",
+            "active_grants",
+            "outgoing_requests",
+            "connection_requests",
         } or set(options) - (information_keys | {"operation"}):
             raise HTTPException(422, detail="information read options required")
         values = dict(options)
@@ -241,6 +246,11 @@ async def owner_feed_route(
             "directory",
             "catalog",
             "pending",
+            "granted_shares",
+            "pending_incoming",
+            "active_grants",
+            "outgoing_requests",
+            "connection_requests",
         ]
     ] = Query(None),
     topic: Optional[str] = Query(None, max_length=160),

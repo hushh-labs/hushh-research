@@ -490,6 +490,11 @@ async def _verify_active_primary_pod_fence(
     if not hushh_id or not key_id:
         raise PodCapabilityBrokerUnauthorized("signed Ed25519 pod identity required")
 
+    if expected_snapshot is not None:
+        clear_fn = getattr(registry, "clear_request_cache", None)
+        if callable(clear_fn):
+            clear_fn()
+
     try:
         row = await registry.get_by_hushh_id(hushh_id)
     except Exception as exc:  # noqa: BLE001
@@ -507,28 +512,38 @@ async def _verify_active_primary_pod_fence(
     ):
         raise PodCapabilityBrokerForbidden("pod is not authorized for capability brokering")
 
-    tombstone_check = getattr(registry, "tombstone_exists", None)
-    if callable(tombstone_check):
-        try:
-            pod_tombstoned = bool(await tombstone_check(hushh_id))
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("pod_capability_broker.pod_tombstone_unavailable %s", type(exc).__name__)
-            raise PodCapabilityBrokerUnavailable("pod tombstone authority unavailable") from None
-        if pod_tombstoned:
-            raise PodCapabilityBrokerForbidden("erased pod may not mint capabilities")
-
     owner_id = str(row.get("user_id") or "").strip()
     if not owner_id:
         raise PodCapabilityBrokerForbidden("pod has no bound owner")
 
-    try:
-        serving_hushh = await resolve_serving_owner_hushh_id(owner_id, registry=registry)
-    except PodAccessUnavailable:
-        raise PodCapabilityBrokerUnavailable("serving-owner authority unavailable") from None
+    tombstone_check = getattr(registry, "tombstone_exists", None)
+
+    async def _check_pod_tombstone() -> bool:
+        if not callable(tombstone_check):
+            return False
+        try:
+            return bool(await tombstone_check(hushh_id))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("pod_capability_broker.pod_tombstone_unavailable %s", type(exc).__name__)
+            raise PodCapabilityBrokerUnavailable("pod tombstone authority unavailable") from None
+
+    async def _check_serving_owner() -> str:
+        try:
+            return await resolve_serving_owner_hushh_id(owner_id, registry=registry)
+        except PodAccessUnavailable:
+            raise PodCapabilityBrokerUnavailable("serving-owner authority unavailable") from None
+
+    pod_tombstoned, serving_hushh, owner_tombstoned = await asyncio.gather(
+        _check_pod_tombstone(),
+        _check_serving_owner(),
+        owner_tombstoned_fn(owner_id),
+    )
+
+    if pod_tombstoned:
+        raise PodCapabilityBrokerForbidden("erased pod may not mint capabilities")
     if serving_hushh != hushh_id:
         raise PodCapabilityBrokerForbidden("pod is not the owner's active serving agent")
-
-    if await owner_tombstoned_fn(owner_id):
+    if owner_tombstoned:
         raise PodCapabilityBrokerForbidden("account deletion fence active")
 
     snapshot = tuple(row.get(field) for field in _SNAPSHOT_FIELDS)
@@ -953,12 +968,13 @@ async def broker_pod_storage_token(
     else:
         raise PodCapabilityBrokerForbidden("unsupported storage capability provider")
 
-    await _verify_active_primary_pod_fence(
-        verified=verified,
-        registry=registry,
-        owner_tombstoned_fn=tombstone_fn,
-        expected_snapshot=pre_snapshot,
-    )
+    if selected_provider in {"gcs_cab", "aws_sts_s3_prefix"}:
+        await _verify_active_primary_pod_fence(
+            verified=verified,
+            registry=registry,
+            owner_tombstoned_fn=tombstone_fn,
+            expected_snapshot=pre_snapshot,
+        )
     return result
 
 
@@ -1018,30 +1034,44 @@ async def broker_pod_dek_envelope(
                 "sealedDek could not be opened for this pod"
             ) from None
 
-        wrapped_bytes = await asyncio.to_thread(
-            _wrap_with_hub_kek,
-            dek,
-            owner_id=owner_id,
-            hushh_id=hushh_id,
-            cloud_provider=cloud_provider,
-            kms_backend=active_kms_backend,
-            http_session=http_session,
-            gcp_token=gcp_token,
-            aws_kms_client=aws_kms_client,
-            secret=secret,
-        )
+        if active_kms_backend == "hub_aead":
+            wrapped_bytes = _wrap_with_hub_kek(
+                dek,
+                owner_id=owner_id,
+                hushh_id=hushh_id,
+                cloud_provider=cloud_provider,
+                kms_backend=active_kms_backend,
+                http_session=http_session,
+                gcp_token=gcp_token,
+                aws_kms_client=aws_kms_client,
+                secret=secret,
+            )
+        else:
+            wrapped_bytes = await asyncio.to_thread(
+                _wrap_with_hub_kek,
+                dek,
+                owner_id=owner_id,
+                hushh_id=hushh_id,
+                cloud_provider=cloud_provider,
+                kms_backend=active_kms_backend,
+                http_session=http_session,
+                gcp_token=gcp_token,
+                aws_kms_client=aws_kms_client,
+                secret=secret,
+            )
         pod_sealed = seal_ace_dek(
             dek,
             custodian_public_bytes=pod_pub_bytes,
             hushh_id=hushh_id,
             key_id=pod_key_id,
         )
-        await _verify_active_primary_pod_fence(
-            verified=verified,
-            registry=registry,
-            owner_tombstoned_fn=tombstone_fn,
-            expected_snapshot=pre_snapshot,
-        )
+        if active_kms_backend != "hub_aead":
+            await _verify_active_primary_pod_fence(
+                verified=verified,
+                registry=registry,
+                owner_tombstoned_fn=tombstone_fn,
+                expected_snapshot=pre_snapshot,
+            )
         return {
             "hushhId": hushh_id,
             "podKeyId": pod_key_id,
@@ -1057,28 +1087,48 @@ async def broker_pod_dek_envelope(
         except Exception:  # noqa: BLE001
             raise PodCapabilityBrokerForbidden("wrappedDek encoding invalid") from None
 
-        dek = await asyncio.to_thread(
-            _unwrap_with_hub_kek,
-            wrapped_bytes,
-            owner_id=owner_id,
-            hushh_id=hushh_id,
-            http_session=http_session,
-            gcp_token=gcp_token,
-            aws_kms_client=aws_kms_client,
-            secret=secret,
-        )
+        try:
+            envelope_peek = json.loads(wrapped_bytes.decode("utf-8"))
+            envelope_backend = (
+                str(envelope_peek.get("backend") or "") if isinstance(envelope_peek, dict) else ""
+            )
+        except Exception:  # noqa: BLE001
+            envelope_backend = ""
+
+        if envelope_backend == "hub_aead":
+            dek = _unwrap_with_hub_kek(
+                wrapped_bytes,
+                owner_id=owner_id,
+                hushh_id=hushh_id,
+                http_session=http_session,
+                gcp_token=gcp_token,
+                aws_kms_client=aws_kms_client,
+                secret=secret,
+            )
+        else:
+            dek = await asyncio.to_thread(
+                _unwrap_with_hub_kek,
+                wrapped_bytes,
+                owner_id=owner_id,
+                hushh_id=hushh_id,
+                http_session=http_session,
+                gcp_token=gcp_token,
+                aws_kms_client=aws_kms_client,
+                secret=secret,
+            )
         pod_sealed = seal_ace_dek(
             dek,
             custodian_public_bytes=pod_pub_bytes,
             hushh_id=hushh_id,
             key_id=pod_key_id,
         )
-        await _verify_active_primary_pod_fence(
-            verified=verified,
-            registry=registry,
-            owner_tombstoned_fn=tombstone_fn,
-            expected_snapshot=pre_snapshot,
-        )
+        if envelope_backend != "hub_aead":
+            await _verify_active_primary_pod_fence(
+                verified=verified,
+                registry=registry,
+                owner_tombstoned_fn=tombstone_fn,
+                expected_snapshot=pre_snapshot,
+            )
         return {
             "hushhId": hushh_id,
             "podKeyId": pod_key_id,

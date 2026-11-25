@@ -322,6 +322,22 @@ deployment. Actual over-budget capacity remains blocking in both phases.
 Manual Cloud Run changes outside governed releases require an explicit maintenance
 dispatch; the settled-receipt optimization does not claim to detect those changes.
 
+### Restore the accepted Production template
+
+When a failed non-serving latest revision prevents ordinary retirement, an
+operator can dispatch `capacity-maintenance.yml` with the matching
+`healthy_release_run_id`, `environment=production`, `apply=true` and
+`restore_serving_template=true`. Use this separately from bridge creation,
+worker adoption and operational-reference adoption.
+
+Under the existing deployment lock, Maintenance restores the accepted serving
+template to that same immutable revision. It validates the native request first,
+preserves traffic, IAM and all revision UIDs, and creates no additional workload.
+A durable receipt precedes submission. Provider completion and settled latest
+pointers must agree before ordinary retention can drain and delete an eligible
+failed revision. An uncertain result blocks deployment until Maintenance observes
+and reconciles it; the provider request is never automatically replayed.
+
 ### Fixed production capacity bridge
 
 When the serving, latest-created and rollback-protected backend revisions consume
@@ -557,6 +573,17 @@ Every hosted deployment must prove:
 Backend traffic rollback uses `activate_release.py --qualify-rollback-source`:
 the exact source must declare account policy v1 and migrations 423 and 425.
 Migration 425 is the conservative source floor for retired-phone admission.
+For an incompatible serving baseline, the Production operator can explicitly
+select `phone_rollback_qualification=main` and a separate Main-qualified
+`phone_rollback_sha`. The fallback and primary must have identical backend
+runtime inputs and generated contracts. The workflow builds the selected source
+with its canonical recipe, pins the exact build's native image digest, verifies
+the packaged reader, and stages the fallback at zero traffic with recovery and
+WorkOS disabled. The standard fenced migration, live core checks and final
+fallback revalidation remain required. Failed candidate retries retain the
+explicit Main qualification. The default independent route still requires its
+UAT image receipt.
+
 Pre-phone backend rollback is refused even when phone state appears empty;
 the existing release lifecycle does not prove phone-transfer quiescence.
 Initial producer admission still uses `--qualify-source` and migration 423, so

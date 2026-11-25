@@ -135,7 +135,7 @@ The action opens the existing picker; its final confirmation retains its primary
 | Control or state | Result and product boundary |
 | --- | --- |
 | **My connections N / Find people** | Tabs appear in that order with discovery selected by default. My connections shows one paged list of accepted relationships in server order with its own search. Selecting RIAs retains the existing verified-adviser scope, My RIAs count and fail-closed empty state. Switching views does not change relationships or write history. |
-| **Connection source icons** | My connections and My RIAs put **Verified Advisor** and **Via contacts** on the avatar. Hovering either icon opens a tooltip **below** it. Verified Advisor shows only its name, which needs no further explanation. Via contacts shows its name and that the connection was made through a match from the viewer's synced contacts. The Connect icons also show the tooltip on focus or tap. A connection can show both. Escape dismisses the tooltip. A person's Profile puts the same Verified Advisor tick on the photo, and its Mutual connections line shows up to two mutual portraits beside the count, as a connection row does. |
+| **Connection source icons** | My connections and My RIAs put **Verified Advisor** and **Via contacts** on the avatar. Hovering either icon explains how the status was earned. Advisor verification describes the person's verified advisor profile. Contacts describes a connection made through a match from the viewer's synced contacts. The Connect icons also show the explanation on focus or tap. A connection can show both. Escape dismisses the tooltip. |
 | **Refresh** in My connections (accessible label Refresh contacts) | Refreshes the accepted-connections list. This is distinct from address-book **Sync contacts**. Busy disables duplicate refresh. |
 | Accepted person's identity row | Opens the shared person profile when a public reference exists. |
 | Message icon on an accepted connection | Enters private messages through the shared navigation owner. |
@@ -150,7 +150,7 @@ The action opens the existing picker; its final confirmation retains its primary
 | **Cancel** on outgoing request | Withdraws the still-pending request; busy feedback remains in the same action slot. |
 | **Respond** on incoming request | Opens pending Consent Center review; does not accept merely by navigating. |
 | **Connected** | Relationship status, not a second connection mutation. |
-| **Explore your network** | Appears below directory search in **Find people** and opens the **Your network** dialog. Closing the dialog returns focus to the trigger without switching connection views. |
+| **Explore your network** | Appears below directory search in **Find people** and opens the **Your network** dialog. Multi-degree network preview and discovery preload run only while **Find people** (discovery) is active, not on **My connections**. Closing the dialog returns focus to the trigger without switching connection views. |
 | Mutual connections | One mutual opens its public profile directly. More than one opens the paginated shared-connections list through `?mutuals=<public person reference>`, including when the preview is unavailable. Every visible mutual has an independent profile control. Back from that profile restores the same mutual list, loaded pages and scroll; Back again restores Find people with its query, directory filter, loaded rows and scroll. Memory is scoped to the signed-in account and authentication session, expires after 15 minutes, and is never persisted. Refresh rechecks current graph and identity eligibility; a visited list remains a list if relationships change, and failed refreshes retain useful rows with Retry. Graph totals can include identities unavailable to view; the list explains that difference. |
 | **Load more people / Retry loading people** | Automatic scroll loading with manual fallback, 20 per page; preserves rows during retry. |
 | **Invite them to One** | Empty People search only, with a usable invite URL: native/Web Share or clipboard fallback. Cancellation is silent. Not offered in RIAs; an empty search does not prove someone lacks an account. |
@@ -179,7 +179,6 @@ but the ordinary UI has no control that enables selection mode.
 ### Circle task surfaces
 
 Circle Add people, Rename and Invite code use the shared task surface anatomy.
-An active Invite code presents Share invite as the filled primary action, Copy code as the secondary outlined action, and the owner-only Replace code as a quiet text action. The controls size to their labels and can move onto another row. The Share glyph inherits the primary label color.
 Bottom Sheets become centered at 768px through CSS, preserving the mounted
 form, selection and existing callbacks. Create keeps its existing Dialog and
 page variants; Join remains its existing page flow. Circle member actions
@@ -963,3 +962,11 @@ Behavioral evidence: `person-profile-preview.test.tsx`, `network-people-list.tes
 and `connections-service.test.ts` in the nearest frontend suites. These prove the
 shared callbacks in jsdom; shipped browser/native gesture acceptance remains a
 separate runtime check.
+
+## Experimental native presentation
+
+On supported iPhones with Native interface enabled, the shared workspace maps Connections/Circles, directory selection, independent search, paging, relationship actions, owned/joined groups, optional ideas and Circle creation. The route and services retain queries, capabilities and writes. One Circle creation model owns both renderers, including normalized custom types, saved-ID reuse and the paged people step; a vault-session change clears that model and rejects late results.
+
+Shell Back unwinds a selected person or Circle summary before leaving the route. Rich permission/contact review, nearby directories, grouped invite-code review and the complete Circle roster/chat/editor layer retain explicit React presentations. The native owner confirms retirement before revealing those layers, then readmits the native collection after return. These handoffs preserve their existing validation, permission checks, confirmation, chat privacy and mutation callbacks. Native creation Cancel is a draft-only operation. Renderer-off keeps the existing complete React route.
+
+Runtime qualification and fixture limits are recorded in the adoption plan; implementation alone is not visual acceptance.

@@ -273,6 +273,11 @@ runpy.run_path(script, run_name='__main__')
                  "GITHUB_ACTOR": actor, "RELEASE_ENV": inputs.get("environment", ""),
                  "RELEASE_RUN_ID": inputs.get("healthy_release_run_id", ""),
                  "CAPACITY_BRIDGE": inputs.get("production_capacity_bridge", ""),
+                 "RESTORE_SERVING_TEMPLATE": inputs.get("restore_serving_template", ""),
+                 "COLD_CHECKPOINT_RUN_ID": inputs.get("qualified_cold_checkpoint_run_id", ""),
+                 "OPERATIONAL_RUN_ID": inputs.get("operational_backend_proof_run_id", ""),
+                 "OPERATIONAL_ATTEMPT": inputs.get("operational_backend_proof_attempt", ""),
+                 "STAGED_WORKER_RUN_ID": inputs.get("staged_worker_run_id", ""),
                  "APPLY": inputs.get("apply", ""),
                  "CLOCK_EVENT_TYPE": action},
             capture_output=True, text=True, check=False,
@@ -343,6 +348,18 @@ def test_fixed_bridge_requires_governed_manual_production_apply() -> None:
         assert _validate_capacity_trigger("workflow_dispatch", wrong).returncode != 0
     for actor, ref in (("unapproved-contributor", "main"), ("kushaltrivedi5", "feature/example")):
         assert _validate_capacity_trigger("workflow_dispatch", event, actor=actor, ref=ref).returncode != 0
+
+
+def test_serving_template_restore_is_a_separate_manual_production_apply() -> None:
+    inputs = {"environment": "production", "healthy_release_run_id": "43", "apply": "true", "restore_serving_template": "true"}
+    accepted = _validate_capacity_trigger("workflow_dispatch", {"inputs": inputs})
+    assert accepted.returncode == 0, accepted.stderr
+    for event in ("schedule", "repository_dispatch"):
+        assert _validate_capacity_trigger(event, {"inputs": inputs}, action="capacity-maintenance-tick-production").returncode != 0
+    for field, value in (("environment", "uat"), ("apply", "false"), ("production_capacity_bridge", "true"),
+                         ("staged_worker_run_id", "44"), ("operational_backend_proof_run_id", "44")):
+        assert _validate_capacity_trigger("workflow_dispatch", {"inputs": {**inputs, field: value}}).returncode != 0
+    assert _validate_capacity_trigger("workflow_dispatch", {"inputs": inputs}, actor="unapproved-contributor").returncode != 0
 
 
 def test_capacity_clock_tick_carries_only_scheduled_authority() -> None:
@@ -501,7 +518,7 @@ def test_capacity_clock_summary_reports_due_checks_scope_and_next_wait() -> None
     assert "| UAT | unknown | failure | unknown | not armed |" in failed
 
 
-def _run_clock_step(started_seconds_ago: int, *, successor: dict | None = None) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+def _run_clock_step(started_seconds_ago: int, *, successor: dict | None = None, inconsistent_reads: int = 0) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     """Run the real `next-check` step with a fake gh that records dispatches."""
     root = Path(__file__).resolve().parents[2]
     source = (root / ".github/workflows/capacity-maintenance-clock.yml").read_text()
@@ -522,6 +539,7 @@ def _run_clock_step(started_seconds_ago: int, *, successor: dict | None = None) 
         fake_gh.write_text(
             "#!/bin/sh\n"
             f"echo \"$*\" >> '{calls}'\n"
+            f"case \"$*\" in *status=pending*) n=$(cat '{bin_dir / 'reads'}' 2>/dev/null || echo 0); n=$((n+1)); echo $n > '{bin_dir / 'reads'}'; if [ $n -le {inconsistent_reads} ]; then echo '{{\"total_count\":1,\"workflow_runs\":[]}}'; exit 0; fi ;; esac\n"
             f"case \"$*\" in *--method\\ POST*) exit 0 ;; *--jq*) echo '{started}' ;; *status=waiting*) echo '{waiting}' ;; *'/runs?'*) echo '{{\"total_count\":0,\"workflow_runs\":[]}}' ;; *) echo '{{\"id\":42}}' ;; esac\n"
         )
         fake_gh.chmod(0o755)
@@ -554,6 +572,12 @@ def test_capacity_clock_refuses_to_queue_before_its_wait() -> None:
     foreign = {**successor, "head_repository": {"full_name": "foreign/repo"}}
     refused, refused_posts = _run_clock_step(3700, successor=foreign)
     assert refused.returncode != 0 and refused_posts == []
+    recovered, recovered_posts = _run_clock_step(3700, inconsistent_reads=1)
+    assert recovered.returncode == 0 and len(recovered_posts) == 1, recovered.stderr
+    assert "state=pending total=1 rows=0" in recovered.stderr
+    incomplete, incomplete_posts = _run_clock_step(3700, inconsistent_reads=3)
+    assert incomplete.returncode != 0 and incomplete_posts == []
+    assert "read=3/3" in incomplete.stderr
 
 
 

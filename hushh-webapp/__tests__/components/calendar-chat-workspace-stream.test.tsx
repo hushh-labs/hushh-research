@@ -657,7 +657,6 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     await waitFor(() => expect(execute).toHaveBeenCalledOnce());
     await waitFor(() => expect(screen.queryByRole("button", { name: "Schedule and send reply" })).toBeNull());
   });
-
   it("keeps the Calendar connect card beside its source across two Mail turns", async () => {
     const mailReply = (messageId: string, text: string) => new Response(
       [
@@ -1260,3 +1259,54 @@ it.each(["", null, 17])("rejects malformed explicit invitation account %s before
   expect(GoogleCalendarService.status).not.toHaveBeenCalled();
   expect(reads).not.toHaveBeenCalled(); expect(connect).not.toHaveBeenCalled();
 });
+
+it("keeps consecutive turns on the single canonical Main chat without spawning sidebar chats", async () => {
+  const encoder = new TextEncoder();
+  const requests: Array<{ threadId: string; mainChat?: boolean }> = [];
+  vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async (_url, init) => {
+    const wire = JSON.parse(String(init?.body ?? "{}"));
+    requests.push({
+      threadId: wire.threadId,
+      mainChat: wire.forwardedProps?.mainChat,
+    });
+    const turnNumber = requests.length;
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "RUN_STARTED", threadId: wire.threadId, runId: `run-${turnNumber}` })}\n\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "TEXT_MESSAGE_START", messageId: `msg-${turnNumber}`, role: "assistant" })}\n\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "TEXT_MESSAGE_CONTENT", messageId: `msg-${turnNumber}`, delta: `Reply ${turnNumber}` })}\n\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "TEXT_MESSAGE_END", messageId: `msg-${turnNumber}` })}\n\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "RUN_FINISHED", threadId: wire.threadId, runId: `run-${turnNumber}` })}\n\n`));
+          controller.close();
+        },
+      }),
+      { headers: { "Content-Type": "text/event-stream" } },
+    );
+  });
+
+  workspace();
+  const composer = await screen.findByRole("textbox", { name: "Message One" });
+
+  fireEvent.change(composer, { target: { value: "Hey" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  await screen.findByText("Reply 1");
+
+  const listCallsAfterFirstTurn = vi.mocked(ApiService.listAgentChatConversations).mock.calls.length;
+
+  fireEvent.change(composer, { target: { value: "how are you" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  await screen.findByText("Reply 2");
+
+  expect(requests).toHaveLength(2);
+  expect(requests[0]?.mainChat).toBe(true);
+  expect(requests[1]?.mainChat).toBe(true);
+  expect(requests[1]?.threadId).toBe(requests[0]?.threadId);
+  // Ongoing Main chat turns must not hammer the pod with forced sidebar list reloads.
+  expect(vi.mocked(ApiService.listAgentChatConversations).mock.calls.length).toBe(listCallsAfterFirstTurn);
+
+  // Open sidebar and verify the Main chat stays pinned under One and never spawns a row in Chats.
+  fireEvent.click(screen.getByRole("button", { name: "Open chat history" }));
+  expect(await screen.findByTestId("agent-history-pinned-one")).toHaveAttribute("aria-current", "page");
+  expect(screen.queryByRole("list", { name: "Today conversations" })).toBeNull();
+}, 15_000);

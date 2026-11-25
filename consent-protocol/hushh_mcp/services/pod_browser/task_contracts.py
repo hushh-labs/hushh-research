@@ -53,7 +53,7 @@ class BrowserCapability(StrictContract):
     owner_id: str | None = Field(default=None, max_length=256)
     pod_id: str | None = Field(default=None, max_length=256)
     incarnation: str | None = Field(default=None, max_length=256)
-    environment: Literal["development"] | None = None
+    environment: Literal["development", "uat"] | None = None
 
 
 class BrowserReviewOffer(StrictContract):
@@ -102,6 +102,7 @@ class BrowserOwnerAccess:
     expires_at: int
     # Rechecks the exact session/subject, incarnation lease, and update fence.
     check: Callable[[], Awaitable[None]] = field(repr=False)
+    environment: Literal["development", "uat"] = "development"
 
 
 class BrowserReviewAuthorityPort(BrowserConsentPort, Protocol):

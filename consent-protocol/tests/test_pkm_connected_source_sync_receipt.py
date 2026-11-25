@@ -82,3 +82,24 @@ def test_connected_source_sync_is_financial_only_and_never_deletes():
     delete.pop("target_scope_handle")
     with pytest.raises(ValidationError, match="connected_source_sync_requires_financial_refresh"):
         PkmMutationPlanV2.model_validate(delete)
+
+
+def test_connected_source_sync_allows_active_recipients_without_claiming_acknowledgement():
+    payload = sync_plan()
+    payload["affected_grant_ids"] = ["grant_live_1"]
+    payload["affected_export_ids"] = ["export_live_1"]
+    payload["sharing_impact"] = {
+        "active_recipient_count": 1,
+        "recipient_labels": ["Plaid Buyer App"],
+        "enters_next_export_revision": True,
+        "summary": "This change will enter the next encrypted export revision for 1 active recipient: Plaid Buyer App.",
+    }
+    plan = PkmMutationPlanV2.model_validate(payload)
+    assert plan.sharing_impact.active_recipient_count == 1
+    assert plan.sharing_impact.enters_next_export_revision is True
+    assert plan.confirmation_receipt.sharing_impact_acknowledged is False
+
+    acked = sync_plan(sharing_impact_acknowledged=True)
+    acked["sharing_impact"] = payload["sharing_impact"]
+    with pytest.raises(ValidationError, match="connected_source_sync_cannot_acknowledge_sharing"):
+        PkmMutationPlanV2.model_validate(acked)

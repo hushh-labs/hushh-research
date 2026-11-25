@@ -6,6 +6,7 @@
  */
 import { sendWhileAgentWakes } from "@/lib/agent/owner-pod-wake";
 import { ApiService } from "@/lib/services/api-service";
+import { hasRecentAgentAnswer } from "@/lib/services/pod-chat-turn-transport";
 
 export function wakingChatTransport(
   init: RequestInit | undefined,
@@ -18,6 +19,7 @@ export function wakingChatTransport(
     {
       signal: init?.signal,
       onWaking,
+      isAlreadyAwake: () => hasRecentAgentAnswer(),
       isOwnerAgent: async () => {
         const { usesOwnerPod } = await import("@/lib/services/pod-app-access");
         if (isCurrent && !isCurrent()) return false;

@@ -9,6 +9,7 @@ import {
   AppStreamPanel,
   type AppStreamProgressItem,
 } from "@/components/app-ui/stream-progress-panel";
+import { OneThinkingIndicator, type OneTurnPendingPhase } from "@/components/agent/one-thinking-indicator";
 import { AgentStructuredExperienceView, type InformationRequestSubmissionReceipt } from "@/components/agent/agent-structured-experience";
 import type {
   AgentStructuredExperience,
@@ -112,7 +113,11 @@ export type AgentVisibleStreamEvent = {
 
 /** Only app-owned tool identities map to a product mark; provider text never does. */
 export function connectorBrandForTool(toolName: unknown, provider?: unknown): ConnectorBrand | null {
-  if (toolName === "discover_workspace_tools" || toolName === "read_workspace_tool") {
+  if (
+    toolName === "discover_workspace_tools" ||
+    toolName === "read_workspace_tool" ||
+    toolName === "manage_connector"
+  ) {
     return connectorBrandFor(provider);
   }
   if (typeof toolName !== "string") return null;
@@ -206,6 +211,9 @@ export type AgentTurnStreamPanelProps = {
   responseText: string;
   isStreaming: boolean;
   isError?: boolean;
+  pendingPhase?: OneTurnPendingPhase;
+  pendingLabel?: string | null;
+  pendingTrailingAction?: ReactNode;
   opportunities?: ReactNode;
   response?: ReactNode;
   className?: string;
@@ -389,6 +397,9 @@ export function AgentTurnStreamPanel({
   responseText,
   isStreaming,
   isError = false,
+  pendingPhase = "thinking",
+  pendingLabel = null,
+  pendingTrailingAction,
   opportunities,
   response,
   className,
@@ -426,7 +437,11 @@ export function AgentTurnStreamPanel({
     return () => window.clearInterval(timer);
   }, [isStreaming, timingPhase]);
   const visibleEvents = useMemo(
-    () => streamEvents.filter((event) => isInformativeActivityEvent(event, clockMs)),
+    () => streamEvents.filter((event) =>
+      // Successful Mail reads are evidence for the answer, not an Activity log.
+      // Keep blocked/error/review steps visible and retain all diagnostics in telemetry.
+      !(event.brand === "gmail" && (event.status === "running" || event.status === "done")) &&
+      isInformativeActivityEvent(event, clockMs)),
     [streamEvents, clockMs],
   );
   const progressItems = useMemo<AppStreamProgressItem[]>(
@@ -442,7 +457,12 @@ export function AgentTurnStreamPanel({
       })),
     [visibleEvents]
   );
-  const specialistItems = useMemo(() => normalizeSpecialistSources(sources), [sources]);
+  const specialistItems = useMemo(
+    () => normalizeSpecialistSources(sources.filter((source) => source.agentId !== "agent_email")),
+    [sources],
+  );
+  const checkingMail = isStreaming && streamEvents.some((event) =>
+    event.brand === "gmail" && event.status === "running");
   const currentBatchProgress = [...streamEvents].reverse().find((event) =>
     event.status === "running" && event.batchProgress,
   )?.batchProgress;
@@ -488,8 +508,10 @@ export function AgentTurnStreamPanel({
       // A running turn shows its elapsed time. A finished turn shows none:
       // its timing is never stored, so a reopened chat could not repeat it,
       // and a completed answer must look the same live and restored.
-      statusMessage={isStreaming && timingPhase === "running" && elapsedMs !== null
-        ? `Working for ${Math.floor(elapsedMs / 1000)}s`
+      statusMessage={checkingMail
+        ? "Checking your email…"
+        : isStreaming && timingPhase === "running" && elapsedMs !== null && (progressItems.length > 0 || specialistItems.length > 0 || responseText.trim().length > 0)
+          ? `Working for ${Math.floor(elapsedMs / 1000)}s`
         : undefined}
       responseText={responseText}
       response={response}
@@ -521,7 +543,24 @@ export function AgentTurnStreamPanel({
           </div>
         ) : null
       }
-      responsePendingLabel={preparingPrivateMemory || currentBatchProgress ? undefined : "One is preparing your response."}
+      responsePendingLabel={
+        checkingMail || preparingPrivateMemory || currentBatchProgress
+          ? pendingTrailingAction
+            ? (
+                <div className="flex w-full items-center justify-end">
+                  {pendingTrailingAction}
+                </div>
+              )
+            : undefined
+          : pendingTrailingAction
+            ? (
+                <div className="flex w-full items-center justify-between gap-2">
+                  <OneThinkingIndicator phase={pendingPhase} label={pendingLabel} />
+                  {pendingTrailingAction}
+                </div>
+              )
+            : <OneThinkingIndicator phase={pendingPhase} label={pendingLabel} />
+      }
       isStreaming={isStreaming}
       isError={isError}
       opportunities={opportunities}

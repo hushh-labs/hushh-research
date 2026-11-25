@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from browser_runtime.qualification import (
+    BROWSER_HOST_CAPABILITIES,
     qualification_environment,
 )
 from browser_runtime.qualification import (
@@ -28,7 +29,8 @@ from browser_runtime.qualification import (
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 _SHA = re.compile(r"[0-9a-f]{40}")
 _NOTE_CATEGORIES = {"improvements", "fixes", "security"}
-MAX_RELEASE_BYTES = 12000
+MAX_BROWSER_QUALIFICATIONS = len(BROWSER_HOST_CAPABILITIES)
+MAX_RELEASE_BYTES = 32768
 
 
 def _text(value: object, maximum: int) -> str:
@@ -59,6 +61,19 @@ _IMMUTABLE_IMAGE_RE = re.compile(r"^.+@sha256:[0-9a-fA-F]{64}$")
 def is_immutable_image_reference(reference: object) -> bool:
     """Whether an image reference is pinned to a complete OCI digest."""
     return bool(_IMMUTABLE_IMAGE_RE.fullmatch(str(reference or "").strip()))
+
+
+def qualified_owner_update_host(deployment_target: object, metadata: object) -> bool:
+    """Only qualified owner-cloud rows without VM host state pass this gate."""
+    from hushh_mcp.services.provider_capability_registry import is_owner_update_qualified_target
+
+    return bool(
+        isinstance(deployment_target, str)
+        and is_owner_update_qualified_target(deployment_target)
+        and isinstance(metadata, dict)
+        and "hostKind" not in metadata
+        and "vmHost" not in metadata
+    )
 
 
 def validate_descriptor(value: object) -> dict[str, Any]:
@@ -119,7 +134,7 @@ def validate_release(value: object, *, target_image: str, environment: str) -> d
         if (
             environment != "dev"
             or not isinstance(qualifications, list)
-            or not 1 <= len(qualifications) <= 2
+            or not 1 <= len(qualifications) <= MAX_BROWSER_QUALIFICATIONS
         ):
             raise ValueError("Browser qualification is a bounded dev pilot")
         hosts: set[str] = set()

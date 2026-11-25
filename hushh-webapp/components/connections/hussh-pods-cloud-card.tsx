@@ -30,6 +30,7 @@ import {
   hostedPodDisplayLabel,
   hostedPodProvider,
   isHostedAzureMigrationAvailable,
+  isPooledSandboxSwitchAvailable,
   ownerCloudProvider,
   podCloudProvider,
   type OwnerCloudProvider,
@@ -125,15 +126,6 @@ export function PodCloudBadge({
   );
 }
 
-export function HostedPodDualCloudMarks({ className }: { className?: string }) {
-  return (
-    <span className={cn("inline-flex items-center gap-1.5", className)}>
-      <GoogleCloudLogo decorative className="h-4 w-auto" />
-      <MicrosoftAzureLogo decorative className="h-4 w-4" />
-    </span>
-  );
-}
-
 function formatSafetyWindowDate(iso: string | null | undefined): string {
   if (!iso) return "3 days";
   const parsed = Date.parse(iso);
@@ -172,8 +164,8 @@ export function SandboxCutoverStatusPill() {
   if (!notice) return null;
 
   const label = notice.backgroundCleanupQueued
-    ? "Personal Sandbox ready · Prior cloud cleanup running in background"
-    : "Personal Sandbox ready";
+    ? "Confidential Sandbox ready · Prior cloud cleanup running in background"
+    : "Confidential Sandbox ready";
 
   return (
     <div className="pointer-events-none fixed inset-x-0 top-[calc(var(--app-top-bar-height,3.5rem)+0.75rem)] z-40 flex justify-center px-4">
@@ -213,12 +205,14 @@ export function HusshPodsActiveCard({
   deploymentTarget,
   cutover,
   embedded = false,
+  compactBelowPicker = false,
   showRetiredHistory = false,
   dataTestId = "hussh-pods-connected",
 }: {
   deploymentTarget?: string | null;
   cutover?: HostedAzureCutoverState | null;
   embedded?: boolean;
+  compactBelowPicker?: boolean;
   showRetiredHistory?: boolean;
   dataTestId?: string;
 }) {
@@ -232,6 +226,7 @@ export function HusshPodsActiveCard({
   const confirmBusyRef = useRef(false);
 
   const canInspectSourceRetirement =
+    !isPooledSandboxSwitchAvailable() &&
     (provider === "azure" || isPersonalSandbox) &&
     isHostedAzureMigrationAvailable() &&
     typeof ApiService.getHostedSourceRetirementStatus === "function";
@@ -278,16 +273,19 @@ export function HusshPodsActiveCard({
     confirmBusyRef.current = true;
     setConfirmBusy(true);
 
-    let toastHandle: ReturnType<typeof morphyToast.promise> | undefined;
+    let toastHandle: ReturnType<typeof morphyToast.promiseText> | undefined;
     try {
       const request = ApiService.confirmHostedSourceRetirement({
         placementId: activeGraceItem.placementId,
         isEffectCurrent,
       });
-      toastHandle = morphyToast.promise(request, {
+      toastHandle = morphyToast.promiseText(request, {
         loading: "Saving confirmation…",
         success: "Confirmed. Prior pod will retire after its 3-day window.",
-        error: "Could not save your confirmation right now.",
+        error: (err) =>
+          err instanceof Error && err.message
+            ? err.message
+            : "Could not save your confirmation right now.",
         isCurrent: isEffectCurrent,
       });
       const updated = parseHostedSourceRetirementStatus(await toastHandle.unwrap());
@@ -315,10 +313,12 @@ export function HusshPodsActiveCard({
         data-testid={dataTestId}
         data-provider={provider ?? (isPersonalSandbox ? "ace" : "unknown")}
         className={cn(
-          "space-y-3",
+          compactBelowPicker ? "space-y-2.5" : "space-y-3",
           embedded
             ? "p-4"
-            : "rounded-2xl border border-[var(--app-border)] bg-[var(--app-card-surface-default)] p-4",
+            : compactBelowPicker
+              ? "rounded-2xl border border-[var(--app-border)] bg-[var(--app-card-surface-default)] px-3.5 py-3"
+              : "rounded-2xl border border-[var(--app-border)] bg-[var(--app-card-surface-default)] p-4",
         )}
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -326,45 +326,71 @@ export function HusshPodsActiveCard({
             {provider ? (
               <span
                 aria-hidden="true"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[var(--app-border)] bg-background"
+                className={cn(
+                  "flex shrink-0 items-center justify-center rounded-xl border border-[var(--app-border)] bg-background",
+                  compactBelowPicker ? "h-7 w-7 rounded-lg" : "h-9 w-9",
+                )}
               >
-                <PodCloudProviderMark provider={provider} className="h-5 w-5" />
+                <PodCloudProviderMark
+                  provider={provider}
+                  className={compactBelowPicker ? "h-4 w-4" : "h-5 w-5"}
+                />
               </span>
             ) : isPersonalSandbox ? (
               <span
                 aria-hidden="true"
-                data-testid="hussh-pods-active-dual-cloud"
-                className="flex h-9 shrink-0 items-center justify-center rounded-xl border border-[var(--app-border)] bg-background px-2"
+                data-testid="hussh-pods-active-gcp-cloud"
+                className={cn(
+                  "flex shrink-0 items-center justify-center rounded-xl border border-[var(--app-border)] bg-background",
+                  compactBelowPicker ? "h-7 w-7 rounded-lg" : "h-9 w-9",
+                )}
               >
-                <HostedPodDualCloudMarks />
+                <PodCloudProviderMark
+                  provider="gcp"
+                  className={compactBelowPicker ? "h-4 w-4" : "h-5 w-5"}
+                />
               </span>
             ) : null}
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-foreground">{title}</p>
-              <p className="text-xs text-[var(--app-text-secondary)]">
+            {compactBelowPicker ? (
+              <p className="min-w-0 text-xs font-medium text-[var(--app-text-secondary)]">
                 {isPersonalSandbox
-                  ? "Isolated Personal Sandbox across Google Cloud and Microsoft Azure"
-                  : "Dedicated private agent managed by Hussh"}
+                  ? "Isolated Confidential Sandbox on Google Cloud · Built-in AI ready"
+                  : provider === "azure"
+                    ? "Hussh Pods · Microsoft Azure"
+                    : provider === "gcp"
+                      ? "Hussh Pods · Google Cloud"
+                      : "Dedicated private agent managed by Hussh"}
               </p>
-            </div>
+            ) : (
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground">{title}</p>
+                <p className="text-xs text-[var(--app-text-secondary)]">
+                  {isPersonalSandbox
+                    ? "Isolated Confidential Sandbox on Google Cloud"
+                    : "Dedicated private agent managed by Hussh"}
+                </p>
+              </div>
+            )}
           </div>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--app-border)] bg-background px-2.5 py-0.5 text-xs font-medium text-foreground">
-            <span
-              aria-hidden="true"
-              className="h-1.5 w-1.5 rounded-full bg-[color:var(--app-accent)]"
-            />
+          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+            <span className="relative flex size-2 items-center justify-center" aria-hidden="true">
+              <span className="absolute inline-flex size-2 rounded-full bg-emerald-500/45 motion-safe:animate-ping" />
+              <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500" />
+            </span>
             {statusLabel}
           </span>
         </div>
-        <p className="text-sm text-[var(--app-text-secondary)]">
-          {provider === "azure"
-            ? "Your agent runs on Microsoft Azure in Hussh’s managed cell. Your prior cloud setup stays untouched during its 3-day safety window."
-            : provider === "gcp"
-              ? "Your agent runs on Google Cloud in a dedicated pod managed by Hussh."
-              : isPersonalSandbox
-                ? "Your isolated Personal Sandbox runs across Google Cloud and Microsoft Azure with built-in AI."
-                : "Your dedicated private agent is active on Hussh Pods."}
-        </p>
+        {!compactBelowPicker ? (
+          <p className="text-sm text-[var(--app-text-secondary)]">
+            {provider === "azure"
+              ? "Your agent runs on Microsoft Azure in Hussh’s managed cell. Your prior cloud setup stays untouched during its 3-day safety window."
+              : provider === "gcp"
+                ? "Your agent runs on Google Cloud in a dedicated pod managed by Hussh."
+                : isPersonalSandbox
+                  ? "Your isolated Confidential Sandbox runs on Google Cloud with built-in AI."
+                  : "Your dedicated private agent is active on Hussh Pods."}
+          </p>
+        ) : null}
 
         <PodSessionLockdownControl />
 
@@ -399,7 +425,7 @@ export function HusshPodsActiveCard({
                 <p className="text-xs text-[var(--app-text-secondary)]">
                   {activeGraceItem.graceExpired
                     ? `3-day safety window complete · Confirm comfort on ${
-                        isPersonalSandbox ? "Personal Sandbox" : "Azure"
+                        isPersonalSandbox ? "Confidential Sandbox" : "Azure"
                       } to retire the prior pod.`
                     : `${activeGraceItem.daysRemaining}d left in 3-day safety window`}
                 </p>
@@ -426,7 +452,7 @@ export function HusshPodsActiveCard({
           <AlertDialogContent size="default">
             <AlertDialogHeader>
               <AlertDialogTitle>
-                {isPersonalSandbox ? "Confirm your Personal Sandbox?" : "Confirm your new Azure pod?"}
+                {isPersonalSandbox ? "Confirm your Confidential Sandbox?" : "Confirm your new Azure pod?"}
               </AlertDialogTitle>
               <AlertDialogDescription>
                 Your prior setup ({activeGraceItem.sourceLabel}) stays untouched until its 3-day
@@ -462,6 +488,7 @@ export function HusshPodsMigrationCard({
   sourceProject,
   onMigrated,
   owningRoute = ROUTES.PROFILE_HOSTING,
+  backQuery,
   embedded = false,
   subtleAction = false,
 }: {
@@ -470,6 +497,7 @@ export function HusshPodsMigrationCard({
   sourceProject?: string | null;
   onMigrated?: () => void;
   owningRoute?: Parameters<typeof useBackLayer>[0];
+  backQuery?: Parameters<typeof useBackLayer>[3];
   embedded?: boolean;
   subtleAction?: boolean;
 }) {
@@ -501,7 +529,7 @@ export function HusshPodsMigrationCard({
     return () => controller.abort();
   }, [canReadMigrationStatus, sourceMode, sourceTarget]);
 
-  useBackLayer(owningRoute, busy ? 2 : 0, () => true);
+  useBackLayer(owningRoute, busy ? 2 : 0, () => true, backQuery);
 
   const source = sourceSummary(sourceMode, sourceTarget, sourceProject);
   const warmSlots = status ? status.cellPool.totalAzureWarmSlots : null;
@@ -527,13 +555,16 @@ export function HusshPodsMigrationCard({
     busyRef.current = true;
     setBusy(true);
 
-    let toastHandle: ReturnType<typeof morphyToast.promise> | undefined;
+    let toastHandle: ReturnType<typeof morphyToast.promiseText> | undefined;
     try {
       const request = ApiService.migrateToHostedAzure({ isEffectCurrent });
-      toastHandle = morphyToast.promise(request, {
+      toastHandle = morphyToast.promiseText(request, {
         loading: "Moving your agent to Hussh Pods · Azure…",
         success: "Agent moved to Hussh Pods · Microsoft Azure.",
-        error: "Could not move your pod right now. Your current setup is unchanged.",
+        error: (err) =>
+          err instanceof Error && err.message
+            ? err.message
+            : "Could not move your pod right now. Your current setup is unchanged.",
         isCurrent: isEffectCurrent,
       });
       await toastHandle.unwrap();
@@ -750,6 +781,7 @@ export function PooledSandboxSwitchCard({
   sourceCloudLabel,
   onSwitched,
   owningRoute,
+  backQuery,
   embedded = false,
 }: {
   hasAssignedCloudPod: boolean;
@@ -757,6 +789,7 @@ export function PooledSandboxSwitchCard({
   sourceCloudLabel?: string | null;
   onSwitched?: () => void;
   owningRoute: Parameters<typeof useBackLayer>[0];
+  backQuery?: Parameters<typeof useBackLayer>[3];
   embedded?: boolean;
 }) {
   const { user } = useAuth();
@@ -767,28 +800,28 @@ export function PooledSandboxSwitchCard({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const busyRef = useRef(false);
 
-  useBackLayer(owningRoute, busy ? 2 : 0, () => true);
+  useBackLayer(owningRoute, busy ? 2 : 0, () => true, backQuery);
 
   const switchSteps = [
     hasAssignedCloudPod ? "Locking prior pod" : "Preparing workspace",
-    "Waking Personal Sandbox",
+    "Waking Confidential Sandbox",
     "Syncing encrypted history",
     "Opening live session",
   ] as const;
 
   const title = hasAssignedCloudPod
-    ? "Switch to Hussh Personal Sandbox"
-    : "Start in Hussh Personal Sandbox";
+    ? "Switch to Hussh Confidential Sandbox"
+    : "Start in Hussh Confidential Sandbox";
   const body = hasAssignedCloudPod
-    ? "Switch to an instant Hussh-managed Personal Sandbox (Google Cloud and Microsoft Azure) with built-in AI. Encrypted conversations sync automatically when your previous pod is reachable (or start fresh automatically if it is offline), while your encrypted Vault stays intact."
-    : "Skip custom cloud setup and start right away in an isolated Personal Sandbox (Google Cloud and Microsoft Azure) with built-in AI.";
+    ? "Switch to an instant Hussh-managed Confidential Sandbox on Google Cloud with built-in AI. Encrypted conversations sync automatically when your previous pod is reachable (or start fresh automatically if it is offline), while your encrypted Vault stays intact."
+    : "Skip custom cloud setup and start right away in an isolated Confidential Sandbox on Google Cloud with built-in AI.";
   const buttonLabel = hasAssignedCloudPod
     ? busy
-      ? "Switching to Personal Sandbox…"
-      : "Switch to Personal Sandbox"
+      ? "Switching to Confidential Sandbox…"
+      : "Switch to Confidential Sandbox"
     : busy
-      ? "Starting Personal Sandbox…"
-      : "Start in Personal Sandbox";
+      ? "Starting Confidential Sandbox…"
+      : "Start in Confidential Sandbox";
 
   const performSwitch = async () => {
     if (busyRef.current || typeof ApiService.adoptPooledSandbox !== "function") return;
@@ -811,7 +844,7 @@ export function PooledSandboxSwitchCard({
           }, 450)
         : null;
 
-    let toastHandle: ReturnType<typeof morphyToast.promise> | undefined;
+    let toastHandle: ReturnType<typeof morphyToast.promiseText> | undefined;
     try {
       const request = ApiService.adoptPooledSandbox({
         allowCleanSlate: true,
@@ -820,12 +853,15 @@ export function PooledSandboxSwitchCard({
           : {}),
         isEffectCurrent,
       });
-      toastHandle = morphyToast.promise(request, {
+      toastHandle = morphyToast.promiseText(request, {
         loading: hasAssignedCloudPod
-          ? "Switching to Hussh Personal Sandbox…"
-          : "Starting Hussh Personal Sandbox…",
-        success: "Your Hussh Personal Sandbox is ready.",
-        error: "Could not switch to Hussh Personal Sandbox right now. Your existing setup is unchanged.",
+          ? "Switching to Hussh Confidential Sandbox…"
+          : "Starting Hussh Confidential Sandbox…",
+        success: "Your Hussh Confidential Sandbox is ready.",
+        error: (err) =>
+          err instanceof Error && err.message
+            ? err.message
+            : "Could not switch to Hussh Confidential Sandbox right now. Your existing setup is unchanged.",
         isCurrent: isEffectCurrent,
       });
       const adopted = (await toastHandle.unwrap()) as Awaited<typeof request> | undefined;
@@ -872,7 +908,7 @@ export function PooledSandboxSwitchCard({
         setErrorMessage(
           err instanceof Error && err.message
             ? err.message
-            : "Could not switch to Hussh Personal Sandbox right now. Your existing setup is unchanged.",
+            : "Could not switch to Hussh Confidential Sandbox right now. Your existing setup is unchanged.",
         );
       }
     } finally {
@@ -913,12 +949,7 @@ export function PooledSandboxSwitchCard({
               </p>
             ) : null}
           </div>
-          <span
-            aria-hidden="true"
-            className="flex h-8 shrink-0 items-center justify-center rounded-xl border border-[var(--app-border)] bg-background px-2"
-          >
-            <HostedPodDualCloudMarks />
-          </span>
+          <PodCloudBadge provider="gcp" label="Google Cloud" />
         </div>
 
         <p className="text-sm text-[var(--app-text-secondary)]">{body}</p>
@@ -1019,11 +1050,11 @@ export function PooledSandboxSwitchCard({
         <AlertDialog open={confirmOpen} onOpenChange={(open) => !busy && setConfirmOpen(open)}>
           <AlertDialogContent size="default">
             <AlertDialogHeader>
-              <AlertDialogTitle>Switch to Hussh Personal Sandbox?</AlertDialogTitle>
+              <AlertDialogTitle>Switch to Hussh Confidential Sandbox?</AlertDialogTitle>
               <AlertDialogDescription>
                 {sourceCloudLabel
-                  ? `Switch from ${sourceCloudLabel} to an isolated Hussh Personal Sandbox across Google Cloud and Microsoft Azure with built-in AI.`
-                  : "Switch to an isolated Hussh Personal Sandbox across Google Cloud and Microsoft Azure with built-in AI."}
+                  ? `Switch from ${sourceCloudLabel} to an isolated Hussh Confidential Sandbox on Google Cloud with built-in AI.`
+                  : "Switch to an isolated Hussh Confidential Sandbox on Google Cloud with built-in AI."}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <p className="text-sm text-[var(--app-text-secondary)]">

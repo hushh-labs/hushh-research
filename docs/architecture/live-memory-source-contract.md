@@ -67,8 +67,8 @@ journals contain kind-only hints, never source values.
   Commit-to-encrypted-write lag is measured per kind and shown only to the
   owner.
 - **Private agent packet.** The packet is bounded so the server's
-  20,000-character clip never cuts it. Finance and Investor receive the whole
-  block with its rule, or none of it; only Soul.md is clipped to fit.
+  128,000-character consented memory envelope never cuts it. Finance and Investor receive the whole
+  block with its rule, or none of it; only Soul.md (`one_memory.markdown`, up to 96,000 characters for V1 owners) is clipped to fit.
 
 The observed history cannot reconstruct values that changed while every owner
 client was closed; it must not be sold as a complete account activity export.

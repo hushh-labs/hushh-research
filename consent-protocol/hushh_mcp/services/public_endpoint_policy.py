@@ -14,6 +14,18 @@ class UnsafeMcpEndpoint(ValueError):
         super().__init__("The connector requires a public HTTPS endpoint.")
 
 
+_BLOCKED_HOST_SUFFIXES = (
+    ".localhost",
+    ".local",
+    ".internal",
+    ".metadata.goog",
+    ".svc",
+    ".cluster.local",
+    ".home.arpa",
+)
+_BLOCKED_EXACT_HOSTS = frozenset({"metadata.goog"})
+
+
 def validate_mcp_endpoint(endpoint: str) -> None:
     try:
         url = urlsplit(endpoint)
@@ -38,8 +50,11 @@ def validate_mcp_endpoint(endpoint: str) -> None:
     try:
         ipaddress.ip_address(host)
     except ValueError:
-        if "." not in host or host.rstrip(".").lower().endswith(
-            (".localhost", ".local", ".internal")
+        normalized = host.rstrip(".").lower()
+        if (
+            "." not in normalized
+            or normalized in _BLOCKED_EXACT_HOSTS
+            or normalized.endswith(_BLOCKED_HOST_SUFFIXES)
         ):
             raise UnsafeMcpEndpoint()
     else:

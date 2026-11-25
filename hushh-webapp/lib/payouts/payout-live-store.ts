@@ -28,6 +28,7 @@
  * 5 min for the Stripe-backed account. A return to the page reads each resource
  * once, never behind a read already in flight.
  */
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
@@ -196,7 +197,7 @@ function pageHidden(): boolean {
 }
 
 function browserOnline(): boolean {
-  return typeof navigator === "undefined" || navigator.onLine !== false;
+  return isNetworkOnline();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

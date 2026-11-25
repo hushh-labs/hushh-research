@@ -251,6 +251,7 @@ POST /api/one/feed/read
 POST /api/one/feed/sos-cards/clear
 GET /api/one/feed/unread-count
 POST /api/one/information-requests
+POST /api/one/information-requests/price-preview
 GET /api/one/information-requests/shared-with-me
 GET /api/one/information-requests/{bundle_id}
 POST /api/one/information-requests/{bundle_id}/cancel
@@ -328,6 +329,8 @@ POST /api/one/marketplace/requests/{request_id}/approve
 POST /api/one/marketplace/requests/{request_id}/deny
 GET /api/one/marketplace/requests/{request_id}/recipient-key
 POST /api/one/marketplace/requests/{request_id}/revoke
+GET /api/one/messages/calls/capabilities
+POST /api/one/messages/calls/{operation}
 POST /api/one/messages
 POST /api/one/messages/route-token
 DELETE,POST /api/one/messages/blocks

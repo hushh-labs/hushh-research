@@ -45,14 +45,26 @@ function openKeyDb(): Promise<IDBDatabase> {
   }
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
+    let retired = false;
+    const fail = (error: Error | DOMException) => {
+      retired = true;
+      clearTimeout(timer);
+      reject(error);
+    };
+    const timer = setTimeout(() => fail(new Error("Key storage did not respond. Close other app tabs and retry.")), 5_000);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME, { keyPath: "userId" });
       }
     };
-    request.onerror = () => reject(request.error || new Error("Unable to open key storage."));
-    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => fail(request.error || new Error("Unable to open key storage."));
+    request.onblocked = () => fail(new Error("Key storage is blocked. Close other app tabs and retry."));
+    request.onsuccess = () => {
+      clearTimeout(timer);
+      if (retired) request.result.close();
+      else resolve(request.result);
+    };
   });
 }
 
@@ -60,22 +72,40 @@ async function readStoredKey(userId: string): Promise<StoredRecipientKey | null>
   const db = await openKeyDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readonly");
+    const timer = setTimeout(() => {
+      reject(new Error("Key storage read timed out. Retry on this device."));
+      tx.abort();
+    }, 5_000);
     const request = tx.objectStore(STORE_NAME).get(userId);
     request.onerror = () => reject(request.error || new Error("Unable to read key."));
     request.onsuccess = () => resolve((request.result as StoredRecipientKey | undefined) || null);
-    tx.oncomplete = () => db.close();
+    tx.oncomplete = () => { clearTimeout(timer); db.close(); };
+    tx.onabort = () => { clearTimeout(timer); db.close(); reject(tx.error || new Error("Unable to read key.")); };
   });
 }
 
-async function writeStoredKey(record: StoredRecipientKey): Promise<void> {
+async function writeStoredKey(record: StoredRecipientKey): Promise<StoredRecipientKey> {
   const db = await openKeyDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
-    tx.objectStore(STORE_NAME).put(record);
-    tx.onerror = () => reject(tx.error || new Error("Unable to store key."));
+    const timer = setTimeout(() => {
+      reject(new Error("Key storage write timed out. Retry on this device."));
+      tx.abort();
+    }, 5_000);
+    const store = tx.objectStore(STORE_NAME);
+    const read = store.get(record.userId);
+    let chosen = record;
+    read.onsuccess = () => {
+      // Read and insert in the same write transaction. Another tab may have
+      // committed its first key while this tab was generating a pair.
+      if (read.result) chosen = read.result as StoredRecipientKey;
+      else store.add(record);
+    };
+    tx.onabort = () => { clearTimeout(timer); db.close(); reject(tx.error || new Error("Unable to store key.")); };
     tx.oncomplete = () => {
+      clearTimeout(timer);
       db.close();
-      resolve();
+      resolve(chosen);
     };
   });
 }
@@ -138,12 +168,34 @@ async function deriveAesKey(privateKey: CryptoKey, publicKey: CryptoKey, usage: 
  * fresh ECDH P-256 keypair on first use. Only the public JWK ever leaves the
  * device; the private key stays in IndexedDB. Idempotent per user.
  */
-export async function ensureMarketplaceRecipientKey(userId: string): Promise<{
+type PublicRecipientKey = {
   keyId: string;
   publicKeyJwk: JsonWebKey;
   algorithm: typeof ALGORITHM;
-}> {
-  const existing = await readStoredKey(userId).catch(() => null);
+};
+
+const recipientKeyCreations = new Map<string, Promise<PublicRecipientKey>>();
+
+/** Inspect custody without creating or replacing a key for an existing answer. */
+export async function marketplaceRecipientKeyId(userId: string): Promise<string | null> {
+  return (await readStoredKey(userId))?.keyId ?? null;
+}
+
+export function ensureMarketplaceRecipientKey(userId: string): Promise<PublicRecipientKey> {
+  if (!userId.trim()) return Promise.reject(new Error("Current user is required for secure receiving."));
+  const pending = recipientKeyCreations.get(userId);
+  if (pending) return pending;
+  const operation = createMarketplaceRecipientKey(userId).finally(() => {
+    if (recipientKeyCreations.get(userId) === operation) recipientKeyCreations.delete(userId);
+  });
+  recipientKeyCreations.set(userId, operation);
+  return operation;
+}
+
+async function createMarketplaceRecipientKey(userId: string): Promise<PublicRecipientKey> {
+  // A storage outage is not an absent key. Replacing it would strand answers
+  // encrypted to the original private key.
+  const existing = await readStoredKey(userId);
   if (existing) {
     return {
       keyId: existing.keyId,
@@ -160,14 +212,14 @@ export async function ensureMarketplaceRecipientKey(userId: string): Promise<{
   );
   const publicKeyJwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
   const keyId = await keyFingerprint(publicKeyJwk);
-  await writeStoredKey({
+  const stored = await writeStoredKey({
     userId,
     keyId,
     publicKeyJwk,
     privateKey: pair.privateKey,
     createdAt: new Date().toISOString(),
   });
-  return { keyId, publicKeyJwk, algorithm: ALGORITHM };
+  return { keyId: stored.keyId, publicKeyJwk: stored.publicKeyJwk, algorithm: ALGORITHM };
 }
 
 /**

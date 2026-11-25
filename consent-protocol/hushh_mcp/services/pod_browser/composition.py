@@ -58,11 +58,18 @@ class PodBrowserComposition:
         )
 
     def _make_delivery(self):
-        if self._deployment.readiness.cloud == "gcp":
-            return GcpBrowserDelivery(resolve_pod_object_store())
-        from .azure_delivery import AzureBrowserDelivery
+        from browser_runtime.qualification import get_host_capability
 
-        return AzureBrowserDelivery()
+        capability = get_host_capability(self._deployment.host_kind)
+        if capability is None:
+            raise BrowserRefused("BROWSER_TASK_DELIVERY_UNQUALIFIED")
+        if capability.provider == "gcp" and capability.delivery_strategy == "http_push_task":
+            return GcpBrowserDelivery(resolve_pod_object_store())
+        if capability.provider == "azure" and capability.delivery_strategy == "queue_pull_loop":
+            from .azure_delivery import AzureBrowserDelivery
+
+            return AzureBrowserDelivery()
+        raise BrowserRefused("BROWSER_TASK_DELIVERY_UNQUALIFIED")
 
     def _network(self, binding, consent, authority):
         if self._journal is None:
@@ -171,6 +178,9 @@ class PodBrowserComposition:
                 sessions_factory=sessions,
                 public_research_only=not self._deployment.public_policy.interactive,
                 delivery=self._delivery,
+                environment=(
+                    "uat" if getattr(self._authority, "environment", "") == "uat" else "development"
+                ),
             )
             self._journal, self._owner, self._runtime = journal, owner_id, runtime
             return runtime

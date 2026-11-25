@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,7 +26,7 @@ import { firebaseUidForOwner, snapshotValidatedAuthSessionOwner, isValidatedAuth
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { CalendarClock } from "@/components/icons";
 
-const labels: Record<ScheduledTask["state"], string> = {
+export const scheduledTaskLabels: Record<ScheduledTask["state"], string> = {
   pending_delivery: "Scheduling",
   scheduled: "Scheduled",
   running: "Working",
@@ -37,6 +37,23 @@ const labels: Record<ScheduledTask["state"], string> = {
   needs_review: "Needs review",
 };
 
+const runLabels: Record<string, string> = {
+  running: "Running", completed: "Completed", failed: "Failed", needs_review: "Needs review",
+  cancelled: "Cancelled", outcome_uncertain: "Outcome uncertain",
+};
+
+export function scheduledRunSummary(task: ScheduledTask): string {
+  const run = task.last_run;
+  if (!run) return "No run recorded yet";
+  const when = new Date((run.finished_at ?? run.started_at) * 1000).toLocaleString();
+  return `Latest run: ${runLabels[run.state] ?? "Unavailable"} · ${when}`;
+}
+
+export function preferredScheduledTasks(tasks: ScheduledTask[], selectedId?: string | null) {
+  const selected = selectedId ? tasks.find(task => task.id === selectedId) : undefined;
+  return selected ? [selected, ...tasks.filter(task => task.id !== selected.id)] : tasks;
+}
+
 /** Owner opens this view explicitly. No polling keeps a sleeping pod awake. */
 export function ScheduledTasksPanel({ ownerId }: { ownerId: string }) {
   if (!areScheduledTasksAvailable()) return null;
@@ -44,27 +61,32 @@ export function ScheduledTasksPanel({ ownerId }: { ownerId: string }) {
   return <OwnerScheduledTasksPanel key={`${ownerId}:${generation}`} ownerId={ownerId} />;
 }
 
-function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
-  const client = useMemo(() => new PodScheduledTasksClient(ownerId), [ownerId]);
+export function useScheduledTasksModel(ownerId: string, route: string = ROUTES.ONE_HOME) {
   const [open, setOpen] = useState(false);
-  const [status, setStatus] = useState<ScheduledTasksStatus | null>(null);
+  const [review, setReview] = useState<{
+    client: PodScheduledTasksClient;
+    status: ScheduledTasksStatus;
+  } | null>(null);
   const [message, setMessage] = useState("");
   const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState("");
   const [placementMessage, setPlacementMessage] = useState("");
+  const [readRevision, setReadRevision] = useState(0);
   const active = useRef(false);
   const work = useRef<AbortController | null>(null);
   const close = () => {
     if (!busy) setOpen(false);
     return true;
   };
-  useBackLayer(ROUTES.ONE_HOME, open ? 2 : 0, close);
+  useBackLayer(route, open ? 2 : 0, close);
   useEffect(() => {
-    if (!open) return;
+    if (!areScheduledTasksAvailable() || !open) return;
     const owner = snapshotValidatedAuthSessionOwner();
     if (owner?.userId !== ownerId) return;
+    const client = new PodScheduledTasksClient(ownerId);
     const request = new AbortController();
     work.current = request;
+    setReview(null);
     setChecking(true);
     setMessage("");
     setPlacementMessage("");
@@ -74,20 +96,18 @@ function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
       .then(async (hosting) => {
         if (!current()) return null;
         if (hosting.hostingMode !== "byoc" && hosting.hostingMode !== "hussh_pods") {
-          setStatus(null);
           setPlacementMessage(hosting.hostingMode === "shared"
-            ? "Scheduled tasks need Agent One."
+            ? "Scheduling requires a private agent."
             : "Finish setting up Agent One to schedule work.");
           return null;
         }
         return client.status(request.signal);
       })
       .then((value) => {
-        if (current() && value) setStatus(value);
+        if (current() && value) setReview({ client, status: value });
       })
       .catch(() => {
         if (current()) {
-          setStatus(null);
           setMessage(
             "Connect and unlock your cloud agent to view scheduled tasks.",
           );
@@ -100,22 +120,23 @@ function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
       request.abort();
       work.current = null;
     };
-  }, [client, open, ownerId]);
+  }, [open, ownerId, readRevision]);
 
   const control = async (
     task: ScheduledTask,
     operation: "pause" | "resume" | "cancel",
   ) => {
-    if (active.current) return;
-    active.current = true;
-    setBusy(task.id);
+    const client = review?.client;
     const signal = work.current?.signal;
+    if (!client || !signal || active.current) return;
     const owner = snapshotValidatedAuthSessionOwner();
     const current = () =>
-      Boolean(signal && !signal.aborted) &&
+      !signal.aborted &&
       owner?.userId === ownerId && isValidatedAuthSessionOwnerCurrent(owner) &&
       AuthService.getCurrentUser()?.uid === firebaseUidForOwner(ownerId);
-    if (!current()) { active.current = false; setBusy(""); return; }
+    if (!current()) return;
+    active.current = true;
+    setBusy(task.id);
     let settledState: ScheduledTask["state"] | null = null;
     const request = client.control(task, operation, signal).then((updated) => {
       settledState = updated.state;
@@ -144,52 +165,76 @@ function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
       if (typeof notification === "string" || typeof notification === "number")
         morphyToast.dismiss(notification);
     };
-    signal?.addEventListener("abort", retire, { once: true });
+    signal.addEventListener("abort", retire, { once: true });
     try {
       const updated = await request;
       if (!current()) return;
-      setStatus(
+      setReview(
         (previous) =>
-          previous && {
+          previous?.client === client ? {
             ...previous,
-            tasks: previous.tasks.map((item) =>
-              item.id === updated.id ? updated : item,
-            ),
-          },
+            status: {
+              ...previous.status,
+              tasks: previous.status.tasks.map((item) =>
+                item.id === updated.id ? updated : item,
+              ),
+            },
+          } : previous,
       );
     } catch {
       // The promise toast owns transient action feedback; retain the last observation.
     } finally {
-      signal?.removeEventListener("abort", retire);
+      signal.removeEventListener("abort", retire);
       active.current = false;
       setBusy("");
     }
   };
 
+  const changeOpen = (value: boolean) => { if (!busy && (!value || areScheduledTasksAvailable())) setOpen(value); };
+  const refresh = () => {
+    if (active.current || checking || !open) return;
+    work.current?.abort();
+    setReview(null);
+    setReadRevision(value => value + 1);
+  };
+  return { open, changeOpen, close, status: review?.status ?? null, message, checking, busy, placementMessage, control, refresh };
+}
+
+function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
+  return <ScheduledTasksPanelBody model={useScheduledTasksModel(ownerId)} />;
+}
+
+export function ScheduledTasksPanelBody({ model, selectedId, inTasks = false }: {
+  model: ReturnType<typeof useScheduledTasksModel>;
+  selectedId?: string | null;
+  inTasks?: boolean;
+}) {
+  if (!areScheduledTasksAvailable()) return null;
+  const { open, changeOpen, close, status, message, checking, busy, placementMessage, control, refresh } = model;
+  const title = inTasks ? "Scheduled runs" : "Scheduled tasks";
+
   return (
     <Dialog
       open={open}
-      onOpenChange={(value) => {
-        if (!busy) setOpen(value);
-      }}
+      onOpenChange={changeOpen}
     >
       <DialogTrigger asChild>
         <ShellActionSurface
           variant="pill"
-          aria-label="Scheduled tasks"
-          title="Scheduled tasks"
+          aria-label={title}
+          title={title}
           className="h-11 w-11 shrink-0 p-0 min-[520px]:w-auto min-[520px]:px-3.5"
-          data-voice-control-id="one_scheduled_tasks"
+          data-voice-control-id={inTasks ? undefined : "one_scheduled_tasks"}
         >
           <CalendarClock className="h-5 w-5 shrink-0" aria-hidden="true" />
-          <span className="hidden min-[520px]:inline">Scheduled tasks</span>
+          <span className="hidden min-[520px]:inline">{title}</span>
         </ShellActionSurface>
       </DialogTrigger>
       <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Scheduled tasks</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            Agent One wakes for approved work.
+            Your private agent runs approved work. Results appear here when recorded.
           </DialogDescription>
         </DialogHeader>
         {message && (
@@ -208,13 +253,16 @@ function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
             Scheduling isn’t available on this pod yet.
           </p>
         )}
-        {status?.tasks.length === 0 && (
+        {status?.available && status.tasks.length === 0 && (
           <p className="text-sm text-muted-foreground">
             No scheduled tasks. Choose a file in Files to schedule organization.
           </p>
         )}
+        {selectedId && status && !status.tasks.some(task => task.id === selectedId) ? (
+          <p role="status" className="text-sm text-muted-foreground">This schedule wasn’t found on your current Pod.</p>
+        ) : null}
         <ul className="divide-y divide-border" aria-busy={checking}>
-          {status?.tasks.map((task) => (
+          {status && preferredScheduledTasks(status.tasks, selectedId).map((task) => (
             <li
               key={task.id}
               className="flex min-w-0 flex-wrap items-center gap-3 py-3"
@@ -222,9 +270,10 @@ function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
               <div className="min-w-0 flex-1 basis-48">
                 <p className="break-words text-sm font-medium">{task.title}</p>
                 <p className="text-xs text-muted-foreground">
-                  {labels[task.state]} ·{" "}
-                  {new Date(task.next_run_at * 1000).toLocaleString()}
+                  {scheduledTaskLabels[task.state]}
+                  {task.state === "scheduled" ? ` · ${new Date(task.next_run_at * 1000).toLocaleString()}` : null}
                 </p>
+                <p className="text-xs text-muted-foreground">{scheduledRunSummary(task)}</p>
                 {task.last_run?.state === "outcome_uncertain" && (
                   <p className="text-xs text-muted-foreground">
                     Check the result before scheduling again.
@@ -268,6 +317,8 @@ function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
             </li>
           ))}
         </ul>
+        <div className="flex flex-wrap gap-2">
+        <Button variant="outline" disabled={checking || Boolean(busy)} onClick={refresh}>Refresh</Button>
         <Button variant="outline" asChild>
           <Link
             href={placementMessage ? ROUTES.PROFILE_HOSTING : ROUTES.ONE_FILES}
@@ -280,6 +331,7 @@ function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
             {placementMessage ? "Hosting" : "Open Files"}
           </Link>
         </Button>
+        </div>
       </DialogContent>
     </Dialog>
   );

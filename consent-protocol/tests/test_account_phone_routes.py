@@ -480,3 +480,47 @@ def test_unlink_preserves_other_credentials_and_requires_independent_recovery(
         ):
             mutations.unlink_phone(app, "previous", phone)
         post.assert_not_called()
+
+
+def test_dev_simulation_lane_enables_uat_test_numbers_for_fresh_accounts(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "dev")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv("HUSHH_DEV_SIMULATION_ENABLED", "true")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+16505550101")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CODE", "123456")
+    monkeypatch.setenv("HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET", "dev-sim-challenge-secret")
+
+    claim = AsyncMock(
+        return_value={
+            "user_id": "fresh-dev-user",
+            "phone_number": "+16505550101",
+            "phone_verified": True,
+            "source": "uat_test_phone_claim",
+        }
+    )
+    monkeypatch.setattr(ActorIdentityService, "claim_verified_phone", claim)
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "fresh-dev-user"
+    client = TestClient(app)
+
+    start = client.post("/api/account/phone/uat-test/start", json={"phone_number": "+16505550101"})
+    assert start.status_code == 200
+    assert start.json()["eligible"] is True
+
+    confirm = client.post(
+        "/api/account/phone/uat-test/confirm",
+        json={
+            "phone_number": "+16505550101",
+            "verification_code": "123456",
+            "verification_id": start.json()["verification_id"],
+        },
+    )
+    assert confirm.status_code == 200
+    assert confirm.json()["phone_verified"] is True
+
+    # Negative control: without HUSHH_DEV_SIMULATION_ENABLED, dev refuses UAT numbers.
+    monkeypatch.delenv("HUSHH_DEV_SIMULATION_ENABLED")
+    denied = client.post("/api/account/phone/uat-test/start", json={"phone_number": "+16505550101"})
+    assert denied.status_code == 200
+    assert denied.json()["eligible"] is False

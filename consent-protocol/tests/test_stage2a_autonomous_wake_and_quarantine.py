@@ -38,8 +38,8 @@ HUSHH_ID = "ha1_stage2atestowner0000000000000"
 POD_KEY = b"\x22" * 32
 
 
-def _make_log(tmp_path: Path) -> PodCommitLog:
-    return PodCommitLog(LocalObjectStore(str(tmp_path / "commit_log")), POD_KEY, owner_id=HUSHH_ID)
+def _make_log(tmp_path: Path, name: str = "commit_log") -> PodCommitLog:
+    return PodCommitLog(LocalObjectStore(str(tmp_path / name)), POD_KEY, owner_id=HUSHH_ID)
 
 
 def test_six_surface_quarantine_strips_all_outbound_and_unclassified_tools() -> None:
@@ -479,3 +479,154 @@ def test_pod_wake_signal_route_and_pod_tick_background_wiring(
         "quarantineActive": True,
         "receivedPriority": "fast",
     }
+
+
+@pytest.mark.asyncio
+async def test_scheduled_goal_wake_routes_to_goal_surface_quarantines_tools_and_seals_without_chat_key(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from hushh_mcp.services.chat_key import request_has_chat_key
+    from hushh_mcp.services.pod_background_prep import (
+        GOAL_PREP_RECORD_KIND,
+        SCHEDULED_GOAL_SURFACE,
+    )
+
+    validated = validate_zero_content_signal(
+        {"trigger_kind": "scheduled_goal", "signal_id": "goal_01"}
+    )
+    assert validated["trigger_kind"] == "scheduled_goal"
+    for bad_key in ("prompt", "title", "subject"):
+        with pytest.raises(ZeroContentViolationError):
+            validate_zero_content_signal({"trigger_kind": "scheduled_goal", bad_key: "secret"})
+
+    dispatched: list[tuple[str, dict[str, Any]]] = []
+
+    async def fake_dispatcher(owner_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        dispatched.append((owner_id, body))
+        return {"dispatched": True, "hostingTarget": "ace", "backgroundStatus": "completed"}
+
+    coalescer = ZeroContentWakeCoalescer(dispatcher=fake_dispatcher)
+    wake_res = await coalescer.ingest_signal(
+        owner_user_id=OWNER_UID,
+        signal={"trigger_kind": "scheduled_goal", "signal_id": "goal_01"},
+    )
+    assert wake_res["outcome"] == "dispatched"
+    assert wake_res["priority"] == "fast"
+    assert len(dispatched) == 1
+    assert dispatched[0][1]["signals"] == [{"surface": SCHEDULED_GOAL_SURFACE}]
+
+    monkeypatch.setenv("HUSSH_ID", HUSHH_ID)
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
+    assert request_has_chat_key(OWNER_UID) is False
+
+    log = _make_log(tmp_path)
+    cfg = apply_changes(PodConfig(), {"background_prep_gmail": False})
+    res = await run_pod_background_prep(
+        config=cfg,
+        log=log,
+        is_private_pod=True,
+        clock=lambda: 1_795_300_000.0,
+        wake_payload=dispatched[0][1],
+        candidate_tools={"send_gmail_message": {}, "stage_local_draft": {}},
+        candidates=[
+            {
+                "surface": SCHEDULED_GOAL_SURFACE,
+                "goal_id": "goal_01",
+                "summary_text": "SECRET_GOAL_TEXT Rebalance Q4 index fund",
+            }
+        ],
+    )
+    assert res["status"] == "completed"
+    assert res["scheduledGoalActive"] is True
+    assert res["goalsPrepared"] == 1
+    assert res["goalCustodyMode"] == "pod_dek_sealed"
+    assert res["quarantineActive"] is True
+    assert res["admittedToolCount"] == 1
+    assert res["strippedToolCount"] == 1
+
+    records = await log.replay()
+    goal_records = [r for r in records if r["kind"] == GOAL_PREP_RECORD_KIND]
+    assert len(goal_records) == 1
+    entry = goal_records[0]["payload"]["entries"][0]
+    assert entry["goalId"] == "goal_01"
+    assert entry["provenance"]["chat_key_required"] is False
+
+    for path in tmp_path.rglob("*"):
+        if path.is_file():
+            assert b"SECRET_GOAL_TEXT" not in path.read_bytes()
+
+
+@pytest.mark.asyncio
+async def test_scheduled_goal_custody_fails_closed_on_missing_foreign_fenced_or_tampered_log_and_preserves_chat_key_boundary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from hushh_mcp.services.chat_key import ChatCipher, ChatKeyUnavailableError
+    from hushh_mcp.services.pod_background_prep import (
+        SCHEDULED_GOAL_SURFACE,
+        stage_scheduled_goal_prep,
+    )
+    from hushh_mcp.services.pod_commit_log import PodLogFenced, PodLogTampered
+
+    monkeypatch.setenv("HUSSH_ID", HUSHH_ID)
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
+    log = _make_log(tmp_path)
+
+    # 1. session_only_lockdown refuses scheduled_goal wake with zero log writes:
+    lockdown_cfg = apply_changes(PodConfig(), {"session_only_lockdown": True})
+    locked = await run_pod_background_prep(
+        config=lockdown_cfg,
+        log=log,
+        is_private_pod=True,
+        wake_payload={"signals": [{"surface": SCHEDULED_GOAL_SURFACE}]},
+        candidates=[
+            {
+                "surface": SCHEDULED_GOAL_SURFACE,
+                "goal_id": "goal_02",
+                "summary_text": "SECRET_LOCKDOWN_GOAL Do not stage",
+            }
+        ],
+    )
+    assert locked["status"] == "locked_down"
+    assert locked["goalsPrepared"] == 0
+    assert await log.replay() == []
+
+    # 2. Missing log or wrong owner log fails closed:
+    sample = [{"goal_id": "goal_02", "summary_text": "Quarterly check-in goal"}]
+    with pytest.raises(PermissionError, match="GOAL_PREP_CUSTODY_UNAVAILABLE"):
+        await stage_scheduled_goal_prep(None, hushh_id=HUSHH_ID, candidates=sample, now_s=1000.0)
+
+    foreign_log = PodCommitLog(
+        LocalObjectStore(str(tmp_path / "foreign_log")), POD_KEY, owner_id="ha1_foreign"
+    )
+    with pytest.raises(PermissionError, match="GOAL_PREP_CUSTODY_UNAVAILABLE"):
+        await stage_scheduled_goal_prep(
+            foreign_log, hushh_id=HUSHH_ID, candidates=sample, now_s=1000.0
+        )
+
+    # 3. Stage once, then tamper a ciphertext record on disk and verify PodLogTampered:
+    tamper_log = _make_log(tmp_path, "tamper_log")
+    assert (
+        await stage_scheduled_goal_prep(
+            tamper_log, hushh_id=HUSHH_ID, candidates=sample, now_s=1000.0
+        )
+        == 1
+    )
+    record_files = list((tmp_path / "tamper_log" / "records").glob("*.bin"))
+    assert len(record_files) == 1
+    raw = bytearray(record_files[0].read_bytes())
+    raw[-1] ^= 0xFF
+    record_files[0].write_bytes(bytes(raw))
+    with pytest.raises(PodLogTampered):
+        await tamper_log.replay()
+
+    # 4. Fenced log raises PodLogFenced:
+    fenced_log = _make_log(tmp_path, "fenced_log")
+    await fenced_log.fence_for_erasure(owner_id=HUSHH_ID, attempt_id="erase-1")
+    with pytest.raises(PodLogFenced):
+        await stage_scheduled_goal_prep(
+            fenced_log, hushh_id=HUSHH_ID, candidates=sample, now_s=1000.0
+        )
+
+    # 5. Interactive ChatCipher boundary remains strictly enforced without X-Hussh-Chat-Key:
+    with pytest.raises(ChatKeyUnavailableError):
+        ChatCipher().seal("x", owner_id=OWNER_UID, aad="t:c:r")

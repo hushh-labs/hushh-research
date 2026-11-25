@@ -3,6 +3,7 @@ import { ChevronRight, type FileText } from "@/components/icons";
 import { HelperText, IdentityName } from "@/components/app-ui/typography";
 import { SectionCard } from "@/lib/morphy-ux/ui/surface-primitives";
 import { ConnectionPersonAvatar } from "./connection-person-avatar";
+import { ConnectionStatusBadges } from "./connection-status-badges";
 import styles from "./person-profile-page.module.css";
 
 /** Presentation only. The profile keeps authority, request lifetimes and actions. */
@@ -29,12 +30,7 @@ export function PersonProfileHero({
           <ConnectionPersonAvatar
             photoUrl={profile.photoUrl}
             label={profile.displayName}
-            // The tick sits on the photo, as it does for the same person in every
-            // list. It used to float alone under the name, away from the face it
-            // vouches for. showBadgeDetails makes it a real control, so tapping it
-            // explains it on a phone as hovering does on a desktop.
-            verified={Boolean(profile.verifiedRole)}
-            showBadgeDetails
+            verified={Boolean(profile.verifiedRole) && !riaVerified}
             size="profile"
             className={styles.avatar}
             fallbackClassName={styles.avatarFallback}
@@ -45,7 +41,9 @@ export function PersonProfileHero({
           <div className={styles.nameActions}>
             <div className={styles.identity}>
               <IdentityName className={styles.name} dir="auto">{profile.displayName}</IdentityName>
-              {profile.verifiedRole && !riaVerified ? (
+              {riaVerified ? (
+                <div className={styles.role}><ConnectionStatusBadges riaVerified /></div>
+              ) : profile.verifiedRole ? (
                 <HelperText className={styles.role}>{profile.verifiedRole}</HelperText>
               ) : null}
               <div className={styles.contactLines}>{contacts}</div>

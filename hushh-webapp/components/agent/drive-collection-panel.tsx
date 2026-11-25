@@ -30,6 +30,15 @@ function duration(ms: number): string {
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
+/** Shared presentation values; both renderers read the same preparation timing. */
+export function drivePreparationDetails(status: DriveCollectionStatus): string[] {
+  return [
+    `${status.lastIndexedAt ? `Last indexed ${new Date(status.lastIndexedAt).toLocaleString()}` : "No files indexed yet."}${status.initialIndexingDurationMs !== null ? ` · Initial indexing ${duration(status.initialIndexingDurationMs)}` : status.initialStartedAt && status.state === "indexing" ? " · Initial indexing in progress" : ""}`,
+    `Discovery work: ${duration(status.syncDurationMs)}. Last sync: ${status.lastSyncedAt ? new Date(status.lastSyncedAt).toLocaleString() : "Not completed"}.`,
+    `Text extracted: ${status.counts.extracted.toLocaleString()} files${status.initialExtractionDurationMs !== null ? ` · Initial extraction ${duration(status.initialExtractionDurationMs)}` : ""}. Indexed files have completed document understanding.`,
+  ];
+}
+
 type CollectionValue = { status: DriveCollectionStatus | null; busy: boolean; error: Failure | null; revision: number };
 const initial = (): CollectionValue => ({ status: null, busy: false, error: null, revision: 0 });
 
@@ -103,9 +112,7 @@ export function DriveCollectionView({ model, packets }: { model: DriveCollection
           disabled={!model.canToggle} onCheckedChange={() => void model.toggle()} /> : null} />
       {status && <details className="px-4 pb-2 text-xs text-muted-foreground"><summary className="min-h-11 cursor-pointer py-3">View details</summary>
         <dl className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">{(["discovered", "indexed", "pending", "failed"] as const).map(name => <div key={name}><dt className="text-xs capitalize text-muted-foreground">{name}</dt><dd className="font-medium tabular-nums">{status.counts[name].toLocaleString()}</dd></div>)}</dl>
-        <p className="mt-3">{status.lastIndexedAt ? `Last indexed ${new Date(status.lastIndexedAt).toLocaleString()}` : "No files indexed yet."}{status.initialIndexingDurationMs !== null ? ` · Initial indexing ${duration(status.initialIndexingDurationMs)}` : status.initialStartedAt && status.state === "indexing" ? " · Initial indexing in progress" : ""}</p>
-        <p>Discovery work: {duration(status.syncDurationMs)}. Last sync: {status.lastSyncedAt ? new Date(status.lastSyncedAt).toLocaleString() : "Not completed"}.</p>
-        <p>Text extracted: {status.counts.extracted.toLocaleString()} files{status.initialExtractionDurationMs !== null ? ` · Initial extraction ${duration(status.initialExtractionDurationMs)}` : ""}. Indexed files have completed document understanding.</p>
+        {drivePreparationDetails(status).map((detail, index) => <p key={index} className={index === 0 ? "mt-3" : undefined}>{detail}</p>)}
         {paused && <p>Saved packets were last verified before preparation paused.</p>}
       </details>}
       {/* After a failed change the switch itself is how to try again. */}

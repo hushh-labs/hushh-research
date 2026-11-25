@@ -5,6 +5,18 @@ from types import SimpleNamespace
 
 import pytest
 
+from hushh_mcp.one_adk.file_schedule_proposal import propose_file_schedule
+
+
+def test_chat_file_schedule_review_only_returns_normalized_time():
+    assert propose_file_schedule("2030-02-01T09:30:00+05:30") == {
+        "status": "proposal_ready",
+        "type": "files.schedule_organization",
+        "run_at": "2030-02-01T04:00:00+00:00",
+    }
+    for unresolved in ("2030-02-01T09:30:00", "2030-02-32T09:30:00+00:00", "tomorrow"):
+        assert propose_file_schedule(unresolved)["run_at"] is None
+
 
 @pytest.mark.parametrize("scopes", [(), ("files.manage",), ("pod.act", "pod.act")])
 async def test_unscoped_adapter_cannot_prepare_private_information(scheduled_tasks, scopes):

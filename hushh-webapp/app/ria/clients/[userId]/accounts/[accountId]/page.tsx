@@ -12,12 +12,10 @@ export async function generateStaticParams(): Promise<Array<{ userId: string; ac
   if (process.env.CAPACITOR_BUILD !== "true") {
     return [];
   }
-  return [
-    {
-      userId: nativeStaticExportUserId,
-      accountId: "acct_demo_taxable_main",
-    },
-  ];
+  return [...new Set([nativeStaticExportUserId, "native-audit-fixture"])].map(userId => ({
+    userId,
+    accountId: "acct_demo_taxable_main",
+  }));
 }
 
 export default async function RiaClientAccountDetailPage({

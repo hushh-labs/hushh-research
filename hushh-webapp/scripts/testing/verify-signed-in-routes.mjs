@@ -8,13 +8,13 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import process from "node:process";
 
-import { chromium } from "playwright";
 import {
   defaultReviewerIdentityEnvFiles,
   parseEnvFile,
   resolveReviewerTestIdentity,
 } from "./reviewer-test-identity.mjs";
-import { waitForReviewerVaultAdmission } from "../../../.agents/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
+import { createReviewerSessionHarness, waitForReviewerVaultAdmission } from "../../../.agents/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
+import { summarizeReviewerRoutes, verifyReviewerRoute } from "./reviewer-route-outcomes.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,7 +56,6 @@ const viewportFilter = String(process.env.HUSHH_VIEWPORT_FILTER || "")
 const reviewerIdentity = resolveReviewerTestIdentity({
   envFiles: defaultReviewerIdentityEnvFiles({ repoRoot, webDir }),
 });
-const reviewerPassphrase = reviewerIdentity.reviewerVaultPassphrase;
 const smokeUserId = reviewerIdentity.reviewerUid;
 
 const VIEWPORTS = [
@@ -66,13 +65,19 @@ const VIEWPORTS = [
   { name: "desktop", width: 1728, height: 1117, isMobile: false },
 ];
 const NAVIGATION_TIMEOUT_MS = 120000;
+const reviewerSession = await createReviewerSessionHarness({
+  repoRoot,
+  appOrigin,
+  timeoutMs: NAVIGATION_TIMEOUT_MS,
+  reviewerIdentity: {
+    reviewerUid: reviewerIdentity.reviewerUid,
+    reviewerVaultPassphrase: reviewerIdentity.reviewerVaultPassphrase,
+  },
+});
 const CLIENT_NAVIGATION_CONTEXT_KEY = "__hushhSignedInRouteContextProbe";
 const INTERNAL_APP_NAVIGATION_REQUEST_EVENT =
   "app-internal-navigation-requested";
 const REVIEWER_BOOTSTRAP_ROUTE = "/";
-const REVIEWER_BOOTSTRAP_ROUTE_IDS = [
-  REVIEWER_BOOTSTRAP_ROUTE,
-];
 const SAME_SESSION_SHELL_ROUTES = new Set([
   "/",
   "/one",
@@ -631,45 +636,6 @@ const ROUTE_HEALTH_EXPECTATIONS = {
   "/one/setup/email": { heading: "Replies, ready when you are." },
 };
 
-async function installNativeTestBridge(page) {
-  const reviewerMutationPolicy =
-    process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true"
-      ? "mutation_authorized"
-      : "preparation_only";
-  // The route verifier supplies the canonical reviewer UID and passphrase,
-  // not a public email/password pair. Select the backend-minted review token
-  // path explicitly so local credential fallbacks cannot choose a stale or
-  // unrelated Firebase identity.
-  const reviewerAuthMode =
-    process.env.REVIEWER_AUTH_MODE === "local_credentials"
-      ? "local_credentials"
-      : "custom_token";
-  await page.addInitScript(
-    ({
-      expectedUserId,
-      vaultPassphrase,
-      reviewerMutationPolicy,
-      reviewerAuthMode,
-    }) => {
-      window.__HUSHH_NATIVE_TEST__ = {
-        ...(window.__HUSHH_NATIVE_TEST__ || {}),
-        enabled: true,
-        autoReviewerLogin: true,
-        expectedUserId,
-        vaultPassphrase,
-        reviewerMutationPolicy,
-        reviewerAuthMode,
-      };
-    },
-    {
-      expectedUserId: smokeUserId,
-      vaultPassphrase: reviewerPassphrase,
-      reviewerMutationPolicy,
-      reviewerAuthMode,
-    },
-  );
-}
-
 function loadRouteContract() {
   return JSON.parse(fs.readFileSync(contractPath, "utf8"));
 }
@@ -908,117 +874,6 @@ function routeSpec(route) {
     allowedRouteIds: withOneSetupFallback(route.route, allowedRouteIds),
     requireBackButton: Boolean(fixture?.requireBackButton),
   };
-}
-
-async function ensureReviewerSession(page) {
-  process.stdout.write(`→ bootstrap reviewer session\n`);
-  await page.goto(
-    `${appOrigin}/login?redirect=${encodeURIComponent(REVIEWER_BOOTSTRAP_ROUTE)}`,
-    { waitUntil: "domcontentloaded" },
-  );
-
-  const reviewerButton = page.getByRole("button", {
-    name: /continue as reviewer/i,
-  });
-  await page.waitForFunction(
-    () => {
-      const bridge = window.__HUSHH_NATIVE_TEST__;
-      const bootstrapState = bridge?.bootstrapState || "";
-      if (window.location.pathname === "/ria") {
-        return true;
-      }
-      if (
-        bootstrapState === "authenticated" ||
-        bootstrapState === "loading_vault_state" ||
-        bootstrapState === "unlocking_vault" ||
-        bootstrapState === "vault_unlocked"
-      ) {
-        return true;
-      }
-      if (document.querySelector("#unlock-passphrase")) {
-        return true;
-      }
-      return Array.from(document.querySelectorAll("button")).some((button) =>
-        /continue as reviewer/i.test((button.textContent || "").trim()),
-      );
-    },
-    {},
-    { timeout: 60_000 },
-  );
-
-  if (await reviewerButton.isVisible().catch(() => false)) {
-    process.stdout.write(`→ click reviewer login\n`);
-    await reviewerButton.click();
-  }
-
-  try {
-    await page.waitForURL(
-      (url) =>
-        url.pathname === REVIEWER_BOOTSTRAP_ROUTE ||
-        url.pathname.startsWith(`${REVIEWER_BOOTSTRAP_ROUTE}/`),
-      { timeout: NAVIGATION_TIMEOUT_MS },
-    );
-  } catch (error) {
-    const diagnostics = await captureRouteDiagnostics(page);
-    throw new Error(
-      `Reviewer session login timed out.\n${JSON.stringify(diagnostics, null, 2)}`,
-      { cause: error },
-    );
-  }
-
-  const unlockInput = page.locator("#unlock-passphrase");
-  await unlockInput
-    .waitFor({ state: "visible", timeout: 10_000 })
-    .catch(() => {});
-  if (await unlockInput.isVisible().catch(() => false)) {
-    process.stdout.write(`→ unlock vault with passphrase\n`);
-    process.stdout.write(`→ fill passphrase\n`);
-    await unlockInput.fill(reviewerPassphrase);
-    process.stdout.write(`→ resolve unlock button\n`);
-    const unlockButton = page
-      .getByRole("button", { name: /unlock with password/i })
-      .first();
-    await page.waitForFunction(
-      () => {
-        const button = Array.from(document.querySelectorAll("button")).find(
-          (candidate) =>
-            /unlock with password/i.test(
-              (candidate.textContent || "").trim(),
-            ),
-        );
-        return button instanceof HTMLButtonElement && !button.disabled;
-      },
-      {},
-      { timeout: 5_000 },
-    );
-    process.stdout.write(`→ dispatch unlock click\n`);
-    await unlockButton.click({ noWaitAfter: true });
-    process.stdout.write(`→ wait post-submit settle\n`);
-    await page.waitForTimeout(3000);
-    process.stdout.write(`→ confirm unlock UI hidden\n`);
-    if (await unlockInput.isVisible().catch(() => false)) {
-      const diagnostics = await captureRouteDiagnostics(page);
-      throw new Error(
-        `Reviewer vault unlock timed out.\n${JSON.stringify(diagnostics, null, 2)}`,
-      );
-    }
-    process.stdout.write(`→ vault unlock submitted\n`);
-  }
-
-  process.stdout.write(`→ wait for reviewer route beacon\n`);
-  try {
-    await waitForReviewerVaultAdmission(page, smokeUserId, NAVIGATION_TIMEOUT_MS);
-    await waitForRouteBeacon(page, REVIEWER_BOOTSTRAP_ROUTE_IDS);
-  } catch (error) {
-    const diagnostics = await captureRouteDiagnostics(page);
-    throw new Error(
-      `Reviewer session route did not stabilize.\n${JSON.stringify(diagnostics, null, 2)}`,
-      { cause: error },
-    );
-  }
-  // Each route selects its own persona. Chat bootstrap must not require RIA admission.
-  process.stdout.write(`→ reviewer route beacon ready\n`);
-  process.stdout.write(`✓ reviewer session ready\n`);
 }
 
 async function firstVisible(locator) {
@@ -1816,13 +1671,6 @@ async function verifyRoute(page, viewport, spec) {
 
   const { issues, dispose } = collectPageIssues(page);
   try {
-    if (spec.requiresColdEntry) {
-      process.stdout.write(
-        `↷ [${viewport}] ${spec.route} requires cold-entry verification; skipping from signed-in sweep\n`,
-      );
-      return;
-    }
-
     const contextProbe = isSameSessionShellRoute(spec.route)
       ? await installClientNavigationContextProbe(page)
       : null;
@@ -1986,7 +1834,7 @@ async function verifyMarketplaceFlow(page, viewport) {
         `↷ [${viewport}] marketplace workspace flow skipped; no eligible workspace card\n`,
       );
       assertNoIssues("marketplace-workspace-flow", viewport, issues);
-      return;
+      return false;
     }
     await openWorkspace.click();
     await waitForRouteBeacon(page, ["/ria/clients/[userId]"]);
@@ -1998,48 +1846,32 @@ async function verifyMarketplaceFlow(page, viewport) {
       viewport,
     );
     assertNoIssues("marketplace-workspace-flow", viewport, issues);
+    return true;
   } finally {
     dispose();
   }
 }
 
-async function runViewportSweep(viewport, contract) {
+async function runViewportSweep(viewport, contract, observations) {
   let context = null;
   let page = null;
-  let browser = null;
+  let capture = null;
+  let readOnlyGuard = null;
+  const browser = await reviewerSession.chromium.launch({ headless: true });
 
   try {
-    let bootstrapError = null;
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      browser = await chromium.launch({ headless: true });
-      context = await browser.newContext({ viewport });
-      page = await context.newPage();
-      await installNativeTestBridge(page);
-      page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
-      page.setDefaultTimeout(NAVIGATION_TIMEOUT_MS);
-      try {
-        await ensureReviewerSession(page);
-        bootstrapError = null;
-        break;
-      } catch (error) {
-        bootstrapError = error;
-        process.stderr.write(
-          `bootstrap attempt ${attempt} failed for ${viewport.name}: ${error instanceof Error ? error.message : String(error)}\n`,
-        );
-        await context.close().catch(() => {});
-        await browser.close().catch(() => {});
-        browser = null;
-        context = null;
-        page = null;
-      }
-    }
-
-    if (!page || bootstrapError) {
-      throw (
-        bootstrapError ||
-        new Error(`Failed to bootstrap reviewer session for ${viewport.name}`)
-      );
-    }
+    await reviewerSession.assertVisibleVaultChallenge(browser, REVIEWER_BOOTSTRAP_ROUTE);
+    ({ context, page, capture, readOnlyGuard } = await reviewerSession.openSession(
+      browser,
+      REVIEWER_BOOTSTRAP_ROUTE,
+      {
+        requireVaultUnlocked: true,
+        viewport: { width: viewport.width, height: viewport.height },
+        isMobile: viewport.isMobile,
+      },
+    ));
+    page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
+    page.setDefaultTimeout(NAVIGATION_TIMEOUT_MS);
 
     const includedRoutes = contract.filter(shouldIncludeRoute);
     const { sameSession, coldEntry } =
@@ -2050,8 +1882,9 @@ async function runViewportSweep(viewport, contract) {
       process.stdout.write(
         `→ [${viewport.name}] ${route.route} (same-session shell)\n`,
       );
-      await verifyRoute(page, viewport.name, spec);
-      process.stdout.write(`✓ [${viewport.name}] ${route.route}\n`);
+      const result = await verifyReviewerRoute(spec, () => verifyRoute(page, viewport.name, spec), ROUTE_OVERRIDES[route.route]);
+      observations.push({ viewport: viewport.name, lane: "sameSession", route: route.route, ...result });
+      process.stdout.write(`${result.status === "passed" ? "✓" : "↷"} [${viewport.name}] ${route.route}${result.status === "skipped" ? " (requires cold-entry verification)" : ""}\n`);
     }
 
     if (shouldRunExtraFlow("ria")) {
@@ -2059,66 +1892,70 @@ async function runViewportSweep(viewport, contract) {
       process.stdout.write(`✓ [${viewport.name}] ria workspace flow\n`);
     }
     if (shouldRunExtraFlow("marketplace")) {
-      await verifyMarketplaceFlow(page, viewport.name);
-      process.stdout.write(`✓ [${viewport.name}] marketplace workspace flow\n`);
+      const passed = await verifyMarketplaceFlow(page, viewport.name);
+      if (passed) process.stdout.write(`✓ [${viewport.name}] marketplace workspace flow\n`);
+      else observations.push({ viewport: viewport.name, lane: "flow", route: "marketplace-workspace-flow", status: "skipped", reason: "no-eligible-workspace" });
     }
 
     for (const route of coldEntry) {
       const spec = routeSpec(route);
       process.stdout.write(
-        `→ [${viewport.name}] ${route.route} (cold-entry/direct)\n`,
+        `→ [${viewport.name}] ${route.route} (direct entry in reviewer session)\n`,
       );
-      await verifyRoute(page, viewport.name, spec);
-      process.stdout.write(`✓ [${viewport.name}] ${route.route}\n`);
+      const result = await verifyReviewerRoute(spec, () => verifyRoute(page, viewport.name, spec), ROUTE_OVERRIDES[route.route]);
+      observations.push({ viewport: viewport.name, lane: "directEntry", route: route.route, ...result });
+      process.stdout.write(`${result.status === "passed" ? "✓" : "↷"} [${viewport.name}] ${route.route}${result.status === "skipped" ? " (requires cold-entry verification)" : ""}\n`);
     }
+    capture.assertNoCriticalApiFailures(`signed-in ${viewport.name} route sweep`);
+    readOnlyGuard.assertNoBlockedMutation();
   } finally {
+    capture?.dispose();
     if (context) {
       await context.close().catch(() => {});
     }
-    if (browser) {
-      await browser.close().catch(() => {});
-    }
+    await browser.close().catch(() => {});
   }
 }
 
 async function main() {
-  const server = startDevServerIfNeeded();
-  const startedChild = await server.ensure();
   const contract = loadRouteContract();
   const selectedViewports = includedViewports();
+  const includedRoutes = contract.filter(shouldIncludeRoute);
 
   if (selectedViewports.length === 0) {
     throw new Error(
       `No viewport matched HUSHH_VIEWPORT_FILTER=${viewportFilter}`,
     );
   }
+  if (includedRoutes.length === 0) throw new Error("No route matched HUSHH_ROUTE_FILTER");
 
+  const server = startDevServerIfNeeded();
   try {
+    await server.ensure();
+    const observations = [];
     for (const viewport of selectedViewports) {
-      await runViewportSweep(viewport, contract);
+      await runViewportSweep(viewport, contract, observations);
     }
-    const includedRoutes = contract.filter(shouldIncludeRoute);
     const { sameSession, coldEntry } =
       splitRoutesByVerificationLane(includedRoutes);
+    const summary = summarizeReviewerRoutes(selectedViewports.map(viewport => viewport.name), {
+      sameSession: sameSession.map(route => route.route),
+      directEntry: coldEntry.map(route => route.route),
+    }, observations);
     process.stdout.write(
       JSON.stringify(
         {
-          ok: true,
+          ...summary,
           origin: appOrigin,
           viewports: selectedViewports.map((viewport) => viewport.name),
-          sameSessionShellRoutesCovered: sameSession.map(
-            (route) => route.route,
-          ),
-          coldEntryRoutesCovered: coldEntry.map((route) => route.route),
         },
         null,
         2,
       ) + "\n",
     );
+    if (!summary.ok) process.exitCode = 2;
   } finally {
-    if (startedChild) {
-      await server.stop();
-    }
+    await server.stop();
   }
 }
 

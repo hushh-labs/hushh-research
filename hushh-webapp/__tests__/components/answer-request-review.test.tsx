@@ -1,14 +1,17 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-const memory = vi.hoisted(() => ({ retrieve: vi.fn(), approve: vi.fn() }));
+const memory = vi.hoisted(() => ({ retrieve: vi.fn(), approve: vi.fn(), runtime: vi.fn() }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "owner" }, userId: "owner" }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: true, vaultKey: "test-key", vaultOwnerToken: "test-token" }) }));
 vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getIdToken: async () => "test-id-token" } }));
 vi.mock("@/lib/services/account-identity-service", () => ({ AccountIdentityService: { refreshIdentityForSession: async () => ({ user_id: "owner", display_name: "Owner", email: "owner@example.test", photo_url: null }) } }));
 vi.mock("@/lib/vault/session-epoch", () => ({ snapshotVaultSessionEpoch: () => 0, isVaultSessionEpochCurrent: () => true }));
 vi.mock("@/lib/pkm/memory-scope-retrieval", () => ({ retrieveApprovedMemoryScopes: memory.retrieve }));
-vi.mock("@/lib/services/answer-request-service", () => ({ AnswerRequestService: { approve: memory.approve, decline: vi.fn(), retryResolution: vi.fn() } }));
+vi.mock("@/lib/services/answer-request-service", () => ({
+  answerProcessorLabel: (r: { provider: string; model: string }) => `${r.provider === "gemini" ? "Google Gemini" : "Azure OpenAI"} · ${r.model}`,
+  AnswerRequestService: { approve: memory.approve, runtime: memory.runtime, decline: vi.fn(), retryResolution: vi.fn() },
+}));
 vi.mock("@/components/consent/answer-payout-account", () => ({
   AnswerPayoutAccount: () => null,
 }));
@@ -23,6 +26,7 @@ import { AnswerRequestReview } from "@/components/consent/answer-request-review"
 import type { PendingAnswerRequest } from "@/lib/services/answer-request-service";
 afterEach(cleanup);
 beforeEach(() => {
+  memory.runtime.mockReset().mockResolvedValue({ version: 1, provider: "gemini", model: "gemini-fixture", mode: "private", fingerprint: "a".repeat(64) });
   memory.approve.mockReset().mockResolvedValue({ termsDigest: "digest" });
   memory.retrieve.mockReset().mockImplementation(async ({ approvedScopes }: { approvedScopes: string[] }) => ({
     projections: approvedScopes.map(scope => ({ scope, payload: { value: "recorded" }, contentRevision: 1 })),
@@ -66,6 +70,7 @@ it("prices the answer in this lane's words, never the document lane's", async ()
   render(<AnswerRequestReview request={{ ...base, resolutionMode: "agent" }} requesterLabel="Peer" />);
   // Consent is captured on the review step, before a price is ever chosen.
   expect(screen.getByRole("button", { name: "Set a price" })).toBeDisabled();
+  await waitFor(() => expect(screen.getByRole("checkbox", { name: /I agree to Google Gemini/ })).toBeEnabled());
   fireEvent.click(screen.getByRole("checkbox", { name: /I agree to Google Gemini/ }));
   await waitFor(() => expect(screen.getByRole("button", { name: "Set a price" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "Set a price" }));
@@ -82,6 +87,7 @@ it("prices the answer in this lane's words, never the document lane's", async ()
 it("shows exactly one step at a time, and the price step carries no consent or payout control", async () => {
   priceSheet.props = null;
   render(<AnswerRequestReview request={{ ...base, resolutionMode: "agent" }} requesterLabel="Peer" />);
+  await waitFor(() => expect(screen.getByRole("checkbox", { name: /I agree to Google Gemini/ })).toBeEnabled());
   fireEvent.click(screen.getByRole("checkbox", { name: /I agree to Google Gemini/ }));
   await waitFor(() => expect(screen.getByRole("button", { name: "Set a price" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "Set a price" }));
@@ -108,10 +114,11 @@ it("discloses a missing age and approves only recorded sex and location", async 
   ] }} requesterLabel="Peer" />);
   expect(await screen.findByText(/Available for this answer: Sex, Location/)).toBeInTheDocument();
   expect(screen.getByText(/Not recorded: Age/)).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByRole("checkbox", { name: /I agree to Google Gemini/ })).toBeEnabled());
   fireEvent.click(screen.getByRole("checkbox", { name: /I agree to Google Gemini/ }));
   fireEvent.click(screen.getByRole("button", { name: "Set a price" }));
   await act(async () => { await (priceSheet.props?.onSubmit as (amount: number) => void)(200); });
-  await waitFor(() => expect(memory.approve).toHaveBeenCalledWith("test-id-token", "r", [sex, location], 200, true));
+  await waitFor(() => expect(memory.approve).toHaveBeenCalledWith("test-id-token", "r", [sex, location], 200, true, expect.objectContaining({ provider: "gemini", model: "gemini-fixture" })));
 });
 
 it("blocks pricing when source reads are unavailable", async () => {
@@ -120,6 +127,7 @@ it("blocks pricing when source reads are unavailable", async () => {
   }));
   render(<AnswerRequestReview request={{ ...base, resolutionMode: "agent" }} requesterLabel="Peer" />);
   expect(await screen.findByText(/Could not verify: Food preferences/)).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByRole("checkbox", { name: /I agree to Google Gemini/ })).toBeEnabled());
   fireEvent.click(screen.getByRole("checkbox", { name: /I agree to Google Gemini/ }));
   expect(screen.getByRole("button", { name: "Set a price" })).toBeDisabled();
   expect(memory.approve).not.toHaveBeenCalled();
@@ -132,6 +140,7 @@ it("rechecks available information before approving a priced answer", async () =
     .mockResolvedValueOnce({ projections: [{ scope: "attr.food.preferences", payload: {}, contentRevision: 2 }],
       unavailableScopes: [], complete: true, assertCurrent: async () => undefined });
   render(<AnswerRequestReview request={{ ...base, resolutionMode: "agent" }} requesterLabel="Peer" />);
+  await waitFor(() => expect(screen.getByRole("checkbox", { name: /I agree to Google Gemini/ })).toBeEnabled());
   fireEvent.click(screen.getByRole("checkbox", { name: /I agree to Google Gemini/ }));
   await waitFor(() => expect(screen.getByRole("button", { name: "Set a price" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "Set a price" }));
@@ -152,11 +161,46 @@ it("does not silently add a newly available scope after the price step opens", a
     { scope: age, label: "Age" }, { scope: sex, label: "Sex" },
   ] }} requesterLabel="Peer" />);
   expect(await screen.findByText(/Available for this answer: Sex/)).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByRole("checkbox", { name: /I agree to Google Gemini/ })).toBeEnabled());
   fireEvent.click(screen.getByRole("checkbox", { name: /I agree to Google Gemini/ }));
   fireEvent.click(screen.getByRole("button", { name: "Set a price" }));
   ageRecorded = true;
   fireEvent.focus(window);
   await waitFor(() => expect(memory.retrieve).toHaveBeenCalledTimes(2));
   await act(async () => { await (priceSheet.props?.onSubmit as (amount: number) => void)(200); });
-  await waitFor(() => expect(memory.approve).toHaveBeenCalledWith("test-id-token", "r", [sex], 200, true));
+  await waitFor(() => expect(memory.approve).toHaveBeenCalledWith("test-id-token", "r", [sex], 200, true, expect.objectContaining({ provider: "gemini", model: "gemini-fixture" })));
+});
+
+it("shows the Azure pod's OpenAI model and freezes it into the owner approval", async () => {
+  const runtime = { version: 1, provider: "azure_openai", model: "gpt-fixture", mode: "private", fingerprint: "b".repeat(64) };
+  memory.runtime.mockResolvedValue(runtime);
+  render(<AnswerRequestReview request={{ ...base, resolutionMode: "agent" }} requesterLabel="Peer" />);
+  const consent = await screen.findByRole("checkbox", { name: /Azure OpenAI · gpt-fixture/ });
+  await waitFor(() => expect(consent).toBeEnabled());
+  expect(screen.queryByText(/Google Gemini/)).toBeNull();
+  fireEvent.click(consent);
+  fireEvent.click(screen.getByRole("button", { name: "Set a price" }));
+  await act(async () => { await (priceSheet.props?.onSubmit as (value: number) => void)(100); });
+  await waitFor(() => expect(memory.approve).toHaveBeenCalledWith("test-id-token", "r", ["attr.food.preferences"], 100, true, runtime));
+});
+
+it("requires new consent when the connected model changes after the price review", async () => {
+  render(<AnswerRequestReview request={{ ...base, resolutionMode: "agent" }} requesterLabel="Peer" />);
+  await waitFor(() => expect(screen.getByRole("checkbox", { name: /Google Gemini/ })).toBeEnabled());
+  fireEvent.click(screen.getByRole("checkbox", { name: /Google Gemini/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Set a price" }));
+  memory.runtime.mockResolvedValue({ version: 1, provider: "gemini", model: "changed-model", mode: "private", fingerprint: "c".repeat(64) });
+  await act(async () => { await (priceSheet.props?.onSubmit as (value: number) => void)(100); });
+  expect(memory.approve).not.toHaveBeenCalled();
+});
+
+it("does not carry a checked consent into a different runtime before pricing", async () => {
+  render(<AnswerRequestReview request={{ ...base, resolutionMode: "agent" }} requesterLabel="Peer" />);
+  await waitFor(() => expect(screen.getByRole("checkbox", { name: /Google Gemini/ })).toBeEnabled());
+  fireEvent.click(screen.getByRole("checkbox", { name: /Google Gemini/ }));
+  memory.runtime.mockResolvedValue({ version: 1, provider: "azure_openai", model: "gpt-fixture", mode: "private", fingerprint: "b".repeat(64) });
+  act(() => window.dispatchEvent(new Event("focus")));
+  await waitFor(() => expect(screen.getByRole("checkbox", { name: /Azure OpenAI/ })).toBeEnabled());
+  expect(screen.getByRole("checkbox", { name: /Azure OpenAI/ })).not.toBeChecked();
+  expect(screen.getByRole("button", { name: "Set a price" })).toBeDisabled();
 });

@@ -5,17 +5,20 @@ import { Textarea } from "@/components/ui/textarea";
 import { StatusPill } from "@/lib/morphy-ux/ui/surface-primitives";
 import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
 import { REQUEST_DURATION_OPTIONS } from "@/lib/agent/action-directive-summary";
-import type { RequestablePersonScope } from "@/lib/services/person-profile-service";
+import { InformationRequestPriceReview } from "./information-request-price";
+import type { InformationRequestPrice, RequestablePersonScope } from "@/lib/services/person-profile-service";
 import styles from "./information-request-review-fields.module.css";
 
 const durationOptions = REQUEST_DURATION_OPTIONS.map(option => ({ value: String(option.hours), label: option.label }));
 
 /** The same editable, human-readable confirmation in Profile and Chat. */
 export function InformationRequestReviewFields({
-  scopes, purpose, durationHours, onPurposeChange, onDurationChange, disabled = false,
+  scopes, purpose, durationHours, onPurposeChange, onDurationChange, personRef, onPriceChange, disabled = false,
   testIdPrefix = "person-profile",
 }: {
   scopes: RequestablePersonScope[];
+  personRef?: string;
+  onPriceChange?: (price: InformationRequestPrice | null) => void;
   purpose: string;
   durationHours: number;
   onPurposeChange: (value: string) => void;
@@ -38,6 +41,12 @@ export function InformationRequestReviewFields({
       </div>
     </section>
     {scopes.length > 50 ? <p data-consent-role="status" role="alert" className="text-sm text-destructive">Choose up to 50 fields for one request.</p> : null}
+    <fieldset disabled={disabled} className="min-w-0 space-y-2" data-testid={`${testIdPrefix}-duration`}>
+      <legend data-consent-role="form-label" className="text-sm font-medium">Access duration</legend>
+      <SegmentedControl ariaLabel="Access duration" value={String(durationHours)} options={durationOptions}
+        onValueChange={value => onDurationChange(Number(value))} disabled={disabled} size="lg" mobileColumns={2} className={styles.duration} />
+    </fieldset>
+    {personRef && onPriceChange ? <InformationRequestPriceReview personRef={personRef} scopeRefs={scopes.map(scope => scope.scopeRef)} durationHours={durationHours} onChange={onPriceChange} /> : null}
     <label data-consent-role="form-label" className="block space-y-2 text-sm font-medium">
       Purpose
       <Textarea value={purpose} disabled={disabled} onChange={event => onPurposeChange(event.target.value)} required minLength={8} maxLength={500} rows={2} className="min-h-20" data-consent-input="true"
@@ -45,11 +54,8 @@ export function InformationRequestReviewFields({
         data-testid={`${testIdPrefix}-purpose`} />
       <span id={hintId} data-consent-role="helper" className="text-xs font-normal text-muted-foreground">At least 8 characters.</span>
     </label>
-    <fieldset disabled={disabled} className="min-w-0 space-y-2" data-testid={`${testIdPrefix}-duration`}>
-      <legend data-consent-role="form-label" className="text-sm font-medium">Access duration</legend>
-      <SegmentedControl ariaLabel="Access duration" value={String(durationHours)} options={durationOptions}
-        onValueChange={value => onDurationChange(Number(value))} disabled={disabled} size="lg" mobileColumns={2} className={styles.duration} />
-    </fieldset>
-    <p data-consent-role="body" className="text-sm text-muted-foreground">They&rsquo;ll review your request. If sharing has a price, you&rsquo;ll confirm the exact amount before access. Sending this request won&rsquo;t charge you.</p>
+    {!(personRef && onPriceChange) ? (
+      <p data-consent-role="body" className="text-sm text-muted-foreground">They&rsquo;ll review your request. If sharing has a price, you&rsquo;ll confirm the exact amount before access. Sending this request won&rsquo;t charge you.</p>
+    ) : null}
   </div>;
 }

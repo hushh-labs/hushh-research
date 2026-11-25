@@ -1,6 +1,5 @@
 "use client";
 
-import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import {
   useCallback,
   useEffect,
@@ -23,7 +22,7 @@ import {
   X,
 } from "@/components/icons";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { StarRatingInput } from "@/components/one-location/nearby-check-in/star-rating-input";
 import { Label } from "@/components/ui/label";
@@ -127,37 +126,10 @@ import type {
 } from "@/lib/one-location/types";
 import { isNative } from "@/lib/capacitor/platform";
 import { ROUTES } from "@/lib/navigation/routes";
-import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { SEMANTIC_ROLE_CLASSES } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { cn } from "@/lib/utils";
 
 const SUCCESS_ROLE = SEMANTIC_ROLE_CLASSES.success;
-
-function nearbyPresenceLoadIssue(error: unknown): {
-  message: string;
-  action: "retry" | null;
-} {
-  const code = apiErrorCode(error);
-  if (error instanceof ApiError) {
-    if (error.status === 404 && code === "NEARBY_PRESENCE_UNAVAILABLE") {
-      return { message: "Nearby check-in is not available for this account.", action: null };
-    }
-    if (error.status === 401) {
-      return { message: "Your session expired. Sign in again to check in nearby.", action: null };
-    }
-    if (error.status === 429) {
-      return { message: "Too many status checks. Wait a moment and retry.", action: "retry" };
-    }
-    return {
-      message: "Nearby check-in status is temporarily unavailable. Try again shortly.",
-      action: "retry",
-    };
-  }
-  return {
-    message: "Nearby check-in could not be loaded. Check your connection and retry.",
-    action: "retry",
-  };
-}
 
 /**
  * The three stay lengths, now offered as one dropdown instead of three cells.
@@ -786,7 +758,7 @@ export function NearbyCheckInSheet({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [locationRecovery, setLocationRecovery] =
     useState<LocationRecovery>(null);
-  const [presenceLoadError, setPresenceLoadError] = useState<ReturnType<typeof nearbyPresenceLoadIssue> | null>(
+  const [presenceLoadError, setPresenceLoadError] = useState<string | null>(
     null,
   );
   const [placesError, setPlacesError] = useState<string | null>(null);
@@ -925,13 +897,16 @@ export function NearbyCheckInSheet({
         }
         publishState(next);
         return next;
-      } catch (error) {
+      } catch {
         if (
           !background &&
           ownerEpochRef.current === expectedOwnerEpoch &&
           presenceReadGenerationRef.current === generation
         ) {
-          setPresenceLoadError(nearbyPresenceLoadIssue(error));
+          const message =
+            "Nearby check-in could not be loaded. Check your connection and retry.";
+          setPresenceLoadError(message);
+          toast.error(message);
         }
         return "error";
       } finally {
@@ -1830,7 +1805,7 @@ export function NearbyCheckInSheet({
       setSearchResults([]);
       setSelectedPlaceId("");
       setSearch("");
-      toast.success("You're checked in nearby.", { className: connectTypography.toast });
+      toast.success("You're checked in nearby.");
     } catch (error) {
       if (
         ownerEpochRef.current !== expectedOwnerEpoch ||
@@ -1878,7 +1853,7 @@ export function NearbyCheckInSheet({
       } else if (details.message.toLowerCase().includes("closer place")) {
         setPlacesError(details.message);
       }
-      toast.error(details.message, { className: connectTypography.toast });
+      toast.error(details.message);
     } finally {
       if (
         ownerEpochRef.current === expectedOwnerEpoch &&
@@ -2180,7 +2155,7 @@ export function NearbyCheckInSheet({
         },
       });
       if (!current()) return;
-      toast.success("Saved.", { className: connectTypography.toast });
+      toast.success("Saved.");
       setCompletedCheckIn((current) =>
         current ? { ...current, saved: true, saveError: null } : current,
       );
@@ -2201,7 +2176,7 @@ export function NearbyCheckInSheet({
           ? { ...current, saveError: "Couldn't save this place." }
           : current,
       );
-      toast.error("Couldn't save this place.", { className: connectTypography.toast });
+      toast.error("Couldn't save this place.");
     } finally {
       if (current()) setSavingPlace(false);
     }
@@ -2245,14 +2220,14 @@ export function NearbyCheckInSheet({
       }
       setAddTimeOpen(false);
       toast.success(
-        incrementMinutes === 60 ? "1 hour added." : "30 minutes added.", { className: connectTypography.toast },
+        incrementMinutes === 60 ? "1 hour added." : "30 minutes added.",
       );
     } catch {
       if (
         ownerEpochRef.current === expectedOwnerEpoch &&
         presenceMutationGenerationRef.current === generation
       ) {
-        toast.error("Couldn't add time.", { className: connectTypography.toast });
+        toast.error("Couldn't add time.");
       }
     } finally {
       if (
@@ -2326,7 +2301,7 @@ export function NearbyCheckInSheet({
         has_note: Boolean(note),
         has_place_id: Boolean(rateable.googleReviewUrl),
       });
-      toast.success("Rated.", { className: connectTypography.toast });
+      toast.success("Rated.");
     } catch {
       // The stars stay set. Clearing somebody's input because the network
       // failed is how a retry becomes a re-decision.
@@ -2445,7 +2420,7 @@ export function NearbyCheckInSheet({
         setAllowConnectionRequests(false);
       setAddTimeOpen(false);
       setAddTimeBusy(null);
-      toast.success("Check-in ended.", { className: connectTypography.toast });
+      toast.success("Check-in ended.");
       if (savePlaceGenerationRef.current === savePlaceGeneration) {
         void offerSavePlace(savedPlaceOffer);
       }
@@ -2460,7 +2435,7 @@ export function NearbyCheckInSheet({
       ) {
         if (!context)
           toast.error(
-            "Couldn't end the check-in. You may still be visible nearby.", { className: connectTypography.toast },
+            "Couldn't end the check-in. You may still be visible nearby.",
           );
       }
       return {
@@ -2542,14 +2517,14 @@ export function NearbyCheckInSheet({
         onStateChange?.(next);
         return next;
       });
-      toast.success("Connection request sent.", { className: connectTypography.toast });
+      toast.success("Connection request sent.");
     } catch {
       if (
         ownerEpochRef.current === expectedOwnerEpoch &&
         presenceMutationGenerationRef.current === generation
       ) {
         toast.error(
-          "That person may no longer be nearby. Refreshing the list.", { className: connectTypography.toast },
+          "That person may no longer be nearby. Refreshing the list.",
         );
         setBusy(null);
         mutationInFlightRef.current = false;
@@ -2576,7 +2551,7 @@ export function NearbyCheckInSheet({
         await OneLocationService.openAppSettings();
       }
     } catch {
-      toast.error("Settings could not be opened. Please open them manually.", { className: connectTypography.toast });
+      toast.error("Settings could not be opened. Please open them manually.");
     } finally {
       setBusy(null);
     }
@@ -2685,21 +2660,20 @@ export function NearbyCheckInSheet({
                 className="mb-4 rounded-2xl border border-destructive/20 bg-destructive/10 p-3"
                 role="alert"
               >
-                <p data-location-type-role="row-description" className="text-sm text-destructive">
-                  {presenceLoadError.message}
-                </p>
-                {presenceLoadError.action === "retry" ? (
-                  <Button
-                    data-location-type-role="compact-action"
-                    type="button"
-                    size="compact"
-                    variant="secondary"
-                    className="mt-2"
-                    onClick={() => void retryPresenceLoad()}
-                  >
-                    Retry status
-                  </Button>
-                ) : null}
+                <p data-location-type-role="row-description" className="text-sm text-destructive">{presenceLoadError}</p>
+                <Button data-location-type-role="compact-action"
+                  type="button"
+                  size="compact"
+                  variant="secondary"
+                  className="mt-2"
+                  disabled={loadingPresence}
+                  onClick={() => void retryPresenceLoad()}
+                >
+                  {loadingPresence ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : null}
+                  Retry status
+                </Button>
               </div>
             ) : null}
 
@@ -3544,7 +3518,8 @@ export function NearbyCheckInSheet({
           </SheetHeader>
           <div className={sheetStyles.extension}>
             {([30, 60] as const).map((increment) => (
-              <Button data-location-type-role="task-action"
+              <Button
+                data-location-type-role="task-action"
                 key={increment}
                 type="button"
                 variant="secondary"

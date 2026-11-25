@@ -21,6 +21,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from email.utils import getaddresses
 from typing import Any, Literal
+from urllib.parse import quote
 from weakref import WeakKeyDictionary
 
 import httpx
@@ -31,6 +32,7 @@ from hushh_mcp.services.gmail_message_text import (
     attachment_filenames,
     cap_utf8,
     message_text,
+    message_text_with_links,
 )
 from hushh_mcp.services.gmail_nudges import derive_needs_reply_nudges
 from hushh_mcp.services.gmail_receipt_scanner import (
@@ -55,6 +57,7 @@ _SCAN_META_FIELDS = (
     "payload(headers,mimeType,filename,body/size,parts(mimeType,filename,body/size,parts(mimeType,filename,body/size)))"
 )
 _HEADERS = ["From", "Subject", "Date"]
+_CHRONOLOGY_HEADERS = ["Message-ID", "In-Reply-To", "References"]
 _HYBRID_HEADERS = ["From", "Subject", "Date", "To"]
 _SCAN_HEADERS = ["From", "Subject", "Date", "To", "Reply-To", "List-Unsubscribe"]
 # What a reply in the original thread is routed by. Never a body: the reply's
@@ -396,6 +399,7 @@ class GmailMetadataReader:
         require_access: RequireAccess,
         transport: httpx.AsyncBaseTransport | None = None,
         expect_account: str | None = None,
+        expose_message_links: bool = False,
         timezone_name: str = "UTC",
     ) -> None:
         self._gmail = gmail
@@ -408,9 +412,11 @@ class GmailMetadataReader:
         # that matters when the owner reconnected a different Google account
         # between being shown a list and asking for the second thing on it.
         self._expect_account = expect_account
+        self._expose_message_links = expose_message_links
         self._timezone_name = str(timezone_name or "UTC").strip() or "UTC"
         self._observation: dict[str, Any] | None = None
         self._account: str | None = None
+        self._account_email: str | None = None
         self._used = False
         self._remaining = _BUDGET
         self._message_ids: list[str] = []
@@ -429,6 +435,7 @@ class GmailMetadataReader:
             or row.get("revoked") is not False
             or self._gmail._refresh_observation(row) != self._observation
             or row.get("google_sub") != self._account
+            or (self._expose_message_links and row.get("google_email") != self._account_email)
             or _SCOPE not in re.split(r"[\s,]+", str(row.get("scope_csv") or ""))
         ):
             raise GmailMetadataError("connection_changed")
@@ -1248,6 +1255,9 @@ class GmailMetadataReader:
                 access_token, row = await self._gmail._ensure_access_token(user_id=self._user_id)
                 self._observation = self._gmail._refresh_observation(row)
                 self._account = row.get("google_sub")
+                self._account_email = (
+                    row.get("google_email") if isinstance(row.get("google_email"), str) else None
+                )
                 if not self._account or not all(self._observation.values()):
                     raise GmailMetadataError("reconnect_required")
                 if self._expect_account and self._account != self._expect_account:
@@ -1445,7 +1455,9 @@ class GmailMetadataReader:
                 "format": "metadata",
                 # Recipients are requested only for sent mail, where they
                 # replace the owner as the meaningful counterparty.
-                "metadataHeaders": _HEADERS + (["To"] if mailbox == "sent" else []),
+                "metadataHeaders": _HEADERS
+                + (["To"] if mailbox == "sent" else [])
+                + (_CHRONOLOGY_HEADERS if self._expose_message_links else []),
                 "fields": f"id,messages({_FIELDS})" if is_threads else _FIELDS,
             }
         max_headers = 400 if reads_bodies else 16
@@ -1510,7 +1522,7 @@ class GmailMetadataReader:
                 items_omitted = True
             raw_items = [self._message_item(m, mailbox, with_body=True) for m in messages]
             ordered_ids = [str(message.get("id") or "") for message in messages]
-            if operation == "analyze_mail":
+            if operation == "analyze_mail" or self._expose_message_links:
                 # Local grouping only. Provider thread IDs never leave the reader;
                 # the analyzer can still compare a later update with its earlier
                 # message in the same bounded page.
@@ -1529,6 +1541,14 @@ class GmailMetadataReader:
                 content_shortened = content_shortened or cut_body
         else:
             raw_items = [self._message_item(payload, mailbox) for payload in payloads]
+        if self._expose_message_links and not reads_bodies and operation != "list_needs_reply":
+            thread_refs = {}
+            for item, message in zip(raw_items, payloads, strict=True):
+                thread_id = message.get("threadId")
+                if isinstance(thread_id, str) and _ID.fullmatch(thread_id):
+                    item["thread_ref"] = thread_refs.setdefault(
+                        thread_id, f"thread:{len(thread_refs) + 1}"
+                    )
         items = []
         for ordinal, item in enumerate(raw_items, 1):
             subject, cut_subject = _label(item["subject"], 320)
@@ -1551,6 +1571,16 @@ class GmailMetadataReader:
                 projected["body_truncated"] = item["body_truncated"]
             if "thread_ref" in item:
                 projected["thread_ref"] = item["thread_ref"]
+            if self._expose_message_links:
+                for key in (
+                    "gmail_web_link",
+                    "extracted_links",
+                    "rfc822_message_id",
+                    "in_reply_to",
+                    "references",
+                ):
+                    if key in item:
+                        projected[key] = item[key]
             items.append(projected)
         result: dict[str, Any] = {
             "status": "ok",
@@ -1625,6 +1655,11 @@ class GmailMetadataReader:
                 "subject": n.title,
                 "sender": n.sender,
                 "received_at": n.received_at.isoformat() if n.received_at else None,
+                **(
+                    {"gmail_web_link": self._gmail_web_link(n.thread_id)}
+                    if self._expose_message_links and self._gmail_web_link(n.thread_id)
+                    else {}
+                ),
             }
             for n in shown
         ]
@@ -2089,6 +2124,19 @@ class GmailMetadataReader:
         }
         return result
 
+    def _gmail_web_link(self, thread_id: Any) -> str | None:
+        account = self._account_email
+        if (
+            not self._expose_message_links
+            or not isinstance(account, str)
+            or len(account) > 320
+            or not re.fullmatch(r"[^\s@<>,]+@[^\s@<>,]+", account)
+            or not isinstance(thread_id, str)
+            or not _ID.fullmatch(thread_id)
+        ):
+            return None
+        return f"https://mail.google.com/mail/u/{quote(account, safe='')}/#all/{thread_id}"
+
     def _message_item(
         self,
         payload: dict[str, Any],
@@ -2113,6 +2161,18 @@ class GmailMetadataReader:
             "received_at": iso_local,
             "unread": "UNREAD" in payload.get("labelIds", []),
         }
+        if self._expose_message_links:
+            link = self._gmail_web_link(payload.get("threadId"))
+            if link:
+                item["gmail_web_link"] = link
+            for source, target in (
+                ("message-id", "rfc822_message_id"),
+                ("in-reply-to", "in_reply_to"),
+                ("references", "references"),
+            ):
+                value = headers.get(source)
+                if isinstance(value, str) and value.strip():
+                    item[target] = _label(value, 512)[0]
         if display_local:
             item["received_at_local"] = display_local
         if mailbox == "sent" or (include_snippet and headers.get("to")):
@@ -2124,7 +2184,12 @@ class GmailMetadataReader:
                 item["snippet"] = snippet
         if with_body:
             try:
-                item["body"] = message_text(payload["payload"])
+                if self._expose_message_links:
+                    item["body"], links = message_text_with_links(payload["payload"])
+                    if links:
+                        item["extracted_links"] = links
+                else:
+                    item["body"] = message_text(payload["payload"])
             except MessageTextError:
                 raise GmailMetadataError("invalid_response") from None
             if include_attachments:

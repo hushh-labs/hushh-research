@@ -263,9 +263,10 @@ class PkmAnswerWorkWorker(ExternalConnectorLifecycleStore):
                                  SELECT 1 FROM connections c WHERE c.status='active'
                                    AND ((c.user_a_id=r.owner_user_id AND c.user_b_id=r.requester_user_id)
                                      OR (c.user_b_id=r.owner_user_id AND c.user_a_id=r.requester_user_id))))
-                               AND NOT EXISTS (
-                                 SELECT 1 FROM pkm_answer_deliveries d
-                                 WHERE d.request_id = r.request_id)
+                               -- A retained stage is not delivery. A revoked-key
+                               -- payment remains answering until recovery or
+                               -- this atomic expiry/refund; answered rows are
+                               -- already excluded by the status predicate.
                              ORDER BY r.answer_deadline_at
                              LIMIT :limit FOR UPDATE SKIP LOCKED)
                            RETURNING request_id"""

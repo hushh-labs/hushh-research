@@ -114,7 +114,8 @@ describe("Connect canonical surface contract", () => {
       /export type FocusedConnectCircleAction =(?=[\s\S]*"create-circle")(?=[\s\S]*"join-circle")/,
     );
     expect(source).toContain("const isFocusedCircleTask =");
-    expect(source).toContain("{isFocusedCircleTask ? (");
+    // Focused tasks remain the first branch; native Circles may share it.
+    expect(source).toMatch(/\{isFocusedCircleTask(?:\s*\|\|[\s\S]*?)?\s*\?\s*\(/);
     expect(source).toContain('max-w-[560px]');
     expect(source).toContain("connectCircleTaskTitle(circleFlowAction)");
     expect(providers).toContain("const focusedConnectCircleChromeFlow =");

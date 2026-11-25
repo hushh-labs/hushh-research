@@ -491,6 +491,49 @@
       "native_surface_id": null
     },
     {
+      "route_pattern": "/design-system",
+      "page_file": "app/design-system/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.design.system",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.design.system",
+        "purpose": "Help the person inspect the reference design system showcase through its generated controls.",
+        "screen": "app",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+        "next_route": "/design-system",
+        "return_policy": "navigate",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "app",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
+    },
+    {
       "route_pattern": "/developers",
       "page_file": "app/developers/page.tsx",
       "route_mode": "redirect",
@@ -708,7 +751,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-kai-analysis"
+      "native_surface_id": "native-route-kai-home"
     },
     {
       "route_pattern": "/kai/dashboard",
@@ -751,7 +794,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-kai-portfolio"
+      "native_surface_id": "native-route-kai-home"
     },
     {
       "route_pattern": "/kai/dashboard/analysis",
@@ -794,7 +837,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-kai-analysis"
+      "native_surface_id": "native-route-kai-home"
     },
     {
       "route_pattern": "/kai/funding-trade",
@@ -1095,7 +1138,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-kai-portfolio"
+      "native_surface_id": "native-route-kai-home"
     },
     {
       "route_pattern": "/login",
@@ -1134,6 +1177,8 @@
       "canonical_screen": "login",
       "voice_contract_file": "app/login/page.voice-action-contract.json",
       "action_ids": [
+        "auth.deletion_done",
+        "auth.deletion_start_fresh",
         "auth.open_privacy",
         "auth.open_terms",
         "auth.sign_in_apple",
@@ -1703,7 +1748,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-connect-settings"
+      "native_surface_id": "native-route-profile"
     },
     {
       "route_pattern": "/one/connected-systems",
@@ -2075,6 +2120,49 @@
       "native_surface_id": "native-route-gmail"
     },
     {
+      "route_pattern": "/one/goals",
+      "page_file": "app/one/goals/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.one.goals",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.one.goals",
+        "purpose": "Review saved goals, describe the intended outcome, and link saved tasks in the owner's unlocked vault.",
+        "screen": "app",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Keep goal information unavailable until the owner unlocks the vault.",
+          "cancelled": "Close the editor without saving the draft.",
+          "failed": "Keep the draft and report that the save could not be confirmed.",
+          "timeout": "Ask the owner to check the saved goal before trying again.",
+          "callback_error": "Return to the verified recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "The owner confirms each save and explicitly marks goal completion. Linked task status comes from Tasks. A plan grants no background execution permission.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Never invent a control or infer execution permission from a saved goal."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "app",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-one-goals"
+    },
+    {
       "route_pattern": "/one/kai",
       "page_file": "app/one/kai/page.tsx",
       "route_mode": "standard",
@@ -2126,7 +2214,11 @@
         "market.stock.quote.retry",
         "market.stocks.retry",
         "route.back",
-        "route.kai_home"
+        "route.kai_home",
+        "route.kai_portfolio_allocation",
+        "route.kai_portfolio_holdings",
+        "route.kai_portfolio_performance",
+        "route.kai_portfolio_sources"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -2188,7 +2280,11 @@
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
-        "route.kai_home"
+        "route.kai_home",
+        "route.kai_portfolio_allocation",
+        "route.kai_portfolio_holdings",
+        "route.kai_portfolio_performance",
+        "route.kai_portfolio_sources"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -2250,7 +2346,11 @@
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
-        "route.kai_home"
+        "route.kai_home",
+        "route.kai_portfolio_allocation",
+        "route.kai_portfolio_holdings",
+        "route.kai_portfolio_performance",
+        "route.kai_portfolio_sources"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -2312,7 +2412,11 @@
         "route.analysis_history",
         "route.back",
         "route.kai_analysis",
-        "route.kai_home"
+        "route.kai_home",
+        "route.kai_portfolio_allocation",
+        "route.kai_portfolio_holdings",
+        "route.kai_portfolio_performance",
+        "route.kai_portfolio_sources"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -2372,7 +2476,11 @@
         "market.stock.quote.retry",
         "market.stocks.retry",
         "route.back",
-        "route.kai_home"
+        "route.kai_home",
+        "route.kai_portfolio_allocation",
+        "route.kai_portfolio_holdings",
+        "route.kai_portfolio_performance",
+        "route.kai_portfolio_sources"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -2429,7 +2537,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "vault",
-      "native_surface_id": "native-route-kai-analysis"
+      "native_surface_id": "native-route-kai-home"
     },
     {
       "route_pattern": "/one/kai/funding-trade",
@@ -2822,7 +2930,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-kai-portfolio"
+      "native_surface_id": "native-route-kai-home"
     },
     {
       "route_pattern": "/one/kai/portfolio/allocation",
@@ -3788,7 +3896,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "vault",
-      "native_surface_id": "native-route-profile"
+      "native_surface_id": "native-route-one-home"
     },
     {
       "route_pattern": "/one/profile/access",
@@ -4062,7 +4170,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-profile"
+      "native_surface_id": null
     },
     {
       "route_pattern": "/one/profile/connectors",
@@ -4234,7 +4342,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-profile"
+      "native_surface_id": "native-route-gmail"
     },
     {
       "route_pattern": "/one/profile/gmail/actions",
@@ -4277,7 +4385,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-profile"
+      "native_surface_id": "native-route-gmail"
     },
     {
       "route_pattern": "/one/profile/gmail/connection",
@@ -4320,7 +4428,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-profile"
+      "native_surface_id": "native-route-gmail"
     },
     {
       "route_pattern": "/one/profile/gmail/oauth/return",
@@ -4498,7 +4606,7 @@
       "route_pattern": "/one/profile/my-data",
       "page_file": "app/one/profile/my-data/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.profile.my.data",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -4528,22 +4636,20 @@
       },
       "canonical_screen": "profile_my_data",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.profile_my_data"
-      ],
-      "action_coverage": "inherited",
+      "action_ids": [],
+      "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "auth",
-      "native_surface_id": "native-route-profile"
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-pkm"
     },
     {
       "route_pattern": "/one/profile/my-data/domain",
       "page_file": "app/one/profile/my-data/domain/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.profile.my.data.domain",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -4573,16 +4679,14 @@
       },
       "canonical_screen": "profile_my_data",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.profile_my_data"
-      ],
+      "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-profile"
+      "native_surface_id": "native-route-pkm"
     },
     {
       "route_pattern": "/one/profile/payouts",
@@ -5166,7 +5270,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-profile"
+      "native_surface_id": "ria-profile-page"
     },
     {
       "route_pattern": "/one/profile/request-pricing",
@@ -6401,15 +6505,15 @@
       "native_surface_id": "native-route-ria-onboarding"
     },
     {
-      "route_pattern": "/one/todos",
-      "page_file": "app/one/todos/page.tsx",
+      "route_pattern": "/one/tasks",
+      "page_file": "app/one/tasks/page.tsx",
       "route_mode": "standard",
       "orchestration_class": "context_only",
-      "instruction_id": "route.one.todos",
+      "instruction_id": "route.one.tasks",
       "context_policy": "minimal",
       "voice_playbook": {
-        "playbook_id": "route.one.todos",
-        "purpose": "Review private to-do items and the safe, read-only Calendar agenda. Calendar changes remain in the Calendar agent and owner-added items remain encrypted in Agent One.",
+        "playbook_id": "route.one.tasks",
+        "purpose": "Review private tasks, the read-only Calendar agenda, and the recorded outcome of approved scheduled Files runs on the owner's private Pod.",
         "screen": "app",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -6424,7 +6528,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Owner-added items are saved only after the owner confirms them; calendar items remain read-only projections of Calendar.",
+        "completion_boundary": "Ordinary task saves require owner confirmation. Scheduled results reflect the current Pod's last-run receipt, including uncertain outcomes. Back closes the scheduled-runs view before leaving Tasks.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -6433,7 +6537,7 @@
         "allowed_families": []
       },
       "canonical_screen": "app",
-      "voice_contract_file": "app/one/todos/page.voice-action-contract.json",
+      "voice_contract_file": "app/one/tasks/page.voice-action-contract.json",
       "action_ids": [],
       "action_coverage": "local",
       "delegation_policy": {
@@ -6441,7 +6545,50 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-one-todos"
+      "native_surface_id": "native-route-one-tasks"
+    },
+    {
+      "route_pattern": "/one/todos",
+      "page_file": "app/one/todos/page.tsx",
+      "route_mode": "redirect",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.one.todos",
+      "context_policy": "suppress",
+      "voice_playbook": {
+        "playbook_id": "route.one.todos",
+        "purpose": "Open the Tasks workspace from an older To-do link.",
+        "screen": "app",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Keep the Tasks destination behind its existing access check.",
+          "cancelled": "Retain the current screen.",
+          "failed": "Offer the canonical Tasks destination.",
+          "timeout": "Retain the canonical Tasks destination.",
+          "callback_error": "Offer the canonical Tasks destination.",
+          "route_mismatch": "Use the verified Tasks route."
+        },
+        "completion_boundary": "Both web and native clients open the same Tasks workspace.",
+        "next_route": "/one/tasks",
+        "return_policy": "navigate",
+        "out_of_scope_behavior": "Retain the destination's access checks."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "app",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "block_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
     },
     {
       "route_pattern": "/one/wallet",
@@ -7084,7 +7231,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-ria-home"
+      "native_surface_id": "ria-profile-page"
     },
     {
       "route_pattern": "/ria/claim",
@@ -7231,7 +7378,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "consent",
-      "native_surface_id": null
+      "native_surface_id": "native-route-ria-client-workspace"
     },
     {
       "route_pattern": "/ria/clients/[userId]/accounts/[accountId]",
@@ -7278,7 +7425,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": null
+      "native_surface_id": "native-route-ria-client-account-detail"
     },
     {
       "route_pattern": "/ria/clients/[userId]/requests/[requestId]",
@@ -7325,7 +7472,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": null
+      "native_surface_id": "native-route-ria-client-request-detail"
     },
     {
       "route_pattern": "/ria/onboarding",
@@ -7474,7 +7621,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": "native-route-profile"
+      "native_surface_id": "ria-profile-page"
     },
     {
       "route_pattern": "/ria/requests",
@@ -7560,7 +7707,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-profile"
+      "native_surface_id": "ria-profile-page"
     },
     {
       "route_pattern": "/ria/workspace",

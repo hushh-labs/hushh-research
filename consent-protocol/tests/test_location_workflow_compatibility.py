@@ -83,8 +83,39 @@ def test_merged_workflow_history_preserves_both_compatible_branches():
     ] == ["older_shipped", "repair_branch", "shipped"]
 
 
+def test_target_retirements_do_not_revive_from_an_older_compatible_history():
+    before, after = graphs()
+    before["revision"] = "shipped"
+    after["revision"] = "candidate"
+    before["workflow_revision_compatibility"] = _workflow_revision_compatibility(None, before, {})
+    before["workflow_revision_compatibility"]["workflows"][0]["compatible_graph_revisions"] = [
+        "retired",
+        "safe_ancestor",
+    ]
+    after["workflow_revision_compatibility"] = _workflow_revision_compatibility(None, after, {})
+    entry = after["workflow_revision_compatibility"]["workflows"][0]
+    entry["rejected_graph_revisions"] = ["retired"]
+    entry["compatible_graph_revisions"] = ["target_branch"]
+    _merge_workflow_predecessor(after, before)
+    result = after["workflow_revision_compatibility"]["workflows"][0]
+    assert result["compatible_graph_revisions"] == ["safe_ancestor", "shipped", "target_branch"]
+    assert result["rejected_graph_revisions"] == ["retired"]
+    repeated = deepcopy(after)
+    _merge_workflow_predecessor(after, before)
+    assert after == repeated
+
+
 @pytest.mark.parametrize(
-    "conflict", ["authority", "rejected", "migration_required", "cross_policy", "current_revision"]
+    "conflict",
+    [
+        "authority",
+        "rejected",
+        "migration_required",
+        "cross_policy",
+        "current_revision",
+        "malformed_current",
+        "incoming_rejection",
+    ],
 )
 def test_merged_workflow_history_cannot_override_authority_or_revision_policy(conflict):
     before, after = graphs()
@@ -96,6 +127,20 @@ def test_merged_workflow_history_cannot_override_authority_or_revision_policy(co
     elif conflict in {"rejected", "migration_required"}:
         after["workflow_revision_compatibility"]["workflows"][0][f"{conflict}_graph_revisions"] = [
             "shipped"
+        ]
+    elif conflict == "malformed_current":
+        entry = after["workflow_revision_compatibility"]["workflows"][0]
+        entry["compatible_graph_revisions"] = ["older"]
+        entry["rejected_graph_revisions"] = ["older"]
+    elif conflict == "incoming_rejection":
+        before["workflow_revision_compatibility"] = _workflow_revision_compatibility(
+            None, before, {}
+        )
+        before["workflow_revision_compatibility"]["workflows"][0]["rejected_graph_revisions"] = [
+            "target_branch"
+        ]
+        after["workflow_revision_compatibility"]["workflows"][0]["compatible_graph_revisions"] = [
+            "target_branch"
         ]
     else:
         before["workflow_revision_compatibility"] = _workflow_revision_compatibility(
@@ -195,7 +240,11 @@ def test_discovered_endpoint_addition_cannot_change_execution_or_authority(chang
     )
 
 
-def test_connect_discovery_accepts_only_its_existing_authenticated_read_boundary():
+@pytest.mark.parametrize("method", ["GET", "PATCH"])
+@pytest.mark.parametrize(
+    "change", [None, "public", "binding", "executor", "cursor", "count", "old_endpoint"]
+)
+def test_connect_discovery_accepts_only_its_existing_authenticated_unbound_boundary(method, change):
     before, after = graphs()
     after = deepcopy(before)
     for graph in (before, after):
@@ -224,13 +273,31 @@ def test_connect_discovery_accepts_only_its_existing_authenticated_read_boundary
     after["workflows"][0]["api_endpoints"].append(
         {
             "capability_id": "connect.api.context",
-            "method": "GET",
+            "method": method,
             "authorization": "firebase_auth",
             "binding_status": "discovered_unbound",
         }
     )
     after["workflows"][0]["plan"]["executor_hierarchy"][0]["discovered_endpoint_count"] = 2
-    assert _workflow_change_is_additive(before, after, "workflows:workflow.setup.connections")
+    workflow = after["workflows"][0]
+    endpoint = workflow["api_endpoints"][1]
+    if change == "public":
+        endpoint["authorization"] = "public"
+    elif change == "binding":
+        endpoint["binding_status"] = "executable"
+    elif change == "executor":
+        workflow["plan"]["executor_hierarchy"][0]["status"] = "bound"
+    elif change == "cursor":
+        workflow["steps"][0]["step_id"] = "changed"
+    elif change == "count":
+        workflow["plan"]["executor_hierarchy"][0]["discovered_endpoint_count"] = 20
+    elif change == "old_endpoint":
+        workflow["api_endpoints"][0]["authorization"] = "public"
+    assert _workflow_change_is_additive(before, after, "workflows:workflow.setup.connections") is (
+        change is None
+    )
+    if change is not None:
+        return
     before["workflows"][0]["api_endpoints"][0]["authorization"] = "vault_owner"
     after["workflows"][0]["api_endpoints"][0]["authorization"] = "vault_owner"
     assert not _workflow_change_is_additive(before, after, "workflows:workflow.setup.connections")

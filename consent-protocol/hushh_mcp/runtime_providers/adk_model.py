@@ -34,6 +34,43 @@ def build_runtime_client(*args: Any, **kwargs: Any) -> Any:
     return factory.build_runtime_client(*args, **kwargs)
 
 
+_SAFETY_FINISH_REASONS = frozenset(
+    {
+        "SAFETY",
+        "RECITATION",
+        "BLOCKLIST",
+        "PROHIBITED_CONTENT",
+        "SPII",
+        "IMAGE_SAFETY",
+        "IMAGE_PROHIBITED_CONTENT",
+    }
+)
+
+
+def _reason_name(raw: Any) -> str:
+    if raw is None:
+        return ""
+    name = getattr(raw, "name", None) or getattr(raw, "value", None) or str(raw)
+    cleaned = str(name).strip().upper()
+    if "." in cleaned:
+        cleaned = cleaned.rsplit(".", maxsplit=1)[-1]
+    return cleaned
+
+
+def _has_explicit_safety_block(value: Any) -> bool:
+    prompt_feedback = getattr(value, "prompt_feedback", None)
+    block_reason = _reason_name(getattr(prompt_feedback, "block_reason", None))
+    if block_reason and block_reason not in {"NONE", "BLOCK_REASON_UNSPECIFIED"}:
+        return True
+    direct_finish = _reason_name(getattr(value, "finish_reason", None))
+    if direct_finish in _SAFETY_FINISH_REASONS:
+        return True
+    for candidate in getattr(value, "candidates", None) or ():
+        if _reason_name(getattr(candidate, "finish_reason", None)) in _SAFETY_FINISH_REASONS:
+            return True
+    return False
+
+
 class ProviderAdkModel(BaseLlm):
     """Expose one existing native provider transport as an ADK ``BaseLlm``."""
 
@@ -199,42 +236,68 @@ class ProviderAdkModel(BaseLlm):
         self, client: Any, llm_request: LlmRequest, stream: bool
     ) -> AsyncGenerator[LlmResponse, None]:
         if stream:
-            aggregator = StreamingResponseAggregator()
-            chunks = await client.aio.models.generate_content_stream(
+            for attempt in range(2):
+                aggregator = StreamingResponseAggregator()
+                chunks = await client.aio.models.generate_content_stream(
+                    model=self.model,
+                    contents=llm_request.contents,
+                    config=self._request_config(llm_request.config),
+                )
+                trailing_usage = None
+                trailing_model_version = None
+                saw_content = False
+                safety_blocked = False
+                async with aclosing(chunks):
+                    async for chunk in chunks:
+                        # Terminal metadata can arrive after the last text or tool delta.
+                        trailing_usage = self._usage_metadata(chunk) or trailing_usage
+                        trailing_model_version = (
+                            self._model_version(chunk) or trailing_model_version
+                        )
+                        if _has_explicit_safety_block(chunk):
+                            safety_blocked = True
+                        response = self._genai_response(chunk)
+                        if response is None:
+                            continue
+                        saw_content = True
+                        async for llm_response in aggregator.process_response(response):
+                            yield llm_response
+                final = aggregator.close()
+                empty_final = final is None or (
+                    final.content is None and not getattr(final, "function_calls", None)
+                )
+                if empty_final and not saw_content and not safety_blocked and attempt == 0:
+                    continue
+                if final is not None:
+                    if final.usage_metadata is None and trailing_usage is not None:
+                        final.usage_metadata = trailing_usage
+                    if trailing_model_version is not None:
+                        final.model_version = trailing_model_version
+                    yield final
+                return
+
+        for attempt in range(2):
+            response = await client.aio.models.generate_content(
                 model=self.model,
                 contents=llm_request.contents,
                 config=self._request_config(llm_request.config),
             )
-            trailing_usage = None
-            trailing_model_version = None
-            async with aclosing(chunks):
-                async for chunk in chunks:
-                    # Terminal metadata can arrive after the last text or tool delta.
-                    trailing_usage = self._usage_metadata(chunk) or trailing_usage
-                    trailing_model_version = self._model_version(chunk) or trailing_model_version
-                    response = self._genai_response(chunk)
-                    if response is None:
-                        continue
-                    async for llm_response in aggregator.process_response(response):
-                        yield llm_response
-            final = aggregator.close()
-            if final is not None:
-                if final.usage_metadata is None and trailing_usage is not None:
-                    final.usage_metadata = trailing_usage
-                if trailing_model_version is not None:
-                    final.model_version = trailing_model_version
-                yield final
+            content = self._content(
+                text=getattr(response, "text", "") or "",
+                function_calls=getattr(response, "function_calls", ()) or (),
+            )
+            if (
+                content is None
+                and not (getattr(response, "function_calls", None) or ())
+                and not _has_explicit_safety_block(response)
+                and attempt == 0
+            ):
+                continue
+            yield LlmResponse(
+                model_version=self._model_version(response),
+                content=content,
+                usage_metadata=self._usage_metadata(response),
+                partial=False,
+                turn_complete=True,
+            )
             return
-
-        response = await client.aio.models.generate_content(
-            model=self.model,
-            contents=llm_request.contents,
-            config=self._request_config(llm_request.config),
-        )
-        yield LlmResponse(
-            model_version=self._model_version(response),
-            content=self._content(text=response.text, function_calls=response.function_calls),
-            usage_metadata=self._usage_metadata(response),
-            partial=False,
-            turn_complete=True,
-        )

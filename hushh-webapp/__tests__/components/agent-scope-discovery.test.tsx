@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { InformationRequestReviewExperience, ScopeDiscoveryExperience } from "@/lib/agent/agui-structured-experiences";
-import type { ViewerPersonProfile } from "@/lib/services/person-profile-service";
+import { PersonProfileService, type ViewerPersonProfile } from "@/lib/services/person-profile-service";
 
 const mocks = vi.hoisted(() => ({
   user: { uid: "reviewer-a", getIdToken: vi.fn(async () => "test-token") },
@@ -15,7 +15,11 @@ vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user, userId:
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: mocks.unlocked, vaultKey: "test-key", vaultOwnerToken: "test-owner-token" }) }));
 vi.mock("@/lib/services/person-profile-service", async importOriginal => ({
   ...await importOriginal<object>(),
-  PersonProfileService: { getViewer: mocks.getViewer, createInformationRequest: mocks.create, getInformationRequest: mocks.getInformationRequest, getInformationRequestExports: mocks.getInformationRequestExports },
+  PersonProfileService: { informationRequestPrice: vi.fn(async (input: { personRef: string; scopeRefs: string[]; durationSeconds: number }) => ({
+    version: 1, personRef: input.personRef, durationSeconds: input.durationSeconds,
+    currency: "USD", coinsPerDollar: 100, items: input.scopeRefs.map(scopeRef => ({scopeRef,label:"Test information",amountCoins:0})),
+    totalCoins: 0, availableCoins: 0, shortfallCoins: 0, binding: "a".repeat(64),
+  })), getViewer: mocks.getViewer, createInformationRequest: mocks.create, getInformationRequest: mocks.getInformationRequest, getInformationRequestExports: mocks.getInformationRequestExports },
 }));
 vi.mock("@/lib/services/one-kyc-client-zk-service", () => ({ OneKycClientZkService: {
   ensureConnector: async () => ({ connector_key_id: "test-connector" }),
@@ -86,6 +90,25 @@ describe("current-authority inline Chat catalog", () => {
     expect(mocks.create).not.toHaveBeenCalled();
   });
 
+  it("shows the price on One’s proposal and reserves through one explicit Send after funding", async () => {
+    const price = {version:1 as const,personRef:person,durationSeconds:86400,currency:"USD" as const,coinsPerDollar:100 as const,
+      items:[{scopeRef:"scope-1",label:"Synthetic field 1",amountCoins:24}],totalCoins:24,availableCoins:0,shortfallCoins:24,binding:"b".repeat(64)};
+    vi.mocked(PersonProfileService.informationRequestPrice).mockResolvedValueOnce(price);
+    render(<AgentStructuredExperienceView experience={{...experience,proposal:{proposed:[{scopeRef:"scope-1",label:"Synthetic field 1",why:null,domain:"professional",wildcard:false,pathSegments:[]}],durationHours:24,reasonSuggestion:"Synthetic sharing review"}}} />);
+    await screen.findByText(/Add 24 Hussh/);
+    const reserveAndSend = screen.getByRole("button", { name: /Reserve & Send · 24 Hussh coins/ });
+    expect(reserveAndSend).toBeDisabled();
+    expect(screen.getByRole("button",{name:"Hide"})).toBeInTheDocument();
+    expect(screen.getByRole("button",{name:"Check balance"})).toBeInTheDocument();
+    expect(mocks.create).not.toHaveBeenCalled();
+    vi.mocked(PersonProfileService.informationRequestPrice).mockResolvedValueOnce({...price,availableCoins:50,shortfallCoins:0});
+    fireEvent.click(screen.getByRole("button",{name:"Check balance"}));
+    await waitFor(()=>expect(screen.getByRole("button",{name:/Reserve & Send · 24 Hussh coins/})).toBeEnabled());
+    fireEvent.click(screen.getByRole("button",{name:/Reserve & Send · 24 Hussh coins/}));
+    await waitFor(()=>expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({priceBinding:price.binding,scopeRefs:["scope-1"],durationSeconds:86400})));
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps selection, editable review and explicit submission inside Chat", async () => {
     render(<AgentStructuredExperienceView experience={experience} />);
     fireEvent.click(await screen.findByText("Synthetic field 1"));
@@ -93,6 +116,7 @@ describe("current-authority inline Chat catalog", () => {
     expect(screen.getByRole("button", { name: "Send request" })).toBeDisabled();
     fireEvent.change(screen.getByTestId("chat-request-purpose"), { target: { value: "Synthetic sharing rehearsal" } });
     expect(mocks.create).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     await screen.findByRole("status");
     expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ personRef: person, scopeRefs: ["scope-1"], purpose: "Synthetic sharing rehearsal" }));
@@ -114,6 +138,7 @@ describe("current-authority inline Chat catalog", () => {
     expect(screen.getByRole("heading", { name: "Requested information" }).parentElement)
       .not.toHaveTextContent("Professional role");
     fireEvent.change(screen.getByTestId("chat-request-purpose"), { target: { value: "Synthetic professional review" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
       personRef: person, scopeRefs: ["opaque-professional-root"],
@@ -157,6 +182,7 @@ describe("current-authority inline Chat catalog", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Professional Domain" }));
     fireEvent.click(screen.getByRole("button", { name: "Review request" }));
     fireEvent.change(screen.getByTestId("chat-request-purpose"), { target: { value: purpose } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     expect(await screen.findByText("Request sent to Synthetic Recipient")).toBeInTheDocument();
     expect(screen.queryByTestId("shared-with-you-values")).toBeNull();
@@ -174,7 +200,10 @@ describe("current-authority inline Chat catalog", () => {
     act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: {
       source: "information_request_updated", action: "CONSENT_GRANTED", bundleId, requestId,
     } })));
-    expect(await screen.findByTestId("shared-with-you-values", {}, { timeout: 5_000 })).toHaveTextContent("Synthetic analyst");
+    const viewDetails = await screen.findByTestId("shared-with-you-view-details", {}, { timeout: 5_000 });
+    expect(screen.queryByTestId("shared-with-you-values")).toBeNull();
+    fireEvent.click(viewDetails);
+    expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent("Synthetic analyst");
     expect(mocks.getInformationRequestExports).toHaveBeenCalledWith({ bundleId, vaultOwnerToken: "test-owner-token" });
     await act(async () => finishStaleRead?.(bundle("pending")));
     expect(screen.getByTestId("shared-with-you-values")).toHaveTextContent("Synthetic analyst");
@@ -204,6 +233,7 @@ describe("current-authority inline Chat catalog", () => {
     fireEvent.click(await screen.findByText("Synthetic field 1"));
     fireEvent.click(screen.getByText("Review request"));
     fireEvent.change(screen.getByTestId("chat-request-purpose"), { target: { value: "Synthetic sharing rehearsal" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     expect(await screen.findByText(/Request sent\. They can now review/)).toBeInTheDocument();
     expect(screen.queryByText("Request sent to Synthetic Recipient")).toBeNull();
@@ -230,6 +260,7 @@ describe("current-authority inline Chat catalog", () => {
     fireEvent.click(screen.getByText("Synthetic field 2"));
     fireEvent.click(screen.getByText("Review request"));
     fireEvent.change(screen.getByTestId("chat-request-purpose"), { target: { value: "Synthetic sharing rehearsal" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     expect(await screen.findByText(/Request sent\. They can now review/)).toBeInTheDocument();
     expect(mocks.getInformationRequest).not.toHaveBeenCalled();
@@ -408,8 +439,11 @@ describe("current-authority inline Chat catalog", () => {
     mocks.decryptScopedExport.mockResolvedValue({ professional: { role: "Synthetic analyst" } });
 
     render(<AgentStructuredExperienceView experience={restored} />);
+    const viewDetails = await screen.findByTestId("shared-with-you-view-details");
+    expect(screen.queryByTestId("shared-with-you-values")).toBeNull();
+    fireEvent.click(viewDetails);
     expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent("Synthetic analyst");
-    // No reveal control: the secure card is the answer (CONTRACT-2 decision 2).
+    // No legacy reveal control: Chat stays compact and opens decrypted values in the Detailed View Modal.
     expect(screen.queryByRole("button", { name: "View shared information" })).toBeNull();
     expect(mocks.readStoredConnector).toHaveBeenCalledTimes(1);
     expect(mocks.decryptScopedExport).toHaveBeenCalledTimes(1);
@@ -461,6 +495,7 @@ describe("current-authority inline Chat catalog", () => {
     act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: {
       source: "information_request_updated", action: "CONSENT_GRANTED", bundleId: restored.bundleId, requestId: "request_12345678",
     } })));
+    fireEvent.click(await screen.findByTestId("shared-with-you-view-details"));
     expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent("Synthetic analyst");
     expect(mocks.decryptScopedExport).toHaveBeenCalledTimes(1);
   });
@@ -676,6 +711,7 @@ describe("current-authority inline Chat catalog", () => {
     act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: {
       source: "information_request_updated", action: "REVOKED", bundleId: restored.bundleId, requestId: "request_12345678",
     } })));
+    fireEvent.click(await screen.findByTestId("shared-with-you-view-details"));
     const values = await screen.findByTestId("shared-with-you-values");
     expect(values).toHaveTextContent("Synthetic lead");
     // The revoked item is never opened, not even for a moment.

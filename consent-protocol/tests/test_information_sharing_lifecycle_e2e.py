@@ -882,15 +882,17 @@ async def test_approval_clamps_duration_and_requester_decrypts_strict_v2_export(
     assert granted[0]["request_id"] == request_id
     assert granted[0]["metadata"]["approved_duration_hours"] == 72
     assert granted[0]["metadata"]["bundle_id"] == bundle_id
+    assert granted[0]["metadata"]["refresh_policy"] == "continuous_until_expiry"
     assert abs(granted[0]["expires_at"] - (int(time.time() * 1000) + 72 * HOUR_MS)) < 5 * 60 * 1000
     assert abs(approved["expires_at"] - granted[0]["expires_at"]) < 1000
 
-    # The stored export is strict zero knowledge, envelope v2, current.
+    # The stored export is strict zero knowledge, envelope v2, current, continuous until expiry.
     token = approved["consent_token"]
     stored = world.ledger.exports[token]
     assert stored["is_strict_zero_knowledge"] is True
     assert stored["envelope_version"] == 2
     assert stored["refresh_status"] == "current"
+    assert stored["refresh_policy"] == "continuous_until_expiry"
     assert stored["connector_key_id"] == CONNECTOR_KEY_ID
     assert stored["grant_id"] == request_id
     assert stored["app_id"] == "agent_one"

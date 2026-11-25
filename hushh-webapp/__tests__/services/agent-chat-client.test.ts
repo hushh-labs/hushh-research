@@ -34,6 +34,7 @@ vi.mock("@ag-ui/client", async () => {
 
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
+    getPersonalAgentStatus: vi.fn().mockResolvedValue({ hostingMode: "byoc" }),
     apiFetch: vi.fn(),
     apiFetchStream: vi.fn(),
     agentChatRequest: vi.fn(),
@@ -83,7 +84,7 @@ import {
 import { ApiService } from "@/lib/services/api-service";
 import type { ApiFetchOptions } from "@/lib/services/api-service";
 import * as turnLocation from "@/lib/agent/turn-location";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionOwner, publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { ChatKeyRefusalError, noteChatKeyAccepted } from "@/lib/vault/one-chat-key";
 import {
@@ -99,6 +100,59 @@ import {
 
 const TEST_VAULT_KEY = "0f".repeat(32);
 const TEST_CHAT_KEY = "hck1.0a3419cafc7896f9384d95ec76704bb30b272e913e80702075270f69a2feae8b";
+
+describe("Shared wiki stays on its selected runtime", () => {
+  it("opens Shared wiki only for explicit Shared hosting, never private or failed placement reads", async () => {
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "user-1", ownerId: "user-1", accountGeneration: 0 });
+    const auth = await import("@/lib/services/auth-service");
+    const authOwner = vi.spyOn(auth.AuthService, "getCurrentUser").mockReturnValue({ uid: "user-1" } as never);
+    const endpoint = await import("@/lib/services/owner-pod-endpoint");
+    const pinned = vi.spyOn(endpoint, "loadPinnedEndpoint").mockResolvedValue(null);
+    const wiki = await import("@/lib/files/wiki/active-shared-wiki");
+    const peek = vi.spyOn(wiki, "peekActiveSharedWiki").mockReturnValue(null);
+    const ensure = vi.spyOn(wiki, "ensureActiveSharedWiki").mockReturnValue(null);
+    const hosting = vi.mocked(ApiService.getPersonalAgentStatus);
+    try {
+      for (const mode of ["byoc", "hussh_pods", "shared"]) {
+        peek.mockClear();
+        ensure.mockClear();
+        hosting.mockResolvedValue({ hostingMode: mode } as never);
+        await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1",
+          message: "Hello", vaultOwnerToken: "owner-token" });
+        expect(ensure).toHaveBeenCalledTimes(mode === "shared" ? 1 : 0);
+        expect(peek).toHaveBeenCalledTimes(mode === "shared" ? 1 : 0);
+      }
+      peek.mockClear();
+      ensure.mockClear();
+      hosting.mockRejectedValueOnce(new Error("placement unavailable"));
+      await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1",
+        message: "Hello", vaultOwnerToken: "owner-token" });
+      expect(ensure).not.toHaveBeenCalled();
+      expect(peek).not.toHaveBeenCalled();
+
+      // Turn 2+ on Shared hosting must evict an uninitialized cached wiki rather than attaching client wiki tools
+      const clearSpy = vi.spyOn(wiki, "clearActiveSharedWiki");
+      peek.mockReturnValueOnce({
+        store: { readyIfInitialized: vi.fn().mockResolvedValue(false) },
+      } as never);
+      hosting.mockResolvedValue({ hostingMode: "shared" } as never);
+      await streamAgentChat({
+        vaultKey: TEST_VAULT_KEY,
+        userId: "user-1",
+        message: "Turn 2 shared uninitialized",
+        vaultOwnerToken: "owner-token",
+      });
+      expect(clearSpy).toHaveBeenCalledTimes(1);
+      clearSpy.mockRestore();
+    } finally {
+      hosting.mockResolvedValue({ hostingMode: "byoc" } as never);
+      peek.mockRestore();
+      ensure.mockRestore();
+      pinned.mockRestore();
+      authOwner.mockRestore();
+    }
+  });
+});
 
 function streamGuestIntro(input: Parameters<typeof streamAgentIntro>[0]) {
   publishValidatedAuthSessionOwner(null);
@@ -770,6 +824,24 @@ describe("AG-UI Agent One client", () => {
     expect(JSON.stringify(onToolResult.mock.calls)).not.toContain("PRIVATE SEARCH");
   });
 
+  it("delivers goal details only to the typed goal review", async () => {
+    const onGoalPlanProposal = vi.fn();
+    const onToolResult = vi.fn();
+    const onToolWaiting = vi.fn();
+    const draft = { title: "PRIVATE GOAL NAME", outcome: "A completed plan", category: null, steps: ["Review the agenda"] };
+    mockTransport.emitEvents = subscriber => {
+      subscriber.onToolCallStartEvent({ event: { toolCallId: "goal", toolCallName: "propose_goal_plan" } });
+      subscriber.onToolCallEndEvent({ event: { toolCallId: "goal" }, toolCallName: "propose_goal_plan", toolCallArgs: draft });
+      subscriber.onToolCallResultEvent({ event: { toolCallId: "goal", content: JSON.stringify({
+        status: "proposal_ready", type: "goals.plan", ...draft,
+      }) } });
+    };
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Draft a goal", vaultOwnerToken: "fixture",
+      handlers: { onGoalPlanProposal, onToolResult, onToolWaiting } });
+    expect(onGoalPlanProposal).toHaveBeenCalledExactlyOnceWith({ ...draft, taskIds: [] });
+    expect(JSON.stringify([onToolResult.mock.calls, onToolWaiting.mock.calls])).not.toContain(draft.title);
+  });
+
   it.each(["user-1", "other-owner"])("keeps browser content private and rediscovers only the current owner: %s", async (owner) => {
     const onBrowserTaskCreated = vi.fn();
     const onToolResult = vi.fn();
@@ -906,6 +978,9 @@ describe("AG-UI Agent One client", () => {
   it.each([
     { status: "unavailable", metadataOnly: false, expected: "Drive could not complete that read." },
     { status: "input_required", metadataOnly: false, expected: "Drive needs more detail." },
+    { status: "connect_required", metadataOnly: false, expected: "Drive isn't connected yet." },
+    { status: "reconnect_required", metadataOnly: false, expected: "Drive needs to be reconnected." },
+    { status: "permission_required", metadataOnly: false, expected: "Drive needs permission to continue." },
     { status: "ok", metadataOnly: true, expected: "Drive search finished." },
   ])("reports the Drive outcome instead of treating $status as a completed read", async ({ status, metadataOnly, expected }) => {
     const onToolResult = vi.fn();
@@ -925,6 +1000,10 @@ describe("AG-UI Agent One client", () => {
     // Negative control: while the brief card rendered, this row read "Mail could not complete that read."
     { status: "ok", cards: ["one.mail_brief.v1"], expected: "Mail read finished.", mail_brief: { schema_version: "mail_brief.v1",
       checked_at: "2026-10-29T06:00:00Z", requested: ["meetings"], failed: [], counts_by_category: { meetings: 0 }, items: [], coverage: {} } },
+    { status: "connect_required", cards: ["one.connector_read.v1"], expected: "Mail isn't connected yet." },
+    { status: "reconnect_required", cards: ["one.connector_read.v1"], expected: "Mail needs to be reconnected." },
+    { status: "permission_denied", cards: ["one.connector_read.v1"], expected: "Mail needs permission to continue." },
+    { status: "unavailable", cards: ["one.connector_read.v1"], expected: "Mail could not complete that read." },
     { status: "receipt_functions_required", cards: [], expected: "Handed to your receipts; no mail was read." },
   ])("reports the Mail read's own $status live and after reload, whichever card renders", async ({ status, cards, expected, ...extra }) => {
     const [onToolResult, onStructuredExperience] = [vi.fn(), vi.fn()];
@@ -2324,5 +2403,21 @@ describe("stream health for the slow-reply notice", () => {
     await run((signal) => signals.push(signal.kind));
     // Headers, then each chunk.
     expect(signals.filter((kind) => kind === "bytes")).toHaveLength(3);
+  });
+
+  it("tags status 404 on stale pre-cutover conversation history fetches", async () => {
+    vi.mocked(ApiService.getAgentChatHistory).mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: "not found" }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    await expect(
+      getAgentChatHistory({
+        vaultKey: TEST_VAULT_KEY,
+        conversationId: "stale-shared-thread",
+        vaultOwnerToken: "owner-token",
+      }),
+    ).rejects.toMatchObject({ status: 404 });
   });
 });

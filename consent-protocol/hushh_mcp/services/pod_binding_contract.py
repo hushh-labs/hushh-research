@@ -11,9 +11,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from hushh_mcp.services.compute_backend import is_known_pod_target, is_owner_cloud_target
+from hushh_mcp.services.compute_backend import (
+    BACKEND_ACE,
+    is_known_pod_target,
+    is_owner_cloud_target,
+)
 
 BINDING_KIND = "pod_binding_v1"
+LEGACY_DEV39_POD_DIGEST = "sha256:9f771f108e06ad3fe51a433b6cd3753a0b4f8d5b24a00c82c511a421d01a9b64"
 
 ROLE_DEVICE = "device"
 ROLE_APP = "app"
@@ -179,7 +184,7 @@ class PodBindingV1:
                 raise PodSessionRefused(
                     "malformed", "binding hosting mode is unsupported", status=400
                 )
-            if deployment_target != "gcp" or values["environment"] != "dev":
+            if deployment_target not in {"gcp", "azure"} or values["environment"] != "dev":
                 raise PodSessionRefused(
                     "malformed", "managed binding placement is unsupported", status=400
                 )
@@ -191,9 +196,56 @@ class PodBindingV1:
 
 def hosting_mode_for_row(row: Mapping[str, Any]) -> str | None:
     """Derive signed hosting authority only from the retained placement contract."""
+    from hushh_mcp.services.hosted_azure_placement import retained_hosted_azure_placement
     from hushh_mcp.services.hosted_gcp_placement import retained_hosted_placement
 
-    return "hussh_hosted" if retained_hosted_placement(dict(row)) is not None else None
+    candidate = dict(row)
+    if retained_hosted_placement(candidate) is not None:
+        return "hussh_hosted"
+    if retained_hosted_azure_placement(candidate) is not None:
+        return "hussh_hosted"
+    return None
+
+
+def wire_deployment_target_for_row(row: Mapping[str, Any]) -> str | None:
+    """Return the wire ``deployment_target`` compatible with the pod's installed image.
+
+    Installed Dev39 images (``e323f94c``) validate ``PodBindingV1`` before ``azure``
+    was added to ``HOSTED_CLOUD_TARGETS``, so projecting a Dev39-pinned ``azure`` row
+    over the wire as ``ace`` (with omitted ``hosting_mode``) preserves signature bytes
+    across Hub and Pod without rebuilding the pinned pilot pod image.
+    """
+    target = _clean(row.get("deployment_target")) or None
+    if target != "azure":
+        return target
+    metadata = (
+        row.get("backend_metadata") if isinstance(row.get("backend_metadata"), Mapping) else {}
+    )
+    admission = (
+        metadata.get("hostedAzureAdmission")
+        if isinstance(metadata.get("hostedAzureAdmission"), Mapping)
+        else {}
+    )
+    image_ref = str(
+        metadata.get("image_digest")
+        or metadata.get("imageDigest")
+        or metadata.get("image")
+        or admission.get("imageDigest")
+        or ""
+    ).strip()
+    if LEGACY_DEV39_POD_DIGEST in image_ref:
+        return BACKEND_ACE
+    return target
+
+
+def wire_hosting_mode_for_row(row: Mapping[str, Any]) -> str | None:
+    """Return the wire ``hosting_mode`` compatible with the pod's installed image."""
+    if (
+        wire_deployment_target_for_row(row) == BACKEND_ACE
+        and _clean(row.get("deployment_target")) == "azure"
+    ):
+        return None
+    return hosting_mode_for_row(row)
 
 
 def verify_binding_capabilities(binding: PodBindingV1, *, now_ms: float) -> None:
@@ -204,14 +256,18 @@ def verify_binding_capabilities(binding: PodBindingV1, *, now_ms: float) -> None
     if deployment is not None:
         if (
             binding.hosting_mode != "hussh_hosted"
-            or binding.deployment_target != "gcp"
+            or binding.deployment_target not in {"gcp", "azure"}
             or binding.environment != deployment.environment
             or binding.hushh_id != deployment.owner
         ):
             raise PodSessionRefused(
                 "foreign_hosting", "binding does not name this managed placement"
             )
-    elif binding.hosting_mode is not None:
+    elif binding.hosting_mode is not None and not (
+        binding.deployment_target == "azure"
+        and binding.hosting_mode == "hussh_hosted"
+        and binding.environment == "dev"
+    ):
         raise PodSessionRefused("foreign_hosting", "managed binding requires a managed runtime")
     if SCOPE_PUPPY_INFERENCE in binding.scopes and not is_owner_cloud_target(
         binding.deployment_target
@@ -259,6 +315,6 @@ def make_pod_binding(
         version=version,
         issued_at_ms=now_ms,
         expires_at_ms=now_ms + ttl_ms,
-        deployment_target=_clean(row.get("deployment_target")) or None,
-        hosting_mode=hosting_mode_for_row(row),
+        deployment_target=wire_deployment_target_for_row(row),
+        hosting_mode=wire_hosting_mode_for_row(row),
     )

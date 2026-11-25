@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import contextvars
+import hashlib
 import itertools
 import json
 import logging
@@ -217,6 +218,9 @@ class DetachWatch:
 _CURRENT_DETACH: contextvars.ContextVar[DetachWatch | None] = contextvars.ContextVar(
     "one_chat_detach_watch", default=None
 )
+_CURRENT_TURN_IDENTITY: contextvars.ContextVar[tuple[str, str] | None] = contextvars.ContextVar(
+    "one_chat_turn_identity", default=None
+)
 
 
 def run_label(input_data: RunAgentInput) -> str:
@@ -274,6 +278,13 @@ class TurnTiming:
     error_class: str = "none"
     error_code: str = "none"
     tools_peak: int | None = None
+    tools_schema_hash: str = "none"
+    prompt_tokens: int = 0
+    cached_tokens: int = 0
+    output_tokens: int = 0
+    thoughts_tokens: int = 0
+    total_tokens: int = 0
+    usage_calls: int = 0
     terminal_observed: bool = False
     context_usage_events: list[dict[str, Any]] = field(default_factory=list)
 
@@ -303,19 +314,34 @@ class TurnTiming:
         config = getattr(request, "config", None)
         # A count is cheap and carries nothing private; it shows how many tools every
         # model step is asked to weigh (the sizes below stay behind the detailed switch).
-        declared = sum(
-            len(getattr(tool, "function_declarations", None) or [])
-            for tool in (getattr(config, "tools", None) or [])
-        )
-        self.tools_peak = max(self.tools_peak or 0, declared)
-        environment = os.getenv("HUSHH_DEPLOY_ENV", "").strip().lower()
-        runtime_environment = os.getenv("ENVIRONMENT", "").strip().lower()
-        if (
-            os.getenv(_DETAILED_TIMING_ENV) != "1"
-            or environment not in {"uat", "development", "dev", "test"}
-            or runtime_environment != environment
-        ):
+        tool_entries = getattr(config, "tools", None) or []
+        declared_names = [
+            str(getattr(decl, "name", "") or "")
+            for tool in tool_entries
+            for decl in (getattr(tool, "function_declarations", None) or [])
+        ]
+        self.tools_peak = max(self.tools_peak or 0, len(declared_names))
+        if declared_names:
+            # Authored tool declaration names only; proves tool-prefix stability across turns.
+            self.tools_schema_hash = hashlib.sha256(
+                "\n".join(declared_names).encode("utf-8")
+            ).hexdigest()[:12]
+        detail_flag = os.getenv(_DETAILED_TIMING_ENV, "").strip().lower()
+        if detail_flag in {"0", "false", "no"}:
             return
+        if detail_flag != "1":
+            from hushh_mcp.runtime_settings import pod_mode
+
+            if not pod_mode():
+                return
+        else:
+            environment = os.getenv("HUSHH_DEPLOY_ENV", "").strip().lower()
+            runtime_environment = os.getenv("ENVIRONMENT", "").strip().lower()
+            if (
+                environment not in {"uat", "development", "dev", "test"}
+                or runtime_environment != environment
+            ):
+                return
 
         contents = getattr(request, "contents", None) or []
         system_instruction = getattr(config, "system_instruction", None)
@@ -325,20 +351,44 @@ class TurnTiming:
             for content in contents
             for part in (getattr(content, "parts", None) or [])
         )
-        tool_schemas = getattr(config, "tools", None) or []
         # Tool declarations contain authored schemas only; repr length avoids
         # serializing request contents or retaining any private text.
-        schema_chars = len(repr(tool_schemas))
+        schema_chars = len(repr(tool_entries))
         self.prompt_chars_peak = max(self.prompt_chars_peak or 0, instruction_chars + history_chars)
         self.tool_schema_chars_peak = max(self.tool_schema_chars_peak or 0, schema_chars)
         self.history_items_peak = max(self.history_items_peak or 0, len(contents))
 
-    def finish_model_call(self) -> None:
+    def finish_model_call(self, response: Any = None) -> None:
         starts = self.pending_model_call_starts
-        if not starts:
+        if starts:
+            started_at = starts.pop(0)
+            self.model_call_total_ms += (time.perf_counter() - started_at) * 1000
+        self.record_usage_metadata(getattr(response, "usage_metadata", None))
+
+    def record_usage_metadata(self, usage: Any) -> None:
+        """Accumulate content-free Gemini/provider token and cache-hit counters."""
+        if usage is None:
             return
-        started_at = starts.pop(0)
-        self.model_call_total_ms += (time.perf_counter() - started_at) * 1000
+        prompt = _non_negative_int(_usage_field(usage, "prompt_token_count"))
+        cached = _non_negative_int(_usage_field(usage, "cached_content_token_count"))
+        output = _non_negative_int(_usage_field(usage, "candidates_token_count"))
+        thoughts = _non_negative_int(_usage_field(usage, "thoughts_token_count"))
+        total = _non_negative_int(_usage_field(usage, "total_token_count"))
+        if all(v is None for v in (prompt, cached, output, thoughts, total)):
+            return
+        self.usage_calls += 1
+        if prompt is not None:
+            self.prompt_tokens += prompt
+        if cached is not None:
+            self.cached_tokens += cached
+        if output is not None:
+            self.output_tokens += output
+        if thoughts is not None:
+            self.thoughts_tokens += thoughts
+        if total is not None:
+            self.total_tokens += total
+        elif prompt is not None or output is not None or thoughts is not None:
+            self.total_tokens += (prompt or 0) + (output or 0) + (thoughts or 0)
 
     def observe(self, event: BaseEvent) -> None:
         self.events += 1
@@ -395,6 +445,14 @@ class TurnTiming:
         model_inflight_ms = round(
             sum(max(0.0, completed_at - started_at) for started_at in pending_model_calls) * 1000
         )
+        uncached_prompt_tokens = (
+            max(0, self.prompt_tokens - self.cached_tokens) if self.usage_calls > 0 else None
+        )
+        cache_hit_pct = (
+            round((self.cached_tokens / self.prompt_tokens) * 100.0, 1)
+            if self.usage_calls > 0 and self.prompt_tokens > 0
+            else None
+        )
         from api.middlewares.observability import get_request_id
 
         logger.info(
@@ -409,7 +467,9 @@ class TurnTiming:
             "model_id=%s thinking_level=%s "
             "prompt_chars_peak=%s tool_schema_chars_peak=%s history_items_peak=%s "
             "events=%s tool_calls=%s specialist_calls=%s outcome=%s error_class=%s "
-            "error_code=%s tools_peak=%s request_id=%s",
+            "error_code=%s tools_peak=%s tools_schema_hash=%s "
+            "prompt_tokens=%s cached_tokens=%s uncached_prompt_tokens=%s cache_hit_pct=%s "
+            "output_tokens=%s thoughts_tokens=%s total_tokens=%s request_id=%s",
             self.head,
             self.run,
             _ms_since(self.started_at, self.first_visible_at),
@@ -449,6 +509,14 @@ class TurnTiming:
             self.error_class,
             self.error_code,
             self.tools_peak,
+            self.tools_schema_hash,
+            self.prompt_tokens if self.usage_calls > 0 else None,
+            self.cached_tokens if self.usage_calls > 0 else None,
+            uncached_prompt_tokens,
+            cache_hit_pct,
+            self.output_tokens if self.usage_calls > 0 else None,
+            self.thoughts_tokens if self.usage_calls > 0 else None,
+            self.total_tokens if self.usage_calls > 0 else None,
             get_request_id() or "-",
         )
 
@@ -517,6 +585,20 @@ class TimedADKAgent(ADKAgent):
     # Called once, from the background run, when a turn whose client had already
     # disconnected settles. Only authenticated One turns are watched.
     detached_turn_hook: DetachedTurnHook | None = None
+    # Called silently from the background run after the stream finishes, while the
+    # request chat key is still retained, for non-blocking post-turn persistence
+    # (e.g. encrypted rolling-horizon digest updates without ever pausing the chat).
+    post_turn_hook: DetachedTurnHook | None = None
+
+    def _turn_owner_and_thread(self, input: RunAgentInput) -> tuple[str, str] | None:
+        if self.head != HEAD_ONE:
+            return None
+        state = input.state if isinstance(input.state, dict) else {}
+        owner_id = str(state.get("hussh:user_id") or "").strip()
+        conversation_id = str(input.thread_id or "").strip()
+        if not owner_id or owner_id.startswith(_ANONYMOUS_OWNER_PREFIX) or not conversation_id:
+            return None
+        return owner_id, conversation_id
 
     def _detach_watch(self, input: RunAgentInput) -> DetachWatch | None:
         if self.head != HEAD_ONE or self.detached_turn_hook is None:
@@ -524,12 +606,10 @@ class TimedADKAgent(ADKAgent):
         forwarded = input.forwarded_props if isinstance(input.forwarded_props, dict) else {}
         if forwarded.get(NOTIFY_ON_DETACH_PROP) is not True:
             return None
-        state = input.state if isinstance(input.state, dict) else {}
-        owner_id = str(state.get("hussh:user_id") or "").strip()
-        conversation_id = str(input.thread_id or "").strip()
-        if not owner_id or owner_id.startswith(_ANONYMOUS_OWNER_PREFIX) or not conversation_id:
+        identity = self._turn_owner_and_thread(input)
+        if identity is None:
             return None
-        return DetachWatch(owner_id=owner_id, conversation_id=conversation_id)
+        return DetachWatch(owner_id=identity[0], conversation_id=identity[1])
 
     def _default_run_config(self, input: RunAgentInput):
         from hushh_mcp.hushh_adk.telemetry import private_telemetry
@@ -566,6 +646,7 @@ class TimedADKAgent(ADKAgent):
         # context and so shares the same watch object.
         detach_watch = self._detach_watch(input)
         detach_context = _CURRENT_DETACH.set(detach_watch)
+        turn_identity_context = _CURRENT_TURN_IDENTITY.set(self._turn_owner_and_thread(input))
         interrupted = False
         queued_key: queued_input.RunKey | None = None
         private_call_ids: set[str] = set()
@@ -680,6 +761,8 @@ class TimedADKAgent(ADKAgent):
             # A finalizer may close this generator from another Context; one
             # failed reset must not skip the other.
             with contextlib.suppress(ValueError):
+                _CURRENT_TURN_IDENTITY.reset(turn_identity_context)
+            with contextlib.suppress(ValueError):
                 _CURRENT_DETACH.reset(detach_context)
             with contextlib.suppress(ValueError):
                 _CURRENT_TURN.reset(timing_context)
@@ -699,10 +782,23 @@ class TimedADKAgent(ADKAgent):
                 # A reader that left never received the settlement; close the
                 # inbox when the run itself ends so nothing waits in memory.
                 queued_input.settle(queued_input.current_run())
-            # Still inside the retained binding: the hook reads the sealed
-            # session with the key this turn received and never stores it.
+            # Still inside the retained binding: hooks read/update the sealed
+            # session silently after RUN_FINISHED with zero turn-blocking pause.
+            await self._settle_post_turn()
             await self._settle_detached_turn()
             return result
+
+    async def _settle_post_turn(self) -> None:
+        """Run silent non-blocking post-turn persistence (e.g. rolling-horizon digest)."""
+        hook = self.post_turn_hook
+        identity = _CURRENT_TURN_IDENTITY.get()
+        if hook is None or identity is None:
+            return
+        try:
+            async with asyncio.timeout(DETACHED_TURN_HOOK_TIMEOUT_SECONDS):
+                await hook(identity[0], identity[1])
+        except Exception as exc:  # noqa: BLE001 - background hygiene never fails a completed turn
+            logger.warning("one.post_turn_hook_failed kind=%s", _bridge_failure_kind((type(exc),)))
 
     async def _settle_detached_turn(self) -> None:
         """Hand a turn that finished after its client left to the completion hook.
@@ -927,10 +1023,22 @@ def timed_one_before_model(callback_context: Any, llm_request: Any) -> LlmRespon
     return None
 
 
+def _usage_field(usage: Any, field_name: str) -> Any:
+    if isinstance(usage, dict):
+        return usage.get(field_name)
+    return getattr(usage, field_name, None)
+
+
+def _non_negative_int(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if value >= 0 else None
+
+
 def timed_one_after_model(_callback_context: Any, _llm_response: Any) -> None:
-    """Finish provider timing on the final response, after all streamed chunks."""
+    """Finish provider timing and token/cache accounting on the final response."""
     if getattr(_llm_response, "partial", False):
         return
     timing = _CURRENT_TURN.get()
     if timing is not None:
-        timing.finish_model_call()
+        timing.finish_model_call(_llm_response)

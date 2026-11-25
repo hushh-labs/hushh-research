@@ -17,7 +17,7 @@ import {
   Upload,
   X,
 } from "@/components/icons";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import {
   CommandPickerField,
@@ -2687,9 +2687,8 @@ export default function RiaPicksPage() {
           ? "loading"
           : iamUnavailable
             ? "unavailable-valid"
-            : "loaded",
+            : picksResource.error ? "error" : "loaded",
         errorCode: picksResource.error ? "ria_picks" : null,
-        errorMessage: picksResource.error,
       }}
     >
       <RiaVerificationGate>

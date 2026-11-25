@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
+import re
 import sys
-from contextlib import closing
+from collections.abc import Callable
+from contextlib import closing, contextmanager
 from pathlib import Path
 
 import asyncpg
 import psycopg2
+from psycopg2 import sql
 from sqlalchemy.engine import URL, make_url
 
 _PG_TARGET_ENV = (
@@ -170,6 +174,143 @@ def preflight() -> None:
             sync_identity = cursor.fetchone()
     if sync_identity != asyncio.run(_async_server_identity(url)):
         raise ValueError("PostgreSQL drivers selected different test servers")
+
+
+_SAFE_IDENTIFIER = re.compile(r"^[a-z0-9_]{1,63}$")
+
+
+def _require_safe_identifier(name: str) -> str:
+    if not _SAFE_IDENTIFIER.fullmatch(name):
+        raise ValueError(f"Unsafe disposable PostgreSQL identifier: {name!r}")
+    return name
+
+
+def _template_lock_id(template_name: str) -> int:
+    digest = hashlib.sha256(f"hushh-tpl:{template_name}".encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big", signed=True)
+
+
+def ensure_template_database(
+    command_url: str | URL,
+    template_name: str,
+    populate: Callable[[URL], None] | None = None,
+) -> str:
+    """Create and populate an immutable template database once on an admitted test server."""
+    url = make_url(command_url) if isinstance(command_url, str) else command_url
+    if not is_isolated_command_url(url):
+        raise ValueError("PostgreSQL test target is not an admitted disposable service")
+    safe_template = _require_safe_identifier(template_name)
+    lock_id = _template_lock_id(safe_template)
+
+    with closing(
+        psycopg2.connect(
+            host=url.host,
+            port=url.port,
+            dbname=url.database,
+            user=url.username,
+            password=url.password,
+            connect_timeout=3,
+        )
+    ) as admin_conn:
+        admin_conn.autocommit = True
+        with admin_conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_lock(%s)", (lock_id,))
+            try:
+                cur.execute(
+                    "SELECT datistemplate FROM pg_database WHERE datname = %s",
+                    (safe_template,),
+                )
+                row = cur.fetchone()
+                if row is not None and row[0]:
+                    return safe_template
+                if row is not None:
+                    cur.execute(
+                        sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(safe_template))
+                    )
+                cur.execute(
+                    sql.SQL("CREATE DATABASE {} ENCODING 'UTF8'").format(
+                        sql.Identifier(safe_template)
+                    )
+                )
+                if populate is not None:
+                    populate(url.set(database=safe_template))
+                cur.execute(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                    "WHERE datname = %s AND pid <> pg_backend_pid()",
+                    (safe_template,),
+                )
+                cur.execute(
+                    sql.SQL("ALTER DATABASE {} WITH IS_TEMPLATE TRUE").format(
+                        sql.Identifier(safe_template)
+                    )
+                )
+            finally:
+                cur.execute("SELECT pg_advisory_unlock(%s)", (lock_id,))
+    return safe_template
+
+
+@contextmanager
+def cloned_test_database(
+    command_url: str | URL,
+    *,
+    template_name: str,
+    clone_name: str,
+    populate_template: Callable[[URL], None] | None = None,
+):
+    """Clone a disposable test database via CREATE DATABASE ... TEMPLATE and drop on exit."""
+    url = make_url(command_url) if isinstance(command_url, str) else command_url
+    if not is_isolated_command_url(url):
+        raise ValueError("PostgreSQL test target is not an admitted disposable service")
+    safe_template = ensure_template_database(url, template_name, populate_template)
+    safe_clone = _require_safe_identifier(clone_name)
+
+    with closing(
+        psycopg2.connect(
+            host=url.host,
+            port=url.port,
+            dbname=url.database,
+            user=url.username,
+            password=url.password,
+            connect_timeout=3,
+        )
+    ) as admin_conn:
+        admin_conn.autocommit = True
+        with admin_conn.cursor() as cur:
+            cur.execute(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                "WHERE datname = %s AND pid <> pg_backend_pid()",
+                (safe_clone,),
+            )
+            cur.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(safe_clone)))
+            cur.execute(
+                sql.SQL("CREATE DATABASE {} TEMPLATE {}").format(
+                    sql.Identifier(safe_clone),
+                    sql.Identifier(safe_template),
+                )
+            )
+    try:
+        yield url.set(database=safe_clone)
+    finally:
+        with closing(
+            psycopg2.connect(
+                host=url.host,
+                port=url.port,
+                dbname=url.database,
+                user=url.username,
+                password=url.password,
+                connect_timeout=3,
+            )
+        ) as cleanup_conn:
+            cleanup_conn.autocommit = True
+            with cleanup_conn.cursor() as cur:
+                cur.execute(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                    "WHERE datname = %s AND pid <> pg_backend_pid()",
+                    (safe_clone,),
+                )
+                cur.execute(
+                    sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(safe_clone))
+                )
 
 
 if __name__ == "__main__":

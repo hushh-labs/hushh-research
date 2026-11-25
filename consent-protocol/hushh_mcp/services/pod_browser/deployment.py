@@ -31,21 +31,42 @@ class BrowserOwnerPolicy(StrictContract):
     public_policy: PublicResearchPolicy
 
 
-def installed_browser_host() -> tuple[str, str]:
-    """Use verified VM identity or native Cloud Run, never Azure cloud alone."""
+HostKind = Literal[
+    "gcp_cloud_run",
+    "gcp_ace",
+    "azure_vm",
+    "azure_container_apps",
+    "aws_fargate",
+    "aws_firecracker",
+]
+
+
+def installed_browser_host() -> tuple[HostKind, str]:
+    """Use verified VM identity or native workload coordinates, never cloud label alone."""
     vm = active_vm_installation()
     if vm is not None:
         return "azure_vm", vm.image_digest
-    if workload_platform() == "gcp" and os.getenv("K_SERVICE") and os.getenv("K_REVISION"):
+    platform = workload_platform()
+    digest = os.getenv("HUSSH_POD_INSTALLED_IMAGE_DIGEST", "")
+    if platform == "gcp" and os.getenv("K_SERVICE") and os.getenv("K_REVISION"):
         # Rendered with the exact verified owner-registry image, not a mutable tag.
-        return "gcp_cloud_run", os.getenv("HUSSH_POD_INSTALLED_IMAGE_DIGEST", "")
+        return "gcp_cloud_run", digest
+    if platform == "ace" and os.getenv("ACE_SANDBOX_ID") and os.getenv("ACE_SANDBOX_REVISION"):
+        return "gcp_ace", digest
     if (
-        workload_platform() == "azure"
+        platform == "azure"
         and os.getenv("CONTAINER_APP_NAME")
         and os.getenv("CONTAINER_APP_REVISION")
         and os.getenv("CONTAINER_APP_REPLICA_NAME")
     ):
-        return "azure_container_apps", os.getenv("HUSSH_POD_INSTALLED_IMAGE_DIGEST", "")
+        return "azure_container_apps", digest
+    if (
+        platform == "aws"
+        and os.getenv("ECS_CONTAINER_METADATA_URI_V4")
+        and os.getenv("HUSSH_AWS_SERVICE_NAME")
+        and os.getenv("HUSSH_AWS_TASK_REVISION")
+    ):
+        return "aws_fargate", digest
     raise BrowserRefused("BROWSER_HOST_UNQUALIFIED")
 
 
@@ -53,12 +74,12 @@ class BrowserDeployment(StrictContract):
     """Process-local binding, constructed only after authenticated recovery."""
 
     version: Literal[1]
-    environment: Literal["development"]
+    environment: Literal["development", "uat"]
     pod_id: str = Field(min_length=1, max_length=256)
     pod_key_id: str = Field(min_length=1, max_length=256)
     incarnation: str = Field(min_length=1, max_length=256)
     image_tag: str = Field(min_length=1, max_length=128)
-    host_kind: Literal["gcp_cloud_run", "azure_vm", "azure_container_apps"]
+    host_kind: HostKind
     evidence_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     readiness: BrowserReadiness
     public_policy: PublicResearchPolicy
@@ -67,7 +88,8 @@ class BrowserDeployment(StrictContract):
         self.readiness.require_ready()
         if (
             authority is not active_session_authority()
-            or authority.environment not in {"dev", "development"}
+            or authority.environment not in {"dev", "development", "uat"}
+            or (authority.environment == "uat") != (self.environment == "uat")
             or self.pod_id != authority.hushh_id
             or self.pod_key_id != authority.pod_key_id
             or self.incarnation != pod_incarnation()
@@ -98,7 +120,7 @@ def recovered_browser_deployment(authority) -> BrowserDeployment:
             raise BrowserRefused("BROWSER_OWNER_POLICY_UNQUALIFIED")
         deployment = BrowserDeployment(
             version=1,
-            environment="development",
+            environment="uat" if getattr(authority, "environment", "") == "uat" else "development",
             pod_id=approved.pod_id,
             pod_key_id=approved.pod_key_id,
             incarnation=pod_incarnation(),

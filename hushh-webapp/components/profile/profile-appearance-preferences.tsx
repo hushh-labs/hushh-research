@@ -82,7 +82,7 @@ export function ProfileAppearancePreferences({
               onChange={(event) => onAccentChange(event.target.value as AppAccent)}
               aria-label="App accent color"
             >
-              <option value="blue">iOS Blue</option>
+              <option value="blue">Blue</option>
               <option value="gold">Molten Gold</option>
             </select>
           </span>

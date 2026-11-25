@@ -182,4 +182,53 @@ async def append(
     )
 
 
-__all__ = ["STAGE_PROGRESS", "append", "append_sync", "substrate_progress"]
+_EVENTS_SQL = """
+SELECT seq, event, stage, registry_status, progress_pct, substrate_step,
+       step_ok, terminal, reason, occurred_at
+FROM pod_lifecycle_events
+WHERE user_id = :user_id AND seq > :cursor
+ORDER BY seq
+LIMIT :limit
+"""
+
+_HEAD_SQL = """
+SELECT COALESCE(MAX(seq), 0) AS head
+FROM pod_lifecycle_events
+WHERE user_id = :user_id
+"""
+
+
+def read_events_sync(user_id: str, cursor: int, limit: int = 200) -> list[dict]:
+    """Blocking cursored narrative read; absent table degrades to empty list."""
+    try:
+        from db.db_client import get_db  # noqa: PLC0415
+
+        result = get_db().execute_raw(
+            _EVENTS_SQL, {"user_id": user_id, "cursor": cursor, "limit": limit}
+        )
+        return list(result.data or [])
+    except Exception as exc:  # noqa: BLE001 - narrative read failure degrades, never breaks
+        logger.warning("pod_lifecycle.events_read_failed err=%s", type(exc).__name__)
+        return []
+
+
+def read_head_sync(user_id: str) -> int:
+    """Blocking head cursor read; absent table degrades to zero."""
+    try:
+        from db.db_client import get_db  # noqa: PLC0415
+
+        result = get_db().execute_raw(_HEAD_SQL, {"user_id": user_id})
+        rows = result.data or []
+        return int(rows[0].get("head") or 0) if rows else 0
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+__all__ = [
+    "STAGE_PROGRESS",
+    "append",
+    "append_sync",
+    "read_events_sync",
+    "read_head_sync",
+    "substrate_progress",
+]

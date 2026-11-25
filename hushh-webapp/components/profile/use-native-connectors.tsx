@@ -1,4 +1,5 @@
 "use client";
+import { drivePreparationDetails } from "@/components/agent/drive-collection-panel";
 
 import { useCallback, useLayoutEffect, useMemo, useState } from "react";
 import type { ConnectorDetailAction, ConnectorsPanelPresentation } from "@/components/agent/connectors-panel";
@@ -67,7 +68,7 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
   const action = (key: string, value?: ConnectorDetailAction): NativeDrawerRow[] => value ? [bind(key, value.label, value.run,
     { enabled: !value.disabled, ...(value.destructive ? { destructive: true } : {}) })] : [];
   const toggle = (key: string, label: string, selected: boolean, enabled: boolean, update: (next: boolean) => void): NativeDrawerRow => {
-    const options = ([false, true] as const).map(next => {
+    const options = ([true, false] as const).map(next => {
       const choice = bind(`${key}:${next}`, next ? "On" : "Off", () => { if (enabled && selected !== next) update(next); });
       return { id: choice.id, label: choice.label, selected: selected === next };
     });
@@ -114,11 +115,13 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
     let detailRows: NativeDrawerRow[] = [];
     if (detail.kind === "private-google" || detail.kind === "private-stripe") detailRows = [read("private-status", detail.status), ...text("private-purpose", detail.purpose),
       ...(detail.permissions ?? []).map(permission => read(`calendar-permission:${permission.id}`, permission.label, permission.status)),
-      ...detail.notes.flatMap((note, index) => text(`private-note-${index}`, note)), ...detail.actions.flatMap((item, index) => action(`private-action-${index}`, item)), ...text("private-message", detail.message)];
-    else if (detail.kind === "gmail") detailRows = [read("mail-account", detail.account, detail.status), ...text("mail-clearance", detail.note ?? ""), ...action("mail-connect", detail.connect), ...action("mail-enable-all", detail.enableAll), ...action("mail-disconnect", detail.disconnect),
-      ...action("mail-retry", detail.retry), ...(detail.connected ? [read("mail-read", "Read mail", "Allowed"), ...(detail.sendAllowed ? [read("mail-send", "Send mail", "Allowed · review required")] : detail.enableSend ? action("mail-send", detail.enableSend) : [read("mail-send", "Send mail", "Not enabled")]),
-        ...(detail.draftsAllowed ? [read("mail-drafts", "Drafts", "Allowed · review required")] : action("mail-drafts", detail.enableDrafts)),
-        ...(detail.modifyAllowed ? [read("mail-modify", "Organize mail", "Allowed · review required")] : detail.enableModify ? action("mail-modify", detail.enableModify) : [])] : []), ...action("mail-cancel", detail.cancelSignIn), ...text("mail-message", detail.message)];
+      ...detail.notes.flatMap((note, index) => text(`private-note-${index}`, note)),
+      ...(detail.background ? [read("private-background-state", "Background preparation", detail.background.description),
+        ...(detail.background.enabled === null ? [] : [toggle("private-background", "Background preparation", detail.background.enabled, !detail.background.busy, detail.background.change)])] : []),
+      ...detail.actions.flatMap((item, index) => action(`private-action-${index}`, item)), ...text("private-message", detail.message)];
+    else if (detail.kind === "gmail") detailRows = [read("mail-account", detail.account, detail.status), ...text("mail-clearance", detail.note ?? ""), ...action("mail-connect", detail.connect), ...action("mail-disconnect", detail.disconnect),
+      ...action("mail-retry", detail.retry), ...(detail.connected ? [read("mail-read", "Read mail", "Allowed"), read("mail-send", "Send mail", detail.sendAllowed ? "Allowed · review required" : "Not enabled"),
+        ...(detail.draftsAllowed ? [read("mail-drafts", "Drafts", "Allowed · review required")] : action("mail-drafts", detail.enableDrafts))] : []), ...action("mail-cancel", detail.cancelSignIn), ...text("mail-message", detail.message)];
     else if (detail.kind === "calendar") detailRows = [...text("calendar-description", detail.description), read("calendar-status", detail.status), ...action("calendar-connection", detail.connection),
       ...detail.permissions.map(permission => read(`calendar-permission:${permission.id}`, permission.label, permission.status)), ...action("calendar-enable-changes", detail.enableChanges),
       ...text("calendar-helper", detail.helper ?? ""), ...action("calendar-cancel", detail.cancelSignIn), ...action("calendar-retry", detail.retry), ...text("calendar-message", detail.message)];
@@ -172,8 +175,8 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
     const collection = drive.collection, status = collection.status;
     const content = [read("preparation-caption", "Prepare packets", collection.caption),
       ...(status ? [toggle("preparation-switch", "Prepare packets", status.enabled, collection.canToggle, () => { void collection.toggle(); }),
-        ...Object.entries(status.counts).map(([key, count]) => read(`preparation:${key}`, key[0]!.toUpperCase() + key.slice(1), count.toLocaleString())),
-        ...text("preparation-last-index", status.lastIndexedAt ? `Last indexed ${new Date(status.lastIndexedAt).toLocaleString()}` : "No files indexed yet."),
+        ...(["discovered", "indexed", "pending", "failed"] as const).map(key => read(`preparation:${key}`, key[0]!.toUpperCase() + key.slice(1), status.counts[key].toLocaleString())),
+        ...drivePreparationDetails(status).map((detail, index) => read(`preparation-timing:${index}`, detail)),
         ...(collection.paused ? text("preparation-paused", "Saved packets were last verified before preparation paused.") : []),
       ] : []), ...(collection.error === "read" ? [bind("preparation-retry", "Retry preparation", collection.read, { enabled: !collection.busy })] : [])];
     pages.push({ id: "connector-preparation", title: "Prepare packets", sections: [{ id: "preparation-content", rows: content }] });

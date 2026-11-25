@@ -35,6 +35,16 @@ describe("recipient-bound catalog pages", () => {
     expect(() => mergePersonScopePage(page(1), page(3))).toThrow(/changed/);
   });
 
+  it("binds displayed prices to exact selection and rejects altered money", async () => {
+    const input = { personRef: "fixture-person", scopeRefs: ["field-1"], durationSeconds: 3600, vaultOwnerToken: "fixture-token" };
+    const price = { version: 1, ...input, currency: "USD", coinsPerDollar: 100,
+      items: [{scopeRef:"field-1",label:"Role",amountCoins:24}], totalCoins:24, availableCoins:50, shortfallCoins:0,binding:"a".repeat(64) };
+    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(JSON.stringify(price)));
+    expect((await PersonProfileService.informationRequestPrice(input)).totalCoins).toBe(24);
+    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(JSON.stringify({...price,totalCoins:1})));
+    await expect(PersonProfileService.informationRequestPrice(input)).rejects.toThrow(/verified/);
+  });
+
   it("forwards pagination and filters through the existing endpoint", async () => {
     vi.mocked(ApiService.apiFetch).mockResolvedValue(new Response(JSON.stringify(page(2))));
     await PersonProfileService.getViewer("fixture-person", "fixture-token", { page: 2, revision: "a".repeat(64), domain: "professional", query: "test employer" });

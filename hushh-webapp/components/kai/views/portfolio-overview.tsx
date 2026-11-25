@@ -22,8 +22,17 @@ import type { KaiPortfolioSection } from "@/lib/navigation/routes";
 import { overviewFacts } from "./portfolio-display-facts";
 import { signedMoney, signedPercent, tone } from "@/components/kai/performance/performance-strip";
 import { sinceBought, winnersLosers } from "@/lib/kai/portfolio-performance";
-
 import { useMarketCurrency } from "@/lib/kai/use-market-currency";
+
+/** The web and native overview use the same displayed position/allocation facts. */
+export function portfolioOverviewLayout(model: DashboardViewModel) {
+  const positions = [...model.canonicalModel.positions].filter(position => !position.isCashEquivalent && position.marketValue > 0).sort((a, b) => b.marketValue - a.marketValue);
+  const allocations = model.allocation.filter(item => item.value > 0 && Number.isFinite(item.value));
+  const allocationTotal = allocations.reduce((sum, item) => sum + item.value, 0);
+  const denominator = model.hero.totalValue > 0 ? model.hero.totalValue : allocationTotal;
+  return { positions, allocations, allocationTotal, denominator };
+}
+
 export function PortfolioOverview({ model, portfolio, source, period, action, briefing, sharing, valuationKind, loadHistory, onImport, onOpenSection }: {
   model: DashboardViewModel; portfolio: PortfolioData; source: string;
   valuationKind?: "statement" | "linked"; loadHistory?: StockHistoryLoader;
@@ -32,7 +41,7 @@ export function PortfolioOverview({ model, portfolio, source, period, action, br
   useMarketCurrency();
   const [selectedHoldingId, setSelectedHoldingId] = useState<string | null>(null);
   const facts = overviewFacts(model, portfolio);
-  const positions = [...model.canonicalModel.positions].filter(position => !position.isCashEquivalent && position.marketValue > 0).sort((a, b) => b.marketValue - a.marketValue);
+  const { positions, allocations, allocationTotal, denominator } = portfolioOverviewLayout(model);
   const selectedHolding = selectedHoldingId === null ? undefined : groupHoldingPositions(portfolio.holdings ?? [])
     .find(position => position.client_id === selectedHoldingId);
   const selectedEntries = selectedHolding?.entries.map((entry, index) => ({
@@ -42,9 +51,6 @@ export function PortfolioOverview({ model, portfolio, source, period, action, br
   const distribution = winnersLosers(model.gainLossDistribution);
   const colors = ["var(--finance-negative)", "color-mix(in srgb, var(--finance-negative) 50%, transparent)", "var(--chart-4)", "color-mix(in srgb, var(--finance-positive) 50%, transparent)", "var(--finance-positive)"];
   const totalValue = model.hero.totalValue;
-  const allocations = model.allocation.filter(item => item.value > 0 && Number.isFinite(item.value));
-  const allocationTotal = allocations.reduce((sum, item) => sum + item.value, 0);
-  const denominator = model.hero.totalValue > 0 ? model.hero.totalValue : allocationTotal;
   return <div className="space-y-3" data-testid="portfolio-overview">
     <div className={styles.portfolioTop}>
       <PortfolioValueCard source={source} value={model.hero.totalValue} {...facts} period={period} history={model.quality.historyReady ? model.history : []} action={action} />
@@ -69,7 +75,7 @@ export function PortfolioOverview({ model, portfolio, source, period, action, br
         ) : null}
         </div>
         {!since ? <p className={styles.description}>{facts.change === null ? "No performance figures in this statement." : "Balance changes may include cash flows."}</p> : null}
-        <div className={styles.cardFooter}><ShellActionSurface variant="pill" className="min-h-11 ui-text-compact-button-label" onClick={() => onOpenSection("performance")}>View performance</ShellActionSurface></div>
+        <div className={styles.cardFooter}><ShellActionSurface variant="pill" className="min-h-11 ui-text-compact-button-label" data-voice-control-id="show_portfolio_performance" onClick={() => onOpenSection("performance")}>View performance</ShellActionSurface></div>
       </SurfaceCardContent></SurfaceCard>
       <SurfaceCard><SurfaceCardContent className={styles.compactInsight}>
         <div className="flex items-baseline justify-between gap-3"><SectionLabel role="heading" aria-level={2}>Allocation</SectionLabel><span className={styles.description}>% of portfolio</span></div>
@@ -77,11 +83,11 @@ export function PortfolioOverview({ model, portfolio, source, period, action, br
           {allocationTotal <= denominator * 1.001 ? <div className={styles.portfolioAllocation} aria-hidden="true">{allocations.map(item => <span key={item.name} style={{ width: `${item.value / denominator * 100}%`, background: allocationColor(item.name) }} />)}</div> : null}
           <dl className={styles.allocationSummary}>{allocations.map(item => <div key={item.name}><dt><span aria-hidden="true" className="size-2 shrink-0 rounded-full" style={{ background: allocationColor(item.name) }} />{item.name}</dt><dd>{(item.value / denominator * 100).toFixed(1)}%</dd></div>)}</dl>
         </> : <p className={styles.description}>Allocation is unavailable for this source.</p>}
-        <div className={styles.cardFooter}><ShellActionSurface variant="pill" className="min-h-11 ui-text-compact-button-label" onClick={() => onOpenSection("allocation")}>View allocation</ShellActionSurface></div>
+        <div className={styles.cardFooter}><ShellActionSurface variant="pill" className="min-h-11 ui-text-compact-button-label" data-voice-control-id="show_portfolio_allocation" onClick={() => onOpenSection("allocation")}>View allocation</ShellActionSurface></div>
       </SurfaceCardContent></SurfaceCard>
     </div>
     <SurfaceCard><SurfaceCardContent className="space-y-2 p-4">
-      <div className="flex items-center justify-between gap-3"><SectionLabel role="heading" aria-level={2}>Holdings</SectionLabel><ShellActionSurface variant="pill" className="min-h-11 ui-text-compact-button-label" onClick={() => onOpenSection("holdings")}>All {model.hero.holdingsCount}</ShellActionSurface></div>
+      <div className="flex items-center justify-between gap-3"><SectionLabel role="heading" aria-level={2}>Holdings</SectionLabel><ShellActionSurface variant="pill" className="min-h-11 ui-text-compact-button-label" data-voice-control-id="show_portfolio_holdings" onClick={() => onOpenSection("holdings")}>All {model.hero.holdingsCount}</ShellActionSurface></div>
       {positions.length ? <div className={styles.portfolioList}>{positions.slice(0, 3).map(position => <button type="button" aria-haspopup="dialog" aria-expanded={position.id === selectedHoldingId} data-finance-selected={position.id === selectedHoldingId || undefined} className={`${styles.portfolioListRow} ${styles.interactiveRow} relative isolate w-full overflow-hidden rounded-sm text-left`} key={position.id} onClick={() => setSelectedHoldingId(position.id)}>
         <span className="flex min-w-0 items-center gap-3"><SymbolAvatar symbol={position.displaySymbol} name={position.name} size="md" className="size-8 rounded-lg" /><span className="min-w-0"><span className="block truncate text-sm font-semibold" title={position.name || position.displaySymbol}>{position.name || position.displaySymbol}</span><span className={styles.description}>{position.displaySymbol}{position.sector ? ` · ${position.sector}` : ""}</span></span></span>
         <span className="text-right text-sm font-semibold tabular-nums">{formatCurrency(position.marketValue, position.currency)}{model.hero.totalValue > 0 ? <span className={`block ${styles.description}`}>{(position.marketValue / model.hero.totalValue * 100).toFixed(1)}% of portfolio</span> : null}</span>

@@ -45,6 +45,7 @@ const SHEET_CONSUMERS = [
   "components/agent/agent-get-app-prompt.tsx",
   "components/agent/agent-text-attachment-editor.tsx",
   "components/agent/agent-text-attachment-viewer.tsx",
+  "components/agent/agent-thought-process-sheet.tsx",
   "components/agent/drive-background-search.tsx",
   "components/agent/one-agent-profile-sheet.tsx",
   "components/agent/puppy-resource-monitor.tsx",
@@ -105,6 +106,7 @@ describe("the shared bottom sheet stays shared", () => {
       "components/agent/agent-connections-drawer.tsx",
       "components/agent/agent-text-attachment-editor.tsx",
       "components/agent/agent-text-attachment-viewer.tsx",
+      "components/agent/agent-thought-process-sheet.tsx",
       "components/agent/drive-background-search.tsx",
       "components/agent/one-agent-profile-sheet.tsx",
       "components/app-ui/profile-pane.tsx",
@@ -140,7 +142,7 @@ describe("the shared bottom sheet stays shared", () => {
           // The complete inventory exposes one pre-existing Todo cap. Keep
           // that measured legacy baseline while blocking narrower/new caps;
           // its phone/desktop transport is outside this task migration.
-          const legacyMinimum = consumer === "components/todos/todo-list-page.tsx" ? 576 : 640;
+          const legacyMinimum = consumer === "components/todos/todo-add-item-sheet.tsx" ? 576 : 640;
           if (px !== null && px < legacyMinimum) {
             offenders.push(`${consumer} → ${match[0]} (${px}px)`);
           }

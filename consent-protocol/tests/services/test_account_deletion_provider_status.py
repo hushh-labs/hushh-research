@@ -18,6 +18,7 @@ def test_identity_scoped_cleanup_exposes_hash_but_not_completed_raw_owner(monkey
         "provider_cleanup_id": operation,
         "erasure_phase": phase,
         "cleanup_status": "pending",
+        "identity_removed": False,
         "provider_cleanup_inventory": {},
         "provider_cleanup_receipt": {"inventorySha256": "a" * 64},
         "delayed": False,

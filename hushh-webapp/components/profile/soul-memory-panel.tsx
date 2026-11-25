@@ -13,6 +13,7 @@ import {
 } from "@/lib/pkm/soul-labelled-facts";
 import { Textarea } from "@/components/ui/textarea";
 import { MAX_MARKDOWN_MEMORY_CHARS } from "@/lib/pkm/markdown-memory";
+import type { LiveMirrorViewState } from "@/lib/pkm/use-live-mirror-view";
 import {
   useSoulMemoryModel,
   type SoulMemoryModel,
@@ -21,13 +22,24 @@ import {
 import styles from "./soul-memory-panel.module.css";
 
 /** Existing web entrypoint; the shared owner also supports native presentation. */
-export function SoulMemoryPanel(options: SoulMemoryModelOptions) {
-  const model = useSoulMemoryModel(options);
-  return <SoulMemoryPanelBody model={model} />;
+export function SoulMemoryPanel(
+  options: SoulMemoryModelOptions & { hideLiveMirror?: boolean },
+) {
+  const { hideLiveMirror, ...modelOptions } = options;
+  const model = useSoulMemoryModel(modelOptions);
+  return <SoulMemoryPanelBody model={model} hideLiveMirror={hideLiveMirror} />;
 }
 
 /** Presentation only. A retained parent can supply its one existing owner. */
-export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
+export function SoulMemoryPanelBody({
+  model,
+  liveMirror,
+  hideLiveMirror = true,
+}: {
+  model: SoulMemoryModel;
+  liveMirror?: LiveMirrorViewState;
+  hideLiveMirror?: boolean;
+}) {
   const editorId = useId();
   const editorHelpId = useId();
   const editorLimitId = useId();
@@ -53,7 +65,9 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
   // The same shared Live Mirror preview as Profile and One's sheet, above
   // the Soul view. It stays out of the way while memory.md is being edited.
   const livePreview =
-    active && !editing ? <LiveMirrorPreview showOpenMemory={false} /> : null;
+    !hideLiveMirror && active && !editing ? (
+      <LiveMirrorPreview showOpenMemory={false} mirror={liveMirror} />
+    ) : null;
   if (failed && !editing)
     return (
       <div className="min-w-0 space-y-[var(--app-form-section-gap)]">
@@ -211,6 +225,7 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
                   <Input
                     aria-label={field.label}
                     type={field.type}
+                    className={field.type === "date" ? "max-w-full px-0" : undefined}
                     autoComplete="off"
                     value={
                       readLabelledSoulFacts(current.draft).get(field.key)

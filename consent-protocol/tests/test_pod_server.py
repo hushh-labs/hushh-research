@@ -69,6 +69,8 @@ def test_pod_readiness_does_not_require_the_hub_database(monkeypatch):
         # The data-door broker READS a DB-backed specialist for a pod. A pod
         # holds no DB credential and must never proxy this to other pods.
         "/api/one/pod/specialist",
+        # The Hub custody/capability broker holds regional KEK & STS minting authority.
+        "/api/one/pod/custody",
     ],
 )
 def test_pod_does_not_mount_central_or_unrelated_surface(forbidden_prefix):
@@ -358,6 +360,7 @@ def test_the_wall_sits_inside_observability_and_outside_the_routes():
 # Exact external reachability, independently pinned against ingress policy.
 OWNER_REACHABLE_PATHS = frozenset(
     {
+        "/api/one/pod/answers/compose",
         "/api/one/pod/actions/gmail/proposals",
         "/api/one/pod/actions/{proposal_id}/confirm",
         "/api/one/pod/actions/{proposal_id}/status",
@@ -399,6 +402,7 @@ OWNER_REACHABLE_PATHS = frozenset(
         # app session, pkm.read, owner-bound chat key and encrypted recovery fence.
         "/api/one/pod/agent-chat",
         "/api/one/pod/agent-chat/capabilities",
+        "/api/one/pod/agent-chat/migration/import",
         "/api/one/pod/agent-chat/history/{conversation_id}/information-requests",
         "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/review",
         "/api/one/pod/agent-chat/conversations/{conversation_id}",
@@ -450,6 +454,8 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/session/revoke",
         # Memory and the AI selection: two-door admission; APP_SURFACE_EXACT owns reach.
         "/api/one/pod/ai-selection",
+        "/api/one/pod/ai-selection/activate",
+        "/api/one/pod/ai-selection/deactivate",
         "/api/one/pod/circle-rules",
         "/api/one/pod/circle-rules/preview",
         "/api/one/pod/circle-rules/{rule_id}",

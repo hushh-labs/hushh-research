@@ -18,7 +18,7 @@ import {
 } from "@/lib/morphy-ux/gsap-init";
 import { getGsap, prefersReducedMotion } from "@/lib/morphy-ux/gsap";
 import { cn } from "@/lib/utils";
-import { ROUTES } from "@/lib/navigation/routes";
+import { ROUTES, normalizeStaticExportPathname } from "@/lib/navigation/routes";
 
 export function PkmSettingsShell({
   title,
@@ -42,7 +42,7 @@ export function PkmSettingsShell({
   titleRole?: "page" | "agent";
   children: ReactNode;
 }) {
-  const pathname = usePathname();
+  const pathname = normalizeStaticExportPathname(usePathname() ?? "/");
   const isMemoryWorkspace = pathname === ROUTES.PKM;
   const shellRef = useRef<HTMLDivElement | null>(null);
 

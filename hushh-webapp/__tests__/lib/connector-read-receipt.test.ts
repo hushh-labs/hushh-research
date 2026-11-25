@@ -236,6 +236,40 @@ describe("connector read receipts", () => {
       owner_compile_window: null })).not.toHaveProperty("ownerCompileAvailable");
   });
 
+  it("projects and restores Plaid, Stripe, and custom manage_connector cards safely", () => {
+    expect(parseAgentToolResultExperience(
+      "manage_connector",
+      { status: "connect_required", provider: "plaid", connected: false },
+      { provider: "plaid", operation: "connect" },
+    )).toEqual({
+      type: "one.workspace_connector_setup.v1",
+      provider: "plaid",
+      status: "connect_required",
+    });
+
+    expect(parseAgentToolResultExperience(
+      "manage_connector",
+      { status: "manage_available", provider: "stripe", connected: true },
+      { provider: "stripe", operation: "status" },
+    )).toEqual({
+      type: "one.workspace_connector_setup.v1",
+      provider: "stripe",
+      status: "manage_available",
+    });
+
+    expect(parseAgentToolResultExperience(
+      "manage_connector",
+      { status: "connect_required", provider: "venmo" },
+      { provider: "venmo" },
+    )).toBeNull();
+
+    expect(parseAgentToolResultExperience(
+      "manage_connector",
+      { status: "connect_required", provider: "plaid" },
+      { provider: "stripe" },
+    )).toBeNull();
+  });
+
   it("parses direct Gmail REST tool results with bounded live_sources while keeping durable receipts opaque", () => {
     const mailResult = {
       status: "ok",

@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
+from hushh_mcp.services.pod_adoption import has_hosted_evidence as has_hosted_evidence
+
 
 @dataclass(frozen=True)
 class HostedPlacement:
@@ -24,18 +26,6 @@ class HostedPlacement:
     service_uid: str
     runtime_principal: str
     bootstrap_sa: str
-
-
-def has_hosted_evidence(row: Any) -> bool:
-    if not isinstance(row, dict):
-        return False
-    metadata = row.get("backend_metadata") or {}
-    if not isinstance(metadata, dict):
-        return False
-    attempt = metadata.get("provisionAttempt")
-    return metadata.get("tenancy") == "hussh-hosted" or (
-        isinstance(attempt, dict) and "hostedAdmission" in attempt
-    )
 
 
 def retained_hosted_placement(row: Any) -> HostedPlacement | None:

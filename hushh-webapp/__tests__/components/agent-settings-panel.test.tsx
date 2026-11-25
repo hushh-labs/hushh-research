@@ -1,6 +1,8 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSettingsPanel } from "@/components/profile/agent-settings-panel";
+import { useAgentSettingsController } from "@/components/profile/use-agent-settings-controller";
+import { useNativeAgentSettings } from "@/components/profile/use-native-agent-settings";
 import { NO_UPDATE } from "@/lib/feed/use-agent-deployment-follow";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
@@ -23,6 +25,11 @@ const mocks = vi.hoisted(() => ({
   assign: vi.fn(),
   azureHosting: vi.fn(),
   browserPlan: vi.fn(),
+  inspectHosting: vi.fn(),
+  hostedMigrationStatus: vi.fn(),
+  migrateToHostedAzure: vi.fn(),
+  adoptPooledSandbox: vi.fn(),
+  switchHostingMode: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "owner" } }) }));
@@ -48,11 +55,16 @@ vi.mock("@/lib/services/api-service", () => ({
     getByocSetupStatus: mocks.setupStatus,
     getAzureHosting: mocks.azureHosting,
     getPersonalAgentBrowserPlan: mocks.browserPlan,
+    inspectPersonalAgentHosting: mocks.inspectHosting,
+    getHostedAzureMigrationStatus: mocks.hostedMigrationStatus,
+    migrateToHostedAzure: mocks.migrateToHostedAzure,
+    adoptPooledSandbox: mocks.adoptPooledSandbox,
+    switchHostingMode: mocks.switchHostingMode,
   },
 }));
 vi.mock("@/lib/morphy-ux/morphy", async (original) => ({
   ...(await original<object>()),
-  morphyToast: { promise: mocks.promiseToast, dismiss: mocks.dismissToast },
+  morphyToast: { promise: mocks.promiseToast, promiseText: mocks.promiseToast, dismiss: mocks.dismissToast },
 }));
 vi.mock("@/lib/feed/feed-events", () => ({
   dispatchFeedStateChanged: vi.fn(),
@@ -68,12 +80,29 @@ function status(mode: string, extra: object = {}, update = NO_UPDATE) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
   publishValidatedAuthSessionOwner(null);
   publishValidatedAuthSessionOwner("owner");
   mocks.promiseToast.mockImplementation((request: Promise<unknown>) => ({
     unwrap: () => request,
     valueOf: () => 42,
   }));
+  mocks.adoptPooledSandbox.mockResolvedValue({
+    status: "ready",
+    hostingMode: "hussh_pods",
+    deploymentTarget: "ace",
+    hushhId: "ha1_sandbox",
+    podUrl: "https://sandbox-edge.dev.one.hussh.ai/u/ha1_sandbox",
+    detachedPriorHost: true,
+  });
+  mocks.switchHostingMode.mockResolvedValue({
+    hostingMode: "shared",
+    detachedPriorHost: true,
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("owner hosting and software settings", () => {
@@ -152,10 +181,15 @@ describe("owner hosting and software settings", () => {
     expect(mocks.azureHosting).not.toHaveBeenCalled();
   });
 
-  it.each(["hosting", "software-updates"] as const)(
-    "repairs a failed BYOC link from %s without claiming direct readiness",
-    async (kind) => {
-      status("byoc", { state: "failed" });
+  it.each([
+    ["byoc", "hosting"],
+    ["byoc", "software-updates"],
+    ["hussh_pods", "hosting"],
+    ["hussh_pods", "software-updates"],
+  ] as const)(
+    "repairs a failed %s link from %s without claiming direct readiness",
+    async (mode, kind) => {
+      status(mode, { state: "failed" });
       let resolve!: (value: { adopted: boolean }) => void;
       mocks.adopt.mockReturnValue(new Promise((done) => { resolve = done; }));
       render(<AgentSettingsPanel userId="owner" kind={kind} />);
@@ -173,8 +207,8 @@ describe("owner hosting and software settings", () => {
     },
   );
 
-  it("discards recovery completion after an owner changes away and back", async () => {
-    status("byoc", { state: "failed" });
+  it.each(["byoc", "hussh_pods"])("discards %s recovery completion after an owner changes away and back", async (mode) => {
+    status(mode, { state: "failed" });
     let resolve!: (value: { adopted: boolean }) => void;
     mocks.adopt.mockReturnValue(new Promise((done) => { resolve = done; }));
     render(<AgentSettingsPanel userId="owner" kind="hosting" />);
@@ -190,8 +224,25 @@ describe("owner hosting and software settings", () => {
     expect(mocks.refresh).not.toHaveBeenCalled();
   });
 
-  it("keeps a refused recovery failed without falling through to direct access", async () => {
-    status("byoc", { state: "failed" });
+  it("does not evaluate or retain promise outcome notices after owner admission changes", async () => {
+    status("byoc");
+    let resolve!: (value: { hostingMode: string }) => void;
+    mocks.getStatus.mockReturnValue(new Promise(done => { resolve = done; }));
+    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
+    await waitFor(() => expect(mocks.promiseToast).toHaveBeenCalledOnce());
+    const [, copy] = mocks.promiseToast.mock.calls[0];
+    publishValidatedAuthSessionOwner("other-owner");
+    expect(copy.success({ hostingMode: "byoc" })).toBeNull();
+    expect(copy.error(new Error("stale owner"))).toBeNull();
+    resolve({ hostingMode: "byoc" });
+    await act(async () => {});
+    expect(mocks.refresh).not.toHaveBeenCalled();
+  });
+
+  it.each(["byoc", "hussh_pods"])("keeps a refused %s recovery failed without falling through to direct access", async (mode) => {
+    status(mode, { state: "failed" });
     mocks.adopt.mockResolvedValue({ adopted: false });
     render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
     fireEvent.click(screen.getByRole("button", { name: "Link existing pod" }));
@@ -400,8 +451,10 @@ describe("owner hosting and software settings", () => {
     expect(screen.queryByText("What’s in this update")).toBeNull();
     expect(screen.queryByText("abcdef123456")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /Current version/ }));
+    fireEvent.click(screen.getByTestId("agent-current-version-row").querySelector("button")!);
+    expect(screen.getByTestId("update-details-view")).toBeTruthy();
     expect(screen.getByText("What’s in this update")).toBeTruthy();
+    expect(screen.getByText("Improved reconnect behavior.")).toBeTruthy();
     expect(screen.queryByText("abcdef123456")).toBeNull();
   });
 
@@ -493,6 +546,316 @@ describe("owner hosting and software settings", () => {
     await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
     expect(mocks.promiseToast.mock.calls[0][1].success(response)).toBe(
       "Update needs attention. Its outcome has not been verified.",
+    );
+  });
+
+  it.each([
+    ["unverified", "Your cloud could not be verified. Nothing was changed."],
+    ["connected", "Your agent’s cloud resources are available."],
+    ["absent", "Your cloud reports this agent is missing. Review Hosting recovery before creating another."],
+  ] as const)(
+    "reports the exact %s cloud inspection verdict in the Check hosting toast and row",
+    async (inspectionStatus, expectedSentence) => {
+      const response = { hostingMode: "byoc", deploymentTarget: "user_azure", state: "active" };
+      mocks.getStatus.mockResolvedValue(response);
+      mocks.inspectHosting.mockResolvedValue({
+        status: inspectionStatus,
+        previousHomes: 0,
+        needsPreviousReview: false,
+      });
+      mocks.azureHosting.mockResolvedValue({ state: "healthy", rebuildable: false, rebuild: null });
+      status("byoc", { deploymentTarget: "user_azure", state: "active" });
+      render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+
+      fireEvent.click(screen.getByRole("button", { name: /hosting details/i }));
+      fireEvent.click(screen.getByRole("button", { name: "Check hosting" }));
+      await waitFor(() => expect(mocks.inspectHosting).toHaveBeenCalledOnce());
+      const [request, copy] = mocks.promiseToast.mock.calls[0];
+      expect(await request).toEqual(response);
+      expect(copy.success(response)).toBe(expectedSentence);
+      expect(await screen.findByText(expectedSentence)).toBeTruthy();
+    },
+  );
+
+  it("offers Review cloud hosting when a BYOC pod update is blocked by PREDECESSOR_NOT_QUALIFIED", () => {
+    status(
+      "byoc",
+      {
+        deploymentTarget: "user_azure",
+        updateAvailable: true,
+        updateInstallable: false,
+        updateBlockedReason: "PREDECESSOR_NOT_QUALIFIED",
+        installedRelease: { version: "2026.10-dev.19" },
+        availableRelease: {
+          version: "2026.11-dev.38",
+          releasedAt: "2026-11-12T00:00:00Z",
+          summary: "Current verified build.",
+          notes: { improvements: [], fixes: [], security: [] },
+        },
+      },
+      { ...NO_UPDATE, available: true, offerable: false },
+    );
+    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+
+    expect(
+      screen.getByText(
+        "This version needs a verified upgrade path. Your current agent is kept; retrying will not change compatibility.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Update now" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Review cloud hosting" }));
+    expect(mocks.push).toHaveBeenCalledWith(
+      "/one/setup/cloud?return_to=%2Fone%2Fprofile%2Fhosting&from=%2Fone%2Fprofile%2Fhosting",
+    );
+  });
+
+  it("offers Reconnect your pod and Review cloud hosting when INSTALLED_RELEASE_UNVERIFIED blocks a BYOC update", async () => {
+    mocks.reconnect.mockResolvedValue({});
+    status(
+      "byoc",
+      {
+        deploymentTarget: "user_gcp",
+        updateAvailable: true,
+        updateInstallable: false,
+        updateBlockedReason: "INSTALLED_RELEASE_UNVERIFIED",
+        availableRelease: {
+          version: "2026.11-dev.38",
+          releasedAt: "2026-11-12T00:00:00Z",
+          summary: "Current verified build.",
+          notes: { improvements: [], fixes: [], security: [] },
+        },
+      },
+      { ...NO_UPDATE, available: true, offerable: false },
+    );
+    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+
+    expect(screen.getByRole("button", { name: "Review cloud hosting" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect your pod" }));
+    await waitFor(() => expect(mocks.reconnect).toHaveBeenCalledOnce());
+  });
+
+  it.each([
+    ["gcp", "Hussh Pods · Google Cloud", "Google Cloud"],
+    ["azure", "Hussh Pods · Microsoft Azure", "Microsoft Azure"],
+  ] as const)(
+    "identifies %s hosting provider cleanly on Profile Hosting and native settings",
+    async (deploymentTarget, expectedDisplay, expectedBadge) => {
+      vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+      mocks.hostedMigrationStatus.mockResolvedValue({
+        job: null,
+        deploymentTarget,
+        registryStatus: "provisioned",
+        cutover: { relayReady: true, directReady: true, ingress: "direct", mode: "direct" },
+        cellPool: { environment: "dev", cells: [], totalAzureWarmSlots: 2, azureWarmReady: true },
+      });
+      status("hussh_pods", { state: "active", deploymentTarget, featureEnabled: true });
+
+      const { unmount } = render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+      expect(await screen.findByText(expectedDisplay)).toBeTruthy();
+      expect(screen.getByTestId("current-hosting-cloud-badge")).toHaveTextContent(expectedBadge);
+      expect(screen.getByTestId("current-hosting-status-signal")).toHaveTextContent("Connected");
+      // Detailed cloud card lives inside Hosting details, keeping top-level uniform.
+      expect(screen.queryByTestId("hussh-pods-connected")).toBeNull();
+      fireEvent.click(screen.getByTestId("current-hosting-row").querySelector("button")!);
+      expect(await screen.findByTestId("hussh-pods-connected")).toHaveAttribute(
+        "data-provider",
+        deploymentTarget,
+      );
+
+      const openOwnCloud = vi.fn();
+      const { result } = renderHook(() =>
+        useNativeAgentSettings(
+          useAgentSettingsController({ kind: "hosting", userId: "owner" }),
+          true,
+          "owner",
+          openOwnCloud,
+        ),
+      );
+      const statusRows = result.current.pages[0].sections.find((s) => s.id === "hosting-status-section")!.rows;
+      expect(statusRows.find((r) => r.id === "hosting-current")?.detail).toBe(expectedDisplay);
+      expect(statusRows.find((r) => r.id === "hosting-move-azure")).toBeUndefined();
+      const choiceRows = result.current.pages[0].sections.find((s) => s.id === "hosting-choices-section")!.rows;
+      expect(choiceRows.find((r) => r.id === "hosting-shared")).toBeUndefined();
+      expect(choiceRows.find((r) => r.id === "hosting-pods")?.trailing).toBe("Switch");
+      act(() => { result.current.rows.get("hosting-own-cloud")?.(); });
+      expect(openOwnCloud).toHaveBeenCalledOnce();
+      expect(mocks.switchHostingMode).not.toHaveBeenCalled();
+      unmount();
+      vi.unstubAllEnvs();
+    },
+  );
+
+  it("renders the graphical Azure migration card when explicitly enabled outside Dev and submits only after confirmation", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+    vi.stubEnv("NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE", "0");
+    vi.stubEnv("NEXT_PUBLIC_HOSTED_AZURE_MIGRATION_ENABLED", "1");
+    mocks.hostedMigrationStatus.mockResolvedValue({
+      job: null,
+      deploymentTarget: "gcp",
+      registryStatus: "provisioned",
+      cutover: { relayReady: true, directReady: true, ingress: "direct", mode: "direct" },
+      cellPool: { environment: "uat", cells: [], totalAzureWarmSlots: 2, azureWarmReady: true },
+    });
+    mocks.migrateToHostedAzure.mockResolvedValue({
+      jobId: "mig_1",
+      status: "succeeded",
+      cellId: "cell-az-eastus2-dev-01",
+      slotId: "slot02",
+      claimLatencyMs: 18500,
+      migrationMode: "lossless_commit_log",
+      directPromoted: true,
+      cutover: { relayReady: true, directReady: true, ingress: "direct", mode: "direct" },
+    });
+    status("hussh_pods", { state: "active", deploymentTarget: "gcp", featureEnabled: true });
+
+    render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+    expect(await screen.findByTestId("hussh-pods-migration-route")).toBeTruthy();
+    expect(screen.getByTestId("hussh-pods-warm-capacity")).toHaveTextContent("2 warm pods ready");
+
+    fireEvent.click(screen.getByTestId("hussh-pods-migrate-trigger"));
+    expect(mocks.migrateToHostedAzure).not.toHaveBeenCalled();
+
+    const confirm = await screen.findByTestId("hussh-pods-migrate-confirm");
+    fireEvent.click(confirm);
+    await waitFor(() => expect(mocks.migrateToHostedAzure).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
+  });
+
+  it.each([
+    { mode: "byoc", deploymentTarget: "user_gcp", cloudProject: "owner-gcp", expectConfirm: true },
+    { mode: "byoc", deploymentTarget: "user_azure", cloudProject: "eastus2", expectConfirm: true },
+    { mode: "hussh_pods", deploymentTarget: "gcp", cloudProject: undefined, expectConfirm: true },
+    { mode: "hussh_pods", deploymentTarget: "azure", cloudProject: undefined, expectConfirm: true },
+    { mode: "pending", deploymentTarget: "user_azure", cloudProject: undefined, expectConfirm: false },
+  ] as const)(
+    "renders Personal Sandbox switch in Dev instead of legacy migration for $mode/$deploymentTarget",
+    async ({ mode, deploymentTarget, cloudProject, expectConfirm }) => {
+      vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+      status(mode, { state: "active", deploymentTarget, cloudProject, featureEnabled: true });
+
+      render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+      const card = await screen.findByTestId("pooled-sandbox-switch-card");
+      expect(screen.queryByTestId("hussh-pods-migration-route")).toBeNull();
+      expect(card).toHaveTextContent(
+        expectConfirm ? "Switch to Hussh Confidential Sandbox" : "Start in Hussh Confidential Sandbox",
+      );
+
+      fireEvent.click(screen.getByTestId("pooled-sandbox-switch-trigger"));
+      if (expectConfirm) {
+        expect(mocks.adoptPooledSandbox).not.toHaveBeenCalled();
+        fireEvent.click(await screen.findByTestId("pooled-sandbox-switch-confirm"));
+      }
+      await waitFor(() => expect(mocks.adoptPooledSandbox).toHaveBeenCalledOnce());
+      await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
+    },
+  );
+
+  it("shows Google Cloud Confidential Sandbox identity for ace and retires Hussh Shared on cutover lane", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    status("hussh_pods", { state: "active", deploymentTarget: "ace", featureEnabled: true });
+
+    render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+    const currentHostingRow = await screen.findByTestId("current-hosting-row");
+    expect(currentHostingRow).toHaveTextContent("Hussh Confidential Sandbox");
+    expect(
+      currentHostingRow.querySelector('[data-slot="settings-row-title"]'),
+    ).not.toHaveClass("truncate");
+    expect(
+      currentHostingRow.querySelector('[data-slot="settings-row-description"]'),
+    ).not.toHaveClass("truncate");
+    expect(
+      currentHostingRow.querySelector('[data-slot="settings-row-trailing"]'),
+    ).toBeNull();
+    expect(screen.getByTestId("current-hosting-status-signal")).toHaveTextContent("Connected");
+    expect(screen.getByTestId("current-hosting-cloud-badge")).toHaveTextContent("Google Cloud");
+    expect(screen.queryByTestId("hosting-choice-shared")).toBeNull();
+    expect(screen.queryByTestId("pooled-sandbox-switch-card")).toBeNull();
+    expect(screen.queryByTestId("hussh-pods-connected")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("current-hosting-row").querySelector("button")!);
+    const card = await screen.findByTestId("hussh-pods-connected");
+    expect(card).toHaveAttribute("data-provider", "ace");
+    expect(card).toHaveTextContent("Isolated Confidential Sandbox on Google Cloud");
+    expect(card).not.toHaveTextContent("Microsoft Azure");
+    expect(screen.getByTestId("hussh-pods-active-gcp-cloud")).toBeInTheDocument();
+  });
+
+  it("reports Personal Sandbox as Managed automatically and keeps raw build hashes inside Version details", () => {
+    const rawSha = "dev-6aa3fb3c5aa664565a2b11a228b9d0086e8f2102";
+    status("hussh_pods", {
+      state: "active",
+      deploymentTarget: "ace",
+      installedReleaseVerified: false,
+      installedRelease: { version: rawSha },
+    });
+
+    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+    expect(screen.getByText("Managed automatically")).toBeTruthy();
+    expect(screen.queryByText("Running version not verified")).toBeNull();
+    expect(screen.getByText("Confidential Sandbox · Latest")).toBeTruthy();
+    expect(screen.queryByText(rawSha)).toBeNull();
+
+    fireEvent.click(screen.getByTestId("agent-current-version-row").querySelector("button")!);
+    expect(screen.getByTestId("update-details-view")).toBeTruthy();
+    expect(screen.getByText(rawSha)).toBeTruthy();
+  });
+
+  it("enables non-destructive switching from Personal Sandbox (ace) to Bring your own cloud while keeping Shared retired on Dev", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    status("hussh_pods", { state: "active", deploymentTarget: "ace", featureEnabled: true });
+
+    render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+    expect(screen.getByTestId("current-hosting-row")).toHaveTextContent("Hussh Confidential Sandbox");
+    expect(screen.getByTestId("current-hosting-status-signal")).toHaveTextContent("Connected");
+    expect(screen.getByTestId("current-hosting-cloud-badge")).toHaveTextContent("Google Cloud");
+    expect(screen.queryByTestId("hosting-choice-pods")).toBeNull();
+    expect(screen.queryByTestId("hosting-choice-shared")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("hosting-choice-own-cloud").querySelector("button")!);
+    expect(mocks.switchHostingMode).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(mocks.push).toHaveBeenCalledWith(
+        "/one/setup/cloud?return_to=%2Fone%2Fprofile%2Fhosting&from=%2Fone%2Fprofile%2Fhosting&intent=own",
+      ),
+    );
+  });
+
+  it("enables switching from legacy Shared to Personal Sandbox or Bring your own cloud directly in Profile Hosting", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    mocks.reconnect.mockResolvedValue({});
+    status("shared", { featureEnabled: true });
+
+    render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+    expect(screen.queryByTestId("hosting-choice-shared")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("hosting-choice-own-cloud").querySelector("button")!);
+    expect(mocks.push).toHaveBeenCalledWith(
+      "/one/setup/cloud?return_to=%2Fone%2Fprofile%2Fhosting&from=%2Fone%2Fprofile%2Fhosting&intent=own",
+    );
+
+    fireEvent.click(screen.getByTestId("hosting-choice-pods").querySelector("button")!);
+    expect(mocks.adoptPooledSandbox).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByTestId("hosting-switch-sandbox-confirm"));
+    await waitFor(() =>
+      expect(mocks.adoptPooledSandbox).toHaveBeenCalledWith({
+        allowCleanSlate: true,
+        isEffectCurrent: expect.any(Function),
+      }),
+    );
+    await waitFor(() => expect(mocks.reconnect).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce());
+  });
+
+  it("never displays retired Hussh Shared copy on Dev even for legacy hostingMode=shared accounts", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    const { updateCheckMessage } = await import("@/lib/feed/agent-update-status");
+    status("shared", { featureEnabled: true });
+
+    render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+    expect(screen.queryByText(/Hussh Shared/i)).toBeNull();
+    expect(screen.getByText("Confidential Sandbox transition")).toBeInTheDocument();
+    expect(updateCheckMessage({ hostingMode: "shared", featureEnabled: true } as never)).toBe(
+      "Confidential Sandbox updates automatically.",
     );
   });
 });

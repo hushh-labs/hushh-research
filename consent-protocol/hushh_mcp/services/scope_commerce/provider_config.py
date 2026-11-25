@@ -12,6 +12,20 @@ from .provider_sandbox import SandboxPolicy
 from .stripe_adapter import CommerceProviderError
 
 
+def is_local_sandbox_origin(
+    frontend_origin: str,
+    *,
+    livemode: bool,
+    runtime_env: str,
+    deploy_env: str,
+) -> bool:
+    """Allow plain HTTP localhost origins only in non-live, non-UAT local dev."""
+    if livemode or runtime_env in {"uat", "production"} or deploy_env in {"uat", "production"}:
+        return False
+    parsed = urlsplit(frontend_origin)
+    return parsed.scheme == "http" and (parsed.hostname or "").lower() in {"localhost", "127.0.0.1"}
+
+
 @dataclass(frozen=True)
 class CountryPayoutPolicy:
     minimum_cents: int
@@ -36,6 +50,15 @@ class ScopeCommerceProviderConfig:
     approval_refs: tuple[str, ...] = ()
     sandbox_policy: SandboxPolicy | None = None
     sandbox_policy_required: bool = False
+
+    def require_new_liability_resolution(self) -> None:
+        """Approval references do not qualify a live residual settlement port.
+
+        No such live port is implemented. Refuse new funding and paid holds;
+        keep historical fulfillment, refunds and withdrawals executable.
+        """
+        if self.livemode:
+            raise CommerceProviderError("provider_residual_resolution_unqualified")
 
     def allows_actor(self, user_id: str) -> bool:
         """Sandbox admission bounds new commerce, never historical obligations."""
@@ -145,12 +168,18 @@ class ScopeCommerceProviderConfig:
             and deploy_env in {"uat", "production"}
             and runtime_env != deploy_env
         )
+        allowed_origin = parsed.scheme == "https" or is_local_sandbox_origin(
+            self.frontend_origin,
+            livemode=self.livemode,
+            runtime_env=runtime_env,
+            deploy_env=deploy_env,
+        )
         if (
             (new_activity and not self.enabled)
             or environment_conflict
             or ("production" in {runtime_env, deploy_env} and not self.livemode)
             or not self.platform_account_id.startswith("acct_")
-            or parsed.scheme != "https"
+            or not allowed_origin
             or not parsed.hostname
             or parsed.username is not None
             or parsed.password is not None

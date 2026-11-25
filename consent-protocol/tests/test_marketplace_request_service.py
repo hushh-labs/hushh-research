@@ -6,6 +6,10 @@ owner-scoped resolve logic are covered without a real database.
 
 from __future__ import annotations
 
+import json
+
+import pytest
+
 from hushh_mcp.services.marketplace_request_service import MarketplaceRequestService
 
 
@@ -242,17 +246,20 @@ async def test_register_recipient_key_rejects_invalid_jwk():
         raise AssertionError(f"expected ValueError for {bad!r}")
 
 
-async def test_get_recipient_key_returns_active_or_none():
+@pytest.mark.parametrize("json_text", [False, True], ids=["native-object", "asyncpg-json-text"])
+async def test_get_recipient_key_returns_active_or_none(json_text):
     stored = {
         "user_id": "buyer",
         "key_id": "buyer-key-1",
-        "public_key_jwk": _SAMPLE_JWK,
+        "public_key_jwk": json.dumps(_SAMPLE_JWK) if json_text else _SAMPLE_JWK,
         "algorithm": "ECDH-P256-AES256-GCM",
     }
     svc, fake = _service_with([stored])
 
     out = await svc.get_recipient_key(user_id="buyer")
     assert out["keyId"] == "buyer-key-1"
+    assert out["publicKeyJwk"] == _SAMPLE_JWK
+    assert ("user_id", "buyer") in fake.query.eqs
     assert ("status", "active") in fake.query.eqs
     assert fake.query.limit_value == 1
 

@@ -135,32 +135,35 @@ def production_case(monkeypatch):
     )
     fixture = fixture_type()
     fixture.setUp()
-    with cases._continuation_case(fixture) as case:
-        case.original.run["run_started_at"] = "2026-10-21T03:00:00Z"
-        tag = _healthy_tag(case, proof.reference)
-        reads = Mock(side_effect=lambda *args, **kwargs: copy.deepcopy(tag))
-        monkeypatch.setattr(
-            proof,
-            "read_original",
-            Mock(side_effect=AssertionError("moving latest is not historical authority")),
-        )
-        monkeypatch.setattr(proof, "read_tag", reads)
-        monkeypatch.setattr(cases.continuation, "publication_tag", reads)
-        monkeypatch.setattr(fixture.maintenance, "api", case.api)
-        monkeypatch.setattr(fixture.maintenance.retention, "run_command", case.download)
-        monkeypatch.setattr(receipt, "run", _original_port(case))
-        yield SimpleNamespace(
-            receipt=receipt,
-            case=case,
-            proof=proof,
-            tag=tag,
-            reads=reads,
-            qualify=lambda **kwargs: receipt.qualify_release(
-                run_id=kwargs.get("run_id", "400"),
-                sha=kwargs.get("sha", case.release["sha"]),
-                revision=kwargs.get("revision", case.release["final"]["backend_revision"]),
-            ),
-        )
+    try:
+        with cases._continuation_case(fixture) as case:
+            case.original.run["run_started_at"] = "2026-10-21T03:00:00Z"
+            tag = _healthy_tag(case, proof.reference)
+            reads = Mock(side_effect=lambda *args, **kwargs: copy.deepcopy(tag))
+            monkeypatch.setattr(
+                proof,
+                "read_original",
+                Mock(side_effect=AssertionError("moving latest is not historical authority")),
+            )
+            monkeypatch.setattr(proof, "read_tag", reads)
+            monkeypatch.setattr(cases.continuation, "publication_tag", reads)
+            monkeypatch.setattr(fixture.maintenance, "api", case.api)
+            monkeypatch.setattr(fixture.maintenance.retention, "run_command", case.download)
+            monkeypatch.setattr(receipt, "run", _original_port(case))
+            yield SimpleNamespace(
+                receipt=receipt,
+                case=case,
+                proof=proof,
+                tag=tag,
+                reads=reads,
+                qualify=lambda **kwargs: receipt.qualify_release(
+                    run_id=kwargs.get("run_id", "400"),
+                    sha=kwargs.get("sha", case.release["sha"]),
+                    revision=kwargs.get("revision", case.release["final"]["backend_revision"]),
+                ),
+            )
+    finally:
+        fixture.doCleanups()
 
 
 def _original_port(case):
@@ -418,3 +421,205 @@ def test_production_tag_reader_ignores_stale_local_inspection_ref(tmp_path, monk
     monkeypatch.setattr(proof.reference, "remote_oid", lambda: next(values))
     with pytest.raises(ValueError, match="original_tag_changed"):
         proof.read_original()
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        None,
+        "open_flag",
+        "secret_flag",
+        "wrong_service_uid",
+        "error_status",
+        "wrong_log",
+        "later_request",
+        "duplicate_generation",
+        "contrary_preserved",
+    ],
+)
+def test_retired_post_restoration_revision_requires_authenticated_service_completion(
+    monkeypatch, defect
+):
+    monkeypatch.syspath_prepend(str(ROOT / "deploy/phone"))
+    monkeypatch.syspath_prepend(str(ROOT / "scripts/ci"))
+    closed = importlib.import_module("workos_rollout")
+    bridge = importlib.import_module("workos_recovery_bridge")
+    restoration = importlib.import_module("restoration_workos_observation")
+    operational = importlib.import_module("operational_workos_observation")
+    authority = bridge.contract()
+    retired_sha = "4" * 40
+    restoration_sha = authority["BACKEND_SOURCE"]
+    request_event = {
+        "timestamp": "2026-10-29T14:33:30Z"
+        if defect != "later_request"
+        else "2026-10-29T14:34:00Z",
+        "resource": {"labels": {"service_name": "consent-protocol"}},
+        "logName": "projects/hushh-pda/logs/cloudaudit.googleapis.com%2Factivity",
+        "protoPayload": {
+            "serviceName": "run.googleapis.com",
+            "methodName": "/Services.ReplaceService",
+            "request": {
+                "service": {
+                    "spec": {
+                        "template": {
+                            "metadata": {
+                                "name": "consent-protocol-00312-fig",
+                                "labels": {"deploy-sha": retired_sha},
+                            },
+                            "spec": {"containers": [{"env": []}]},
+                        }
+                    }
+                }
+            },
+        },
+    }
+    flag = {"name": "WORKOS_SSO_ENABLED", "value": "true" if defect == "open_flag" else "false"}
+    if defect == "secret_flag":
+        flag = {"name": "WORKOS_SSO_ENABLED", "valueFrom": {"secretKeyRef": {"name": "flag"}}}
+
+    def completion_row(insert_id, generation, name, sha, env_flag, ts="2026-10-29T14:33:31Z"):
+        return {
+            "insertId": insert_id,
+            "timestamp": ts,
+            "logName": (
+                "projects/hushh-pda/logs/cloudaudit.googleapis.com%2Factivity"
+                if defect == "wrong_log"
+                else bridge.COMPLETION_LOG
+            ),
+            "resource": {
+                "labels": {
+                    "project_id": "hushh-pda",
+                    "location": "us-central1",
+                    "service_name": "consent-protocol",
+                }
+            },
+            "protoPayload": {
+                "serviceName": "run.googleapis.com",
+                "methodName": "/Services.ReplaceService",
+                "resourceName": "namespaces/hushh-pda/services/consent-protocol",
+                **({"status": {"code": 13}} if defect == "error_status" else {}),
+                "response": {
+                    "kind": "Service",
+                    "metadata": {
+                        "name": "consent-protocol",
+                        "uid": (
+                            "wrong-uid"
+                            if defect == "wrong_service_uid"
+                            else authority["BACKEND_SERVICE_UID"]
+                        ),
+                        "generation": generation,
+                    },
+                    "status": {"latestCreatedRevisionName": name},
+                    "spec": {
+                        "template": {
+                            "metadata": {"name": name, "labels": {"deploy-sha": sha}},
+                            "spec": {"containers": [{"name": "app", "env": [env_flag]}]},
+                        }
+                    },
+                },
+            },
+        }
+
+    completions = [completion_row("comp-312", 312, "consent-protocol-00312-fig", retired_sha, flag)]
+    if defect == "duplicate_generation":
+        completions.append(
+            completion_row("comp-312b", 312, "consent-protocol-00312-fig", retired_sha, flag)
+        )
+    preserved_event = copy.deepcopy(request_event)
+    preserved_event["timestamp"] = "2026-10-27T01:36:00Z"
+    preserved_event["protoPayload"]["request"]["service"]["spec"]["template"]["metadata"] = {
+        "name": restoration.REVISION,
+        "labels": {"deploy-sha": restoration_sha},
+    }
+    completions.append(
+        completion_row(
+            "comp-305",
+            305,
+            restoration.REVISION,
+            restoration_sha,
+            {
+                "name": "WORKOS_SSO_ENABLED",
+                "value": "true" if defect == "contrary_preserved" else "false",
+            },
+            ts="2026-10-27T01:36:32Z",
+        )
+    )
+    observation = {
+        "row": {
+            "revision": restoration.REVISION,
+            "source": restoration_sha,
+            "created_at": restoration.CREATED,
+            "capable": True,
+            "direct_sso_false": True,
+        },
+        "history_start": closed.HISTORY_START,
+        "history_until": "2026-10-27T08:54:23Z",
+        "source_anchor": closed.SOURCE_ANCHOR,
+        "provenance": {"run_id": restoration.RUN, "run_attempt": restoration.ATTEMPT},
+    }
+    operational_event = copy.deepcopy(request_event)
+    operational_event["timestamp"] = "2026-10-27T04:00:00Z"
+    operational_event["protoPayload"]["request"]["service"]["spec"]["template"]["metadata"] = {
+        "name": operational.REVISION,
+        "labels": {"deploy-sha": restoration_sha},
+    }
+    operational_obs = {
+        "row": {
+            "revision": operational.REVISION,
+            "source": restoration_sha,
+            "created_at": operational.CREATED,
+            "capable": True,
+            "direct_sso_false": True,
+        },
+        "history_start": closed.HISTORY_START,
+        "history_until": "2026-10-29T06:00:10Z",
+        "source_anchor": closed.SOURCE_ANCHOR,
+        "revision_uid": "operational-uid",
+        "provenance": {"origin": {"run_id": "40884680280", "run_attempt": 1}},
+    }
+    events = [preserved_event, operational_event, request_event]
+    monkeypatch.setattr(closed, "_capable", lambda *_: True)
+    monkeypatch.setattr(closed, "_revisions", lambda *_: {})
+    monkeypatch.setattr(
+        closed,
+        "_document",
+        lambda cmd: completions if "system_event" in cmd[3] else events,
+    )
+    monkeypatch.setattr(
+        closed,
+        "database_evidence",
+        lambda _project: {"memberships_empty": True, "sso_receipts_empty": True},
+    )
+    loader = Mock(return_value=copy.deepcopy(observation))
+    op_loader = Mock(return_value=copy.deepcopy(operational_obs))
+    monkeypatch.setattr(restoration, "load", loader)
+    monkeypatch.setattr(operational, "load", op_loader)
+    if defect:
+        expected = (
+            "workos_service_completion_unqualified"
+            if defect in {"wrong_service_uid", "error_status", "wrong_log", "duplicate_generation"}
+            else "workos_historical_issuer_not_proven_closed"
+        )
+        with pytest.raises(ValueError, match=expected):
+            closed.qualify("hushh-pda", restoration_sha)
+    else:
+        with pytest.raises(ValueError, match="workos_historical_issuer_not_proven_closed"):
+            closed.review_history(
+                events,
+                {},
+                project="hushh-pda",
+                until="2026-10-30T00:00:00Z",
+                restoration_sha=restoration_sha,
+                check=lambda *_: True,
+                historical_observation=observation,
+                operational_observation=operational_obs,
+            )
+        receipt = closed.qualify("hushh-pda", restoration_sha)
+        assert receipt["qualification"] == "passed"
+        assert receipt["audit_event_count"] == 3
+        assert receipt["operational_observation"]["origin"] == {
+            "run_id": "40884680280",
+            "run_attempt": 1,
+        }
+        loader.assert_called_once_with(restoration_sha)
+        op_loader.assert_called_once_with(restoration_sha)

@@ -118,6 +118,7 @@ function DomainCard({
       iconTone="capability"
       title={domain.title}
       description={description || "Saved details ready to review."}
+      textOverflow="truncate"
       onClick={onOpen}
       chevron
       trailing={
@@ -278,7 +279,7 @@ export function PkmDataManagerPanel({
 
   return (
     <div className="space-y-4">
-      <SettingsGroup description={savedDetailsSummary}>
+      <SettingsGroup description={savedDetailsSummary} separatorInset>
         {!needsUnlock ? <SettingsRow icon={ReviewRowIcon} iconTone="capability"
           title="Manage sharing" chevron onClick={onOpenSharing} /> : null}
         <SettingsRow icon={SyncRowIcon} iconTone="capability"

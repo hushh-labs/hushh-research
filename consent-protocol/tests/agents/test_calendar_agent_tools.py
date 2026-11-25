@@ -167,7 +167,7 @@ def test_propose_fails_clean_when_the_provider_response_is_missing_fields(monkey
     )
 
     assert result["status"] == "failed"
-    assert f"{tools._STATE_PENDING_DIRECTIVE}:calendar" not in context.state
+    assert context.state.get(f"{tools._STATE_PENDING_DIRECTIVE}:calendar") is None
 
 
 def _context() -> SimpleNamespace:
@@ -1068,7 +1068,7 @@ def test_calendar_invalid_times_need_clarification_without_provider_calls(monkey
         kwargs["event_id"] = "evt-1"
     result = asyncio.run(getattr(tools, name)(context, **kwargs))
     assert result["status"] == "input_required"
-    assert f"{tools._STATE_PENDING_DIRECTIVE}:calendar" not in context.state
+    assert context.state.get(f"{tools._STATE_PENDING_DIRECTIVE}:calendar") is None
 
 
 def test_calendar_explicit_removals_survive_tool_and_review(monkeypatch):

@@ -18,7 +18,6 @@ LOCATION_PEER_UNAVAILABLE_MESSAGE = (
     "Someone you selected is no longer available. Choose someone else."
 )
 
-
 LOCATION_CAPABILITY_SCOPES = [
     "cap.location.live.share",
     "cap.location.live.view",

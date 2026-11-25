@@ -34,7 +34,7 @@ export type CircleDiscoveryCardProps = {
   onSetupCircles: () => void;
 };
 
-export function CircleDiscoveryCard({
+export function useCircleDiscoveryCardModel({
   snapshot,
   creating,
   onUseStarter,
@@ -51,6 +51,16 @@ export function CircleDiscoveryCard({
       !hidden.includes(starter.id) &&
       !findStarterCircle(snapshot.circles, starter),
   );
+  return { snapshot, creating, onUseStarter, onRetryCircles, onSetupCircles, contentId, expanded,
+    toggle: () => setExpanded(value => !value), hidden, restore: () => setHidden([]),
+    hide: (id: CircleStarterId) => setHidden(current => [...current, id]), unavailable, needsSetup, suggestions };
+}
+export type CircleDiscoveryCardModel = ReturnType<typeof useCircleDiscoveryCardModel>;
+export function CircleDiscoveryCard(props: CircleDiscoveryCardProps) {
+  return <CircleDiscoveryCardBody model={useCircleDiscoveryCardModel(props)} />;
+}
+export function CircleDiscoveryCardBody({ model }: { model: CircleDiscoveryCardModel }) {
+  const { snapshot, creating, onUseStarter, onRetryCircles, onSetupCircles, contentId, expanded, toggle, hidden, restore, hide, unavailable, needsSetup, suggestions } = model;
   return (
     <section
       data-testid="connect-living-connections"
@@ -63,7 +73,7 @@ export function CircleDiscoveryCard({
           className={styles.ideaToggle}
           aria-expanded={expanded}
           aria-controls={contentId}
-          onClick={() => setExpanded((value) => !value)}
+          onClick={toggle}
         >
           Circle ideas <span className={styles.optional}>Optional</span>
           <ChevronDown
@@ -77,7 +87,7 @@ export function CircleDiscoveryCard({
             variant="plain"
             size="compact"
             className={styles.quietAction}
-            onClick={() => setHidden([])}
+            onClick={restore}
           >
             Restore hidden
           </Button>
@@ -110,7 +120,7 @@ export function CircleDiscoveryCard({
                 size="icon-touch"
                 aria-label={`Hide ${starter.label} suggestion`}
                 disabled={Boolean(creating)}
-                onClick={() => setHidden((current) => [...current, starter.id])}
+                onClick={() => hide(starter.id)}
               >
                 <X aria-hidden="true" className="size-4" />
               </Button>

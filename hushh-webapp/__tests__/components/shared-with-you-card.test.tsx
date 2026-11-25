@@ -161,25 +161,31 @@ describe("the card's states", () => {
     expect(onUnlock).toHaveBeenCalledTimes(1);
   });
 
-  it("a sensitive item shows its values at once, hides on request, and copies one value", async () => {
+  it("a sensitive item stays compact in chat and opens values, hide, and copy inside its detailed view modal", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     render(<SharedWithYouCardView person={person} status="ready" items={[item()]} />);
     expect(screen.getByTestId("shared-with-you-secure")).toHaveTextContent("Decrypted on this device");
     expect(screen.getByTestId("shared-with-you-sensitive")).toHaveTextContent("Sensitive · not shared with One’s model");
     expect(screen.getByText("Shared Sep 28 · Access until Oct 5")).toBeInTheDocument();
-    expect(screen.getByTestId("shared-with-you-values")).toHaveTextContent("85000");
+    expect(screen.getByTestId("shared-with-you-chat-summary")).toHaveTextContent("3 fields ready on this device");
+    // Chat stays compact: decrypted rows live inside the detailed view modal, not flooded inline.
+    expect(screen.queryByTestId("shared-with-you-values")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Copy Adjusted gross income" }));
+    fireEvent.click(screen.getByTestId("shared-with-you-view-details"));
+    const modal = await screen.findByTestId("shared-with-you-detail-modal");
+    expect(within(modal).getByTestId("shared-with-you-values")).toHaveTextContent("85000");
+
+    fireEvent.click(within(modal).getByRole("button", { name: "Copy Adjusted gross income" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("85000"));
     await waitFor(() => expect(mocks.toastSuccess).toHaveBeenCalledWith("Copied", expect.anything()));
 
-    fireEvent.click(screen.getByRole("button", { name: "Hide Tax record" }));
-    expect(screen.getByTestId("shared-with-you-values")).toHaveAttribute("data-hidden", "true");
-    expect(screen.queryByText("85000")).toBeNull();
-    expect(screen.queryByRole("button", { name: /^Copy/ })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Show Tax record" }));
-    expect(screen.getByText("85000")).toBeInTheDocument();
+    fireEvent.click(within(modal).getByRole("button", { name: "Hide Tax record" }));
+    expect(within(modal).getByTestId("shared-with-you-values")).toHaveAttribute("data-hidden", "true");
+    expect(within(modal).queryByText("85000")).toBeNull();
+    expect(within(modal).queryByRole("button", { name: /^Copy/ })).toBeNull();
+    fireEvent.click(within(modal).getByRole("button", { name: "Show Tax record" }));
+    expect(within(modal).getByText("85000")).toBeInTheDocument();
   });
 
   // Localhost run 4 (S3): an EIN inside a standard "Legal entity" item read
@@ -190,7 +196,7 @@ describe("the card's states", () => {
       data: { fein: "12-3456789", trade_name: "Acme Coffee", registered_agent: "Jordan Lee" },
       fields: [{ name: "Registered agent", sensitivity: "sensitive" }, { name: "Trade name", sensitivity: "standard" }],
     });
-    render(<SharedWithYouCardView person={person} status="ready" items={[legal]} />);
+    render(<SharedWithYouCardView person={person} status="ready" items={[legal]} variant="embedded" />);
     expect(screen.queryByTestId("shared-with-you-sensitive")).toBeNull();
     const marked = screen.getAllByTestId("shared-with-you-sensitive-field");
     expect(marked).toHaveLength(2);
@@ -202,7 +208,7 @@ describe("the card's states", () => {
     expect(screen.getByRole("button", { name: "Copy Trade name" })).toBeInTheDocument();
     cleanup();
     // Negative control: an ordinary standard item carries no mark and no Hide.
-    render(<SharedWithYouCardView person={person} status="ready"
+    render(<SharedWithYouCardView person={person} status="ready" variant="embedded"
       items={[item({ key: "food", label: "Food preferences", sensitive: false, data: { cuisine: "Neapolitan pizza" } })]} />);
     expect(screen.queryByTestId("shared-with-you-sensitive-field")).toBeNull();
     expect(screen.queryByRole("button", { name: /^Hide/ })).toBeNull();
@@ -258,8 +264,11 @@ describe("the card in chat, from the backend's C6 result", () => {
     expect(parseAgentToolResultExperience("list_information_shared_with_me", plain)?.type).not.toBe("one.shared_with_me_card.v1");
   });
 
-  it("opens the values on this device and shows them right away", async () => {
+  it("opens the values on this device and keeps chat compact behind View details", async () => {
     render(<AgentStructuredExperienceView experience={experience()} />);
+    const openBtn = await screen.findByTestId("shared-with-you-view-details");
+    expect(screen.queryByTestId("shared-with-you-values")).toBeNull();
+    fireEvent.click(openBtn);
     const values = await screen.findByTestId("shared-with-you-values");
     expect(values).toHaveTextContent("Married filing jointly");
     expect(screen.getByTestId("shared-with-you-sensitive")).toBeInTheDocument();
@@ -278,15 +287,18 @@ describe("the card in chat, from the backend's C6 result", () => {
 
     mocks.unlocked = true;
     view.rerender(<AgentStructuredExperienceView experience={experience()} />);
+    fireEvent.click(await screen.findByTestId("shared-with-you-view-details"));
     expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent("85000");
   });
 
-  it("drops the values the moment access ends", async () => {
+  it("drops the values and closes the detail modal the moment access ends", async () => {
     render(<AgentStructuredExperienceView experience={experience()} />);
+    fireEvent.click(await screen.findByTestId("shared-with-you-view-details"));
     await screen.findByTestId("shared-with-you-values");
     mocks.getInformationRequest.mockResolvedValue(grantedBundle("revoked"));
     act(() => window.dispatchEvent(new Event("consent-state-changed")));
     expect(await screen.findByTestId("access-ended-notice")).toHaveTextContent("stopped sharing Tax record");
+    expect(screen.queryByTestId("shared-with-you-detail-modal")).toBeNull();
     expect(screen.queryByText("85000")).toBeNull();
   });
 });
@@ -329,6 +341,7 @@ describe("an item that names no bundle", () => {
       key: TAX_REQUEST, grantRef: TAX_REQUEST, bundleId: null, requestId: null, label: "Tax record",
       sensitivity: null, domain: null, fieldOutline: [], sharedAt: null, accessEndsAt: null, purpose: null, status: null,
     }]} />);
+    fireEvent.click(await screen.findByTestId("shared-with-you-view-details"));
     expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent("85000");
     expect(mocks.getInformationRequestExports).toHaveBeenCalledTimes(1);
     expect(mocks.getInformationRequestExports).toHaveBeenCalledWith({ bundleId: BUNDLE, vaultOwnerToken: "owner-token" });
@@ -399,6 +412,7 @@ describe("opening is idempotent and survives re-renders", () => {
     view.rerender(<SharedWithYouCard person={MANISH} items={[{ ...taxItem() }]} />);
     act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: { source: "feed_actionable" } })));
     await act(async () => { releaseExports([exportFor(TAX_REQUEST, "attr.financial.tax_record.*")]); });
+    fireEvent.click(await screen.findByTestId("shared-with-you-view-details"));
     expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent("Married filing jointly");
     expect(mocks.getInformationRequestExports).toHaveBeenCalledTimes(1);
     expect(mocks.decryptScopedExport).toHaveBeenCalledTimes(1);
@@ -429,6 +443,7 @@ describe("opening is idempotent and survives re-renders", () => {
       expect(screen.getByRole("button", { name: /Try again/ })).toBeInTheDocument();
       await act(async () => { releaseExports([exportFor(TAX_REQUEST, "attr.financial.tax_record.*")]); });
       await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      fireEvent.click(screen.getByTestId("shared-with-you-view-details"));
       expect(screen.getByTestId("shared-with-you-values")).toHaveTextContent("Married filing jointly");
     } finally {
       vi.useRealTimers();
@@ -441,6 +456,7 @@ describe("opening is idempotent and survives re-renders", () => {
 describe("access ending clears the values at once", () => {
   it("watches its bundle with the shared watch and clears on any reading of the stop", async () => {
     render(<SharedWithYouCard person={MANISH} items={[taxItem()]} />);
+    fireEvent.click(await screen.findByTestId("shared-with-you-view-details"));
     expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent("85000");
     expect(liveAccessWatchSnapshot().bundles).toEqual([BUNDLE]);
     // Another surface (the chat, the doorbell, the watch's own tick) reads the stop.
@@ -455,6 +471,7 @@ describe("access ending clears the values at once", () => {
     mocks.listSharedWithMe.mockResolvedValue([{ bundleId: BUNDLE, requestId: TAX_REQUEST, person: "Manish Sainani",
       personRef: PERSON, profilePath: null, label: "Tax record", purpose: null, expiresAt: null }]);
     render(<SharedWithYouCard person={MANISH} items={[taxItem({ bundleId: null, requestId: null })]} />);
+    fireEvent.click(await screen.findByTestId("shared-with-you-view-details"));
     expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent("85000");
     await waitFor(() => expect(liveAccessWatchSnapshot()).toEqual({ bundles: [BUNDLE], shares: true }));
     // Control: the share still listed keeps the values.
@@ -482,5 +499,37 @@ describe("one row per item, in one order everywhere", () => {
     expect(profileOrder.map((item) => item.key)).toEqual(["entity", "legal", "tax-old", TAX_REQUEST, "w2"]);
     // The copy that can be opened wins over one that names no bundle.
     expect(profileOrder.find((item) => item.label === "Work preferences")?.bundleId).toBe(BUNDLE);
+  });
+
+  it("re-opens automatically when a continuous subscription increments exportRevision", async () => {
+    mocks.getInformationRequestExports
+      .mockResolvedValueOnce([exportFor(TAX_REQUEST, "attr.identity.tax_record.*")])
+      .mockResolvedValueOnce([
+        {
+          ...exportFor(TAX_REQUEST, "attr.identity.tax_record.*"),
+          encryptedExport: {
+            ...exportFor(TAX_REQUEST, "attr.identity.tax_record.*").encryptedExport,
+            export_revision: 2,
+            export_envelope: {
+              ...exportFor(TAX_REQUEST, "attr.identity.tax_record.*").encryptedExport.export_envelope,
+              aad: {
+                ...exportFor(TAX_REQUEST, "attr.identity.tax_record.*").encryptedExport.export_envelope.aad,
+                revision: 2,
+              },
+            },
+          },
+        },
+      ]);
+    mocks.decryptScopedExport
+      .mockResolvedValueOnce({ filing_year: 2024, adjusted_gross_income: 85000 })
+      .mockResolvedValueOnce({ filing_year: 2024, adjusted_gross_income: 99000 });
+
+    const { rerender } = render(<SharedWithYouCard person={MANISH} items={[taxItem({ exportRevision: 1 })]} />);
+    fireEvent.click(await screen.findByTestId("shared-with-you-view-details"));
+    expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent("85000");
+
+    rerender(<SharedWithYouCard person={MANISH} items={[taxItem({ exportRevision: 2 })]} />);
+    expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent("99000");
+    expect(mocks.getInformationRequestExports).toHaveBeenCalledTimes(2);
   });
 });

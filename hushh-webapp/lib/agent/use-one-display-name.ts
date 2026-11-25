@@ -12,8 +12,8 @@ import { useChatOnboardingPickedName } from "@/lib/agent/chat-onboarding/chat-on
  * The name on One's label, in order:
  * 1. the name the owner just picked in onboarding that memory does not hold yet;
  * 2. the saved preferred name;
- * 3. only while memory is re-read after a write, the name shown a moment ago, so
- *    the label never drops to "One" between a save and its refreshed snapshot;
+ * 3. while memory is re-read, the name shown a moment ago; if the read fails,
+ *    only the last confirmed saved name from this unlocked owner;
  * 4. "One".
  *
  * Never display another owner's snapshot or information from a locked vault.
@@ -37,26 +37,45 @@ export function useOneDisplayName(enabled = true): string {
 
   const ownerId = canRead ? userId : null;
   const pickedName = useChatOnboardingPickedName(ownerId);
+  const hasOwnerSnapshot = Boolean(ownerId && identity.data?.key.userId === ownerId);
   const savedName =
-    ownerId && identity.data?.key.userId === ownerId
-      ? ownerStyleFromBranch(identity.data.data.communication_preferences).preferred_name || null
+    hasOwnerSnapshot
+      ? ownerStyleFromBranch(identity.data?.data.communication_preferences).preferred_name || null
       : null;
   const shownName = pickedName ?? savedName;
-  // A failed read must not keep an old name on screen.
+  // A failed read cannot confirm that the owner removed their saved name.
+  // Keep only confirmed PKM values through errors, never an unsaved draft.
+  const [confirmed, setConfirmed] = useState<{ ownerId: string; vaultKey: string; name: string } | null>(null);
+  useEffect(() => {
+    if (!ownerId || !vaultKey) setConfirmed(null);
+    else if (hasOwnerSnapshot && !identity.error) {
+      setConfirmed((current) => savedName
+        ? current?.ownerId === ownerId && current.vaultKey === vaultKey && current.name === savedName
+          ? current : { ownerId, vaultKey, name: savedName }
+        : null);
+    } else if (!identity.error && !identity.invalidated && !identity.loading && !identity.refreshing) {
+      setConfirmed(null);
+    } else {
+      setConfirmed((current) => current?.ownerId === ownerId && current.vaultKey === vaultKey ? current : null);
+    }
+  }, [ownerId, vaultKey, hasOwnerSnapshot, savedName, identity.error, identity.invalidated, identity.loading, identity.refreshing]);
   const rereading = Boolean(
     ownerId && !identity.error && (identity.invalidated || identity.loading || identity.refreshing),
   );
 
-  const [lastShown, setLastShown] = useState<{ ownerId: string; name: string } | null>(null);
+  const [lastShown, setLastShown] = useState<{ ownerId: string; vaultKey: string; name: string } | null>(null);
   useEffect(() => {
-    if (!ownerId) setLastShown(null);
+    if (!ownerId || !vaultKey) setLastShown(null);
     else if (shownName) {
       setLastShown((current) =>
-        current?.ownerId === ownerId && current.name === shownName ? current : { ownerId, name: shownName },
+        current?.ownerId === ownerId && current.vaultKey === vaultKey && current.name === shownName
+          ? current : { ownerId, vaultKey, name: shownName },
       );
     } else if (!rereading) setLastShown(null);
-  }, [ownerId, shownName, rereading]);
+  }, [ownerId, vaultKey, shownName, rereading]);
 
   if (shownName) return shownName;
-  return (rereading && lastShown?.ownerId === ownerId ? lastShown.name : null) ?? "One";
+  if (rereading && lastShown?.ownerId === ownerId && lastShown.vaultKey === vaultKey) return lastShown.name;
+  return ((rereading || identity.error) && confirmed?.ownerId === ownerId && confirmed.vaultKey === vaultKey
+    ? confirmed.name : null) ?? "One";
 }

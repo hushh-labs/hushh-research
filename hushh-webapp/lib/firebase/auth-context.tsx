@@ -14,8 +14,9 @@
 
 "use client";
 
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { resolveAccountLifecycleRecovery } from "@/lib/auth/account-lifecycle-recovery";
-import { rememberPendingAccountDeviceDeparture, purgeConfirmedAccountDeviceDeparture, purgeDepartedAccountDevice } from "@/lib/auth/account-departure-device";
+import { rememberPendingAccountDeviceDeparture, purgeConfirmedAccountDeviceDeparture, purgeDepartedAccountDevice, pendingAccountCleanupOperationId } from "@/lib/auth/account-departure-device";
 
 import { requireUsablePhoneTestStart } from "@/lib/auth/phone-test-eligibility";
 
@@ -37,7 +38,8 @@ import { Capacitor } from "@capacitor/core";
 import { AuthService } from "@/lib/services/auth-service";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { createPhoneVerificationRecovery } from "@/lib/auth/phone-verification-recovery";
-import { confirmLinkedDeletion, type LinkedDeletionInput } from "@/lib/auth/phone-linked-deletion";
+import { confirmLinkedDeletion, linkedDeletionNeedsFreshProof, type LinkedDeletionInput } from "@/lib/auth/phone-linked-deletion";
+import { apiErrorCode } from "@/lib/services/api-client";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -205,7 +207,7 @@ interface AuthContextType {
     options?: { resendCode?: boolean; transport?: "sms" },
   ) => Promise<{ autoVerified: boolean; user?: User | null }>;
   confirmPhoneVerification: (otp: string) => Promise<User>;
-  confirmPhoneTransfer: () => Promise<User>; confirmPhoneLinkedDeletion: (input: LinkedDeletionInput) => Promise<User>;
+  confirmPhoneTransfer: () => Promise<User>; confirmPhoneLinkedDeletion: (input: LinkedDeletionInput, isCurrent?: () => boolean) => Promise<User>;
   startPhoneReplacement: (
     phoneNumber: string,
     options?: { resendCode?: boolean; transport?: "sms" },
@@ -590,7 +592,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const isCurrent = () => !disposed && userRef.current?.uid === expectedUid &&
       getAuthSessionGeneration() === generation;
-    const canReachBackend = () => document.visibilityState === "visible" && navigator.onLine !== false &&
+    const canReachBackend = () => document.visibilityState === "visible" && isNetworkOnline() &&
       appInteractionCoordinator.getLifecycleSnapshot().state === "active";
     const clearRetry = () => {
       if (retryTimer !== null) globalThis.clearTimeout(retryTimer);
@@ -748,7 +750,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Captured with the terminal evidence, before a later start fresh can
         // admit this identity's next owner.
         const departingOwner = lastAdmittedOwnerFor(candidateUser.uid) ?? candidateUser.uid;
-        const recovery = await resolveAccountLifecycleRecovery(idToken, deadlineMs, terminal, departingOwner);
+        const retained = cleanupStatusRef.current;
+        const cleanupOperationId = retained?.ownerId === candidateUser.uid ? retained.operation.id : pendingAccountCleanupOperationId(candidateUser.uid);
+        const recovery = confirmedCleanup?.state === "complete" && confirmedCleanup.identity_removed
+          ? { outcome: "terminal" as const, code: "account_deleted" as const, confirmedCleanup }
+          : await resolveAccountLifecycleRecovery(idToken, deadlineMs, terminal, departingOwner, cleanupOperationId);
+        if (recovery.outcome === "terminal" && recovery.confirmedCleanup?.identity_removed) {
+          try {
+            if (!await purgeConfirmedAccountDeviceDeparture(candidateUser.uid, recovery.confirmedCleanup, departingOwner)) {
+              return { outcome: "unavailable" };
+            }
+          } catch { return { outcome: "unavailable" }; }
+          return { outcome: "terminal", code: recovery.confirmedCleanup.cloud_cleanup?.state === "pending"
+            ? "account_deleted_cloud_pending" : "account_deleted" };
+        }
         // Registration replaces the terminal sign-out that would have purged
         // the departed owner's device state, so purge it here instead.
         if (recovery.outcome === "unavailable" && recovery.registration && recovery.departure) {
@@ -774,15 +789,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
           markAccountDeletionActive(validationOwner.userId);
         }
         try {
+          const retained = cleanupStatusRef.current;
+          const cleanupOperationId = retained?.ownerId === candidateUser.uid ? retained.operation.id : pendingAccountCleanupOperationId(candidateUser.uid);
           const response = await withinAccountSessionValidationBudget(
-            ApiService.getAccountCleanupStatus(idToken),
+            cleanupOperationId
+              ? ApiService.getAccountCleanupStatus(idToken, cleanupOperationId)
+              : ApiService.getAccountCleanupStatus(idToken),
             deadlineMs,
           );
           if (response.ok && hasJsonResponseContentType(response)) {
             const body = JSON.parse(await readBoundedAccountSessionStatusBody(response, deadlineMs));
             const operation = parseAccountCleanupOperation(body?.operation);
             if (operation?.state === "complete") {
-              return resolveRegistrationRecovery(idToken, { outcome: "terminal", code: "account_deletion_identity_retained" }, operation);
+              return resolveRegistrationRecovery(idToken, { outcome: "terminal", code: operation.identity_removed ? "account_deleted" : "account_deletion_identity_retained" }, operation);
             }
             if (operation?.owner_id) rememberPendingAccountDeviceDeparture(candidateUser.uid, operation.owner_id, operation.id);
             if (operation) return { outcome: "unavailable", cleanup: operation };
@@ -1382,7 +1401,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (cancelled) return;
 
         const canReachBackend =
-          document.visibilityState === "visible" && navigator.onLine !== false;
+          document.visibilityState === "visible" && isNetworkOnline();
         if (!canReachBackend) {
           scheduleRetry(); // Hidden or offline ticks re-arm without counting as checks.
           return;
@@ -1895,11 +1914,59 @@ export function AuthProvider({ children }: AuthProviderProps) {
           }
         }
 
+        const prepareRecaptchaWithTimeout = async () => {
+          const timeoutMs = 15_000;
+          return new Promise<Awaited<ReturnType<typeof prepareRecaptchaVerifier>>>((resolve, reject) => {
+            if (signal?.aborted) {
+              reject(Object.assign(new Error("Phone verification was cancelled."), { code: "aborted" }));
+              return;
+            }
+            let settled = false;
+            const onAbort = () => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              resetRecaptcha();
+              reject(Object.assign(new Error("Phone verification was cancelled."), { code: "aborted" }));
+            };
+            const timer = setTimeout(() => {
+              if (settled) return;
+              settled = true;
+              signal?.removeEventListener("abort", onAbort);
+              resetRecaptcha();
+              reject(
+                Object.assign(
+                  new Error("Sending the verification code took too long. Request a new code."),
+                  { code: "phone-verification-start-timeout" },
+                ),
+              );
+            }, timeoutMs);
+            signal?.addEventListener("abort", onAbort, { once: true });
+            (async () => prepareRecaptchaVerifier("recaptcha-container"))().then(
+              (verifier) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                signal?.removeEventListener("abort", onAbort);
+                resolve(verifier);
+              },
+              (err) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                signal?.removeEventListener("abort", onAbort);
+                resetRecaptcha();
+                reject(err);
+              },
+            );
+          });
+        };
+
         // Only explicit recovery may use the existing proof-only SMS transport.
         // Ordinary linking never falls back to an isolated sign-in.
         if (options?.transport === "sms" && currentUser.phoneNumber === phone) {
           const context = { expectedUserId: uid, attemptId: crypto.randomUUID(), signal, resendCode: options.resendCode };
-          const verifier = isNative ? undefined : await prepareRecaptchaVerifier("recaptcha-container");
+          const verifier = isNative ? undefined : await prepareRecaptchaWithTimeout();
           requirePhoneVerificationOwner(uid, epoch);
           const result = await AuthService.startPhoneDeletionVerification(phone, verifier, context);
           requirePhoneVerificationOwner(uid, epoch);
@@ -1947,7 +2014,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             ? AuthService.startPhoneLinkVerification
             : AuthService.startPhoneReplacementVerification;
           const recaptchaVerifier = isNative || localFixture
-            ? undefined : await prepareRecaptchaVerifier("recaptcha-container");
+            ? undefined : await prepareRecaptchaWithTimeout();
           requirePhoneVerificationOwner(uid, epoch);
           const result = await start.call(AuthService, phone, {
             expectedUserId: uid, resendCode: options?.resendCode, signal, recaptchaVerifier,
@@ -2066,20 +2133,40 @@ export function AuthProvider({ children }: AuthProviderProps) {
     phoneVerificationOwnerRef.current = null;
     return currentUser;
   }, [phoneRecovery, requirePhoneVerificationOwner]);
-  const confirmPhoneLinkedDeletion = useCallback((input: LinkedDeletionInput) => {
+  const confirmPhoneLinkedDeletion = useCallback((input: LinkedDeletionInput, visitIsCurrent: () => boolean = () => true) => {
     const principal = principalRef.current;
-    return confirmLinkedDeletion(input, {
-      user: () => userRef.current,
-      retained: () => phoneTransferProofRef.current?.phone === input.phoneNumber ? phoneTransferProofRef.current : null,
-      requireOwner: requirePhoneVerificationOwner,
-      finalize: (verified) => {
-        phoneRecovery.cancelNativeStart();
-        phoneTransferProofRef.current = null;
-        setPhoneVerificationAttempt(null);
-        if (!Capacitor.isNativePlatform()) resetRecaptcha();
-        applyAuthUser(verified, principal);
+    const owner = snapshotValidatedAuthSessionOwner();
+    const uid = userRef.current?.uid;
+    const epoch = phoneVerificationEpochRef.current;
+    const proof = phoneTransferProofRef.current;
+    const releaseChallenge = () => {
+      phoneRecovery.cancelNativeStart();
+      phoneTransferProofRef.current = null;
+      setPhoneVerificationAttempt(null);
+      if (!Capacitor.isNativePlatform()) resetRecaptcha();
+    };
+    const isCurrent = () => {
+      const live = principalRef.current;
+      if (!owner || !principal || !uid || !visitIsCurrent() || !isValidatedAuthSessionOwnerCurrent(owner) ||
+          live?.firebaseUid !== principal.firebaseUid || live.ownerId !== principal.ownerId ||
+          live.accountGeneration !== principal.accountGeneration || userRef.current?.uid !== uid ||
+          (!input.testCode && phoneTransferProofRef.current !== proof)) return false;
+      try { requirePhoneVerificationOwner(uid, epoch); return true; } catch { return false; }
+    };
+    return confirmLinkedDeletion(input, { user: () => userRef.current, retained: () => phoneTransferProofRef.current?.phone === input.phoneNumber ? phoneTransferProofRef.current : null,
+      isCurrent, requireOwner: requirePhoneVerificationOwner, finalize: (verified) => {
+        if (!isCurrent()) throw new Error("Your account changed. Sign in again.");
+        releaseChallenge(); applyAuthUser(verified, principal); phoneVerificationOwnerRef.current = null; } }).catch((error: unknown) => {
+      // A spent proof retires its own challenge, never a newer verification.
+      if (isCurrent() && linkedDeletionNeedsFreshProof(apiErrorCode(error)) && proof &&
+        proof.phone === input.phoneNumber && phoneTransferProofRef.current === proof &&
+        userRef.current?.uid === proof.userId && phoneVerificationOwnerRef.current === proof.userId &&
+        phoneVerificationEpochRef.current === proof.epoch &&
+        (Capacitor.isNativePlatform() || AuthService.getCurrentUser()?.uid === proof.userId)) {
+        releaseChallenge();
         phoneVerificationOwnerRef.current = null;
-      },
+      }
+      throw error;
     });
   }, [applyAuthUser, phoneRecovery, requirePhoneVerificationOwner]);
 

@@ -39,9 +39,29 @@ def verified_upgrade_approval(approval: object) -> dict[str, Any] | None:
     }
 
 
-def merged_upgrade_metadata(previous: dict, handle: dict, *, spec: PodSpec) -> dict:
+def merged_upgrade_metadata(previous: dict, handle: dict, *, spec: PodSpec, row: dict) -> dict:
     """Keep publication atomic; the owning SQL guard verifies VM retirement."""
+    from hushh_mcp.services.personal_agent_direct_admission import direct_owner_matches
+
     merged = {**previous, **handle}
+    # Azure's external ingress is the substrate, while direct is the hub's
+    # separately verified admission. An image update must not undo that receipt.
+    if (
+        spec.deployment_target == "user_azure"
+        and spec.azure_vm_host is None
+        and handle.get("ingress") == "external"
+        and previous.get("ingress") == "direct"
+        and all(previous.get(key) == handle.get(key) for key in ("service", "serviceUid", "url"))
+        and direct_owner_matches(
+            row,
+            hushh_id=spec.hushh_id,
+            pod_key_id=row.get("pod_key_id"),
+            pod_public_key=spec.pod_pubkey,
+            service_uid=handle.get("serviceUid"),
+            url=handle.get("url"),
+        )
+    ):
+        merged["ingress"] = "direct"
     if spec.azure_vm_host is not None:
         merged.pop("vmPower", None)
     return merged

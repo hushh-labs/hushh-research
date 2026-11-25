@@ -1,4 +1,4 @@
-import { MessageCircle, type LucideIcon } from "@/components/icons";
+import { MessageCircle, Target, type LucideIcon } from "@/components/icons";
 
 import {
   FinanceAgentIcon,
@@ -144,6 +144,17 @@ export interface OneCapability {
  * Canonical, ordered list of One's capabilities. Order mirrors the dashboard.
  */
 export const ONE_CAPABILITIES: readonly OneCapability[] = [
+  {
+    id: "goals",
+    agentId: null,
+    title: "Goals",
+    description: "Plan goals and manage tasks and schedules.",
+    href: ROUTES.ONE_GOALS,
+    icon: customCapabilityIcon(Target),
+    tone: "pkm",
+    group: "workflow",
+    requiresVault: true,
+  },
   {
     id: "messages",
     agentId: null,

@@ -147,7 +147,7 @@ async def _assert_erased(conn, recorded, baseline):
 
 
 async def _assert_linked_deleted(conn, recorded, baseline):
-    """Phone proof deleted the holder; the worker erased it; the requester owns the number."""
+    """App erasure is terminal; retained shared Auth requires a new phone proof."""
     for table in ("actor_profiles", "vault_keys", "pkm_data", "actor_identity_cache"):
         assert (
             await conn.fetchval(
@@ -181,7 +181,7 @@ async def _assert_linked_deleted(conn, recorded, baseline):
     assert recorded.unlink_count == 0
 
 
-async def _assert_preserved(conn, recorded, baseline, scenario):
+async def _assert_preserved(conn, recorded, baseline, scenario, *, recovery_action="recover"):
     assert await conn.fetchval("SELECT count(*) FROM actor_profiles") == 3
     for table, before in baseline.items():
         assert (
@@ -205,7 +205,7 @@ async def _assert_preserved(conn, recorded, baseline, scenario):
             {
                 "requester_user_id": OWNERS["receiving-a"],
                 "target_user_id": OWNERS["previous"],
-                "action": "recover",
+                "action": recovery_action,
             }
         ]
     if scenario == "transfer":

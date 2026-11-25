@@ -5,6 +5,7 @@ import contextvars
 import copy
 import hashlib
 import json
+from itertools import product
 import subprocess
 import sys
 import threading
@@ -44,6 +45,11 @@ class ClockBoundProductionEvidenceTest(unittest.TestCase):
         self.assertEqual(
             git_blob(workflows / "capacity-maintenance-clock.yml"),
             clock_evidence.CURRENT_CLOCK_WORKFLOW_BLOB,
+        )
+        self.assertEqual(
+            git_blob(workflows / "capacity-maintenance-clock.yml",
+                     "ccba621758f0395d26c4f187452478b37321c23f"),
+            clock_evidence.HISTORICAL_INVENTORY_CLOCK_WORKFLOW_BLOB,
         )
         # Historical qualifications must keep their original source, even as
         # current job labels and evidence readers evolve. Missing history fails.
@@ -638,6 +644,16 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
                         title,
                         r"Capacity clock · repository_dispatch · run [1-9][0-9]*",
                     )
+                if expected_family == records.CLOCK_FAMILY_CURRENT_STATIC:
+                    historical_case = self._case(source_profile=source_profile)
+                    old_blob = clock_evidence.HISTORICAL_INVENTORY_CLOCK_WORKFLOW_BLOB
+                    historical_case[6]["workflow_blob"] = {"sha": old_blob[0], "size": old_blob[1]}
+                    historical_record, historical_proof = profile_evidence.discover_record(
+                        historical_case[0], base.REPOSITORY,
+                        historical_case[2], historical_case[3],
+                    )
+                    self.assertEqual(historical_record.source_profile, source_profile)
+                    self.assertEqual(historical_proof["workflow_blob"], historical_case[6]["workflow_blob"])
 
     def test_dynamic_profile_refuses_unknown_title_or_unpinned_clock_blob(self):
         unknown_title = self._case()
@@ -991,6 +1007,99 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
                     profile_evidence._is_ancestor(
                         owner, base.REPOSITORY, ancestor, descendant
                     )
+
+    def _static_refusal(self, source=profile_evidence.STATIC_GUARD_SOURCE):
+        case = list(self._case(source_profile="publication-pass-diagnostics-v4"))
+        run, job = case[2:4]
+        old_sha, run["head_sha"] = run["head_sha"], "e" * 40
+        job["head_sha"] = run["head_sha"]
+        case[4] = case[4].replace(old_sha, run["head_sha"])
+        job["name"] = "Production revision maintenance"
+        setup = job["steps"][0]
+        modes = [
+            {**setup, "name": "Maintenance mode: " + mode, "conclusion": conclusion}
+            for mode, conclusion in (("inspection", "skipped"), ("cleanup", "success"))
+        ]
+        job["steps"][1:1] = modes
+        for number, step in enumerate(job["steps"], start=1):
+            step["number"] = number
+        root = Path(__file__).resolve().parents[2]
+        anchors = {}
+        for reference in profile_evidence.STATIC_GUARD_SOURCES:
+            anchors[reference] = {}
+            for path in profile_evidence.STATIC_GUARD_PATHS:
+                blob = subprocess.check_output(
+                    ["git", "show", f"{reference}:{path}"], cwd=root
+                )
+                anchors[reference][path] = {
+                    "sha": hashlib.sha1(f"blob {len(blob)}\0".encode() + blob).hexdigest(),
+                    "size": len(blob),
+                }
+        case[5].clear()
+        case[5].update(copy.deepcopy(anchors[source]))
+        return case, anchors
+
+    def _qualify_static(self, case, anchor):
+        owner, _, run, job, log, blobs, _ = case
+        return clock_evidence.qualify_publication(
+            owner, base.REPOSITORY, run, job, run,
+            log_reader=lambda *_: log,
+            source_reader=lambda _o, _r, sha, paths: {
+                path: anchor.get(sha, blobs)[path]
+                for path in paths
+            },
+            actor_validator=lambda *_: None,
+            workflow_path=base.WORKFLOW,
+        )
+
+    def test_static_refusal_preserves_actual_identity_and_older_custody(self):
+        for source in profile_evidence.STATIC_GUARD_SOURCES:
+            with self.subTest(source=source):
+                case, anchor = self._static_refusal(source)
+                original = copy.deepcopy(case[3])
+                proof = self._qualify_static(case, anchor)
+                self.assertEqual(proof, {
+                    "run_id": case[2]["id"], "attempt": 1, "job_id": case[3]["id"],
+                    "checkout_sha": case[2]["head_sha"], "qualification": "no_provider_mutation",
+                })
+                self.assertEqual(case[3], original)
+                self.assertTrue(uat_guard._proof_record(
+                    "maintenance_publication_proof=" + json.dumps(proof, sort_keys=True),
+                    allow_clock_records=True,
+                ))
+                case[0].api.assert_not_called()
+
+    def test_static_refusal_rejects_source_and_execution_changes(self):
+        for source, mutation in product(profile_evidence.STATIC_GUARD_SOURCES,
+                (*profile_evidence.STATIC_GUARD_PATHS, "mode", "extra_step", "number",
+                 "save", "provider_step", "checkout", "attempt", "actor", "diagnostic")):
+            with self.subTest(source=source, mutation=mutation):
+                case, anchor = self._static_refusal(source)
+                if mutation in profile_evidence.STATIC_GUARD_PATHS:
+                    case[5][mutation] = {"sha": "f" * 40, "size": 1}
+                elif mutation == "mode":
+                    case[3]["steps"][1]["conclusion"] = "success"
+                elif mutation == "extra_step":
+                    case[3]["steps"].append({**case[3]["steps"][-1], "name": "Extra action"})
+                elif mutation == "number":
+                    case[3]["steps"][1]["number"] = case[3]["steps"][0]["number"]
+                elif mutation in {"save", "provider_step"}:
+                    name = (evidence.SAVE if mutation == "save"
+                            else "Publish operational backend reference under deployment lock")
+                    next(s for s in case[3]["steps"] if s["name"] == name)["conclusion"] = "success"
+                elif mutation == "checkout":
+                    case[4] = case[4].replace(case[2]["head_sha"], "f" * 40)
+                elif mutation == "attempt":
+                    case[2]["run_attempt"] = 2
+                elif mutation == "actor":
+                    case[2]["actor"] = {"login": "unrelated-user"}
+                else:
+                    case[4] = case[4].replace("stage=publication_guard", "stage=provider_update")
+                try:
+                    proof = self._qualify_static(case, anchor)
+                except _UnsafeProfileState:
+                    proof = None
+                self.assertIsNone(proof)
 
     def test_current_refusal_qualifies_without_inventing_clock_causality(self):
         for name in (

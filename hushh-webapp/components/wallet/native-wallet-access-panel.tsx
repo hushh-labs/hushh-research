@@ -18,7 +18,7 @@ export function NativeWalletAccessPanel({ ownerId, getContext, handle, publish, 
   ownerId: string; getContext: (id: string) => CardShareContext | null;
   handle: (key: string) => string; publish: (value: WalletPanelProjection) => void; onClose: () => void;
 }) {
-  const access = useWalletSharingOwner({ active: true, getHistoryContext: getContext });
+  const access = useWalletSharingOwner({ active: true, getHistoryContext: getContext, nativePresentation: true });
   const history = useWalletSharingHistoryOwner({ ownerId, active: true, getContext }, true);
   const profileId = history.profile?.cardId;
   const getProfileContext = useCallback((id: string) => profileId && id === profileId ? getContext(id) : null, [profileId, getContext]);

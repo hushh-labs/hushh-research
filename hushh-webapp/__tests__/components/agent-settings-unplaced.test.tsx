@@ -58,7 +58,7 @@ it.each(["shared", "unplaced", "pending"])("keeps disabled BYOC non-actionable f
 it.each([false, true])("native Hosting respects setup availability %s while Shared remains reachable", (featureEnabled) => {
   mocks.follow.mockReturnValue({ status: { hostingMode: "unplaced", featureEnabled }, update: NO_UPDATE, refresh: vi.fn() });
   const { result } = renderHook(() => useNativeAgentSettings(
-    useAgentSettingsController({ kind: "hosting", userId: "owner" }), true, "owner",
+    useAgentSettingsController({ kind: "hosting", userId: "owner" }), true, "owner", vi.fn(),
   ));
   const choices = result.current.pages[0].sections.find(section => section.id === "hosting-choices-section")!.rows;
   const cloud = choices.find(row => row.id === "hosting-own-cloud")!;

@@ -102,7 +102,6 @@ async function readSnapshotPages(params: {
       vaultOwnerToken: params.vaultOwnerToken,
       accessToken: params.accessToken,
       transactionsCursor: cursor,
-      includeCountryOnFile: pages.length === 0,
       ...(pages.length > 0 ? { transactionsContinuation: true } : {}),
     });
     if (snapshot.item?.error) return [snapshot];
@@ -477,6 +476,10 @@ export function refreshVaultConnections(params: VaultRefreshParams): Promise<Vau
   return run;
 }
 
+const MAX_PARALLEL_VAULT_REFRESHES = 4;
+
+type SnapshotReadEntry = { itemId: string; connection: ConnectionRecord; pages: PlaidVaultSnapshot[] };
+
 async function runVaultRefresh(params: VaultRefreshParams, vaultEpoch: number): Promise<VaultRefreshOutcome> {
   const outcome: VaultRefreshOutcome = { refreshed: 0, needsRelink: [], failed: 0, saved: false };
   const { userId, vaultKey, vaultOwnerToken } = params;
@@ -493,23 +496,33 @@ async function runVaultRefresh(params: VaultRefreshParams, vaultEpoch: number): 
   const viewStale = linkedAccountsViewIsStale(params.financial);
   if (due.length === 0 && !viewStale) return outcome;
 
-  const read: Array<{ itemId: string; connection: ConnectionRecord; pages: PlaidVaultSnapshot[] }> = [];
-  for (const [itemId, connection] of due) {
-    if (!isVaultSessionEpochCurrent(vaultEpoch)) return outcome;
-    try {
-      const pages = await readSnapshotPages({
-        vaultOwnerToken,
-        accessToken: connection.access_token,
-        cursor: connection.transactions_cursor,
-      });
-      if (!isVaultSessionEpochCurrent(vaultEpoch)) return outcome;
-      read.push({ itemId, connection, pages });
-      if (pages.some((page) => page.item?.error)) outcome.needsRelink.push(itemId);
-    } catch {
-      outcome.failed += 1;
-    }
-  }
+  const slots: Array<SnapshotReadEntry | null> = Array.from({ length: due.length }, () => null);
+  let nextIndex = 0;
+  const workerCount = Math.min(MAX_PARALLEL_VAULT_REFRESHES, due.length);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < due.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        if (!isVaultSessionEpochCurrent(vaultEpoch)) return;
+        const [itemId, connection] = due[index]!;
+        try {
+          const pages = await readSnapshotPages({
+            vaultOwnerToken,
+            accessToken: connection.access_token,
+            cursor: connection.transactions_cursor,
+          });
+          if (!isVaultSessionEpochCurrent(vaultEpoch)) return;
+          slots[index] = { itemId, connection, pages };
+          if (pages.some((page) => page.item?.error)) outcome.needsRelink.push(itemId);
+        } catch {
+          outcome.failed += 1;
+        }
+      }
+    }),
+  );
   if (!isVaultSessionEpochCurrent(vaultEpoch)) return outcome;
+  const read = slots.filter((entry): entry is SnapshotReadEntry => entry !== null);
   // A person's own refresh that read nothing must still report failure; the
   // next unlock adds the view.
   const viewOnly = read.length === 0;

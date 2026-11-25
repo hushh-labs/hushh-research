@@ -11,7 +11,7 @@ import {
   SlidersHorizontal,
 } from "@/components/icons";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";

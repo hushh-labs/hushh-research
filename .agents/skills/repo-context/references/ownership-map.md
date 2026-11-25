@@ -63,6 +63,7 @@ Use this reference after the initial scan to choose the correct owner skill firs
 1. `github-contribution-governance`
 2. `uat-scoped-deploy`
 3. `release-ios-appstore`
+4. `release-train-parity`
 
 ## Canonical workflow packs
 
@@ -103,3 +104,4 @@ Use this reference after the initial scan to choose the correct owner skill firs
 35. `skill-authoring`
 36. `subtree-upstream-governance`
 37. `uat-scoped-deploy`
+38. `release-train-parity`

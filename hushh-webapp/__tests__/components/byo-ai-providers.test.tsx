@@ -434,38 +434,38 @@ describe("provider catalog (C5)", () => {
   });
 });
 
-it("checks the exact Azure endpoint/deployment/key before encrypted backup", async () => {
-  mocks.send.mockResolvedValue({
-    ok: true,
-    provider: "azure_openai",
-    model: "owner-deployment",
-    checkedAtMs: 1,
-  });
-  renderCard({ provider: "azure_openai" });
-  fireEvent.change(await screen.findByLabelText("Azure AI endpoint"), {
-    target: { value: "https://synthetic-resource.openai.azure.com/" },
-  });
-  fireEvent.change(screen.getByLabelText("Azure AI deployment"), {
-    target: { value: "owner-deployment" },
-  });
-  fireEvent.change(screen.getByLabelText("Azure AI API key"), {
-    target: { value: "synthetic-azure-key" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Check and use" }));
-  await waitFor(() =>
-    expect(mocks.record).toHaveBeenCalledWith({
-      ...VAULT,
-      apiKey: "synthetic-azure-key",
-      endpoint: "https://synthetic-resource.openai.azure.com/",
-      model: "owner-deployment",
-    }),
+it("filters azure_openai out of the provider catalog and never renders Azure AI key", async () => {
+  mocks.apiFetch.mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        version: 1,
+        providers: [
+          { id: "gemini", name: "Google Gemini", availability: "available", methods: ["own_key"] },
+          { id: "openai", name: "OpenAI", availability: "available", methods: ["own_key"] },
+          { id: "azure_openai", name: "Azure AI", availability: "available", methods: ["own_key"] },
+        ],
+      }),
+    ),
   );
-  expect(mocks.send.mock.calls[0][0]).toMatchObject({
-    provider: "azure_openai",
-    azureEndpoint: "https://synthetic-resource.openai.azure.com/",
-    model: "owner-deployment",
-  });
-  expect(mocks.send.mock.invocationCallOrder[0]).toBeLessThan(
-    mocks.record.mock.invocationCallOrder[0],
+  render(
+    <BringYourOwnAiProviders
+      {...VAULT}
+      needsVaultCreation={false}
+      needsUnlock={false}
+      onRequestVaultUnlock={vi.fn()}
+      onRequestVaultCreation={vi.fn()}
+    />,
   );
+  expect(await screen.findByTestId("profile-openai-runtime")).toBeInTheDocument();
+  expect(screen.queryByText(/Azure AI key/i)).toBeNull();
+  expect(screen.queryByLabelText("Azure AI endpoint")).toBeNull();
+  expect(
+    resolveRuntimeProviderCatalog({
+      providers: [
+        { id: "gemini", availability: "available", methods: ["own_key"] },
+        { id: "openai", availability: "available", methods: ["own_key"] },
+        { id: "azure_openai", availability: "available", methods: ["own_key"] },
+      ],
+    })?.map((provider) => provider.id),
+  ).toEqual(["gemini", "openai"]);
 });

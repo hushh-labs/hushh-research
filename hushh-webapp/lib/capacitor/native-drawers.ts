@@ -1,3 +1,4 @@
+import type { NativeFinanceContent } from "./native-finance-content";
 import type { HushhNativeDrawersPlugin } from "./native-drawers-plugin";
 export type { HushhNativeDrawersPlugin } from "./native-drawers-plugin";
 import { validNativePayoutPath, validNativeAgentSettingsPath, type NativePayoutPageId, type NativeAgentSettingsPageId } from "./native-profile-paths";
@@ -12,10 +13,38 @@ import { nativeLegalActionIds, validNativeLegalDocument, type NativeLegalDocumen
  * process-local replicas of the existing feature owner, not another store. */
 export type NativeDrawerFamily = "history" | "profile" | "agent-profile";
 export type NativeDrawerOption = { id: string; label: string; selected: boolean; symbol?: string; colorHex?: string };
+export type NativeWorkspaceAvatar = { initials: string; jpeg?: string; verified?: boolean; active?: boolean };
+/** Private Location presentation values; the retained React owner reconciles expiry. */
+export type NativeWorkspaceLocationShare = {
+  count: number; singleGrant: boolean; startedAt?: number; endsAt?: number; footer?: string;
+  people: readonly NativeWorkspaceAvatar[];
+  audience?: { locationCount: number; smsCount: number; bothCount: number };
+};
+export type NativeWorkspaceInlineAction = {
+  id: string; label: string; enabled: boolean; pending?: boolean;
+  tone: "primary" | "ghost" | "danger" | "success"; symbol?: string;
+  avatar?: NativeWorkspaceAvatar;
+  placement?: "menu";
+};
+/** News presentation values only; publisher destinations stay in registered JS actions. */
+export type NativeMarketNewsStory = {
+  publisher: string; publishedAt: string; summary?: string; sentiment?: "positive" | "risk";
+  symbols: readonly string[]; artwork?: { glyph: string; hue: number; png?: string };
+};
 export type NativeDrawerRow = {
   id: string;
   label: string;
   detail?: string;
+  /** Private Memory reading semantics; destinations stay in the action registry. */
+  formattedText?: { level?: number; runs: readonly { text: string; bold?: true; italic?: true; actionId?: string }[] };
+  /** Feed/Connect identity and independent actions, never nested row buttons. */
+  avatar?: NativeWorkspaceAvatar;
+  inlineActions?: readonly NativeWorkspaceInlineAction[];
+  locationShare?: NativeWorkspaceLocationShare;
+  menuOnTap?: boolean;
+  sosActivation?: "hold" | "countdown";
+  milestone?: number;
+  expanded?: boolean;
   symbol?: string;
   iconHex?: string;
   chevron?: boolean;
@@ -23,9 +52,14 @@ export type NativeDrawerRow = {
   progress?: { value: number; total: number };
   /** Authored finite choices. IDs bind to existing React writers, never values or URLs. */
   options?: readonly NativeDrawerOption[];
+  choiceStyle?: "segmented";
+  marketNews?: NativeMarketNewsStory;
+  finance?: NativeFinanceContent;
+  calendarEvent?: { day?: string; month?: string; weekday?: string; dateLabel?: string; organizer?: string; muted: boolean };
   toggle?: boolean;
   enabled: boolean;
   destructive?: boolean;
+  prominent?: boolean;
   selected?: boolean;
   pending?: boolean;
   readOnly?: boolean;
@@ -36,7 +70,7 @@ export type NativeDrawerRow = {
   renameActionId?: string;
   deleteActionId?: string;
 };
-export type NativeDrawerSection = { id: string; title?: string; rows: readonly NativeDrawerRow[] };
+export type NativeDrawerSection = { id: string; title?: string; rows: readonly NativeDrawerRow[]; layout?: "cards" | "tiles" | "metrics" | "toolbar" };
 /** Bounded native destinations, not URLs or another routing authority. */
 export type NativeMemoryPageId = "memory" | "memory-domain" | "memory-section" | "memory-entity" | "memory-sharing" | "memory-connection" | "memory-confirm" | "memory-live" | "memory-record" | "memory-shared" | "memory-shared-person" | "memory-received" | "memory-received-files" | "memory-secrets" | "memory-secret" | "memory-secret-remove" | "memory-identity";
 export type NativeWorldModelPageId = "world-model" | "world-model-fact" | "world-model-remove" | "world-model-research" | "world-model-sources" | "world-model-invitations" | "world-model-review" | "world-model-review-fact";

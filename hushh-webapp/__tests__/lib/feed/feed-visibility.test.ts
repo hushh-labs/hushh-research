@@ -25,6 +25,16 @@ describe("Feed admission", () => {
     expect(isFeedItemHidden(row("connected_systems_mutation_partial"), true)).toBe(false);
     expect(isFeedItemHidden(row("connected_systems_connected"), true)).toBe(true);
   });
+  it("keeps own connection acceptances quiet while preserving incoming shares and Circle additions", () => {
+    expect(isFeedItemHidden({ source_domain: "location", event_type: "location_share_created",
+      metadata: { feed_audience: "recipient" } }, false)).toBe(false);
+    expect(isFeedItemHidden({ source_domain: "location", event_type: "circle_member_added" }, false)).toBe(false);
+    expect(isFeedItemHidden({ source_domain: "connections", event_type: "connection_accepted",
+      metadata: { actor_is_self: true } }, false)).toBe(true);
+    expect(isFeedItemHidden({ source_domain: "connections", event_type: "connection_accepted",
+      metadata: { actor_is_self: false } }, false)).toBe(false);
+  });
+
   it("hides cached progress and owner setup confirmations using the same metadata policy", () => {
     expect(isFeedItemHidden({ ...row("funding_transfer_status", "kai"), metadata: { user_facing_status: "pending" } }, true)).toBe(true);
     expect(isFeedItemHidden({ ...row("funding_transfer_status", "kai"), metadata: { user_facing_status: "returned" } }, true)).toBe(false);

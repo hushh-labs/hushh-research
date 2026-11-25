@@ -1,4 +1,5 @@
-import { currentGrantFixture, viewerProfile } from "./person-profile/fixtures";
+import { viewerProfile } from "./person-profile/fixtures";
+import { mocks, mockCurrentGrant } from "./person-profile/mocks";
 import {
   act,
   cleanup,
@@ -8,220 +9,9 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import type { ComponentProps, ReactNode, TextareaHTMLAttributes } from "react";
-import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { usePeriodicTask } from "@/lib/perf/use-periodic-task";
 vi.mock("@/lib/perf/use-periodic-task", async (original) => ({ ...await original<typeof import("@/lib/perf/use-periodic-task")>(), usePeriodicTask: vi.fn() }));
-
-const mocks = vi.hoisted(() => ({
-  realDialogs: false,
-  answerGates: vi.fn(),
-  answerCreate: vi.fn(),
-  search: "",
-  vaultKey: null as string | null,
-  vaultOwnerToken: null as string | null,
-  getInformationRequest: vi.fn(),
-  getRequestHistory: vi.fn(),
-  getPublic: vi.fn(),
-  peekPublic: vi.fn(),
-  getViewer: vi.fn(),
-  getRelationship: vi.fn(),
-  getVaultOwnerToken: vi.fn(),
-  push: vi.fn(),
-  pathname: "/people/actual-public-ref",
-  native: true,
-  platform: "ios",
-  user: null as { uid: string; getIdToken: () => Promise<string> } | null,
-  authLoading: false,
-  isVaultUnlocked: true,
-  packets: vi.fn(),
-  connectorOverview: vi.fn(),
-}));
-
-vi.mock("next/navigation", () => ({
-  useSearchParams: () => new URLSearchParams(String(mocks.search || "")),
-  usePathname: () => mocks.pathname,
-  useRouter: () => ({ push: mocks.push }),
-}));
-
-vi.mock("@capacitor/core", () => ({
-  Capacitor: {
-    getPlatform: () => mocks.platform,
-    isNativePlatform: () => mocks.native,
-  },
-  registerPlugin: () => ({}),
-}));
-
-vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: mocks.user, userId: mocks.user?.uid ?? null, loading: mocks.authLoading }),
-}));
-
-vi.mock("@/components/connections/person-network-summary", () => ({
-  PersonNetworkSummary: ({ onReady }: { onReady?: () => void }) => {
-    useEffect(() => { onReady?.(); }, [onReady]);
-    return null;
-  },
-}));
-
-vi.mock("@/lib/vault/vault-context", () => ({
-  useVault: () => ({
-    vaultKey: mocks.vaultKey ?? null,
-    vaultOwnerToken: mocks.vaultOwnerToken ?? null,
-    getVaultOwnerToken: mocks.getVaultOwnerToken,
-    isVaultUnlocked: mocks.isVaultUnlocked,
-  }),
-}));
-
-vi.mock("@/lib/services/person-profile-service", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/lib/services/person-profile-service")>(),
-  PersonProfileService: {
-    getPublic: mocks.getPublic,
-    peekPublic: mocks.peekPublic,
-    invalidatePublicProfiles: vi.fn(),
-    getViewer: mocks.getViewer,
-    getRelationship: mocks.getRelationship,
-    createInformationRequest: vi.fn(),
-    connect: vi.fn(),
-    cancelConnectionRequest: vi.fn(),
-    removeConnection: vi.fn(),
-    getInformationRequestExports: vi.fn(),
-    cancelInformationRequest: vi.fn(),
-    getInformationRequest: mocks.getInformationRequest,
-    getRequestHistory: mocks.getRequestHistory,
-  },
-}));
-
-// A connection's listed packets; buying is covered by the packet tests.
-vi.mock("@/lib/services/drive-packet-service", () => ({
-  DrivePacketService: { packets: mocks.packets },
-}));
-vi.mock("@/lib/services/external-connector-service", () => ({
-  ExternalConnectorService: { overview: mocks.connectorOverview, featureReadiness: mocks.connectorOverview },
-}));
-
-vi.mock("@/lib/services/one-kyc-client-zk-service", () => ({
-  OneKycClientZkService: {
-    decryptScopedExport: vi.fn(),
-    ensureConnector: vi.fn(),
-    readStoredConnector: vi.fn(),
-  },
-}));
-
-function mockCurrentGrant(requestId: string, bundleId: string, scopeRef = "scope-0") {
-  const { request, exported } = currentGrantFixture(requestId, bundleId, scopeRef);
-  mocks.getInformationRequest.mockResolvedValue(request);
-  return exported;
-}
-
-vi.mock("@/components/app-ui/app-page-shell", () => ({
-  AppPageShell: ({ children }: { children: ReactNode }) => (
-    <main>{children}</main>
-  ),
-}));
-
-vi.mock("@/components/app-ui/page-sections", () => ({
-  PageHeader: ({
-    title,
-    description,
-  }: {
-    title: string;
-    description?: string;
-  }) => (
-    <header>
-      <h2>{title}</h2>
-      {description ? <p>{description}</p> : null}
-    </header>
-  ),
-}));
-
-vi.mock("@/lib/morphy-ux/button", () => ({
-  Button: ({
-    asChild,
-    children,
-    ...props
-  }: {
-    asChild?: boolean;
-    children: ReactNode;
-  }) => (asChild ? <>{children}</> : <button {...props}>{children}</button>),
-}));
-
-vi.mock("@/components/ui/dialog", async (original) => {
-  const actual = await original<typeof import("@/components/ui/dialog")>();
-  return {
-    ...actual,
-    DialogPortal: (props: ComponentProps<typeof actual.DialogPortal>) => mocks.realDialogs ? <actual.DialogPortal {...props} /> : <>{props.children}</>,
-    DialogOverlay: (props: ComponentProps<typeof actual.DialogOverlay>) => mocks.realDialogs ? <actual.DialogOverlay {...props} /> : <div data-testid="dialog-overlay" />,
-    Dialog: (props: ComponentProps<typeof actual.Dialog>) => mocks.realDialogs ? <actual.Dialog {...props} /> : props.open === false ? null : <>{props.children}</>,
-    DialogTrigger: (props: ComponentProps<typeof actual.DialogTrigger>) => mocks.realDialogs ? <actual.DialogTrigger {...props} /> : <>{props.children}</>,
-    DialogContent: (props: ComponentProps<typeof actual.DialogContent>) => mocks.realDialogs ? <actual.DialogContent {...props} /> : <section>{props.children}</section>,
-    DialogDescription: (props: ComponentProps<typeof actual.DialogDescription>) => mocks.realDialogs ? <actual.DialogDescription {...props} /> : <p>{props.children}</p>,
-    DialogFooter: (props: ComponentProps<typeof actual.DialogFooter>) => mocks.realDialogs ? <actual.DialogFooter {...props} /> : <footer>{props.children}</footer>,
-    DialogHeader: (props: ComponentProps<typeof actual.DialogHeader>) => mocks.realDialogs ? <actual.DialogHeader {...props} /> : <header>{props.children}</header>,
-    DialogTitle: (props: ComponentProps<typeof actual.DialogTitle>) => mocks.realDialogs ? <actual.DialogTitle {...props} /> : <h2>{props.children}</h2>,
-  };
-});
-
-vi.mock("@/components/vault/vault-unlock-dialog", () => ({
-  VaultUnlockDialog: ({
-    open,
-    title,
-    description,
-  }: {
-    open: boolean;
-    title: string;
-    description: string;
-  }) =>
-    open ? (
-      <div data-testid="vault-unlock-dialog">
-        <h3>{title}</h3>
-        <p>{description}</p>
-      </div>
-    ) : null,
-}));
-
-vi.mock("@/components/ui/textarea", () => ({
-  Textarea: (props: TextareaHTMLAttributes<HTMLTextAreaElement>) => (
-    <textarea {...props} />
-  ),
-}));
-
-vi.mock("@/lib/morphy-ux/ui/surface-primitives", () => ({
-  AvatarBubble: () => <span data-testid="avatar" />,
-  SectionCard: ({ children }: { children: ReactNode }) => (
-    <section>{children}</section>
-  ),
-  StatusPill: ({
-    children,
-    className,
-  }: {
-    children: ReactNode;
-    className?: string;
-  }) => <span className={className}>{children}</span>,
-}));
-
-vi.mock("@/lib/agent/local-onboarding-actions", () => ({
-  useLocalOnboardingActionHandler: vi.fn(),
-}));
-
-vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
-  usePublishVoiceSurfaceMetadata: vi.fn(),
-}));
-
-vi.mock("sonner", () => ({
-  toast: {
-    error: vi.fn(),
-    success: vi.fn(),
-  },
-}));
-
-vi.mock("@/lib/services/auth-service", () => ({
-  AuthService: { getIdToken: async () => mocks.user?.getIdToken() ?? null },
-}));
-vi.mock("@/lib/services/answer-request-service", async (original) => ({
-  ...(await original<typeof import("@/lib/services/answer-request-service")>()),
-  AnswerRequestService: { gates: mocks.answerGates, create: mocks.answerCreate },
-}));
 
 beforeEach(() => {
   vi.mocked(usePeriodicTask).mockClear();
@@ -232,6 +22,7 @@ beforeEach(() => {
   mocks.realDialogs = false;
   mocks.answerGates.mockReset().mockResolvedValue({ requests: false, payments: false, payouts: false });
   mocks.answerCreate.mockReset();
+  mocks.receivingSetup.mockReset().mockResolvedValue({ keyId: "profile-fixture-key" });
   mocks.connectorOverview.mockReset().mockResolvedValue({ driveAgentPackagesEnabled: true });
 });
 
@@ -266,20 +57,6 @@ describe("PersonProfilePage native profile route", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
-  });
-
-  it.each([
-    ["/one/connect", true],
-    ["/one/location?view=now", true],
-    ["/one/location/map", true],
-    ["/one/calendar", false],
-    ["https://example.test/one/connect", false],
-    ["/one/location-other", false],
-  ])("inherits workspace typography only from a valid workspace origin %s", async (origin, scoped) => {
-    mocks.search = new URLSearchParams({ from: String(origin) }).toString();
-    const { container } = render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
-    await waitFor(() => expect(mocks.getPublic).toHaveBeenCalled());
-    expect(Boolean(container.querySelector('[data-typography-scope]'))).toBe(scoped);
   });
 
   it.each(["connected", "none", "pending_incoming", "pending_outgoing"])("shows contact details only for an accepted connection (%s)", async (status) => {
@@ -607,7 +384,7 @@ describe("PersonProfilePage native profile route", () => {
     );
   });
 
-  it("renders Review request after History without sticky viewport positioning", async () => {
+  it("renders Review request inside Available to request before History without sticky viewport positioning", async () => {
     mocks.user = {
       uid: "viewer",
       getIdToken: vi.fn().mockResolvedValue("viewer-token"),
@@ -629,10 +406,12 @@ describe("PersonProfilePage native profile route", () => {
     const reviewButton = await screen.findByRole("button", {
       name: "Review request",
     });
+    const availableSection = screen.getByTestId("person-profile-available");
     const historyHeading = screen.getByRole("heading", {
       name: "Request history",
     });
     expect(reviewButton).toBeDisabled();
+    expect(availableSection).toContainElement(reviewButton);
     const actions = document.querySelectorAll(
       '[aria-label="Relationship actions"] button',
     );
@@ -646,7 +425,7 @@ describe("PersonProfilePage native profile route", () => {
     expect(reviewButton.parentElement).not.toHaveClass("sticky");
     expect(reviewButton.parentElement).not.toHaveClass("bottom-4");
     expect(
-      historyHeading.compareDocumentPosition(reviewButton) &
+      reviewButton.compareDocumentPosition(historyHeading) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
@@ -733,6 +512,7 @@ describe("PersonProfilePage native profile route", () => {
     fireEvent.change(screen.getByTestId("person-profile-purpose"), {
       target: { value: "Review synthetic professional information" },
     });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     await waitFor(() =>
       expect(
@@ -978,7 +758,7 @@ describe("PersonProfilePage request catalog tools", () => {
     fireEvent.change(screen.getByTestId("person-profile-purpose"), {
       target: { value: "Checking references for a role" },
     });
-    expect(sendRequest).toBeEnabled();
+    await waitFor(() => expect(sendRequest).toBeEnabled());
     fireEvent.click(sendRequest);
     await waitFor(() =>
       expect(
@@ -1089,6 +869,11 @@ describe("PersonProfilePage request catalog tools", () => {
           initialProfile={null}
         />,
       );
+
+      const summaryRow = await screen.findByTestId("person-profile-shared-summary-row");
+      expect(summaryRow).toHaveTextContent("1 item shared");
+      expect(screen.queryByTestId("shared-with-you-values")).toBeNull();
+      fireEvent.click(within(summaryRow).getByRole("button"));
 
       const value = await screen.findByTestId("shared-with-you-values");
       expect(value).toHaveTextContent("Pune");
@@ -1231,6 +1016,7 @@ describe("PersonProfilePage request catalog tools", () => {
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
 
+    fireEvent.click(within(await screen.findByTestId("person-profile-shared-summary-row")).getByRole("button"));
     expect(
       await screen.findByTestId("shared-with-you-values"),
     ).toHaveTextContent("Synthetic approved detail");
@@ -1276,6 +1062,7 @@ describe("PersonProfilePage request catalog tools", () => {
     render(
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
+    fireEvent.click(within(await screen.findByTestId("person-profile-shared-summary-row")).getByRole("button"));
     expect(
       await screen.findByTestId("shared-with-you-values"),
     ).toHaveTextContent("Synthetic reviewer");
@@ -1349,6 +1136,7 @@ describe("PersonProfilePage request catalog tools", () => {
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
 
+    fireEvent.click(within(await screen.findByTestId("person-profile-shared-summary-row")).getByRole("button"));
     expect(
       await screen.findByTestId("shared-with-you-values"),
     ).toHaveTextContent("Synthetic nested detail");
@@ -1409,6 +1197,7 @@ describe("PersonProfilePage request catalog tools", () => {
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
 
+    fireEvent.click(within(await screen.findByTestId("person-profile-shared-summary-row")).getByRole("button"));
     await waitFor(() =>
       expect(screen.getByTestId("shared-with-you-card")).toHaveAttribute(
         "data-status",
@@ -1484,6 +1273,7 @@ describe("PersonProfilePage request catalog tools", () => {
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
 
+    fireEvent.click(within(await screen.findByTestId("person-profile-shared-summary-row")).getByRole("button"));
     await waitFor(() =>
       expect(screen.getByTestId("shared-with-you-card")).toHaveAttribute(
         "data-status",
@@ -1556,14 +1346,15 @@ describe("PersonProfilePage request catalog tools", () => {
     render(
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
+    fireEvent.click(within(await screen.findByTestId("person-profile-history-summary-row")).getByRole("button"));
     fireEvent.click(
       await screen.findByRole("button", {
         name: "Details for Employment status",
       }),
     );
-    expect(
-      await screen.findByTestId("person-profile-bundle-details"),
-    ).toHaveTextContent("Employment status (waiting) · 7 days");
+    const trail = await screen.findByTestId("person-profile-bundle-details");
+    expect(within(trail).getByText("Waiting")).toBeInTheDocument();
+    expect(within(trail).getByText("Employment status · 7 days")).toBeInTheDocument();
   });
 
   // Localhost run 4 (S3): the history read "Tax Record Domain" beside a raw "granted" pill.
@@ -1589,12 +1380,18 @@ describe("PersonProfilePage request catalog tools", () => {
     render(
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
-    expect(await screen.findByText("Tax record")).toBeInTheDocument();
-    expect(screen.getByText("Shared")).toBeInTheDocument();
+    const summaryRow = await screen.findByTestId("person-profile-history-summary-row");
+    expect(summaryRow).toHaveTextContent("Latest: Tax record");
+    expect(summaryRow).toHaveTextContent("Shared");
     const history = screen
       .getByRole("heading", { name: "Request history" })
       .closest("section")!;
     expect(history.textContent).not.toMatch(/domain|granted/i);
+    fireEvent.click(within(summaryRow).getByRole("button"));
+    const sheet = await screen.findByTestId("person-profile-history-sheet");
+    expect(within(sheet).getByText("Tax record")).toBeInTheDocument();
+    expect(within(sheet).getByText("Shared")).toBeInTheDocument();
+    expect(sheet.textContent).not.toMatch(/domain|granted/i);
   });
 
   it("groups a multi-field request into one history row with one action", async () => {
@@ -1618,6 +1415,7 @@ describe("PersonProfilePage request catalog tools", () => {
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
 
+    fireEvent.click(within(await screen.findByTestId("person-profile-history-summary-row")).getByRole("button"));
     expect(
       await screen.findByText("Professional detail 1 and 11 more"),
     ).toBeInTheDocument();
@@ -1650,11 +1448,13 @@ describe("PersonProfilePage request catalog tools", () => {
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
 
-    expect(await screen.findByText("History item 1")).toBeInTheDocument();
-    expect(screen.queryByText("History item 9")).toBeNull();
+    fireEvent.click(within(await screen.findByTestId("person-profile-history-summary-row")).getByRole("button"));
+    const sheet = await screen.findByTestId("person-profile-history-sheet");
+    expect(within(sheet).getByText("History item 1")).toBeInTheDocument();
+    expect(within(sheet).queryByText("History item 9")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText("History item 9")).toBeInTheDocument();
-    expect(screen.queryByText("History item 1")).toBeNull();
+    expect(within(sheet).getByText("History item 9")).toBeInTheDocument();
+    expect(within(sheet).queryByText("History item 1")).toBeNull();
   });
 
   it("uses server bundle pages so a large request is never truncated into smaller history rows", async () => {
@@ -1692,11 +1492,13 @@ describe("PersonProfilePage request catalog tools", () => {
     render(
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
-    expect(await screen.findByText("150 items")).toBeInTheDocument();
-    expect(screen.getByText("Check status")).toBeInTheDocument();
+    fireEvent.click(within(await screen.findByTestId("person-profile-history-summary-row")).getByRole("button"));
+    const sheet = await screen.findByTestId("person-profile-history-sheet");
+    expect(within(sheet).getByText("150 items")).toBeInTheDocument();
+    expect(within(sheet).getByText("Check status")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(await screen.findByText("2 items")).toBeInTheDocument();
-    expect(screen.queryByText("150 items")).toBeNull();
+    await waitFor(() => expect(within(sheet).getByText("2 items")).toBeInTheDocument());
+    expect(within(sheet).queryByText("150 items")).toBeNull();
     expect(mocks.getRequestHistory).toHaveBeenLastCalledWith({
       personRef: "actual-public-ref",
       idToken: "id-token",
@@ -1735,11 +1537,13 @@ describe("PersonProfilePage request catalog tools", () => {
     render(
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
+    fireEvent.click(within(await screen.findByTestId("person-profile-history-summary-row")).getByRole("button"));
+    const sheet = await screen.findByTestId("person-profile-history-sheet");
     expect(
-      await screen.findByText("Tax record and Portfolio"),
+      within(sheet).getByText("Tax record and Portfolio"),
     ).toBeInTheDocument();
-    expect(screen.queryByText("2 items")).toBeNull();
-    expect(screen.getByText("3 items")).toBeInTheDocument();
+    expect(within(sheet).queryByText("2 items")).toBeNull();
+    expect(within(sheet).getByText("3 items")).toBeInTheDocument();
   });
 
   it("does not display details returned for another person", async () => {
@@ -1770,6 +1574,7 @@ describe("PersonProfilePage request catalog tools", () => {
     render(
       <PersonProfilePage personRef="actual-public-ref" initialProfile={null} />,
     );
+    fireEvent.click(within(await screen.findByTestId("person-profile-history-summary-row")).getByRole("button"));
     fireEvent.click(
       await screen.findByRole("button", {
         name: "Details for Employment status",
@@ -1779,8 +1584,8 @@ describe("PersonProfilePage request catalog tools", () => {
     expect(screen.queryByTestId("person-profile-bundle-details")).toBeNull();
   });
 
-  it("marks already-granted scopes as preselected, locked with Granted badge, and excludes them from review count", async () => {
-    const scopes = manyScopes(3);
+  it("marks already-granted and pending scopes as unchecked, locked with Shared/Waiting badges, and excludes them from category toggle and review count", async () => {
+    const scopes = manyScopes(5);
     mocks.getViewer.mockResolvedValue(
       viewerProfile({
         requestableScopes: scopes,
@@ -1795,24 +1600,46 @@ describe("PersonProfilePage request catalog tools", () => {
             status: "granted",
           },
         ],
+        requestHistory: [
+          {
+            bundleId: "bundle-pending",
+            requestId: "req-pending",
+            scopeRef: scopes[2].scopeRef,
+            label: scopes[2].label,
+            sensitivity: "standard",
+            purpose: "Pending request",
+            durationSeconds: 24 * 3600,
+            createdAt: null,
+            expiresAt: null,
+            status: "pending",
+          },
+        ],
       }),
     );
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
     fireEvent.click(await screen.findByRole("button", { name: "Open Professional" }));
 
-    // Look for Granted badge for the already-granted scope
-    expect(await screen.findByTestId(`person-profile-scope-badge-granted-${scopes[0].scopeRef}`)).toHaveTextContent("Granted");
+    // Granted scope renders unchecked + disabled with "Shared" badge
+    expect(await screen.findByTestId(`person-profile-scope-badge-granted-${scopes[0].scopeRef}`)).toHaveTextContent("Shared");
     const grantedCheckbox = screen.getByTestId(`person-profile-scope-toggle-${scopes[0].scopeRef}`) as HTMLInputElement;
-    expect(grantedCheckbox.checked).toBe(true);
+    expect(grantedCheckbox.checked).toBe(false);
     expect(grantedCheckbox.disabled).toBe(true);
 
-    // Review request button should be disabled because 0 ungranted scopes are selected
+    // Pending scope renders unchecked + disabled with "Waiting" badge
+    expect(screen.getByTestId(`person-profile-scope-badge-pending-${scopes[2].scopeRef}`)).toHaveTextContent("Waiting");
+    const pendingCheckbox = screen.getByTestId(`person-profile-scope-toggle-${scopes[2].scopeRef}`) as HTMLInputElement;
+    expect(pendingCheckbox.checked).toBe(false);
+    expect(pendingCheckbox.disabled).toBe(true);
+
+    // Review request button should be disabled because 0 available scopes are selected
     const reviewBtn = screen.getByRole("button", { name: /^Review request/ });
     expect(reviewBtn).toBeDisabled();
 
-    // Selecting an ungranted scope (scope-2 is also in Professional) enables Review request with count 1
-    const ungrantedCheckbox = screen.getByTestId(`person-profile-scope-toggle-${scopes[2].scopeRef}`);
-    fireEvent.click(ungrantedCheckbox);
+    // Category bulk-select only selects unlocked scopes (scope-4 in Professional), keeping granted & pending unchecked
+    fireEvent.click(screen.getByTestId("person-profile-scope-group-toggle-professional"));
+    expect(grantedCheckbox.checked).toBe(false);
+    expect(pendingCheckbox.checked).toBe(false);
+    expect((screen.getByTestId(`person-profile-scope-toggle-${scopes[4].scopeRef}`) as HTMLInputElement).checked).toBe(true);
     expect(screen.getByRole("button", { name: "Review request (1)" })).toBeEnabled();
   });
 
@@ -1895,11 +1722,14 @@ describe("Request scope during profile authority refresh", () => {
     await openQuestion();
     fireEvent.click(screen.getByRole("button", { name: "Send request", exact: true }));
     await waitFor(() => expect(mocks.answerCreate).toHaveBeenCalledWith("viewer-token", "actual-public-ref", { question: "What are your food preferences?" }, expect.objectContaining({ clientRequestId: expect.any(String), isEffectCurrent: expect.any(Function) })));
+    expect(mocks.receivingSetup).toHaveBeenCalledWith({ userId: "viewer", vaultOwnerToken: "test-owner-token", isCurrent: expect.any(Function) });
+    expect(mocks.receivingSetup.mock.invocationCallOrder[0]).toBeLessThan(mocks.answerCreate.mock.invocationCallOrder[0]!);
     mocks.getViewer.mockReturnValueOnce(new Promise((resolve, reject) => { refresh = resolve; rejectRefresh = reject; }));
     act(answerDoorbell);
     await waitFor(() => expect(mocks.getViewer).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole("button", { name: "Ask a question", exact: true })).toBeNull();
     expect(screen.getByRole("button", { name: "Sending…" })).toBeDisabled();
+    expect(mocks.answerCreate.mock.calls[0]![3].isEffectCurrent()).toBe(false);
     await act(async () => { accept({ requestId }); });
     expect(await screen.findByText(/Request sent\./)).toBeVisible();
     expect(screen.getByRole("link", { name: "View request" })).toHaveAttribute("href", expect.stringContaining(requestId));

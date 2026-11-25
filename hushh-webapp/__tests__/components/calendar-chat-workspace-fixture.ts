@@ -1,6 +1,8 @@
 import { configure } from "@testing-library/react";
 import { vi } from "vitest";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
+import { clearAgentChatHistoryCache } from "@/lib/agent/agent-chat-history-cache";
+import { clearInAppChatSelection } from "@/lib/agent/in-app-chat-selection";
 import { useChatOnboardingSession } from "@/lib/agent/chat-onboarding/use-chat-onboarding";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
@@ -54,6 +56,8 @@ export { fixture };
 
 export function resetCalendarChatFixture() {
   configure({ asyncUtilTimeout: 5000 });
+  clearAgentChatHistoryCache();
+  clearInAppChatSelection();
   useOneConversationSession.getState().clearSession();
   Element.prototype.scrollTo = vi.fn();
   vi.mocked(globalThis.fetch).mockImplementation(async () => Response.json({}));

@@ -61,5 +61,6 @@ flowchart LR
 
 - Route recurring tasks via `./bin/hushh agents route-task <workflow-id>`.
 - Run `./bin/hushh docs verify` for doc edits, `npm run typecheck && npm run verify:ui-contracts` for frontend edits, and `pytest` + `mypy --config-file pyproject.toml --ignore-missing-imports` for backend edits before pushing.
+- For multi-cloud storage, KMS custody, capability-prefix, or sandbox/BYOC changes, run `./bin/hushh protocol floci` ([Floci wire verification](quality/floci-multicloud-wire-verification.md)) before container builds or live cloud qualification.
 
 </details>

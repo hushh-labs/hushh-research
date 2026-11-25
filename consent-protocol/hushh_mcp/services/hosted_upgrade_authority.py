@@ -15,6 +15,36 @@ from hushh_mcp.services.private_gcp_deployment import PrivateGcpDeployment
 from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
 
 
+async def _files_current(current, registry: Any) -> None:
+    # Inspection of an unresolved lease remains separate from new mutations.
+    from hushh_mcp.services.pod_files.capability_contract import hosted_schema_ready
+
+    await current()
+    if not await hosted_schema_ready(registry, join_on_cancel=True):
+        raise ProvisionReconciliationRequired("Managed Files recovery schema is not ready")
+
+
+def _managed_upgrade_deployment(
+    placement, source: str, attempt: dict, model: dict
+) -> PrivateGcpDeployment:
+    return PrivateGcpDeployment(
+        owner=placement.hushh_id,
+        hosting_mode="hussh_hosted",
+        environment="dev",
+        project=placement.project,
+        project_number=placement.project_number,
+        region=placement.region,
+        service_uid=placement.service_uid,
+        image=f"{placement.region}-docker.pkg.dev/{placement.project}/one-pod/consent-protocol-pod@{source.rsplit('@', 1)[-1]}",
+        hub_principal=attempt["hostedAdmission"]["assignment"]["bootstrapContract"]["plan"][
+            "federation"
+        ]["impersonation"]["granted_to"],
+        inference_project=model["project"],
+        inference_model=model["model"],
+        inference_profile_hash=model["profileHash"],
+    )
+
+
 async def bind_managed_upgrade(
     spec: PodSpec, row: dict, *, registry: Any, lease: str | None
 ) -> PodSpec:
@@ -34,26 +64,16 @@ async def bind_managed_upgrade(
     metadata = row["backend_metadata"]
     attempt = metadata["provisionAttempt"]
     model = attempt["hostedAdmission"]["modelBinding"]
-    deployment = PrivateGcpDeployment(
-        owner=placement.hushh_id,
-        hosting_mode="hussh_hosted",
-        environment="dev",
-        project=placement.project,
-        project_number=placement.project_number,
-        region=placement.region,
-        service_uid=placement.service_uid,
-        image=f"{placement.region}-docker.pkg.dev/{placement.project}/one-pod/consent-protocol-pod@{source.rsplit('@', 1)[-1]}",
-        hub_principal=attempt["hostedAdmission"]["assignment"]["bootstrapContract"]["plan"][
-            "federation"
-        ]["impersonation"]["granted_to"],
-        inference_project=model["project"],
-        inference_model=model["model"],
-        inference_profile_hash=model["profileHash"],
-    )
+    deployment = _managed_upgrade_deployment(placement, source, attempt, model)
     approval = metadata["upgradeApproval"]
 
     async def current() -> None:
-        observed = await registry.get(placement.owner_id)
+        managed_files = spec.files_upgrade_plan is not None
+        observed = await (
+            registry.get(placement.owner_id, join_on_cancel=True)
+            if managed_files
+            else registry.get(placement.owner_id)
+        )
         if (
             not lease
             or observed is None
@@ -66,20 +86,32 @@ async def bind_managed_upgrade(
             or retained_hosted_placement(observed) != placement
             or not upgrade_approval_matches(observed, source, allow_unresolved=inspecting)
             or not await registry.hosted_upgrade_current(
-                owner_id=placement.owner_id, lease=lease, observed=observed, work=not inspecting
+                owner_id=placement.owner_id,
+                lease=lease,
+                observed=observed,
+                work=not inspecting,
+                join_on_cancel=managed_files,
             )
         ):
             raise ProvisionReconciliationRequired("Managed update authority changed")
 
+    loop, owner_thread = asyncio.get_running_loop(), threading.get_ident()
     authority = HostedGcpAuthority(
         deployment,
         source,
         placement.bootstrap_sa,
-        _worker_guard(current, asyncio.get_running_loop(), threading.get_ident()),
+        _worker_guard(
+            current, loop, owner_thread, join_on_timeout=spec.files_upgrade_plan is not None
+        ),
         operation="inspect" if inspecting else "upgrade",
         execute=True,
         installed_image=metadata.get("image"),
         operation_id=approval["operationId"],
+        files_work_check=_worker_guard(
+            lambda: _files_current(current, registry), loop, owner_thread, join_on_timeout=True
+        )
+        if spec.files_upgrade_plan is not None and not inspecting
+        else None,
     )
     authority.validate_execution()
     return replace(spec, private_gcp_deployment=deployment, hosted_admission_guard=authority)

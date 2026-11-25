@@ -14,6 +14,7 @@
  */
 
 "use client";
+import { NativeFinanceLayer, useNativeFinancePaneActive } from "./native-finance-workspace";
 import { usePathname, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 
@@ -37,7 +38,7 @@ import {
 } from "./views/dashboard-master-view";
 import { AnalysisView } from "./views/analysis-view";
 import { useVault } from "@/lib/vault/vault-context";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { ApiService } from "@/lib/services/api-service";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import type { KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
@@ -574,6 +575,7 @@ export function KaiFlow({
   setupSourcePicker = false,
   onSetupPersonaBack,
 }: KaiFlowProps) {
+  const nativePortfolioActive = useNativeFinancePaneActive("portfolio");
   const router = useRouter();
   const { user } = useAuth();
   const {
@@ -3710,7 +3712,7 @@ export function KaiFlow({
 
   if (state === "checking") {
     return (
-      <div className="w-full">
+      <NativeFinanceLayer pane="portfolio" active={nativePortfolioActive} title="Portfolio" sections={[{ key: "portfolio-loading", rows: [{ key: "loading", label: toInvestorLoading("ACCOUNT_STATE"), pending: true }] }]} fallback={<div className="w-full">
         <KaiWorkspaceHeader
           workspace="portfolio"
           title="Portfolio"
@@ -3722,7 +3724,7 @@ export function KaiFlow({
             label={toInvestorLoading("ACCOUNT_STATE")}
           />
         </AppPageContentRegion>
-      </div>
+      </div>} />
     );
   }
 
@@ -3820,7 +3822,10 @@ export function KaiFlow({
         dashboardSection !== "analysis" &&
         !flowData.hasFinancialData &&
         !plaidPortfolioData && (
-          <PortfolioDashboardEmpty
+          <NativeFinanceLayer pane="portfolio" active={nativePortfolioActive} contentPresentation="rich" title="Portfolio" sections={[{ key: "portfolio-empty", rows: [
+            { key: "empty", label: "Start your portfolio", detail: "Choose a statement or a read-only bank connection in the import workspace." },
+            { key: "import", label: "Import portfolio", run: handleReimport },
+          ] }]} fallback={<PortfolioDashboardEmpty
             onFileSelect={handleFileUpload}
             onPreloadSchema={() => void handlePreloadSchema()}
             onConnectPlaid={(environment) =>
@@ -3833,7 +3838,7 @@ export function KaiFlow({
             plaidLocalDualEnvironmentEnabled={
               plaidStatus?.local_dual_environment_enabled ?? false
             }
-          />
+          />} />
         )}
 
       {isDashboardMode && state === "analysis" && flowData.analysisResult && (

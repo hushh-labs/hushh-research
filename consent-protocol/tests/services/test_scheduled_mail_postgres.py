@@ -642,6 +642,7 @@ async def test_cancel_flips_once_drops_the_payload_and_frees_the_key(ledger):
 
     cancelled = await _row(ledger, first["action_id"])
     assert cancelled["payload_sealed"] is None
+    assert cancelled["recipient_display"] is None
     assert cancelled["idempotency_hmac"] == (
         before["idempotency_hmac"] + ":cancelled:" + first["action_id"]
     )
@@ -677,10 +678,13 @@ async def test_drain_sends_a_due_row_once_and_leaves_a_future_one(ledger, gmail_
     sent = await _row(ledger, due["action_id"])
     assert (sent["state"], sent["attempt_count"], sent["gmail_message_id"]) == ("sent", 1, "m1")
     assert sent["payload_sealed"] is None and sent["notified_at"] is not None
+    assert sent["recipient_display"] is None
     assert [kwargs["notification_type"] for _, kwargs in push.sent] == ["mail_scheduled_sent"]
+    assert NAME in push.sent[0][1]["body"]
     waiting = await _row(ledger, future["action_id"])
     assert (waiting["state"], waiting["attempt_count"]) == ("scheduled", 0)
     assert waiting["payload_sealed"] is not None
+    assert waiting["recipient_display"] == NAME
 
     # A second run finds nothing: the sent row is never claimed again.
     again = await _drain(ledger, service)

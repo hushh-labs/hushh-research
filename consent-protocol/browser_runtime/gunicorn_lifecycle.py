@@ -1,8 +1,11 @@
 """One worker owns one bootstrap generation; never reuse its browser channel."""
 
+import ctypes
 import os
 import re
+import resource
 import ssl
+import sys
 
 _TLS = "/run/hussh-tls"
 # Docker.pod owns this 0700 directory for UID10001; HOME remains root's at exec.
@@ -15,6 +18,19 @@ if os.path.exists("/run/hussh-host/pod.json"):
     ssl_version = ssl.PROTOCOL_TLS_SERVER
 
 
+def harden_worker_process() -> None:
+    """Re-establish non-dumpable and zero-core posture after Linux execve()."""
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    if sys.platform != "linux":
+        return
+    native = ctypes.CDLL(None, use_errno=True)
+    if native.prctl(38, 1, 0, 0, 0) or native.prctl(4, 0, 0, 0, 0):
+        raise RuntimeError("POD_WORKER_HARDENING_REFUSED")
+    # Dumpable is absent from some procfs implementations; query the kernel.
+    if native.prctl(3, 0, 0, 0, 0) != 0:  # PR_GET_DUMPABLE
+        raise RuntimeError("POD_WORKER_HARDENING_REFUSED")
+
+
 def post_worker_init(worker) -> None:
     """Renew leaf certificates without restarting active chat/browser sockets.
 
@@ -22,6 +38,10 @@ def post_worker_init(worker) -> None:
     renewal publishes an immutable pair through one atomic directory pointer;
     only subsequent TLS handshakes see it. No agent or model supplies a path.
     """
+    if os.environ.get("HUSSH_POD_MODE", "").lower() in {"1", "true"} or os.path.exists(
+        "/opt/browser/pod_entrypoint.py"
+    ):
+        harden_worker_process()
     if not os.path.exists("/run/hussh-host/pod.json"):
         return
     worker.config.app = worker.wsgi

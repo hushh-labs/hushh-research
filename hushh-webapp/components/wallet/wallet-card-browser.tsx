@@ -5,11 +5,13 @@ import { createPortal } from "react-dom";
 import { ArrowLeft, ArrowRight, Plus } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { NativeWalletBrowser } from "./native-wallet-browser";
+import { NativeWorkspacePresentationOwner } from "@/lib/capacitor/native-workspace-presence";
 import type { NativeWalletPaymentOperations } from "./native-wallet-payment-panel";
 import { nativeWalletCardFormsEnabled } from "@/lib/capacitor/native-wallet-card";
 import { WalletReferralCardDetails } from "./wallet-referral-card-details";
 import type { ReferralSummary } from "@/lib/services/referral-service";
 import { WalletCardWorkspace } from "@/components/wallet-card/wallet-card-workspace";
+import type { WalletNativeHistoryProjection } from "./wallet-sharing-history";
 import { SettingsDetailPanel } from "@/components/profile/settings-ui";
 import type { WalletCardArtwork } from "@/lib/wallet/card-artwork";
 import { WalletCardFace } from "./wallet-card-face";
@@ -44,6 +46,9 @@ export type WalletCardBrowserProps = {
   referralError?: boolean;
   onRetryReferral?: () => void;
   onRevokeReferral?: (slug: string) => Promise<void>;
+  presentationOwner?: NativeWorkspacePresentationOwner;
+  activeTab?: "cards" | "sharing";
+  sharedHistory?: WalletNativeHistoryProjection | null;
 } & { nativeOperations?: NativeWalletPaymentOperations; nativeAddPresented?: boolean; onSharing?: () => void; nativePending?: { label: string; retry?: () => void; dismiss?: () => void }; nativeHistoryContext?: (cardId: string) => import("@/lib/services/wallet-card-share-service").CardShareContext | null };
 
 function WebWalletCardBrowser({ cards, cardholderNames = {}, artworks = {}, pendingArtworkIds, selectedCardId, onSelect, onOverview, onAdd, pendingCard, addDisabled = false, busyCardId, disabled = false, details, dockHost, active = true, demoProfile, referralSummary, referralError = false, onRetryReferral, onRevokeReferral }: WalletCardBrowserProps) {
@@ -195,7 +200,8 @@ function WebWalletCardBrowser({ cards, cardholderNames = {}, artworks = {}, pend
 
 export function WalletCardBrowser(props: WalletCardBrowserProps) {
   const [native] = useState(() => nativeWalletCardFormsEnabled() && !!props.ownerId && !!props.nativeOperations);
-  const [fallback, setFallback] = useState(false);
-  if (!native || fallback) return <WebWalletCardBrowser {...props} />;
-  return <NativeWalletBrowser {...props} onFallback={() => setFallback(true)} />;
+  const [localOwner] = useState(() => new NativeWorkspacePresentationOwner());
+  if (!native) return <WebWalletCardBrowser {...props} />;
+  return <NativeWalletBrowser {...props} presentationOwner={props.presentationOwner ?? localOwner}
+    renderFallback={() => <WebWalletCardBrowser {...props} />} />;
 }

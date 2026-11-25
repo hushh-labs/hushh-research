@@ -802,3 +802,45 @@ def test_sandbox_edge_epoch_handshake_and_precutover_pooled_custody(
     )
     dek_post = resolve_key_custody_port(store=pod_store, hub_client=hub_client).resolve_log_key()
     assert dek_post == dek_pre
+
+
+def test_hub_custody_broker_eliminates_redundant_registry_reads_for_local_crypto(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Local-crypto storage-token (`ace_prefix_bearer`) and DEK (`hub_aead`) reuse the
+    request-scoped registry lookup (1 `get_by_hushh_id` per HTTP call instead of 3)."""
+    hub_url = "https://hub-query-budget.test"
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "1")
+    monkeypatch.setenv("POD_HUB_IDENTITY_AUTH_ENABLED", "1")
+    monkeypatch.setenv("POD_HUB_EXPECTED_AUDIENCE", hub_url)
+    monkeypatch.setenv("HUSSH_HUB_BASE_URL", hub_url)
+    monkeypatch.setenv(BROKER_SEAL_SECRET_ENV, "hub_budget_seal_key_material_32bytes")
+    monkeypatch.setenv(HUB_KMS_BACKEND_ENV, "hub_aead")
+
+    row = _configure_durable_pod_identity(
+        monkeypatch, hushh_id="pod-budget-01", owner_id="owner-budget-01", seed_byte=0x44
+    )
+
+    class _CountingRegistry(_FakeRegistry):
+        def __init__(self, rows: list[dict[str, Any]]) -> None:
+            super().__init__(rows)
+            self.by_hushh_calls = 0
+
+        async def get_by_hushh_id(self, hushh_id: str) -> dict[str, Any] | None:
+            self.by_hushh_calls += 1
+            return await super().get_by_hushh_id(hushh_id)
+
+    registry = _CountingRegistry([row])
+    id_store = _FakeIdentityStore()
+    standbys = _FakeStandbyStore()
+    app = _build_hub_broker_test_app(
+        registry=registry, id_store=id_store, standbys=standbys, tombstoned_owners=set()
+    )
+
+    with TestClient(app) as hub_http:
+        adapter_session = _TestClientRequestsAdapter(hub_http)
+        hub_client = PodHubClient(base_url=hub_url, session=adapter_session)
+        resp = hub_client.post("/api/one/pod/custody/storage-token", json={})
+        assert resp.status_code == 200
+        assert registry.by_hushh_calls == 1

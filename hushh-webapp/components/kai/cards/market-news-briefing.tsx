@@ -66,14 +66,22 @@ export function marketNewsImageUrl(value: unknown): string | null {
   } catch { return null; }
 }
 
+export function marketNewsCoverSources(row: KaiHomeNewsItem, thumbnail = false): string[] {
+  const articleImage = marketNewsImageUrl(row.image_url);
+  const thumbnailImage = marketNewsImageUrl(row.image_thumbnail_url);
+  const photos = thumbnail ? [thumbnailImage, articleImage] : [articleImage, thumbnailImage];
+  const publisherLogo = marketNewsImageUrl(row.source_logo_url);
+  const logo = shouldShowNewsCompanyLogo(row) ? getCompanyLogoUrl({ symbol: normalizeMarketSymbol(row.symbol) }) : null;
+  return [...new Set([...photos, publisherLogo, logo].filter((url): url is string => Boolean(url)))];
+}
+
 export function OneMarketNewsCover({ row, className, thumbnail = false }: { row: KaiHomeNewsItem; index: number; className?: string; thumbnail?: boolean }) {
   const articleImage = marketNewsImageUrl(row.image_url);
   const thumbnailImage = marketNewsImageUrl(row.image_thumbnail_url);
   const logo = shouldShowNewsCompanyLogo(row) ? getCompanyLogoUrl({ symbol: normalizeMarketSymbol(row.symbol) }) : null;
   const publisherLogo = marketNewsImageUrl(row.source_logo_url);
   const [failedUrls, setFailedUrls] = useState<string[]>([]);
-  const photos = thumbnail ? [thumbnailImage, articleImage] : [articleImage, thumbnailImage];
-  const source = [...photos, publisherLogo, logo].find((url) => url && !failedUrls.includes(url));
+  const source = marketNewsCoverSources(row, thumbnail).find((url) => !failedUrls.includes(url));
   const isLogo = source === publisherLogo || source === logo;
   const publisherWords = row.source_name?.match(/[\p{L}\p{N}]+/gu) ?? [];
   const initials = publisherWords.slice(0, 2).map(word => Array.from(word)[0]).join("").toLocaleUpperCase() || "MN";

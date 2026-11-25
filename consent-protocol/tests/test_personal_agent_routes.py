@@ -665,3 +665,59 @@ def test_update_approval_refuses_unverified_compatibility(monkeypatch):
     assert response.status_code == 409
     assert "compatibility" in response.json()["detail"]
     assert "approval" not in calls
+
+
+async def test_status_gates_pooled_cutover_placement_on_verified_phone(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services import pooled_sandbox_cutover as cutover
+
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "1")
+    monkeypatch.setattr(cutover, "sandbox_pool_cutover_enabled", lambda: True)
+    placed_calls: list[str] = []
+
+    async def fake_ensure(*, user_id: str, existing_row=None, registry=None, **_kwargs):
+        del existing_row, registry
+        placed_calls.append(user_id)
+        return {
+            "user_id": user_id,
+            "hushh_id": "ha1_verified",
+            "status": "provisioned",
+            "backend": "ace",
+            "deployment_target": "ace",
+            "backend_metadata": {"ready": True},
+        }
+
+    monkeypatch.setattr(cutover, "ensure_pooled_sandbox_placement", fake_ensure)
+
+    class FakeRepo:
+        async def get(self, _user_id):
+            return None
+
+    # Unverified user must not allocate or promote to ACE during /status polling.
+    unverified_identity = type(
+        "FakeId",
+        (),
+        {"get_many": AsyncMock(return_value={"uid-unverified": {"phone_verified": False}})},
+    )()
+    monkeypatch.setattr(pa, "ActorIdentityService", lambda: unverified_identity)
+    unverified_status = await pa.resolve_personal_agent_status(
+        user_id="uid-unverified", registry=FakeRepo()
+    )
+    assert unverified_status["state"] == "none"
+    assert placed_calls == []
+
+    # Verified user promotes cleanly.
+    verified_identity = type(
+        "FakeId",
+        (),
+        {"get_many": AsyncMock(return_value={"uid-verified": {"phone_verified": True}})},
+    )()
+    monkeypatch.setattr(pa, "ActorIdentityService", lambda: verified_identity)
+    verified_status = await pa.resolve_personal_agent_status(
+        user_id="uid-verified", registry=FakeRepo()
+    )
+    assert verified_status["state"] == "active"
+    assert verified_status["deploymentTarget"] == "ace"
+    assert verified_status["hostingMode"] == "hussh_pods"
+    assert placed_calls == ["uid-verified"]

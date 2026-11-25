@@ -10,8 +10,9 @@ import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-i
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { CheckCircle2, Loader2 } from "@/components/icons";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
+import { NativeCalendarRoute, NativeCalendarReactOnly, type CalendarNativeSection } from "./native-calendar-workspace";
 import { CalendarConnectedWorkspace } from "@/components/calendar/calendar-connected-workspace";
 import { connectGmailInPlace } from "@/lib/connections/google-connect-in-place";
 import { CalendarFollowupsService } from "@/lib/services/calendar-followups-service";
@@ -104,7 +105,8 @@ export function CalendarAgentPage({
 }: CalendarAgentPageProps) {
   const { user, userId, loading } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
-  const { confirmTransition, transitionDialog } = useGoogleConnectorTransitionReview(userId ?? undefined, snapshotVaultSessionEpoch());
+  const nativeFrame = useRef<HTMLDivElement | null>(null);
+  const { confirmTransition, transitionDialog, transitionPending } = useGoogleConnectorTransitionReview(userId ?? undefined, snapshotVaultSessionEpoch());
   const renderedOwnerId = userId;
   const latestUserRef = useRef(user);
   const latestOwnerIdRef = useRef(userId);
@@ -617,7 +619,7 @@ export function CalendarAgentPage({
   const needsReauth = status?.status === "needs_reauth";
   const checkingConnection = connectionPending || loading || (Boolean(user) && !status && !statusError);
   // Unknown connection evidence is a loading state, never a disconnected state.
-  const showConnectHero = !connected;
+  const showConnectHero = !connected && !checkingConnection && Boolean(status || !statusError);
 
   const popupWaitingNotice = popupWaiting ? (
     <div className="flex flex-col items-center gap-2 pt-3 text-center">
@@ -635,7 +637,7 @@ export function CalendarAgentPage({
   ) : null;
 
   const disconnectDialog = (
-      <AlertDialog
+      <NativeCalendarReactOnly><AlertDialog
         open={disconnectConfirmOpen}
         onOpenChange={setDisconnectConfirmOpen}
       >
@@ -663,7 +665,7 @@ export function CalendarAgentPage({
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
-      </AlertDialog>
+      </AlertDialog></NativeCalendarReactOnly>
   );
 
   const connectMail = async () => {
@@ -687,6 +689,24 @@ export function CalendarAgentPage({
     }
   };
 
+  const hasWorkspace = (connected || Boolean(status?.accounts?.length)) && journeyVariant === "workspace" && Boolean(user && userId && status);
+  const nativeRoot: CalendarNativeSection[] = [{ key: "connection", rows: [
+    { key: "status", label: checkingConnection ? "Checking Calendar connection…" : statusError || connectionLabel, detail },
+    ...(!status && statusError ? [{ key: "retry", label: "Try again", run: refresh }] : []),
+    ...(connected ? [{ key: "chat", label: "Try Calendar Agent with One", enabled: !busy, run: () => openCalendarChat("Summarize my calendar events and help me plan meetings") },
+      { key: "disconnect", label: "Disconnect Calendar", enabled: !busy, destructive: true, run: () => setDisconnectConfirmOpen(true) }] : []),
+  ] }];
+  if (journeyVariant === "onboarding" && onFinishSetup && onSkipSetup) nativeRoot.push({ key: "setup", rows: [{
+    key: "complete", label: connected ? "Finish Calendar setup" : "Skip Calendar setup", enabled: !busy && !(connected ? finishingSetup : skippingSetup),
+    pending: connected ? finishingSetup : skippingSetup, run: connected ? onFinishSetup : onSkipSetup,
+  }] });
+  // The illustrated connection hero owns both the permission disclosure and its Google action.
+  const nativeModel = { owner: userId, onboarding: journeyVariant === "onboarding", rootOnly: !hasWorkspace && !showConnectHero, root: nativeRoot,
+    webChild: popupWaiting || transitionPending, confirmation: disconnectConfirmOpen ? {
+      title: "Disconnect Google Calendar?", description: "This disconnects the selected Calendar account. Your Mail connection and other Calendar accounts stay available.",
+      confirm: { key: "confirm-disconnect", label: "Disconnect", destructive: true, enabled: !busy, pending: busy, run: () => disconnect(disconnectAccountId) },
+      cancelLabel: "Cancel", cancel: () => setDisconnectConfirmOpen(false),
+    } : undefined };
   const connectSelectedFollowupMail = async (accountId: string) => {
     if (!user || !userId || busyRef.current) return false;
     const operationOwnerId = userId;
@@ -787,7 +807,7 @@ export function CalendarAgentPage({
   const connectFirstAccount = () => { void connect("manage", true, false, undefined, firstConnection, { mailAccess: firstConnection }); };
 
   if ((connected || Boolean(status?.accounts?.length)) && journeyVariant === "workspace" && user && userId && status) {
-    return <>
+    return <NativeCalendarRoute frame={nativeFrame} model={nativeModel}>
       <CalendarConnectedWorkspace userId={userId} status={status} busy={busy}
         onConnect={(access, includeCalendarList) => { void connect(access, includeCalendarList); }}
         onAddAccount={() => { void connect("manage", true, true, undefined, true, { mailAccess: true }); }}
@@ -800,11 +820,11 @@ export function CalendarAgentPage({
         connectionNotice={popupWaitingNotice} getIdToken={() => user.getIdToken()} connectionRevision={statusRequestRef.current} />
       {disconnectDialog}
       {transitionDialog}
-    </>;
+    </NativeCalendarRoute>;
   }
 
   return (
-    <AppPageShell
+    <NativeCalendarRoute frame={nativeFrame} model={nativeModel}><AppPageShell ref={nativeFrame}
       width="reading"
       headerContentSpacing={journeyVariant === "workspace" ? "compact" : "standard"}
       className={`${CALENDAR_SETUP_SHELL_CLASSNAME} ${presentationStyles.scope}`}
@@ -986,6 +1006,6 @@ export function CalendarAgentPage({
       </AppPageContentRegion>
 
       {disconnectDialog}
-    </AppPageShell>
+    </AppPageShell></NativeCalendarRoute>
   );
 }

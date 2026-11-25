@@ -66,10 +66,10 @@ WebKit layouts and the loading/confirmation states.
 ## V1 conversational STM and memory.md
 
 Canonical typed chat uses the complete encrypted ADK transcript until compaction.
-The model receives the current full `one_memory.markdown` document, the last
-validated STM summary, and the unsummarized conversation. No vector search or
-Wiki lookup is involved. The LTM transport permits 128,000 characters so the
-96,000-character document budget and the existing bounded app context fit without
+In shipped UAT/production and for `v1_markdown_only` / `dual_read_shadow_compile` owners on `dev`, the model receives the current full `one_memory.markdown` document, the last
+validated STM summary, and the unsummarized conversation without vector search or
+Wiki lookup; once an owner switches `migration_state` to `wiki_primary_with_v1_rollback` or `wiki_primary` on `dev`, turns replace the 96,000-character `one_memory.markdown` attachment with `STATE_WIKI_HOT_DIGEST` (`hot.md <= 8,000` characters) plus bounded Personal Wiki recall tools (`search_wiki`, `read_wiki_page`, `trace_claim`), and `wiki_primary` retires classic `one_memory.markdown` rewrites and Pod Schema-2 `_apply_sink` fact writes. The LTM transport permits 128,000 characters so the
+96,000-character V1 document budget and the existing bounded app context fit without
 silently clipping the document. Specialist Gmail, Calendar, KYC and import writers
 retain their existing contracts in this release.
 
@@ -141,6 +141,43 @@ owner evidence. Owner changes, lock and token renewal retire pending plaintext
 operations. Existing domain writers remain the sole storage/encryption boundary;
 no plaintext Markdown file is written to the server filesystem.
 
+## Conversational capture and context transfers
+
+Chat uses the existing Memory proposal and encrypted writer, not a second memory
+store. Eligibility for an automatic private save does not publish the information,
+enable request discovery, or grant consent. Sensitive or ambiguous details require
+review; unsuccessful preparation must not be reported as a successful empty result.
+
+The authored segmentation, intent, merge, structure, and One instructions live in
+their `consent-protocol/hushh_mcp/agents/*/agent.yaml` manifests. Segmentation carries
+source input as JSON; both ADK and direct-client execution use the manifest's system
+instruction. Exact source validation remains mandatory. Context transfers must
+preserve the subject, its historical, current or intended status, negation, and uncertainty.
+Unknown-information lists are not affirmative facts, and embedded instructions
+cannot authorize sharing or mutations. Repetition is not a reason to create
+duplicate memories.
+
+Segmentation returns at most eight candidates and an explicit
+`has_more_candidates` flag. The existing proposal `split_recommended` contract
+propagates that flag so the client can retry smaller passages. This is model-reported
+coverage, not proof that every eligible fact was found. Source and mocked contract
+tests do not establish live extraction quality for a large context transfer.
+
+The shared client preparation path packs exact source spans rather than one
+request per labeled field. Headings stay with their body through retries; an
+oversized or unsplittable contextual section remains explicitly unresolved.
+Saving the successfully reviewed cards does not discard unresolved source text.
+Review is separate from Save, including when the preparation-only reviewer
+harness is enabled.
+
+Chat capture uses one session-only, counts-only status per answer. Jobs recheck
+the validated owner, vault generation, and automatic-saving policy before
+processing and encrypted writes. Policy-domain invalidation disables capture
+until the encrypted setting is read again. A confirmed write receipt stays
+successful after a session change, but cannot republish information into the new
+session; cancellation is not a rollback of a request already accepted upstream.
+Rendered continuity, extraction completeness and latency still need live proof.
+
 ## Chat onboarding preferences
 
 After setup, One asks in chat what to call the person and how it should talk.
@@ -187,3 +224,14 @@ background status, inspectable memory, and explicit approval for consequential
 actions. These are design references, not evidence of Hussh implementation or
 access to Muse's private prompts/configuration. Hussh must retain its own unlocked
 client, encrypted-storage, and consent boundaries.
+
+## Personal Wiki Memory and live ADK boundary (dev pilot)
+
+Shipped UAT and production chat memory remains `one_memory.markdown` (`one.memory.md.v1`, 96,000-character limit) inside encrypted PKM. On `dev`, the encrypted Personal Wiki (`one_wiki` over `<prefix>/wiki/v1/`) operates alongside `one_memory.markdown` as the private agent's cited working store while preserving PKM as the sole external sharing authority:
+
+- **Authority, PKM write-through, and export wall:** Both `one_wiki` and `source_library` carry `shareable: "never"` across server (`domain_contracts.py`) and client (`pkm-scope-policy.ts`) policy registries and are refused on `attr.*` and `pkm.read` exports. Claims synthesized in the Personal Wiki classify through the unified `wiki_claim_projection_v1` preparation contract (`requestPkmMemoryPreparation`), check nested `financial` and `identity` specialist snapshots plus pre-existing non-wiki PKM leaves so existing structured records are never clobbered (`state: "conflicted"`), and stay in `private_candidate` whenever active external grants cover the target scope (`activeRecipientCount > 0`) or the source is an imported archive. Confirmed or conflict-free first-party projections write through `PkmWriteCoordinator.saveMergedDomain` into encrypted PKM domain blobs (recording private `_wiki_projections` provenance) and emit non-broadening `pkm_scope_registry` posture so `DynamicScopeGenerator` never widens `attr.<domain>.*` across unconfirmed sibling branches.
+- **Root personal documents and per-owner cutover:** When wiki mode is active on `dev`, `hot.md` (`<= 8,000` characters) provides a compact orientation index rendered via `STATE_WIKI_HOT_DIGEST` (`wiki_recall_instruction`) strictly outside `STATE_MEMORY_DIGEST`'s `4,000`-character curated cap and delimited as untrusted owner reference context (`instruction_authority="none"`), `identity.md` reflects structured `identity` PKM records without silent overwrite, and `soul.md` stays bound to the closed `identity.communication_preferences` schema (`hushh_mcp/one_adk/owner_style.py`). Owners progress through `v1_markdown_only` -> `dual_read_shadow_compile` -> `wiki_primary_with_v1_rollback` -> `wiki_primary` via `/wiki/migrate`; `wiki_primary_with_v1_rollback` and `wiki_primary` suppress duplicate classic `STATE_MEMORY_DIGEST` and 96,000-character `one_memory.markdown` turn dumps whenever `hot.md` is active, `wiki_primary` retires classic `one_memory.markdown` consolidation/staging and Pod Schema-2 `_apply_sink` writes in favor of direct `WikiKnowledgeWriter` synthesis, and `/wiki/rollback` restores tombstone-scrubbed V1 Markdown losslessly into `one_memory.markdown`.
+- **Live ADK recall and opt-in consolidation across Pod and Shared:** On Private Pods (`pod_mode()` + `POD_FILES_ENABLED`), `build_one_text_agent` attaches fenced server-side recall tools (`search_wiki`, `read_wiki_page`, `trace_claim`, bounded to `<= 6,000` characters per call inside an untrusted-evidence envelope) across both owner-direct and hub-relayed turns. On Shared `/one` chat, `ensureActiveSharedWiki` lazily unwraps initialized owner wiki keys in the browser (`readyIfInitialized`), passes `wikiHotDigest` + `wikiClientReady`, and executes up to three client-proxy rounds of `search_wiki` / `read_wiki_page` / `trace_claim` (`admit_wiki_tool` + `admit_wiki_continuation`) without sending `vaultKey` or `wikiKey` to the hub; sealed ADK session projections redact wiki tool arguments and responses so forgotten text is never retained in durable transcripts. Durable wiki synthesis executes only when explicit `capture_opt_in` is enabled, folding reviewed `one_memory_review` updates (including `propose_pkm_fact` candidates) on pods and unlocked `ownerChatMemory` consolidation / `withdrawConversation` on Shared into cited `wcl_*` claims.
+- **Browser isolation, external imports, and Forget:** One's Browser specialist (`agent_computer_use`) receives neither raw conversational transcripts nor wiki recall tools, relying strictly on exact V2 `ScopedProjectionReader` exports. External archives saved through owner-takeover Browser downloads or local uploads land in encrypted `source_library` and compile into `one_wiki` strictly as untrusted source artifacts (`untrusted_data: true`, `instruction_authority: "none"`). Owner **Forget** records a `wtb_*` tombstone, rotates affected encrypted content keys, suppresses stale Vertex `PodMemoryBank` recalls (`suppressed_stale` to `rebuilt_empty`), and selectively retracts `_wiki_projections`-owned leaves from encrypted PKM domains while preserving pre-existing sibling PKM records.
+
+See [Private Files library](../operations/hosting/private-files-library.md#personal-wiki-storage-and-direct-pod-routes-dev), the [Personal Wiki Memory plan](../roadmap/personal-wiki-memory-plan.md), and the [Browser tasks plan](../roadmap/personal-agent/browser-completion-plan.md#phase-0-alignment-cli-execution-boundary-retained-workspaces-and-external-import).

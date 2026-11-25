@@ -1,4 +1,5 @@
 "use client";
+import type { InformationRequestPrice } from "@/lib/services/person-profile-service";
 import { PersonProfileLink } from "@/components/connections/person-profile-link";
 import { InformationRequestReceipt } from "@/components/agent/information-request-receipt";
 
@@ -31,7 +32,7 @@ import { InformationRequestReviewFields } from "@/components/consent/information
 import { DEFAULT_REQUEST_DURATION_HOURS, requestDurationLabel } from "@/lib/agent/action-directive-summary";
 import { PersonProfileService, mergePersonScopePage, type InformationRequestBundle, type RequestablePersonScope, type ViewerPersonProfile } from "@/lib/services/person-profile-service";
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
-import { ConnectorReadReceipt, WorkspaceConnectorSetupCard } from "@/components/agent/connector-read-receipt";
+import { ConnectorReadReceipt, TurnLocationPermissionCard, WorkspaceConnectorSetupCard } from "@/components/agent/connector-read-receipt";
 import { MailChatCard } from "@/components/agent/mail-chat-card";
 import { ExperienceShell } from "@/components/agent/agent-experience-shell";
 import { FinanceStockPreviewCard } from "@/components/agent/finance-stock-preview-card";
@@ -162,6 +163,8 @@ export function AgentStructuredExperienceView({
         driveCompilation={driveCompilation} onMailQuickAction={onMailQuickAction} />;
     case "one.workspace_connector_setup.v1":
       return <WorkspaceConnectorSetupCard experience={experience} onOpenConnections={onOpenConnections} />;
+    case "one.turn_location_permission.v1":
+      return <TurnLocationPermissionCard experience={experience} />;
     case "one.mail_brief.v1": case "one.receipt_setup.v1": return <MailChatCard experience={experience} />;
     case "one.custom_connector_probe.v1":
       return <CustomConnectorProbeCard experience={experience} onOpenConnections={onOpenConnections} />;
@@ -345,6 +348,7 @@ function ScopeDiscoveryView({
   const [purpose, setPurpose] = useState("");
   const [durationHours, setDurationHours] = useState(DEFAULT_REQUEST_DURATION_HOURS);
   const [sent, setSent] = useState(false);
+  const [requestPrice, setRequestPrice] = useState<InformationRequestPrice | null>(null);
   const [submitted, setSubmitted] = useState<{
     ownerUid: string;
     subjectRef: string;
@@ -443,7 +447,7 @@ function ScopeDiscoveryView({
   function sendRequest(draft: AskProposalDraft) {
     const { scopes, purpose: draftPurpose, durationHours: draftHours } = draft;
     if (!profile) return;
-    void request.submitWithReceipt({ scopeRefs: scopes.map(scope => scope.scopeRef), purpose: draftPurpose, durationHours: draftHours }).then(receipt => {
+    void request.submitWithReceipt({ scopeRefs: scopes.map(scope => scope.scopeRef), purpose: draftPurpose, durationHours: draftHours, priceBinding: draft.priceBinding }).then(receipt => {
       if (!receipt || !userId || !personRef) return;
       const { bundle, idempotencyKey } = receipt;
       const review = submittedReviewFromBundle({
@@ -472,6 +476,7 @@ function ScopeDiscoveryView({
     : null;
   if (proposal && personRef && !sent) {
     return <AskProposalCard
+      personRef={personRef}
       revealActions={revealInTranscript ?? undefined}
       catalog={authorityScopes}
       personName={personName(profile?.displayName || experience.person.displayName)}
@@ -545,12 +550,12 @@ function ScopeDiscoveryView({
           <p className="text-sm text-muted-foreground">They will see exactly what you asked for, why, and for how long. Nothing is sent until you confirm.</p>
         </div>
         <InformationRequestReviewFields scopes={selectedScopes} purpose={purpose} durationHours={durationHours}
-          onPurposeChange={setPurpose} onDurationChange={setDurationHours} disabled={request.pending} testIdPrefix="chat-request" />
+          onPurposeChange={setPurpose} onDurationChange={setDurationHours} disabled={request.pending} personRef={personRef ?? undefined} onPriceChange={setRequestPrice} testIdPrefix="chat-request" />
         {request.error ? <p role="alert" className="text-sm text-destructive">{request.error}</p> : null}
         <div className="flex flex-wrap items-center justify-end gap-2.5 border-t border-black/[0.06] pt-3.5 dark:border-white/[0.08]">
           <MorphyButton type="button" size="default" variant="none" data-consent-quiet-action="true" disabled={request.pending} onClick={() => setReviewing(false)}>Edit information</MorphyButton>
-          <MorphyButton type="button" size="default" className="px-5" disabled={!request.available || request.pending || purpose.trim().length < 8 || !selectedScopes.length || selectedScopes.length > 50}
-            onClick={() => sendRequest({ scopes: selectedScopes, purpose, durationHours })}>{request.pending ? "Sending…" : "Send request"}</MorphyButton>
+          <MorphyButton type="button" size="default" className="px-5" disabled={!requestPrice || requestPrice.shortfallCoins > 0 || !request.available || request.pending || purpose.trim().length < 8 || !selectedScopes.length || selectedScopes.length > 50}
+            onClick={() => { if (requestPrice && !requestPrice.shortfallCoins) sendRequest({ scopes: selectedScopes, purpose, durationHours, priceBinding: requestPrice.binding }); }}>{request.pending ? "Sending…" : "Send request"}</MorphyButton>
         </div>
       </section> : null}
       {!reviewing ? <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pt-1">
@@ -586,7 +591,7 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
     /** The request this reading is for; a different card never shows it. */
     bundleId: string;
     status: InformationRequestReviewExperience["status"];
-    fields: InformationRequestReviewExperience["fields"];
+    fields: Array<InformationRequestReviewExperience["fields"][number] & { accessReady?: boolean }>;
     /** Contract C1 progress; null on an older backend, which keeps the pre-C1 card. */
     progress: RequestProgress | null;
   } | null>(null);
@@ -703,6 +708,7 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
         sensitivity: ledger === "standard" ? "standard" as const : ledger === "restricted" ? "restricted" as const : "sensitive" as const,
         requestId: item.requestId,
         status: item.status,
+        accessReady: item.accessReady,
         };
       });
       const progress = parseRequestProgress(bundle.progress);
@@ -780,13 +786,18 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
     isOutgoingSubmitted, isVaultUnlocked, refreshRevision, refreshState, userId, vaultKey, vaultOwnerToken]);
 
   const displayFields = current?.fields || experience.fields;
-  const displayStatus = current?.status || experience.status;
+  const hasBlockedPaidGrant = Boolean(
+    current?.fields.some((field) => field.status === "granted" && field.accessReady === false),
+  );
+  const displayStatus = hasBlockedPaidGrant
+    ? "pending"
+    : (current?.status || experience.status);
   // What is shared right now opens at once in the secure card (CONTRACT-2
   // decision 2), for sensitive items too: the model only ever had their
   // outline. The card owns opening, the unlock prompt and ended access.
   const sharedItems: SharedWithMeCardItem[] = experience.direction === "outgoing" && experience.phase === "submitted"
     && experience.bundleId && (refreshState === "loaded" || refreshState === "checking")
-    ? (current?.fields ?? []).flatMap((field) => field.status === "granted" && field.requestId ? [{
+    ? (current?.fields ?? []).flatMap((field) => field.status === "granted" && field.accessReady !== false && field.requestId ? [{
       key: field.requestId,
       grantRef: field.requestId,
       bundleId: experience.bundleId,
@@ -858,6 +869,14 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
                     ? "Access revoked"
                     : "Status unavailable";
 
+  const embeddedSharedCard = sharedItems.length && experience.subjectRef ? (
+    <SharedWithYouCard
+      person={{ personRef: experience.subjectRef, displayName: experience.personName }}
+      items={sharedItems}
+      variant="embedded"
+      presentation="modal"
+    />
+  ) : null;
   const sharedCard = sharedItems.length && experience.subjectRef ? (
     <SharedWithYouCard
       person={{ personRef: experience.subjectRef, displayName: experience.personName }}
@@ -867,18 +886,31 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
   ) : null;
 
   // C1: the living card, when the server reports progress for this request.
-  // It keeps its last reading through a refetch (and a failed one).
-  const progress = isOutgoingSubmitted ? current?.progress ?? null : null;
+  // Hold the UI on "Waiting" if any granted item's encrypted export is not ready yet.
+  const rawProgress = isOutgoingSubmitted ? current?.progress ?? null : null;
+  const progress = rawProgress && hasBlockedPaidGrant
+    ? {
+        ...rawProgress,
+        outcome: "pending" as const,
+        decidedAt: null,
+        fields: rawProgress.fields.map((field, index) =>
+          current?.fields[index]?.accessReady === false
+            ? { ...field, status: "pending" as const }
+            : field,
+        ),
+      }
+    : rawProgress;
   if (progress) {
     const progressLabels = progress.fields.length ? progress.fields.map((field) => field.label) : displayFields.map((field) => field.label);
     const ended = isAccessEnded(progress);
     const progressLabel = ended ? "Access ended"
-      : progress.outcome === "pending" ? "Request sent"
-        : progress.outcome === "denied" ? "Declined"
-          : progress.outcome === "expired" ? "Request expired"
-            : progress.outcome === "partially_granted" ? "Partly shared" : "Shared with you";
+      : progress.outcome === "cancelled" ? "Request withdrawn"
+        : progress.outcome === "pending" ? "Request sent"
+          : progress.outcome === "denied" ? "Declined"
+            : progress.outcome === "expired" ? "Request expired"
+              : progress.outcome === "partially_granted" ? "Partly shared" : "Shared with you";
     return (
-      <div className="consent-presentation-surface space-y-3">
+      <div className="consent-presentation-surface">
         <ExperienceShell
           experienceType={experience.type}
           label={progressLabel}
@@ -886,10 +918,14 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
           summary={experience.durationLabel}
           icon={<ConsentAgentIcon className="h-7 w-7" aria-hidden="true" />}
         >
-          <RequesterProgressBody progress={progress} phase={phase} personName={experience.personName}
-            purpose={experience.purpose} />
+          <RequesterProgressBody
+            progress={progress}
+            phase={phase}
+            personName={experience.personName}
+            purpose={experience.purpose}
+            details={ended ? null : embeddedSharedCard}
+          />
         </ExperienceShell>
-        {ended ? null : sharedCard}
       </div>
     );
   }

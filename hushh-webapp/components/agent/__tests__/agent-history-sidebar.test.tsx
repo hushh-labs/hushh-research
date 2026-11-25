@@ -393,4 +393,59 @@ describe("AgentHistorySidebar", () => {
     const chatButton = screen.getByRole("button", { name: /^What needs a reply today/i });
     expect(chatButton.querySelector("svg")).toBeNull();
   });
+
+  it("pins One as the primary stream above New chat and Search without a 3D character image", () => {
+    const onSelectOneStream = vi.fn();
+    render(
+      <AgentHistorySidebar
+        conversations={[
+          {
+            id: "conv_one",
+            title: "One",
+            status: "active",
+            message_count: 4,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            last_message_at: new Date().toISOString(),
+          },
+          ...conversations,
+        ]}
+        activeConversationId="conv_one"
+        pinnedOneConversationId="conv_one"
+        oneStreamActive
+        pendingOneActionCount={2}
+        onSelectOneStream={onSelectOneStream}
+        mode="mobile"
+        onCreateNew={vi.fn()}
+        onSelectConversation={vi.fn()}
+        onRenameConversation={vi.fn()}
+        onDeleteConversation={vi.fn()}
+      />,
+    );
+
+    const pinnedOne = screen.getByTestId("agent-history-pinned-one");
+    expect(pinnedOne).toHaveAttribute("aria-current", "page");
+    expect(pinnedOne.querySelector("img")).toBeNull();
+    expect(within(pinnedOne).getByTestId("hussh-wordmark-svg")).toBeInTheDocument();
+    expect(within(pinnedOne).getByText("Main chat")).toBeInTheDocument();
+    expect(within(pinnedOne).queryByText(/primary stream/i)).toBeNull();
+    expect(screen.getByTestId("agent-history-pinned-one-badge")).toHaveTextContent("2");
+
+    const newChat = screen.getByRole("button", { name: "Create new chat" });
+    const search = screen.getByRole("searchbox", { name: "Search chats" });
+    const todayList = screen.getByRole("list", { name: "Today conversations" });
+    expect(pinnedOne.compareDocumentPosition(newChat) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(pinnedOne.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(search.compareDocumentPosition(todayList) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(todayList).queryByText("One")).toBeNull();
+    expect(within(todayList).getByText("What needs a reply today?")).toBeInTheDocument();
+
+    const rowActions = within(todayList).getByRole("button", { name: "Open actions for What needs a reply today?" });
+    const actionPill = rowActions.querySelector("[data-agent-history-row-action-pill]");
+    expect(actionPill).not.toBeNull();
+    expect(actionPill).toHaveClass("rounded-[8px]", "size-8");
+
+    fireEvent.click(pinnedOne);
+    expect(onSelectOneStream).toHaveBeenCalledOnce();
+  });
 });

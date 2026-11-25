@@ -2,6 +2,8 @@
 
 import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 
+import { normalizeStaticExportPathname } from "./routes";
+
 type BackLayer = { pathname: string; depth: number; query?: Readonly<Record<string, string>>; back: () => boolean };
 const layers: BackLayer[] = [];
 const listeners = new Set<() => void>();
@@ -9,7 +11,8 @@ let revision = 0;
 function changed() { revision++; listeners.forEach(listener => listener()); }
 function subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; }
 function matching(pathname: string, query: { get(name: string): string | null } | null | undefined) {
-  return layers.filter(layer => layer.pathname === pathname && Object.entries(layer.query ?? {}).every(([key, value]) => query?.get(key) === value));
+  const logicalPath = normalizeStaticExportPathname(pathname);
+  return layers.filter(layer => layer.pathname === logicalPath && Object.entries(layer.query ?? {}).every(([key, value]) => query?.get(key) === value));
 }
 export function useBackLayerAvailable(pathname: string, query?: { get(name: string): string | null }): boolean {
   useSyncExternalStore(subscribe, () => revision, () => 0);
@@ -19,10 +22,11 @@ export function useBackLayerAvailable(pathname: string, query?: { get(name: stri
 /** Route-scoped, process-local UI callbacks; never persist private feature state. */
 export function registerBackLayer(layer: BackLayer): () => void {
   if (!Number.isInteger(layer.depth) || layer.depth < 1) throw new Error("Back depth must be a positive integer");
-  layers.push(layer);
+  const registered = { ...layer, pathname: normalizeStaticExportPathname(layer.pathname) };
+  layers.push(registered);
   changed();
   return () => {
-    const index = layers.indexOf(layer);
+    const index = layers.indexOf(registered);
     if (index >= 0) { layers.splice(index, 1); changed(); }
   };
 }

@@ -10,16 +10,16 @@
  * shows here and listens to the readings (`subscribeInformationRequest`,
  * `subscribeSharedWithMe`); the watch owns the only timer.
  *
- * Cadence: about every 5s for the first minute after an answer, then about
- * every 10s, only while the page is visible (no timer at all while hidden), and
- * at once on a push, a live event, focus or a return to the app. It reads
- * ledger status and the share list only, never a value.
+ * Cadence: fallback check every 30s for the first minute after an answer, then
+ * every 60s while the page is visible (no timer at all while hidden), and
+ * immediately on SSE push, focus, or return to the app. It reads ledger status
+ * and the share list only, never a value.
  */
 import { readInformationRequest, readSharedWithMe } from "@/lib/consent/information-request-reads";
 
-export const LIVE_ACCESS_FAST_INTERVAL_MS = 5_000;
+export const LIVE_ACCESS_FAST_INTERVAL_MS = 30_000;
 export const LIVE_ACCESS_FAST_WINDOW_MS = 60_000;
-export const LIVE_ACCESS_INTERVAL_MS = 10_000;
+export const LIVE_ACCESS_INTERVAL_MS = 60_000;
 /** Listeners of one event share one read; a read older than this is not the answer to it. */
 export const LIVE_ACCESS_EVENT_JOIN_MS = 250;
 

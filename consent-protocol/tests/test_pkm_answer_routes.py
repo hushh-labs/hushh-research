@@ -1,7 +1,7 @@
 """Admission approval and composer authorization run before provider work."""
 
 from unittest.mock import AsyncMock, Mock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import BackgroundTasks, HTTPException, Response
@@ -306,7 +306,7 @@ async def test_gemini_partial_answer_with_gaps_gets_no_chargeable_receipt(
 
     writer = AnswerComposer(runner=provider)
     monkeypatch.setattr(routes, "_requests", lambda: service)
-    monkeypatch.setattr(routes, "AnswerComposer", lambda: writer)
+    monkeypatch.setattr(routes, "AnswerComposer", lambda **_kwargs: writer)
     result = await routes.compose_answer(
         uuid4(),
         Response(),
@@ -369,7 +369,7 @@ async def test_narrower_approved_answer_requires_disclosure_and_no_unexpected_ga
         return {"answer": answer, "gaps": gaps}
 
     monkeypatch.setattr(routes, "_requests", lambda: service)
-    monkeypatch.setattr(routes, "AnswerComposer", lambda: AnswerComposer(runner=provider))
+    monkeypatch.setattr(routes, "AnswerComposer", lambda **_kwargs: AnswerComposer(runner=provider))
     result = await routes.compose_answer(
         request,
         Response(),
@@ -522,7 +522,7 @@ async def test_composer_carries_bounded_exact_scope_freshness_into_gemini_receip
 
     writer = AnswerComposer(runner=provider)
     monkeypatch.setattr(routes, "_requests", lambda: service)
-    monkeypatch.setattr(routes, "AnswerComposer", lambda: writer)
+    monkeypatch.setattr(routes, "AnswerComposer", lambda **_kwargs: writer)
     response = await routes.compose_answer(
         request,
         Response(),
@@ -804,3 +804,172 @@ async def test_composer_refuses_hosting_change_before_provider_dispatch(
         )
     assert error.value.status_code == 409
     composer.assert_not_called()
+
+
+def test_private_receipt_binds_actual_openai_runtime_without_relabeling_or_breaking_history(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from pydantic import ValidationError
+
+    from hushh_mcp.services import answer_composition_receipt as receipts
+    from hushh_mcp.services.answer_composition_contract import PrivateCompositionAssertion
+
+    monkeypatch.setattr(
+        receipts,
+        "get_core_security_settings",
+        lambda: SimpleNamespace(app_signing_key="synthetic-runtime-approval-signing-key"),
+    )
+    runtime = {
+        "version": 1,
+        "provider": "azure_openai",
+        "model": "gpt-fixture",
+        "mode": "private",
+        "fingerprint": "a" * 64,
+    }
+    binding = {
+        "owner": "owner",
+        "hushh_id": "agent",
+        "service_uid": "service",
+        "signing_key_id": "key",
+        "image_digest": "b" * 64,
+        "placement_epoch": 2,
+    }
+    work = {"requestId": str(uuid4()), "termsDigest": "c" * 64, "processingRuntime": runtime}
+    token = receipts.issue_private_authority(work=work, binding=binding, nonce="d" * 32)
+    receipts.verify_private_authority(token, work=work, binding=binding)
+    with pytest.raises(receipts.CompositionReceiptError):
+        receipts.verify_private_authority(
+            token,
+            work={**work, "processingRuntime": {**runtime, "model": "changed"}},
+            binding=binding,
+        )
+    receipt = receipts.issue_private_composition_receipt(
+        work=work,
+        binding=binding,
+        processing_runtime=runtime,
+        selection_revision=2,
+        runtime_mode="user_azure_mi",
+        answer_digest="e" * 64,
+        input_digest="f" * 64,
+    )
+    kwargs = {
+        "request_id": work["requestId"],
+        "owner_user_id": "owner",
+        "terms_digest": work["termsDigest"],
+    }
+    claims = receipts.verify_composition_receipt(
+        receipt, **kwargs, runtime_binding=binding, processing_runtime=runtime
+    )
+    assert claims["model"] == "gpt-fixture"
+    assert claims["processing_runtime"]["provider"] == "azure_openai"
+    assert claims["provenance"] == "owner_pod_assertion"
+    for bad_binding in (
+        {**binding, "owner": "sibling"},
+        {**binding, "image_digest": "0" * 64},
+        {**binding, "placement_epoch": 3},
+        {**binding, "signing_key_id": "replacement"},
+    ):
+        with pytest.raises(receipts.CompositionReceiptError):
+            receipts.verify_composition_receipt(
+                receipt, **kwargs, runtime_binding=bad_binding, processing_runtime=runtime
+            )
+    with pytest.raises(receipts.CompositionReceiptError):
+        receipts.verify_composition_receipt(
+            receipt,
+            **kwargs,
+            runtime_binding=binding,
+            processing_runtime={**runtime, "provider": "gemini"},
+        )
+    # An immutable paid stage remains recoverable after an unrelated later pod update.
+    assert (
+        receipts.verify_composition_receipt(receipt, **kwargs, require_fresh=False)["model"]
+        == "gpt-fixture"
+    )
+    for forbidden in ("answer", "projection", "credential"):
+        with pytest.raises(ValidationError):
+            PrivateCompositionAssertion.model_validate(
+                {
+                    "authorityToken": token,
+                    "processingRuntime": runtime,
+                    "selectionRevision": 2,
+                    "runtimeMode": "user_azure_mi",
+                    "answerDigest": "e" * 64,
+                    "inputDigest": "f" * 64,
+                    forbidden: "unapproved",
+                }
+            )
+
+
+@pytest.mark.parametrize("approval", ["legacy", "matched", "changed"])
+async def test_shared_runtime_uses_configured_openai_only_with_matching_processing_consent(
+    monkeypatch, shared_hub_owner, approval
+):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services import answer_composition_receipt as receipts
+
+    shared_hub_owner.return_value = "shared"
+    runtime = {
+        "version": 1,
+        "provider": "azure_openai",
+        "model": "gpt-fixture",
+        "mode": "shared",
+        "fingerprint": "a" * 64,
+    }
+    approved = (
+        None
+        if approval == "legacy"
+        else {**runtime, "model": "older-model"}
+        if approval == "changed"
+        else runtime
+    )
+    work = {
+        "requestId": str(uuid4()),
+        "termsDigest": "b" * 64,
+        "question": "Where did you travel?",
+        "approvedScopes": ["attr.travel.trips"],
+        "modelProcessingConsented": True,
+        "processingRuntime": approved,
+    }
+    model = object()
+    monkeypatch.setattr(routes, "shared_answer_model", lambda: (runtime, model))
+    monkeypatch.setattr(
+        routes, "_requests", lambda: SimpleNamespace(assert_answerable=AsyncMock(return_value=work))
+    )
+    writer = SimpleNamespace(
+        compose=AsyncMock(
+            return_value={"answer": "Tokyo.", "covers": ["attr.travel.trips"], "gaps": []}
+        )
+    )
+    build = Mock(return_value=writer)
+    monkeypatch.setattr(routes, "AnswerComposer", build)
+    monkeypatch.setattr(
+        receipts,
+        "get_core_security_settings",
+        lambda: SimpleNamespace(app_signing_key="synthetic-shared-runtime-signing-key"),
+    )
+    body = {
+        "projection": {
+            "memory": "Approved synthetic trip.",
+            "values": {"attr.travel.trips": {"trips": ["Tokyo"]}},
+        }
+    }
+    if approval != "matched":
+        with pytest.raises(HTTPException) as failure:
+            await routes.compose_answer(UUID(work["requestId"]), Response(), body, "owner")
+        assert failure.value.status_code == 409
+        writer.compose.assert_not_awaited()
+        return
+    result = await routes.compose_answer(UUID(work["requestId"]), Response(), body, "owner")
+    assert build.call_args.kwargs["model"] is model
+    claims = receipts.verify_composition_receipt(
+        result["compositionReceipt"],
+        request_id=work["requestId"],
+        owner_user_id="owner",
+        terms_digest=work["termsDigest"],
+        processing_runtime=runtime,
+    )
+    assert claims["model"] == "gpt-fixture"
+    assert claims["provenance"] == "hub_execution"

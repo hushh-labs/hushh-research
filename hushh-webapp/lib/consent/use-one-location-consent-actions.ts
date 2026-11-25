@@ -25,7 +25,7 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { useVault } from "@/lib/vault/vault-context";
 import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";

@@ -11,6 +11,7 @@ from hushh_mcp.one_adk.finance_chat_cards import finance_card_history_descriptor
 from hushh_mcp.one_adk.history_projection import (
     _bounded_text,
     _record,
+    _safe_turn_location_permission_descriptor,
     _safe_workspace_connector_setup_descriptor,
 )
 from hushh_mcp.one_adk.output_privacy import public_text as _event_text
@@ -647,6 +648,8 @@ def _safe_agent_history_metadata(
         if descriptor is None:
             descriptor = _safe_workspace_connector_setup_descriptor(event, [part], call_providers)
         if descriptor is None:
+            descriptor = _safe_turn_location_permission_descriptor(event, [part])
+        if descriptor is None:
             continue
         invocation_identity = _bounded_text(
             getattr(getattr(part, "function_response", None), "id", None), 128
@@ -672,6 +675,39 @@ def _safe_agent_history_metadata(
     }
 
 
+STATE_THREAD_CATEGORY = "hussh:thread_category"
+
+_FINANCE_CATEGORY_CUES = re.compile(
+    r"\b(?:plaid|bank|banks|account|accounts|cashflow|cash\s+flow|liabilit(?:y|ies)|"
+    r"portfolio|net\s+worth|investment|investments|stock|stocks|market|wallet|stripe|"
+    r"payout|payouts|tariff|pricing|receipt|receipts|tax|taxes|budget|spending|expense|expenses)\b",
+    re.IGNORECASE,
+)
+_CONNECTIONS_CATEGORY_CUES = re.compile(
+    r"\b(?:connection|connections|circle|circles|shared\s+with\s+me|share\s+with|"
+    r"information\s+request|request\s+.*\bfrom\b|access\s+request|consent|grant|grants|"
+    r"trusted|people|invite)\b",
+    re.IGNORECASE,
+)
+_WORK_CATEGORY_CUES = re.compile(
+    r"\b(?:gmail|email|emails|inbox|calendar|schedule|meeting|meetings|drive|document|"
+    r"documents|deck|slide|slides|project|projects|client|clients|advisory|brief|report|"
+    r"task|tasks|todo|mcp|slack|github|jira|notion)\b",
+    re.IGNORECASE,
+)
+
+
+def normalize_thread_category(raw: Any) -> str | None:
+    """Normalize an owner-authored category label (display-safe, max 32 chars)."""
+    if not isinstance(raw, str):
+        return None
+    cleaned = re.sub(r"[\x00-\x1f\x7f]+", " ", raw)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if not cleaned:
+        return None
+    return cleaned[:32]
+
+
 def _session_title(session: Any) -> str:
     authored = str((session.state or {}).get("hussh:thread_title") or "").strip()
     if authored:
@@ -685,6 +721,69 @@ def _session_title(session: Any) -> str:
             if text:
                 return text[:80]
     return "New conversation"
+
+
+def _infer_session_category(session: Any, title: str) -> str:
+    """Infer a calm human category lens inside the owner's decrypted session boundary."""
+    tool_names: set[str] = set()
+    user_samples: list[str] = [title]
+    for event in (getattr(session, "events", None) or [])[:24]:
+        if getattr(event, "author", None) == "user" and len(user_samples) < 6:
+            sample = _event_text(event)
+            if sample:
+                user_samples.append(sample[:240])
+        for part in getattr(getattr(event, "content", None), "parts", None) or []:
+            for attr in ("function_call", "function_response"):
+                fn = getattr(part, attr, None)
+                name = str(getattr(fn, "name", "") or "").strip().lower()
+                if name:
+                    tool_names.add(name)
+
+    if any(
+        token in name
+        for name in tool_names
+        for token in ("plaid", "receipt", "finance", "nws", "portfolio", "tariff", "wallet")
+    ):
+        return "Finance"
+    if any(
+        token in name
+        for name in tool_names
+        for token in (
+            "discover_person_information",
+            "information_request",
+            "shared_with_me",
+            "consent",
+            "circle",
+        )
+    ):
+        return "Connections"
+    if any(
+        token in name
+        for name in tool_names
+        for token in ("gmail", "calendar", "drive", "mcp", "email")
+    ):
+        return "Work"
+
+    haystack = " ".join(user_samples)
+    if _CONNECTIONS_CATEGORY_CUES.search(haystack):
+        return "Connections"
+    if _FINANCE_CATEGORY_CUES.search(haystack):
+        return "Finance"
+    if _WORK_CATEGORY_CUES.search(haystack):
+        return "Work"
+    return "Personal"
+
+
+def _session_category_projection(session: Any) -> tuple[str | None, str]:
+    """Return ``(category, source)`` where source is ``custom``, ``auto``, or ``pinned``."""
+    title = _session_title(session)
+    if title.strip().lower() == "one":
+        return None, "pinned"
+    state = getattr(session, "state", None) or {}
+    authored = normalize_thread_category(state.get(STATE_THREAD_CATEGORY))
+    if authored:
+        return authored, "custom"
+    return _infer_session_category(session, title), "auto"
 
 
 def _request_source(session: Any, activity_id: str) -> tuple[str, dict[str, Any]] | None:

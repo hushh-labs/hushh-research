@@ -35,6 +35,46 @@ def _literal_environment(service: dict) -> dict[str, str]:
     return {item["name"]: item["value"] for item in entries if "value" in item}
 
 
+def _hosted_observation(row: dict, service: dict):
+    """Match the installed marker to the retained managed placement, not BYOC fields."""
+    from dataclasses import replace
+
+    from hushh_mcp.services.hosted_gcp_placement import retained_hosted_placement
+    from hushh_mcp.services.private_gcp_deployment import HOSTING_ENV, PrivateGcpDeployment
+
+    placement = retained_hosted_placement(row)
+    if placement is None:
+        raise ValueError("Files requires a retained hosted placement")
+    metadata = row["backend_metadata"]
+    admission = metadata["provisionAttempt"]["hostedAdmission"]
+    model = admission["modelBinding"]
+    federation = admission["assignment"]["bootstrapContract"]["plan"]["federation"]["impersonation"]
+    marker = _literal_environment(service).get(HOSTING_ENV)
+    if not isinstance(marker, str):
+        raise ValueError("Files hosted placement marker is missing")
+    deployment = PrivateGcpDeployment.decode(marker)
+    if deployment.service_uid is None:
+        deployment = replace(deployment, service_uid=placement.service_uid)
+    if (
+        deployment.hosting_mode != "hussh_hosted"
+        or deployment.owner != placement.hushh_id
+        or deployment.project != placement.project
+        or deployment.project_number != placement.project_number
+        or deployment.region != placement.region
+        or deployment.service_uid != placement.service_uid
+        or deployment.runtime_principal != placement.runtime_principal
+        or deployment.hub_principal != federation.get("granted_to")
+        or deployment.image != metadata.get("image")
+        or deployment.model_project != model["project"]
+        or deployment.inference_model != model["model"]
+        or deployment.inference_profile_hash != model["profileHash"]
+        or row.get("external_agent_id") != placement.service
+    ):
+        raise ValueError("Files hosted placement differs from its retained authority")
+    deployment.verify_observation(service)
+    return deployment
+
+
 class FilesCapabilityChanged(ValueError):
     """A proven refusal before this update has attempted any external mutation."""
 
@@ -94,6 +134,8 @@ class FilesCapabilityPlan(BaseModel):
         plan["filesLibrary"]["prefix"] = self.storagePrefix + "/files/v1"
         if self.devModelProject:
             plan["filesLibrary"]["backgroundProvider"] = "explicit dev Vertex AI bridge"
+        elif self.modelProject != self.project:
+            plan["filesLibrary"]["backgroundProvider"] = "unavailable until separately qualified"
         plan["filesLibrary"]["modelProject"] = self.modelProject
         plan["iam"].append(
             {
@@ -107,21 +149,31 @@ class FilesCapabilityPlan(BaseModel):
 
     def require_owner(self, row: dict, target_image: str) -> None:
         metadata = row.get("backend_metadata") or {}
+        hosted = row.get("deployment_target") == "gcp"
+        placement = None
+        if hosted:
+            from hushh_mcp.services.hosted_gcp_placement import retained_hosted_placement
+
+            placement = retained_hosted_placement(row)
+            if placement is None:
+                raise ValueError("Files capability owner or pod assignment changed")
         expected = {
             "ownerId": row.get("user_id"),
             "hushhId": row.get("hushh_id"),
             "serviceUid": metadata.get("serviceUid"),
             "service": row.get("external_agent_id"),
-            "project": row.get("user_cloud_project"),
-            "region": row.get("user_cloud_region"),
-            "bootstrapAccount": row.get("user_cloud_bootstrap_sa"),
+            "project": placement.project if placement else row.get("user_cloud_project"),
+            "region": placement.region if placement else row.get("user_cloud_region"),
+            "bootstrapAccount": placement.bootstrap_sa
+            if placement
+            else row.get("user_cloud_bootstrap_sa"),
             "runtimeAccount": metadata.get("runtime_service_account"),
             "targetImage": target_image,
         }
         if (
-            row.get("deployment_target") != "user_gcp"
+            row.get("deployment_target") not in {"user_gcp", "gcp"}
             or row.get("status") != "provisioned"
-            or not row.get("user_cloud_authorized_at")
+            or (not hosted and not row.get("user_cloud_authorized_at"))
             or "erasure" in metadata
             or not is_immutable_image_reference(target_image)
             or any(getattr(self, key) != value for key, value in expected.items())
@@ -149,7 +201,7 @@ class FilesCapabilityPlan(BaseModel):
             {"name": name, "value": value} for name, value in self.environment.items()
         )
 
-    def require_installed(self, service: dict) -> None:
+    def require_installed(self, service: dict, *, hosted: bool = False) -> None:
         if (
             service.get("metadata", {}).get("uid") != self.serviceUid
             or service["spec"]["template"]["spec"].get("serviceAccountName") != self.runtimeAccount
@@ -166,6 +218,13 @@ class FilesCapabilityPlan(BaseModel):
         }
         if any(env.get(name) != value for name, value in expected.items()):
             raise ValueError("Files installation configuration is not verified")
+        from hushh_mcp.services.private_gcp_deployment import HOSTING_ENV
+
+        if hosted and HOSTING_ENV not in env:
+            raise ValueError("Files installation hosted placement is missing")
+        if HOSTING_ENV in env:
+            self._require_hosted_installed(service, env)
+            return
         model_project = env.get("GENAI_GOOGLE_CLOUD_PROJECT") or env.get("GOOGLE_CLOUD_PROJECT")
         if (
             model_project != self.modelProject
@@ -176,6 +235,61 @@ class FilesCapabilityPlan(BaseModel):
             or (not self.devModelProject and model_project != self.project)
         ):
             raise ValueError("Files installation model authority is not verified")
+
+    def _require_hosted_installed(self, service: dict, env: dict[str, str]) -> None:
+        from dataclasses import replace
+
+        from hushh_mcp.services.private_gcp_deployment import HOSTING_ENV, PrivateGcpDeployment
+
+        deployment = PrivateGcpDeployment.decode(env[HOSTING_ENV])
+        if deployment.service_uid is None:
+            deployment = replace(deployment, service_uid=self.serviceUid)
+        if (
+            deployment.hosting_mode != "hussh_hosted"
+            or deployment.owner != self.hushhId
+            or deployment.project != self.project
+            or deployment.region != self.region
+            or deployment.service_uid != self.serviceUid
+            or deployment.runtime_principal != self.runtimeAccount
+            or deployment.model_project != self.modelProject
+            or self.devModelProject is not None
+        ):
+            raise ValueError("Files installation model authority is not verified")
+        deployment.verify_observation(service)
+
+
+def _placement_and_model(row: dict, service: dict, env: dict, dev_model_project: str | None):
+    hosted = row.get("deployment_target") == "gcp"
+    deployment = _hosted_observation(row, service) if hosted else None
+    if deployment:
+        from hushh_mcp.services.hosted_gcp_placement import retained_hosted_placement
+
+        placement = retained_hosted_placement(row)
+        if placement is None:
+            raise ValueError("Files requires a retained hosted placement")
+    else:
+        placement = None
+    model_project = (
+        deployment.model_project
+        if deployment
+        else env.get("GENAI_GOOGLE_CLOUD_PROJECT") or env.get("GOOGLE_CLOUD_PROJECT")
+    )
+    bridge = not hosted and model_project != row.get("user_cloud_project")
+    if not hosted and (
+        env.get("HUSSH_POD_USER_ADC_ENABLED", "").lower() not in {"1", "true"}
+        or env.get("HUSHH_GENAI_AUTH_MODE", "vertex_adc") != "vertex_adc"
+        or env.get("GOOGLE_GENAI_USE_VERTEXAI", "").lower() not in {"1", "true"}
+        or (
+            bridge
+            and (
+                env.get("HUSHH_DEPLOY_ENV") != "dev"
+                or not dev_model_project
+                or model_project != dev_model_project
+            )
+        )
+    ):
+        raise ValueError("Files requires an explicitly approved Vertex ADC model project")
+    return deployment, placement, model_project, bridge
 
 
 def plan_from_observation(
@@ -195,31 +309,20 @@ def plan_from_observation(
     from hushh_mcp.services.pod_commit_log import object_key_segments
 
     object_key_segments(prefix)
-    model_project = env.get("GENAI_GOOGLE_CLOUD_PROJECT") or env.get("GOOGLE_CLOUD_PROJECT")
-    bridge = model_project != row.get("user_cloud_project")
-    if (
-        env.get("HUSSH_POD_USER_ADC_ENABLED", "").lower() not in {"1", "true"}
-        or env.get("HUSHH_GENAI_AUTH_MODE", "vertex_adc") != "vertex_adc"
-        or env.get("GOOGLE_GENAI_USE_VERTEXAI", "").lower() not in {"1", "true"}
-        or (
-            bridge
-            and (
-                env.get("HUSHH_DEPLOY_ENV") != "dev"
-                or not dev_model_project
-                or model_project != dev_model_project
-            )
-        )
-    ):
-        raise ValueError("Files requires an explicitly approved Vertex ADC model project")
+    deployment, placement, model_project, bridge = _placement_and_model(
+        row, service, env, dev_model_project
+    )
     plan = FilesCapabilityPlan(
         ownerId=row.get("user_id"),
         hushhId=row.get("hushh_id"),
         serviceUid=metadata.get("uid"),
         serviceGeneration=str(metadata.get("generation")),
         service=metadata.get("name"),
-        project=row.get("user_cloud_project"),
-        region=row.get("user_cloud_region"),
-        bootstrapAccount=row.get("user_cloud_bootstrap_sa"),
+        project=deployment.project if deployment else row.get("user_cloud_project"),
+        region=deployment.region if deployment else row.get("user_cloud_region"),
+        bootstrapAccount=placement.bootstrap_sa
+        if placement
+        else row.get("user_cloud_bootstrap_sa"),
         runtimeAccount=spec.get("serviceAccountName"),
         targetImage=target_image,
         bucket=env.get("POD_STORAGE_GCS_BUCKET"),

@@ -9,6 +9,7 @@ No hub database credentials or second action ledger enter the pod.
 from __future__ import annotations
 
 import asyncio
+import builtins
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -330,3 +331,69 @@ class PodAdkSessionRepository:
                 "algorithm": algorithm,
             },
         )
+
+    async def import_sealed_sessions(
+        self, *, user: str, sessions: builtins.list[dict[str, Any]]
+    ) -> tuple[int, int]:
+        """Idempotently import sealed Hub session tuples with zero decryption."""
+        await self._admit(user)
+        validated: builtins.list[dict[str, str]] = []
+        for item in sessions:
+            if not isinstance(item, dict):
+                raise PodAdkSessionUnavailable("Pod conversation record invalid.")
+            item_user = str(item.get("user_id") or user).strip()
+            if item_user != user:
+                raise PodAdkSessionUnavailable("Pod conversation owner mismatch.")
+            app_name = str(item.get("app_name") or "").strip()
+            session_id = str(item.get("session_id") or "").strip()
+            self._validate_identity(app_name, session_id)
+            payload = {
+                "ciphertext": item.get("payload_ciphertext"),
+                "iv": item.get("payload_iv"),
+                "tag": item.get("payload_tag"),
+                "algorithm": item.get("payload_algorithm"),
+            }
+            self._validate_payload(payload)
+            validated.append(
+                {
+                    "app": app_name,
+                    "session": session_id,
+                    "ciphertext": str(payload["ciphertext"]),
+                    "iv": str(payload["iv"]),
+                    "tag": str(payload["tag"]),
+                    "algorithm": str(payload["algorithm"]),
+                    "updated_at": str(item.get("updated_at") or ""),
+                }
+            )
+        if not validated:
+            return 0, 0
+        _, entries = await self._snapshot(user)
+        imported = 0
+        skipped = 0
+        pending: builtins.list[dict[str, str]] = []
+        seen_keys: set[tuple[str, str]] = set()
+        for entry in validated:
+            key = (entry["app"], entry["session"])
+            if key in entries or key in seen_keys:
+                skipped += 1
+                continue
+            seen_keys.add(key)
+            pending.append(entry)
+        pending.reverse()
+        if pending and all(item["updated_at"] for item in pending):
+            pending.sort(key=lambda item: item["updated_at"])
+        for entry in pending:
+            result = await self.create(
+                app=entry["app"],
+                user=user,
+                session=entry["session"],
+                ciphertext=entry["ciphertext"],
+                iv=entry["iv"],
+                tag=entry["tag"],
+                algorithm=entry["algorithm"],
+            )
+            if result.data:
+                imported += 1
+            else:
+                skipped += 1
+        return imported, skipped

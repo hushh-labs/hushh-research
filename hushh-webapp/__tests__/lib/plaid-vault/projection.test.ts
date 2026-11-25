@@ -625,5 +625,47 @@ describe("adding the readable view to memory saved before it existed", () => {
     let next = financial;
     for (const itemId of Object.keys(financial.connections_v1 ?? {})) next = removeConnection(next, itemId, NOW);
     expect(next.linked_accounts).toBeUndefined();
+    expect(next.accounts).toBeUndefined();
+    expect(next.liabilities).toBeUndefined();
+    expect(next.cashflow).toBeUndefined();
+  });
+});
+
+describe("live shareable financial mirrors (accounts, liabilities, cashflow)", () => {
+  it("projects current depository accounts, liabilities, and cashflow without masks or raw IDs", () => {
+    const { financial } = linkedFirstPlatypus();
+    expect(financial.accounts).toMatchObject({
+      schema: "plaid-accounts-v1",
+      institution_count: 1,
+      account_count: 6,
+      as_of: NOW.slice(0, 10),
+    });
+    expect(financial.accounts!.items.every((item) => item.institution_name === "First Platypus Bank")).toBe(true);
+    expect(financial.liabilities).toMatchObject({
+      schema: "plaid-liabilities-v1",
+      institution_count: 1,
+      as_of: NOW.slice(0, 10),
+    });
+    expect(financial.liabilities!.account_count).toBeGreaterThan(0);
+    expect(financial.cashflow).toMatchObject({
+      schema: "plaid-cashflow-v1",
+      net_worth: FIRST_PLATYPUS_TOTALS.netWorth,
+      total_assets: FIRST_PLATYPUS_TOTALS.assets,
+      total_liabilities: FIRST_PLATYPUS_TOTALS.liabilities,
+      liquid_cash: FIRST_PLATYPUS_TOTALS.liquid,
+      investable_assets: FIRST_PLATYPUS_TOTALS.investable,
+      recurring_bill_count: 2,
+      as_of: NOW.slice(0, 10),
+    });
+    // Server domain contract denies mask, account_mask, cusip, *_id keys and raw Plaid type codes.
+    const serialized = JSON.stringify({
+      accounts: financial.accounts,
+      liabilities: financial.liabilities,
+      cashflow: financial.cashflow,
+    });
+    expect(serialized).not.toMatch(/"(?:mask|account_mask|account_number|routing_number|cusip|symbol_cusip|account_id|item_id)"/);
+    expect(serialized).not.toContain("fpa_chk");
+    expect(serialized).not.toContain("item_fp_a");
+    expect(serialized).not.toContain("monthly_cash_flow");
   });
 });
