@@ -1,11 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   placement: "private" as "checking" | "shared" | "private" | "unverified",
-  switchHostingMode: vi.fn(),
-  bootstrapState: vi.fn(),
-  dispatchFeedStateChanged: vi.fn(),
 }));
 
 vi.mock("@/lib/firebase/auth-context", () => ({
@@ -25,36 +22,15 @@ vi.mock("@/lib/kai/kai-placement", () => ({
     attempt > 0 ? "shared" : mocks.placement,
 }));
 
-vi.mock("@/lib/services/api-service", () => ({
-  ApiService: {
-    switchHostingMode: mocks.switchHostingMode,
-  },
-}));
-
-vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
-  PreVaultUserStateService: {
-    bootstrapState: mocks.bootstrapState,
-  },
-}));
-
-vi.mock("@/lib/feed/feed-events", () => ({
-  dispatchFeedStateChanged: mocks.dispatchFeedStateChanged,
-}));
-
 import { KaiPrivateAgentGate } from "@/components/kai/kai-private-agent-gate";
 
 describe("KaiPrivateAgentGate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.placement = "private";
-    mocks.switchHostingMode.mockResolvedValue({
-      hostingMode: "shared",
-      detachedPriorHost: true,
-    });
-    mocks.bootstrapState.mockResolvedValue({});
   });
 
-  it("switches to Hussh Shared in 1 click and opens Finance in place without losing state", async () => {
+  it("renders private-agent notice without exposing any Hussh Shared switcher", () => {
     render(
       <KaiPrivateAgentGate>
         <div data-testid="kai-finance-workspace">Finance workspace ready</div>
@@ -62,18 +38,20 @@ describe("KaiPrivateAgentGate", () => {
     );
 
     expect(screen.getByText("Kai is coming to your agent")).toBeInTheDocument();
-    const trigger = screen.getByTestId("kai-switch-to-shared");
-    expect(trigger).toHaveTextContent("Switch to Hussh Shared");
+    expect(screen.queryByTestId("kai-switch-to-shared")).toBeNull();
+    expect(screen.queryByText(/Hussh Shared/i)).toBeNull();
+    expect(screen.queryByTestId("kai-finance-workspace")).toBeNull();
+  });
 
-    fireEvent.click(trigger);
+  it("retries placement check when unverified and opens Finance when shared", () => {
+    mocks.placement = "unverified";
+    render(
+      <KaiPrivateAgentGate>
+        <div data-testid="kai-finance-workspace">Finance workspace ready</div>
+      </KaiPrivateAgentGate>,
+    );
 
-    await waitFor(() =>
-      expect(mocks.switchHostingMode).toHaveBeenCalledWith({ target: "shared" }),
-    );
-    await waitFor(() =>
-      expect(screen.getByTestId("kai-finance-workspace")).toBeInTheDocument(),
-    );
-    expect(mocks.bootstrapState).toHaveBeenCalledWith("owner-1", { force: true });
-    expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(screen.getByTestId("kai-finance-workspace")).toBeInTheDocument();
   });
 });
