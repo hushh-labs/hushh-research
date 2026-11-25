@@ -246,8 +246,8 @@
   min-height: 3.5rem;
 }
 .detailedQuestion .choice { min-height: 3.375rem; }
-.assessmentActions { margin-top: 1rem; min-height: 44px; }
-.assessmentActions > button { min-width: 110px; min-height: 44px; }
+.assessmentActions { margin-top: 1rem; }
+.assessmentAction { width: 8rem; min-height: 44px; }
 .detailedQuestion label {
   font-size: var(--type-row-label-size, 14px);
 }

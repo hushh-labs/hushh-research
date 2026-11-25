@@ -26,6 +26,7 @@ import { FinanceShareFlow } from "../../components/kai/sharing/finance-share-flo
 import { FinanceSharedDetail } from "../../components/kai/sharing/finance-shared-detail";
 import { seedActiveFinanceShare, sharingModel } from "./finance-sharing-boundaries";
 import { PortfolioOverview } from "../../components/kai/views/portfolio-overview";
+import { SectorAllocationChart } from "../../components/kai/charts/sector-allocation-chart";
 import { PortfolioBriefing } from "../../components/kai/views/portfolio-briefing";
 import { PortfolioDashboardEmpty } from "../../components/kai/views/portfolio-dashboard-empty";
 import { AnalysisHistoryList } from "../../components/kai/views/analysis-history-list";
@@ -48,6 +49,12 @@ import type { StockQuoteLoader } from "../../lib/services/public-stock-quote";
 const samplePortfolio: PortfolioData = { account_summary: { beginning_value: 24000, ending_value: 24680.42, cash_balance: 2000 },
   holdings: [{ symbol: "TEST", name: "Sample Company", market_value: 22680.42, price: 226.8042, quantity: 100, cost_basis: 21000, sector: "Technology", source_type: "Statement", institution_price_as_of: "2026-10-20T20:00:00Z" }] };
 const sampleModel = mapPortfolioToDashboardViewModel(samplePortfolio);
+const sampleSectorHoldings = Array.from({ length: 6 }, (_, index) => ({
+  symbol: `TEST${index + 1}`,
+  name: `Sample holding ${index + 1}`,
+  market_value: 1_000 - index * 100,
+  sector: "Healthcare",
+}));
 const savedEntry = { ticker: "TEST", timestamp: "2026-10-20T20:00:00Z", decision: "hold", confidence: .82, consensus_reached: false,
   agent_votes: { fundamental: "buy", sentiment: "hold", valuation: "reduce" }, final_statement: "Consider valuation alongside company strength and your portfolio exposure.",
   raw_card: { company_strength_score: 7, market_trend_score: 6, fair_value_score: 5, short_recommendation: "Consider valuation alongside company strength and your portfolio exposure." }, companyName: "Sample Company With A Deliberately Long Name" };
@@ -192,6 +199,7 @@ function Fixture() {
     </section>
     <section data-testid="finance-subpages-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full space-y-5`}>
       <PortfolioAllocationBar data={sampleModel.allocation} totalValue={sampleModel.hero.totalValue} />
+      <SectorAllocationChart holdings={sampleSectorHoldings} embedded />
       <AnalysisSummaryView entry={savedEntry} embedded showHeader={false} />
       <StockComparisonPreview embeddedInDetailSurface preview={{ symbol: "TEST", quote: { company_name: "Sample Company", price: 226.8, change_pct: 1.2, sector: "Technology", as_of: "2026-10-20T20:00:00Z" },
         list_match: { in_list: true, tier: "KING", recommendation_bias: "Hold", sector: "Technology", fcf_billions: 4, investment_thesis: "Full investment thesis remains readable on a phone. Consider durable cash generation, competitive position, valuation assumptions and risks alongside the needs of your own portfolio." }, pick_sources: [], active_pick_source: "default" } as Parameters<typeof StockComparisonPreview>[0]["preview"]} onStartDebate={() => setAction("Start analysis")} />
