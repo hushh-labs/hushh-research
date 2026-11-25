@@ -20,8 +20,12 @@ describe("Profile account identity contract", () => {
       'import { DisplayNameEditor } from "@/components/profile/display-name-editor";',
     );
     expect(profilePageSource).toContain('data-testid="profile-account-display-name-editor"');
-    expect(profilePageSource).toContain("onClick={() => setEditingDisplayName((open) => !open)}");
-    expect(profilePageSource).toContain("onSaved={() => setEditingDisplayName(false)}");
+    expect(profilePageSource).toContain(
+      "onClick={() => { closeDisplayNameEditor(); if (!editingDisplayName) setEditingDisplayName(true); }}",
+    );
+    expect(profilePageSource).toContain(
+      "onSaved={() => { closeDisplayNameEditor(); setChatNameDraft(null); }}",
+    );
     // Still one editor: no second name form was invented.
     expect(profilePageSource.match(/<DisplayNameEditor\b/g)?.length).toBe(1);
   });
