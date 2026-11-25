@@ -6,6 +6,12 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { readComputerUseJson } from "@/lib/computer-use/direct-transport";
 
 export const FILE_ORGANIZATION_TEMPLATE = "agent_files.organize_file.v1";
+const ONE_TASK_TEMPLATE = "agent_one.execute_task.v1";
+
+function isScheduledCapability(value: unknown): boolean {
+  return value === FILE_ORGANIZATION_TEMPLATE || value === ONE_TASK_TEMPLATE;
+}
+
 export type ScheduleFileSelection = { id: string; name: string } & (
   { revision: number; analysisRevision: number } | { revision?: never; analysisRevision?: never }
 );
@@ -59,7 +65,7 @@ function parseTask(value: unknown): ScheduledTask {
     typeof row.title !== "string" ||
     !row.title ||
     row.title.length > 80 ||
-    row.capability !== FILE_ORGANIZATION_TEMPLATE ||
+    !isScheduledCapability(row.capability) ||
     !Number.isSafeInteger(row.revision) ||
     row.revision < 1 ||
     ![
@@ -222,9 +228,7 @@ export class PodScheduledTasksClient {
     if (
       new Set(tasks.map((row) => row.id)).size !== tasks.length ||
       !Array.isArray(body.templates) ||
-      body.templates.some(
-        (value) => value !== FILE_ORGANIZATION_TEMPLATE,
-      ) ||
+      body.templates.some((value) => !isScheduledCapability(value)) ||
       (body.code !== null &&
         (typeof body.code !== "string" || !/^[A-Z_]{1,128}$/.test(body.code)))
     )
@@ -259,7 +263,11 @@ export class PodScheduledTasksClient {
         signal,
       ),
     );
-    if (updated.id !== task.id || updated.revision <= task.revision)
+    if (
+      updated.id !== task.id ||
+      updated.capability !== task.capability ||
+      updated.revision <= task.revision
+    )
       throw new Error("SCHEDULE_RESPONSE_REFUSED");
     return updated;
   }
@@ -271,7 +279,7 @@ export class PodScheduledTasksClient {
     signal?: AbortSignal,
     timezone = Intl.DateTimeFormat().resolvedOptions().timeZone,
   ): Promise<ScheduledTask> {
-    return parseTask(
+    const task = parseTask(
       await this.request(
         "tasks",
         {
@@ -294,5 +302,8 @@ export class PodScheduledTasksClient {
         signal,
       ),
     );
+    if (task.capability !== FILE_ORGANIZATION_TEMPLATE)
+      throw new Error("SCHEDULE_RESPONSE_REFUSED");
+    return task;
   }
 }
