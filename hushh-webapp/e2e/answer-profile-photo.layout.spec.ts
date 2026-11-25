@@ -20,25 +20,30 @@ test.beforeAll(async () => {
   const scanner = new Scanner({});
   const candidates = new Set<string>();
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "answer-profile-photo-"));
-  await build({
-    configFile: false, logLevel: "error", oxc: { jsx: { runtime: "automatic" } },
-    plugins: [{ name: "fixture-css-candidates", transform(source, id) {
-      if (!id.includes("node_modules") && /\.[tj]sx?$/.test(id))
-        for (const candidate of scanner.scanFiles([{ content: source, extension: "tsx" }])) candidates.add(candidate);
-    } }],
-    resolve: { alias: [
-      ...["@/hooks/use-auth", "@/lib/vault/vault-context", "@/lib/services/api-service", "@/lib/services/auth-service",
-        "@/lib/cache/cache-sync-service", "@/components/consent/answer-request-review",
-        "@/components/vault/vault-unlock-dialog", "@/lib/answers/answer-delivery-sweep"].map(find => ({
-        find, replacement: path.join(root, "e2e/fixtures/answer-profile-photo-boundaries.tsx"),
-      })),
-      { find: "@", replacement: root },
-    ] },
-    define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env": "{}" },
-    build: { outDir, emptyOutDir: false,
-      lib: { entry: path.join(root, "e2e/fixtures/answer-profile-photo.tsx"), name: "Fixture", formats: ["iife"], fileName: () => "fixture.js" } },
-  });
-  script = fs.readFileSync(path.join(outDir, "fixture.js"), "utf8");
+  try {
+    await build({
+      configFile: false, logLevel: "error", oxc: { jsx: { runtime: "automatic" } },
+      plugins: [{ name: "fixture-css-candidates", transform(source, id) {
+        if (!id.includes("node_modules") && /\.[tj]sx?$/.test(id))
+          for (const candidate of scanner.scanFiles([{ content: source, extension: "tsx" }])) candidates.add(candidate);
+      } }],
+      resolve: { alias: [
+        ...["@/hooks/use-auth", "@/lib/vault/vault-context", "@/lib/services/api-service", "@/lib/services/auth-service",
+          "@/lib/cache/cache-sync-service", "@/components/consent/answer-request-review",
+          "@/components/vault/vault-unlock-dialog", "@/lib/answers/answer-delivery-sweep",
+          "@/lib/one-marketplace/service"].map(find => ({
+          find, replacement: path.join(root, "e2e/fixtures/answer-profile-photo-boundaries.tsx"),
+        })),
+        { find: "@", replacement: root },
+      ] },
+      define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env": "{}" },
+      build: { outDir, emptyOutDir: false,
+        lib: { entry: path.join(root, "e2e/fixtures/answer-profile-photo.tsx"), name: "Fixture", formats: ["iife"], fileName: () => "fixture.js" } },
+    });
+    script = fs.readFileSync(path.join(outDir, "fixture.js"), "utf8");
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
   const { compile } = await import("tailwindcss");
   const compiler = await compile(fs.readFileSync(path.join(root, "app/globals.css"), "utf8").replace(/^@source\s+[^;]+;\s*$/gm, ""), {
     base: path.join(root, "app"), loadStylesheet: async (id, base) => {
@@ -68,6 +73,8 @@ async function mount(page: Page, paid: boolean, prepared = true) {
     else if (pathname === "/api/one/answer-requests/inbox") body = { requests: [] };
     else if (pathname === `/api/one/answer-requests/${REQUEST_ID}/state`) body = {
       role: "requester", requestStatus: paid ? "answered" : "approved", question: "What is your profile photo?",
+      requesterKeyReady: true,
+      deliveryRecipientKeyId: isPrepared ? (await page.evaluate(async () => await (window as unknown as { answerPhotoEnvelope: Promise<{ recipientKeyId: string }> }).answerPhotoEnvelope)).recipientKeyId : null,
       coverage: { included: [
         { scope: "attr.identity.identity_profile.full_name", label: "Full name" },
         { scope: "attr.identity.identity_profile.profile_photo_url", label: "Profile photo" },
@@ -151,6 +158,8 @@ test("unpaid prepared answer never fetches or renders the approved photo", async
   const evidence = await mount(page, false);
   const card = page.getByRole("region", { name: "Paid answer" });
   await expect(card.getByText("Included in this answer: Full name, Profile photo.")).toBeVisible();
+  await card.getByRole("button", { name: "Unlock to pay", exact: true }).click();
+  await page.getByRole("button", { name: "Unlock fixture vault", exact: true }).click();
   await expect(card.getByRole("button", { name: "Pay $10", exact: true })).toBeVisible();
   await expect(card.getByRole("button", { name: "Open answer", exact: true })).toHaveCount(0);
   await expect(card.locator("img")).toHaveCount(0);
@@ -169,6 +178,8 @@ test("staging becomes payable through bounded card polling without an event stre
   await expect(card.getByText(/Their answer is being prepared/)).toBeVisible();
   evidence.stage();
   await page.clock.runFor(3100);
+  await card.getByRole("button", { name: "Unlock to pay", exact: true }).click();
+  await page.getByRole("button", { name: "Unlock fixture vault", exact: true }).click();
   await expect(card.getByRole("button", { name: "Pay $10", exact: true })).toBeVisible();
   expect(evidence.answerReads()).toBe(0);
   expect(evidence.errors).toEqual([]);

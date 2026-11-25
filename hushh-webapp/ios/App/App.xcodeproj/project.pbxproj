@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0F010D2F0EA44038BCA50237 /* NativeFinancePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A1B69E82134D5DA49BA95C /* NativeFinancePresentation.swift */; };
 		C4A7B90100000000000000A2 /* NativeFeedbackPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A7B90100000000000000A1; };
 		5E5510AC0000000000000002 /* GoogleConnectorAuthPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510AC0000000000000001 /* GoogleConnectorAuthPlugin.swift */; };
 		AC0011223344556677889901 /* CountryPickerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0011223344556677889902 /* CountryPickerTests.swift */; };
@@ -36,12 +37,15 @@
 		5E5510C100000000000000D7 /* NativeProfileMemoryScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C100000000000000D6 /* NativeProfileMemoryScene.swift */; };
 		5E5510C100000000000000E7 /* NativeProfilePaymentsScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C100000000000000E6 /* NativeProfilePaymentsScene.swift */; };
 		5E5510C100000000000000D9 /* NativeWorkspacePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C100000000000000D8 /* NativeWorkspacePresentation.swift */; };
+		6A9998C6948441A98534688F /* NativeFinanceArtwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = B27EB9DA7BBC482180FB5AD8 /* NativeFinanceArtwork.swift */; };
 		5E5510C1000000000000000C /* NativeProfileOwnedSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C1000000000000000B /* NativeProfileOwnedSheet.swift */; };
 		5E5510C1000000000000000E /* NativeProfileStyleScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C1000000000000000D /* NativeProfileStyleScene.swift */; };
 		5E5510C10000000000000010 /* NativeProfileSupportScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C1000000000000000F /* NativeProfileSupportScene.swift */; };
 		5E5510C10000000000000012 /* NativeProfileLegal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000011 /* NativeProfileLegal.swift */; };
 		5E5510C10000000000000014 /* NativeProfilePhoneScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000013 /* NativeProfilePhoneScene.swift */; };
 		5E5510C10000000000000016 /* NativeProfilePasswordScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000015 /* NativeProfilePasswordScene.swift */; };
+		A1E5C0DE7A11A00100000002 /* NativeVaultGatePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1E5C0DE7A11A00100000001 /* NativeVaultGatePlugin.swift */; };
+		5E5510C100000000000000F2 /* NativeTextFieldProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C100000000000000F1 /* NativeTextFieldProjection.swift */; };
 		5E5510C10000000000000018 /* NativeProfilePricingScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000017 /* NativeProfilePricingScene.swift */; };
 		5E5510C10000000000000004 /* NativeDrawerPresentationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000003 /* NativeDrawerPresentationController.swift */; };
 		5E5510C10000000000000006 /* HushhNativeDrawersPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510C10000000000000005 /* HushhNativeDrawersPlugin.swift */; };
@@ -108,6 +112,20 @@
 		FA82B4AC0000000000000008 /* NativeMapActionPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA82B4AC0000000000000007 /* NativeMapActionPresentation.swift */; };
 		FA82B4AC000000000000000A /* NativeWalletJourney.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA82B4AC0000000000000009 /* NativeWalletJourney.swift */; };
 		FA82B4AC000000000000000C /* NativeAuthoredIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA82B4AC000000000000000B /* NativeAuthoredIcon.swift */; };
+		C41120000000000000000000 /* CallingWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41110000000000000000000 /* CallingWire.swift */; };
+		C41120000000000000000001 /* CallingIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41110000000000000000001 /* CallingIdentity.swift */; };
+		C41120000000000000000002 /* CallingAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41110000000000000000002 /* CallingAPI.swift */; };
+		C41120000000000000000003 /* NativeAudioOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41110000000000000000003 /* NativeAudioOwnership.swift */; };
+		C41120000000000000000004 /* CallingMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41110000000000000000004 /* CallingMedia.swift */; };
+		C41120000000000000000005 /* CallingSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41110000000000000000005 /* CallingSystem.swift */; };
+		C41120000000000000000006 /* CallingCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41110000000000000000006 /* CallingCoordinator.swift */; };
+		C41120000000000000000007 /* CallingSignaling.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41110000000000000000007 /* CallingSignaling.swift */; };
+		C41120000000000000000008 /* HushhCallingPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41110000000000000000008 /* HushhCallingPlugin.swift */; };
+		C41130000000000000000001 /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = C41130000000000000000002 /* WebRTC */; };
+		C41120000000000000000009 /* CallingOwnerSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41110000000000000000009; };
+		C4112000000000000000000A /* CallingContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4111000000000000000000A; };
+		C4112000000000000000000B /* CallingLogout.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4111000000000000000000B; };
+		C41140000000000000000002 /* WebRTC-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = C41140000000000000000001; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -129,6 +147,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		C7A1B69E82134D5DA49BA95C /* NativeFinancePresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeFinancePresentation.swift; path = Plugins/NativeFinancePresentation.swift; sourceTree = "<group>"; };
 		C4A7B90100000000000000A1 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeFeedbackPresentation.swift; path = Plugins/NativeFeedbackPresentation.swift; sourceTree = "<group>"; };
 		5E5510AC0000000000000001 /* GoogleConnectorAuthPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = GoogleConnectorAuthPlugin.swift; path = Plugins/GoogleConnectorAuthPlugin.swift; sourceTree = "<group>"; };
 		AC0011223344556677889902 /* CountryPickerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountryPickerTests.swift; sourceTree = "<group>"; };
@@ -168,12 +187,15 @@
 		5E5510C100000000000000D6 /* NativeProfileMemoryScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileMemoryScene.swift; path = Plugins/NativeProfileMemoryScene.swift; sourceTree = "<group>"; };
 		5E5510C100000000000000E6 /* NativeProfilePaymentsScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfilePaymentsScene.swift; path = Plugins/NativeProfilePaymentsScene.swift; sourceTree = "<group>"; };
 		5E5510C100000000000000D8 /* NativeWorkspacePresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeWorkspacePresentation.swift; path = Plugins/NativeWorkspacePresentation.swift; sourceTree = "<group>"; };
+		B27EB9DA7BBC482180FB5AD8 /* NativeFinanceArtwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeFinanceArtwork.swift; path = Plugins/NativeFinanceArtwork.swift; sourceTree = "<group>"; };
 		5E5510C1000000000000000B /* NativeProfileOwnedSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileOwnedSheet.swift; path = Plugins/NativeProfileOwnedSheet.swift; sourceTree = "<group>"; };
 		5E5510C1000000000000000D /* NativeProfileStyleScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileStyleScene.swift; path = Plugins/NativeProfileStyleScene.swift; sourceTree = "<group>"; };
 		5E5510C1000000000000000F /* NativeProfileSupportScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileSupportScene.swift; path = Plugins/NativeProfileSupportScene.swift; sourceTree = "<group>"; };
 		5E5510C10000000000000011 /* NativeProfileLegal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileLegal.swift; path = Plugins/NativeProfileLegal.swift; sourceTree = "<group>"; };
 		5E5510C10000000000000013 /* NativeProfilePhoneScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfilePhoneScene.swift; path = Plugins/NativeProfilePhoneScene.swift; sourceTree = "<group>"; };
 		5E5510C10000000000000015 /* NativeProfilePasswordScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfilePasswordScene.swift; path = Plugins/NativeProfilePasswordScene.swift; sourceTree = "<group>"; };
+		A1E5C0DE7A11A00100000001 /* NativeVaultGatePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeVaultGatePlugin.swift; path = Plugins/NativeVaultGatePlugin.swift; sourceTree = "<group>"; };
+		5E5510C100000000000000F1 /* NativeTextFieldProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeTextFieldProjection.swift; path = Plugins/NativeTextFieldProjection.swift; sourceTree = "<group>"; };
 		5E5510C10000000000000017 /* NativeProfilePricingScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfilePricingScene.swift; path = Plugins/NativeProfilePricingScene.swift; sourceTree = "<group>"; };
 		5E5510C10000000000000007 /* NativeProfileArtwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeProfileArtwork.swift; path = Plugins/NativeProfileArtwork.swift; sourceTree = "<group>"; };
 		5E5510C10000000000000003 /* NativeDrawerPresentationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeDrawerPresentationController.swift; path = Plugins/NativeDrawerPresentationController.swift; sourceTree = "<group>"; };
@@ -232,6 +254,19 @@
 		FA82B4AC0000000000000007 /* NativeMapActionPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeMapActionPresentation.swift; path = Plugins/NativeMapActionPresentation.swift; sourceTree = "<group>"; };
 		FA82B4AC0000000000000009 /* NativeWalletJourney.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWalletJourney.swift; sourceTree = "<group>"; };
 		FA82B4AC000000000000000B /* NativeAuthoredIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeAuthoredIcon.swift; path = Plugins/NativeAuthoredIcon.swift; sourceTree = "<group>"; };
+		C41110000000000000000000 /* CallingWire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingWire.swift; path = Plugins/CallingWire.swift; sourceTree = "<group>"; };
+		C41110000000000000000001 /* CallingIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingIdentity.swift; path = Plugins/CallingIdentity.swift; sourceTree = "<group>"; };
+		C41110000000000000000002 /* CallingAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingAPI.swift; path = Plugins/CallingAPI.swift; sourceTree = "<group>"; };
+		C41110000000000000000003 /* NativeAudioOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeAudioOwnership.swift; path = Plugins/NativeAudioOwnership.swift; sourceTree = "<group>"; };
+		C41110000000000000000004 /* CallingMedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingMedia.swift; path = Plugins/CallingMedia.swift; sourceTree = "<group>"; };
+		C41110000000000000000005 /* CallingSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingSystem.swift; path = Plugins/CallingSystem.swift; sourceTree = "<group>"; };
+		C41110000000000000000006 /* CallingCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingCoordinator.swift; path = Plugins/CallingCoordinator.swift; sourceTree = "<group>"; };
+		C41110000000000000000007 /* CallingSignaling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingSignaling.swift; path = Plugins/CallingSignaling.swift; sourceTree = "<group>"; };
+		C41110000000000000000008 /* HushhCallingPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = HushhCallingPlugin.swift; path = Plugins/HushhCallingPlugin.swift; sourceTree = "<group>"; };
+		C41110000000000000000009 /* CallingOwnerSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingOwnerSession.swift; path = Plugins/CallingOwnerSession.swift; sourceTree = "<group>"; };
+		C4111000000000000000000A /* CallingContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallingContractTests.swift; sourceTree = "<group>"; };
+		C4111000000000000000000B /* CallingLogout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CallingLogout.swift; path = Plugins/CallingLogout.swift; sourceTree = "<group>"; };
+		C41140000000000000000001 /* WebRTC-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "WebRTC-LICENSE.txt"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -241,6 +276,7 @@
 			files = (
 				4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */,
 				5E5510A40000000000000003 /* LinkKit in Frameworks */,
+				C41130000000000000000001 /* WebRTC in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -309,6 +345,7 @@
 		504EC3061FED79650016851F /* App */ = {
 			isa = PBXGroup;
 			children = (
+				C41140000000000000000001 /* WebRTC-LICENSE.txt */,
                 C4A7B9010000000000000001,
                 51A1A4000000000000000001,
 				A280438C2F21B1FC005B42F3 /* App.entitlements */,
@@ -350,6 +387,7 @@
 		BFD8E75FF1281CDA093C9339 /* AppTests */ = {
 			isa = PBXGroup;
 			children = (
+				C4111000000000000000000A /* CallingContractTests.swift */,
 				844A95957616D891DBC4D212 /* NativeSupportTests.swift */,
 				A11C0A710000000000000091 /* LocationEnvelopeCryptoTests.swift */,
 				A11C0A730000000000000021 /* OneVoiceInvocationCoordinatorTests.swift */,
@@ -362,6 +400,17 @@
 		E01327B97C0E35A824E086A8 /* Plugins */ = {
 			isa = PBXGroup;
 			children = (
+				C4111000000000000000000B /* CallingLogout.swift */,
+				C41110000000000000000009 /* CallingOwnerSession.swift */,
+				C41110000000000000000000 /* CallingWire.swift */,
+				C41110000000000000000001 /* CallingIdentity.swift */,
+				C41110000000000000000002 /* CallingAPI.swift */,
+				C41110000000000000000003 /* NativeAudioOwnership.swift */,
+				C41110000000000000000004 /* CallingMedia.swift */,
+				C41110000000000000000005 /* CallingSystem.swift */,
+				C41110000000000000000006 /* CallingCoordinator.swift */,
+				C41110000000000000000007 /* CallingSignaling.swift */,
+				C41110000000000000000008 /* HushhCallingPlugin.swift */,
 				D1F9F90F2F0E966A009FC3FB /* KaiPlugin.swift */,
 				ABCDEF000000000000000001 /* HusshIMessageSessionStore.swift */,
 				EE27DFB8DCD94B9C5C0516DD /* HushhSyncPlugin.swift */,
@@ -387,6 +436,8 @@
 				5E5510C100000000000000D6 /* NativeProfileMemoryScene.swift */,
 				5E5510C100000000000000E6 /* NativeProfilePaymentsScene.swift */,
 				5E5510C100000000000000D8 /* NativeWorkspacePresentation.swift */,
+				B27EB9DA7BBC482180FB5AD8 /* NativeFinanceArtwork.swift */,
+				C7A1B69E82134D5DA49BA95C /* NativeFinancePresentation.swift */,
 				FA82B4AC000000000000000B /* NativeAuthoredIcon.swift */,
 				FA82B4AC0000000000000007 /* NativeMapActionPresentation.swift */,
 				FA82B4AC0000000000000005 /* NativeWalletProfileEditor.swift */,
@@ -398,6 +449,8 @@
 				5E5510C10000000000000011 /* NativeProfileLegal.swift */,
 				5E5510C10000000000000013 /* NativeProfilePhoneScene.swift */,
 				5E5510C10000000000000015 /* NativeProfilePasswordScene.swift */,
+				A1E5C0DE7A11A00100000001 /* NativeVaultGatePlugin.swift */,
+				5E5510C100000000000000F1 /* NativeTextFieldProjection.swift */,
 				5E5510C10000000000000017 /* NativeProfilePricingScene.swift */,
 				5E5510C10000000000000007 /* NativeProfileArtwork.swift */,
 				5E5510C10000000000000003 /* NativeDrawerPresentationController.swift */,
@@ -474,6 +527,7 @@
 			packageProductDependencies = (
 				4D22ABE82AF431CB00220026 /* CapApp-SPM */,
 				5E5510A40000000000000002 /* LinkKit */,
+				C41130000000000000000002 /* WebRTC */,
 			);
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
@@ -534,6 +588,7 @@
 			packageReferences = (
 				D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */,
 				5E5510A40000000000000001 /* XCRemoteSwiftPackageReference "plaid-link-ios" */,
+				C41130000000000000000003 /* XCRemoteSwiftPackageReference "WebRTC" */,
 			);
 			productRefGroup = 504EC3051FED79650016851F /* Products */;
 			projectDirPath = "";
@@ -552,6 +607,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C41140000000000000000002 /* WebRTC-LICENSE.txt in Resources */,
 				504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */,
 				50B271D11FEDC1A000F3C39B /* public in Resources */,
 				504EC30F1FED79650016851F /* Assets.xcassets in Resources */,
@@ -612,6 +668,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C4112000000000000000000A /* CallingContractTests.swift in Sources */,
 				FEBC1F9C14F1FB5C3D876D51 /* NativeSupportTests.swift in Sources */,
 				A11C0A710000000000000092 /* LocationEnvelopeCryptoTests.swift in Sources */,
 				A11C0A730000000000000022 /* OneVoiceInvocationCoordinatorTests.swift in Sources */,
@@ -624,6 +681,17 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C4112000000000000000000B /* CallingLogout.swift in Sources */,
+				C41120000000000000000009 /* CallingOwnerSession.swift in Sources */,
+				C41120000000000000000000 /* CallingWire.swift in Sources */,
+				C41120000000000000000001 /* CallingIdentity.swift in Sources */,
+				C41120000000000000000002 /* CallingAPI.swift in Sources */,
+				C41120000000000000000003 /* NativeAudioOwnership.swift in Sources */,
+				C41120000000000000000004 /* CallingMedia.swift in Sources */,
+				C41120000000000000000005 /* CallingSystem.swift in Sources */,
+				C41120000000000000000006 /* CallingCoordinator.swift in Sources */,
+				C41120000000000000000007 /* CallingSignaling.swift in Sources */,
+				C41120000000000000000008 /* HushhCallingPlugin.swift in Sources */,
                 C4A7B9010000000000000002,
                 51A1A4000000000000000002,
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
@@ -662,6 +730,8 @@
 				5E5510C100000000000000D7 /* NativeProfileMemoryScene.swift in Sources */,
 				5E5510C100000000000000E7 /* NativeProfilePaymentsScene.swift in Sources */,
 				5E5510C100000000000000D9 /* NativeWorkspacePresentation.swift in Sources */,
+				6A9998C6948441A98534688F /* NativeFinanceArtwork.swift in Sources */,
+				0F010D2F0EA44038BCA50237 /* NativeFinancePresentation.swift in Sources */,
 				FA82B4AC000000000000000C /* NativeAuthoredIcon.swift in Sources */,
 				FA82B4AC0000000000000008 /* NativeMapActionPresentation.swift in Sources */,
 				FA82B4AC0000000000000006 /* NativeWalletProfileEditor.swift in Sources */,
@@ -673,6 +743,8 @@
 				5E5510C10000000000000012 /* NativeProfileLegal.swift in Sources */,
 				5E5510C10000000000000014 /* NativeProfilePhoneScene.swift in Sources */,
 				5E5510C10000000000000016 /* NativeProfilePasswordScene.swift in Sources */,
+				A1E5C0DE7A11A00100000002 /* NativeVaultGatePlugin.swift in Sources */,
+				5E5510C100000000000000F2 /* NativeTextFieldProjection.swift in Sources */,
 				5E5510C10000000000000018 /* NativeProfilePricingScene.swift in Sources */,
 				5E5510C10000000000000008 /* NativeProfileArtwork.swift in Sources */,
 				5E5510C10000000000000004 /* NativeDrawerPresentationController.swift in Sources */,
@@ -1085,6 +1157,11 @@
 				minimumVersion = 7.1.2;
 			};
 		};
+		C41130000000000000000003 /* XCRemoteSwiftPackageReference "WebRTC" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stasel/WebRTC.git";
+			requirement = {kind = exactVersion; version = 149.0.0; };
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1097,6 +1174,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 5E5510A40000000000000001 /* XCRemoteSwiftPackageReference "plaid-link-ios" */;
 			productName = LinkKit;
+		};
+		C41130000000000000000002 /* WebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C41130000000000000000003;
+			productName = WebRTC;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

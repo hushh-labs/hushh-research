@@ -129,7 +129,7 @@ export function SegmentedTabs({
               select(next.value);
             }}
               className={cn(
-                "relative isolate flex min-w-0 items-center justify-center overflow-hidden border text-center transition-[background-color,border-color,box-shadow,color] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+                "relative isolate flex min-w-0 items-center justify-center overflow-hidden border text-center transition-[background-color,border-color,box-shadow,color] duration-[200ms] ease-[cubic-bezier(0.22,1,0.36,1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
                 variant === "agent-top"
                   ? "h-full min-h-0 rounded-[8px] px-1 py-0 min-[360px]:px-2 sm:px-3"
                   : isSubordinate
@@ -143,7 +143,7 @@ export function SegmentedTabs({
                         ? "z-10 border-b-[color:var(--app-accent)] bg-transparent text-[color:var(--app-accent)] font-semibold shadow-none"
                         : isFilter
                           ? "z-10 border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)] font-semibold shadow-none"
-                          : "z-10 border-transparent bg-white dark:bg-zinc-800 text-[color:var(--app-accent)] font-semibold shadow-[0_1px_3px_rgba(0,0,0,0.1),0_1px_2px_rgba(0,0,0,0.06)]",
+                          : "z-10 border-transparent bg-white dark:bg-zinc-800 text-[color:var(--app-accent)] font-semibold shadow-[0_1px_3px_rgba(0,0,0,0.1),0_1px_2px_rgba(0,0,0,0.06)] dark:shadow-[0_1px_2.5px_rgba(0,0,0,0.34),inset_0_0.5px_0_rgba(255,255,255,0.1)]",
                       variant === "agent-top" && "mx-0.5",
                     )
                   : isSubordinate

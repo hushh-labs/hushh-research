@@ -169,6 +169,8 @@ function OnePresencePlayback({ state, presentation, play, holdFrame, onReady }: 
     let retryTimer: number | undefined;
     let paintFrame: number | undefined;
     let resizeFrame: number | undefined;
+    let scrollShedding = false;
+    let scrollResumeTimer: number | null = null;
     let disposed = false;
     let shouldPlay = false;
     let keepFrame = false;
@@ -177,7 +179,7 @@ function OnePresencePlayback({ state, presentation, play, holdFrame, onReady }: 
     let playing = false;
 
     const showArtwork = () => {
-      const canvasVisible = Boolean(attempt?.painted && (shouldPlay || keepFrame || !posterReady));
+      const canvasVisible = Boolean(attempt?.painted && (shouldPlay || keepFrame || scrollShedding || !posterReady));
       canvas.style.visibility = canvasVisible ? "visible" : "hidden";
       poster.style.visibility = !canvasVisible && posterReady ? "visible" : "hidden";
       fallback.style.visibility = canvasVisible || posterReady ? "hidden" : "visible";
@@ -220,7 +222,7 @@ function OnePresencePlayback({ state, presentation, play, holdFrame, onReady }: 
       release();
       showArtwork();
       canvas.dataset.onePresencePlayback = status;
-      if (shouldPlay && failures < 2) {
+      if (shouldPlay && !scrollShedding && failures < 2) {
         retryTimer = window.setTimeout(() => {
           retryTimer = undefined;
           sync();
@@ -233,7 +235,7 @@ function OnePresencePlayback({ state, presentation, play, holdFrame, onReady }: 
       canvas.dataset.onePresencePlayback = "waiting-for-paint";
       paintFrame = window.requestAnimationFrame(() => {
         paintFrame = undefined;
-        if (attempt !== candidate || !shouldPlay) return;
+        if (attempt !== candidate || !shouldPlay || scrollShedding) return;
         try {
           if (context === undefined) {
             const probe = document.createElement("canvas");
@@ -311,7 +313,7 @@ function OnePresencePlayback({ state, presentation, play, holdFrame, onReady }: 
               if (attempt !== candidate) return;
               candidate.loaded = true;
               instance.resizeToCanvas();
-              sizeAndPlay(candidate);
+              if (shouldPlay && !scrollShedding) sizeAndPlay(candidate);
             });
           },
           onLoadError: () => queueMicrotask(() => fail(candidate, "asset-error")),
@@ -321,7 +323,7 @@ function OnePresencePlayback({ state, presentation, play, holdFrame, onReady }: 
     };
 
     const sync = () => {
-      if (shouldPlay) {
+      if (shouldPlay && !scrollShedding) {
         if (attempt) sizeAndPlay(attempt);
         else if (failures < 2 && retryTimer === undefined) start();
         return;
@@ -332,10 +334,12 @@ function OnePresencePlayback({ state, presentation, play, holdFrame, onReady }: 
         playing = false;
         attempt.instance?.pause(stateMachine);
         attempt.instance?.stopRendering();
-      } else if (attempt) {
+      } else if (attempt && !scrollShedding) {
         release();
       }
-      canvas.dataset.onePresencePlayback = "paused";
+      // Keep the crisp last-painted canvas frame frozen during active scroll
+      // so 120Hz scrolling avoids both Rive rasterization and poster swap flicker.
+      canvas.dataset.onePresencePlayback = scrollShedding ? "scroll-shed" : "paused";
       showArtwork();
     };
 
@@ -350,10 +354,25 @@ function OnePresencePlayback({ state, presentation, play, holdFrame, onReady }: 
       if (resizeFrame !== undefined) return;
       resizeFrame = window.requestAnimationFrame(() => {
         resizeFrame = undefined;
-        if (!disposed && shouldPlay) sync();
+        if (!disposed && shouldPlay && !scrollShedding) sync();
       });
     });
     resize?.observe(canvas);
+    const onScrollActivity = () => {
+      if (disposed || !shouldPlay) return;
+      if (!scrollShedding && attempt?.painted && attempt.instance && attempt.loaded) {
+        scrollShedding = true;
+        sync();
+      }
+      if (scrollResumeTimer !== null) window.clearTimeout(scrollResumeTimer);
+      scrollResumeTimer = window.setTimeout(() => {
+        scrollResumeTimer = null;
+        if (disposed || !scrollShedding) return;
+        scrollShedding = false;
+        sync();
+      }, 150);
+    };
+    window.addEventListener("scroll", onScrollActivity, { capture: true, passive: true });
     poster.addEventListener("load", decodePoster);
     decodePoster();
     return () => {
@@ -361,6 +380,8 @@ function OnePresencePlayback({ state, presentation, play, holdFrame, onReady }: 
       syncRef.current = null;
       resize?.disconnect();
       if (resizeFrame !== undefined) window.cancelAnimationFrame(resizeFrame);
+      if (scrollResumeTimer !== null) window.clearTimeout(scrollResumeTimer);
+      window.removeEventListener("scroll", onScrollActivity, true);
       window.clearTimeout(retryTimer);
       poster.removeEventListener("load", decodePoster);
       release();

@@ -110,3 +110,11 @@ class ScopeTariffs:
             ]
 
         return await self._transaction(operation, conn)
+
+    async def list_tariffs_with_readiness(self, *, owner_user_id, conn=None):
+        async def operation(c):
+            items = await self.list_tariffs(owner_user_id=owner_user_id, conn=c)
+            readiness = await self.readiness(viewer_user_id=owner_user_id, conn=c)
+            return items, readiness
+
+        return await self._transaction(operation, conn)

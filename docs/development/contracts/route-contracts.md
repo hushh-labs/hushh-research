@@ -4,6 +4,15 @@
 
 > Governance for Next.js proxy routes, native plugin parity, and app navigation truth.
 
+`/one/goals` opens the vault-backed Goals workspace from the private agent
+dashboard. Back cancels an open editor, then returns from goal detail to the
+list, then returns to the dashboard. Goals and their task links use the existing
+encrypted task domain.
+
+Typed Chat can offer a goal and proposed tasks for review in the same editor.
+Back dismisses the review before leaving Chat. The owner's Save commits the goal,
+its confirmed new tasks and its links in one encrypted revision. Organizing a
+private Files upload later requires its own schedule confirmation.
 
 ## Visual Map
 
@@ -131,7 +140,7 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/setup/[capability]`
 - `/one/calendar`
 - `/one/files` — encrypted BYOC Files; direct admitted pod transport, initially web-only
-- `/one/todos` — encrypted owner items plus Calendar, owner-confirmed Gmail follow-ups, and explicit pending-work projections from the existing Feed publishers (including KYC review requests). Calendar remains the event source of truth; Gmail message identifiers never enter the To-do record. Source workspaces remain authoritative; historical imports, running work, and safety alerts are not copied. Completion or dismissal stays private and never executes a source action.
+- `/one/tasks` hosts the existing encrypted owner items, Calendar, owner-confirmed Gmail follow-ups and pending work from the Feed publishers. `/one/todos` redirects here on web and native. Both the Tasks workspace and the profile preview use the same manual item editor and encrypted task writer. Calendar remains the event source of truth and Gmail message identifiers stay outside saved tasks. Completing or dismissing a task only updates the owner's list.
   One profile's To-do tab uses the same live-task projection and encrypted completion state. Partial source failures offer retry instead of an empty success; reads and mutation settlements are fenced to the current owner and vault session.
   Coverage follows the nine visible One capabilities: Messages, Finance, Wallet, Location, Advisor, Mail, Calendar, Memory and Consent. Read-only metadata inventories augment existing Feed task projections; unavailable or capped sources remain explicitly incomplete. Opt-in One suggestions process at most 100 loaded summaries, remain ephemeral, and enter encrypted `one_todos` only through Add task. The shared-runtime suggestion gene is default-off; private placement refuses shared processing.
 - `/one/wallet` (Wallet, formerly Cards; naming map in `docs/architecture/one/wallet.md`)
@@ -371,7 +380,7 @@ App-wide Search is archived. Its existing contract tooling remains active for th
 
 Every PR runs **UI Contracts**, independently of changed-path filtering. Both **Preflight Gate** and **CI Status Gate** require combined Back/Search success and reject skips. The read-only gate checks route coverage, source revisions, all generated gateway mirrors and route-index freshness. UI revisions include pages, layouts, templates and their transitive local modules and authored JSON, normalized across Windows/Linux line endings. Generated contracts are excluded from their own source digest. Follow the [contributor scaffold](./ui-contract-contributor-guide.md) before editing.
 
-After reviewing changed screen actions/context, run `cd hushh-webapp && npm run build:search-contracts` and commit authored edits, review receipts and changed generated mirrors in the same PR. Run `npm run verify:search-contracts` locally; CI never repairs stale files. Global source freshness is recorded in immutable content-addressed receipts under `hushh-webapp/contracts/ui-review`, not copied into every surface or runtime gateway. Independent source reviews add distinct files instead of conflicting shared stamps; combined sources still require their own exact review receipt. Back uses the same receipt boundary while retaining authored route-case hashing. A fingerprint proves freshness, not semantic correctness: authors remain responsible for describing new interactions in web contracts, and the shared tooling derives route/action metadata automatically. New route coverage and generated reachability validation remain mandatory.
+After reviewing changed screen actions/context, run `cd hushh-webapp && npm run build:search-contracts` and commit authored edits and changed runtime mirrors together. The owner build refreshes ignored local review caches; the tracked commit hook carries source and canonical-receipt fingerprints in compact technical commit trailers. Generated review JSON files and historical run reports are not source. Run `npm run verify:search-contracts` locally; CI never repairs stale files and requires matching reachable commit proof or verified unchanged-base inheritance. See the [contributor scaffold](./ui-contract-contributor-guide.md) for merge, squash and cache handling. A fingerprint proves freshness, not semantic correctness: authors remain responsible for changed interactions. New route coverage, action/control checks, authored Back cases and generated runtime reachability validation remain mandatory.
 
 The gate also validates literal `data-voice-control-id` values against authored action `control_ids`. New controls require action coverage before regeneration succeeds. Existing 28 uncovered controls are explicitly listed as legacy coverage debt in the global command-bar contract. Dynamic or unannotated interactions still require author review; the checker cannot infer their meaning. Suggestion subview priorities live in authored `search.subview_action_boost` metadata rather than a Search source-code map.
 

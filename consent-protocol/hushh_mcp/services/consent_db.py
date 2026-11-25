@@ -538,11 +538,29 @@ class ConsentDBService:
     # Pending Requests
     # =========================================================================
 
+    async def fetch_user_audit_rows(
+        self,
+        user_id: str,
+        *,
+        user_ids: Optional[List[str]] = None,
+        limit: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Fetch an owner's `consent_audit` rows once, ordered newest-first."""
+        db = self._get_db()
+        query = db.table("consent_audit").select("*")
+        query = self._apply_user_filter(query, user_id, user_ids).order("issued_at", desc=True)
+        if limit is not None:
+            query = query.limit(limit)
+        response = await asyncio.to_thread(query.execute)
+        return list(response.data or [])
+
     async def get_pending_requests(
         self,
         user_id: str,
         *,
         user_ids: Optional[List[str]] = None,
+        prefetched_rows: Optional[List[Dict[str, Any]]] = None,
+        include_notification_opened: bool = True,
     ) -> List[Dict]:
         """
         Get pending consent requests for a user.
@@ -551,19 +569,19 @@ class ConsentDBService:
         Note: This uses Python post-processing to handle DISTINCT ON logic
         since Cloud SQL REST API doesn't support complex SQL.
         """
-        db = self._get_db()
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
 
-        # Fetch all relevant rows (we'll filter in Python)
-        # Note: Cannot use .neq("request_id", None) - SQL "!= NULL" is always NULL (not true)
-        # Instead, fetch all rows and filter request_id IS NOT NULL in Python
-        query = db.table("consent_audit").select("*")
-        query = self._apply_user_filter(query, user_id, user_ids).order("issued_at", desc=True)
-        response = await asyncio.to_thread(query.execute)
+        if prefetched_rows is not None:
+            audit_rows = prefetched_rows
+        else:
+            # Fetch all relevant rows (we'll filter in Python)
+            # Note: Cannot use .neq("request_id", None) - SQL "!= NULL" is always NULL (not true)
+            # Instead, fetch all rows and filter request_id IS NOT NULL in Python
+            audit_rows = await self.fetch_user_audit_rows(user_id, user_ids=user_ids)
 
         # Post-process to get latest per request_id (DISTINCT ON equivalent)
         latest_per_request = {}
-        for row in response.data:
+        for row in audit_rows:
             if not self._is_external_audit_row(row):
                 continue
             request_id = row.get("request_id")
@@ -580,21 +598,22 @@ class ConsentDBService:
                 if new_issued > current_issued:
                     latest_per_request[request_id] = row
 
-        notification_opened_events = await self.list_internal_request_events(
-            list(latest_per_request.keys()),
-            actions=["NOTIFICATION_OPENED"],
-        )
         opened_at_by_request: Dict[str, int] = {}
-        for event in notification_opened_events:
-            request_id = str(event.get("request_id") or "").strip()
-            if not request_id:
-                continue
-            issued_at = event.get("issued_at")
-            if not isinstance(issued_at, int):
-                continue
-            opened_at_by_request[request_id] = max(
-                opened_at_by_request.get(request_id, 0), issued_at
+        if include_notification_opened and latest_per_request:
+            notification_opened_events = await self.list_internal_request_events(
+                list(latest_per_request.keys()),
+                actions=["NOTIFICATION_OPENED"],
             )
+            for event in notification_opened_events:
+                request_id = str(event.get("request_id") or "").strip()
+                if not request_id:
+                    continue
+                issued_at = event.get("issued_at")
+                if not isinstance(issued_at, int):
+                    continue
+                opened_at_by_request[request_id] = max(
+                    opened_at_by_request.get(request_id, 0), issued_at
+                )
 
         # Filter to only REQUESTED actions that haven't timed out
         results = []
@@ -811,29 +830,36 @@ class ConsentDBService:
         scope: Optional[str] = None,
         *,
         user_ids: Optional[List[str]] = None,
+        prefetched_rows: Optional[List[Dict[str, Any]]] = None,
     ) -> List[Dict]:
         """
         Get active consent tokens for a user.
         Free grants retain latest-per-agent-and-scope lineage. Purchased terms
         remain independent exact grants and use commercial database time.
         """
-        db = self._get_db()
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
 
-        # Fetch all CONSENT_GRANTED and REVOKED actions
-        query = db.table("consent_audit").select("*")
-        built_query = (
-            self._apply_user_filter(query, user_id, user_ids)
-            .in_("action", ["CONSENT_GRANTED", "REVOKED", "CONSENT_DENIED"])
-            .order("issued_at", desc=True)
-        )
-        response = await asyncio.to_thread(built_query.execute)
+        if prefetched_rows is not None:
+            candidate_rows = [
+                row
+                for row in prefetched_rows
+                if row.get("action") in {"CONSENT_GRANTED", "REVOKED", "CONSENT_DENIED"}
+            ]
+        else:
+            db = self._get_db()
+            # Fetch all CONSENT_GRANTED and REVOKED actions
+            query = db.table("consent_audit").select("*")
+            built_query = (
+                self._apply_user_filter(query, user_id, user_ids)
+                .in_("action", ["CONSENT_GRANTED", "REVOKED", "CONSENT_DENIED"])
+                .order("issued_at", desc=True)
+            )
+            response = await asyncio.to_thread(built_query.execute)
+            candidate_rows = response.data or []
 
         from hushh_mcp.consent.paid_admission import active_external_grants
 
-        return await active_external_grants(
-            self, response.data or [], user_id, agent_id, scope, now_ms
-        )
+        return await active_external_grants(self, candidate_rows, user_id, agent_id, scope, now_ms)
 
     async def get_active_token_export_revisions(
         self,
@@ -876,15 +902,51 @@ class ConsentDBService:
             revisions[token] = max(1, revision)
         return revisions
 
+    async def _tombstoned_user_hashes(self, user_ids: List[str]) -> set[str]:
+        """Return hashed user IDs present in `account_deletion_tombstones` in one query."""
+        from hushh_mcp.services.account_deletion_lifecycle_service import (  # noqa: PLC0415
+            account_deletion_user_hash,
+        )
+
+        hashes = sorted(
+            {
+                account_deletion_user_hash(uid)
+                for uid in user_ids
+                if isinstance(uid, str) and uid.strip()
+            }
+        )
+        if not hashes:
+            return set()
+        try:
+            query = (
+                self._get_db()
+                .table("account_deletion_tombstones")
+                .select("user_id_hash")
+                .in_("user_id_hash", hashes)
+            )
+            response = await asyncio.to_thread(query.execute)
+            return {
+                str(row.get("user_id_hash") or "").strip()
+                for row in (response.data or [])
+                if row.get("user_id_hash")
+            }
+        except Exception:  # noqa: BLE001 - lightweight test fakes may omit tombstone table
+            return set()
+
     async def fetch_expired_consents(self):
-        """Return only currently-effective expired external grants.
+        """Return only currently-effective expired external grants for active accounts.
 
         The consent ledger is append-only: a later ``REVOKED`` or new grant
         supersedes the older grant for the same user/agent/scope. The worker
         therefore scans the bounded recent ledger, retains the latest event
-        per authority identity, and returns only expired latest grants. It
-        never reads or returns encrypted exports or consent payloads.
+        per authority identity, excludes already-tombstoned deleted accounts
+        (whose ``consent_audit`` writes are permanently barred by DB trigger),
+        and returns only expired latest grants. It never reads or returns
+        encrypted exports or consent payloads.
         """
+        from hushh_mcp.services.account_deletion_lifecycle_service import (  # noqa: PLC0415
+            account_deletion_user_hash,
+        )
         from hushh_mcp.services.revocation_worker import ExpiredConsent
 
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
@@ -910,7 +972,7 @@ class ConsentDBService:
                 continue
             latest_by_authority[key] = row
 
-        expired: list[ExpiredConsent] = []
+        candidate_rows: list[Dict[str, Any]] = []
         for row in latest_by_authority.values():
             expires_at = row.get("expires_at")
             if (
@@ -920,6 +982,22 @@ class ConsentDBService:
                 or not row.get("id")
             ):
                 continue
+            candidate_rows.append(row)
+
+        if not candidate_rows:
+            return []
+
+        tombstoned_hashes = await self._tombstoned_user_hashes(
+            [str(row.get("user_id") or "") for row in candidate_rows]
+        )
+        skipped_tombstoned = 0
+        expired: list[ExpiredConsent] = []
+        for row in candidate_rows:
+            uid = str(row.get("user_id") or "").strip()
+            if tombstoned_hashes and uid and account_deletion_user_hash(uid) in tombstoned_hashes:
+                skipped_tombstoned += 1
+                continue
+            expires_at = row["expires_at"]
             expired.append(
                 ExpiredConsent(
                     consent_id=str(row["id"]),
@@ -931,18 +1009,23 @@ class ConsentDBService:
                     ),
                 )
             )
+        if skipped_tombstoned:
+            logger.info(
+                "consent_revocation.skipped_deleted_accounts count=%s",
+                skipped_tombstoned,
+            )
         return expired
 
     async def mark_consent_revoked(self, consent_id: str) -> None:
         """Append one revocation only if this expired grant remains current."""
-        record_response = (
+        record_query = (
             self._get_db()
             .table("consent_audit")
             .select(_REVOCATION_CONSENT_COLUMNS)
             .eq("id", consent_id)
             .limit(1)
-            .execute()
         )
+        record_response = await asyncio.to_thread(record_query.execute)
         records = record_response.data or []
         if not records:
             return
@@ -955,7 +1038,15 @@ class ConsentDBService:
         scope = str(record.get("scope") or "")
         if not user_id or not agent_id or not scope:
             return
-        latest_response = (
+        from hushh_mcp.services.account_deletion_lifecycle_service import (  # noqa: PLC0415
+            account_deletion_user_hash,
+        )
+
+        tombstoned_hashes = await self._tombstoned_user_hashes([user_id])
+        if account_deletion_user_hash(user_id) in tombstoned_hashes:
+            return
+
+        latest_query = (
             self._get_db()
             .table("consent_audit")
             .select(_REVOCATION_CONSENT_COLUMNS)
@@ -965,8 +1056,8 @@ class ConsentDBService:
             .in_("action", ["CONSENT_GRANTED", "REVOKED"])
             .order("issued_at", desc=True)
             .limit(1)
-            .execute()
         )
+        latest_response = await asyncio.to_thread(latest_query.execute)
         latest_rows = latest_response.data or []
         latest = latest_rows[0] if latest_rows else None
         expires_at = record.get("expires_at")
@@ -1264,28 +1355,41 @@ class ConsentDBService:
         limit: Optional[int] = 50,
         *,
         user_ids: Optional[List[str]] = None,
+        prefetched_rows: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict:
         """Get paginated audit log for a user."""
-        db = self._get_db()
         offset = (page - 1) * limit if limit is not None else 0
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
 
-        # Get paginated results (TableQuery uses .limit/.offset, not .range)
-        query = db.table("consent_audit").select("*")
-        query = self._apply_user_filter(query, user_id, user_ids).order("issued_at", desc=True)
-        if limit is not None:
-            query = query.limit(limit).offset(offset)
-        count_query = db.table("consent_audit").select("id,agent_id,action,scope")
-        count_query = self._apply_user_filter(count_query, user_id, user_ids)
+        if prefetched_rows is not None:
+            all_external = [row for row in prefetched_rows if self._is_external_audit_row(row)]
+            total = len(all_external)
+            sliced = (
+                prefetched_rows[offset : offset + limit]
+                if limit is not None
+                else prefetched_rows[offset:]
+            )
+            filtered_rows = [row for row in sliced if self._is_external_audit_row(row)]
+        else:
+            db = self._get_db()
+            # Get paginated results (TableQuery uses .limit/.offset, not .range)
+            query = db.table("consent_audit").select("*")
+            query = self._apply_user_filter(query, user_id, user_ids).order("issued_at", desc=True)
+            if limit is not None:
+                query = query.limit(limit).offset(offset)
+            count_query = db.table("consent_audit").select("id,agent_id,action,scope")
+            count_query = self._apply_user_filter(count_query, user_id, user_ids)
 
-        def read_audit():
-            return query.execute(), count_query.execute()
+            def read_audit():
+                return query.execute(), count_query.execute()
 
-        response, count_response = await asyncio.to_thread(read_audit)
-        total = len(
-            [row for row in (count_response.data or []) if self._is_external_audit_row(row)]
-        )
-        filtered_rows = [row for row in (response.data or []) if self._is_external_audit_row(row)]
+            response, count_response = await asyncio.to_thread(read_audit)
+            total = len(
+                [row for row in (count_response.data or []) if self._is_external_audit_row(row)]
+            )
+            filtered_rows = [
+                row for row in (response.data or []) if self._is_external_audit_row(row)
+            ]
 
         items = []
         for row in filtered_rows:
@@ -2179,7 +2283,11 @@ class ConsentDBService:
         }
 
     async def get_request_statuses(
-        self, user_id: str, request_ids: List[str]
+        self,
+        user_id: str,
+        request_ids: List[str],
+        *,
+        prefetched_rows: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Dict[str, Any]]:
         """Return latest status rows for many requests in one owner-scoped read.
 
@@ -2199,30 +2307,53 @@ class ConsentDBService:
         if not normalized_ids:
             return {}
 
-        db = self._get_db()
-        query = (
-            db.table("consent_audit")
-            .select(
-                "id,user_id,token_id,request_id,action,scope,agent_id,issued_at,scope_description,metadata,expires_at,poll_timeout_at"
+        if prefetched_rows is not None:
+            allowed_ids = set(normalized_ids)
+            source_rows = [
+                row
+                for row in prefetched_rows
+                if str(row.get("user_id") or "") == user_id
+                and str(row.get("request_id") or "").strip() in allowed_ids
+                and str(row.get("action") or "") != "EXPORT_READ"
+            ]
+        else:
+            db = self._get_db()
+            query = (
+                db.table("consent_audit")
+                .select(
+                    "id,user_id,token_id,request_id,action,scope,agent_id,issued_at,scope_description,metadata,expires_at,poll_timeout_at"
+                )
+                .eq("user_id", user_id)
+                .in_("request_id", normalized_ids)
+                .neq("action", "EXPORT_READ")
+                .order("issued_at", desc=True)
             )
-            .eq("user_id", user_id)
-            .in_("request_id", normalized_ids)
-            .neq("action", "EXPORT_READ")
-            .order("issued_at", desc=True)
-        )
-        response = await asyncio.to_thread(query.execute)
+            response = await asyncio.to_thread(query.execute)
+            source_rows = response.data or []
 
-        latest: Dict[str, Dict[str, Any]] = {}
+        latest_raw: list[tuple[str, Dict[str, Any]]] = []
         seen_request_ids: set[str] = set()
-        for row in response.data or []:
+        for row in source_rows:
             request_id = str(row.get("request_id") or "").strip()
             if not request_id or request_id in seen_request_ids:
                 continue
             seen_request_ids.add(request_id)
-            formatted = await self._admitted_request_status(self._format_request_status_row(row))
-            if formatted is not None:
-                latest[request_id] = formatted
-        return latest
+            formatted_row = self._format_request_status_row(row)
+            if formatted_row is not None:
+                latest_raw.append((request_id, formatted_row))
+
+        sem = asyncio.Semaphore(6)
+
+        async def _resolve_one(
+            req_id: str, item: Dict[str, Any]
+        ) -> tuple[str, Optional[Dict[str, Any]]]:
+            async with sem:
+                return req_id, await self._admitted_request_status(item)
+
+        resolved_pairs = await asyncio.gather(
+            *(_resolve_one(rid, item) for rid, item in latest_raw)
+        )
+        return {rid: val for rid, val in resolved_pairs if val is not None}
 
     async def get_request_status_for_agent(
         self,
@@ -2664,18 +2795,29 @@ class ConsentDBService:
         """Atomically lease continuous-refresh jobs across tabs and devices."""
 
         db = self._get_db()
-        # ``DatabaseClient.rpc`` executes immediately and returns a QueryResult.
-        # Chaining ``.execute()`` here turns a successful refresh claim into an
-        # AttributeError, which makes the Memory surface report a 503.
-        response = await asyncio.to_thread(
-            db.rpc,
-            "claim_consent_export_refresh_jobs_v2",
-            {
-                "p_user_id": user_id,
-                "p_limit": max(1, min(int(limit), 100)),
-                "p_lease_seconds": max(30, min(int(lease_seconds), 900)),
-            },
-        )
+        params = {
+            "p_user_id": user_id,
+            "p_limit": max(1, min(int(limit), 100)),
+            "p_lease_seconds": max(30, min(int(lease_seconds), 900)),
+        }
+        # ``claim_consent_export_refresh_jobs_v2`` returns ``SETOF consent_export_refresh_jobs``.
+        # Calling it via ``SELECT * FROM ...`` expands composite columns instead of returning
+        # a single opaque tuple column under ``SELECT func(...)``.
+        if callable(getattr(db, "execute_raw", None)):
+            response = await asyncio.to_thread(
+                db.execute_raw,
+                (
+                    "SELECT * FROM claim_consent_export_refresh_jobs_v2("
+                    ":p_user_id, :p_limit, :p_lease_seconds)"
+                ),
+                params,
+            )
+        else:
+            response = await asyncio.to_thread(
+                db.rpc,
+                "claim_consent_export_refresh_jobs_v2",
+                params,
+            )
         return [row for row in (response.data or []) if isinstance(row, dict)]
 
     async def get_claimed_consent_export_refresh_job(
@@ -2852,3 +2994,74 @@ class ConsentDBService:
         except Exception as e:
             logger.error(f"Failed to cleanup expired exports: {e}")
             return 0
+
+
+def resolve_approval_requester_notification_target_sync(
+    *,
+    bundle_id: str,
+    metadata: Any,
+    subject_user_id: str,
+) -> Optional[dict[str, Any]]:
+    """Resolve person-to-person approval notification context via shared DB client."""
+    requester_user_id: Optional[str] = None
+    clean_bundle_id = str(bundle_id or "").strip()
+    if clean_bundle_id:
+        try:
+            bundle_rows = (
+                get_db()
+                .execute_raw(
+                    "SELECT requester_user_id FROM one_information_request_bundles "
+                    "WHERE bundle_id = CAST(:bundle AS UUID) LIMIT 1",
+                    {"bundle": clean_bundle_id},
+                )
+                .data
+            )
+            if bundle_rows:
+                requester_user_id = str(bundle_rows[0].get("requester_user_id") or "").strip()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("consent.approve.bundle_lookup_failed error=%s", exc)
+
+    if (
+        not requester_user_id
+        and isinstance(metadata, dict)
+        and metadata.get("requester_actor_type") == "person"
+    ):
+        requester_entity_id = str(metadata.get("requester_entity_id") or "").strip()
+        if requester_entity_id:
+            try:
+                requester_rows = (
+                    get_db()
+                    .execute_raw(
+                        "SELECT user_id FROM actor_profiles "
+                        "WHERE public_person_ref = CAST(:ref AS UUID) LIMIT 1",
+                        {"ref": requester_entity_id},
+                    )
+                    .data
+                )
+                if requester_rows:
+                    requester_user_id = str(requester_rows[0].get("user_id") or "").strip()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("consent.approve.requester_lookup_failed error=%s", exc)
+
+    if not requester_user_id:
+        return None
+
+    subject_profile_rows = (
+        get_db()
+        .execute_raw(
+            "SELECT public_person_ref, display_name, photo_url "
+            "FROM actor_profiles WHERE user_id = :subject_user_id LIMIT 1",
+            {"subject_user_id": subject_user_id},
+        )
+        .data
+    )
+    subject_row = subject_profile_rows[0] if subject_profile_rows else {}
+    subject_display_name = str(subject_row.get("display_name") or "Someone").strip() or "Someone"
+    subject_person_ref = str(subject_row.get("public_person_ref") or "").strip()
+    subject_photo_url = str(subject_row.get("photo_url") or "").strip() or None
+    return {
+        "requester_user_id": requester_user_id,
+        "subject_display_name": subject_display_name,
+        "subject_person_ref": subject_person_ref,
+        "subject_photo_url": subject_photo_url,
+    }

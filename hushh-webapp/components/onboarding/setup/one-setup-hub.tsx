@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Cloud } from "@/components/icons";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import {
   AppPageContentRegion,
@@ -75,6 +75,7 @@ import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitiv
 import { FinanceSetupDraftService } from "@/lib/services/finance-setup-draft-service";
 import { PostUnlockSyncService } from "@/lib/services/post-unlock-sync-service";
 import { notifyGeminiRuntimeConfigurationChanged } from "@/lib/connections/gemini-runtime-configuration";
+import { isPooledSandboxSwitchAvailable } from "@/lib/one/owner-cloud";
 import { MemoryImportHeader, MemoryImportStep } from "./memory-import-step";
 import memoryImportStyles from "./memory-import-step.module.css";
 import { ownerChatMemory } from "@/lib/agent/chat-memory-owner";
@@ -258,6 +259,31 @@ export function OneSetupHub() {
       const revision = ++verification;
       const snapshot = project(state);
       setPrereqSnapshot(snapshot);
+      if (
+        snapshot.cloud === "complete" &&
+        snapshot.runtime === "required" &&
+        typeof ApiService?.getPersonalAgentStatus === "function"
+      ) {
+        void ApiService.getPersonalAgentStatus()
+          .then(async (status) => {
+            if (!active || revision !== verification) return;
+            if (
+              status?.hostingMode === "hussh_pods" &&
+              (status.deploymentTarget === "ace" || status.state === "active")
+            ) {
+              const updated =
+                typeof PreVaultUserStateService.markOneRuntimeChoice === "function"
+                  ? await PreVaultUserStateService.markOneRuntimeChoice(
+                      ownerId,
+                      "hushh_managed_vertex",
+                    ).catch(() => null)
+                  : null;
+              if (!active || revision !== verification) return;
+              setPrereqSnapshot(project(updated ?? state, true));
+            }
+          })
+          .catch(() => undefined);
+      }
       if (snapshot.runtime !== "loading") return;
       void hasReadyRuntimeChoice({ userId: ownerId, state, vaultKey, vaultOwnerToken })
         .then(ready => {
@@ -924,7 +950,9 @@ export function OneSetupHub() {
                         : "Choose AI access."
                       : cloudSetupRunning
                         ? "Setup continues in the background."
-                        : "Choose where One runs."
+                        : isPooledSandboxSwitchAvailable()
+                          ? "Choose Hussh Confidential Sandbox or your own cloud."
+                          : "Choose where One runs."
                   }
                   href={buildOneSetupCloudRoute(returnTo)}
                   voiceControlId="one_setup_tile_cloud"

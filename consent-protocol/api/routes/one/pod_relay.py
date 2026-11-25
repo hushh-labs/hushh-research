@@ -17,7 +17,10 @@ owner's projection, model credential or consent grant elsewhere.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
+from collections.abc import Mapping
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Request
@@ -78,16 +81,42 @@ def _refuse_own_cloud(row: dict) -> None:
         raise HTTPException(409, detail={"code": "AGENT_PRIVATE_RUNTIME_REQUIRED"})
 
 
-def _pod_url(row: dict) -> Optional[str]:
-    """The pod's URL as the HUB recorded it. Never taken from the request."""
+def _canonical_pod_url(row: dict) -> Optional[str]:
+    """The canonical HTTPS pod URL recorded in registry metadata."""
     metadata = row.get("backend_metadata")
     if not isinstance(metadata, dict):
         return None
     url = str(metadata.get("url") or "").strip().rstrip("/")
-    return url if url.startswith("https://") else None
+    if not url.startswith("https://"):
+        return None
+    return url
+
+
+def _pod_url(row: dict) -> Optional[str]:
+    """The pod's URL as the HUB recorded it, mapped to local sandbox edge when configured."""
+    url = _canonical_pod_url(row)
+    if not url:
+        return None
+    env = os.environ.get("ENVIRONMENT", "").strip().lower()
+    local_edge = os.environ.get("HUSSH_LOCAL_SANDBOX_EDGE_URL", "").strip().rstrip("/")
+    if env in {"local", "development"} and local_edge:
+        from urllib.parse import urlsplit
+
+        parsed_local = urlsplit(local_edge)
+        parsed_url = urlsplit(url)
+        if parsed_local.hostname in {"127.0.0.1", "localhost"} and parsed_url.path.startswith(
+            "/u/"
+        ):
+            return f"{parsed_local.scheme}://{parsed_local.netloc}{parsed_url.path}"
+    return url
 
 
 def _identity_token(audience: str) -> Optional[str]:
+    if audience.startswith(("http://127.0.0.1", "http://localhost")) or (
+        os.environ.get("ENVIRONMENT", "").strip().lower() in {"local", "development"}
+        and not os.environ.get("K_SERVICE")
+    ):
+        return None
     try:
         import google.auth.transport.requests
         import google.oauth2.id_token
@@ -108,10 +137,14 @@ async def _proxy_get(
         import requests  # type: ignore[import-untyped]  # noqa: PLC0415 - deferred so tests can inject
 
         client = requests
-    token = await run_in_threadpool(_identity_token, url)
-    if not token:
+    is_local_dev_loopback = os.environ.get("ENVIRONMENT", "").strip().lower() in {
+        "local",
+        "development",
+    } and (url.startswith("http://127.0.0.1:") or url.startswith("http://localhost:"))
+    token = None if is_local_dev_loopback else await run_in_threadpool(_identity_token, url)
+    if not token and not is_local_dev_loopback:
         return 503, {"detail": "pod identity unavailable"}
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
     try:
         response = await run_in_threadpool(
             lambda: client.get(
@@ -426,122 +459,120 @@ def _not_ready(status: str) -> HTTPException:
     )
 
 
-async def issue_pod_data_door_grants(user_id: str, *, door_grants: Any = None) -> dict[str, str]:
-    """Separate invocation/read grants shared by text and Live pod transports."""
-    from hushh_mcp.services.personal_agent_hosting import get_owner_hosting_mode
+_STANDING_DATA_DOORS: tuple[tuple[str, ConsentScope, str, str], ...] = (
+    (
+        "marketplace",
+        ConsentScope.CAP_PKM_MARKETPLACE_VIEW,
+        "marketplace_view",
+        "Read publication metadata and potential marketplace earnings",
+    ),
+    (
+        "nav",
+        ConsentScope.AGENT_NAV_REVIEW,
+        "nav_review",
+        "Review your active and previous consent grants",
+    ),
+    (
+        "email",
+        ConsentScope.CAP_EMAIL_INBOX_VIEW,
+        "email_inbox_view",
+        "Read a summary of your inbox to answer email questions",
+    ),
+    (
+        "calendar",
+        ConsentScope.CAP_CALENDAR_EVENTS_VIEW,
+        "calendar_events_view",
+        "Read your upcoming calendar events to answer schedule questions",
+    ),
+    (
+        ConsentScope.CAP_LOCATION_LIVE_SHARE.value,
+        ConsentScope.CAP_LOCATION_LIVE_SHARE,
+        "location_live_share",
+        "Propose a public location link for your confirmation",
+    ),
+)
 
-    mode = await get_owner_hosting_mode(user_id)
+
+async def issue_pod_data_door_grants(
+    user_id: str,
+    *,
+    door_grants: Any = None,
+    observed_row: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    """Separate invocation/read grants shared by text and Live pod transports."""
+    if observed_row is not None:
+        from hushh_mcp.services.personal_agent_hosting import resolve_observed_hosting_mode
+
+        mode = await resolve_observed_hosting_mode(
+            user_id=user_id, row=observed_row, registry_read_ok=True
+        )
+    else:
+        from hushh_mcp.services.personal_agent_hosting import get_owner_hosting_mode
+
+        mode = await get_owner_hosting_mode(user_id)
     if mode in {"byoc", "pending", "unplaced", "hussh_pods"}:
         return {}
     if mode != "shared":
         raise HTTPException(503, detail={"code": "AGENT_HOSTING_UNAVAILABLE"})
+
+    door_enabled = bool(pod_data_door_enabled())
+    from hushh_mcp.services.personal_agent_grant_service import (
+        PersonalAgentGrantService,
+        get_cached_standing_door_grants,
+        set_cached_standing_door_grants,
+    )
+
+    if door_grants is None:
+        cached = get_cached_standing_door_grants(user_id, door_enabled=door_enabled)
+        if cached is not None:
+            return {str(k): str(v) for k, v in cached.items()}
+
+    service = PersonalAgentGrantService()
+    tasks: list[tuple[str, Any]] = [
+        (
+            "invoke",
+            service.issue_or_reuse_standing_scope(
+                user_id,
+                scope=ConsentScope.CAP_ONE_INVOKE,
+                grant_kind="one_invoke",
+                scope_description="Delegate your requests to the private agent's shared specialists",
+            ),
+        )
+    ]
+    if door_enabled:
+        door_issuer = door_grants or service.issue_or_reuse_standing_location_view
+        tasks.append(("location", door_issuer(user_id)))
+        for door_key, scope, grant_kind, scope_description in _STANDING_DATA_DOORS:
+            tasks.append(
+                (
+                    door_key,
+                    service.issue_or_reuse_standing_scope(
+                        user_id,
+                        scope=scope,
+                        grant_kind=grant_kind,
+                        scope_description=scope_description,
+                    ),
+                )
+            )
+
+    results = await asyncio.gather(*(coro for _, coro in tasks), return_exceptions=True)
     data_door_grants: dict[str, str] = {}
-    from hushh_mcp.services.personal_agent_grant_service import PersonalAgentGrantService
-
-    try:
-        invoke_grant = await PersonalAgentGrantService().issue_or_reuse_standing_scope(
-            user_id,
-            scope=ConsentScope.CAP_ONE_INVOKE,
-            grant_kind="one_invoke",
-            scope_description="Delegate your requests to the private agent's shared specialists",
-        )
-        invoke_token = str((invoke_grant or {}).get("token") or "")
-        if invoke_token:
-            data_door_grants["invoke"] = invoke_token
-    except Exception as exc:
-        logger.info("pod_relay.data_door_grant_skipped door=invoke %s", type(exc).__name__)
-    if pod_data_door_enabled():
-        try:
-            marketplace_grant = await PersonalAgentGrantService().issue_or_reuse_standing_scope(
-                user_id,
-                scope=ConsentScope.CAP_PKM_MARKETPLACE_VIEW,
-                grant_kind="marketplace_view",
-                scope_description="Read publication metadata and potential marketplace earnings",
-            )
-            marketplace_token = str((marketplace_grant or {}).get("token") or "")
-            if marketplace_token:
-                data_door_grants["marketplace"] = marketplace_token
-        except Exception as exc:
-            logger.info("pod_relay.data_door_grant_skipped door=marketplace %s", type(exc).__name__)
-        door_issuer = (
-            door_grants or PersonalAgentGrantService().issue_or_reuse_standing_location_view
-        )
-        try:
-            nav_grant = await PersonalAgentGrantService().issue_or_reuse_standing_scope(
-                user_id,
-                scope=ConsentScope.AGENT_NAV_REVIEW,
-                grant_kind="nav_review",
-                scope_description="Review your active and previous consent grants",
-            )
-            nav_token = str((nav_grant or {}).get("token") or "")
-            if nav_token:
-                data_door_grants["nav"] = nav_token
-        except Exception as exc:
-            logger.info("pod_relay.data_door_grant_skipped door=nav %s", type(exc).__name__)
-        try:
-            location_grant = await door_issuer(user_id)
-            token = str((location_grant or {}).get("token") or "")
-            if token:
-                data_door_grants["location"] = token
-        except Exception as exc:  # noqa: BLE001 - a door mint failure degrades the read, never the turn
-            logger.info("pod_relay.data_door_grant_skipped %s", type(exc).__name__)
-
-        # The email door grant (the next door in the staged plan). Minted
-        # INDEPENDENTLY via the general standing-scope issuer and best-effort: a
-        # failure here degrades only email's read to runtime_unavailable, never
-        # the turn and never the location door. Same short-TTL, Nav-narrated,
-        # owner-revocable shape as location; the scope is cap.email.inbox.view.
-        try:
-            email_grant = await PersonalAgentGrantService().issue_or_reuse_standing_scope(
-                user_id,
-                scope=ConsentScope.CAP_EMAIL_INBOX_VIEW,
-                grant_kind="email_inbox_view",
-                scope_description="Read a summary of your inbox to answer email questions",
-            )
-            email_token = str((email_grant or {}).get("token") or "")
-            if email_token:
-                data_door_grants["email"] = email_token
-        except Exception as exc:  # noqa: BLE001 - a door mint failure degrades the read, never the turn
-            logger.info("pod_relay.data_door_grant_skipped door=email %s", type(exc).__name__)
-        # The calendar door grant (third door). Read-only upcoming events through
-        # the broker; the pod still cannot propose or execute a change from a
-        # keyless runtime, and the summary says where to do that. Independent and
-        # best-effort exactly like email.
-        try:
-            calendar_grant = await PersonalAgentGrantService().issue_or_reuse_standing_scope(
-                user_id,
-                scope=ConsentScope.CAP_CALENDAR_EVENTS_VIEW,
-                grant_kind="calendar_events_view",
-                scope_description="Read your upcoming calendar events to answer schedule questions",
-            )
-            calendar_token = str((calendar_grant or {}).get("token") or "")
-            if calendar_token:
-                data_door_grants["calendar"] = calendar_token
-        except Exception as exc:  # noqa: BLE001 - a door mint failure degrades the read, never the turn
-            logger.info("pod_relay.data_door_grant_skipped door=calendar %s", type(exc).__name__)
-        # The Location PROPOSAL path. A standing share scope lets the pod's own
-        # Location service propose a public link with zero hub information
-        # reads: the pod proposes, the browser shows the owner-confirmation card,
-        # and nothing is created here. It is the first specialist path that can
-        # earn `specialists-run-in-pod`. Keyed by scope name (not a door name)
-        # because it is an authority to propose, not a door to read through;
-        # the pod's Location service reads it under exactly that key. Same
-        # short-TTL, Nav-narrated, owner-revocable shape, same best-effort rule.
-        try:
-            share_grant = await PersonalAgentGrantService().issue_or_reuse_standing_scope(
-                user_id,
-                scope=ConsentScope.CAP_LOCATION_LIVE_SHARE,
-                grant_kind="location_live_share",
-                scope_description="Propose a public location link for your confirmation",
-            )
-            share_token = str((share_grant or {}).get("token") or "")
-            if share_token:
-                data_door_grants[ConsentScope.CAP_LOCATION_LIVE_SHARE.value] = share_token
-        except Exception as exc:  # noqa: BLE001 - a mint failure degrades the proposal, never the turn
+    for (door_key, _), outcome in zip(tasks, results, strict=True):
+        if isinstance(outcome, BaseException):
             logger.info(
-                "pod_relay.data_door_grant_skipped door=location_share %s", type(exc).__name__
+                "pod_relay.data_door_grant_skipped door=%s %s",
+                door_key,
+                type(outcome).__name__,
             )
+            continue
+        if not isinstance(outcome, Mapping):
+            continue
+        token = str(outcome.get("token") or "")
+        if token:
+            data_door_grants[door_key] = token
 
+    if door_grants is None and data_door_grants:
+        set_cached_standing_door_grants(user_id, door_enabled=door_enabled, grants=data_door_grants)
     return data_door_grants
 
 
@@ -877,7 +908,10 @@ async def direct_chat_grants(
             endpoint = await bindings.endpoint(user_id=user_id)
     except PodBindingError as exc:
         raise HTTPException(exc.status, detail={"code": exc.code}) from None
-    grants = await (issuer or issue_pod_data_door_grants)(user_id)
+    if issuer is None:
+        grants = await issue_pod_data_door_grants(user_id, observed_row=before)
+    else:
+        grants = await issuer(user_id)
     after = await repo.get(user_id) or {}
     metadata = after.get("backend_metadata") or {}
     if (
@@ -887,7 +921,7 @@ async def direct_chat_grants(
         != (before.get("backend_metadata") or {}).get("directReadiness")
         or metadata.get("ingress") != "direct"
         or after.get("pod_key_id") != endpoint.get("podKeyId")
-        or _pod_url(after) != endpoint.get("url")
+        or _canonical_pod_url(after) != endpoint.get("url")
     ):
         raise HTTPException(409, detail={"code": "POD_ASSIGNMENT_CHANGED"})
     return {"endpoint": endpoint, "dataDoorGrants": grants}

@@ -132,6 +132,29 @@ async def require_export_grant(
         raise BrowserRefused("BROWSER_INFORMATION_GRANT_REFUSED")
 
 
+async def verify_export_source_revisions(
+    owner_id: str,
+    scope: str,
+    *,
+    content_revision: int,
+    manifest_revision: int,
+) -> None:
+    from db.connection import get_pool
+    from hushh_mcp.consent.paid_admission import verify_source_revisions
+
+    pool = await get_pool()
+    async with pool.acquire() as conn, conn.transaction():
+        await verify_source_revisions(
+            conn,
+            owner_id,
+            scope,
+            {
+                "contentRevision": content_revision,
+                "manifestRevision": manifest_revision,
+            },
+        )
+
+
 class PodScopedExports:
     def __init__(self, client, check) -> None:
         self._client, self._check = client, check

@@ -34,7 +34,15 @@ vi.mock("next/navigation", async () => {
     },
   };
 });
-vi.mock("@/components/icons", () => ({ ArrowLeft: () => null, X: () => null, ChevronDown: () => null, MessageCircle: () => null, Laptop: () => null, LayoutDashboard: () => null }));
+vi.mock("@/components/icons", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/components/icons")>(),
+  ArrowLeft: () => null,
+  X: () => null,
+  ChevronDown: () => null,
+  MessageCircle: () => null,
+  Laptop: () => null,
+  LayoutDashboard: () => null,
+}));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { dismiss: vi.fn(), success: vi.fn(), loading: vi.fn(), info: vi.fn() } }));
 vi.mock("@/lib/morphy-ux/button", () => ({ Button: ({ children, onClick, disabled }: { children: ReactNode; onClick?: () => void; disabled?: boolean }) => <button onClick={onClick} disabled={disabled}>{children}</button> }));
 vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => ({ user: { uid: "synthetic-owner" }, userId: "synthetic-owner" }) }));

@@ -56,11 +56,11 @@ def test_one_chat_keeps_tool_progress_in_activity_cards() -> None:
 
 def test_one_requires_a_fresh_calendar_read_for_live_schedule_answers() -> None:
     """A confirmed reschedule must not be overwritten by earlier chat prose."""
-    instruction = load("one").system_instruction
-    assert "Schedule questions are live state" in instruction
-    assert "Calendar read tool this turn" in instruction
-    assert "historical context, never proof of the current schedule" in instruction
-    assert "never use an earlier schedule answer" in instruction
+    instruction = " ".join(load("one").system_instruction.split())
+    assert "Read the live schedule this turn, including after changes." in instruction
+    assert "Failed reads never justify reusing old answers." in instruction
+    assert "calendar_events or calendar_free_slots for the requested window" in instruction
+    assert "Read-only requests cannot prepare bookings or invitation reviews" in instruction
 
 
 def test_core_specialists_have_distinct_ids_and_reserved_authority() -> None:

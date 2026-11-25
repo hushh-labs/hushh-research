@@ -444,4 +444,53 @@ describe("SpecialistPendingConsentRequestCard", () => {
     expect(screen.getByTestId("specialist-pending-consent-deny")).toHaveTextContent("Don't allow");
     expect(actions.onDeny).not.toHaveBeenCalled();
   });
+
+  it("supports natural-language staged duration updates and inline term changes before Allow", () => {
+    const onApprove = vi.fn();
+    const { rerender } = render(
+      <SpecialistPendingConsentRequestCard
+        item={{
+          id: "req_stage",
+          requesterLabel: "KT",
+          scope: "attr.financial.accounts",
+          scopeDescription: "Accounts",
+          expiryHours: 168,
+          metadata: { requester_actor_type: "person" },
+          status: "pending",
+        }}
+        onApprove={onApprove}
+        onDeny={vi.fn()}
+        onDetails={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("specialist-pending-consent-duration")).toHaveTextContent("For 7 days");
+    rerender(
+      <SpecialistPendingConsentRequestCard
+        item={{
+          id: "req_stage",
+          requesterLabel: "KT",
+          scope: "attr.financial.accounts",
+          scopeDescription: "Accounts",
+          expiryHours: 72,
+          metadata: { requester_actor_type: "person", staged_by_agent: true },
+          status: "pending",
+        }}
+        onApprove={onApprove}
+        onDeny={vi.fn()}
+        onDetails={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("specialist-pending-consent-duration")).toHaveTextContent("For 3 days");
+    expect(screen.getByTestId("specialist-pending-consent-staged")).toHaveTextContent(
+      "Updated to 3 days · Tap Allow to share",
+    );
+    fireEvent.change(screen.getByTestId("specialist-pending-consent-term-select"), {
+      target: { value: "24" },
+    });
+    fireEvent.click(screen.getByTestId("specialist-pending-consent-approve"));
+    expect(onApprove).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "req_stage", expiryHours: 24 }),
+    );
+  });
 });

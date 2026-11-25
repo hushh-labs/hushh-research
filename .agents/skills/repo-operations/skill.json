@@ -27,7 +27,8 @@
     "mobile-parity-check",
     "docs-sync",
     "github-contribution-governance",
-    "uat-scoped-deploy"
+    "uat-scoped-deploy",
+    "release-train-parity"
   ],
   "required_reads": [
     "docs/operations/README.md",
@@ -77,6 +78,7 @@
     "contributor-onboarding",
     "subtree-upstream-governance",
     "uat-scoped-deploy",
+    "release-train-parity",
     "backend",
     "security-audit"
   ],
@@ -89,7 +91,8 @@
     "oss-license-governance",
     "contributor-onboarding",
     "subtree-upstream-governance",
-    "uat-scoped-deploy"
+    "uat-scoped-deploy",
+    "release-train-parity"
   ],
   "risk_tags": [
     "ci-drift",

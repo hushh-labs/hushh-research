@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
   user: { uid: "owner", getIdToken: vi.fn(async () => "owner-token") } as { uid: string; getIdToken: () => Promise<string> } | null,
   readiness: vi.fn(), sandboxVerified: vi.fn(), tariff: vi.fn(), saveTariff: vi.fn(), account: vi.fn(), activity: vi.fn(), onboarding: vi.fn(), management: vi.fn(), hosted: vi.fn(), periodic: vi.fn(),
   scopeRequest: vi.fn(), quote: vi.fn(), purchase: vi.fn(), exporter: vi.fn(), checkout: vi.fn(),
-  pathname: "/one/profile/payouts", search: "", vaultKey: "memory-key", openWindow: vi.fn(),
+  revokePurchase: vi.fn(), replace: vi.fn(), pathname: "/one/profile/payouts", search: "", vaultKey: "memory-key", openWindow: vi.fn(),
   answerGates: vi.fn(), answerAccount: vi.fn(), answerLink: vi.fn(), answerOnboarding: vi.fn(),
 }));
 vi.mock("@/lib/services/answer-request-service", () => ({ AnswerRequestService: {
@@ -21,7 +21,7 @@ vi.mock("@/lib/services/answer-request-service", () => ({ AnswerRequestService: 
 } }));
 vi.mock("@/components/consent/document-hashcoins", () => ({ DocumentHashcoinPayouts: () => null }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user, userId: mocks.user?.uid ?? null }) }));
-vi.mock("next/navigation", () => ({ usePathname: () => mocks.pathname, useSearchParams: () => new URLSearchParams(mocks.search), useRouter: () => ({ push: vi.fn() }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => mocks.pathname, useSearchParams: () => new URLSearchParams(mocks.search), useRouter: () => ({ push: vi.fn(), replace: mocks.replace }) }));
 vi.mock("@/components/profile/use-native-payouts", () => ({ useNativePayouts: () => ({
   pages: [{ id: "payouts", title: "Payouts", sections: [
     { id: "payout-your-money", title: "Your money", rows: [] }, { id: "payout-activity", title: "Activity", rows: [] },
@@ -33,7 +33,7 @@ vi.mock("@/lib/consent/scope-commerce-export", () => ({ prepareAndStagePaidScope
 vi.mock("@/lib/services/scope-commerce-service", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/services/scope-commerce-service")>(),
   ScopeCommerceService: { readiness: mocks.readiness, sandboxVerified: mocks.sandboxVerified, tariff: mocks.tariff, saveTariff: mocks.saveTariff, account: mocks.account, activity: mocks.activity, onboarding: mocks.onboarding, managePayoutAccount: mocks.management,
-    scopeRequest: mocks.scopeRequest, quote: mocks.quote, purchase: mocks.purchase, checkout: mocks.checkout },
+    revokePurchase: mocks.revokePurchase, scopeRequest: mocks.scopeRequest, quote: mocks.quote, purchase: mocks.purchase, checkout: mocks.checkout },
 }));
 vi.mock("@/lib/services/scope-commerce-browser", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/services/scope-commerce-browser")>(), openCommerceHostedUrl: mocks.hosted, openCommerceHostedWindow: mocks.openWindow,

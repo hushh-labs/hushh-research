@@ -1,6 +1,6 @@
 "use client";
 
-import { LivingMemoryDocument } from "@/components/profile/living-memory-document";
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { EMAIL_UPDATES_DESCRIPTION, MarketingPreferencePanel } from "@/components/account/marketing-preference-panel";
 import { AttemptEmailPanel } from "@/components/account/attempt-email-panel";
 import { useMarketingPreference } from "@/components/account/use-marketing-preference";
@@ -73,15 +73,12 @@ import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
 import {
   PkmAccessManagerPanel,
   PkmAccessConnectionDetailPanel,
-  PkmDataManagerPanel,
   PkmDomainDetailPanel,
 } from "@/components/profile/pkm-data-manager";
-import { SharedWithYouGroup } from "@/components/profile/shared-with-you-group";
 import { useMemorySharedModel } from "@/components/profile/use-memory-shared-model";
 import { PersonalWorldModelPage, usePersonalWorldModelModel } from "@/components/profile/personal-world-model-page";
 import { useNativeWorldModel } from "@/components/profile/use-native-world-model";
 import { DocumentRequestPricingCard } from "@/components/consent/document-request-pricing-card";
-import { SecretsListGroup } from "@/components/secrets/secrets-list-group";
 import { useSecretsListModel } from "@/components/secrets/use-secrets-list-model";
 import {
   ProfileStackNavigator,
@@ -106,6 +103,7 @@ import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-avai
 import { ProfileAppearancePreferences } from "@/components/profile/profile-appearance-preferences";
 import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
 import { ProfileAppearanceControls } from "@/components/profile/profile-appearance-controls";
+import { ExperimentalNativeInterface } from "@/components/profile/experimental-native-interface";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import {
   AlertDialog,
@@ -237,7 +235,7 @@ import {
   type SupportMessageKind,
 } from "@/lib/services/support-service";
 import { ReferralsPanel } from "@/components/profile/referrals-panel";
-import TrustedDevicesPage from "@/components/profile/trusted-devices-page";
+import TrustedDevicesPage, { TrustedDeviceConfirmation } from "@/components/profile/trusted-devices-page";
 import { useTrustedDevicesModel } from "./use-trusted-devices-model";
 import { useNativeTrustedDevices } from "./use-native-trusted-devices";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
@@ -983,7 +981,8 @@ function ProfilePageContent({
   const [nativeWorldModelAvailable, setNativeWorldModelAvailable] = useState(false);
   const { agentSettingsActive, agentSettings, nativeAgentSettings, nativeConnectors, nativeConnectorsActive,
     setNativeConnectorsAvailable, nativePayoutActive, nativePayout, setNativePaymentsAvailable, setNativePaymentsFailed } = useNativeProfileFeatures({
-    panel: activePanel, native: presentation === "native-page", open: nativeMenuOpen, secure: vaultAccess.canMutateSecureData, owner: nativeDetailOwner, userId: applicationOwnerId || null, connectors: retainedConnectors });
+    panel: activePanel, native: presentation === "native-page", open: nativeMenuOpen, secure: vaultAccess.canMutateSecureData, owner: nativeDetailOwner, userId: applicationOwnerId || null, connectors: retainedConnectors,
+    onOpenOwnCloud: () => updateProfileView({ panel: "hosting", detail: "hosting-own-cloud" }, "push") });
   useBackLayer(pathname, nativeConnectorsActive && nativeConnectors.nested ? 3 : 0, nativeConnectors.back, { profile_pane: "1" });
   const nativeWorldModelActive = presentation === "native-page" && nativeMenuOpen && nativeWorldModelAvailable &&
     activePanel === "world-model" && vaultAccess.canMutateSecureData;
@@ -1246,9 +1245,22 @@ function ProfilePageContent({
     ],
   );
 
+  const openCanonicalMemoryRoute = useCallback(() => {
+    onNativeMenuClose?.();
+    router.push(ROUTES.PKM);
+  }, [onNativeMenuClose, router]);
+
+  useEffect(() => {
+    if (legacyProfileRedirectHref || activePanel !== "my-data" || activeDetail) {
+      return;
+    }
+    onNativeMenuClose?.();
+    router.replace(ROUTES.PKM);
+  }, [activeDetail, activePanel, legacyProfileRedirectHref, onNativeMenuClose, router]);
+
   const nativeWorldModel = useNativeWorldModel({ active: nativeWorldModelActive, owner: nativeDetailOwner, model: worldModel,
     onAccount: () => updateProfileView({ panel: "account", detail: null }, "push"),
-    onMemory: () => updateProfileView({ panel: "my-data", detail: null }, "push") });
+    onMemory: openCanonicalMemoryRoute });
   const changeRetainedConnector = useRetainedProfileConnectorNavigation({ pane: isPanePresentation, pathname, query: searchParams, detail: activeDetail, updateView: updateProfileView });
   useBackLayer(pathname, nativeWorldModelActive && nativeWorldModel.nested ? 3 : 0, nativeWorldModel.back,
     isPanePresentation ? { profile_pane: "1" } : undefined);
@@ -1301,11 +1313,11 @@ function ProfilePageContent({
   const [nativeVoiceAvailable, setNativeVoiceAvailable] = useState(false);
   const voiceParent = profilePanelParentForPresentation("preferences", panePresentation?.history);
   const [nativeRuntimeAvailable, setNativeRuntimeAvailable] = useState(false);
-  const runtimeSettings = useGeminiRuntimeSettingsModel({ userId: applicationOwnerId, vaultKey, vaultOwnerToken,
+  const runtimeSettings = useGeminiRuntimeSettingsModel({ userId: applicationOwnerId, vaultKey, vaultOwnerToken, getCurrentVaultOwnerToken: getVaultOwnerToken,
     needsVaultCreation: vaultAccess.needsVaultCreation, needsUnlock: vaultAccess.needsUnlock,
     onRequestVaultCreation: () => requestVaultUnlock("profile_data"), onRequestVaultUnlock: () => requestVaultUnlock("profile_data"),
     enabled: activePanel === "preferences" && activeDetail === "gemini" && (presentation !== "native-page" || nativeMenuOpen) });
-  const nativeRuntimeEligible = runtimeSettings.placement === "shared" && !runtimeSettings.otherProvider && nativeRuntimeAvailable && voiceParent !== null && presentation === "native-page" && nativeMenuOpen &&
+  const nativeRuntimeEligible = runtimeSettings.placement === "shared" && runtimeSettings.addingProvider !== "openai" && nativeRuntimeAvailable && voiceParent !== null && presentation === "native-page" && nativeMenuOpen &&
     activePanel === "preferences" && activeDetail === "gemini" && isVaultUnlocked;
   const nativeRuntime = useNativeRuntimeSettings(runtimeSettings, nativeDetailOwner, nativeRuntimeEligible);
   const nativeRuntimeActive = nativeRuntimeEligible && !nativeRuntime.failed;
@@ -1708,7 +1720,7 @@ function ProfilePageContent({
   // Returns what actually happened so the voice wrapper narrates the same
   // outcome the screen shows. "unknown" (a lost response after a possible
   // commit) is kept distinct from "failed"; neither is ever spoken as deleted.
-  const handleDeleteAccount = async (): Promise<LifecycleOutcome> => {
+  const handleDeleteAccount = async (reviewedCloudPlanSha256?: string): Promise<LifecycleOutcome> => {
     const owner = snapshotValidatedAuthSessionPrincipal();
     if (!user || !owner || owner.firebaseUid !== user.uid) return "auth_failed";
 
@@ -1760,6 +1772,7 @@ function ProfilePageContent({
               vaultOwnerToken: token,
               sessionUser: user,
               vaultKey,
+              ...(reviewedCloudPlanSha256 ? { reviewedCloudPlanSha256 } : {}),
             });
           })(),
           {
@@ -2032,7 +2045,7 @@ function ProfilePageContent({
       return { kind: "rejected" };
     }
 
-    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    if (!isNetworkOnline()) {
       setSupportComposerState({
         status: "error",
         message: "You're offline. Reconnect to send your message.",
@@ -2318,14 +2331,6 @@ function ProfilePageContent({
         voiceAliases: ["request pricing", "Drive price", "document price"],
       },
       {
-        id: "profile_my_data",
-        label: "Memory",
-        purpose: "opens saved details and sharing.",
-        actionId: "route.profile_my_data",
-        role: "card",
-        voiceAliases: ["my data", "saved details"],
-      },
-      {
         id: "profile_preferences",
         label: PROFILE_LABELS.preferences,
         purpose: "opens appearance and Agent One preferences.",
@@ -2499,7 +2504,6 @@ function ProfilePageContent({
           "Agent updates",
           "Payments and earnings",
           "Request pricing",
-          "Memory",
           "Access & sharing",
           ...(localCrmEnabled ? ["Connected Systems"] : []),
           "Mail receipts",
@@ -3529,54 +3533,6 @@ function ProfilePageContent({
     }
   };
 
-  const myDataContent = (
-    <div
-      className={cn(
-        "space-y-4 sm:space-y-5",
-        isPanePresentation && "profile-account-content",
-        isPanePresentation && accountStyles.paneAccountContent,
-        isPanePresentation && accountStyles.managedContent,
-      )}
-    >
-      <PkmDataManagerPanel
-        signedIn={Boolean(user)}
-        loading={profileManagerLoading}
-        metadataReady={pkmMetadataReady}
-        metadataError={pkmError}
-        sharingReady={consentCenterReady}
-        sharingError={consentCenterError}
-        needsVaultCreation={vaultAccess.needsVaultCreation}
-        needsUnlock={vaultAccess.needsUnlock}
-        summary={profileSummary}
-        domains={domainPresentations}
-        loadingManifestsByDomain={loadingDomainManifests}
-        manifestErrorsByDomain={domainManifestErrors}
-        onOpenSharing={() =>
-          updateProfileView({ panel: "my-data", detail: "sharing" }, "push")
-        }
-        onOpenImport={() => router.push(ROUTES.KAI_IMPORT)}
-        onRefresh={() => {
-          void refreshPkmMetadata(true);
-          void refreshConsentCenter(true);
-          void refreshVisibleDomainManifests(true);
-        }}
-        onOpenDomain={(domain) =>
-          updateProfileView(
-            {
-              panel: "my-data",
-              detail: `domain:${domain.key}`,
-            },
-            "push",
-          )
-        }
-      />
-      {isVaultUnlocked ? (
-        <SharedWithYouGroup vaultOwnerToken={vaultOwnerToken} model={memoryShared.shared} received={memoryShared.received} />
-      ) : null}
-      {isVaultUnlocked ? <SecretsListGroup onUnlock={() => undefined} model={memorySecrets} /> : null}
-    </div>
-  );
-
   const accessContent = (
     <div
       className={cn(
@@ -3761,7 +3717,7 @@ function ProfilePageContent({
         <SettingsRow
           iconTone="capability"
           leading={
-              <span className="profile-account-provider-icon inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-lg">
+              <span className="profile-account-provider-icon inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
                 <ProviderIcon providerId={provider.id} email={user.email} />
               </span>
           }
@@ -3840,7 +3796,7 @@ function ProfilePageContent({
         <SettingsRow
           leading={<Brain className="h-8 w-8" />}
           title="AI connection"
-          description="Cloud or your own key."
+          description="Cloud connection or your own key."
           chevron
           onClick={() =>
             updateProfileView(
@@ -3853,7 +3809,7 @@ function ProfilePageContent({
           icon={PROFILE_ICONS.voice}
           iconTone="capability"
           title="Voice"
-          description="Abilities and safety controls."
+          description="What One's voice can do, and its safety controls."
           chevron
           onClick={() =>
             updateProfileView({ panel: "preferences", detail: "voice" }, "push")
@@ -3862,6 +3818,7 @@ function ProfilePageContent({
       </SettingsGroup>
       </>
       )}
+      <ExperimentalNativeInterface />
       <SettingsGroup title="Notifications">
         <p className="px-4 py-3 text-sm text-muted-foreground">
           Manage device alerts for messages, shares, and requests.
@@ -3933,7 +3890,6 @@ function ProfilePageContent({
             variant="none"
             effect="fill"
             showRipple={false}
-            data-profile-role="cta"
             className="h-[52px] w-full rounded-[16px] bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-white shadow-none hover:bg-[color:var(--app-accent)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
             onClick={() => {
               setSupportComposerState({ status: "editing" });
@@ -4024,8 +3980,8 @@ function ProfilePageContent({
             {supportReplyLine}
           </p>
           <p className="mt-1 text-[13px] leading-[18px] text-muted-foreground">
-            Goes to One support, with a copy to our support lead. No
-            automatic receipt.
+            Your message goes to One support, with an internal copy to our
+            support lead. No automatic receipt is sent.
           </p>
 
           {supportComposerState.status === "error" ? (
@@ -4045,7 +4001,6 @@ function ProfilePageContent({
             effect="fill"
             showRipple={false}
             loading={sendingSupportMessage}
-            data-profile-role="cta"
             className="mt-5 h-[52px] w-full rounded-[16px] bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-white shadow-none hover:bg-[color:var(--app-accent)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-70"
             aria-describedby={
               supportComposerState.status === "error"
@@ -4314,7 +4269,7 @@ function ProfilePageContent({
       title: activePanel === "hosting" ? "Hosting" : "Agent updates",
       description:
         activePanel === "hosting"
-          ? "Where your private agent runs."
+          ? "Where Agent One runs."
           : "Your version and available updates.",
       content: (
         <AgentSettingsPanel
@@ -4326,7 +4281,6 @@ function ProfilePageContent({
           }
         />
       ),
-      typeScale: activePanel === "hosting" ? "connect" : undefined,
     });
     if (activePanel === "hosting" && activeDetail === "hosting-details") {
       profileStackEntries.push({
@@ -4344,7 +4298,6 @@ function ProfilePageContent({
             }
           />
         ),
-        typeScale: "connect",
       });
     } else if (activePanel === "hosting" && activeDetail === "hosting-own-cloud") {
       profileStackEntries.push({
@@ -4353,7 +4306,9 @@ function ProfilePageContent({
         description: "Run Agent One in your own Google Cloud or Microsoft Azure project.",
         content: (
           <Suspense fallback={null}>
-            <ByocCloudSetupPage embedded initialIntent="own" />
+            <ByocCloudSetupPage embedded initialIntent="own" owningRoute={pathname}
+              backQuery={isPanePresentation ? { profile_pane: "1" } : undefined}
+              onFinish={() => popProfileStack()} />
           </Suspense>
         ),
       });
@@ -4381,7 +4336,6 @@ function ProfilePageContent({
       title: "Account",
       content: accountContent,
       presentation: "account",
-      typeScale: "connect",
     });
     if (activeDetail === "phone") {
       profileStackEntries.push({
@@ -4441,7 +4395,7 @@ function ProfilePageContent({
     profileStackEntries.push({
       key: "panel:net-worth-score",
       title: "Net Worth Score",
-      content: <NetWorthScoreCard report={nws.report} status={nws.status ?? nws.coverageStatus} primary={nws.primary} secondary={nws.secondary} detail />,
+      content: <NetWorthScoreCard report={nws.report} status={nws.status} primary={nws.primary} secondary={nws.secondary} detail />,
     });
   } else if (!routeBlockedByVault && activePanel === "world-model") {
     // The Profile pane is how /one/profile/world-model is presented (proxy.ts
@@ -4463,7 +4417,7 @@ function ProfilePageContent({
           <PersonalWorldModelPage
             embedded
             model={worldModel}
-            onManageDetails={() => openVaultBackedPanel("my-data")}
+            onManageDetails={openCanonicalMemoryRoute}
             onOpenAccount={openAccountPanel}
           />
         </div>
@@ -4506,10 +4460,9 @@ function ProfilePageContent({
       title: "Memory",
       description: "Saved details and sharing.",
       content: (
-        <div className="space-y-4">
-          <LivingMemoryDocument />
-          {myDataContent}
-        </div>
+        <p role="status" className="py-4 text-sm text-muted-foreground">
+          Opening Memory…
+        </p>
       ),
     });
     if (selectedDomain) {
@@ -4651,7 +4604,6 @@ function ProfilePageContent({
       title: PROFILE_LABELS.preferences,
       description: "Theme, accent and how One writes.",
       content: preferencesContent,
-      typeScale: "connect",
     });
     if (activeDetail === "kai-preferences") {
       profileStackEntries.push({
@@ -4727,8 +4679,9 @@ function ProfilePageContent({
       profileStackEntries.push({
         key: "detail:trusted-devices",
         title: "Trusted devices",
-        description: "Devices connected to Agent One.",
-        content: <TrustedDevicesPage panePresentation={isPanePresentation} model={devicesModel} />,
+        description: "Devices connected to your private agent.",
+        content: <TrustedDevicesPage panePresentation={isPanePresentation} model={devicesModel}
+          renderConfirmation={presentation !== "native-page" || !nativeDevicesAvailable} />,
       });
     }
   } else if (!routeBlockedByVault && activePanel === "gmail") {
@@ -4764,9 +4717,8 @@ function ProfilePageContent({
     profileStackEntries.push({
       key: "panel:support",
       title: PROFILE_LABELS.support,
-      description: "Tell us what you need.",
+      description: "Tell us what you need. We'll route it to the right team.",
       content: supportContent,
-      typeScale: "connect",
     });
   }
 
@@ -4777,7 +4729,6 @@ function ProfilePageContent({
     account: openAccountPanel,
     payouts: () => openVaultBackedPanel("payouts"),
     "request-pricing": () => openVaultBackedPanel("request-pricing"),
-    "my-data": () => openVaultBackedPanel("my-data"),
     "world-model": () => openVaultBackedPanel("world-model"),
     preferences: openPreferencesPanel,
     security: openSecurityPanel,
@@ -4824,7 +4775,7 @@ function ProfilePageContent({
       <AppPageContentRegion>
         <SurfaceStack compact>
           <NetWorthScoreCard report={nws.report} status={nws.status} primary={nws.primary}
-            onOpen={() => openVaultBackedPanel("net-worth-score")} />
+            secondary={nws.secondary} onOpen={() => openVaultBackedPanel("net-worth-score")} />
           <div className="profile-home-content">
             {menuGroups.map(group => <SettingsGroup key={group.id} title={group.title} separatorInset rowSizing="uniform">
               {group.entries.map(entry => <SettingsRow key={entry.id}
@@ -4963,9 +4914,9 @@ function ProfilePageContent({
           ? undefined
           : {
               routeId: profileNativeRouteId,
-              marker: "native-route-profile",
+              marker: activePanel === "world-model" ? "native-route-profile-world-model" : "native-route-profile",
               authState: user ? "authenticated" : "pending",
-              dataState: authLoading ? "loading" : "loaded",
+              dataState: authLoading ? "loading" : activePanel === "world-model" ? worldModel.nativeDataState : "loaded",
             }
       }
     >
@@ -5086,7 +5037,7 @@ function ProfilePageContent({
               {deleteDialogTitle}
             </AlertDialogTitle>
             <AlertDialogDescription className={accountStyles.accountDialogDescription}>
-              {cloudCleanupRequired ? "Cloud cleanup is required before account deletion." : deleteDialogDescription}
+              {cloudCleanupRequired ? "Review cloud cleanup to continue account deletion." : deleteDialogDescription}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {cloudCleanupRequired && applicationOwnerId ? <AccountCloudCleanup key={applicationOwnerId} userId={applicationOwnerId} token={vaultOwnerToken ?? null}
@@ -5227,7 +5178,7 @@ function ProfilePageContent({
     referrals={{ active: nativeReferralActive, pages: nativeReferrals.pages, rows: nativeReferrals.rows, editor: nativeReferrals.editor, formScene: nativeReferrals.formScene,
       root: () => updateProfileView({ panel: null, detail: null }, "replace") }}
     workspace={activePanel === "hosting" || activePanel === "software-updates" ? { kind: activePanel,
-      active: agentSettingsActive && !showVaultUnlock, pages: nativeAgentSettings.pages, rows: nativeAgentSettings.rows,
+      active: agentSettingsActive && !showVaultUnlock && activeDetail !== "hosting-own-cloud", pages: nativeAgentSettings.pages, rows: nativeAgentSettings.rows,
       back: () => { if (nativeAgentSettings.navigationBlocked()) return false; if (!nativeAgentSettings.back()) popProfileStack(); return true; },
       ancestor: () => { if (nativeAgentSettings.root()) return true; return false; },
       root: () => { if (!nativeAgentSettings.root()) return false; updateProfileView({ panel: null, detail: null }, "replace"); return true; }
@@ -5269,7 +5220,7 @@ function ProfilePageContent({
       editor: destinationId => nativePricingEditorOpen ?
         <NativeRequestPricingEditor userId={applicationOwnerId} model={nativePricingModel} destinationId={destinationId}
           onClose={() => setNativePricingEditorOpen(false)} onFallback={() => { setNativePricingEditorOpen(false); setNativePricingFailed(true); }} /> : null }}
-    detailOverlay={<>{nativeAccountException === "photo" ? <ProfileAvatarEditor openOnMount optionsOnMount
+    detailOverlay={<>{devicesActive && nativeDevicesAvailable ? <TrustedDeviceConfirmation model={devicesModel} /> : null}{nativeAccountException === "photo" ? <ProfileAvatarEditor openOnMount optionsOnMount
       onPresentationClose={() => setNativeAccountException(null)} /> : null}{vaultOverlays}</>}
     phone={{ active: activePanel === "account" && activeDetail === "phone" && !showVaultUnlock && nativeMenuOpen && !phoneLookupPending,
       editor: options => <NativePhoneVerificationFlow {...options} {...accountPhoneProps} webHost={nativePhoneHost}
@@ -5378,7 +5329,7 @@ function ProfilePageContent({
       },
       groups: menuGroups, actions: menuActions,
       ...(nws.unlocked ? { scoreCard: {
-        amount: netWorthScoreDisplay(nws.report).amount, status: nws.status, primary: nws.primary,
+        ...netWorthScoreDisplay(nws.report), status: nws.status, primary: nws.primary, secondary: nws.secondary,
         onOpen: () => openVaultBackedPanel("net-worth-score"),
       } } : {}) }}
     page={{ pane: true, contentInset: "profile", bodyClassName: "profile-pane-scroll-root",

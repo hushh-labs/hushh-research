@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { User } from "firebase/auth";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";

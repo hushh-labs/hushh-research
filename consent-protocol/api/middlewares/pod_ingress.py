@@ -70,6 +70,7 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         "/api/one/pod/commands/assess",
         "/api/one/pod/memory/proposals",
         "/api/one/pod/memory/rewrite",
+        "/api/one/pod/answers/compose",
         "/api/one/pod/files/worker",
         "/api/one/pod/tasks",
         "/api/one/pod/tasks/control",
@@ -102,14 +103,13 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         "/api/one/pod/files/workspaces/forget",
         "/api/one/pod/status",
         "/api/one/pod/config",
-        "/api/one/pod/circle-rules",
-        "/api/one/pod/circle-rules/preview",
         "/api/one/pod/turn",
         "/api/one/pod/turn/stream",
         "/api/one/pod/turn/cancel",
         "/api/one/pod/puppy/models",
         "/api/one/pod/agent-chat",
         "/api/one/pod/agent-chat/capabilities",
+        "/api/one/pod/agent-chat/migration/import",
         # The owner's ratings, and voice command proposals validated and
         # checkpointed in the agent (pod_command_proposals.py). Same owner app
         # session as chat; ids, enums and the owner's own plan only.
@@ -165,6 +165,10 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         # `pod.config` to change it and `pod.status` to read it), and the envelope is
         # opened only after that admission, by a key that never leaves this process.
         "/api/one/pod/ai-selection",
+        "/api/one/pod/ai-selection/activate",
+        "/api/one/pod/ai-selection/deactivate",
+        "/api/one/pod/circle-rules",
+        "/api/one/pod/circle-rules/preview",
     }
 )
 APP_SURFACE_PREFIXES: tuple[str, ...] = (
@@ -193,11 +197,11 @@ APP_SURFACE_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
         rf"/api/one/pod/agent-chat/runs/{_CONVERSATION}/queue/[A-Za-z0-9_-]{{8,64}}",
         rf"/api/one/pod/agent-chat/proposals/{_UUID}(?:/(?:settle|dispatch))?",
         r"/api/one/pod/connectors/(?:gmail|calendar|drive|contacts)",
+        r"/api/one/pod/circle-rules/rule_[a-z0-9][a-z0-9_-]{7,63}(?:/toggle)?",
         r"/api/one/pod/actions/(?:gcal|gmod|gdrv)_[A-Za-z0-9_-]{16,64}/confirm",
         r"/api/one/pod/actions/(?:gmod|gcal)_[A-Za-z0-9_-]{16,64}/status",
         r"/api/one/pod/browser/tasks/browser_[a-f0-9]{32}(?:/(?:frame|control|input|review|session))?",
         r"/api/one/pod/browser/tasks/browser_[a-f0-9]{32}/downloads/[a-f0-9]{32}",
-        r"/api/one/pod/circle-rules/rule_[a-z0-9][a-z0-9_-]{7,63}(?:/toggle)?",
     )
 )
 

@@ -133,6 +133,78 @@
       "control_ids": ["auth_back"],
       "state_exposure": [],
       "docs_references": []
+    },
+    {
+      "action_id": "auth.deletion_start_fresh",
+      "label": "Start fresh",
+      "meaning": "Opens the existing sign-in choices after confirmed account deletion with deferred cloud cleanup. It does not create an account, reuse SMS proof, restore information or adopt an old pod.",
+      "aliases": [
+        "start fresh"
+      ],
+      "search_keywords": [
+        "account",
+        "delete",
+        "start fresh"
+      ],
+      "reachability": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.deletion_start_fresh"
+      },
+      "control_ids": [
+        "login_deletion_start_fresh"
+      ],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "auth.deletion_done",
+      "label": "Done",
+      "meaning": "Leaves the confirmed deletion screen for public welcome. Pending cloud cleanup remains independent.",
+      "aliases": [
+        "done"
+      ],
+      "search_keywords": [
+        "account",
+        "delete",
+        "done"
+      ],
+      "reachability": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.deletion_done"
+      },
+      "control_ids": [
+        "login_deletion_done"
+      ],
+      "state_exposure": [],
+      "docs_references": []
     }
   ],
   "search": {}

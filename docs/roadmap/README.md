@@ -39,6 +39,7 @@ flowchart LR
 | [Infrastructure direction](hussh-one-infra/README.md) | `Proposed` | Future integration, isolation, and hosting designs. |
 | [Finance roadmap](kai/README.md) | `Proposed` | Proposed Kai specialist extensions. |
 
+Current shipped UAT and production memory remains encrypted Markdown inside PKM. See [Memory and PKM](../architecture/modules/memory.md) and the [Personal Wiki Memory plan](personal-wiki-memory-plan.md) for how Dev preview work graduates into general availability.
 
 ## Promotion and retirement rule
 
@@ -46,6 +47,7 @@ Keep intended behavior, dependencies, and open decisions explicit in each propos
 
 ## Further reading
 
+- [Agent Sandbox microVM pool and standalone Terminal](personal-agent/agent-sandbox-microvm-plan.md)
 - [Apple a plus](apple-a-plus/README.md)
 - [Email Agent: Inbox Nudges & A2A (`feat/email-a2a`)](email-agent-nudges-plan.md)
 - [Independent Email OTP and Microsoft Sign-In Plan](independent-email-otp-and-microsoft-sign-in-plan.md)
@@ -57,6 +59,7 @@ Keep intended behavior, dependencies, and open decisions explicit in each propos
 - [One/Kai/Nav/KYC Runtime Plan](one-nav-runtime-plan.md)
 - [One Product Surface Evolution Plan](one-product-surface-evolution-plan.md)
 - [Agent One Voice: Siri Handshake and Voice Handoff PRD](one-voice-siri-handshake-prd.md)
+- [Personal Wiki Memory, Consent-Safe PKM Projections, and ADK Recall Plan](personal-wiki-memory-plan.md)
 - [PKM Data-Slice Marketplace Plan](pkm-slice-marketplace-plan.md)
 - [Proposals](proposals/README.md)
 - [Repository organization and unified development agents](repository-organization-plan.md)

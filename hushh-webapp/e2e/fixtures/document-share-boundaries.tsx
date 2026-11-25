@@ -26,7 +26,7 @@ export function useVault() {
     },
     () => unlocked,
   );
-  return { isVaultUnlocked, getVaultOwnerToken: getToken };
+  return { isVaultUnlocked, vaultOwnerToken: isVaultUnlocked ? getToken() : null, getVaultOwnerToken: getToken };
 }
 export const ApiService = {
   // These sharing assertions exercise an explicitly selected Shared owner.

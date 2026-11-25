@@ -282,12 +282,47 @@ describe("refreshing on unlock", () => {
       connections_v1: {
         item_1: { ...linked.connections_v1.item_1, last_refreshed_at: new Date().toISOString() },
       },
+      accounts: { schema: "plaid-accounts-v1" },
+      liabilities: { schema: "plaid-liabilities-v1" },
+      cashflow: { schema: "plaid-cashflow-v1" },
       linked_accounts: { schema_version: 1 },
     };
     const outcome = await refreshVaultConnections({ userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot", financial: fresh });
     expect(outcome.refreshed).toBe(0);
     expect(client.fetchVaultSnapshot).not.toHaveBeenCalled();
     expect(coordinator.saveMergedDomain).not.toHaveBeenCalled();
+  });
+
+  it("reads multiple due institutions concurrently before saving once", async () => {
+    const three = {
+      connections_v1: {
+        item_1: { ...linked.connections_v1.item_1, access_token: "access-1" },
+        item_2: { ...linked.connections_v1.item_1, access_token: "access-2" },
+        item_3: { ...linked.connections_v1.item_1, access_token: "access-3" },
+      },
+    };
+    saveRunsBuild(three);
+    const activeTokens = new Set<string>();
+    let maxConcurrent = 0;
+    const gate = new Promise<void>((resolve) => setTimeout(resolve, 25));
+    client.fetchVaultSnapshot.mockImplementation(async ({ accessToken }: { accessToken: string }) => {
+      activeTokens.add(accessToken);
+      maxConcurrent = Math.max(maxConcurrent, activeTokens.size);
+      await gate;
+      activeTokens.delete(accessToken);
+      const itemId = accessToken === "access-1" ? "item_1" : accessToken === "access-2" ? "item_2" : "item_3";
+      return snapshot({ item: { ...snapshot().item, item_id: itemId } });
+    });
+
+    const outcome = await refreshVaultConnections({
+      userId: "owner",
+      vaultKey: "vk",
+      vaultOwnerToken: "vot",
+      financial: three,
+    });
+    expect(outcome).toMatchObject({ refreshed: 3, failed: 0, saved: true });
+    expect(maxConcurrent).toBeGreaterThanOrEqual(2);
+    expect(coordinator.saveMergedDomain).toHaveBeenCalledTimes(1);
   });
 });
 

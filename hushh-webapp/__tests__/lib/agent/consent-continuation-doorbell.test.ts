@@ -104,21 +104,21 @@ function checkTimes(
  * 5s until thirty minutes, then 15s (never slower while visible).
  */
 function expectAdaptiveCadence(times: number[]): void {
-  // Fast window: a check every 2s for the first five minutes.
-  expect(times.slice(0, 5)).toEqual([2, 4, 6, 8, 10]);
-  expect(times.filter((t) => t <= 300)).toHaveLength(150);
-  // Five to thirty minutes: every 5s.
+  // Fast and steady windows: a fallback check every 30s up to thirty minutes.
+  expect(times.slice(0, 5)).toEqual([30, 60, 90, 120, 150]);
+  expect(times.filter((t) => t <= 300)).toHaveLength(10);
+  // Five to thirty minutes: every 30s.
   const steady = times.filter((t) => t > 300 && t <= 1_800);
-  expect(steady.slice(0, 3)).toEqual([305, 310, 315]);
-  expect(steady).toHaveLength(300);
-  // After thirty minutes: every 15s, never slower.
+  expect(steady.slice(0, 3)).toEqual([330, 360, 390]);
+  expect(steady).toHaveLength(50);
+  // After thirty minutes: every 60s.
   const slow = times.filter((t) => t > 1_800);
-  expect(slow.slice(0, 3)).toEqual([1_815, 1_830, 1_845]);
+  expect(slow.slice(0, 3)).toEqual([1_860, 1_920, 1_980]);
   const gaps = times.slice(1).map((t, index) => t - times[index]!);
-  expect(Math.max(...gaps)).toBe(15);
+  expect(Math.max(...gaps)).toBe(60);
 }
 
-const CADENCE_WINDOW_MS = 1_900_000;
+const CADENCE_WINDOW_MS = 2_000_000;
 
 /** A negative control: the old fixed 8s poll, which the contract must reject. */
 function startFlatEightSecondPoll(input: { check: () => void }): { stop: () => void } {
@@ -153,12 +153,12 @@ describe("information request doorbell", () => {
     clearSentInformationRequests(null);
   });
 
-  it("checks every 2s for five minutes, every 5s to thirty minutes, then every 15s", () => {
+  it("checks every 30s for thirty minutes, then every 60s", () => {
     const times = checkTimes((input) => startInformationRequestDoorbell({ ...input, listen: false }), CADENCE_WINDOW_MS);
     expectAdaptiveCadence(times);
-    // An Allow at minute three is seen within about 2s.
+    // An Allow at minute three is picked up within 30s by fallback polling if SSE didn't already wake it.
     const afterThreeMinutes = times.find((t) => t >= 180)!;
-    expect(afterThreeMinutes - 180).toBeLessThanOrEqual(2);
+    expect(afterThreeMinutes - 180).toBeLessThanOrEqual(30);
   });
 
   it("negative control: a flat 8s poll and the old two-minute backoff both fail the cadence check", () => {
@@ -196,7 +196,7 @@ describe("information request doorbell", () => {
       waitingSinceMs: () => startedAt,
       isVisible: () => document.visibilityState !== "hidden",
     });
-    vi.advanceTimersByTime(4_000);
+    vi.advanceTimersByTime(60_000);
     expect(check).toHaveBeenCalledTimes(2);
 
     visibility = "hidden";
@@ -209,7 +209,7 @@ describe("information request doorbell", () => {
     document.dispatchEvent(new Event("visibilitychange"));
     // Instant, not after the next interval.
     expect(check).toHaveBeenCalledTimes(3);
-    vi.advanceTimersByTime(2_000);
+    vi.advanceTimersByTime(30_000);
     expect(check).toHaveBeenCalledTimes(4);
 
     // Focus also resumes at once.
@@ -233,7 +233,7 @@ describe("information request doorbell", () => {
     vi.advanceTimersByTime(1_000);
     doorbell.ring();
     expect(check).toHaveBeenCalledTimes(1);
-    vi.advanceTimersByTime(1_999);
+    vi.advanceTimersByTime(29_999);
     expect(check).toHaveBeenCalledTimes(1);
     vi.advanceTimersByTime(1);
     expect(check).toHaveBeenCalledTimes(2);
@@ -254,7 +254,7 @@ describe("information request doorbell", () => {
     since = Date.now();
     doorbell.ring();
     check.mockClear();
-    vi.advanceTimersByTime(6_000);
+    vi.advanceTimersByTime(90_000);
     expect(check).toHaveBeenCalledTimes(3);
     doorbell.stop();
   });
@@ -774,16 +774,16 @@ describe("watching live access for its end: one shared watch", () => {
     return times;
   }
 
-  // Run 4 (P1a): the request card took 20-26s to read "Access ended".
-  it("checks about every 5s for the first minute after an answer, then every 10s", async () => {
+  // Fallback cadence keeps compute low while SSE delivers real-time updates.
+  it("checks about every 30s for the first minute after an answer, then every 60s", async () => {
     const startedAt = Date.now();
     const release = watchLiveAccess({ bundleId: BUNDLE_A, vaultOwnerToken: "owner-token" });
-    const times = await readTimes(BUNDLE_A, 120_000, startedAt);
+    const times = await readTimes(BUNDLE_A, 180_000, startedAt);
     release();
-    expect(times.filter((t) => t <= 60)).toEqual([5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]);
-    expect(times.filter((t) => t > 60)).toEqual([70, 80, 90, 100, 110, 120]);
-    expect(liveAccessDelayMs(0)).toBe(5_000);
-    expect(liveAccessDelayMs(LIVE_ACCESS_FAST_WINDOW_MS)).toBe(10_000);
+    expect(times.filter((t) => t <= 60)).toEqual([30, 60]);
+    expect(times.filter((t) => t > 60)).toEqual([120, 180]);
+    expect(liveAccessDelayMs(0)).toBe(30_000);
+    expect(liveAccessDelayMs(LIVE_ACCESS_FAST_WINDOW_MS)).toBe(60_000);
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -800,11 +800,11 @@ describe("watching live access for its end: one shared watch", () => {
     const heard: string[] = [];
     const unsubscribe = subscribeInformationRequest(BUNDLE_A, (bundle) => heard.push(bundle.bundleId));
     const times = await readTimes(BUNDLE_A, 60_000, startedAt);
-    expect(times).toHaveLength(12);
+    expect(times).toHaveLength(2);
     const calls = services.getInformationRequest.mock.calls.map(([input]) => (input as { bundleId: string }).bundleId);
-    expect(calls.filter((id) => id === BUNDLE_B)).toHaveLength(12);
+    expect(calls.filter((id) => id === BUNDLE_B)).toHaveLength(2);
     // Every surface hears every reading.
-    expect(heard).toHaveLength(12);
+    expect(heard).toHaveLength(2);
     // Releasing two of three holders keeps the bundle watched; the last one stops it.
     releases[0]!(); releases[1]!();
     expect(liveAccessWatchSnapshot().bundles).toContain(BUNDLE_A);

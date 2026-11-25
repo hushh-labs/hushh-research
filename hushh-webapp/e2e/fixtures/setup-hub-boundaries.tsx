@@ -52,6 +52,9 @@ export const isPersonalAgentReadyFromCachedFeed = () => false;
 // Production readiness stays active; credential and Contacts I/O remain inert.
 export const GEMINI_RUNTIME_CREDENTIAL_REF = "pkm:runtime_secrets.llm.gemini_api_key";
 export const PersonalKnowledgeModelService = { loadRuntimeSecret: unavailable };
+export const AI_ACTIVE_CONFIG_ID_REF = "pkm:runtime_secrets.llm.active_configuration_id";
+export const AI_BYOK_CONFIGS_REF = "pkm:runtime_secrets.llm.byok_configurations";
+export const parseSavedAiConfigurations = () => [];
 export const hasSavedAzureKey = unavailable;
 export const hasSavedOpenAiKey = unavailable;
 export const loadSelectedAiProvider = unavailable;

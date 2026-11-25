@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, type ReactNode } from "react";
+import { memo, useState, type ReactNode } from "react";
 import {
   Activity,
   AlertCircle,
@@ -76,6 +76,7 @@ export const AppStreamEventList = memo(function AppStreamEventList({
         "max-h-44 min-h-0 space-y-2 overflow-y-auto overscroll-contain pr-1",
         className
       )}
+      data-slot="stream-event-list"
       aria-label={ariaLabel}
     >
       {items.map((item) => {
@@ -125,6 +126,7 @@ export type AppStreamSectionProps = {
   count?: number;
   defaultOpen?: boolean;
   open?: boolean;
+  settledClosed?: boolean;
   onOpenChange?: (open: boolean) => void;
   emptyLabel?: string;
   className?: string;
@@ -139,6 +141,7 @@ export function AppStreamSection({
   count,
   defaultOpen = true,
   open,
+  settledClosed = false,
   onOpenChange,
   emptyLabel,
   className,
@@ -152,7 +155,7 @@ export function AppStreamSection({
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className={cn("ui-text-section-label group relative flex w-full items-center justify-between gap-3 rounded-[inherit] px-[6px] py-2 text-left transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70", appearance === "plain" && "min-h-11")}
+            className={cn("ui-text-section-label group relative flex w-full items-center justify-between gap-3 rounded-[inherit] px-[6px] py-2 text-left transition-[color,opacity] duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none active:enabled:opacity-80 [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70", appearance === "plain" && "min-h-11")}
           >
             <span className="inline-flex min-w-0 items-center gap-2">
               <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -165,14 +168,14 @@ export function AppStreamSection({
                 </span>
               ) : null}
               <ChevronDown
-                className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180"
+                className="h-3.5 w-3.5 transition-transform duration-[140ms] ease-[var(--ease-out)] motion-reduce:transition-none group-data-[state=open]:rotate-180"
                 aria-hidden="true"
               />
             </span>
             <MaterialRipple variant="none" effect="glass" />
           </button>
         </CollapsibleTrigger>
-        <CollapsibleContent>
+        <CollapsibleContent key={settledClosed ? "settled-closed" : "live"}>
           <div className={cn("px-3 pb-3 pt-1", bodyClassName)}>
             {content ?? (
               <AppStreamEventList
@@ -212,7 +215,7 @@ export type AppStreamPanelProps = {
   response?: ReactNode;
   responseText?: string;
   /** App-owned state shown while the model has not emitted response text yet. */
-  responsePendingLabel?: string;
+  responsePendingLabel?: ReactNode;
   isStreaming?: boolean;
   isError?: boolean;
   opportunities?: ReactNode;
@@ -263,6 +266,11 @@ export function AppStreamPanel({
   const activityNeedsAttention = progressItems.some((item) =>
     item.status === "waiting" || item.status === "blocked" || item.status === "error");
   const activityOpen = isStreaming || activityNeedsAttention;
+  const autoThinkingOpen = isStreaming && !hasResponse;
+  const [activityToggle, setActivityToggle] = useState<{ basis: boolean; open: boolean } | null>(null);
+  const [thinkingToggle, setThinkingToggle] = useState<{ basis: boolean; open: boolean } | null>(null);
+  const resolvedActivityOpen = activityToggle?.basis === activityOpen ? activityToggle.open : activityOpen;
+  const resolvedThinkingOpen = thinkingToggle?.basis === autoThinkingOpen ? thinkingToggle.open : autoThinkingOpen;
 
   return (
     <section
@@ -292,12 +300,13 @@ export function AppStreamPanel({
             ) : null}
             {progressItems.length > 0 ? (
               <AppStreamSection
-                key={activityOpen ? "activity-open" : "activity-collapsed"}
                 title="Activity"
                 appearance={activityAppearance}
                 items={progressItems}
                 count={progressItems.length}
-                defaultOpen={activityOpen}
+                open={resolvedActivityOpen}
+                settledClosed={!isStreaming && !resolvedActivityOpen}
+                onOpenChange={(next) => setActivityToggle({ basis: activityOpen, open: next })}
               />
             ) : null}
           </div>
@@ -305,9 +314,8 @@ export function AppStreamPanel({
 
         {thinkingItems.length > 0 || thinkingContent ? (
           <AppStreamSection
-            // Auto-open while reasoning streams and no answer has begun; remount
-            // collapsed once the answer arrives so it never covers the response.
-            key={hasResponse ? "thinking-collapsed" : "thinking-open"}
+            // Auto-open while reasoning streams and no answer has begun; smoothly
+            // collapse once the answer arrives so it never covers the response.
             title={thinkingTitle}
             // Its own glyph. Both sections defaulted to the Activity icon, so a
             // turn that reasoned rendered two stacked collapsibles with the same
@@ -317,7 +325,9 @@ export function AppStreamPanel({
             icon={Brain}
             items={thinkingItems}
             count={thinkingContent ? undefined : thinkingItems.length}
-            defaultOpen={isStreaming && !hasResponse}
+            open={resolvedThinkingOpen}
+            settledClosed={!isStreaming && !resolvedThinkingOpen}
+            onOpenChange={(next) => setThinkingToggle({ basis: autoThinkingOpen, open: next })}
             bodyClassName={thinkingContent ? "px-3 py-2.5" : undefined}
             className={thinkingClassName}
             content={thinkingContent}
@@ -340,34 +350,41 @@ export function AppStreamPanel({
           <div
             role="status"
             aria-live="polite"
-            // A plain line, not a pill: the panel is already the container, and
-            // a filled pill inside it read as a box in a box. Same padding and
-            // line height as the answer below, so the answer takes its place
-            // without the row jumping.
             className="flex items-center gap-2 px-1 text-sm leading-6 text-muted-foreground"
           >
-            <Loader2 className="h-4 w-4 animate-spin text-accent-strong motion-reduce:animate-none" aria-hidden="true" />
-            <span>{responsePendingLabel}</span>
+            {typeof responsePendingLabel === "string" ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin text-accent-strong motion-reduce:animate-none" aria-hidden="true" />
+                <span>{responsePendingLabel}</span>
+              </>
+            ) : (
+              responsePendingLabel
+            )}
           </div>
         ) : null}
 
         {hasResponse ? (
           <div
+            data-slot="stream-response"
             className={cn(
               "px-1 text-sm leading-6",
               isError && "text-destructive"
             )}
             aria-live={isStreaming ? "polite" : undefined}
           >
-            {response ?? <p className="whitespace-pre-wrap break-words">{responseText}</p>}
-            {isStreaming ? (
-              <StreamingCursor
-                isStreaming
-                color={isError ? "error" : "primary"}
-                size="md"
-                className="ml-1"
-              />
-            ) : null}
+            {response ?? (
+              <p className="whitespace-pre-wrap break-words">
+                {responseText}
+                {isStreaming ? (
+                  <StreamingCursor
+                    isStreaming
+                    color={isError ? "error" : "primary"}
+                    size="md"
+                    className="ml-1"
+                  />
+                ) : null}
+              </p>
+            )}
           </div>
         ) : null}
 

@@ -46,6 +46,20 @@ const NOW = 1_700_000_000_000;
 afterEach(() => { api.currentBrowserId = null; publishValidatedAuthSessionOwner(null); CacheService.getInstance().clear(); vi.clearAllMocks(); });
 
 describe("trusted-device operation owner", () => {
+  it("keeps a pending device dialog out of the preparing Profile body while preserving inline web confirmation", async () => {
+    publishValidatedAuthSessionOwner("device-owner");
+    api.list.mockImplementation(async () => Response.json({ devices: [{ device_id: "public-device", device_name: "Public synthetic device", platform: "macos", status: "active" }] }));
+    const hook = renderHook(() => useTrustedDevicesModel("device-owner", true));
+    await waitFor(() => expect(hook.result.current.devices).toHaveLength(1));
+    act(() => hook.result.current.choose("public-device"));
+    await waitFor(() => expect(hook.result.current.confirmation).not.toBeNull());
+    const view = render(createElement(TrustedDevicesPage, { model: hook.result.current, panePresentation: true, renderConfirmation: false }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    view.rerender(createElement(TrustedDevicesPage, { model: hook.result.current, panePresentation: true }));
+    expect(await screen.findByRole("alertdialog")).toBeVisible();
+    expect(api.revoke).not.toHaveBeenCalled();
+    view.unmount();hook.unmount();
+  });
   const device = { device_id: "synthetic-device", device_name: "Test computer", platform: "macos", status: "active" };
   const listed = () => new Response(JSON.stringify({ devices: [device] }), { status: 200 });
   it("rejects stale vault/visit callbacks and late owner responses while preserving a valid unlink", async () => {

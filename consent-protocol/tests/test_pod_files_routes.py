@@ -2,6 +2,7 @@
 
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -12,6 +13,8 @@ from api.routes.one import pod_files
 from hushh_mcp.services.pod_files import jobs, runtime
 from hushh_mcp.services.pod_files.library import FilesLibrary, FilesRefused
 from hushh_mcp.services.pod_files.storage import FilesLocalStore
+from hushh_mcp.services.pod_s3_object_store import PodMultiCloudStorageError
+from tests.hosted_files_authority_cases import *  # noqa: F403 -- bounded selected case exports
 from tests.test_pod_files_jobs import queued_library as queued_library
 from tests.test_pod_session_authority import Subject, World, _binding
 from tests.test_pod_session_authority import hub_key as hub_key
@@ -466,3 +469,34 @@ async def test_upload_remains_complete_when_organization_setup_becomes_unavailab
         assert refused.value.detail["code"] == code
     assert await library.read_chunk(entry["id"], 0) == content
     assert (await library.stat(entry["id"]))["state"] == "ready"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("route_fn", "call_args"),
+    [
+        (pod_files.read_wiki_overview, ({},)),
+        (pod_files.read_wiki_page_detail, ({}, "wpg_missing_1234")),
+        (pod_files.list_files, ({},)),
+        (pod_files.read_workspace_status, ({},)),
+    ],
+)
+async def test_pod_files_routes_map_storage_outage_to_503(
+    monkeypatch: pytest.MonkeyPatch,
+    route_fn,
+    call_args: tuple[Any, ...],
+) -> None:
+    @asynccontextmanager
+    async def failing_operation(**_kwargs):
+        raise PodMultiCloudStorageError("prefix object store unreachable")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(pod_files, "operation", failing_operation)
+    monkeypatch.setattr(pod_files, "wiki_operation", failing_operation)
+    monkeypatch.setattr(pod_files, "workspace_operation", failing_operation)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await route_fn(*call_args)
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == {"code": "FILES_STORAGE_UNAVAILABLE"}

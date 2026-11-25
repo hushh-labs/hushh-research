@@ -113,7 +113,7 @@ function isFeedRoute(route) {
 }
 
 function isTodoListRoute(route) {
-  return route === "/one/todos";
+  return route === "/one/tasks";
 }
 
 function isConnectedSystemsRoute(route) {
@@ -163,7 +163,7 @@ function screenClassForRoute(route, mode, flags) {
     return "PKM-secure";
   }
   if (route.startsWith("/one/kai")) return "vault-backed";
-  if (isTodoListRoute(route)) return "PKM-secure";
+  if (isTodoListRoute(route) || route === "/one/goals") return "PKM-secure";
   if (route === "/one/profile" || isConsentCenterRoute(route))
     return "vault-backed";
   return mode === "hidden" ? "hidden flow" : "vault-backed";
@@ -216,6 +216,7 @@ function routeCacheKeys(route) {
   if (isTodoListRoute(route)) {
     return ["PKM_DOMAIN_RESOURCE(one_todos)", "Calendar event projection (memory-only)"];
   }
+  if (route === "/one/goals") return ["PKM_DOMAIN_RESOURCE(one_todos)"];
   if (route === "/one/profile")
     return ["KAI_PROFILE", "PKM_METADATA", "VAULT_STATUS"];
   if (route === "/pkm")
@@ -484,7 +485,8 @@ function invalidatorFor(route, screenClass) {
     route === "/gmail" ||
     route === "/one/profile/receipts" ||
     route === "/one/kyc" ||
-    isTodoListRoute(route)
+    isTodoListRoute(route) ||
+    route === "/one/goals"
   ) {
     return "CacheSyncService PKM/portfolio/write-through hooks";
   }
@@ -804,6 +806,28 @@ function linkageInvariants() {
   ) {
     violations.push(
       "/one/feed must retain its SWR + visible live-refresh + CacheSyncService lifecycle at CACHE_TTL.SHORT",
+    );
+  }
+
+  // Invariant 4: Scope pricing badges and proposal price previews must use
+  // synchronous L1 peek + batched single-flight catalog SWR + write-through
+  // CacheSyncService invalidation instead of per-row N+1 fetches.
+  const commerceServiceSource = readSource("lib/services/scope-commerce-service.ts");
+  const tariffEditorSource = readSource("components/consent/scope-tariff-editor.tsx");
+  const requestPriceSource = readSource("components/consent/information-request-price.tsx");
+  if (
+    !commerceServiceSource.includes("peekOwnerTariff") ||
+    !commerceServiceSource.includes("tariffCatalog") ||
+    !commerceServiceSource.includes("writeThroughOwnerTariff") ||
+    !tariffEditorSource.includes("peekOwnerTariff") ||
+    !tariffEditorSource.includes("tariffCatalog") ||
+    !tariffEditorSource.includes("writeThroughOwnerTariff") ||
+    !tariffEditorSource.includes("CacheSyncService.onConsentMutated") ||
+    !requestPriceSource.includes("pricePreviewCache") ||
+    !requestPriceSource.includes("CONSENT_STATE_CHANGED_EVENT")
+  ) {
+    violations.push(
+      "Scope pricing and proposal price previews must preserve L1 peek + batched tariffCatalog SWR + writeThroughOwnerTariff + CacheSyncService invalidation",
     );
   }
 

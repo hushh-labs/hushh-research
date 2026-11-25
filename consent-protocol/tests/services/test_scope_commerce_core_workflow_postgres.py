@@ -393,3 +393,44 @@ async def test_sandbox_actor_admission_bounds_new_paid_work_but_preserves_existi
     )
     await service.revoke_purchase(owner_user_id="owner", purchase_id=reserved["purchaseId"])
     assert (await service.balance(payer_user_id="payer"))["balanceCents"] == 50
+
+
+async def test_new_liability_stop_preserves_funded_replay_fulfillment_and_refund(
+    commerce_db, monkeypatch
+):
+    from hushh_mcp.services.scope_commerce.provider_config import ScopeCommerceProviderConfig
+    from hushh_mcp.services.scope_commerce.stripe_adapter import CommerceProviderError
+
+    service, _ = commerce_db
+    funding_id, _ = await fund(service, 50)
+    held_quote, held = await purchase(service, 1)
+    other_quote, _ = await purchase(service, 1)
+    await service.reserve_purchase(
+        payer_user_id="payer", quote_id=held_quote["quoteId"], idempotency_key="held"
+    )
+
+    def refuse(_config):
+        raise CommerceProviderError("provider_residual_resolution_unqualified")
+
+    monkeypatch.setattr(ScopeCommerceProviderConfig, "require_new_liability_resolution", refuse)
+    assert (
+        await service.reserve_funding(payer_user_id="payer", funding_id=funding_id, amount_cents=50)
+    )["fundingId"] == funding_id
+    assert (
+        await service.reserve_purchase(
+            payer_user_id="payer", quote_id=held_quote["quoteId"], idempotency_key="held"
+        )
+    )["purchaseId"] == held["purchaseId"]
+    with pytest.raises(CommerceProviderError, match="provider_residual_resolution_unqualified"):
+        await service.reserve_funding(
+            payer_user_id="payer", funding_id=str(uuid4()), amount_cents=50
+        )
+    with pytest.raises(CommerceProviderError, match="provider_residual_resolution_unqualified"):
+        await service.reserve_purchase(
+            payer_user_id="payer", quote_id=other_quote["quoteId"], idempotency_key="new"
+        )
+    assert (await staged(service, held))["status"] == "armed"
+    assert (await service.revoke_purchase(owner_user_id="owner", purchase_id=held["purchaseId"]))[
+        "refundedCents"
+    ] == 1
+    assert (await service.balance(payer_user_id="payer"))["balanceCents"] == 50

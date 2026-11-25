@@ -13,13 +13,26 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 _CLAIM_UPGRADE_SQL = """
+        WITH lease_host_authority AS MATERIALIZED (
+            SELECT set_config(
+                'hushh.upgrade_lease_host_binding',
+                format('%s|%s', CAST(:lease AS text), CAST(:lease_host_snapshot AS jsonb)::text),
+                true
+            ) AS binding
+        )
         UPDATE personal_agent_registry AS registry
         SET backend_metadata = jsonb_set(
-                coalesce(backend_metadata, '{}'::jsonb),
-                '{upgradeLease}',
-                to_jsonb(CAST(:lease AS text)),
+                jsonb_set(
+                    coalesce(backend_metadata, '{}'::jsonb),
+                    '{upgradeLease}',
+                    to_jsonb(CAST(:lease AS text)),
+                    true
+                ),
+                '{upgradeLeaseHost}',
+                CAST(:lease_host_snapshot AS jsonb),
                 true
             ) || CAST(:maintenance_metadata AS jsonb)
+        FROM lease_host_authority
         WHERE user_id = :user_id
           AND status = 'provisioned'
           AND NOT EXISTS (
@@ -45,11 +58,23 @@ _CLAIM_UPGRADE_SQL = """
         """
 
 _PUBLISH_UPGRADE_SQL = """
+        WITH lease_host_authority AS MATERIALIZED (
+            SELECT set_config(
+                'hushh.upgrade_lease_host_binding',
+                format(
+                    '%s|%s',
+                    CAST(:expected_lease AS text),
+                    CAST(:lease_host_snapshot AS jsonb)::text
+                ),
+                true
+            ) AS binding
+        )
         UPDATE personal_agent_registry AS registry
         SET backend_metadata = (
                 SELECT COALESCE(jsonb_object_agg(item.key, item.value), '{}'::jsonb)
                 FROM jsonb_each(COALESCE(registry.backend_metadata, '{}'::jsonb)) AS item
-                WHERE (item.key <> 'upgradeLease' OR CAST(:retain_lease AS boolean))
+                WHERE (item.key NOT IN ('upgradeLease', 'upgradeLeaseHost')
+                       OR CAST(:retain_lease AS boolean))
                   AND NOT (
                       CAST(:removed AS jsonb) ? item.key
                       AND CAST(:previous AS jsonb)->item.key IS NOT DISTINCT FROM item.value
@@ -58,8 +83,10 @@ _PUBLISH_UPGRADE_SQL = """
             liveness_mode = COALESCE(:liveness_mode, liveness_mode),
             model_credential_mode = COALESCE(:model_credential_mode, model_credential_mode),
             updated_at = NOW()
+        FROM lease_host_authority
         WHERE user_id = :user_id AND status = 'provisioned'
           AND backend_metadata->>'upgradeLease' = :expected_lease
+          AND backend_metadata->'upgradeLeaseHost' = CAST(:lease_host_snapshot AS jsonb)
           AND NOT EXISTS (
                 SELECT 1 FROM jsonb_each(CAST(:observed_registry AS jsonb)) AS observed
                 WHERE to_jsonb(registry)->observed.key IS DISTINCT FROM observed.value
@@ -86,9 +113,14 @@ def _metadata_delta(current: dict, previous: dict) -> tuple[dict, dict]:
     changes = {
         key: value
         for key, value in current.items()
-        if key != "upgradeLease" and (key not in previous or previous[key] != value)
+        if key not in {"upgradeLease", "upgradeLeaseHost"}
+        and (key not in previous or previous[key] != value)
     }
-    removed = {key: True for key in previous if key != "upgradeLease" and key not in current}
+    removed = {
+        key: True
+        for key in previous
+        if key not in {"upgradeLease", "upgradeLeaseHost"} and key not in current
+    }
     return changes, removed
 
 
@@ -114,6 +146,7 @@ async def claim_image_upgrade(
     """
     from hushh_mcp.services.personal_agent_registry_repo import (
         _upgrade_snapshot_params,
+        upgrade_host_binding_json,
         upgrade_host_snapshot,
     )
 
@@ -121,6 +154,10 @@ async def claim_image_upgrade(
     if snapshot is None or snapshot["user_id"] != user_id or snapshot["status"] != "provisioned":
         return None
     observed_params = _upgrade_snapshot_params(snapshot)
+    try:
+        observed_params["lease_host_snapshot"] = upgrade_host_binding_json(snapshot)
+    except (TypeError, ValueError):
+        return None
     now = datetime.now(timezone.utc)
     lease = f"{now.isoformat()}|{uuid.uuid4().hex}|{target_image}"
     maintenance_metadata = {}
@@ -159,6 +196,7 @@ async def record_image_upgrade(
     executor termination and provider outcome before recovery."""
     from hushh_mcp.services.personal_agent_registry_repo import (
         _upgrade_snapshot_params,
+        upgrade_host_binding_json,
         upgrade_host_snapshot,
     )
 
@@ -180,6 +218,10 @@ async def record_image_upgrade(
     if snapshot is None or snapshot["user_id"] != user_id or snapshot["status"] != "provisioned":
         return False
     observed_params = _upgrade_snapshot_params(snapshot, publishing=not require_unchanged_metadata)
+    try:
+        observed_params["lease_host_snapshot"] = upgrade_host_binding_json(snapshot)
+    except (TypeError, ValueError):
+        return False
     changes, removed = _metadata_delta(backend_metadata, previous_metadata)
     result = client.execute_raw(
         _PUBLISH_UPGRADE_SQL,

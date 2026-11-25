@@ -2,7 +2,7 @@
 
 ## Visual Context
 
-Canonical visual owner: [Operations Index](./README.md). Use that map for the top-down operations view; this page defines the repo-wide naming and compatibility contract beneath it.
+Canonical visual owner: [Operations Index](README.md). Use that map for the top-down operations view; this page defines the repo-wide naming and compatibility contract beneath it.
 
 ## Purpose
 

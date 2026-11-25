@@ -2,19 +2,6 @@
 
 [Streaming](README.md)
 
-Portfolio import displays stage-estimated progress with the shared stream meter,
-and only presents provisional holdings that the stream supplied. Summary fields
-remain placeholders until the terminal portfolio result arrives. A stage estimate
-is not a measure of provider completion, and failures never enable save actions.
-The loading and editable states share `PortfolioReviewFrame`, summary, accordion
-sections, holdings panel, and the same responsive table column sizing. Preview
-counts are entry counts, not authoritative position counts; missing currency,
-price and gain/loss stay placeholders. Terminal success and a parsed portfolio
-are required before edit/save controls mount. The meter settles at 100% through
-an abortable transition, with scroll preserved into review; Cancel still wins
-over late completion. Optional sections remain in place and explain missing
-statement information rather than collapsing the review layout.
-
 Managed One chat can explicitly delegate a whole public answer through
 `google_search.finish_turn`. The existing isolated search child still owns its
 completed cited answer; One selects whether it fulfills the entire request.
@@ -112,6 +99,7 @@ authority. Failed runs release their in-memory capture just like completed runs.
 - Consume streams with `hushh-webapp/lib/streaming/kai-stream-client.ts`.
 - Never add route-specific ad hoc parsers.
 - In Agent Chat, consume the existing AG-UI protocol through `hushh-webapp/lib/services/agent-chat-client.ts`; assistant text deltas are the source of incremental response text, not tool progress or provider payloads.
+- Approved provider thought summaries (`REASONING_MESSAGE_CONTENT` marked `husshThoughtSummary: true`) remain optional, display-only telemetry. When the selected model emits a summary on an ordinary turn, the assistant bubble surfaces a compact top-right info trigger that opens a responsive modal/sheet with the live or settled thought summary; turns without model thoughts, private receipt turns, and consent-shared turns omit the trigger. Thought summaries stay in owner-and-vault-epoch-scoped memory only and never enter SDK message snapshots, plaintext browser storage, or unredacted history endpoints.
 - Agent Chat's 90-second byte-idle watchdog begins after response headers and a
   stream body arrive. Cold pod admission retains its separate HTTP deadline;
   admission is not a silent model stream. Cancellation invalidates the run so
@@ -198,28 +186,6 @@ execution](https://docs.cloud.google.com/run/docs/tips/general).
 ### Personal World Model research
 
 `GET /api/one/world-model/jobs/stream` is an owner-authorized research stream, separate from the Kai envelope above. It sends `progress` with observed counts and source titles, a cumulative `partial` list of checkpointed cited findings, `ping` heartbeats, and a terminal `result`. The client parses complete SSE blocks with the shared parser and validates each payload against the PWM schema. A later `partial` replaces the earlier list, including an empty list after authority or evidence invalidation. Reconnect or a status read restores the current checkpoint; a provider interruption must not erase already validated provisional findings. Provisional findings are read-only until the final offered report passes evidence validation and the owner chooses what to save.
-
-### Typed Gmail evidence and coverage
-
-One delegates an authorized mailbox request to Email's existing scoped OSS tool loop.
-Search uses one native Gmail page and one batch. A rejected query can be corrected
-once before any usable page; the next page requires a new user turn. A listing
-does not download message bodies or attachments. Received time comes from Gmail's
-internal timestamp; reply headers and message/thread identities support source-bound
-comparison. The final assistant text is stored through the existing encrypted
-conversation owner.
-
-The live `specialist_read.v1` Mail receipt supports up to 60 opaque source
-references with per-source metadata or message coverage. Clients that send
-`emailReadReceiptContract: 2` also receive bounded `truncation_reasons`.
-Older clients and restored history keep the existing summary shape. Activity
-counts describe observed sources; they do not establish mailbox-wide completeness.
-
-Existing request IDs link the Root and Email terminal timing lines. Model and tool
-counts, first text, Gmail HTTP/API counts, and elapsed times are recorded without
-query or message content. The UAT attachment port is fail-closed: it requires the
-qualified private worker origin, service-scoped invocation and verified network
-reachability. Scanner or parser failure leaves the amount unresolved.
 
 ### Live Email and Calendar reads
 
@@ -575,32 +541,3 @@ activity rows and diagnostics. Invalid, repeated or ignored results show nothing
 The tool does not end the answer. Reactions are not sealed in ADK history or
 restored after reload. No new endpoint, SSE event, storage schema or model
 classifier is introduced. Voice instructions remain gated out.
-
-
-### Portfolio import source units
-
-The active import producer uses `hushh_mcp/kai_import/incremental_extract.py`
-through the existing Portfolio Import runtime. CSV uses at most 150 logical
-records / 45,000 source characters per mapping call (LOW, 2,048 output tokens,
-20-second deadline). Python copies numeric/text values from the agent's indexed
-cells. PDF uses the existing `pypdfium2` runtime in a dedicated child process to produce one-page PDFs in original order
-(LOW, 16,384 output tokens, 45-second deadline). The 360-second run budget and
-existing 120-second full-document fallback budget remain unchanged. These are
-ceilings, not measured latency promises.
-
-Additive progress fields are documented in the streaming contract. Both fresh
-upload and resumed consumers apply them via `lib/kai/import/extraction-progress.ts`.
-Keep those facts outside persisted background snapshots. Synthetic fixtures must
-cover identical lots, missing versus zero, explicit locale, all-record/page
-coverage, reset/replay, consent revocation and cancellation before terminal output.
-Use terminal `timings_ms` and extraction diagnostics to measure first-results and
-completion on authorized live statements; do not claim performance from a fake
-provider response.
-
-
-The PDF child receives only bounded in-memory frames. Its environment excludes
-service credentials; no statement bytes enter command arguments, files or logs.
-Each response has a ten-second deadline and a 25 MiB bound. Cancellation closes
-and joins the owned child, escalating termination only for that child. This
-keeps PDFium calls separate from concurrent Drive parsing without a new package
-or a change to dependency manifests, workflow authority or permission policy.

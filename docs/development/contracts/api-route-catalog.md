@@ -924,6 +924,8 @@ See [UAT policy and recovery](../../architecture/identity/rollout-and-environmen
 | POST   | `/api/one/runtime/gemini/validate` | Firebase Bearer | Run a bounded, non-persistent Gemini generation probe before encrypted BYOK storage; validates Google AI Studio or explicit Vertex project/location access and distinguishes invalid credentials, IAM, API-enablement, quota/rate-limit, billing, model, and temporary failures without logging or storing the credential |
 | POST | `/api/one/runtime/managed/select` | Firebase Bearer | Verify the selected runtime through the existing connection gate. BYOC probes use the owner's resolved bootstrap authority and compare the registry/cloud observation again before reporting or scheduling. |
 | POST | `/api/one/pod/wake` | Firebase Bearer | Wake the recorded owner pod. A confirmed absent host earns fresh-setup guidance only after a conditional registry transition matching the pre-probe snapshot. |
+| POST | `/api/one/sandbox/claims` | Firebase Bearer | Hub-only single-use Agent Sandbox claim allocator coalescing 1 active lease per owner (`direct_endpoint_url` when `HUSSH_SANDBOX_EDGE_GATEWAY_URL` is configured; `404` when `HUSSH_AGENT_SANDBOX_POOL_ENABLED` is off). |
+| GET,DELETE | `/api/one/sandbox/claims/{lease_id}` | Firebase Bearer | Inspect or tear down a claimed single-use sandbox lease with RAM scratch key zeroization and Sentinel surrogate revocation. |
 
 Managed selection returns `409 CLOUD_CONFIGURATION_CHANGED` when the probed
 registry or resolved cloud changed, and `503 CLOUD_STATUS_UNAVAILABLE` when
@@ -1657,7 +1659,7 @@ Local service/HTTP and browser-fixture checks cover the integrated contracts.
 Live private-owner/model acceptance must be repeated after a separately
 authorized deployment; local fixture checks do not establish deployed behavior.
 
-One profile To-do and `/one/todos` share live pending-work projection and encrypted
+The private agent's profile Tasks preview and `/one/tasks` share live pending-work projection and encrypted
 completion/dismissal state. Coverage follows Messages, Finance, Wallet, Location,
 Advisor, Mail, Calendar, Memory and Consent, using their existing authorized
 services. This is a bounded foreground inventory, not a background sweep of all
@@ -1840,9 +1842,6 @@ separate work; a static export or native compile is not sign-in proof.
 | POST | `/api/one/calendar/conflicts/confirm` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER | Preflight account grants and event versions, accept the kept pending invitation if needed, then claim each selected decline and reviewed organizer note. Provider operations are not atomic; child ledgers prevent duplicate effects, and separate outcomes disclose partial or unknown results. |
 | POST | `/api/one/calendar/conflicts/workspace/review` | Firebase Bearer + each selected owner-bound Calendar and Gmail OAuth grant | Prepare the exact first-party keep/decline and organizer-Mail plan under complete conflict coverage. |
 | POST | `/api/one/calendar/conflicts/workspace/confirm` | Firebase Bearer + each selected owner-bound Google grant | Confirm the sealed conflict plan with preflight and child ledgers; disclose partial or unknown provider outcomes. |
-| POST | `/api/one/calendar/followups/list` and `/detail` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER + selected Mail grant | Return the assessed Calendar action, verified timing and status at the current assessment version. Detail omits historical siblings. Raw evidence fields remain empty for older clients. |
-| POST | `/api/one/calendar/followups/source/link` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER + selected Mail grant | Return an exact Gmail message reference after account and grant checks. The link lookup reads no message body. |
-| POST | `/api/one/calendar/followups/request` | Firebase Bearer + X-Hushh-Consent VAULT_OWNER + selected Mail grant | Apply a revision-checked, idempotent action to one request. Remove maps to `dismiss`. |
 | POST | `/api/one/calendar/rescheduling/options` | Expiring encrypted capability in POST body | Recipient browser reads only previously offered times after live free/busy recheck and grant binding; ten requests/minute using configured shared limiter. No event-read, booking or mutation authority. |
 | POST   | `/api/one/drive/reviewed-actions/execute` | VAULT_OWNER Bearer | Run one Drive share or trash the owner confirmed in Chat; the ledger matches the exact file, address, role, conversation and current Drive connection, once, or nothing is sent. |
 
@@ -1856,10 +1855,9 @@ checks the full selected local day. A Board Free time row opens a compact
 review dialog with a bounded duration and editable date, time, zone, guests and
 meeting place. Per-account rows bind their destination to the clicked account;
 shared openings require an explicit writable account and use its primary
-calendar. Schedule meeting confirms the visible form and uses the existing short-lived
-proposal and one-time confirmation ledger. Preparation and execution check every
-connected account and its included calendars and the destination's management
-grant. Independent account checks run concurrently. Changed accounts,
+calendar. The existing short-lived proposal and one-time confirmation ledger
+own the write. Review and execution recheck every connected account and its
+included calendars, and the destination's management grant. Changed accounts,
 selection, grants, or availability require a new review. Discord uses a valid
 existing link and creates no Meet conference; no guests sends no invitations.
 Only a confirmed Google event publishes the Board refresh. Slot taps,
@@ -1867,25 +1865,6 @@ cancellation and authorization never execute an event. Calendar Join uses the
 event's account email for an explicit Meet pre-join reminder; the external Meet
 app or browser still chooses its own signed-in account. Other meeting providers
 open their original validated links directly.
-Calendar booking reviews retain the exact `account_id` (default, second or third
-connected account), `calendar_id`, event ID, recurring-instance identity and
-OAuth grant generation from preparation through confirmation. Mutation support
-currently accepts only `calendar_id: "primary"` within the explicitly selected
-account; a secondary calendar is rejected before provider access. Recurring
-series changes require an occurrence selection. Event changes recheck occurrence,
-ETag and grant identity before their conditional PATCH or DELETE.
-
-For rescheduling, omitted guest, location and description fields remain unchanged;
-`attendees: []`, `location: ""` and `description: ""` explicitly remove permitted
-guests or clear the named field. Reviews show removals and retain organizer,
-self, room and unrelated attendee metadata. An incomplete guest list cannot be
-reviewed. Chat's legacy and structured reviews share complete account, event,
-time, guest and notification details; incomplete or expired reviews cannot be
-confirmed. Older proposals without sealed account/calendar/grant facts require
-a new review. Invalid, missing, DST-ambiguous or nonexistent local times ask for
-clarification before provider access; explicit offsets retain their UTC instant
-and the review retains the IANA display zone.
-
 Calendar automatically loads using the current signed-in identity and its existing
 Calendar OAuth grant; it has no additional credential prompt or unlock card.
 Each provider request checks the original connection/grant binding. Disconnect,
@@ -1902,93 +1881,6 @@ proposals show busy-period warnings across the included calendars and reject
 changed availability at confirmation. Google must return an event identifier
 before creation is reported as successful; mutations are never automatically
 retried.
-
-Calendar Chat reads accept an exact `account_id`. When a fresh request has
-multiple connected accounts and no selection, the tool returns the owner-scoped
-account choices for clarification. Event, subscribed-calendar and invitation
-references retain their own account, calendar, complete opaque grant binding,
-conversation and five-minute expiry. Another account's read cannot redirect a
-reference; a conflicting explicit account is rejected. Invitation handoffs,
-inline reviews, confirmations and reconnect controls preserve this account ID,
-including when two observations have the same email. Additional accounts remain
-unsupported on single-account owner-cloud and data-door ports; those paths
-never resolve shared credentials as a fallback. Organizer Mail preparation
-requires its existing sending grant to prove the same Google subject as the
-selected Calendar grant. A different sender requires a new matching-account
-review; Calendar never changes Mail's selected account automatically.
-
-Before Calendar provider reads, the existing Calendar manifest independently
-assesses authenticated current-turn messages through a tool-free, history-free
-call on the owner's admitted model. Its exact-quote-validated action ceiling is
-bound to owner, conversation, invocation and message digest. Read-only, ambiguous,
-failed or expired assessments authorize no booking or invitation review; proposal
-tools enforce this before staging, account lookup or manage-permission controls.
-This ceiling does not grant OAuth access or replace explicit browser confirmation.
-Provider content and earlier assistant messages cannot widen it. The private
-receipt is omitted from public and durable session projections. Create,
-reschedule and cancellation converge at `_propose`; non-view invitation decisions
-check `respond` before source/account lookup. Shared Agent Chat, private pod Chat,
-private text turns and `AgentChatService.stream_one_turn` use the same One head.
-Read-only rejection leaves successful read results available for the answer;
-existing post-read restrictions remain. Read offers and context-only slot/email
-attachments establish source identity, never booking authority.
-
-An explicit booking that needs a guest uses the existing proposal tool's
-`clarification="guests"` mode before asking. This mode stages no proposal. Its
-typed pending question lives privately in the existing owner-encrypted ADK
-session for five minutes, bound to owner, app, conversation, session, originating
-invocation, authenticated message digest and exact account/grant. Only the next
-authenticated reply may complete that create review, after the same model assesses
-both owner messages. Read-only, unrelated, expired or source-changed replies fail
-closed; prose questions, provider text and attachments cannot mint this context.
-Reasking does not renew expiry, and the issuing turn cannot bypass its question.
-The root model receives request-only bounded origin words, ISO clock, local dates
-and separate requested/browser zones after restoration; the new turn's clock is
-unchanged. Grant binding stays pinned through review staging, and normal explicit
-confirmation still precedes execution. Stateless text turns cannot recover this
-authority from browser-carried history and require the booking to be restated.
-Expiry or grant loss yields one specific recovery explanation. The content-free,
-invocation-bound recovery hint stays private and grants no authority; retries do
-not repeat grant lookups. Complete requests go directly to review, and personal
-blocks require no guest. Only genuinely missing or ambiguous details need one
-grouped question; verified details are retained.
-
-Calendar event reads expose additive `local_start_at`/`local_end_at` fields in
-`display_time_zone`, preserving provider instants and all-day dates. Explicit
-`time_zone` on summary, events, event detail, busy intervals, windows and invitation
-reads/reviews overrides the current turn's display zone. Slot detail defaults to
-its saved offer zone; an explicit redisplay does not alter the private reference.
-The projection covers local and data-door reads, opening details and busy intervals.
-Relative
-dates use one server-captured user-turn timestamp, retained across regional
-failover, independently of Mail admission; explicit dates stay unchanged.
-
-`calendar_free_slots` retains completed openings in the existing encrypted ADK
-session as a private five-minute offer. It records the selected account,
-destination, exact checked calendar coverage, query window, elapsed duration,
-canonical IANA zone and ordered UTC intervals. Current typed opening searches
-check that account's Board-included subscribed calendars and expand each free
-interval into duration-sized, non-overlapping options. `coverage_complete`
-describes successful provider coverage; `suggestion_limit`, `suggestions_limited`
-and `available_slot_count` separately describe bounded options. Unreadable included
-calendars yield no verified suggestions. These are neither invitee nor all-account
-checks. One pure `opening_options` calculation also expands legacy/Voice service
-openings, batched invitation/date availability and all-account Chat suggestions.
-Board free windows remain continuous intervals; their intersections compare
-absolute instants, including fractional seconds. Shared suggestions expose
-`future_only=true`; no future options is not proof a past interval was busy.
-`propose_calendar_event(slot_ordinal=...)` resolves a
-one-based choice from this offer and rejects replacement times or a different
-target. Session recovery retains the original creation time, without renewing
-expiry. Failed or empty replacement searches retire previous offers. Public
-state snapshots and deltas exclude this private state.
-
-Slot-backed proposals recheck complete free/busy coverage before issuing a
-review and immediately before confirmed execution. Expired, past, reconnected,
-partially checked or newly busy slots require fresh openings rather than a
-"Schedule anyway" confirmation. Existing proposal expiry, single-use claims,
-included-calendar checks and explicit browser confirmation still apply.
-Availability checks do not reserve provider time atomically.
 
 The visible Schedule view refreshes every thirty seconds and on return to the
 page or network recovery, coalescing requests within three seconds. Superseded
@@ -2052,7 +1944,7 @@ The Request scope dialog contains a recipient, one labelled question field and C
 | --- | --- | --- |
 | GET | `/availability` | Three independent gates: `requests` admits intake and owner review, `payments` admits checkout and additionally requires usable answer credentials, `payouts` reports owner payout reachability. Legacy `payments`-meaning `enabled` is retained so an older client fails closed. Each field is absent-is-false; a surface whose gate is off opens an explanation instead of a control, and a check that could not be made is reported as retryable rather than as a disabled lane. |
 | POST | `/` | Create a connected-person question and resolve eligible scopes through the existing resolver. Optional UUID `clientRequestId` replays the same requester/owner/canonical question/dates without reopening lifecycle state or duplicating Feed events; conflicts return generic 409, invalid IDs 422. Omission preserves legacy UUID generation. Participant `/{id}/state` supports uncertain-submit recovery. `periodStart` and `periodEnd` may be omitted or null; a supplied range must contain two real ISO calendar dates in order. |
-| GET | `/inbox`, `/{id}/state` | Owner review queue or exact participant state; unrelated users cannot read the question. |
+| GET | `/inbox`, `/{id}/state` | Owner review queue or exact participant state; unrelated users cannot read the question. State includes `requesterKeyReady`, nullable `deliveryRecipientKeyId` and `deliveryRecipientKeyActive`; these describe public receiving-key readiness, never private key material. |
 | POST | `/{id}/approve`, `/{id}/decline`, `/{id}/cancel` | Exact terms and model-processing consent, refusal or withdrawal; paid cancellation owes a full refund. Approval is admitted by the request gate and records a price without charging; with payments paused the requester sees that price and no pay control. |
 | GET / POST | `/{id}/payment`, `/{id}/payment/checkout` | Quote/status and mode-bound hosted Checkout with durable overlapping-session recovery. |
 | POST | `/api/payments/stripe/webhook` (shared endpoint) | Raw signed provider event; exact attempt, terms, currency, amount and mode verification. |
@@ -2062,6 +1954,10 @@ The Request scope dialog contains a recipient, one labelled question field and C
 | GET / POST | `/payout-account`, `/payout-account/{action}` | Verified mode-specific owner account, onboarding or bank-management link; Drive resumption is excluded. Onboarding accepts an optional strict body `{attempt_id: UUID, purpose?: "verify"}` and returns the matching opaque attempt, hosted URL and canonical Payouts return URL with `source=answers`. Legacy calls without a body remain supported. Owner, account and mode are server-owned. |
 
 Answers remain manual while unlocked. Exact approved plaintext reaches the backend composer and Google Vertex AI for one call, with application NO_CONTENT telemetry and no plaintext persistence. Live mode additionally requires provider-retention review attestation; it does not establish provider zero retention. Payments retain Drive's 3% platform fee, actual Stripe fee, full refund and owner-earnings rules. The separate authenticated answer drain handles deadlines, refunds and settlement even when admission is paused. Historical unbound modes and approvals without consent require explicit reconciliation. See [enablement steps](../../operations/configuration/env-and-secrets.md#request-scope-enablement-follow-up-2026-10-11) and [memory/runtime boundary](../../architecture/living-memory-freshness-adr.md).
+
+The paid question flow is requester A asks, owner B reviews exact scopes and sets a price, B prepares, A pays, then A opens the released answer. Before sending, A's browser verifies publication of its durable device public key. Storage failure is never treated as an absent key, concurrent setup preserves the first stored key, and setup timeout retires late publication. Older requests without a usable key expose explicit requester-only receiving setup; B sees that prerequisite rather than an owner-unlock error. Key readiness is filtered before the preparation queue limit, so keyless requests cannot starve ready work. Before checkout, A must unlock the device holding the staged key; no replacement is generated merely to make payment available.
+
+Revoking a staged receiving key blocks new checkout. If revocation races a previously opened checkout, the signed valid payment remains recorded and the request enters the existing 72-hour answer/refund recovery. B can restage the same approved terms to A's replacement active key only after the old key is inactive and a fresh composition receipt is verified. An active same-term delivery remains immutable. No second charge, approval replay, cross-device private-key recovery or automatic grant is introduced.
 
 Answer payout setup uses the shared fenced hosted-browser flow. A warm return preserves the initiating unlocked session; a cold Payouts return requires normal authentication and unlock before answer-specific status or fresh-link recovery. Only opaque attempt/source/purpose metadata persists. Return notifications trigger authenticated reads and never establish eligibility. Answer and document markers are separate; scope events accept neither source. Bank-management links use a separately admitted auxiliary window or native browser and are retired when the owner or vault session changes.
 
@@ -3073,8 +2969,7 @@ token check. v2 frames:
 - `hello {v, heartbeat_ms, max_lifetime_ms, live}` first.
 - `feed_reset {}` on connect and after a LISTEN resync: reread the snapshot.
 - `feed_changed` with an event `id` and `{request_id}` for one document
-  request or `{}` for an ordinary Feed write. A targeted reread carries only
-  `reason` (`consent_mutated`, `connection_mutated`, or `history_mutated`).
+  request, or `{}` for any other Feed write.
 - `payout_changed {kinds, request_ids}`. Kinds are `wallet`, `earnings`,
   `bank_payouts`, `account` and `balance`; a doorbell with missing or unknown
   kinds lists them all. `request_ids` holds at most 20 IDs and is empty when the

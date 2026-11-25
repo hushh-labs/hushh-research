@@ -7,6 +7,21 @@ from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.google_search_tool import GoogleSearchTool
 
 from hushh_mcp.one_adk import agent_tree
+from hushh_mcp.one_adk.goal_plan_proposal import propose_goal_plan
+
+
+def test_goal_plan_proposal_returns_review_fields_and_refuses_malformed_steps():
+    assert propose_goal_plan("Plan launch", "Approval recorded", [" Draft agenda "]) == {
+        "status": "proposal_ready",
+        "type": "goals.plan",
+        "title": "Plan launch",
+        "outcome": "Approval recorded",
+        "category": None,
+        "steps": ["Draft agenda"],
+    }
+    assert (
+        propose_goal_plan("Plan launch", "Approval recorded", [""])["status"] == "invalid_proposal"
+    )
 
 
 def test_chat_connection_guidance_is_authored_and_not_limited_to_voice():
@@ -255,17 +270,28 @@ def test_one_keeps_device_memory_capture_silent():
     assert "with the exact passage to keep" not in authored
 
 
+@pytest.mark.parametrize(
+    ("is_pod_mode", "pod_files_enabled"),
+    [(False, "false"), (True, "true")],
+)
 @pytest.mark.parametrize("zone", [None, "Asia/Kolkata", "America/Argentina/ComodRivadavia"])
-def test_one_writes_without_em_dashes_and_within_its_prompt_budget(zone):
+def test_one_writes_without_em_dashes_and_within_its_prompt_budget(
+    monkeypatch, is_pod_mode, pod_files_enabled, zone
+):
+    # Static-baseline budget check (surface=None). Dynamic surface="typed_chat"
+    # connector, follow-up, and reaction overlays pre-existed above 60k on dev
+    # and remain outside this static-baseline check.
+    monkeypatch.setattr(agent_tree, "pod_mode", lambda: is_pod_mode)
+    monkeypatch.setenv("POD_FILES_ENABLED", pod_files_enabled)
     authored = str(agent_tree._ONE_MANIFEST.system_instruction)
     context = (
-        SimpleNamespace(
+        SimpleNamespace(state={})
+        if zone is None
+        else SimpleNamespace(
             state={"hussh:timezone": zone, "temp:hussh:turn_started_at": 1_800_000_000},
             invocation_id="current",
             session=SimpleNamespace(events=[]),
         )
-        if zone
-        else SimpleNamespace(state={})
     )
     composed = agent_tree._one_runtime_instruction(context)
     assert "\u2014" not in composed and "\u2013" not in composed

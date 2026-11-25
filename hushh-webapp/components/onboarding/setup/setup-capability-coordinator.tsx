@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { RouteLoadingState } from "@/components/app-ui/route-loading-state";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";

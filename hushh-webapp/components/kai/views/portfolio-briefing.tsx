@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import { PortfolioHistoryChart } from "@/components/kai/charts/portfolio-history-chart";
+import type { PortfolioData } from "@/components/kai/types/portfolio";
 import styles from "@/components/kai/shared/finance-workspace.module.css";
 import type { FinanceSource } from "@/lib/finance-sharing/contract";
 import { readSavedPortfolioReview, type PortfolioReviewResponse } from "@/lib/finance-sharing/portfolio-review-cache";
@@ -12,6 +13,24 @@ import { useFinanceShareContext } from "@/lib/finance-sharing/use-finance-share-
 import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
 import { getReviewSession, subscribeReviewSession } from "@/lib/finance-sharing/portfolio-review-session";
 import type { DashboardViewModel } from "./dashboard-data-mapper";
+import { overviewFacts } from "./portfolio-display-facts";
+
+function largestPosition(model?: DashboardViewModel) {
+  if (!model || model.hero.totalValue <= 0) return null;
+  const position = model.canonicalModel.positions.reduce<typeof model.canonicalModel.positions[number] | null>(
+    (largest, current) => current.marketValue > 0 && (!largest || current.marketValue > largest.marketValue) ? current : largest, null,
+  );
+  return position ? { name: position.name || position.displaySymbol, symbol: position.displaySymbol, weightPct: position.marketValue / model.hero.totalValue * 100 } : null;
+}
+
+export function portfolioBriefingFacts(model?: DashboardViewModel, portfolio?: PortfolioData | null) {
+  const largest = largestPosition(model);
+  const leadingSector = model?.quality.sectorReady ? model.equity_sector_allocation[0] : undefined;
+  const cash = model ? overviewFacts(model, portfolio).cash : null;
+  const cashShare = cash !== null && model && model.hero.totalValue > 0 ? cash / model.hero.totalValue * 100 : null;
+  const ringReady = largest && Number.isFinite(largest.weightPct) && largest.weightPct <= 100;
+  return { largest, leadingSector, cashShare, ringReady };
+}
 
 export function PortfolioBriefing({
   review,

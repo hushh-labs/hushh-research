@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { useVault } from "@/lib/vault/vault-context";
 import { ApiService } from "@/lib/services/api-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
@@ -20,10 +20,15 @@ import {
   buildConsentExportForScope,
   ConsentExportNoDataError,
 } from "@/lib/consent/export-builder";
+import {
+  ensureFreshPlaidProjectionForScope,
+  PlaidExportRefreshError,
+} from "@/lib/consent/financial-plaid-export-refresh";
 import { ROUTES } from "@/lib/navigation/routes";
 import { OwnerFacingConsentError, ownerFacingConsentError } from "@/lib/consent/consent-owner-copy";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { approvePaidOwnerTerms, isPkmScope, usePaidApprovalState } from "@/lib/consent/paid-owner-approval";
+import type { NegativeNetAcknowledgement } from "@/lib/services/scope-commerce-service";
 import { settleWithConcurrency } from "@/lib/consent/bounded-concurrency";
 
 // ============================================================================
@@ -59,6 +64,7 @@ export const BUNDLE_DECISION_CONCURRENCY = 3;
 
 export interface BundleDecisionOptions {
   modelProcessingAllowed?: boolean;
+  negativeNetAcknowledgements?: Record<string, NegativeNetAcknowledgement>;
   bundleId?: string;
   bundleLabel?: string;
   /** The caller owns reporting; failures reject with an owner sentence. */
@@ -188,7 +194,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
   // Track request status: ID -> "pending" | "handling" | "handled"
   // Using ref to persist across renders without causing re-renders
   const requestStatusMap = useRef<Map<string, RequestStatus>>(new Map());
-  const { paidApprovals, paidApprovalKeys } = usePaidApprovalState();
+  const { paidApprovals, paidApprovalKeys, paidPendingPayment } = usePaidApprovalState();
 
   const runWithActionLock = useCallback(
     (action: ConsentActionState, run: () => Promise<void>): Promise<void> => {
@@ -317,7 +323,14 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
    * Approve a consent request with zero-knowledge export
    */
   const handleApprove = useCallback(
-    (consent: PendingConsent, options?: { quiet?: boolean; modelProcessingAllowed?: boolean }): Promise<void> => {
+    (
+      consent: PendingConsent,
+      options?: {
+        quiet?: boolean;
+        modelProcessingAllowed?: boolean;
+        negativeNetAcknowledgement?: NegativeNetAcknowledgement;
+      },
+    ): Promise<void> => {
       const actionKey = `approve:${consent.id}`;
       return runWithActionLock(
         { key: actionKey, kind: "approve", requestId: consent.id },
@@ -350,7 +363,14 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           throw new OwnerFacingConsentError("Unlock your vault first.");
         }
 
-        const paidMessage = await approvePaidOwnerTerms(consent, vaultOwnerToken, { paidApprovals, paidApprovalKeys }, message => new OwnerFacingConsentError(message), options?.modelProcessingAllowed === true);
+        const paidMessage = await approvePaidOwnerTerms(
+          consent,
+          vaultOwnerToken,
+          { paidApprovals, paidApprovalKeys, paidPendingPayment },
+          message => new OwnerFacingConsentError(message),
+          options?.modelProcessingAllowed === true,
+          { userId, vaultKey, negativeNetAcknowledgement: options?.negativeNetAcknowledgement },
+        );
         if (paidMessage) return paidMessage;
 
         let scopeData: Record<string, unknown> = {};
@@ -360,6 +380,12 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         // PKM scopes: build export from encrypted PKM storage (BYOK)
         if (isPkmScope(consent.scope)) {
           try {
+            await ensureFreshPlaidProjectionForScope({
+              userId,
+              scope: consent.scope,
+              vaultKey,
+              vaultOwnerToken,
+            });
             const builtExport = await buildConsentExportForScope({
               userId,
               scope: consent.scope,
@@ -370,6 +396,9 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
             sourceContentRevision = builtExport.sourceContentRevision;
             sourceManifestRevision = builtExport.sourceManifestRevision;
           } catch (err) {
+            if (err instanceof PlaidExportRefreshError) {
+              throw new OwnerFacingConsentError(err.message);
+            }
             if (err instanceof SyntaxError) {
               console.error("[Consent] Failed to parse PKM blob after decrypt");
               throw new OwnerFacingConsentError(
@@ -610,7 +639,11 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       try {
         await promise;
         markAsHandled(consent.id);
-        emitSuccessfulMutation({ action: "approve", requestId: consent.id, ...(paidApprovals.current.has(consent.id) ? { accessPending: true } : {}) });
+        emitSuccessfulMutation({
+          action: "approve",
+          requestId: consent.id,
+          ...(paidPendingPayment.current.has(consent.id) ? { accessPending: true } : {}),
+        });
       } catch (err) {
         console.error("Error approving consent", { errorClass: err instanceof Error ? err.name : "UnknownError" });
         markAsPending(consent.id);
@@ -623,7 +656,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
     },
     [
       emitSuccessfulMutation,
-      getVaultOwnerToken, paidApprovalKeys, paidApprovals,
+      getVaultOwnerToken, paidApprovalKeys, paidApprovals, paidPendingPayment,
       markAsHandled,
       markAsHandling,
       markAsPending,
@@ -749,8 +782,18 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         const failures = results.filter((result) => !result.ok);
         if (failures.length === 0) {
           if (!options.quiet) {
+            const awaitingBuyerPayment = requestIds.some((id) =>
+              paidPendingPayment.current.has(id),
+            );
+            const activatedPaidShare =
+              !awaitingBuyerPayment &&
+              requestIds.some((id) => paidApprovals.current.has(id));
             toast.success(
-              (requestIds.some(id => paidApprovals.current.has(id)) ? "Terms saved. Paid requests still require payment and encrypted preparation." : options.successMessage) ||
+              (awaitingBuyerPayment
+                ? "Approved. Waiting for payment before sharing."
+                : activatedPaidShare
+                  ? "Shared. Access is active now."
+                  : options.successMessage) ||
                 (kind === "approve"
                   ? "Allowed. They can open it now."
                   : kind === "deny"
@@ -767,7 +810,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         const message =
           succeeded > 0
             ? kind === "approve"
-              ? `${requestIds.some(id => paidApprovals.current.has(id)) ? "Approved" : "Shared"} ${succeeded} of ${total}. Try the rest again.`
+              ? `${requestIds.some((id) => paidPendingPayment.current.has(id)) ? "Approved" : "Shared"} ${succeeded} of ${total}. Try the rest again.`
               : kind === "deny"
                 ? `Declined ${succeeded} of ${total}. Try the rest again.`
                 : `Saved ${succeeded} of ${total} choices. Try the rest again.`
@@ -782,7 +825,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         );
       }
     },
-    [paidApprovals]
+    [paidApprovals, paidPendingPayment]
   );
 
   const handleApproveBundle = useCallback(
@@ -800,7 +843,12 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       await settleBundle(
         "approve",
         consents.map((consent) => consent.id),
-        (index) => handleApprove(consents[index]!, { quiet: true, modelProcessingAllowed: options.modelProcessingAllowed }),
+        (index) =>
+          handleApprove(consents[index]!, {
+            quiet: true,
+            modelProcessingAllowed: options.modelProcessingAllowed,
+            negativeNetAcknowledgement: options.negativeNetAcknowledgements?.[consents[index]!.id],
+          }),
         options
       );
     },
@@ -851,7 +899,11 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         [...allow.map((consent) => consent.id), ...denyRequestIds],
         (index) =>
           index < allow.length
-            ? handleApprove(allow[index]!, { quiet: true, modelProcessingAllowed: options.modelProcessingAllowed })
+            ? handleApprove(allow[index]!, {
+                quiet: true,
+                modelProcessingAllowed: options.modelProcessingAllowed,
+                negativeNetAcknowledgement: options.negativeNetAcknowledgements?.[allow[index]!.id],
+              })
             : handleDeny(denyRequestIds[index - allow.length]!, { quiet: true }),
         options
       );

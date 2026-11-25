@@ -54,6 +54,7 @@ from api.routes.one.agent_prompt import router as agent_prompt_router  # noqa: E
 from api.routes.one.pod_actions import router as pod_actions_router
 from api.routes.one.pod_agent_chat import router as pod_agent_chat_router
 from api.routes.one.pod_ai_selection import router as pod_ai_selection_router
+from api.routes.one.pod_answer_composition import router as pod_answer_composition_router
 from api.routes.one.pod_browser import router as pod_browser_router
 from api.routes.one.pod_capabilities import (
     ai_selection_capability,
@@ -168,6 +169,7 @@ _POD_ROUTERS = (
     pod_scheduled_tasks_router,
     pod_commands_router,
     pod_pkm_preparation_router,
+    pod_answer_composition_router,
     # The device door: Puppy One dials THIS pod with a device-role session and
     # answers inference over sealed frames. The hub broker stays for UAT and
     # production; an owner pod brokers its own device. See pod_puppy_relay.py.
@@ -622,6 +624,18 @@ async def _stop_files_queue() -> None:
         await browser.close()
         app.state.browser_composition = None
         app.state.browser_task_runtime = None
+
+    import contextlib  # noqa: PLC0415
+
+    from hushh_mcp.services.pod_session_authority import active_session_authority  # noqa: PLC0415
+
+    authority = active_session_authority()
+    projection = getattr(authority, "recovery_projection", None)
+    log = getattr(getattr(authority, "_store", None), "_log", None)
+    if authority is not None and projection is not None and log is not None:
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(authority.require_held(), timeout=1.0)
+            await asyncio.wait_for(projection.recover(log, force_save=True), timeout=2.0)
 
 
 async def _continue_gmail_notifications() -> None:

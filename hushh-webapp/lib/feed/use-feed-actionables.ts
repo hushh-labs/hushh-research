@@ -181,6 +181,8 @@ export interface FeedActionButton {
   disabled?: boolean;
   /** Irreversible action — the row requires a second confirming tap. */
   confirm?: boolean;
+  /** Existing rich form must retire a native collection before it opens. */
+  presentation?: "web";
   /**
    * Show only this icon on a phone (the label stays the accessible name and
    * returns from `sm` up). Used for a row's quiet Details action, so the two
@@ -227,6 +229,7 @@ export interface FeedActionable {
   href?: string | null;
   /** Whole-row imperative action (e.g. resume a running debate). */
   onSelect?: () => void;
+  onSelectPresentation?: "web";
   chevron?: boolean;
   actions: FeedActionButton[];
   /** Phone controls for the same actions or their existing full review surface. */
@@ -1577,7 +1580,7 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
         ...(isDocumentRequestSetupStep(setup) ? { todo: {
           key: `consent:${entry.id}:setup:${setup}`, source: "drive" as const,
           title: documentRequestTaskTitle(setup, entry.counterpart_label),
-          href: documentRequestSetupHref(setup, "/one/todos"),
+          href: documentRequestSetupHref(setup, "/one/tasks"),
         } } : {}),
         scopeId: "consent", icon: ConsentAgentIcon,
         iconTone: "capability",
@@ -1676,7 +1679,7 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
         feedVisibility: paymentIsNonActionable ? "routine" : "decision",
         ...(!paymentIsNonActionable ? { todo: {
           source: "drive" as const, title: displayPayment.title,
-          href: buildConsentCenterHref("pending", { requestId: `document_share_request:${payment.requestId}`, requestView: "sent", from: "/one/todos" }),
+          href: buildConsentCenterHref("pending", { requestId: `document_share_request:${payment.requestId}`, requestView: "sent", from: "/one/tasks" }),
         } } : {}),
         scopeId: "consent", icon: ConsentAgentIcon,
         iconTone: "capability",
@@ -1892,7 +1895,7 @@ export function useFeedActionables({ enabled = true, allPending = false, taskSou
             key: `consent:${entry.id}:review`,
             source: isDriveSharingEntry(entry) ? "drive" : "consent",
             title: `Review request from ${requesterLabel}`,
-            href: buildConsentCenterHref("pending", { requestId: driveSharingSelectionId(entry), from: "/one/todos" }),
+            href: buildConsentCenterHref("pending", { requestId: driveSharingSelectionId(entry), from: "/one/tasks" }),
           },
           scopeId: "consent", icon: ConsentAgentIcon,
           iconTone: "capability",

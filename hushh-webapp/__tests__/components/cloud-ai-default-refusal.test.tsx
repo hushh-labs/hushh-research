@@ -25,10 +25,11 @@ beforeEach(() => {
 
 it("shows the cloud update refusal and preserves the working selection without saving", async () => {
   render(<GeminiRuntimeSettingsCard
-    userId="owner-fixture" needsVaultCreation={false} needsUnlock
+    userId="owner-fixture" vaultKey="fixture-key" vaultOwnerToken="fixture-token" needsVaultCreation={false} needsUnlock={false}
     onRequestVaultUnlock={vi.fn()} onRequestVaultCreation={vi.fn()}
   />);
   const choice = await screen.findByRole("button", { name: /Use existing cloud/ });
+  await waitFor(() => expect(choice).toBeEnabled());
   await act(async () => { fireEvent.click(choice); });
   await waitFor(() => expect(mocks.error).toHaveBeenCalledWith("Your agent needs an update to use Azure AI."));
   expect(choice).toHaveAttribute("aria-pressed", "true");

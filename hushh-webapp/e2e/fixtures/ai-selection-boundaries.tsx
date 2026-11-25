@@ -23,7 +23,16 @@ export const notifyGeminiRuntimeConfigurationChanged = noop;
 export const onGeminiRuntimeConfigurationChanged = () => noop;
 export const acknowledgeOneSetupExit = unavailable;
 let draft = false;
-export const PreVaultSensitiveDraftService = {hasGeminiRuntime: () => draft, stageGeminiRuntime: () => {draft=true;}, clearGeminiRuntime: () => {draft=false;}};
+let stagedAiConfigs = { configurations: [] as Array<Record<string, unknown>>, activeConfigId: null as string | null };
+export const PreVaultSensitiveDraftService = {
+  hasGeminiRuntime: () => draft,
+  stageGeminiRuntime: () => {draft=true;},
+  clearGeminiRuntime: () => {draft=false;},
+  stageAiConfigurations: (_id: string, state: { configurations: Array<Record<string, unknown>>; activeConfigId: string | null }) => { stagedAiConfigs = state; },
+  getStagedAiConfigurations: () => stagedAiConfigs,
+  hasActiveStagedAiConfiguration: () => Boolean(stagedAiConfigs.activeConfigId),
+  clearAiConfigurations: () => { stagedAiConfigs = { configurations: [], activeConfigId: null }; },
+};
 export const FinanceSetupDraftService = {};
 export const PostUnlockSyncService = {};
 export const PreVaultUserStateService = {
@@ -47,7 +56,6 @@ export const ApiService = {
   apiFetch: async () => Response.json({ providers: [
     { id: "gemini", name: "Gemini", availability: "available", methods: ["own_key"] },
     { id: "openai", name: "OpenAI", availability: "available", methods: ["own_key"] },
-    { id: "azure_openai", name: "Azure AI key", availability: "available", methods: ["own_key"] },
   ] }),
   validateGeminiRuntimeCredential: async ({credential}:{credential:string}) => {if(credential!=="fixture-valid") throw new Error("This key could not be validated.");return {status:"ready"};},
 };

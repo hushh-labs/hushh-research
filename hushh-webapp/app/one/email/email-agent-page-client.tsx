@@ -1,5 +1,6 @@
 "use client";
 
+import { NativeEmailWorkspace } from "@/components/gmail/native-email-workspace";
 import { useCallback } from "react";
 import { CheckCircle2, Mail } from "@/components/icons";
 import { useRouter } from "next/navigation";
@@ -49,7 +50,11 @@ export function EmailAgentPageClient() {
     navigateToAgentChat();
   }, []);
 
-  return (
+  const introduction = "Use Mail context to classify receipts and inbox activity, then draft mail with One. Every mail message stays editable and needs your final Send click.";
+  const explanation = connected
+    ? "One can use your Mail connection for receipt and inbox context, and help draft a mail message. Review each draft, then click Send when you are ready."
+    : "Connect Mail once to classify receipts and inbox context, and to prepare approval-gated mail drafts. One will never send from a chat reply.";
+  const fallback = (
     <AppPageShell
       as="main"
       width="reading"
@@ -71,7 +76,7 @@ export function EmailAgentPageClient() {
       <AppPageHeaderRegion>
         <PageHeader
           title="Mail Agent"
-          description="Use Mail context to classify receipts and inbox activity, then draft mail with One. Every mail message stays editable and needs your final Send click."
+          description={introduction}
         />
       </AppPageHeaderRegion>
       <AppPageContentRegion>
@@ -90,7 +95,7 @@ export function EmailAgentPageClient() {
                 <div className="space-y-1">
                   <h2 className="font-semibold text-foreground">Mail connected</h2>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    One can use your Mail connection for receipt and inbox context, and help draft a mail message. Review each draft, then click Send when you are ready.
+                    {explanation}
                   </p>
                 </div>
               </div>
@@ -105,7 +110,7 @@ export function EmailAgentPageClient() {
                 <div className="space-y-1">
                   <h2 className="font-semibold text-foreground">Connect Mail</h2>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    Connect Mail once to classify receipts and inbox context, and to prepare approval-gated mail drafts. One will never send from a chat reply.
+                    {explanation}
                   </p>
                 </div>
               </div>
@@ -119,4 +124,7 @@ export function EmailAgentPageClient() {
       </AppPageContentRegion>
     </AppPageShell>
   );
+  return <NativeEmailWorkspace owner={userId || null} loading={authLoading || gmail.loadingStatus} connected={connected}
+    introduction={introduction} explanation={explanation} askOne={openOneForDraft} openMail={() => router.push(ROUTES.GMAIL)} fallback={fallback} />;
+
 }

@@ -59,6 +59,24 @@
           }
         ]
       }
+    },
+    {
+      "action_id": "files.upload",
+      "label": "Upload file",
+      "meaning": "Reports the person's selected upload or resume attempt. A completed report requires the Files library to acknowledge the full transfer as ready. Automatic organization has a separate outcome.",
+      "aliases": [],
+      "search_keywords": [],
+      "guard_ids": ["manual_user_execution"],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Only the person's explicit file selection in the private Files workspace can start an upload.",
+        "intended_handler": "FilesWorkspace.fileInput"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": ["components/files/files-workspace.tsx", "lib/files/service.ts"]
     }
   ],
   "search": {}

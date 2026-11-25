@@ -1,21 +1,21 @@
 "use client";
 
-import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import type { ReferralDashboardModel } from "./referral-dashboard-page";
 import { useIndividualReferralRankings } from "./individual-referral-rankings";
 import { useCircleWarsModel } from "@/components/profile/circle-wars-panel";
 import { useCreateCircleFlow } from "@/components/one-location/redesign/circles/named-circle-flows";
 import { VaultContext } from "@/lib/vault/vault-context";
-import { nativeDrawers, nativeDrawerAcknowledged, type NativeDrawerRow, type NativeDrawerSection } from "@/lib/capacitor/native-drawers";
-import { useNativeWorkspace, type NativeWorkspaceContent } from "@/lib/capacitor/use-native-workspace";
+import { type NativeDrawerRow, type NativeDrawerSection } from "@/lib/capacitor/native-drawers";
+import { useNativeWorkspace, useNativeWorkspacePresentation, type NativeWorkspaceContent } from "@/lib/capacitor/use-native-workspace";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import type { NativeWorkspaceChoice } from "@/lib/capacitor/native-workspace";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
 import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { isAirPodsReward, rewardDisplayTitle, referralRewardBoard, referralClaimStatus } from "@/lib/referral/reward-presentation";
 
-type RetirementOwner = { owner: string; revoke: () => Promise<boolean> };
 class ReferralVisit {
   private live = false;
   readonly authority = snapshotValidatedAuthSessionOwner();
@@ -27,44 +27,18 @@ class ReferralVisit {
   retire() { this.live = false; this.handles.clear(); }
 }
 
-/** Admission selects the whole route body before feature-model installation.
- * An unsupported wrapper never mounts a second Circle or ranking reader. */
+/** The shared owner confirms retirement before exposing the complete fallback.
+ * Renderer-off never mounts the native feature readers. */
 export function NativeReferralWorkspace({ model, fallback }: { model: ReferralDashboardModel; fallback: ReactNode }) {
   const token = useContext(VaultContext)?.vaultOwnerToken;
-  const [admitted, setAdmitted] = useState<boolean | null>(null);
-  const [lifetime, setLifetime] = useState<RetirementOwner | null>(null);
-  const [withdrawal, setWithdrawal] = useState<RetirementOwner | null>(null);
+  const presentation = useNativeWorkspacePresentation();
   const owner = model.userId;
-  const unlocked = !!token;
-  const invalidated = !!lifetime && (!unlocked || owner !== lifetime.owner);
-  useLayoutEffect(() => { if (invalidated && lifetime && !withdrawal) setWithdrawal(lifetime); }, [invalidated, lifetime, withdrawal]);
-  useLayoutEffect(() => {
-    if (!withdrawal) return;
-    let current = true;
-    void withdrawal.revoke().then(absent => {
-      if (current && absent) { setLifetime(previous => previous === withdrawal ? null : previous); setAdmitted(false); setWithdrawal(null); }
-    });
-    return () => { current = false; };
-  }, [withdrawal]);
-  const registerRetirement = useCallback((revoke: () => Promise<boolean>) => {
-    if (owner) setLifetime({ owner, revoke });
-  }, [owner]);
-  useEffect(() => {
-    let current = true;
-    void nativeDrawerAcknowledged(nativeDrawers().getCapabilities()).then(value => {
-      if (current) setAdmitted(value.contractVersion === 1 && value.supported && value.wholePresentation && value.routeWorkspaces?.includes("referrals") === true &&
-        !!nativeDrawers().applyWorkspace && !!nativeDrawers().retireWorkspace && !!nativeDrawers().confirmWorkspaceChoice && !!nativeDrawers().settleWorkspaceChoice && !!nativeDrawers().getWorkspaceState);
-    }).catch(() => { if (current) setAdmitted(false); });
-    return () => { current = false; };
-  }, []);
-  if (invalidated || withdrawal) return <div aria-busy="true" />;
-  if (admitted === false || !token || !model.user || !model.userId) return fallback;
-  if (admitted === null) return <div aria-busy="true" />;
-  return <NativeReferralBody key={`${model.userId}:unlocked`} model={model} token={token} onFallback={() => { setLifetime(null); setAdmitted(false); }}
-    onRetirementOwner={registerRetirement} />;
+  const failed = presentation.status.phase === "web" && (presentation.status.reason === "unsupported" || presentation.status.reason === "failure");
+  if (!customNativePresentationEnabled() || !token || !model.user || !owner || failed) return presentation.status.held ? <div aria-busy="true" /> : fallback;
+  return <NativeReferralBody key={`${owner}:unlocked`} model={model} token={token} presentation={presentation} />;
 }
 
-function NativeReferralBody({ model, token, onFallback, onRetirementOwner }: { model: ReferralDashboardModel; token: string; onFallback: () => void; onRetirementOwner: (revoke: () => Promise<boolean>) => void }) {
+function NativeReferralBody({ model, token, presentation }: { model: ReferralDashboardModel; token: string; presentation: ReturnType<typeof useNativeWorkspacePresentation> }) {
   const owner = model.userId!;
   const contentFrame = useRef<HTMLDivElement>(null);
   const [visit] = useState(() => new ReferralVisit(owner));
@@ -150,6 +124,7 @@ function NativeReferralBody({ model, token, onFallback, onRetirementOwner }: { m
       section("progress", [
         ...resource("points", "coins", model.pointsRes, model.reloadPoints, value => [read("points-value", "Coins", value.coins.toLocaleString("en-IN"))]),
         ...resource("rank", "your rank", model.leaderboardRes, model.reloadLeaderboard, value => { const viewer = value.viewer ?? value.entries.find(entry => entry.is_viewer); return [read("rank-value", "Rank", viewer ? `#${viewer.rank}` : "—")]; }),
+        ...resource("engagement", "your streak", model.engagementRes, model.reloadEngagement, value => [read("streak-value", "Referral streak", `${value.streak.current_run_days} ${value.streak.current_run_days === 1 ? "day" : "days"}`)]),
       ], "Your progress");
       const team = circles.data?.participation?.team;
       section("team", [
@@ -215,12 +190,13 @@ function NativeReferralBody({ model, token, onFallback, onRetirementOwner }: { m
     const handle = id(`tab:${value}`); actions.set(handle, () => { if (current()) { model.setTab(value); setWindowIndex(0); } }); return { id: handle, label, selected: model.tab === value };
   }) } : undefined;
   const content: NativeWorkspaceContent = { workspace: "referrals", title, page, sections, enabled: true,
-    backEnabled: page !== "overview" && !circles.busy && !creation.saving && !creation.addingPeople, ...(tabs ? { tabs } : {}), ...(search ? { search } : {}) };
+    // Shell Back already unwinds the rules/picker/editor's authored Back layer.
+    backEnabled: false, ...(tabs ? { tabs } : {}), ...(search ? { search } : {}) };
   const editor = destination ? { destinationId: destination, current: creation.current, inputRevision: creation.inputRevision, mutationPending: creation.mutationPending,
     draft: { name: creation.name, kind: creation.kind }, changeDraft: creation.changeDraft, busy: circles.busy || creation.saving, canSave: creation.canSubmit,
     error: creation.error, save: creation.prepare, onSaved: creation.advance, onCancel: circles.backToCircles } : undefined;
-  const phase = useNativeWorkspace({ owner, content, actions, current, editor, onRetirementOwner, contentFrame, back: () => { if (current()) unwindBackLayer(ROUTES.ONE_REFERRALS); } });
-  useEffect(() => { if (phase === "web") onFallback(); }, [phase, onFallback]);
+  const phase = useNativeWorkspace({ owner, content, actions, current, editor, presentationOwner: presentation.owner, contentFrame, back: () => { if (current()) unwindBackLayer(ROUTES.ONE_REFERRALS); } });
+  if (phase === "web") return <div aria-busy="true" />;
   return <AppPageShell as="div" ref={contentFrame} width="agent" aria-busy={phase === "checking"} data-native-referral-workspace={phase}
     nativeTest={{ routeId: ROUTES.ONE_REFERRALS, marker: phase === "native" ? "native-route-one-referrals" : "native-referral-admission", authState: "authenticated",
       dataState: phase === "blocked" ? "error" : phase !== "native" ? "booting" : model.summaryRes.status === "loading" ? "loading" : model.summaryRes.status === "error" ? "unavailable-valid" : "loaded",

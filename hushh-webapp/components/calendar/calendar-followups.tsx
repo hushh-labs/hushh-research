@@ -3,7 +3,8 @@
 import { getAuthSessionGeneration, snapshotValidatedAuthSessionOwner, subscribeAuthSessionGeneration } from "@/lib/auth/session-owner";
 import { followupResourceKey, followupSnapshot, saveFollowupSnapshot, clearFollowupSnapshot } from "@/lib/calendar/calendar-followup-resource";
 import presentationStyles from "./calendar-presentation.module.css";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import type { CalendarNativeSection, CalendarNativeRow } from "./native-calendar-workspace";
 import { ExternalLink } from "@/components/icons";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -35,6 +36,7 @@ type Props = {
   refreshRevision?: number;
   deepLinkRequestId?: string | null;
   onDeepLinkHandled?: () => void;
+  renderPresentation?: (content: ReactNode, summary: CalendarNativeSection, covered: boolean) => ReactNode;
 };
 
 // Opening Insights again soon must not repeat work. The server also refuses a
@@ -60,7 +62,7 @@ function isVisible(request: FollowupRequest) {
   return isActive(request) && request.bucket !== "history";
 }
 
-export function CalendarFollowups({ userId, accountId, accountEmail, zone, expanded, getIdToken, connectionRevision = 0, providerBinding = "", onViewAll, onConnectMail, onReviewMeeting, refreshRevision = 0, deepLinkRequestId, onDeepLinkHandled }: Props) {
+export function CalendarFollowups({ userId, accountId, accountEmail, zone, expanded, getIdToken, connectionRevision = 0, providerBinding = "", onViewAll, onConnectMail, onReviewMeeting, refreshRevision = 0, deepLinkRequestId, onDeepLinkHandled, renderPresentation }: Props) {
   const resourceKey = followupResourceKey(userId, accountId, connectionRevision, providerBinding);
   const cached = followupSnapshot(resourceKey);
   const authGeneration = getAuthSessionGeneration();
@@ -317,7 +319,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     const operation = lifetime.current;
     const seq = ++detailSeq.current;
     selectedIdRef.current = conversationId;
-    if (from) trigger.current = from;
+    if (from !== undefined) trigger.current = from;
     setSelectedId(conversationId); setDetail(null); setActionError(""); setEmailLinks({}); setReminderOpen(null);
     setFocusedRequestId(focusRequestId || null);
     try {
@@ -508,6 +510,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const needsMailChoice = Boolean(status && (!status.mail_connected || !status.monitoring_enabled));
   // Monitored before, access since removed: ask only to renew, never to choose again.
   const renewing = Boolean(status?.monitoring_enabled && !status.mail_connected);
+  const emptyFollowupLabel = view === "all" ? "No follow-ups right now." : viewCounts ? `No ${FOLLOWUP_VIEWS[view].toLowerCase()} follow-ups.` : "No pending follow-ups.";
   const card = <SectionCard title="Follow-ups" className={styles.followupCard}>
     <div className="min-w-0 space-y-2" aria-busy={loading}>
       {loading && (!status || (status.monitoring_enabled && !list)) ? <p className={styles.muted} role="status">Checking follow-ups…</p> : null}
@@ -545,7 +548,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
             onKeep={() => toast.success("Kept in Follow-ups", { className: presentationStyles.toast })} onRemove={from => askRemove(entry, from)} />;
         })}
       </div> : null}
-      {status?.monitoring_enabled && list?.total_conversations === 0 && status.coverage?.coverage !== "catching_up" && status.scan_state === "complete" && !loading ? <p className={styles.muted}>{view === "all" ? "No follow-ups right now." : viewCounts ? `No ${FOLLOWUP_VIEWS[view].toLowerCase()} follow-ups.` : "No pending follow-ups."}</p> : null}
+      {status?.monitoring_enabled && list?.total_conversations === 0 && status.coverage?.coverage !== "catching_up" && status.scan_state === "complete" && !loading ? <p className={styles.muted}>{emptyFollowupLabel}</p> : null}
       {notice ? <div className={notice.tone === "action" ? `${styles.muted} flex flex-wrap items-center justify-between gap-2` : styles.muted} role="status">
         <span>{notice.text}</span>
         {notice.action ? <Button size="compact" variant="outline" disabled={busy} onClick={() => void reconnect()}>Reconnect email</Button> : null}
@@ -574,7 +577,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   </SectionCard>;
 
   const requests = detail?.requests.filter(isVisible) ?? [];
-  return <>
+  const content = <>
     {card}
     <Dialog modal open={Boolean(selectedId)} onOpenChange={open => {
       if (open) return;
@@ -655,4 +658,34 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       </AlertDialogContent>
     </AlertDialog>
   </>;
+  if (!renderPresentation) return content;
+  // Keep this controller mounted above native admission; only its authored
+  // presentation moves into the fallback after retirement is acknowledged.
+  const nativeRows: CalendarNativeRow[] = [];
+  if (loading) nativeRows.push({ key: "followups-loading", label: "Checking follow-ups…", pending: true });
+  if (needsMailChoice) nativeRows.push({ key: "followups-mail", label: renewing ? "Allow email access" : "Find Calendar follow-ups in email.",
+    detail: renewing ? `Renew email access for ${accountEmail}.`
+      : status?.mail_connected ? `Checks the last ${FIRST_SCAN_DAYS} days of ${accountEmail}, then only new mail.`
+      : `Allow your private agent to check ${accountEmail} for meetings and deadlines.`,
+    web: true, enabled: !busy, run: onViewAll });
+  if (status?.monitoring_enabled) {
+    for (const entry of rows) {
+      const summary = rowSummary(entry, zone), first = entry.preview_requests[0];
+      const overdue = first?.bucket === "overdue" && (first.due_date || first.proposed_date) ? `Overdue · was due ${shortDate(first.due_date || first.proposed_date)}` : null;
+      nativeRows.push({ key: `followup:${entry.id}`, label: summary.title, symbol: "envelope",
+        detail: [overdue && !summary.detail.includes("Overdue") ? overdue : null, summary.detail].filter(Boolean).join(" · "),
+        enabled: !busy, web: true, run: () => openDetail(entry.id, null) });
+    }
+    if (list?.total_conversations === 0 && status.coverage?.coverage !== "catching_up" && status.scan_state === "complete" && !loading)
+      nativeRows.push({ key: "followups-empty", label: emptyFollowupLabel });
+    if (!expanded && ((list?.total_conversations || 0) > 2 || hasMoreViews)) nativeRows.push({ key: "followups-all", label: "View all follow-ups", web: true, run: onViewAll });
+    nativeRows.push({ key: "followups-settings", label: "Follow-up settings", symbol: "ellipsis", menuOnTap: true, inlineActions: [
+      { key: "followups-check", label: "Check email again", tone: "ghost", placement: "menu", enabled: !busy, run: checkAgain },
+    ] });
+  }
+  if (notice) nativeRows.push({ key: "followups-coverage", label: notice.text, ...(notice.action ? { inlineActions: [{ key: "followups-coverage-action",
+    label: "Reconnect email", tone: "ghost" as const, enabled: !busy,
+    web: true, run: reconnect }] } : {}) });
+  if (error) nativeRows.push({ key: "followups-error", label: error });
+  return renderPresentation(content, { key: "followups", title: "Follow-ups", layout: "cards", rows: nativeRows }, Boolean(selectedId || removal));
 }

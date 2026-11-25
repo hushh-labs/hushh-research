@@ -437,12 +437,12 @@ html.native-keyboard-inset.kb-open
   --type-helper-text-tracking: 0;
   --type-legal-text-size: 11px;
   --type-legal-text-line: 15px;
-  --type-button-label-size: 17px;
-  --type-button-label-line: 22px;
-  --type-button-label-weight: 650;
-  --type-compact-button-label-size: 15px;
-  --type-compact-button-label-line: 20px;
-  --type-compact-button-label-weight: 650;
+  --type-button-label-size: 13.5px;
+  --type-button-label-line: 18px;
+  --type-button-label-weight: 560;
+  --type-compact-button-label-size: 12.5px;
+  --type-compact-button-label-line: 16px;
+  --type-compact-button-label-weight: 550;
   --type-eyebrow-size: 12px;
   --type-eyebrow-line: 16px;
   --type-eyebrow-weight: 400;
@@ -525,10 +525,10 @@ html.native-keyboard-inset.kb-open
   --app-tertiary-label: #8e8e93;
   --app-disabled-label: #aeaeb2;
   --app-quaternary-label: #c7c7cc;
-  --app-separator: rgba(60, 60, 67, 0.12);
-  --app-opaque-separator: #e5e5ea;
-  --app-neutral-fill: rgba(120, 120, 128, 0.16);
-  --app-neutral-fill-strong: rgba(120, 120, 128, 0.2);
+  --app-separator: rgba(15, 23, 42, 0.08);
+  --app-opaque-separator: #e6e6eb;
+  --app-neutral-fill: rgba(15, 23, 42, 0.055);
+  --app-neutral-fill-strong: rgba(15, 23, 42, 0.095);
   --app-icon-tile-background: #8e8e93;
   --app-icon-tile-foreground: #ffffff;
   --app-destructive: #ff3b30;
@@ -840,11 +840,12 @@ html.native-keyboard-inset.kb-open
     --safe-area-inset-top,
     env(safe-area-inset-top, 0px)
   );
-  --app-safe-area-top-effective: max(
+  --app-system-safe-area-top: max(
     var(--app-safe-area-top),
     env(safe-area-max-inset-top, 0px),
     var(--app-safe-area-top-probe)
   );
+  --app-safe-area-top-effective: calc(var(--app-system-safe-area-top) + var(--network-status-height, 0px));
   --app-top-bar-height: 72px;
   --kai-route-tabs-height: 56px;
   --kai-route-tabs-content-gap: 14px;
@@ -1035,10 +1036,12 @@ html.native-keyboard-inset.kb-open
   --motion-shortcut-icon-cycle-duration: 850ms;
   --motion-duration-xxl: 150ms;
 
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --motion-ease-accelerate: cubic-bezier(0.3, 0, 1, 1);
   --motion-ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
-  --motion-ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --motion-ease-emphasized: var(--ease-out);
 
   /* Press physics: a press is FLAT. The pressed state is a colour/opacity
      change plus the md-ripple, never a scale, spring, or bounce. The scale
@@ -1057,7 +1060,7 @@ html.native-keyboard-inset.kb-open
    * Tuned for a uniform 60-120fps frame rate without layout thrashing. */
   --motion-overlay-enter-duration: 150ms;
   --motion-overlay-exit-duration: 100ms;
-  --motion-overlay-enter-ease: var(--motion-ease-decelerate);
+  --motion-overlay-enter-ease: var(--ease-out);
   --motion-overlay-exit-ease: var(--motion-ease-accelerate);
 
   /* Sheets travel most of the screen, so they get their own shared tier: the
@@ -1242,12 +1245,13 @@ html.native-keyboard-inset.kb-open
   --app-card-surface-hero: #ffffff;
   --app-card-surface-sticky-header: #f6f7fb;
   --app-card-surface-sticky-header-solid: #f6f7fb;
-  --app-card-border-standard: rgba(60, 60, 67, 0.09);
-  --app-card-border-strong: rgba(60, 60, 67, 0.18);
+  --app-card-border-standard: rgba(15, 23, 42, 0.075);
+  --app-card-border-strong: rgba(15, 23, 42, 0.14);
+  --app-card-specular: rgba(255, 255, 255, 0.9);
   --app-border: var(--app-card-border-standard);
   --app-text-secondary: var(--app-secondary-label, var(--muted-foreground));
   --app-card-shadow-standard: none;
-  --app-card-shadow-feature: 0 8px 24px rgba(0, 0, 0, 0.04);
+  --app-card-shadow-feature: 0 8px 24px rgba(15, 23, 42, 0.05);
   --app-list-row-surface: color-mix(
     in srgb,
     var(--app-card-surface-default-solid) 90%,
@@ -1317,18 +1321,18 @@ html.native-keyboard-inset.kb-open
   --app-screen-background: #0e0e10;
   --app-grouped-background: #0e0e10;
   --one-launcher-background: var(--background);
-  --app-primary-surface: #17171a;
-  --app-secondary-surface: #1e1e22;
-  --app-elevated-surface: #222226;
+  --app-primary-surface: #161619;
+  --app-secondary-surface: #1c1c20;
+  --app-elevated-surface: #232328;
   --app-label: #f5f5f7;
-  --app-secondary-label: rgba(235, 235, 245, 0.72);
-  --app-section-label: rgba(235, 235, 245, 0.72);
-  --app-tertiary-label: rgba(235, 235, 245, 0.3);
-  --app-quaternary-label: rgba(235, 235, 245, 0.18);
-  --app-separator: rgba(84, 84, 88, 0.65);
-  --app-opaque-separator: #38383a;
-  --app-neutral-fill: rgba(255, 255, 255, 0.06);
-  --app-neutral-fill-strong: rgba(255, 255, 255, 0.1);
+  --app-secondary-label: rgba(235, 235, 245, 0.68);
+  --app-section-label: rgba(235, 235, 245, 0.68);
+  --app-tertiary-label: rgba(235, 235, 245, 0.42);
+  --app-quaternary-label: rgba(235, 235, 245, 0.22);
+  --app-separator: rgba(255, 255, 255, 0.085);
+  --app-opaque-separator: #2c2c30;
+  --app-neutral-fill: rgba(255, 255, 255, 0.08);
+  --app-neutral-fill-strong: rgba(255, 255, 255, 0.13);
   --app-icon-tile-background: #636366;
   --app-icon-tile-foreground: #ffffff;
   --app-destructive: #ff453a;
@@ -2240,36 +2244,36 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   /* One material authority for panes and their portaled controls.
      `[data-profile-type-scale]` shares the type tokens below with a page that
      opts in to the Profile scale (see the block after the Profile pane rules). */
-  --app-side-pane-header-padding: 20px 68px 15px 20px;
+  --app-side-pane-header-padding: 15px 68px 15px 18px;
   --app-side-pane-row-inset: 6px;
   --app-side-pane-row-gap: 5px;
   --app-side-pane-row-title-size: 13px;
-  --app-side-pane-row-title-line: 1.2;
-  --app-side-pane-row-title-weight: 550;
+  --app-side-pane-row-title-line: 1.25;
+  --app-side-pane-row-title-weight: 600;
   --app-side-pane-row-description-size: 9px;
-  --app-side-pane-row-description-line: 1.2;
+  --app-side-pane-row-description-line: 1.25;
   --app-side-pane-section-size: 10px;
   --app-side-pane-section-line: 14px;
   --app-side-pane-section-weight: 600;
   --app-side-pane-section-tracking: 0.02em;
   /* Reading panes must not blend with the dimmed canvas behind the scrim. */
   --profile-pane-surface: var(--background);
-  --profile-pane-surface-strong: rgba(255, 255, 255, 0.76);
-  --profile-pane-surface-soft: rgba(255, 255, 255, 0.24);
-  --profile-pane-card-surface: rgba(255, 255, 255, 0.78);
-  --profile-pane-card-border: rgba(255, 255, 255, 0.38);
-  --profile-pane-card-highlight: rgba(255, 255, 255, 0.82);
-  --profile-pane-hair: rgba(36, 43, 52, 0.12);
+  --profile-pane-surface-strong: rgba(15, 23, 42, 0.095);
+  --profile-pane-surface-soft: rgba(15, 23, 42, 0.055);
+  --profile-pane-card-surface: #ffffff;
+  --profile-pane-card-border: rgba(15, 23, 42, 0.08);
+  --profile-pane-card-highlight: rgba(255, 255, 255, 0.9);
+  --profile-pane-hair: rgba(15, 23, 42, 0.08);
   --profile-pane-shadow:
-    0 36px 90px rgba(35, 42, 51, 0.22),
-    0 4px 18px rgba(35, 42, 51, 0.1);
+    0 36px 90px rgba(15, 23, 42, 0.16),
+    0 4px 18px rgba(15, 23, 42, 0.08);
 }
 
 .profile-pane-sheet[data-slot="sheet-content"],
 [data-app-side-pane],
 [data-agent-history-drawer] {
-  /* One bounded-pane recipe for Profile and Chats. */
-  --app-side-pane-gutter: clamp(12px, 2.5vw, 18px);
+  /* One full-height mirror-symmetric bounded-pane recipe for Profile and Chats. */
+  --app-side-pane-gutter: 8px;
   --app-side-pane-top-inset: max(
     var(--app-side-pane-gutter),
     var(--app-safe-area-top-effective, 0px)
@@ -2291,7 +2295,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   --app-side-pane-available-height: calc(
     100dvh - var(--app-side-pane-top-inset) - var(--app-side-pane-bottom-inset)
   );
-  --app-side-pane-height: min(820px, var(--app-side-pane-available-height));
+  --app-side-pane-height: var(--app-side-pane-available-height);
   top: calc(
     var(--app-side-pane-top-inset) +
       (var(--app-side-pane-available-height) - var(--app-side-pane-height)) * 0.5
@@ -2327,17 +2331,19 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 .dark .profile-pane-sheet[data-slot="sheet-content"],
 .dark [data-agent-history-drawer],
 .dark [data-app-side-pane],
-.dark [data-app-pane-material="profile"] {
+.dark [data-app-pane-material="profile"],
+html.dark [data-profile-type-scale],
+.dark [data-profile-type-scale] {
   --profile-pane-surface: var(--background);
-  --profile-pane-surface-strong: rgba(31, 34, 40, 0.86);
-  --profile-pane-surface-soft: rgba(255, 255, 255, 0.045);
-  --profile-pane-card-surface: rgba(39, 42, 49, 0.78);
+  --profile-pane-surface-strong: rgba(255, 255, 255, 0.13);
+  --profile-pane-surface-soft: rgba(255, 255, 255, 0.08);
+  --profile-pane-card-surface: #161619;
   --profile-pane-card-border: rgba(255, 255, 255, 0.08);
-  --profile-pane-card-highlight: rgba(255, 255, 255, 0.12);
-  --profile-pane-hair: rgba(237, 234, 228, 0.14);
+  --profile-pane-card-highlight: rgba(255, 255, 255, 0.065);
+  --profile-pane-hair: rgba(255, 255, 255, 0.08);
   --profile-pane-shadow:
-    0 42px 110px rgba(0, 0, 0, 0.58),
-    0 4px 20px rgba(0, 0, 0, 0.32);
+    0 42px 110px rgba(0, 0, 0, 0.62),
+    0 4px 20px rgba(0, 0, 0, 0.34);
 }
 
 html.dark .profile-pane-sheet[data-slot="sheet-content"],
@@ -2463,7 +2469,7 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 
 [data-agent-history-drawer] [data-agent-history-row] {
   background: transparent;
-  transition: transform 320ms cubic-bezier(0.2, 0.9, 0.2, 1), color 200ms ease;
+  transition: color 160ms ease;
 }
 
 [data-agent-history-drawer] [data-agent-history-row] > :is(div, form) {
@@ -2557,31 +2563,65 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 .profile-pane-close,
 .app-side-pane-close,
 [data-agent-history-drawer] [data-agent-history-close] {
-  top: 20px !important;
+  top: max(
+    6px,
+    calc(
+      15px + var(--agent-chat-header-safe-top, 0px) -
+        var(--app-side-pane-top-inset, 8px) - 1px
+    )
+  ) !important;
+  right: max(
+    11px,
+    calc(
+      var(--agent-chat-header-inline-gutter, 24px) -
+        var(--app-side-pane-right-inset, 8px) - 1px
+    )
+  ) !important;
   width: 44px !important;
   height: 44px !important;
   border: 1px solid transparent !important;
   background: var(--profile-pane-surface-soft) !important;
   color: var(--foreground) !important;
   transition:
-    background-color 180ms ease,
-    color 180ms ease,
-    transform 280ms cubic-bezier(0.2, 0.9, 0.2, 1) !important;
+    background-color 160ms ease,
+    color 160ms ease !important;
 }
 
-.profile-pane-close:hover,
-.app-side-pane-close:hover,
-[data-agent-history-drawer] [data-agent-history-close]:hover {
-  background: var(--profile-pane-surface-strong) !important;
-  color: var(--ios-account-label) !important;
-  transform: rotate(5deg);
+@media (hover: hover) and (pointer: fine) {
+  .profile-pane-close:hover,
+  .app-side-pane-close:hover,
+  [data-agent-history-drawer] [data-agent-history-close]:hover {
+    background: var(--profile-pane-surface-strong) !important;
+    color: var(--ios-account-label) !important;
+  }
 }
 
-/* History's authored opener/Close share a leading slot, not a trailing pill.
- * Keep the common typography and rows without moving that slot on open. */
+/* History's authored opener/Close share the exact viewport (x, y) slot so
+ * toggling the menu morphs into the cross in place without jumping. */
 [data-agent-history-drawer] [data-agent-history-header-layout="aligned"] {
   padding: 0 var(--agent-chat-header-inline-gutter) !important;
   gap: 12px !important;
+}
+@media (min-width: 640px) {
+  [data-agent-history-drawer] [data-agent-history-header-layout="aligned"] {
+    height: auto !important;
+    min-height: 56px;
+    padding-top: max(
+      6px,
+      calc(
+        15px + var(--agent-chat-header-safe-top, 0px) -
+          var(--app-side-pane-top-inset, 8px) - 1px
+      )
+    ) !important;
+    padding-bottom: 6px !important;
+    padding-inline: max(
+      11px,
+      calc(
+        var(--agent-chat-header-inline-gutter, 24px) -
+          var(--app-side-pane-left-inset, 8px) - 1px
+      )
+    ) !important;
+  }
 }
 [data-agent-history-drawer] [data-agent-history-header-layout="aligned"] [data-agent-history-close] {
   position: static;
@@ -2702,8 +2742,7 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 }
 
 .profile-preferences-content .profile-preferences-control-row > .grid {
-  /* Wide enough for "No preference" at the Connect 14px field size. */
-  grid-template-columns: minmax(0, 1fr) minmax(0, min(56%, 156px));
+  grid-template-columns: minmax(0, 1fr) minmax(0, min(50%, 148px));
   align-items: center;
   column-gap: var(--settings-row-gap);
   row-gap: 0;
@@ -2724,7 +2763,7 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   --settings-row-gap: var(--app-side-pane-row-gap) !important;
   min-height: 43px !important;
   padding: 0 !important;
-  transition: transform 320ms cubic-bezier(0.2, 0.9, 0.2, 1), color 200ms ease;
+  transition: color 160ms ease;
 }
 
 .profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] > button:not([data-slot="settings-row-action"]),
@@ -2743,17 +2782,47 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   background: var(--profile-pane-hair) !important;
   left: 37px !important;
   right: 6px !important;
+  transition: opacity 140ms ease;
 }
 
-.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"]:has(button:hover),
-.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"]:has(button:focus-visible),
-[data-agent-history-drawer] [data-agent-history-row]:has(button:not(:disabled):hover),
-[data-agent-history-drawer] [data-agent-history-row]:has(button:focus-visible) {
-  transform: translateX(3px);
+/* Retire SettingsRow's generic inset-0 hover tint inside panes so rows render
+ * ONE crisp concentric surface highlight with zero double-pill ghosting. */
+.profile-pane-scroll-root [data-row-layout="settings"] > span[aria-hidden],
+[data-app-side-pane] [data-row-layout="settings"] > span[aria-hidden] {
+  display: none !important;
 }
 
-/* Share the home menu's glass highlight across every Profile section,
-   including keyboard focus on preference fields. The sheet owns the blur. */
+/* Suppress adjacent hairline dividers above and below a hovered/focused/active row. */
+.profile-pane-scroll-root [data-row-layout="settings"]:is(
+  :has(:is(button, input, textarea):not(:disabled):hover),
+  :has(:focus-visible),
+  [data-state="active"]
+)::after,
+.profile-pane-scroll-root [data-row-layout="settings"]:has(
+  + [data-row-layout="settings"]:is(
+    :has(:is(button, input, textarea):not(:disabled):hover),
+    :has(:focus-visible),
+    [data-state="active"]
+  )
+)::after,
+[data-app-side-pane] [data-row-layout="settings"]:is(
+  :has(:is(button, input, textarea):not(:disabled):hover),
+  :has(:focus-visible),
+  [data-state="active"]
+)::after,
+[data-app-side-pane] [data-row-layout="settings"]:has(
+  + [data-row-layout="settings"]:is(
+    :has(:is(button, input, textarea):not(:disabled):hover),
+    :has(:focus-visible),
+    [data-state="active"]
+  )
+)::after {
+  opacity: 0 !important;
+}
+
+/* Rows remain geometrically stationary on hover so neither Profile nor Chats bounces. */
+
+/* Share one clean concentric highlight across Profile and Chats rows. */
 .profile-pane-scroll-root [data-row-layout="settings"]:has(:is(button, input, textarea):not(:disabled):hover)::before,
 .profile-pane-scroll-root [data-row-layout="settings"]:has(:focus-visible)::before,
 .profile-pane-scroll-root [data-row-layout="settings"][data-state="active"]::before,
@@ -2763,16 +2832,22 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   content: "";
   position: absolute;
   z-index: 0;
-  inset: 2px 0;
+  inset: 1px 0;
   border-radius: 12px;
-  background: linear-gradient(
-    110deg,
-    var(--profile-pane-surface-strong),
-    var(--profile-pane-surface-soft)
-  );
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  background: color-mix(in srgb, var(--foreground) 4.8%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--foreground) 4%, transparent);
   opacity: 1;
   pointer-events: none;
+}
+
+.dark .profile-pane-scroll-root [data-row-layout="settings"]:has(:is(button, input, textarea):not(:disabled):hover)::before,
+.dark .profile-pane-scroll-root [data-row-layout="settings"]:has(:focus-visible)::before,
+.dark .profile-pane-scroll-root [data-row-layout="settings"][data-state="active"]::before,
+.dark [data-agent-history-drawer] [data-agent-history-row]:has(button:not(:disabled):hover)::before,
+.dark [data-agent-history-drawer] [data-agent-history-row]:has(:focus-visible)::before,
+.dark [data-agent-history-drawer] [data-agent-history-row][data-state="active"]::before {
+  background: rgba(255, 255, 255, 0.068);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.09);
 }
 
 .profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] [data-slot="settings-row-content"] {
@@ -2849,28 +2924,36 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 .profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-group-shell"],
 [data-app-pane-material="profile"] {
   border: 1px solid var(--profile-pane-card-border) !important;
-  border-radius: 17px !important;
+  border-radius: 16px !important;
   background: var(--profile-pane-card-surface) !important;
-  box-shadow:
-    inset 0 1px 0 var(--profile-pane-card-highlight),
-    0 8px 24px rgba(35, 42, 51, 0.05) !important;
+  box-shadow: inset 0 1px 0 var(--profile-pane-card-highlight) !important;
 }
 
 .profile-pane-scroll-root [data-profile-stack-content="true"] [data-row-layout="settings"] {
   --settings-row-px: 14px;
   --settings-row-py: 9px;
-  --settings-row-gap: 9px;
-  min-height: 58px !important;
+  --settings-row-gap: 11px;
+  min-height: 56px !important;
 }
 
 .profile-pane-scroll-root [data-profile-stack-content="true"] [data-row-layout="settings"] > :is(button, [data-slot="settings-row-content"]) {
-  min-height: 58px !important;
+  min-height: 56px !important;
 }
 
 .profile-pane-scroll-root [data-profile-stack-content="true"] [data-row-layout="settings"]::after {
   left: var(--settings-row-px, 14px) !important;
   right: var(--settings-row-px, 14px) !important;
   background: var(--profile-pane-hair) !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-inset-separators="true"] > [data-row-layout="settings"]::after {
+  left: 14px !important;
+  right: 14px !important;
+}
+
+.profile-pane-scroll-root [data-profile-stack-content="true"] [data-inset-separators="true"] > [data-row-layout="settings"]:has([data-slot="settings-row-icon"], [data-connector-brand])::after {
+  left: 49px !important;
+  right: 14px !important;
 }
 
 .profile-pane-scroll-root [data-profile-stack-content="true"] [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]) {
@@ -3006,10 +3089,8 @@ body:has(.profile-account-content:not(.profile-pane-sheet *)) .kai-bottom-nav-pi
 body:has(.profile-account-content:not(.profile-pane-sheet *))
   .kai-bottom-nav-pill
   [data-segment-indicator] {
-  background: transparent !important;
-  display: none;
-  box-shadow: none !important;
-  opacity: 0;
+  display: block;
+  opacity: 1;
 }
 
 body:has(.profile-account-content:not(.profile-pane-sheet *))
@@ -3203,6 +3284,17 @@ body:has(.profile-account-content:not(.profile-pane-sheet *))
   .native-feature-page[data-native-feature-pane="profile"][data-native-feature-side="left"] { inset: 0; width: 100vw; height: 100dvh; border-radius: 0; }
 }
 
+.native-feature-page[data-native-feature-pane="profile"][data-native-feature-layer="chat-attachment"] {
+  inset: 0 0 var(--kb-height, 0px);
+  width: 100%;
+  height: auto;
+  border-radius: 0;
+  padding-top: var(--app-safe-area-top-effective, 0px);
+}
+.kb-open .native-feature-page[data-native-feature-layer="chat-attachment"] .native-feature-page-body {
+  padding-bottom: 0;
+}
+
 html.native-ios {
   --agent-chat-header-safe-top: max(64px, var(--app-safe-area-top-effective, 0px));
 }
@@ -3224,6 +3316,7 @@ html.native-ios {
 
 @media (min-width: 640px) {
   :root {
+    --agent-chat-header-row-height: 4.1875rem;
     --agent-chat-header-inline-gutter: 1.25rem;
   }
 }
@@ -3933,13 +4026,18 @@ body:has([data-location-page], [data-location-hub], [data-wallet-hub]) [data-app
   gap: var(--surface-stack-gap-compact);
 }
 
+.network-status-banner {
+  top: var(--app-system-safe-area-top);
+  padding-inline: max(1rem, env(safe-area-inset-left, 0px)) max(1rem, env(safe-area-inset-right, 0px));
+}
+
 /* Capacitor iOS uses `ios.contentInset = "never"` with CSS-owned insets; don't double-count shell spacing. */
 html.native-ios {
   /* UIKit supplies the real inset even when WKWebView env() is zero. Older
    * binaries and the first document frame use a Dynamic-Island-safe fallback. */
   --app-safe-area-top: max(var(--app-native-safe-area-top, 59px), env(safe-area-inset-top, 0px));
   /* A measured zero is valid after rotation; stale CSS probes must not win. */
-  --app-safe-area-top-effective: var(--app-native-safe-area-top, max(var(--app-safe-area-top), env(safe-area-max-inset-top, 0px), var(--app-safe-area-top-probe)));
+  --app-system-safe-area-top: var(--app-native-safe-area-top, max(var(--app-safe-area-top), env(safe-area-max-inset-top, 0px), var(--app-safe-area-top-probe)));
   /* Lift persistent bottom chrome above the iOS home indicator zone. */
   --app-bottom-chrome-lift: 10px;
   /* Keep a small effective inset because WKWebView already applies content inset on iOS. */
@@ -3952,12 +4050,12 @@ html.native-ios {
  * Some iOS WebViews report a zero inset, so share a Dynamic-Island-safe floor
  * while allowing larger measured device insets to win. */
 html.native-ios [data-testid="one-location-onboarding"] {
-  --app-safe-area-top-effective: max(
+  --app-safe-area-top-effective: calc(var(--network-status-height, 0px) + max(
     59px,
     var(--app-safe-area-top),
     env(safe-area-max-inset-top, 0px),
     var(--app-safe-area-top-probe)
-  );
+  ));
 }
 
 /* Location onboarding is a focused full-screen flow. Suppress persistent app
@@ -5158,16 +5256,16 @@ body:has([data-testid="one-location-onboarding"])
 
   --background: #0e0e10;
   --foreground: #f5f5f7;
-  --card: #17171a;
+  --card: #161619;
   --card-foreground: #f5f5f7;
-  --popover: #17171a;
+  --popover: #161619;
   --popover-foreground: #f5f5f7;
   --primary: #f5f5f7;
   --primary-foreground: #000000;
   --secondary: #222226;
   --secondary-foreground: #f5f5f7;
   --muted: #222226;
-  --muted-foreground: rgba(235, 235, 245, 0.72);
+  --muted-foreground: rgba(235, 235, 245, 0.68);
   --accent: var(--app-accent);
   --accent-foreground: var(--app-accent-fg);
   --destructive: #ff453a;
@@ -5177,7 +5275,7 @@ body:has([data-testid="one-location-onboarding"])
   --critical-soft-bg: oklch(0.31 0.06 24);
   --critical-soft-border: oklch(0.6 0.15 24);
   --critical-soft-text: oklch(0.79 0.13 24);
-  --border: rgba(84, 84, 88, 0.65);
+  --border: rgba(255, 255, 255, 0.09);
   --input: #141418;
   --ring: var(--app-accent-ring);
   /* iOS shifts systemGreen brighter in dark mode and darkens the off-track;
@@ -5267,8 +5365,9 @@ body:has([data-testid="one-location-onboarding"])
   --app-card-surface-hero: var(--app-neutral-fill-strong);
   --app-card-surface-sticky-header: #2f2f31;
   --app-card-surface-sticky-header-solid: #2f2f31;
-  --app-card-border-standard: var(--app-separator);
-  --app-card-border-strong: rgba(255, 255, 255, 0.18);
+  --app-card-border-standard: rgba(255, 255, 255, 0.08);
+  --app-card-border-strong: rgba(255, 255, 255, 0.14);
+  --app-card-specular: rgba(255, 255, 255, 0.06);
   --app-border: var(--app-card-border-standard);
   --app-text-secondary: var(--app-secondary-label, var(--muted-foreground));
   --app-card-shadow-standard: none;
@@ -6826,6 +6925,10 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 
 /* The retained Agent Bar owns the material in both modes. Chat projects its
  * existing form into that bar, not another glass pill or another text box. */
+:root {
+  --agent-dock-resting-height: 3.25rem;
+}
+
 [data-agent-dock-surface="text"] {
   display: block;
   min-width: 0;
@@ -6838,6 +6941,14 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
    * route navigation. Taller drafts still grow inside the bounded editor. */
   border-radius: 1.5rem;
   padding-block: 0.25rem;
+}
+
+/* The native receipt is the full bar height, including its own padding. */
+[data-agent-dock-surface="voice"][data-native-dock-owned="true"] {
+  padding-block: 0;
+}
+[data-agent-bar-retained] [data-agent-bar-extras]:not(:empty) {
+  margin-bottom: 0.5rem;
 }
 [data-agent-dock-voice][hidden],
 [data-agent-dock-composer][hidden] {
@@ -6865,7 +6976,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .agent-chat-composer-compact {
-  padding: 0.4375rem 0.5rem 0.4375rem 1rem;
+  padding: 0.25rem 0.5rem 0.25rem 1rem;
 }
 .agent-chat-composer-field {
   box-sizing: border-box;
@@ -6927,6 +7038,12 @@ html.kb-open [data-messages-dock]:not([data-command-active="true"]):not(:has([da
   visibility: hidden;
   pointer-events: none;
 }
+/* Messages keeps the shared stack inside the conversation's grid column. */
+@media (min-width: 768px) and (min-height: 500px), (min-width: 1024px) {
+  [data-messages-dock] {
+    padding-inline-start: calc(var(--app-messages-sidebar-width) + var(--app-bottom-shell-inline-inset));
+  }
+}
 html.kb-open :is([data-agent-dock-chat], [data-messages-dock]) [data-bottom-shell-motion-stack] {
   transform: none !important;
 }
@@ -6964,46 +7081,54 @@ html.kb-open.kb-resizes :is([data-agent-dock-chat], [data-messages-dock]) [data-
    [data-one-chat-surface]; no other page reads these tokens. Light shares the
    launcher’s grey canvas with soft grey bubbles, dark a neutral near-black with raised
    greys. The accent (user bubbles, focus) stays One's own blue. */
+/* Subtle Quiet Obsidian / Porcelain surface edge craft on grouped cards
+   app-wide without breaking flat standard-shadow contracts. */
+[data-ui-role="grouped-card"] {
+  box-shadow:
+    inset 0 0 0 1px var(--app-card-border-standard),
+    inset 0 1px 0 var(--app-card-specular);
+}
+
 [data-one-chat-surface] {
   --one-chat-canvas: var(--one-launcher-background);
   /* One surface with the chat, as in the reference: the hairline divides. */
   --one-chat-sidebar: var(--one-chat-canvas);
-  --one-chat-search-border: rgba(0, 0, 0, 0.12);
+  --one-chat-search-border: rgba(15, 23, 42, 0.09);
   --one-chat-search-bg: transparent;
-  --one-chat-divider: rgba(0, 0, 0, 0.075);
+  --one-chat-divider: rgba(15, 23, 42, 0.08);
   --one-chat-bubble: #ebebee;
   --one-chat-raised: #ffffff;
   --one-chat-menu: #ffffff;
-  --one-chat-field: rgba(0, 0, 0, 0.045);
-  --one-chat-field-strong: rgba(0, 0, 0, 0.07);
-  --one-chat-row-hover: rgba(0, 0, 0, 0.04);
-  --one-chat-row-active: rgba(0, 0, 0, 0.045);
+  --one-chat-field: rgba(15, 23, 42, 0.048);
+  --one-chat-field-strong: rgba(15, 23, 42, 0.085);
+  --one-chat-row-hover: rgba(15, 23, 42, 0.045);
+  --one-chat-row-active: rgba(15, 23, 42, 0.065);
   --one-chat-meta: rgba(60, 60, 67, 0.64);
   --one-chat-composer: #ffffff;
-  --one-chat-composer-border: rgba(0, 0, 0, 0.1);
+  --one-chat-composer-border: rgba(15, 23, 42, 0.09);
   --one-chat-get-app-stage: color-mix(in oklab, var(--app-accent) 16%, #ffffff);
   --one-chat-get-app-bezel: color-mix(in oklab, var(--app-accent) 10%, #ffffff);
 }
 
 .dark [data-one-chat-surface],
 [data-one-chat-surface].dark {
-  --one-chat-canvas: #171717;
-  --one-chat-sidebar: #171717;
-  --one-chat-search-border: rgba(255, 255, 255, 0.12);
-  --one-chat-search-bg: rgba(255, 255, 255, 0.04);
+  --one-chat-canvas: var(--background);
+  --one-chat-sidebar: var(--background);
+  --one-chat-search-border: rgba(255, 255, 255, 0.09);
+  --one-chat-search-bg: rgba(255, 255, 255, 0.045);
   --one-chat-divider: rgba(255, 255, 255, 0.08);
-  --one-chat-bubble: #242424;
-  --one-chat-raised: #202020;
-  --one-chat-menu: #2e2e30;
-  --one-chat-field: rgba(255, 255, 255, 0.06);
-  --one-chat-field-strong: rgba(255, 255, 255, 0.1);
-  --one-chat-row-hover: rgba(255, 255, 255, 0.05);
-  --one-chat-row-active: rgba(255, 255, 255, 0.065);
-  --one-chat-meta: rgba(235, 235, 245, 0.55);
-  --one-chat-composer: #2a2a2a;
-  --one-chat-composer-border: rgba(255, 255, 255, 0.06);
-  --one-chat-get-app-stage: #2a2a2f;
-  --one-chat-get-app-bezel: #3a3a40;
+  --one-chat-bubble: #1c1c20;
+  --one-chat-raised: #161619;
+  --one-chat-menu: #1c1c20;
+  --one-chat-field: rgba(255, 255, 255, 0.065);
+  --one-chat-field-strong: rgba(255, 255, 255, 0.11);
+  --one-chat-row-hover: rgba(255, 255, 255, 0.055);
+  --one-chat-row-active: rgba(255, 255, 255, 0.085);
+  --one-chat-meta: rgba(235, 235, 245, 0.58);
+  --one-chat-composer: #18181c;
+  --one-chat-composer-border: rgba(255, 255, 255, 0.085);
+  --one-chat-get-app-stage: #1d1d22;
+  --one-chat-get-app-bezel: #2a2a30;
 }
 
 /* Drawer controls inherit Profile's material; the workspace keeps its palette. */
@@ -7172,10 +7297,20 @@ html.kb-open.kb-resizes :is([data-agent-dock-chat], [data-messages-dock]) [data-
 }
 
 .kai-bottom-nav-pill [data-segment-indicator] {
-  display: none;
-  background: transparent !important;
-  border: 0;
-  box-shadow: none !important;
+  display: block;
+  background: color-mix(in srgb, var(--app-accent) 10%, rgba(255, 255, 255, 0.76)) !important;
+  border: 0.5px solid color-mix(in srgb, var(--app-accent) 14%, rgba(255, 255, 255, 0.84));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 2px 8px -2px rgba(15, 23, 42, 0.08) !important;
+}
+
+.dark .kai-bottom-nav-pill [data-segment-indicator] {
+  background: color-mix(in srgb, var(--app-accent-bright, var(--app-accent)) 18%, rgba(255, 255, 255, 0.09)) !important;
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow:
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.22),
+    0 2px 10px -2px rgba(0, 0, 0, 0.42) !important;
 }
 
 .segmented-pill-active-choice {
@@ -8224,7 +8359,9 @@ html.dark:has([data-direct-message-page]) [data-app-bottom-shell] {
 [data-slot="sheet-scrim"][data-state="closed"],
 [data-slot="drawer-scrim"][data-state="closed"],
 [data-slot="alert-dialog-scrim"][data-state="closed"],
-[data-slot="popover-scrim"][data-state="closed"] {
+[data-slot="popover-scrim"][data-state="closed"],
+[data-slot="popover-scrim"]:has(+ [data-slot="popover-content"][data-state="closed"]),
+[data-slot="popover-scrim"]:has(~ [data-radix-popper-content-wrapper] [data-slot="popover-content"][data-state="closed"]) {
   animation: overlay-scrim-out var(--motion-overlay-exit-duration)
     var(--motion-overlay-exit-ease) both;
 }
@@ -8297,8 +8434,28 @@ html.dark:has([data-direct-message-page]) [data-app-bottom-shell] {
   }
 }
 
+/* The coherent shell retains chrome without the legacy regions capability.
+   Portals consume the same mirrored geometry while a rich handoff retires
+   the workspace seat but preserves the native navigation reservation. */
+html:is(:has([data-native-workspace-seat="true"]), :has([data-native-navigation-reservation])):not(.native-reserved-chrome) {
+  --native-overlay-top: var(--native-workspace-top, var(--app-top-content-offset, 0px));
+  --native-overlay-bottom: max(var(--native-workspace-bottom, var(--bottom-chrome-stack-height, 0px)), var(--kb-height, 0px));
+}
+
+/* Full-screen Profile covers the workspace chrome. Its nested portals clear
+   the keyboard, rather than reserving the hidden dock a second time. */
+@media (max-width: 639px), (pointer: coarse) and (max-height: 639px) and (max-width: 959px) {
+  html:is(:has([data-native-workspace-seat="true"]), :has([data-native-navigation-reservation])):not(.native-reserved-chrome):has(
+    .native-feature-page[data-native-feature-pane="profile"][data-state="open"],
+    [data-testid="profile-pane"][data-state="open"]
+  ) {
+    --native-overlay-top: 0px;
+    --native-overlay-bottom: var(--kb-height, 0px);
+  }
+}
+
 /* Acknowledged native seats bound web overlays; panel motion stays React. */
-html.native-reserved-chrome:not([data-session-check-active]) :is(
+html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"]), :has([data-native-navigation-reservation])):not([data-session-check-active]) :is(
   [data-slot="sheet-overlay"], [data-slot="dialog-overlay"],
   [data-slot="alert-dialog-overlay"], [data-slot="popover-scrim"],
   [data-agent-history-scrim], [data-profile-preview-scrim]
@@ -8306,7 +8463,7 @@ html.native-reserved-chrome:not([data-session-check-active]) :is(
   top: var(--native-overlay-top, 0px);
   bottom: var(--native-overlay-bottom, 0px);
 }
-html.native-reserved-chrome:not([data-session-check-active]) :is(
+html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"]), :has([data-native-navigation-reservation])):not([data-session-check-active]) :is(
   [data-agent-history-drawer], [data-profile-preview],
   [data-slot="sheet-content"][data-sheet-side="left"],
   [data-slot="sheet-content"][data-sheet-side="right"]
@@ -8315,20 +8472,25 @@ html.native-reserved-chrome:not([data-session-check-active]) :is(
   bottom: var(--native-overlay-bottom, 0px);
   height: auto;
 }
-html.native-reserved-chrome:not([data-session-check-active]) :is(
-  [data-slot="dialog-content"], [data-slot="alert-dialog-content"]
+html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"]), :has([data-native-navigation-reservation])):not([data-session-check-active]) :is(
+  [data-slot="dialog-content"]:not(.native-feature-page), [data-slot="alert-dialog-content"]
 ) {
   top: calc(var(--native-overlay-top, 0px) + (100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px)) / 2);
   max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px) - 2rem);
+  /* The acknowledged bottom region already includes the keyboard. The
+     generic centered-dialog lift would apply that clearance a second time. */
+  margin-top: 0;
   overflow-y: auto;
 }
-html.native-reserved-chrome:not([data-session-check-active]) [data-slot="sheet-content"][data-sheet-side="bottom"] {
+html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"]), :has([data-native-navigation-reservation])):not([data-session-check-active]) [data-slot="sheet-content"][data-sheet-side="bottom"] {
   bottom: var(--native-overlay-bottom, 0px);
-  max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px));
+  /* Authored task sizes cannot exceed the retained shell’s content region. */
+  max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px)) !important;
 }
-html.native-reserved-chrome:not([data-session-check-active]) [data-slot="sheet-content"][data-sheet-side="top"] {
+html:is(.native-reserved-chrome, :has([data-native-workspace-seat="true"]), :has([data-native-navigation-reservation])):not([data-session-check-active]) [data-slot="sheet-content"][data-sheet-side="top"] {
   top: var(--native-overlay-top, 0px);
-  max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px));
+  /* Authored task sizes cannot exceed the retained shell’s content region. */
+  max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px)) !important;
 }
 html.native-reserved-chrome:not(.native-full-window-overlays):not([data-session-check-active]) [data-testid="profile-pane"] > [data-slot="sheet-header"] {
   padding-top: 1rem;
@@ -8366,7 +8528,7 @@ html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
    shares that mobile boundary; desktop cards stay bounded. Match a
    landscape phone by its coarse pointer and short side, not width alone. */
 @media (pointer: coarse) {
-  html:not(.native-reserved-chrome) :is(.profile-pane-sheet[data-slot="sheet-content"], [data-profile-preview]) {
+  html:not(.native-reserved-chrome) :is(.profile-pane-sheet[data-slot="sheet-content"], [data-profile-preview], [data-agent-history-drawer], [data-chat-detail-pane][data-app-side-pane]) {
     --app-side-pane-top-inset: 0px;
     --app-side-pane-bottom-inset: 0px;
     --app-side-pane-height: 100dvh;
@@ -8850,6 +9012,96 @@ html.native-android [data-app-pane-material="profile"] {
 
   .motion-step-enter {
     animation: none !important;
+  }
+}
+
+/* ==========================================================================
+ * TACTILE DISCLOSURE & MICRO-PRESENCE CONTINUITY
+ * Smooth Radix collapsible disclosure + zero-JS @starting-style bridges for
+ * streaming events, composer action morphs, follow-up prompts, and One status.
+ * ========================================================================== */
+.app-collapsible-content {
+  overflow: hidden;
+}
+
+.app-collapsible-content[data-state="open"] {
+  animation: app-collapsible-down var(--motion-duration-lg) var(--ease-out);
+}
+
+.app-collapsible-content[data-state="closed"] {
+  animation: app-collapsible-up var(--motion-duration-sm) var(--motion-ease-accelerate);
+}
+
+@keyframes app-collapsible-down {
+  from {
+    height: 0;
+    opacity: 0;
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+    opacity: 1;
+  }
+}
+
+@keyframes app-collapsible-up {
+  from {
+    height: var(--radix-collapsible-content-height);
+    opacity: 1;
+  }
+  to {
+    height: 0;
+    opacity: 0;
+  }
+}
+
+[data-slot="stream-event-list"] > li,
+[data-slot="stream-response"],
+.agent-suggestion-item,
+.one-presence-enter,
+.one-presence-label-enter {
+  transition:
+    opacity var(--motion-duration-md) var(--ease-out),
+    transform var(--motion-duration-md) var(--ease-out);
+  @starting-style {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+[data-agent-composer-action] svg {
+  transition:
+    opacity var(--motion-duration-sm) var(--ease-out),
+    transform var(--motion-duration-sm) var(--ease-out);
+  @starting-style {
+    opacity: 0;
+    transform: scale(0.86);
+  }
+}
+
+.hosting-check-enter {
+  transition:
+    opacity var(--motion-duration-md) var(--ease-out),
+    transform var(--motion-duration-md) var(--ease-out);
+  @starting-style {
+    opacity: 0;
+    transform: scale(0.68);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-collapsible-content[data-state="open"],
+  .app-collapsible-content[data-state="closed"] {
+    animation: none !important;
+  }
+
+  [data-slot="stream-event-list"] > li,
+  [data-slot="stream-response"],
+  .agent-suggestion-item,
+  .one-presence-enter,
+  .one-presence-label-enter,
+  [data-agent-composer-action] svg,
+  .hosting-check-enter {
+    transition: none !important;
   }
 }
 
@@ -9382,15 +9634,6 @@ body[data-persona-surface="ria"] {
   letter-spacing: normal !important;
   line-height: var(--type-compact-button-label-line) !important;
   white-space: nowrap !important;
-}
-
-/* Let full-width Location actions grow when text cannot fit on one line. */
-[data-location-action-fit],
-[data-location-action-fit] .ui-text-button-label {
-  min-width: 0;
-  line-height: max(var(--type-button-label-line), 1.28em) !important;
-  white-space: normal !important;
-  overflow-wrap: anywhere;
 }
 
 /* Connect's directory headings and contact-sync action are peers even though
@@ -10119,10 +10362,10 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     [data-slot="settings-group-heading"] {
     color: var(--ios-account-secondary-label) !important;
     font-family: var(--font-app-body) !important;
-    font-size: 10px !important;
+    font-size: 11px !important;
     font-weight: 600 !important;
-    letter-spacing: 0.02em !important;
-    line-height: 14px !important;
+    letter-spacing: 0.015em !important;
+    line-height: 15px !important;
     text-transform: none !important;
   }
 
@@ -10130,10 +10373,10 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     [data-slot="settings-row-title"] {
     color: var(--ios-account-label) !important;
     font-family: var(--font-app-body) !important;
-    font-size: 13px !important;
-    font-weight: 400 !important;
-    letter-spacing: 0 !important;
-    line-height: 1.22 !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    letter-spacing: -0.01em !important;
+    line-height: 1.3 !important;
   }
 
   .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
@@ -10148,7 +10391,7 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     font-size: 12px !important;
     font-weight: 400 !important;
     letter-spacing: 0 !important;
-    line-height: 1.3 !important;
+    line-height: 1.35 !important;
   }
 
   .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
@@ -10204,164 +10447,6 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
     :is(input, textarea):not([data-consent-input])::placeholder {
     font-size: 13px !important;
-  }
-}
-
-/* Connect v14 type scale inside the Profile pages that opt in.
-   `ProfileStackEntry.typeScale: "connect"` puts `data-connect-type-scale="profile"`
-   on the stack screen for Appearance & preferences, Your account, Hosting and
-   Help & feedback only; every other Profile screen keeps its own scale. The
-   values are Connect's (connect-workspace.module.css, typography.md): row
-   14/21/550, description 12/18/400, group 14/22/600, form label 15/22/550,
-   input 14/22/400, action 12/18/550. Unlike Connect's workspace, fields stay
-   14 on phones: here they sit beside their labels in a pane at most 430px
-   wide, and 16px truncates values such as "No preference" at 320px. Only 400,
-   600 and 700 faces ship, so 550 paints SemiBold. The earlier Profile rules are important
-   declarations in this same layer, so each selector below carries enough
-   specificity to win outright; none of them sets color on a row title, which
-   keeps the destructive row red. */
-@layer base {
-  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] {
-    --connect-scale-row-size: 14px;
-    --connect-scale-row-weight: 550;
-    --connect-scale-row-line: 21px;
-    --connect-scale-description-size: 12px;
-    --connect-scale-description-weight: 400;
-    --connect-scale-description-line: 18px;
-    --connect-scale-group-size: 14px;
-    --connect-scale-group-weight: 600;
-    --connect-scale-group-line: 22px;
-    --connect-scale-form-size: 15px;
-    --connect-scale-form-weight: 550;
-    --connect-scale-form-line: 22px;
-    --connect-scale-input-size: 14px;
-    --connect-scale-input-line: 22px;
-    --connect-scale-action-size: 12px;
-    --connect-scale-action-weight: 550;
-    --connect-scale-action-line: 18px;
-  }
-
-  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] [data-slot="settings-group-heading"][role="heading"][aria-level] {
-    color: var(--ios-account-label) !important;
-    font-family: var(--font-app-body) !important;
-    font-size: var(--connect-scale-group-size) !important;
-    font-weight: var(--connect-scale-group-weight) !important;
-    letter-spacing: 0 !important;
-    line-height: var(--connect-scale-group-line) !important;
-  }
-
-  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] :is([data-slot="settings-row-title"], [data-profile-role="name"]) {
-    font-family: var(--font-app-body) !important;
-    font-size: var(--connect-scale-row-size) !important;
-    font-weight: var(--connect-scale-row-weight) !important;
-    letter-spacing: 0 !important;
-    line-height: var(--connect-scale-row-line) !important;
-  }
-
-  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] :is([data-slot="settings-row-description"], [data-slot="settings-group-description"], [data-profile-role="description"]) {
-    font-family: var(--font-app-body) !important;
-    font-size: var(--connect-scale-description-size) !important;
-    font-weight: var(--connect-scale-description-weight) !important;
-    letter-spacing: 0 !important;
-    line-height: var(--connect-scale-description-line) !important;
-  }
-
-  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] :is([data-slot="settings-row-trailing"], [data-ui-role="trailing-value"], .profile-account-row-value) {
-    font-family: var(--font-app-body) !important;
-    font-size: var(--connect-scale-description-size) !important;
-    line-height: var(--connect-scale-description-line) !important;
-  }
-
-  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] :is(.profile-account-inline-action, [data-profile-role="action"]) {
-    font-family: var(--font-app-body) !important;
-    font-size: var(--connect-scale-action-size) !important;
-    font-weight: var(--connect-scale-action-weight) !important;
-    line-height: var(--connect-scale-action-line) !important;
-  }
-
-  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] :is([data-slot="field-label"], label[for="support-message"], #support-intent-label) {
-    font-family: var(--font-app-body) !important;
-    font-size: var(--connect-scale-form-size) !important;
-    font-weight: var(--connect-scale-form-weight) !important;
-    letter-spacing: 0 !important;
-    line-height: var(--connect-scale-form-line) !important;
-    text-transform: none !important;
-  }
-
-  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] :is([data-slot="field-description"], form > p:not([role="alert"]), form [role="alert"], [data-testid="style-settings-status"], [data-testid="style-settings-note-count"]) {
-    font-family: var(--font-app-body) !important;
-    font-size: var(--connect-scale-description-size) !important;
-    font-weight: var(--connect-scale-description-weight) !important;
-    line-height: var(--connect-scale-description-line) !important;
-  }
-
-  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] :is(
-      input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
-      textarea,
-      select,
-      [data-slot="select-trigger"],
-      [role="combobox"]
-    ):not([data-consent-input]):not([data-profile-appearance-preferences] *) {
-    font-family: var(--font-app-body) !important;
-    font-size: var(--connect-scale-input-size) !important;
-    font-weight: 400 !important;
-    line-height: var(--connect-scale-input-line) !important;
-  }
-
-  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] :is(input, textarea):not([data-consent-input]):not([data-profile-appearance-preferences] *)::placeholder {
-    font-size: var(--connect-scale-input-size) !important;
-  }
-
-  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] :is([data-ui-role="segmented-tabs"] [data-ui-contract="required-title"], [data-profile-role="cta"]) {
-    font-family: var(--font-app-body) !important;
-    font-size: var(--connect-scale-row-size) !important;
-    font-weight: var(--connect-scale-row-weight) !important;
-    line-height: var(--connect-scale-row-line) !important;
-  }
-
-  /* The appearance card keeps compact 34px controls, so its select uses the
-     action role instead of the 44px input role above. */
-  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] [data-profile-appearance-preferences] :is(
-      input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
-      textarea,
-      select,
-      [data-slot="select-trigger"],
-      [role="combobox"]
-    ):not([data-consent-input]) {
-    font-family: var(--font-app-body) !important;
-    font-size: var(--connect-scale-action-size) !important;
-    font-weight: var(--connect-scale-action-weight) !important;
-    line-height: var(--connect-scale-action-line) !important;
-  }
-
-  /* The two optional email cards sit above the account groups. Give them the
-     same card surface, inset and spacing so they read as one column. */
-  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] [data-profile-email-card] {
-    margin: 0 0 12px !important;
-    padding: 14px 16px !important;
-    border: 1px solid var(--profile-pane-card-border, var(--profile-pane-hair, var(--app-separator))) !important;
-    border-radius: 17px !important;
-    background: var(--profile-pane-card-surface, var(--profile-pane-surface-soft, var(--app-card-surface-default))) !important;
-  }
-
-  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] [data-profile-email-card] :is(label, [role="status"], [role="alert"]) {
-    font-family: var(--font-app-body) !important;
-    font-size: var(--connect-scale-row-size) !important;
-    font-weight: var(--connect-scale-row-weight) !important;
-    line-height: var(--connect-scale-row-line) !important;
-  }
-
-  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] [data-profile-email-card] :is([role="status"], [role="alert"]) {
-    font-size: var(--connect-scale-description-size) !important;
-    font-weight: var(--connect-scale-description-weight) !important;
-    line-height: var(--connect-scale-description-line) !important;
-  }
-
-  .profile-pane-sheet .profile-pane-scroll-root .app-page-shell [data-profile-stack-screen] [data-profile-stack-content="true"][data-connect-type-scale="profile"] [data-profile-email-card] button {
-    font-family: var(--font-app-body) !important;
-    font-size: var(--connect-scale-action-size) !important;
-    font-weight: var(--connect-scale-action-weight) !important;
-    line-height: var(--connect-scale-action-line) !important;
   }
 }
 
@@ -10736,8 +10821,17 @@ html:has([data-profile-type-scale]),
   justify-content: flex-start;
 }
 
+@media (min-width: 640px) {
+  .agent-chat-header {
+    padding-top: calc(15px + var(--agent-chat-header-safe-top));
+  }
+}
+
 @media (max-width: 639px), (pointer: coarse) and (max-height: 639px) and (max-width: 959px) {
-  .agent-chat-header { column-gap: 4px; }
+  .agent-chat-header {
+    column-gap: 4px;
+    padding-top: calc(8px + var(--agent-chat-header-safe-top));
+  }
   .agent-chat-header [data-agent-chat-header-region="identity"] {
     gap: 4px;
   }
@@ -10757,7 +10851,7 @@ html:has([data-profile-type-scale]),
   .agent-chat-header {
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     grid-template-rows: 44px;
-    padding-top: calc(8px + var(--agent-chat-header-safe-top));
+    padding-top: calc(15px + var(--agent-chat-header-safe-top));
   }
   .agent-chat-header > :first-child {
     grid-column: 1;
@@ -10783,10 +10877,11 @@ html:has([data-profile-type-scale]),
    their shared 44px targets and stay anchored when switching agents. */
 .agent-chat-header[data-one-centered-header="true"] {
   --one-header-artwork-size: 104px;
-  --one-header-body-height: 144px;
+  --one-header-body-height: 174px;
   height: calc(var(--one-header-body-height) + var(--agent-chat-header-safe-top));
+  padding-bottom: 14px;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  grid-template-rows: 128px;
+  grid-template-rows: 152px;
 }
 .agent-chat-header[data-one-centered-header="true"] > :first-child,
 .agent-chat-header[data-one-centered-header="true"] > :last-child {
@@ -10799,9 +10894,9 @@ html:has([data-profile-type-scale]),
   top: calc(8px + var(--agent-chat-header-safe-top));
   left: 50%;
   transform: translateX(-50%);
-  width: min(256px, calc(100% - 32px));
+  width: min(268px, calc(100% - 32px));
   flex-direction: column;
-  gap: 0;
+  gap: 5px;
   overflow: visible;
   text-align: center;
 }
@@ -10815,8 +10910,208 @@ html:has([data-profile-type-scale]),
 .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child {
   max-width: 100%;
   border-radius: 999px;
-  padding: 0 8px;
+  padding: 4px 12px;
   background: var(--app-secondary-surface);
+}
+
+/* Smooth, bounded silk ripple containment across Morphy and core primitives. */
+.morphy-md-ripple {
+  contain: strict;
+  will-change: opacity;
+}
+
+/* Long-lived persistent stream performance: skip off-screen layout/paint for settled history rows. */
+[data-agent-settled-row="true"] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 88px;
+}
+
+/* Apple iMessage-style floating top chrome, raised-cosine progressive blur & mask
+   dissolve, and 1:1 scroll-linked portrait compaction into a sleek 56pt bar. */
+[data-one-chat-split-section="true"][data-agent-surface-mode="one"] > .agent-chat-header[data-one-centered-header="true"] {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: calc(56px + var(--agent-chat-header-safe-top));
+  grid-template-rows: 44px;
+  padding-bottom: 0;
+  background: transparent;
+  pointer-events: none;
+}
+
+@media (min-width: 640px) {
+  [data-one-chat-split-section="true"][data-agent-surface-mode="one"] > .agent-chat-header[data-one-centered-header="true"] {
+    height: calc(63px + var(--agent-chat-header-safe-top));
+  }
+}
+
+[data-one-chat-split-section="true"][data-agent-surface-mode="one"] > .agent-chat-header[data-one-centered-header="true"]::before {
+  --one-header-veil-span: calc(
+    192px - 104px * var(--one-header-compact, 0) + var(--agent-chat-header-safe-top)
+  );
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: var(--one-header-veil-span);
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--one-chat-canvas) 88%, transparent) 0%,
+    color-mix(in srgb, var(--one-chat-canvas) 76%, transparent) 26%,
+    color-mix(in srgb, var(--one-chat-canvas) 50%, transparent) 52%,
+    color-mix(in srgb, var(--one-chat-canvas) 22%, transparent) 74%,
+    color-mix(in srgb, var(--one-chat-canvas) 6%, transparent) 90%,
+    transparent 100%
+  );
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  /* Raised-cosine curve alpha(t) = 0.5 * (1 + cos(pi * t)) eliminates Mach bands */
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 0%,
+    rgba(0, 0, 0, 0.97) 18%,
+    rgba(0, 0, 0, 0.88) 34%,
+    rgba(0, 0, 0, 0.71) 50%,
+    rgba(0, 0, 0, 0.50) 64%,
+    rgba(0, 0, 0, 0.28) 78%,
+    rgba(0, 0, 0, 0.10) 90%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #000 0%,
+    rgba(0, 0, 0, 0.97) 18%,
+    rgba(0, 0, 0, 0.88) 34%,
+    rgba(0, 0, 0, 0.71) 50%,
+    rgba(0, 0, 0, 0.50) 64%,
+    rgba(0, 0, 0, 0.28) 78%,
+    rgba(0, 0, 0, 0.10) 90%,
+    transparent 100%
+  );
+}
+
+[data-one-chat-split-section="true"][data-agent-surface-mode="one"] > .agent-chat-header[data-one-centered-header="true"] > :first-child,
+[data-one-chat-split-section="true"][data-agent-surface-mode="one"] > .agent-chat-header[data-one-centered-header="true"] > :last-child,
+[data-one-chat-split-section="true"][data-agent-surface-mode="one"] > .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-one-profile-trigger] {
+  pointer-events: auto;
+}
+
+[data-one-chat-split-section="true"][data-agent-surface-mode="one"] > .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-brand-tile] {
+  transform-origin: top center;
+  transform: translate3d(0, calc(-2px * var(--one-header-compact, 0)), 0)
+    scale(calc(1 - 0.673 * var(--one-header-compact, 0)));
+  will-change: transform;
+}
+
+[data-one-chat-split-section="true"][data-agent-surface-mode="one"] > .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child {
+  transform-origin: top center;
+  transform: translate3d(0, calc(-68px * var(--one-header-compact, 0)), 0)
+    scale(calc(1 - 0.06 * var(--one-header-compact, 0)));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  will-change: transform;
+}
+
+[data-one-chat-split-section="true"][data-agent-surface-mode="one"]:has(> .agent-chat-header[data-one-centered-header="true"]) [data-one-transcript-viewport="true"] > [role="region"] {
+  padding-top: calc(188px + var(--agent-chat-header-safe-top));
+}
+
+[data-one-chat-split-section="true"][data-agent-surface-mode="one"][data-one-scrolled="true"]:has(> .agent-chat-header[data-one-centered-header="true"]) [data-one-transcript-viewport="true"] {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.04) 0px,
+    rgba(0, 0, 0, 0.16) calc(24px + var(--agent-chat-header-safe-top)),
+    rgba(0, 0, 0, 0.48) calc(48px + var(--agent-chat-header-safe-top)),
+    rgba(0, 0, 0, 0.84) calc(68px + var(--agent-chat-header-safe-top)),
+    #000 calc(86px + var(--agent-chat-header-safe-top)),
+    #000 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.04) 0px,
+    rgba(0, 0, 0, 0.16) calc(24px + var(--agent-chat-header-safe-top)),
+    rgba(0, 0, 0, 0.48) calc(48px + var(--agent-chat-header-safe-top)),
+    rgba(0, 0, 0, 0.84) calc(68px + var(--agent-chat-header-safe-top)),
+    #000 calc(86px + var(--agent-chat-header-safe-top)),
+    #000 100%
+  );
+}
+
+@media (max-width: 767px) {
+  [data-one-chat-split-section="true"][data-agent-surface-mode="one"] > .agent-chat-header[data-one-centered-header="true"]::before {
+    --one-header-veil-span: calc(
+      142px - 62px * var(--one-header-compact, 0) + var(--agent-chat-header-safe-top)
+    );
+  }
+  [data-one-chat-split-section="true"][data-agent-surface-mode="one"] > .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-brand-tile] {
+    transform: translate3d(0, calc(-2px * var(--one-header-compact, 0)), 0)
+      scale(calc(1 - 0.44 * var(--one-header-compact, 0)));
+  }
+  [data-one-chat-split-section="true"][data-agent-surface-mode="one"] > .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child {
+    transform: translate3d(0, calc(-26px * var(--one-header-compact, 0)), 0)
+      scale(calc(1 - 0.05 * var(--one-header-compact, 0)));
+  }
+  [data-one-chat-split-section="true"][data-agent-surface-mode="one"]:has(> .agent-chat-header[data-one-centered-header="true"]) [data-one-transcript-viewport="true"] > [role="region"] {
+    padding-top: calc(136px + var(--agent-chat-header-safe-top));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-one-chat-split-section="true"][data-agent-surface-mode="one"] > .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-brand-tile],
+  [data-one-chat-split-section="true"][data-agent-surface-mode="one"] > .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child {
+    transform: none !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  [data-one-chat-split-section="true"][data-agent-surface-mode="one"] > .agent-chat-header[data-one-centered-header="true"]::before {
+    background: var(--one-chat-canvas);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* Smooth leading-edge phrase settle during live token streaming and final tail completion. */
+@keyframes agent-phrase-settle {
+  from {
+    opacity: 0.72;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes agent-stream-caret {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: scale(0.88);
+  }
+  50% {
+    opacity: 0.78;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  [data-agent-streaming-settle="true"] > :last-child,
+  [data-agent-streaming-settle="true"] [data-slot="markdown"] > :last-child {
+    animation: agent-phrase-settle 160ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  }
+
+  [data-agent-streaming-cursor="true"] [data-slot="markdown"] > p:last-child::after,
+  [data-agent-streaming-cursor="true"] [data-slot="markdown"] > ul:last-child > li:last-child::after,
+  [data-agent-streaming-cursor="true"] [data-slot="markdown"] > ol:last-child > li:last-child::after {
+    content: "";
+    display: inline-block;
+    width: 0.375rem;
+    height: 0.375rem;
+    margin-left: 0.25rem;
+    border-radius: 9999px;
+    vertical-align: middle;
+    background: currentColor;
+    animation: agent-stream-caret 920ms ease-in-out infinite;
+  }
 }
 @media (max-width: 959px) {
   .agent-chat-header[data-agent-header-layout="portrait"] .agent-chat-surface-control { width: 94px; }
@@ -10886,10 +11181,10 @@ html:has([data-profile-type-scale]),
   overflow-wrap: anywhere;
 }
 
-/* Share the compact workspace roles with Location and Finance. Feature-specific
-   task and Circle overrides stay on their existing content hosts. */
+/* Location consumes Connect's role scale without its workspace geometry.
+   The scope sits on existing route roots and actual portal content hosts.
+   Task surfaces and explicit Circle scopes retain their own local tokens. */
 @layer base {
-  .app-type-compact,
   [data-location-type-scale="connect"] {
     --foundation-title1-size: 28px;
     --foundation-title1-line: 36px;
@@ -10935,16 +11230,10 @@ html:has([data-profile-type-scale]),
 
   /* Raw shared dialogs use their existing title rung. A Task .frame supplies
      its own unlayered 20/28 title and 13/20 actions on the same DOM element. */
-  .app-type-compact[data-app-type-context="overlay"],
   [data-location-type-scale="connect"][data-location-type-context="overlay"] {
     --foundation-title3-size: 20px;
     --foundation-title3-line: 25px;
     --foundation-title3-weight: 600;
-  }
-  .app-type-compact[data-app-type-context="overlay"] [data-slot="sheet-title"] {
-    font-size: var(--foundation-title3-size) !important;
-    line-height: var(--foundation-title3-line) !important;
-    font-weight: var(--foundation-title3-weight) !important;
   }
   [data-location-type-scale="connect"][data-location-type-context="flow"] {
     --foundation-title3-size: var(--foundation-title1-size);
@@ -10965,7 +11254,7 @@ html:has([data-profile-type-scale]),
   /* Foundation heading locks live in this layer. Only semantic section roles
      opt into the compact heading rung; explicit Circle roles remain peers of
      their current Connect counterparts. No bare h1/h2 or descendant reset. */
-  :is(.app-type-compact, [data-location-type-scale="connect"]) :is(.ui-text-section-label, .ui-text-section-title, [data-slot="settings-group-heading"]):not([data-profile-type-scale="circles"] *) {
+  [data-location-type-scale="connect"] :is(.ui-text-section-label, .ui-text-section-title, [data-slot="settings-group-heading"]):not([data-profile-type-scale="circles"] *) {
     font-size: var(--type-section-label-size) !important;
     line-height: var(--type-section-label-line) !important;
     font-weight: var(--type-section-label-weight) !important;
@@ -10996,16 +11285,6 @@ html:has([data-profile-type-scale]),
     line-height: var(--type-page-title-line) !important;
     font-weight: var(--type-page-title-weight) !important;
     white-space: normal;
-  }
-  /* A flow's step eyebrow ("Step 2 of 2") is supporting text in Connect v14:
-     product font, 12/18/400, no tracking. The shared eyebrow role is monospace
-     metadata everywhere else and keeps that look outside Location. */
-  [data-location-type-scale="connect"] .ui-text-eyebrow {
-    font-family: var(--font-app-body) !important;
-    font-size: var(--type-row-description-size) !important;
-    line-height: var(--type-row-description-line) !important;
-    font-weight: var(--type-row-description-weight) !important;
-    letter-spacing: normal !important;
   }
 }
 
@@ -11147,7 +11426,6 @@ html:has([data-profile-type-scale]),
    and explicit Circle fields retain the matching shared Circle hierarchy. */
 @media (max-width: 620px) {
   @layer base {
-    .app-type-compact,
     [data-location-type-scale="connect"] {
       --type-input-value-size: 16px;
     }
@@ -11155,6 +11433,25 @@ html:has([data-profile-type-scale]),
       font-size: 12px !important;
     }
   }
+}
+
+/* Sonner lives beside the route, not below its type scope. Its vendor rules
+   otherwise replace the product font and the shared authored 20px line box.
+   Keep this presentation-only correction active for the mounted Location
+   journey; shared feedback elsewhere keeps its existing ownership. */
+html:has([data-location-type-scale="connect"]) [data-sonner-toaster] {
+  font-family: var(--font-app-body);
+}
+html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-title] {
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-description] {
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 400;
 }
 
 /* Consent uses Connect's type roles and ordinary command anatomy while its
@@ -11721,6 +12018,22 @@ html:has([data-consent-presentation="workspace"]) [data-sonner-toast] [data-titl
   font-weight: 500;
 }
 html:has([data-consent-presentation="workspace"]) [data-sonner-toast] [data-description] {
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 400;
+}
+
+/* Calendar feedback is portalled beside its route and conversation cards. */
+html:has([data-calendar-presentation]) [data-sonner-toaster] {
+  font-family: var(--font-app-body);
+}
+html:has([data-calendar-presentation]) [data-sonner-toast] [data-title] {
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+html:has([data-calendar-presentation]) [data-sonner-toast] [data-description] {
   font-size: 12px;
   line-height: 20px;
   font-weight: 400;

@@ -21,6 +21,7 @@
  * - Cached vault presence selects the gate UI; it never authorizes access.
  */
 
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { useRouter } from "next/navigation";
@@ -126,7 +127,8 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
         )
       : <HushhLoader stage={stage} label={label} />;
   useSessionChromeSuppression(
-    authLoading || sessionVerificationRequired || vaultCheckFailed,
+    authLoading || sessionVerificationRequired ||
+    (isVaultUnlocked ? ownerTokenStatus !== "valid" : !userId || vaultCheckFailed || hasVault !== false),
   );
   const [nativeAuthGraceElapsed, setNativeAuthGraceElapsed] =
     useState(!isNativePlatform);
@@ -182,7 +184,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
 
     let timer: ReturnType<typeof setTimeout>;
     const retry = () => {
-      if (document.visibilityState !== "visible" || navigator.onLine === false) {
+      if (document.visibilityState !== "visible" || !isNetworkOnline()) {
         timer = setTimeout(retry, delay);
         return;
       }

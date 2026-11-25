@@ -555,6 +555,9 @@ jobs:
             --one-location-read-only-state-enabled "false"
             --hushh-trusted-device-enabled "false"
           )
+          if grep -q -- '--consent-center-summary-v2-enabled' <<<"${backend_sync_help}"; then
+            backend_sync_args+=(--consent-center-summary-v2-enabled "${{ vars.CONSENT_CENTER_SUMMARY_V2_ENABLED || 'true' }}")
+          fi
           drive_group_args=()
           if grep -q -- '--drive-four-group-index' scripts/ops/sync_backend_runtime_secrets.py; then
             drive_group_args=(--drive-four-group-index "false")

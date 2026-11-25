@@ -16,6 +16,7 @@
  * `pending_action.resolved executed` in the reducer.
  */
 
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import {
   createContext,
   useCallback,
@@ -802,7 +803,7 @@ export function VoiceSessionProvider({
         info.code === 1006 &&
         info.resumable &&
         !hasOpenPendingAction(before);
-      const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+      const offline = !isNetworkOnline();
       const active = appInteractionCoordinator.getLifecycleSnapshot().state === "active";
       const eligible =
         latest.current.enabled &&
@@ -1722,7 +1723,7 @@ export function VoiceSessionProvider({
       ) return;
       pendingNetworkReconnectRef.current = conversationId;
       if (
-        navigator.onLine !== false &&
+        isNetworkOnline() &&
         appInteractionCoordinator.getLifecycleSnapshot().state === "active" &&
         reconnectRetryTimerRef.current === null
       ) {
@@ -1743,7 +1744,7 @@ export function VoiceSessionProvider({
         !latest.current.isVaultUnlocked ||
         !latest.current.vaultOwnerToken ||
         !latest.current.userId ||
-        navigator.onLine === false ||
+        !isNetworkOnline() ||
         appInteractionCoordinator.getLifecycleSnapshot().state !== "active" ||
         reconnectsRef.current >= MAX_AUTO_RECONNECTS
       ) return;

@@ -1,4 +1,3 @@
-import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import {
   act,
   cleanup,
@@ -1982,6 +1981,13 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     expect(mockEnsureSmsSystemCircle).toHaveBeenCalledTimes(Number(!bounded));
+    if (bounded) {
+      expect(mockSyncCurrentUser).not.toHaveBeenCalled();
+      expect(mockBootstrapKey).not.toHaveBeenCalled();
+    } else {
+      expect(mockSyncCurrentUser).toHaveBeenCalled();
+      expect(mockBootstrapKey).toHaveBeenCalled();
+    }
     mockGetSmsContacts.mockClear();
     mockGetSmsContacts.mockResolvedValue(["user_d"]);
     act(() => {
@@ -3141,7 +3147,7 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        "Approved. Location stays paused.", { className: connectTypography.toast },
+        "Approved. Location stays paused.",
       ),
     );
     expect(mockStoreEnvelope).not.toHaveBeenCalled();
@@ -3495,7 +3501,7 @@ describe("OneLocationAgentPage", () => {
     try {
       await skipLocationEntryFlow();
       await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
-        "Location is paused on this device. Nearby checkout did not complete.", { className: connectTypography.toast },
+        "Location is paused on this device. Nearby checkout did not complete.",
       ));
       expect(readOneLocationControlState("user_a").paused).toBe(true);
       expect(screen.getByRole("switch", { name: "Turn location on" })).not.toBeChecked();
@@ -4880,7 +4886,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(hold).not.toBeDisabled());
     fireEvent.keyDown(hold, { key: " ", code: "Space" });
     if (outcome === "none") {
-      await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Delivery could not be confirmed. Call for help directly.", { className: connectTypography.toast }), { timeout: 4000 });
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Delivery could not be confirmed. Call for help directly."), { timeout: 4000 });
     } else if (outcome === "email") {
       expect(await screen.findByText("Alert sent by email", {}, { timeout: 4000 })).toBeInTheDocument();
       expect(toast.success).not.toHaveBeenCalledWith("SMS alert sent.", expect.anything());
@@ -4888,7 +4894,7 @@ describe("OneLocationAgentPage", () => {
     } else {
       await waitFor(() => expect(outcome === "partial" ? toast.warning : toast.success).toHaveBeenCalledWith(
         outcome === "full" ? "SMS alert sent." : outcome === "unknown" ? "SMS location shared." : "Some contacts may miss this alert.",
-        { className: connectTypography.toast, classNames: { title: "!line-clamp-1" } },
+        { classNames: { title: "!line-clamp-1" } },
       ), { timeout: 4000 });
     }
     expect(mockSendSosEmails).toHaveBeenCalled();
@@ -4950,7 +4956,7 @@ describe("OneLocationAgentPage", () => {
     fireEvent.keyDown(hold, { key: " ", code: "Space" });
 
     if (failure === "denied") {
-      await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("Location access is blocked"), { className: connectTypography.toast }), { timeout: 4000 });
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("Location access is blocked")), { timeout: 4000 });
       expect(mockGetRecentSosPosition).not.toHaveBeenCalled();
       expect(mockCreateGrant).not.toHaveBeenCalled();
       expect(mockStoreEnvelope).not.toHaveBeenCalled();
@@ -5582,7 +5588,7 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
     fireEvent.click(screen.getByRole("button", { name: "Dismiss saved places reminder" }));
     expect(screen.queryByTestId("saved-places-banner")).toBeNull();
-    expect(toast.info).toHaveBeenCalledWith("You can save places anytime in Location settings.", { className: connectTypography.toast });
+    expect(toast.info).toHaveBeenCalledWith("You can save places anytime in Location settings.");
     expect(window.localStorage.getItem("one_location_places_banner_dismissed_v1:user_a")).toBe("1");
     view.unmount();
     render(<OneLocationAgentPage />);
@@ -6024,7 +6030,7 @@ describe("OneLocationAgentPage", () => {
       fireEvent.click(screen.getByRole("button", { name: "View shared location from Trusted A", exact: true }));
       await waitFor(() => expect(toast.message).toHaveBeenCalledWith(
         "Waiting for a live location update.",
-        { className: connectTypography.toast, classNames: { title: "!line-clamp-1" } },
+        { classNames: { title: "!line-clamp-1" } },
       ));
     });
 
@@ -7181,7 +7187,7 @@ describe("OneLocationAgentPage", () => {
     // something that stopped being news a second later.
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        "Location Request sent", { className: connectTypography.toast },
+        "Location Request sent",
       ),
     );
     expect(playSound).not.toHaveBeenCalled();
@@ -7206,7 +7212,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(1));
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        "Location Request sent", { className: connectTypography.toast },
+        "Location Request sent",
       ),
     );
 
@@ -7264,7 +7270,7 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        "Location Request sent", { className: connectTypography.toast },
+        "Location Request sent",
       ),
     );
     await waitFor(() =>
@@ -7356,7 +7362,7 @@ describe("OneLocationAgentPage", () => {
     // it would pass for the wrong reason. The channel that DOES carry a
     // success is the one that has to stay silent.
     expect(toast.success).not.toHaveBeenCalledWith(
-      "Location Request sent", { className: connectTypography.toast },
+      "Location Request sent",
     );
   });
 
@@ -7811,7 +7817,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockShortenGrant).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        "Location Request sent", { className: connectTypography.toast },
+        "Location Request sent",
       ),
     );
   }, 10_000);
@@ -7879,7 +7885,7 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(
-        "Couldn't ask Trusted B for more time. Try again.", { className: connectTypography.toast },
+        "Couldn't ask Trusted B for more time. Try again.",
       ),
     );
     // A failed ask is not a reason to strand the row: the amounts come back
@@ -10022,7 +10028,7 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockCopyToClipboard).toHaveBeenCalled());
     expect(toast.error).toHaveBeenCalledWith(
-      "Could not copy the public location link.", { className: connectTypography.toast },
+      "Could not copy the public location link.",
     );
     expect(screen.getByRole("button", { name: /Copy link/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Copied/i })).toBeNull();

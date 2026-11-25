@@ -1,7 +1,15 @@
 import { ACCOUNT_CONTEXT_TOOL, ACCOUNT_CONTEXT_CONTRACT, parseAccountContextRequest, readAccountContext, type AccountContextRequest } from "./account-chat-context";
 import { parseConsentAccess, type AgentChatConsentAccess } from "@/lib/agent/chat-consent-access";
 export { parseConsentAccess, type AgentChatConsentAccess } from "@/lib/agent/chat-consent-access";
-import { loadAgentTurnNws } from "@/lib/kai/plaid-vault/agent-turn-nws";
+import { loadAgentTurnFinancialProjection } from "@/lib/kai/plaid-vault/agent-turn-nws";
+import {
+  PLAID_TOOL_DECLARATIONS,
+  PLAID_TOOL_NAMES,
+  executePlaidConnectorClientTool,
+  normalizePlaidToolRequest,
+  type PlaidConnectorEnvelope,
+  type PlaidToolName,
+} from "@/lib/kai/plaid-vault/plaid-chat-client-tools";
 import { browserTimeZone, chatTurnTimeZone } from "@/lib/agent/chat-turn-time-zone";
 import { browserTaskProgress, privateToolProgressArgs } from "@/lib/computer-use/chat-progress";
 import { queuedInputPorts } from "@/lib/agent/queued-input-ports";
@@ -66,6 +74,8 @@ import {
   type AgentStructuredExperience,
 } from "@/lib/agent/agui-structured-experiences";
 import { ownerStyleRequestField, type OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
+import { readGoalPlanProposal } from "@/lib/goals/goal-plan-proposal";
+import type { GoalPlanInput } from "@/lib/services/goals-pkm-service";
 import { ownerAiRunErrorMessage } from "@/lib/agent/owner-ai-turn-errors";
 import {
   WIKI_TOOL_DECLARATIONS,
@@ -83,6 +93,9 @@ import {
 } from "@/lib/files/wiki/active-shared-wiki";
 import { SharedWikiOwnerMigrator } from "@/lib/files/wiki/migration-and-maintenance";
 import type { SharedWikiLibrary } from "@/lib/files/wiki/library";
+import { invalidateFilesMutationCache } from "@/lib/files/files-cache";
+import { LIVE_MIRROR_PACKET_HEADER } from "@/lib/pkm/live-mirror-agent-facts";
+import { PENDING_CHAT_TURNS_HEADER } from "@/lib/pkm/live-activity/live-activity-agent-context";
 import { managedChatRunErrorMessage, MODEL_CAPACITY_MESSAGE } from "@/lib/agent/managed-chat-run-errors";
 import { ownerPodTurnErrorMessage, refusalCode } from "@/lib/agent/owner-pod-turn-errors";
 import { wakingChatTransport } from "@/lib/agent/one-chat-transport";
@@ -167,6 +180,8 @@ export function buildAgentUserMessageContent(
 export type AgentChatConversation = {
   id: string;
   title: string;
+  category?: string | null;
+  category_source?: "auto" | "custom" | string | null;
   status: string;
   model?: string | null;
   message_count: number;
@@ -214,6 +229,7 @@ export type AgentSource = {
 };
 
 export type AgentChatStreamHandlers = {
+  onGoalPlanProposal?: (proposal: GoalPlanInput) => void;
   /** Invocation metadata triggers owner-pod rediscovery, never private browser content. */
   onBrowserTaskCreated?: () => void;
   /** Receipt detail/answer is current-turn only, excluded from replay and PKM. */
@@ -499,15 +515,7 @@ export function parseParkedAppActionDirective(content: unknown): ParkedAppAction
  */
 export function parsePendingConsentRequestIds(toolName: string, content: unknown): string[] {
   if (toolName !== "list_pending_information_requests") return [];
-  let result: unknown = content;
-  if (typeof result === "string") {
-    try {
-      result = JSON.parse(result);
-    } catch {
-      return [];
-    }
-  }
-  const record = asRecord(result);
+  const record = unwrapParkedActionResult(content);
   if (!record || record.status !== "ok") return [];
   const ids = Array.isArray(record.pendingRequestIds) ? record.pendingRequestIds : [];
   return ids
@@ -558,6 +566,21 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Connectors",
     message: "Checking your saved connectors.",
     activity: "Checking your connectors",
+  },
+  manage_connector: {
+    label: "Connectors",
+    message: "Checking your connector setup.",
+    activity: "Checking connector setup",
+  },
+  sync_plaid_connector: {
+    label: "Plaid",
+    message: "Synced live balances from your linked institutions.",
+    activity: "Syncing live Plaid balances",
+  },
+  read_plaid_mirror: {
+    label: "Plaid",
+    message: "Checked your connected financial accounts.",
+    activity: "Reading connected accounts",
   },
   probe_private_connector: {
     label: "Connectors",
@@ -660,6 +683,26 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Saving this to your memory.",
     activity: "Saving to your memory",
   },
+  search_wiki: {
+    label: "Personal wiki",
+    message: "Searching your personal notes.",
+    activity: "Searching your notes",
+  },
+  read_wiki_page: {
+    label: "Personal wiki",
+    message: "Reading your personal note.",
+    activity: "Reading a personal note",
+  },
+  trace_claim: {
+    label: "Personal wiki",
+    message: "Checking note sources and updates.",
+    activity: "Checking note sources",
+  },
+  optimize_personal_memory: {
+    label: "Memory optimization",
+    message: "Consolidating and optimizing your personal memory.",
+    activity: "Optimizing memory",
+  },
   read_my_profile_status: {
     label: "Profile",
     message: "Checking your profile.",
@@ -724,21 +767,6 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Models",
     message: "Checking available models.",
     activity: "Checking models",
-  },
-  search_wiki: {
-    label: "Personal wiki",
-    message: "Checking your Personal wiki.",
-    activity: "Checking your Personal wiki",
-  },
-  read_wiki_page: {
-    label: "Personal wiki",
-    message: "Reading a Personal wiki note.",
-    activity: "Reading a Personal wiki note",
-  },
-  trace_claim: {
-    label: "Personal wiki",
-    message: "Tracing a Personal wiki claim.",
-    activity: "Tracing a Personal wiki claim",
   },
   set_preferred_model: {
     label: "Models",
@@ -814,6 +842,46 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Google Calendar",
     message: "Preparing a cancellation for your confirmation.",
     activity: "Preparing a cancellation",
+  },
+  files: {
+    label: "Private Files",
+    message: "Working with your private files.",
+    activity: "Checking Private Files",
+  },
+  search_files: {
+    label: "Private Files",
+    message: "Searching your private files.",
+    activity: "Searching Private Files",
+  },
+  read_file: {
+    label: "Private Files",
+    message: "Reading a private file.",
+    activity: "Reading a private file",
+  },
+  write_file: {
+    label: "Private Files",
+    message: "Saving a private file.",
+    activity: "Saving a private file",
+  },
+  create_folder: {
+    label: "Private Files",
+    message: "Creating a private folder.",
+    activity: "Creating a folder",
+  },
+  organize_file: {
+    label: "Private Files",
+    message: "Organizing your private files.",
+    activity: "Organizing a file",
+  },
+  propose_file_schedule: {
+    label: "Private Files",
+    message: "Preparing a file schedule for your review.",
+    activity: "Preparing a file schedule",
+  },
+  propose_goal_plan: {
+    label: "Goal plan",
+    message: "Preparing a goal plan for you to review.",
+    activity: "Preparing a goal plan",
   },
   open_gmail_email_draft: {
     label: "Gmail",
@@ -1000,14 +1068,16 @@ const WORKSPACE_PROVIDER_NAMES: Record<string, string> = {
   gmail: "Gmail",
   drive: "Google Drive",
   calendar: "Google Calendar",
+  plaid: "Plaid",
+  stripe: "Stripe",
+  custom: "Connectors",
 };
 
 /**
- * Connector setup and reads name the Google product once the call's provider
- * is known, so "lets connect to Google Drive" reads "Google Drive · Checking
- * Google Drive access" rather than a generic connector row. Only the fixed
- * enum above ever labels a step; any other provider value keeps the generic
- * presentation.
+ * Connector setup and reads name the product once the call's provider is
+ * known, so "connect our bank account" reads "Plaid · Checking Plaid" rather
+ * than a generic connector row. Only the fixed enum above ever labels a step;
+ * any other provider value keeps the generic presentation.
  */
 function workspaceToolPresentation(
   toolName: string,
@@ -1021,6 +1091,13 @@ function workspaceToolPresentation(
   if (toolName === "read_workspace_tool") {
     return { label: name, message: `Reading ${name}.`, activity: `Reading ${name}` };
   }
+  if (toolName === "manage_connector") {
+    return {
+      label: name,
+      message: provider === "custom" ? "Checking your saved connectors." : `Preparing ${name} setup.`,
+      activity: provider === "custom" ? "Checking your connectors" : `Preparing ${name}`,
+    };
+  }
   return null;
 }
 
@@ -1033,7 +1110,7 @@ export type RestoredActivityStep = {
   message: string;
   status: "done" | "waiting" | "blocked";
   tag?: "Read" | "Needs review" | "Public";
-  provider?: "gmail" | "drive" | "calendar";
+  provider?: "gmail" | "drive" | "calendar" | "plaid" | "stripe";
   toolName: string;
   /** Opaque owner connector id; the workspace resolves its name from the owner's vault. */
   connectorId?: string;
@@ -1062,6 +1139,11 @@ function specialistReadMessage(toolName: string, status: unknown, metadataOnly =
   }
   if (status === "no_match" && source === "Mail") return "No matching emails found.";
   if (status === "input_required") return `${source} needs more detail.`;
+  if (status === "connect_required") return `${source} isn't connected yet.`;
+  if (status === "reconnect_required") return `${source} needs to be reconnected.`;
+  if (status === "permission_denied" || status === "permission_required") {
+    return `${source} needs permission to continue.`;
+  }
   // The Email specialist read no mail and handed a receipts question back to One.
   if (status === "receipt_functions_required" && source === "Mail") return "Handed to your receipts; no mail was read.";
   return `${source} could not complete that read.`;
@@ -1090,8 +1172,8 @@ export function parseRestoredTurnActivity(descriptor: unknown): RestoredActivity
     if (!mcp && !presentation) return [];
     if (!["done", "waiting", "blocked", "interrupted"].includes(String(rawStatus))) return [];
     const status = rawStatus === "interrupted" ? "blocked" : rawStatus as "done" | "waiting" | "blocked";
-    const provider = ["gmail", "drive", "calendar"].includes(String(step.provider))
-      ? step.provider as "gmail" | "drive" | "calendar" : undefined;
+    const provider = ["gmail", "drive", "calendar", "plaid", "stripe"].includes(String(step.provider))
+      ? step.provider as "gmail" | "drive" | "calendar" | "plaid" | "stripe" : undefined;
     if (mcp) {
       const connectorId = typeof step.connectorId === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(step.connectorId)
         ? step.connectorId : undefined;
@@ -1110,7 +1192,7 @@ export function parseRestoredTurnActivity(descriptor: unknown): RestoredActivity
     if (!presentation) return [];
     let message = presentation.message;
     if (rawStatus === "interrupted") message = "This step did not finish.";
-    else if (toolName === "discover_workspace_tools" || toolName === "read_workspace_tool") message = "Connector access checked.";
+    else if (toolName === "discover_workspace_tools" || toolName === "read_workspace_tool" || toolName === "manage_connector") message = "Connector access checked.";
     else if (toolName === "inspect_private_connectors") message = "One checked your connectors.";
     else if (toolName === "probe_private_connector") message = "One checked that server.";
     else if (toolName === "read_selected_drive_search_result") {
@@ -1410,8 +1492,11 @@ async function streamAgentChatAttempt(input: {
   // Callers may have started their catalog read beside Soul preparation. For
   // other callers, overlap it with the derived key and optional location read.
   const initialConnectorProjection = connectorProjection();
-  const nwsProjection = input.pkmContext && !input.consentContinuation && !input.financeShare &&
-    !input.feedAttention && !recovered ? loadAgentTurnNws(input, mcpSessionCurrent) : Promise.resolve(null);
+  const financialProjection = input.vaultKey && input.vaultOwnerToken &&
+    (input.pkmContext || !input.specialistFocus || input.specialistFocus === "finance") &&
+    !input.consentContinuation && !input.financeShare && !input.feedAttention && !recovered
+    ? loadAgentTurnFinancialProjection(input, mcpSessionCurrent)
+    : Promise.resolve({ nwsReport: null, plaidPosture: "" });
   void initialConnectorProjection.catch(() => undefined);
   const availableActionIds = (() => {
     const screen = input.screenContext || {};
@@ -1444,13 +1529,21 @@ async function streamAgentChatAttempt(input: {
     }];
   });
   tools.push(...RECEIPT_TOOL_DECLARATIONS);
-  const wikiToolsEligible = Boolean(
+  // Keep client-declared Plaid tool schemas byte-identical across normal turns
+  // and consent continuations so Gemini 4 implicit prefix caching stays hot
+  // (~90% reuse instead of dropping to 0% on a 2-tool schema hash shift).
+  const plaidToolsEligible = Boolean(
     input.vaultKey &&
       input.vaultOwnerToken &&
-      !recovered &&
       !input.financeShare &&
-      !input.feedAttention,
+      !input.feedAttention &&
+      !recovered,
   );
+  if (plaidToolsEligible) {
+    tools.push(...(PLAID_TOOL_DECLARATIONS as unknown as Tool[]));
+  }
+  const plaidEligible = Boolean(plaidToolsEligible && !input.consentContinuation);
+  const wikiToolsEligible = plaidToolsEligible;
   const wikiEligible = Boolean(wikiToolsEligible && !input.consentContinuation);
   const resolveTurnSharedWiki = async (): Promise<{
     wiki: SharedWikiLibrary | null;
@@ -1555,6 +1648,9 @@ async function streamAgentChatAttempt(input: {
     }
     throw error;
   }
+  // Reuse an already-bound Wiki session synchronously on consent continuations
+  // so client-declared Wiki tool schemas stay byte-identical with normal turns
+  // (keeping Gemini 4 implicit prefix caching hot without adding a pre-turn fetch).
   const warmContinuationWiki =
     !turnWiki.wiki &&
     wikiToolsEligible &&
@@ -1566,6 +1662,36 @@ async function streamAgentChatAttempt(input: {
   if (sharedWikiSession) {
     tools.push(...(WIKI_TOOL_DECLARATIONS as unknown as Tool[]));
   }
+  const effectivePkmContext = (() => {
+    const raw = input.pkmContext;
+    const wikiPrimaryServing =
+      Boolean(turnWiki.wikiHotDigest) &&
+      (turnWiki.migrationState === "wiki_primary_with_v1_rollback" ||
+        turnWiki.migrationState === "wiki_primary");
+    if (!raw || !wikiPrimaryServing) return raw;
+    const soulMatch = /(?:^|\n\n)#\s*(?:memory\.md|one\.memory\.md\.v1)\b/i.exec(raw);
+    if (!soulMatch) return raw;
+    const soulStart =
+      soulMatch[0].startsWith("\n\n") ? soulMatch.index + 2 : soulMatch.index;
+    const prefix = raw.slice(0, soulStart).trim();
+    const afterSoulStart = raw.slice(soulStart);
+    const markers = [
+      `\n\n${PENDING_CHAT_TURNS_HEADER}`,
+      "\n\nRecent activity in One today (seen on this device, not saved memory):",
+      `\n\n${LIVE_MIRROR_PACKET_HEADER}`,
+    ];
+    let tailIndex = -1;
+    for (const marker of markers) {
+      const idx = afterSoulStart.indexOf(marker);
+      if (idx !== -1 && (tailIndex === -1 || idx < tailIndex)) {
+        tailIndex = idx;
+      }
+    }
+    const suffix =
+      tailIndex !== -1 ? afterSoulStart.slice(tailIndex + 2).trim() : "";
+    const kept = [prefix, suffix].filter(Boolean).join("\n\n");
+    return kept || undefined;
+  })();
   const chatKey = Object.values(chatKeyHeaders)[0] ?? "";
   const onLostTransport = () => {
     if (runTerminal || streamLost || failure || intentionallyStoppedAtConfirmation ||
@@ -1662,20 +1788,99 @@ async function streamAgentChatAttempt(input: {
     handlers.onError?.(failure.message);
     finishTerminalRun();
   };
+  const POD_CHAT_BUSY_RETRY_DELAYS_MS = [150, 350, 750] as const;
+  const isPodChatBusySignal = (candidate: unknown): boolean => {
+    if (!candidate) return false;
+    if (typeof candidate === "string") {
+      return (
+        refusalCode(parseRecord(candidate)) === "POD_CHAT_BUSY" ||
+        /\bPOD_CHAT_BUSY\b/.test(candidate)
+      );
+    }
+    if (typeof candidate !== "object") return false;
+    const record = candidate as { code?: unknown; message?: unknown; payload?: unknown };
+    if (record.code === "POD_CHAT_BUSY") return true;
+    if (refusalCode(asRecord(record.payload) ?? parseRecord(record.payload)) === "POD_CHAT_BUSY") {
+      return true;
+    }
+    if (typeof record.message === "string") {
+      if (
+        refusalCode(parseRecord(record.message)) === "POD_CHAT_BUSY" ||
+        /\bPOD_CHAT_BUSY\b/.test(record.message)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const sleepWithSignals = (delayMs: number, ...signals: Array<AbortSignal | undefined>): Promise<void> =>
+    new Promise((resolve, reject) => {
+      if (signals.some((sig) => sig?.aborted)) {
+        reject(new DOMException("Agent turn cancelled", "AbortError"));
+        return;
+      }
+      let settled = false;
+      const cleanup = () => {
+        for (const sig of signals) {
+          sig?.removeEventListener("abort", onAbort);
+        }
+      };
+      const onAbort = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        cleanup();
+        reject(new DOMException("Agent turn cancelled", "AbortError"));
+      };
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve();
+      }, delayMs);
+      for (const sig of signals) {
+        sig?.addEventListener("abort", onAbort, { once: true });
+      }
+    });
+  let suppressTransientPodBusy = false;
+  let transientPodBusy = false;
+  let attemptProducedOutput = false;
   const runUntilTerminal = async (parameters: Parameters<HttpAgent["runAgent"]>[0], resumeSignal?: AbortSignal) => {
-    if (input.signal?.aborted || resumeSignal?.aborted) {
-      throw new DOMException("Agent turn cancelled", "AbortError");
+    for (let retryIndex = 0; ; retryIndex += 1) {
+      if (input.signal?.aborted || resumeSignal?.aborted) {
+        throw new DOMException("Agent turn cancelled", "AbortError");
+      }
+      assertTurnSessionCurrent();
+      runTerminal = false;
+      streamLost = false;
+      transientPodBusy = false;
+      attemptProducedOutput = false;
+      suppressTransientPodBusy = retryIndex < POD_CHAT_BUSY_RETRY_DELAYS_MS.length;
+      liveness.start();
+      try {
+        await agent.runAgent(parameters, subscriber);
+      } catch (err) {
+        if (
+          suppressTransientPodBusy &&
+          !attemptProducedOutput &&
+          (transientPodBusy || isPodChatBusySignal(err))
+        ) {
+          transientPodBusy = true;
+        } else {
+          throw err;
+        }
+      } finally {
+        liveness.stop();
+        suppressTransientPodBusy = false;
+      }
+      if (transientPodBusy) {
+        const delayMs = POD_CHAT_BUSY_RETRY_DELAYS_MS[retryIndex] ?? 750;
+        await sleepWithSignals(delayMs, input.signal, resumeSignal);
+        continue;
+      }
+      if (!runTerminal) loseStream();
+      return;
     }
-    assertTurnSessionCurrent();
-    runTerminal = false;
-    streamLost = false;
-    liveness.start();
-    try {
-      await agent.runAgent(parameters, subscriber);
-    } finally {
-      liveness.stop();
-    }
-    if (!runTerminal) loseStream();
   };
   const stopAfterConfirmation = () => {
     if (intentionallyStoppedAtConfirmation) return;
@@ -1697,6 +1902,16 @@ async function streamAgentChatAttempt(input: {
     request: ReceiptAnalysisRequest | PortfolioContextRequest | AccountContextRequest;
     result: unknown;
   }>>();
+  const plaidCalls = new Map<
+    string,
+    Promise<{
+      toolCallId: string;
+      toolName: PlaidToolName;
+      request: Record<string, unknown>;
+      result: PlaidConnectorEnvelope;
+    }>
+  >();
+  const plaidArgs = new Map<string, string>();
   let receiptPrivate = false;
   let receiptReset = false;
   const receiptSessionCurrent = () => !receiptReset && mcpSessionCurrent();
@@ -1706,6 +1921,7 @@ async function streamAgentChatAttempt(input: {
   const runReceiptCall = receiptCallRunner({ userId: input.userId, vaultKey: input.vaultKey, vaultOwnerToken: input.vaultOwnerToken,
     isCurrent: receiptSessionCurrent }, state => handlers.onReceiptSetupNeeded?.(state));
   let reactionShown = false;
+  let sawConnectorSetupCard = false;
   const toolArgs = new Map<string, Record<string, unknown>>();
   const interruptsByToolCall = new Map<string, string>();
   const mcpReviews = new Map<string, {
@@ -1878,6 +2094,55 @@ async function streamAgentChatAttempt(input: {
       })),
     );
   };
+  const startPlaidCall = (
+    toolCallId: string,
+    operation: PlaidToolName,
+    args: unknown,
+  ) => {
+    if (plaidCalls.has(toolCallId)) return;
+    const buffered = plaidArgs.get(toolCallId);
+    plaidArgs.delete(toolCallId);
+    let parsedArgs: unknown = args;
+    if (buffered && buffered !== "!") {
+      try {
+        parsedArgs = JSON.parse(buffered);
+      } catch {
+        parsedArgs = args;
+      }
+    }
+    if (!receiptSessionCurrent() || plaidCalls.size >= 4 || buffered === "!") {
+      failure = new Error("Plaid connector request doesn't match this owner turn. Ask again.");
+      handlers.onError?.(failure.message);
+      agent.abortRun();
+      finishTerminalRun();
+      return;
+    }
+    let request: Record<string, unknown>;
+    try {
+      request = normalizePlaidToolRequest(operation, parsedArgs);
+    } catch {
+      failure = new Error("Plaid connector request doesn't match this owner turn. Ask again.");
+      handlers.onError?.(failure.message);
+      agent.abortRun();
+      finishTerminalRun();
+      return;
+    }
+    plaidCalls.set(
+      toolCallId,
+      executePlaidConnectorClientTool(operation, request, {
+        userId: input.userId,
+        vaultKey: input.vaultKey,
+        vaultOwnerToken: input.vaultOwnerToken,
+        isCurrent: receiptSessionCurrent,
+        signal: input.signal,
+      }).then((result) => ({
+        toolCallId,
+        toolName: operation,
+        request,
+        result,
+      })),
+    );
+  };
   const startPortfolioContextCall = (toolCallId: string) => {
     if (receiptCalls.has(toolCallId)) return;
     const streamed = receiptArgs.get(toolCallId);
@@ -1910,7 +2175,14 @@ async function streamAgentChatAttempt(input: {
       // not evidence that the server task ended; reconnect must discover it.
       if (detached || streamLost || input.signal?.aborted) return { stopPropagation: true };
       serverEvents += 1;
-      if (event.type === "RUN_FINISHED" || event.type === "RUN_ERROR") serverTerminal = true;
+      const isSuppressedTransientBusyEvent =
+        suppressTransientPodBusy &&
+        !attemptProducedOutput &&
+        event.type === "RUN_ERROR" &&
+        (event as { code?: unknown }).code === "POD_CHAT_BUSY";
+      if ((event.type === "RUN_FINISHED" || event.type === "RUN_ERROR") && !isSuppressedTransientBusyEvent) {
+        serverTerminal = true;
+      }
       if (event.type === "TOOL_CALL_END") {
         const id = event.toolCallId;
         const name = typeof id === "string" ? toolNames.get(id) : undefined;
@@ -1930,6 +2202,10 @@ async function streamAgentChatAttempt(input: {
         }
         if (typeof id === "string" && WIKI_TOOL_NAMES.includes(name as WikiToolName)) {
           startWikiCall(id, name as WikiToolName, {});
+          return { stopPropagation: true };
+        }
+        if (typeof id === "string" && PLAID_TOOL_NAMES.includes(name as PlaidToolName)) {
+          startPlaidCall(id, name as PlaidToolName, {});
           return { stopPropagation: true };
         }
       }
@@ -1959,7 +2235,10 @@ async function streamAgentChatAttempt(input: {
       return publicOutputSubscriber.onMessagesSnapshotEvent?.(snapshot);
     },
     onTextMessageContentEvent: ({ event }) => {
-      if (event.delta.length > 0) markTiming("first-text");
+      if (event.delta.length > 0) {
+        attemptProducedOutput = true;
+        markTiming("first-text");
+      }
       text += event.delta;
       handlers.onToken?.(event.delta);
     },
@@ -1980,6 +2259,7 @@ async function streamAgentChatAttempt(input: {
       if (notice) handlers.onQueuedInput?.(notice);
     },
     onToolCallStartEvent: ({ event }) => {
+      attemptProducedOutput = true;
       toolNames.set(event.toolCallId, event.toolCallName);
       // Follow-ups are chips under the answer, not a step the person waits on.
       if (event.toolCallName === FOLLOW_UP_TOOL_NAME || event.toolCallName === REACTION_TOOL_NAME) return;
@@ -1987,6 +2267,7 @@ async function streamAgentChatAttempt(input: {
       if (event.toolCallName === ACCOUNT_CONTEXT_TOOL || event.toolCallName === PORTFOLIO_CONTEXT_TOOL ||
           RECEIPT_FUNCTIONS.includes(event.toolCallName as ReceiptFunction)) receiptArgs.set(event.toolCallId, "");
       if (WIKI_TOOL_NAMES.includes(event.toolCallName as WikiToolName)) wikiArgs.set(event.toolCallId, "");
+      if (PLAID_TOOL_NAMES.includes(event.toolCallName as PlaidToolName)) plaidArgs.set(event.toolCallId, "");
       handlers.onToolStart?.(toolPayload(event.toolCallId, event.toolCallName));
     },
     onToolCallArgsEvent: ({ event }) => {
@@ -2000,6 +2281,12 @@ async function streamAgentChatAttempt(input: {
       if (wikiBuffered !== undefined) {
         const next = wikiBuffered + (event.delta ?? "");
         wikiArgs.set(event.toolCallId, next.length <= 4096 ? next : "!");
+        return;
+      }
+      const plaidBuffered = plaidArgs.get(event.toolCallId);
+      if (plaidBuffered !== undefined) {
+        const next = plaidBuffered + (event.delta ?? "");
+        plaidArgs.set(event.toolCallId, next.length <= 4096 ? next : "!");
         return;
       }
       const buffered = confirmationArgs.get(event.toolCallId);
@@ -2024,6 +2311,10 @@ async function streamAgentChatAttempt(input: {
       }
       if (WIKI_TOOL_NAMES.includes(toolCallName as WikiToolName)) {
         startWikiCall(event.toolCallId, toolCallName as WikiToolName, toolCallArgs);
+        return;
+      }
+      if (PLAID_TOOL_NAMES.includes(toolCallName as PlaidToolName)) {
+        startPlaidCall(event.toolCallId, toolCallName as PlaidToolName, toolCallArgs);
         return;
       }
       if (toolCallName === FOLLOW_UP_TOOL_NAME || toolCallName === REACTION_TOOL_NAME) return;
@@ -2060,7 +2351,8 @@ async function streamAgentChatAttempt(input: {
           return;
         }
       }
-      const safeArgs = privateToolProgressArgs(toolCallName, toolCallArgs);
+      const safeArgs = toolCallName === "propose_file_schedule" || toolCallName === "propose_goal_plan"
+        ? {} : privateToolProgressArgs(toolCallName, toolCallArgs);
       toolArgs.set(event.toolCallId, safeArgs);
       handlers.onToolWaiting?.(
         toolPayload(event.toolCallId, toolCallName, safeArgs),
@@ -2068,6 +2360,12 @@ async function streamAgentChatAttempt(input: {
     },
     onToolCallResultEvent: ({ event }) => {
       const toolName = toolNames.get(event.toolCallId) || "";
+      if (toolName === "propose_goal_plan") {
+        const proposal = readGoalPlanProposal(event.content);
+        if (proposal) handlers.onGoalPlanProposal?.(proposal);
+        handlers.onToolResult?.(toolPayload(event.toolCallId, toolName));
+        return;
+      }
       if (toolName === "start_browser_task") {
         const result = browserTaskProgress(event.content, input.userId);
         if (result.accepted) handlers.onBrowserTaskCreated?.();
@@ -2085,6 +2383,23 @@ async function streamAgentChatAttempt(input: {
         const payload = toolPayload(event.toolCallId, toolName);
         payload.raw = { protocol: "ag-ui", toolName };
         payload.message = "Personal note checked for this turn.";
+        handlers.onToolResult?.(payload);
+        return;
+      }
+      if (WIKI_TOOL_NAMES.includes(toolName as WikiToolName)) {
+        const payload = toolPayload(event.toolCallId, toolName);
+        payload.raw = { protocol: "ag-ui", toolName };
+        payload.message = "Personal note checked for this turn.";
+        handlers.onToolResult?.(payload);
+        return;
+      }
+      if (PLAID_TOOL_NAMES.includes(toolName as PlaidToolName)) {
+        const payload = toolPayload(event.toolCallId, toolName);
+        payload.raw = { protocol: "ag-ui", toolName };
+        payload.message =
+          toolName === "sync_plaid_connector"
+            ? "Live Plaid balances synced for this turn."
+            : "Connected financial accounts checked for this turn.";
         handlers.onToolResult?.(payload);
         return;
       }
@@ -2137,7 +2452,8 @@ async function streamAgentChatAttempt(input: {
       const workspaceConnectorTool =
         toolName === "discover_workspace_tools" ||
         toolName === "read_workspace_tool" ||
-        toolName === "inspect_private_connectors";
+        toolName === "inspect_private_connectors" ||
+        toolName === "manage_connector";
       if (toolName === "read_selected_drive_search_result") {
         const result = unwrapParkedActionResult(event.content);
         const payload = toolPayload(event.toolCallId, toolName);
@@ -2181,6 +2497,9 @@ async function streamAgentChatAttempt(input: {
         payload.raw = { protocol: "ag-ui", toolName };
         handlers.onToolResult?.(payload);
         if (experience && unwrapped?.status !== "no_match") {
+          if (experience.type === "one.workspace_connector_setup.v1") {
+            sawConnectorSetupCard = true;
+          }
           handlers.onStructuredExperience?.(experience, event.toolCallId);
         }
         return;
@@ -2208,6 +2527,9 @@ async function streamAgentChatAttempt(input: {
         };
         handlers.onToolResult?.(payload);
         if (experience) {
+          if (experience.type === "one.workspace_connector_setup.v1") {
+            sawConnectorSetupCard = true;
+          }
           handlers.onStructuredExperience?.(experience, event.toolCallId);
         }
         return;
@@ -2218,6 +2540,25 @@ async function streamAgentChatAttempt(input: {
         toolArgs.get(event.toolCallId) || {},
       );
       payload.raw.result = event.content;
+      if (toolName === "get_my_location") {
+        const parsedLocation = parseRecord(event.content);
+        if (parsedLocation?.status === "needs_location_permission") {
+          payload.message = "Location permission needed.";
+        }
+      }
+      if (
+        toolName === "files" ||
+        toolName === "create_folder" ||
+        toolName === "organize_file" ||
+        toolName === "write_file" ||
+        toolName === "optimize_personal_memory"
+      ) {
+        const parsedResult = parseRecord(event.content);
+        const resultStatus = typeof parsedResult?.status === "string" ? parsedResult.status : "";
+        if (resultStatus !== "error" && resultStatus !== "failed" && resultStatus !== "blocked") {
+          invalidateFilesMutationCache(input.userId);
+        }
+      }
       handlers.onToolResult?.(payload);
       const pendingIds = parsePendingConsentRequestIds(toolName, event.content);
       if (pendingIds.length > 0) {
@@ -2276,6 +2617,9 @@ async function streamAgentChatAttempt(input: {
         toolArgs.get(event.toolCallId),
       );
       if (experience) {
+        if (experience.type === "one.workspace_connector_setup.v1") {
+          sawConnectorSetupCard = true;
+        }
         // Redelivery can assign a new transport message while retaining the
         // same invocation. One invocation owns one evolving card.
         const eventId = event.toolCallId.trim() ||
@@ -2384,7 +2728,7 @@ async function streamAgentChatAttempt(input: {
         finishTerminalRun();
         return;
       }
-      if (receiptCalls.size || wikiCalls.size) {
+      if (receiptCalls.size || wikiCalls.size || plaidCalls.size) {
         // Native long-running calls are persisted before RUN_FINISHED. The
         // outer loop alone submits their value-free replies and resumes.
         finishTerminalRun();
@@ -2481,6 +2825,15 @@ async function streamAgentChatAttempt(input: {
     },
     onRunErrorEvent: ({ event }) => {
       if (runTerminal || streamLost || failure || detached) return;
+      if (
+        suppressTransientPodBusy &&
+        !attemptProducedOutput &&
+        event.code === "POD_CHAT_BUSY"
+      ) {
+        runTerminal = true;
+        transientPodBusy = true;
+        return;
+      }
       runTerminal = true;
       if (intentionallyStoppedAtConfirmation) {
         finishTerminalRun();
@@ -2504,16 +2857,38 @@ async function streamAgentChatAttempt(input: {
         finishTerminalRun();
         return;
       }
+      if (
+        suppressTransientPodBusy &&
+        !attemptProducedOutput &&
+        isPodChatBusySignal(error)
+      ) {
+        transientPodBusy = true;
+        return;
+      }
       const refusal = chatKeyRefusalCode((error as Error & { payload?: unknown }).payload)
         ?? chatKeyRefusalCode(error.message || "");
       // @ag-ui/client puts a refused request's HTTP status on the error.
       const httpStatus = (error as Error & { status?: unknown }).status;
       const strain = classifyBackendStrain({ httpStatus: typeof httpStatus === "number" ? httpStatus : null });
       if (strain && !refusal) handlers.onStreamHealth?.({ kind: "backend_strain", strain });
-      failure = refusal
-        ? routeChatKeyRefusal(refusal, mcpVaultEpoch,
-            !runStarted && (error as Error & { status?: number }).status === 403)
-        : new Error(formatAgentChatErrorMessage(error.message || "", (error as Error & { code?: string }).code));
+      if (refusal) {
+        failure = routeChatKeyRefusal(
+          refusal,
+          mcpVaultEpoch,
+          !runStarted && (error as Error & { status?: number }).status === 403,
+        );
+      } else {
+        const nextFailure = new Error(
+          formatAgentChatErrorMessage(
+            error.message || "",
+            (error as Error & { code?: string }).code,
+          ),
+        );
+        if (typeof httpStatus === "number") {
+          Object.assign(nextFailure, { status: httpStatus });
+        }
+        failure = nextFailure;
+      }
       handlers.onError?.(failure.message);
       finishTerminalRun();
     },
@@ -2540,7 +2915,10 @@ async function streamAgentChatAttempt(input: {
   });
   const unsubscribeReceiptReset = subscribeDurableOwnerReset(owner => { if (owner === input.userId) receiptReset = true; });
   try {
-    const [connectors, nwsReport] = await Promise.all([initialConnectorProjection, nwsProjection]);
+    const [connectors, { nwsReport, plaidPosture }] = await Promise.all([
+      initialConnectorProjection,
+      financialProjection,
+    ]);
     assertTurnSessionCurrent();
     await runUntilTerminal({
       tools,
@@ -2548,9 +2926,11 @@ async function streamAgentChatAttempt(input: {
       forwardedProps: {
         ...connectors,
         ...(nwsReport ? { nwsReport } : {}),
+        ...(plaidEligible ? { plaidClientReady: true } : {}),
+        ...(plaidPosture ? { plaidPosture } : {}),
         timezone,
         turnLocation,
-        pkmContext: input.pkmContext,
+        pkmContext: effectivePkmContext,
         emailMemoryProjection: input.emailMemoryProjection,
         ...(input.emailMemoryCommit ? { emailMemoryCommit: emailMemoryCommitPayload(input.emailMemoryCommit) } : {}),
         communicationPreferences,
@@ -2644,6 +3024,8 @@ async function streamAgentChatAttempt(input: {
           communicationPreferences,
           ...(sharedWikiSession ? { wikiClientReady: true } : {}),
           ...(turnWiki.wikiHotDigest ? { wikiHotDigest: turnWiki.wikiHotDigest } : {}),
+          ...(plaidEligible ? { plaidClientReady: true } : {}),
+          ...(plaidPosture ? { plaidPosture } : {}),
           wikiToolResults,
           emailDraftContract: 2,
           emailAgentContract: 1,
@@ -2653,6 +3035,83 @@ async function streamAgentChatAttempt(input: {
       });
       if (!receiptSessionCurrent()) {
         throw new Error("Vault authority changed. Unlock and ask again.");
+      }
+    }
+    for (
+      let plaidRound = 0;
+      plaidRound < 3 && plaidCalls.size && !failure && !detached && !input.signal?.aborted;
+      plaidRound += 1
+    ) {
+      const plaidToolResults = await Promise.all(plaidCalls.values());
+      plaidCalls.clear();
+      if (mcpReviews.size) {
+        throw new Error(
+          "Plaid connector sync must complete in its own authorized turn. Ask again.",
+        );
+      }
+      if (!receiptSessionCurrent()) {
+        throw new Error("Vault authority changed. Unlock and ask again.");
+      }
+      for (const item of plaidToolResults) {
+        const donePayload = toolPayload(item.toolCallId, item.toolName);
+        donePayload.raw = { protocol: "ag-ui", toolName: item.toolName };
+        donePayload.message =
+          item.toolName === "sync_plaid_connector"
+            ? item.result.status === "connect_required"
+              ? "Plaid Link is ready."
+              : "Live Plaid balances synced."
+            : "Connected financial accounts checked.";
+        handlers.onToolResult?.(donePayload);
+        if (
+          !sawConnectorSetupCard &&
+          (item.toolName === "sync_plaid_connector" || item.result.status === "connect_required")
+        ) {
+          sawConnectorSetupCard = true;
+          handlers.onStructuredExperience?.(
+            {
+              type: "one.workspace_connector_setup.v1",
+              provider: "plaid",
+              status:
+                item.result.status === "connect_required"
+                  ? "connect_required"
+                  : "manage_available",
+            },
+            item.toolCallId,
+          );
+        }
+      }
+      agent.setMessages(
+        plaidToolResults.map((item) => ({
+          id: crypto.randomUUID(),
+          role: "tool" as const,
+          toolCallId: item.toolCallId,
+          content: JSON.stringify({
+            schema: "plaid_result.v1",
+            operation: item.toolName,
+            ephemeral_result: true,
+          }),
+        })),
+      );
+      await runUntilTerminal({
+        tools,
+        context: [],
+        forwardedProps: {
+          timezone,
+          screenContext: input.screenContext,
+          communicationPreferences,
+          ...(sharedWikiSession ? { wikiClientReady: true } : {}),
+          ...(turnWiki.wikiHotDigest ? { wikiHotDigest: turnWiki.wikiHotDigest } : {}),
+          ...(plaidEligible ? { plaidClientReady: true } : {}),
+          ...(plaidPosture ? { plaidPosture } : {}),
+          plaidToolResults,
+          emailDraftContract: 2,
+          emailAgentContract: 1,
+          calendarReviewContract: 1,
+          emailReadReceiptContract: 2,
+        },
+      });
+      if (!receiptSessionCurrent()) {
+        throw new Error("Vault authority changed. Ask again.");
       }
     }
     await terminalRun;
@@ -2819,15 +3278,27 @@ export async function listAgentChatConversations(input: {
   return Array.isArray(payload.conversations) ? payload.conversations : [];
 }
 
+export type AgentChatHistoryPageMeta = {
+  hasMore: boolean;
+  oldestCursor: string | null;
+};
+
+export type AgentChatHistoryList = AgentChatMessage[] & {
+  _pageMeta?: AgentChatHistoryPageMeta;
+};
+
 export async function getAgentChatHistory(input: {
   conversationId: string;
   vaultOwnerToken: string;
   vaultKey: string;
   limit?: number;
-}): Promise<AgentChatMessage[]> {
+  before?: string;
+}): Promise<AgentChatHistoryList> {
   const response = await sendWithChatKey(() => ApiService.getAgentChatHistory(input));
   if (!response.ok) {
-    throw new Error(await readError(response));
+    const error = new Error(await readError(response)) as Error & { status?: number };
+    error.status = response.status;
+    throw error;
   }
   const payload = (await response.json()) as {
     messages?: Array<Omit<AgentChatMessage, "metadata"> & {
@@ -2848,15 +3319,39 @@ export async function getAgentChatHistory(input: {
         consentAccess?: unknown;
       } | null;
     }>;
+    has_more?: boolean;
+    oldest_cursor?: string | null;
     /** Shared requests whose access has ended: {bundle_id: "revoked" | "expired"}. */
     consentAccessEnded?: unknown;
   };
-  if (!Array.isArray(payload.messages)) return [];
+  if (!Array.isArray(payload.messages)) {
+    const empty: AgentChatHistoryList = [];
+    Object.defineProperty(empty, "_pageMeta", {
+      value: { hasMore: false, oldestCursor: null },
+      enumerable: false,
+    });
+    return empty;
+  }
+  const limitUsed = input.limit ?? 50;
+  const inferredHasMore =
+    typeof payload.has_more === "boolean"
+      ? payload.has_more
+      : payload.messages.length >= limitUsed;
+  const inferredCursor =
+    typeof payload.oldest_cursor === "string" && payload.oldest_cursor.trim()
+      ? payload.oldest_cursor.trim()
+      : inferredHasMore && payload.messages[0]?.id
+        ? String(payload.messages[0].id)
+        : null;
+  const pageMeta: AgentChatHistoryPageMeta = {
+    hasMore: Boolean(inferredHasMore && inferredCursor),
+    oldestCursor: inferredCursor,
+  };
   const endedByBundle = payload.consentAccessEnded && typeof payload.consentAccessEnded === "object"
     && !Array.isArray(payload.consentAccessEnded)
     ? payload.consentAccessEnded as Record<string, unknown>
     : {};
-  return payload.messages
+  const mapped: AgentChatHistoryList = payload.messages
     .filter((message) => ["user", "assistant", "system", "tool"].includes(message.role))
     .map((message) => {
       const attachments = message.role === "user"
@@ -2896,6 +3391,11 @@ export async function getAgentChatHistory(input: {
           : message.metadata,
       };
     });
+  Object.defineProperty(mapped, "_pageMeta", {
+    value: pageMeta,
+    enumerable: false,
+  });
+  return mapped;
 }
 
 /**
@@ -3149,9 +3649,10 @@ export async function setAgentChatFeedback(input: {
   }
 }
 
-export async function renameAgentChatConversation(input: {
+export async function updateAgentChatConversation(input: {
   conversationId: string;
-  title: string;
+  title?: string;
+  category?: string | null;
   vaultOwnerToken: string;
   vaultKey: string;
 }): Promise<AgentChatConversation> {
@@ -3160,6 +3661,15 @@ export async function renameAgentChatConversation(input: {
     throw new Error(await readError(response));
   }
   return (await response.json()) as AgentChatConversation;
+}
+
+export async function renameAgentChatConversation(input: {
+  conversationId: string;
+  title: string;
+  vaultOwnerToken: string;
+  vaultKey: string;
+}): Promise<AgentChatConversation> {
+  return updateAgentChatConversation(input);
 }
 
 export async function deleteAgentChatConversation(input: {

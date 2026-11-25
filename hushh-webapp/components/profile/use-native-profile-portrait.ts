@@ -2,13 +2,14 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
-import { prepareProfilePortrait } from "@/lib/services/profile-portrait-service";
+import { prepareProfilePortrait } from "@/lib/services/native-public-image-service";
 import { nativePrivacyObservation, subscribeNativePrivacyObservation } from "@/lib/capacitor/session-privacy";
 
 /** Memory-only presentation replica. Native gets bounded raster bytes, never a
  * remote URL, provider response, credential or a second avatar store. */
-export function useNativeProfilePortrait(owner: string | null, active: boolean): string | undefined {
-  const source = useEffectiveAvatarUrl(768);
+export function useNativeProfilePortrait(owner: string | null, active: boolean, authoredSource?: string | null): string | undefined {
+  const accountSource = useEffectiveAvatarUrl(768);
+  const source = authoredSource === undefined ? accountSource : authoredSource;
   const privacy = useSyncExternalStore(subscribeNativePrivacyObservation, () => nativePrivacyObservation().state, () => undefined);
   const [prepared, setPrepared] = useState<{ owner: string; source: string; generation: number; image: string } | null>(null);
   const admitted = active && owner !== null && privacy?.appIsActive === true && privacy.shielded === false;

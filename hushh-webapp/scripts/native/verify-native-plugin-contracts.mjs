@@ -19,11 +19,13 @@ const tsPluginFiles = [
   "lib/capacitor/native-chrome.ts",
   "lib/capacitor/native-dock.ts",
   "lib/capacitor/native-drawers.ts",
+  "lib/capacitor/native-vault-gate.ts",
   "lib/capacitor/stream.ts",
   "lib/capacitor/oauth-return.ts",
   "lib/capacitor/google-connector-auth.ts",
   "lib/capacitor/plaid-link.ts",
   "lib/capacitor/card-scanner.ts",
+  "lib/capacitor/calling.ts",
 ];
 
 const iosPluginsDir = path.join(appRoot, "ios/App/App/Plugins");
@@ -54,7 +56,7 @@ const webOnlyPlugins = new Set();
 // Link SDK on Android, so it is held to full parity like every other plugin.)
 // Card scanning uses Apple Vision on iOS and the existing web worker elsewhere.
 const androidOnlyPlugins = new Set(["HushhCardCapture"]);
-const iosOnlyPlugins = new Set(["HushhNativeNavigation", "HushhNativeChrome", "HushhNativeDock", "HushhNativeDrawers", "HushhCardScanner"]);
+const iosOnlyPlugins = new Set(["HushhNativeNavigation", "HushhNativeChrome", "HushhNativeDock", "HushhNativeDrawers", "HushhNativeVaultGate", "HushhCardScanner", "HushhCalling"]);
 const appleInvocationMethods = new Set([
   "getPendingInvocation", "claimInvocation", "reportInvocationProgress", "completeInvocation",
   "getPendingActionInvocation", "claimActionInvocation", "completeActionInvocation", "reportActionInvocationProgress",
@@ -63,6 +65,7 @@ const appleInvocationMethods = new Set([
   "addListener",
 ]);
 const ignoredTsMethodsByPlugin = new Map([
+  ["HushhCalling", new Set(["addListener"])],
   // Listener registration is inherited from CAPPlugin / Plugin, not a custom
   // @objc or @PluginMethod operation on these streaming/event plugins.
   ["Kai", new Set(["addListener"])],
@@ -74,6 +77,7 @@ const ignoredTsMethodsByPlugin = new Map([
   ["HushhNativeChrome", new Set(["addListener"])],
   ["HushhNativeDock", new Set(["addListener"])],
   ["HushhNativeDrawers", new Set(["addListener"])],
+  ["HushhNativeVaultGate", new Set(["addListener"])],
   ["HushhStream", new Set(["addListener"])],
   ["HushhPlaidLink", new Set(["addListener"])],
 ]);

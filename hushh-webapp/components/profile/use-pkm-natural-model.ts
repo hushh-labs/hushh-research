@@ -53,6 +53,10 @@ import {
   isConsumerBrowsablePkmDomain,
 } from "@/lib/profile/pkm-profile-presentation";
 import {
+  CacheService,
+  CACHE_KEYS,
+} from "@/lib/services/cache-service";
+import {
   ConsentCenterService,
   type ConsentCenterEntry,
 } from "@/lib/services/consent-center-service";
@@ -305,15 +309,42 @@ export function usePkmNaturalModel({
     [],
   );
   const pkmChangeRevision = usePkmDomainChangeRevision(applicationOwnerId);
+  const mountedPkmRevisionRef = useRef<{
+    session: MemoryReadSession;
+    revision: number;
+  }>({
+    session: memoryReadSession,
+    revision: pkmChangeRevision,
+  });
+  if (mountedPkmRevisionRef.current.session !== memoryReadSession) {
+    mountedPkmRevisionRef.current = {
+      session: memoryReadSession,
+      revision: pkmChangeRevision,
+    };
+  }
+  const pkmChangedWhileMounted =
+    pkmChangeRevision > mountedPkmRevisionRef.current.revision;
+
+  const warmCachedMetadata = useMemo(() => {
+    if (!applicationOwnerId || !isVaultUnlocked || !vaultOwnerToken) return null;
+    const snap = CacheService.getInstance().peek<PersonalKnowledgeModelMetadata>(
+      CACHE_KEYS.PKM_METADATA(applicationOwnerId),
+    );
+    return snap?.data && snap.data.userId === applicationOwnerId ? snap.data : null;
+  }, [applicationOwnerId, isVaultUnlocked, vaultOwnerToken]);
 
   const [metadataState, setMetadataState] = useState<{
     session: MemoryReadSession;
     metadata: PersonalKnowledgeModelMetadata | null;
-  } | null>(null);
+  } | null>(() =>
+    warmCachedMetadata
+      ? { session: memoryReadSession, metadata: warmCachedMetadata }
+      : null,
+  );
   const metadata =
     metadataState?.session === memoryReadSession
       ? metadataState.metadata
-      : null;
+      : warmCachedMetadata;
   const setMetadata = useCallback(
     (nextMetadata: PersonalKnowledgeModelMetadata | null) => {
       if (memoryReadSessionRef.current === memoryReadSession)
@@ -340,7 +371,7 @@ export function usePkmNaturalModel({
     [memoryReadSession],
   );
   const [sharingResolved, setSharingResolved] = useState(false);
-  const [bootstrapLoading, setBootstrapLoading] = useState(true);
+  const [bootstrapLoading, setBootstrapLoading] = useState(() => !warmCachedMetadata);
   const [bootstrapError, setBootstrapError] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const localDomainKey = navigation.domainKey;
@@ -580,11 +611,14 @@ export function usePkmNaturalModel({
     (card) => card.write_mode !== "do_not_save" && !isDegradedPreviewCard(card),
   );
   const captureRevision = useRef(0);
+  const captureInputRevision = useRef(0);
+  const captureReviewRevision = useRef<number | null>(null);
   const captureAuthReady = !authLoading && !sessionVerificationRequired;
   useEffect(() => {
     if (captureAuthReady) return;
     // Keep the owner's draft, but old work must not resume after verification.
     captureRevision.current += 1;
+    captureInputRevision.current += 1;
     setCaptureLoading(false);
     // A dispatched save can still succeed. Retire the old review, but hold its
     // operation lock until settlement so recovery cannot submit it twice.
@@ -601,6 +635,7 @@ export function usePkmNaturalModel({
   useEffect(() => {
     setCaptureOwner(presentationOwner);
     captureRevision.current += 1;
+    captureInputRevision.current += 1;
     setCaptureText("");
     setIdentifierApproval(null);
     setCaptureCards([]);
@@ -615,6 +650,7 @@ export function usePkmNaturalModel({
     );
     return () => {
       captureRevision.current += 1;
+      captureInputRevision.current += 1;
     };
   }, [applicationOwnerId, isVaultUnlocked, presentationOwner]);
 
@@ -759,11 +795,11 @@ export function usePkmNaturalModel({
         return;
       }
 
-      setBootstrapLoading(true);
+      if (!warmCachedMetadata) setBootstrapLoading(true);
       setBootstrapError(false);
       setSharingResolved(false);
       const force =
-        refreshNonce > 0 || refreshToken > 0 || pkmChangeRevision > 0;
+        refreshNonce > 0 || refreshToken > 0 || pkmChangedWhileMounted;
       const metadataTask = PersonalKnowledgeModelService.getMetadata(
         applicationOwnerId,
         force,
@@ -812,6 +848,8 @@ export function usePkmNaturalModel({
     setActiveGrants,
     isVaultUnlocked,
     pkmChangeRevision,
+    pkmChangedWhileMounted,
+    warmCachedMetadata,
     refreshNonce,
     refreshToken,
     user,
@@ -1130,7 +1168,7 @@ export function usePkmNaturalModel({
       vaultKey,
       vaultOwnerToken,
       forceRefresh:
-        refreshNonce > 0 || memoryCardsNonce > 0 || pkmChangeRevision > 0,
+        refreshNonce > 0 || memoryCardsNonce > 0 || pkmChangedWhileMounted,
       backgroundRefresh: true,
       onProgress: ({ domain, snapshot }) => {
         if (cancelled || !snapshot?.data) return;
@@ -1160,6 +1198,7 @@ export function usePkmNaturalModel({
     memoryCardsNonce,
     metadata,
     pkmChangeRevision,
+    pkmChangedWhileMounted,
     refreshNonce,
     applicationOwnerId,
     vaultKey,
@@ -1406,7 +1445,8 @@ export function usePkmNaturalModel({
       !isVaultUnlocked ||
       !vaultOwnerToken ||
       !captureText.trim() ||
-      captureSaving
+      captureSaving ||
+      captureReviewRevision.current === captureRevision.current
     )
       return;
     const operationOwnerId = applicationOwnerId;
@@ -1418,6 +1458,7 @@ export function usePkmNaturalModel({
         revision === captureRevision.current && isCaptureReady(vaultOwnerToken),
     });
     if (!guard.isCurrent()) return;
+    captureReviewRevision.current = revision;
     const attempt = captureProductAttempt("pkm.prepare_capture", operationOwnerId);
     attempt.started();
     setCaptureCards([]);
@@ -1517,6 +1558,7 @@ export function usePkmNaturalModel({
         "That note couldn’t be prepared. Nothing was saved. Please try again.",
       );
     } finally {
+      if (captureReviewRevision.current === revision) captureReviewRevision.current = null;
       if (revision === captureRevision.current) setCaptureLoading(false);
     }
   }
@@ -1756,6 +1798,8 @@ export function usePkmNaturalModel({
             current.filter((card) => !savedIds.has(card.card_id)),
           );
         } else {
+          // Retire the native editor's acknowledged draft when React clears it.
+          captureInputRevision.current += 1;
           setCaptureText("");
           setCaptureCards([]);
           setCaptureSharingImpactAcknowledged(false);
@@ -2006,6 +2050,7 @@ export function usePkmNaturalModel({
     if (memoryReadSessionRef.current !== memoryReadSession || captureSaving)
       return;
     captureRevision.current += 1;
+    captureInputRevision.current += 1;
     setCaptureText(text);
     setIdentifierApproval(null);
     setCaptureCards([]);
@@ -2017,6 +2062,7 @@ export function usePkmNaturalModel({
   const setIdentifierProcessingApproval = (approved: boolean) => {
     if (memoryReadSessionRef.current !== memoryReadSession || captureLoading || captureSaving) return;
     captureRevision.current += 1;
+    captureInputRevision.current += 1;
     setIdentifierApproval(approved ? { note: captureText, epoch: snapshotVaultSessionEpoch() } : null);
     setCaptureCards([]);
     setCaptureUnresolvedSections([]);
@@ -2025,6 +2071,7 @@ export function usePkmNaturalModel({
   };
   return {
     ownerId: applicationOwnerId ?? "",
+    presentationIdentity: presentationOwner,
     identifierProcessingApproved,
     setIdentifierProcessingApproval,
     memoryScopeShareBundle,
@@ -2054,6 +2101,11 @@ export function usePkmNaturalModel({
     handleExportMemory,
     workspaceTab,
     setWorkspaceTab,
+    // The native editor shares this existing revision and owner fence; it
+    // must not create a second draft or apply an old owner's final edit.
+    captureInputRevision: () => captureInputRevision.current,
+    captureSessionCurrent: () => captureIsCurrent && memoryReadSessionRef.current === memoryReadSession &&
+      presentationOwnerRef.current === presentationOwner && captureAuthReady && isVaultUnlocked && isVaultSessionEpochCurrent(operationEpoch),
     captureText: captureIsCurrent ? captureText : "",
     captureCards: captureIsCurrent ? captureCards : [],
     captureHasSharedRecipients: captureIsCurrent && captureHasSharedRecipients,

@@ -5,6 +5,7 @@ import {
   hostedPodDisplayLabel,
   hostedPodProvider,
   isAzureHomeSelectable,
+  isHostedAzureMigrationAvailable,
   isHostedPodTierUnderMaintenance,
   isOwnerCloudTarget,
   isPooledSandboxSwitchAvailable,
@@ -17,8 +18,8 @@ describe("the owner-cloud question", () => {
     vi.unstubAllEnvs();
   });
 
-  it("labels pooled ACE personal sandboxes cleanly without advertising legacy GCP->Azure migration", () => {
-    expect(hostedPodDisplayLabel("ace")).toBe("Hussh Pods · Personal Sandbox");
+  it("labels pooled ACE confidential sandboxes cleanly without advertising legacy GCP->Azure migration", () => {
+    expect(hostedPodDisplayLabel("ace")).toBe("Hussh Confidential Sandbox");
     expect(hostedPodProvider("ace")).toBeNull();
   });
 
@@ -26,11 +27,10 @@ describe("the owner-cloud question", () => {
     expect(isPrivatePodBinding({ deployment_target: "gcp", environment: "dev", hosting_mode: "hussh_hosted" })).toBe(true);
     expect(isPrivatePodBinding({ deployment_target: "azure", environment: "dev", hosting_mode: "hussh_hosted" })).toBe(true);
     expect(isPrivatePodBinding({ deployment_target: "ace", environment: "dev" })).toBe(true);
-    expect(isPrivatePodBinding({ deployment_target: "ace", environment: "uat" })).toBe(true);
     for (const binding of [
       { deployment_target: "gcp", environment: "dev" },
       { deployment_target: "azure", environment: "dev" },
-      { deployment_target: "ace", environment: "production" },
+      { deployment_target: "ace", environment: "uat" },
       { deployment_target: "ace", environment: "dev", hosting_mode: "hussh_hosted" },
       { deployment_target: "gcp", environment: "uat", hosting_mode: "hussh_hosted" },
       { deployment_target: "azure", environment: "uat", hosting_mode: "hussh_hosted" },
@@ -77,36 +77,45 @@ describe("the owner-cloud question", () => {
     }
   });
 
-  it("opens Hussh Pods on hosted dev and uat by default while keeping production and explicit overrides fail-closed", () => {
+  it("opens Hussh Pods on hosted dev by default while keeping UAT, production, and explicit overrides fail-closed", () => {
     vi.stubEnv("NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE", "");
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
-    expect(isHostedPodTierUnderMaintenance()).toBe(false);
-    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
     expect(isHostedPodTierUnderMaintenance()).toBe(false);
 
     vi.stubEnv("NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE", "1");
     expect(isHostedPodTierUnderMaintenance()).toBe(true);
 
-    for (const env of ["production", "development", "staging", ""]) {
+    for (const env of ["uat", "production", "development", "staging", ""]) {
       vi.stubEnv("NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE", "");
       vi.stubEnv("NEXT_PUBLIC_APP_ENV", env);
       expect(isHostedPodTierUnderMaintenance()).toBe(true);
     }
 
-    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
     vi.stubEnv("NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE", "0");
     expect(isHostedPodTierUnderMaintenance()).toBe(false);
   });
 
-  it("enables Personal Sandbox switching on hosted dev and uat builds while refusing production", () => {
+  it("enables Personal Sandbox switching only on the hosted dev build", () => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
     expect(isPooledSandboxSwitchAvailable()).toBe(true);
-    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
-    expect(isPooledSandboxSwitchAvailable()).toBe(true);
 
-    for (const env of ["production", "development", "staging", "", "dev-uat"]) {
+    for (const env of ["uat", "production", "development", "staging", "", "dev-uat"]) {
       vi.stubEnv("NEXT_PUBLIC_APP_ENV", env);
       expect(isPooledSandboxSwitchAvailable()).toBe(false);
     }
+  });
+
+  it("retires legacy Azure hosted-pod migration whenever Confidential Sandbox cutover is active", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    vi.stubEnv("NEXT_PUBLIC_HOSTED_AZURE_MIGRATION_ENABLED", "1");
+    expect(isHostedAzureMigrationAvailable()).toBe(false);
+
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "staging");
+    vi.stubEnv("NEXT_PUBLIC_HOSTED_AZURE_MIGRATION_ENABLED", "1");
+    expect(isHostedAzureMigrationAvailable()).toBe(true);
+
+    vi.stubEnv("NEXT_PUBLIC_HOSTED_AZURE_MIGRATION_ENABLED", "");
+    expect(isHostedAzureMigrationAvailable()).toBe(false);
   });
 });

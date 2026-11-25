@@ -2,6 +2,8 @@ vi.mock("@/components/wallet/wallet-entry-warmup", () => ({ WalletEntryWarmup: (
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { nativeLauncherAgent } from "@/components/dashboard/native-one-dashboard";
+import type { OneAgentMode } from "@/components/dashboard/one-agent-roster";
 import { OneDashboardPage } from "@/components/dashboard/one-dashboard-page";
 import { ScheduledTasksPanel } from "@/components/scheduled-tasks/scheduled-tasks-panel";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
@@ -48,7 +50,7 @@ describe("Scheduled tasks placement", () => {
     render(<ScheduledTasksPanel ownerId="owner" />);
     expect(schedule.hosting).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Scheduled tasks" }));
-    await screen.findByText("Scheduled tasks need Agent One.");
+    await screen.findByText("Scheduling requires a private agent.");
     expect(schedule.status).not.toHaveBeenCalled();
     expect(screen.getByRole("link", { name: "Hosting" })).toHaveAttribute("href", "/one/profile/hosting");
   });
@@ -82,6 +84,8 @@ vi.mock("@/components/dashboard/one-agent-presence", () => ({
 // Discovery has its own auth and service tests; these assertions cover the roster.
 vi.mock("@/components/profile/public-profile-discovery-card", () => ({
   PublicProfileDiscoveryEntry: () => null,
+  usePublicProfileDiscoveryEntry: () => ({ visible: false, ready: false, open: false, setOpen: vi.fn(), ownerId: schedule.owner }),
+  PublicProfileDiscoveryEntryBody: () => null,
 }));
 import { buildOneSetupCapabilityRoute, ROUTES } from "@/lib/navigation/routes";
 import type { CapabilityStatus } from "@/lib/services/capability-setup-state-service";
@@ -130,6 +134,13 @@ function countRosterMetrics(
 describe("OneDashboardPage", () => {
   beforeEach(() => {
     window.localStorage.clear();
+  });
+
+  it("resolves the authored CSS accent before native launcher admission", () => {
+    const mode = { id: "location", title: "Location", description: "Share with people you trust", tone: "location", primaryMetric: { value: "0", label: "live" } } as OneAgentMode;
+    expect(nativeLauncherAgent(mode, "location-handle", "#123456")).toMatchObject({ artworkId: "roster-location", iconHex: "#007AFF" });
+    expect(nativeLauncherAgent({ ...mode, id: "finance", tone: "finance" }, "finance-handle", "#123456").artworkId).toBe("roster-finance");
+    expect(nativeLauncherAgent({ ...mode, id: "messages" }, "messages-handle", "#123456").artworkId).toBe("roster-default");
   });
 
   it("leaves pod presence to the shared top bar", () => {
@@ -215,7 +226,7 @@ describe("OneDashboardPage", () => {
     expect(screen.getByTestId("one-agents-section")).toBeTruthy();
     expect(screen.getByTestId("one-agents-grid")).toBeTruthy();
     expect(container.textContent).not.toContain("Finish setup");
-    expect(screen.getByRole("heading", { name: "Agents (10)" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Agents (11)" })).toBeTruthy();
 
     // Every dashboard tile enters the same static setup workspace as the hub.
     // A resolved journey is redirected by that workspace to the normal product
@@ -229,6 +240,7 @@ describe("OneDashboardPage", () => {
       "gmail",
       "calendar",
       "finance",
+      "goals",
       "ria",
       "wallet",
       "consent",
@@ -261,6 +273,7 @@ describe("OneDashboardPage", () => {
     expect(screen.getByRole("link", { name: "Open Files" })).toHaveAttribute(
       "href", ROUTES.ONE_FILES,
     );
+    expect(screen.getByRole("link", { name: "Open Goals" })).toHaveAttribute("href", ROUTES.ONE_GOALS);
     expect(screen.getByRole("link", { name: "Open Messages" })).toHaveAttribute(
       "href", ROUTES.ONE_MESSAGES,
     );
@@ -299,7 +312,7 @@ describe("OneDashboardPage", () => {
     expect(screen.queryByText("Explore")).toBeNull();
     // Gmail and Calendar are first-class setup capabilities; Wallet, Memory,
     // and Consent remain direct workspaces and do not inflate setup progress.
-    expect(container.querySelectorAll('a[aria-label^="Open "]').length).toBe(10);
+    expect(container.querySelectorAll('a[aria-label^="Open "]').length).toBe(11);
     expect(
       screen.getByRole("link", { name: "Open Memory" }).getAttribute("href"),
     ).toBe(ROUTES.PKM);
@@ -331,7 +344,7 @@ describe("OneDashboardPage", () => {
     // Completed workspace setup is represented as an operational KPI rather
     // than the generic Ready label.
     expect(countRosterMetrics(container, "0", "actions")).toBe(5);
-    expect(screen.getByRole("heading", { name: "Agents (10)" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Agents (11)" })).toBeTruthy();
     expect(screen.queryByText("Finish setup")).toBeNull();
 
     // Completed setup keeps the same capability artwork as unfinished setup.
@@ -417,21 +430,22 @@ describe("OneDashboardPage", () => {
     window.localStorage.setItem("hushh:one-agent-roster-view", "grid");
     render(<OneDashboardPage displayName="Kushal Trivedi" />);
 
-    const heading = screen.getByRole("heading", { name: "Agents (10)" });
+    const heading = screen.getByRole("heading", { name: "Agents (11)" });
     const gridControl = screen.getByLabelText("Show agent grid view");
     const listControl = screen.getByLabelText("Show agent list view");
     const gridContent = screen.getByTestId("one-agents-view-content");
 
     fireEvent.click(listControl);
-    expect(screen.getByRole("heading", { name: "Agents (10)" })).toBe(heading);
+    expect(screen.getByRole("heading", { name: "Agents (11)" })).toBe(heading);
     expect(screen.getByLabelText("Show agent grid view")).toBe(gridControl);
     expect(screen.getByLabelText("Show agent list view")).toBe(listControl);
     expect(gridContent.isConnected).toBe(false);
     expect(screen.queryByTestId("one-agents-grid")).toBeNull();
     expect(screen.getByTestId("one-agents-list")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open Goals" })).toHaveAttribute("href", ROUTES.ONE_GOALS);
 
     fireEvent.click(gridControl);
-    expect(screen.getByRole("heading", { name: "Agents (10)" })).toBe(heading);
+    expect(screen.getByRole("heading", { name: "Agents (11)" })).toBe(heading);
     expect(screen.queryByTestId("one-agents-list")).toBeNull();
     expect(screen.getAllByTestId("one-agents-grid")).toHaveLength(1);
   });

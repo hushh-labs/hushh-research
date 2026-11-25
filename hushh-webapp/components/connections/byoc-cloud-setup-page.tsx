@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import {
@@ -22,9 +22,17 @@ import {
   HusshPodsPausedCard,
   hostingOptionsFor,
 } from "@/components/connections/hosting-placement-cards";
+import {
+  HusshPodsActiveCard,
+  HusshPodsMigrationCard,
+  PooledSandboxSwitchCard,
+} from "@/components/connections/hussh-pods-cloud-card";
 import { OwnerCloudProviderChoice } from "@/components/connections/owner-cloud-provider-choice";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { Button } from "@/components/ui/button";
+import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
+import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
+import { notifyGeminiRuntimeConfigurationChanged } from "@/lib/connections/gemini-runtime-configuration";
 import { useAuth } from "@/lib/firebase/auth-context";
 import {
   isValidatedAuthSessionOwnerCurrent,
@@ -51,18 +59,34 @@ import {
   type HostingMode,
 } from "@/lib/one/hosting-placement";
 import {
+  hostedPodProvider,
   isAzureHomeSelectable,
+  isHostedAzureMigrationAvailable,
+  isHostedPodTierUnderMaintenance,
   isOwnerCloudTarget,
+  isPooledSandboxSwitchAvailable,
   ownerCloudProvider,
   type OwnerCloudProvider,
 } from "@/lib/one/owner-cloud";
+import { hasStoredAiKey } from "@/lib/one/setup-runtime-readiness";
 import { ApiService } from "@/lib/services/api-service";
+import { FinanceSetupDraftService } from "@/lib/services/finance-setup-draft-service";
+import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
+import { PostUnlockSyncService } from "@/lib/services/post-unlock-sync-service";
+import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { useBackLayer } from "@/lib/navigation/back-layers";
-import { buildOneSetupRoute, resolveOneSetupReturnTo, ROUTES } from "@/lib/navigation/routes";
+import {
+  buildOneSetupFinanceImportRoute,
+  buildOneSetupRoute,
+  isOneSetupSurfaceRoute,
+  resolveOneSetupReturnTo,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
+import { VaultContext } from "@/lib/vault/vault-context";
 import { useCloudSetupManagementReturn } from "./use-cloud-setup-management-return";
 
 /**
@@ -83,9 +107,15 @@ export const CLOUD_CHECK_TIMEOUT_MS = 15_000;
 export function ByocCloudSetupPage({
   embedded = false,
   initialIntent,
+  owningRoute = ROUTES.ONE_SETUP_CLOUD,
+  backQuery,
+  onFinish,
 }: {
   embedded?: boolean;
   initialIntent?: "own" | "hussh_pods";
+  owningRoute?: string;
+  backQuery?: Parameters<typeof useBackLayer>[3];
+  onFinish?: () => void;
 } = {}) {
   const { user } = useAuth();
   const owner = snapshotValidatedAuthSessionPrincipal();
@@ -96,6 +126,9 @@ export function ByocCloudSetupPage({
       owner={owner}
       embedded={embedded}
       initialIntent={initialIntent}
+      owningRoute={owningRoute}
+      backQuery={backQuery}
+      onFinish={onFinish}
     />
   );
 }
@@ -105,18 +138,33 @@ function OwnerCloudSetupPage({
   owner,
   embedded = false,
   initialIntent,
+  owningRoute,
+  backQuery,
+  onFinish,
 }: {
   user: ReturnType<typeof useAuth>["user"];
   owner: ReturnType<typeof snapshotValidatedAuthSessionPrincipal>;
   embedded?: boolean;
   initialIntent?: "own" | "hussh_pods";
+  owningRoute: string;
+  backQuery?: Parameters<typeof useBackLayer>[3];
+  onFinish?: () => void;
 }) {
   const ownerId = owner?.ownerId ?? null;
   const router = useRouter();
   const searchParams = useSearchParams();
   const migrationRequested = searchParams.get("intent") === "migrate";
+  const vaultContext = useContext(VaultContext);
+  const vaultKey = vaultContext?.vaultKey ?? null;
+  const vaultOwnerToken = vaultContext?.vaultOwnerToken ?? null;
+  const isVaultUnlocked = vaultContext?.isVaultUnlocked ?? false;
+  const queueEntryWelcome = useOneConversationSession((state) => state.queueEntryWelcome);
+  const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
+  const [pendingDirectVaultFinish, setPendingDirectVaultFinish] = useState(false);
+  const [finalizingSetup, setFinalizingSetup] = useState(false);
+  const finalizationInFlightRef = useRef<Promise<string | null> | null>(null);
   const ownerCurrent = useCallback(() => Boolean(owner && owner.firebaseUid === user?.uid && isValidatedAuthSessionOwnerCurrent(owner)), [owner, user?.uid]);
-  useCloudSetupManagementReturn(ownerId ?? undefined, ownerCurrent);
+  useCloudSetupManagementReturn(embedded ? undefined : ownerId ?? undefined, ownerCurrent);
   const [saving, setSaving] = useState(false);
   const [aiReady, setAiReady] = useState(false);
   const authorizationStarting = useRef(false);
@@ -134,12 +182,9 @@ function OwnerCloudSetupPage({
   const [choice, setChoice] = useState<HostingChoice | null>(() =>
     initialIntent === "own" || searchParams.get("intent") === "own" ? "own" : null,
   );
-  // The hosted door is closed for maintenance (founder direction, 2026-09-02):
-  // the card stays visible so the choice is still honest, but it cannot be
-  // taken. Lift it with NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE=0; no code
-  // change is needed to reopen.
-  const hostedUnderMaintenance =
-    process.env.NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE !== "0";
+  // The hosted door stays paused outside Dev unless NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE=0;
+  // on Dev (`NEXT_PUBLIC_APP_ENV=dev`) it opens for fixed-cohort pilot owners.
+  const hostedUnderMaintenance = isHostedPodTierUnderMaintenance();
   const [hostedSaving, setHostedSaving] = useState(false);
   const [hosted, setHosted] = useState<Awaited<
     ReturnType<typeof ApiService.selectHostedCloud>
@@ -149,6 +194,7 @@ function OwnerCloudSetupPage({
   const [hostingMode, setHostingMode] = useState<HostingMode | null>(null);
   // Lifecycle state and the hub's typed org-policy blocker, for the direct path.
   const [agentState, setAgentState] = useState<string | null>(null);
+  const [agentTarget, setAgentTarget] = useState<string | null>(null);
   const [directBlocker, setDirectBlocker] = useState<DirectIngressBlocker | null>(null);
   const [hostingStatusChecked, setHostingStatusChecked] = useState(false);
   const [ownCloudAvailable, setOwnCloudAvailable] = useState(false);
@@ -204,6 +250,7 @@ function OwnerCloudSetupPage({
         setHostingMode(mode);
         setOwnCloudAvailable(status.featureEnabled === true);
         setAgentState(status.state ?? null);
+        setAgentTarget(status.deploymentTarget ?? null);
         setDirectBlocker(directIngressBlocker(status));
         setOwnerProvider(provider);
         setHostingStatusChecked(true);
@@ -212,18 +259,39 @@ function OwnerCloudSetupPage({
           status.state === "reserved" &&
           isOwnerCloudTarget(status.deploymentTarget) &&
           Boolean(status.cloudProject);
+        const byocState = status.state ?? null;
+        const byocUnavailableState =
+          byocState === "connecting" ||
+          byocState === "provisioning" ||
+          byocState === "failed";
         setReservedProjectId(
           unassignedByoc ? status.cloudProject ?? null : null,
         );
-        if (mode === "byoc" && provider === "azure" && !unassignedByoc) {
+        if (
+          mode === "hussh_pods" &&
+          (status.deploymentTarget === "ace" || status.state === "active") &&
+          typeof PreVaultUserStateService.markOneRuntimeChoice === "function" &&
+          !PreVaultUserStateService.hasOneRuntimeChoice(
+            PreVaultUserStateService.getCachedBootstrapState(ownerId),
+          )
+        ) {
+          void PreVaultUserStateService.markOneRuntimeChoice(
+            ownerId,
+            "hushh_managed_vertex",
+          ).catch(() => undefined);
+        }
+        if (mode === "byoc" && provider === "azure" && !unassignedByoc && !byocUnavailableState) {
           setExisting(azureConnected(status.cloudProject));
-        } else if (mode === "byoc" && status.cloudProject && !unassignedByoc) {
+        } else if (mode === "byoc" && status.cloudProject && !unassignedByoc && !byocUnavailableState) {
           setExisting({
             projectId: status.cloudProject,
             rationale: "Your own-cloud agent is still assigned.",
           });
-        } else if (mode === "byoc" && !unassignedByoc) {
-          setChoice("own");
+        } else {
+          setExisting(null);
+          if (mode === "byoc" && !unassignedByoc && !byocUnavailableState) {
+            setChoice("own");
+          }
         }
       })
       .catch(() => {
@@ -262,10 +330,14 @@ function OwnerCloudSetupPage({
           watchedRunningJob.current = false;
           setAgentStatusNonce((value) => value + 1);
         }
+        const byocReadyState =
+          agentState !== "connecting" &&
+          agentState !== "provisioning" &&
+          agentState !== "failed";
         if (status.status === "recorded") {
           // Only a Google job restores its project from the Google suggestion;
           // an Azure home is already named by the registry status above.
-          if (hostingMode === "byoc" && setupJobProvider(status) === "gcp") {
+          if (hostingMode === "byoc" && byocReadyState && setupJobProvider(status) === "gcp") {
             // The durable marker just landed server-side; refresh the shared
             // bootstrap and restore the BYOC project shown to the person.
             await PreVaultUserStateService.bootstrapState(ownerId, {
@@ -307,10 +379,19 @@ function OwnerCloudSetupPage({
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [ownerId, hostingMode, setupPollNonce]);
+  }, [ownerId, hostingMode, agentState, setupPollNonce]);
 
   useEffect(() => {
-    if (!ownerId || (hostingMode !== "shared" && (hostingMode !== "byoc" || ownerProvider === "azure"))) return;
+    if (
+      !ownerId ||
+      (hostingMode !== "shared" &&
+        (hostingMode !== "byoc" ||
+          ownerProvider === "azure" ||
+          agentState === "connecting" ||
+          agentState === "provisioning" ||
+          agentState === "failed"))
+    )
+      return;
     // A saved Shared choice cannot conceal an interrupted own-cloud setup.
     if (hostingMode === "shared" && (!setupStatusReadOk || job !== null)) return;
     let cancelled = false;
@@ -340,7 +421,7 @@ function OwnerCloudSetupPage({
     return () => {
       cancelled = true;
     };
-  }, [ownerId, hostingMode, ownerProvider, setupStatusReadOk, job]);
+  }, [ownerId, hostingMode, ownerProvider, agentState, setupStatusReadOk, job]);
 
   usePublishVoiceSurfaceMetadata({ screenId: "one_setup_cloud" });
 
@@ -415,6 +496,28 @@ function OwnerCloudSetupPage({
     setError(null);
     setHostedSaving(true);
     try {
+      if (
+        isPooledSandboxSwitchAvailable() &&
+        typeof ApiService.adoptPooledSandbox === "function"
+      ) {
+        const adopted = await ApiService.adoptPooledSandbox({
+          allowCleanSlate: true,
+          isEffectCurrent: ownerCurrent,
+        });
+        if (!ownerCurrent()) return;
+        if (typeof ApiService.reconnectOwnerPod === "function") {
+          await ApiService.reconnectOwnerPod().catch(() => undefined);
+        }
+        setHostingMode("hussh_pods");
+        setAgentState("active");
+        setAgentTarget(adopted.deploymentTarget || "ace");
+        if (ownerId) {
+          await PreVaultUserStateService.bootstrapState(ownerId, {
+            force: true,
+          }).catch(() => undefined);
+        }
+        return;
+      }
       const result = await ApiService.selectHostedCloud();
       if (!ownerCurrent()) return;
       setHosted(result);
@@ -469,32 +572,80 @@ function OwnerCloudSetupPage({
   }, [ownerCurrent, ownerId]);
 
   // A durable connected project or a selected hosting mode completes this step.
+  const byocAssignedConnecting =
+    hostingMode === "byoc" &&
+    reservedProjectId === null &&
+    (agentState === "connecting" || agentState === "provisioning");
+  const byocAssignedFailed =
+    hostingMode === "byoc" &&
+    reservedProjectId === null &&
+    agentState === "failed";
   const connectedBefore = existing !== null && reservedProjectId === null;
   const hostedChosen = hosted !== null;
   const recordedReservedProject = Boolean(
     reservedProjectId && setupStatusReadOk && job?.status === "recorded" &&
       job.projectId === reservedProjectId,
   );
-  const authorized =
-    connectedBefore || recordedReservedProject || hostedChosen || (sharedChosen && hostingMode === "shared" && job === null) ||
-    hostingMode === "hussh_pods";
-  const hostingSaving = saving || sharedSaving || hostedSaving || azureSignIn.starting;
-  // One alert, whichever cloud's authorization refused.
-  const shownError = error ?? azureSignIn.error;
-
-  // Shared is the confirmed default when the server says so or this session chose it.
-  const sharedConfirmed = hostingMode === "shared" || sharedChosen;
+  const pooledSwitchAvailable = isPooledSandboxSwitchAvailable();
+  // Shared is the confirmed default when the server says so or this session chose it (outside cutover lanes).
+  const sharedConfirmed =
+    !pooledSwitchAvailable && (hostingMode === "shared" || sharedChosen);
   const selectedHosting: HostingChoice | null =
     choice ?? (sharedConfirmed ? "shared" : null);
+  const selectedSandboxHosting: HostingChoice = choice === "own" ? "own" : "hosted";
+  const authorized =
+    connectedBefore ||
+    recordedReservedProject ||
+    hostedChosen ||
+    (!pooledSwitchAvailable && sharedChosen && selectedHosting === "shared" && hostingMode === "shared" && job === null) ||
+    (hostingMode === "hussh_pods" && !(pooledSwitchAvailable && choice === "own"));
+  const hostingSaving = saving || sharedSaving || hostedSaving || azureSignIn.starting || finalizingSetup;
+  // One alert, whichever cloud's authorization refused.
+  const shownError = error ?? azureSignIn.error;
   // Azure is named only on a build where it can actually be chosen.
   const azureSelectable = isAzureHomeSelectable();
   const hostingOptions = hostingOptionsFor({ azureSelectable, hostedUnderMaintenance, ownCloudAvailable });
   const consentIntent = consentPendingEntry(job);
   const attachBlocked = (job as { attachBlocked?: string | null } | null)?.attachBlocked ?? null;
+  const ownerCloudSourceLabel =
+    ownerProvider === "azure"
+      ? "Microsoft Azure"
+      : ownerProvider === "gcp"
+        ? "Google Cloud"
+        : null;
+  const hostedPodSourceLabel =
+    hostedPodProvider(agentTarget) === "azure"
+      ? "Microsoft Azure"
+      : hostedPodProvider(agentTarget) === "gcp"
+        ? "Google Cloud"
+        : null;
+  const openHomeFallback =
+    pooledSwitchAvailable && !aiReady ? (
+      <div>
+        <Button
+          type="button"
+          variant="outline"
+          className="min-h-11"
+          data-testid="byoc-open-home-fallback"
+          onClick={() => {
+            const requested = requestInternalAppNavigation({
+              href: ROUTES.ONE_HOME,
+              replace: true,
+              scroll: false,
+              source: "programmatic",
+              transitionMode: "full",
+            });
+            if (!requested) router.replace(ROUTES.ONE_HOME);
+          }}
+        >
+          Open Home
+        </Button>
+      </div>
+    ) : null;
   // The one commit under the cards. Shared keeps its two ids: the confirm on a
   // confirmed Shared state, and the plain pick where Shared is not yet the default.
   const hostingCommit =
-    selectedHosting === "shared"
+    selectedHosting === "shared" && !pooledSwitchAvailable
       ? {
           label: sharedChosen
             ? "Hussh Shared selected"
@@ -507,7 +658,11 @@ function OwnerCloudSetupPage({
         }
       : selectedHosting === "hosted" && !hostedUnderMaintenance
         ? {
-            label: hostedSaving ? "Setting that up…" : "Set up Hussh Pods",
+            label: hostedSaving
+              ? "Setting that up…"
+              : pooledSwitchAvailable
+                ? "Start Hussh Confidential Sandbox"
+                : "Set up Hussh Pods",
             onClick: () => void chooseHosted(),
             disabled: hostedSaving,
             testId: "cloud-tier-hosted-continue",
@@ -516,26 +671,209 @@ function OwnerCloudSetupPage({
 
   // Guard mid-provisioning / mid-save transitions so accidental Back taps or
   // edge swipes cannot strand the owner before hosting placement commits.
-  useBackLayer(ROUTES.ONE_SETUP_CLOUD, saving || hostingSaving ? 2 : 0, () => true);
+  useBackLayer(owningRoute, saving || hostingSaving ? 2 : 0, () => true, backQuery);
+  const hostingBackOwner = { owningRoute, backQuery };
 
-  const finish = useCallback(() => {
+  const rawReturnToParam = searchParams.get("return_to");
+  const isProfilePaneHostingReturn =
+    typeof rawReturnToParam === "string" &&
+    rawReturnToParam.startsWith("/") &&
+    !rawReturnToParam.startsWith("//") &&
+    rawReturnToParam.includes("profile_panel=hosting");
+  const resolvedReturnTo = resolveOneSetupReturnTo(rawReturnToParam);
+  const isAlreadyCompletedSetup =
+    Boolean(ownerId) &&
+    (OneSetupCompletionHintService.isResolved(ownerId!) ||
+      PreVaultUserStateService.getCachedBootstrapState(ownerId!)?.setupCompleted === true);
+  const isSettingsHostingVisit =
+    embedded ||
+    isProfilePaneHostingReturn ||
+    resolvedReturnTo === ROUTES.PROFILE_HOSTING ||
+    (!resolvedReturnTo && isAlreadyCompletedSetup);
+  const resolveDirectOnboardingHref = useCallback(() => {
+    if (ownerId && PreVaultSensitiveDraftService.hasFinanceIntent(ownerId)) {
+      return buildOneSetupFinanceImportRoute(resolvedReturnTo);
+    }
+    if (resolvedReturnTo) {
+      const pathOnly = resolvedReturnTo.split(/[?#]/)[0] ?? resolvedReturnTo;
+      if (!isOneSetupSurfaceRoute(pathOnly)) {
+        return resolvedReturnTo;
+      }
+    }
+    return ROUTES.HOME;
+  }, [ownerId, resolvedReturnTo]);
+
+  const completeDirectOnboarding = useCallback(async (): Promise<string | null> => {
+    if (!ownerId || !ownerCurrent()) return null;
+    if (!vaultKey || !vaultOwnerToken) {
+      throw new Error("Not ready yet. Try again.");
+    }
+    if (finalizationInFlightRef.current) {
+      return finalizationInFlightRef.current;
+    }
+    const run = (async () => {
+      setError(null);
+      await PreVaultSensitiveDraftService.finalizeForVault({
+        userId: ownerId,
+        vaultKey,
+        vaultOwnerToken,
+      });
+      const bootstrap =
+        PreVaultUserStateService.getCachedBootstrapState(ownerId) ??
+        (await PreVaultUserStateService.bootstrapState(ownerId, { force: true }));
+      if (
+        bootstrap?.oneRuntimeSetupChoice === "byok_pending_vault" &&
+        !(await hasStoredAiKey(ownerId, vaultKey, vaultOwnerToken))
+      ) {
+        throw new Error("Your selected AI key was not saved. Choose your AI again.");
+      }
+      await PostUnlockSyncService.run({
+        userId: ownerId,
+        vaultKey,
+        vaultOwnerToken,
+      });
+      await FinanceSetupDraftService.finalizeForVault({
+        userId: ownerId,
+        vaultKey,
+        vaultOwnerToken,
+      });
+      notifyGeminiRuntimeConfigurationChanged(ownerId);
+      const completion = acknowledgeOneSetupExit({
+        userId: ownerId,
+        skipped: false,
+        isVaultUnlocked: true,
+        vaultKey,
+        vaultOwnerToken,
+      });
+      queueEntryWelcome(ownerId);
+      await completion;
+      setVaultDialogOpen(false);
+      setPendingDirectVaultFinish(false);
+      const targetHref = resolveDirectOnboardingHref();
+      const requested = requestInternalAppNavigation({
+        href: targetHref,
+        replace: true,
+        scroll: false,
+        source: "programmatic",
+        transitionMode: "full",
+      });
+      if (!requested) router.replace(targetHref);
+      return targetHref;
+    })();
+    finalizationInFlightRef.current = run;
+    setFinalizingSetup(true);
+    try {
+      return await run;
+    } catch (err) {
+      setError(
+        err instanceof Error && err.message
+          ? err.message
+          : "Could not save your setup. Try again.",
+      );
+      throw err;
+    } finally {
+      if (finalizationInFlightRef.current === run) {
+        finalizationInFlightRef.current = null;
+      }
+      setFinalizingSetup(false);
+    }
+  }, [
+    ownerCurrent,
+    ownerId,
+    queueEntryWelcome,
+    resolveDirectOnboardingHref,
+    router,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
+
+  useEffect(() => {
+    if (
+      !pendingDirectVaultFinish ||
+      !isVaultUnlocked ||
+      !vaultKey ||
+      !vaultOwnerToken ||
+      !ownerId ||
+      finalizationInFlightRef.current
+    ) {
+      return;
+    }
+    void completeDirectOnboarding().catch(() => undefined);
+  }, [
+    completeDirectOnboarding,
+    isVaultUnlocked,
+    ownerId,
+    pendingDirectVaultFinish,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
+
+  const finish = useCallback(async () => {
     if (!ownerCurrent() || !authorized || !aiReady || hostingSaving) {
       return { status: "blocked" as const, summary: "Finish your hosting and AI selection first." };
     }
-    const rawReturnTo = searchParams.get("return_to");
-    const isProfilePaneHostingReturn =
-      typeof rawReturnTo === "string" &&
-      rawReturnTo.startsWith("/") &&
-      !rawReturnTo.startsWith("//") &&
-      rawReturnTo.includes("profile_panel=hosting");
-    const returnTo = resolveOneSetupReturnTo(rawReturnTo);
-    const completed = !!ownerId && (OneSetupCompletionHintService.isResolved(ownerId) ||
-      PreVaultUserStateService.getCachedBootstrapState(ownerId)?.setupCompleted === true);
+    if (
+      ownerId &&
+      typeof PreVaultUserStateService.markOneRuntimeChoice === "function" &&
+      !PreVaultUserStateService.hasOneRuntimeChoice(
+        PreVaultUserStateService.getCachedBootstrapState(ownerId),
+      )
+    ) {
+      await PreVaultUserStateService.markOneRuntimeChoice(
+        ownerId,
+        "hushh_managed_vertex",
+      ).catch(() => undefined);
+      if (!ownerCurrent()) {
+        return { status: "blocked" as const, summary: "Session changed." };
+      }
+    }
+    if (onFinish) {
+      onFinish();
+      return { status: "started" as const, summary: "Your agent setup is saved." };
+    }
+    if (pooledSwitchAvailable && !isSettingsHostingVisit) {
+      if (vaultContext !== null) {
+        if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
+          setPendingDirectVaultFinish(true);
+          setVaultDialogOpen(true);
+          return {
+            status: "started" as const,
+            summary: "One step left: set a lock.",
+          };
+        }
+        try {
+          const targetHref = await completeDirectOnboarding();
+          if (!targetHref) {
+            return { status: "blocked" as const, summary: "Session changed." };
+          }
+          return {
+            status: "started" as const,
+            summary: "Setup complete. Continuing.",
+            routeAfter: targetHref,
+          };
+        } catch {
+          return {
+            status: "blocked" as const,
+            summary: "Could not save your setup. Try again.",
+          };
+        }
+      }
+      const fallbackHref = resolveDirectOnboardingHref();
+      const requestedDirect = requestInternalAppNavigation({
+        href: fallbackHref,
+        replace: true,
+        scroll: false,
+        source: "programmatic",
+        transitionMode: "full",
+      });
+      if (!requestedDirect) router.replace(fallbackHref);
+      return { status: "started" as const, summary: "Setup complete. Continuing.", routeAfter: fallbackHref };
+    }
     const href = isProfilePaneHostingReturn
-      ? rawReturnTo
-      : returnTo === ROUTES.PROFILE_HOSTING || (!returnTo && completed)
+      ? rawReturnToParam!
+      : resolvedReturnTo === ROUTES.PROFILE_HOSTING || (!resolvedReturnTo && isAlreadyCompletedSetup)
         ? ROUTES.PROFILE_HOSTING
-        : buildOneSetupRoute({ returnTo });
+        : buildOneSetupRoute({ returnTo: resolvedReturnTo });
     const requested = requestInternalAppNavigation({
       href,
       replace: true,
@@ -545,7 +883,27 @@ function OwnerCloudSetupPage({
     });
     if (!requested) router.replace(href);
     return { status: "started" as const, summary: "Your agent setup is saved.", routeAfter: href };
-  }, [aiReady, authorized, hostingSaving, ownerCurrent, router, searchParams, ownerId]);
+  }, [
+    aiReady,
+    authorized,
+    completeDirectOnboarding,
+    hostingSaving,
+    isAlreadyCompletedSetup,
+    isProfilePaneHostingReturn,
+    isSettingsHostingVisit,
+    isVaultUnlocked,
+    onFinish,
+    ownerCurrent,
+    ownerId,
+    pooledSwitchAvailable,
+    rawReturnToParam,
+    resolveDirectOnboardingHref,
+    resolvedReturnTo,
+    router,
+    vaultContext,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
   useLocalOnboardingActionHandler("setup.finish_cloud", finish);
 
   const contentBody = (
@@ -563,7 +921,9 @@ function OwnerCloudSetupPage({
         {hostingStatusChecked && !ownCloudAvailable && hostingMode !== "unknown" ? (
           <p role="status" className="text-sm text-[var(--app-text-secondary)]" data-testid="byoc-setup-unavailable">
             Cloud setup is unavailable in this environment. Your existing setup is unchanged.
-            {hostingMode === "shared" || hostingMode === "unplaced" ? " You can continue with Hussh Shared." : " Your saved progress is kept."}
+            {!pooledSwitchAvailable && (hostingMode === "shared" || hostingMode === "unplaced")
+              ? " You can continue with Hussh Shared."
+              : " Your saved progress is kept."}
           </p>
         ) : null}
         {reservedProjectId && job && job.projectId !== reservedProjectId ? (
@@ -589,23 +949,41 @@ function OwnerCloudSetupPage({
           // else competes with it: no form, no dead buttons, no guessing.
           <SetupStageChecklist {...setupChecklistFor(job, ownerProvider)} job={job} />
         ) : job && (job.status === "failed" || job.stale) && !authorized ? (
-          <ByocSetupFailedCard
-            job={job}
-            retry={setupRetryFor(job, ownerProvider)}
-            busy={!ownCloudAvailable || saving || azureSignIn.starting}
-            onRetry={(retry) =>
-              void (retry.provider === "azure"
-                ? startAzureSetup(azureSubscriptionFromRef(job.projectId))
-                : handleProjectNamed(retry.projectId))
-            }
-          />
+          <div className="space-y-4">
+            <ByocSetupFailedCard
+              job={job}
+              retry={setupRetryFor(job, ownerProvider)}
+              busy={!ownCloudAvailable || saving || azureSignIn.starting}
+              onRetry={(retry) =>
+                void (retry.provider === "azure"
+                  ? startAzureSetup(azureSubscriptionFromRef(job.projectId))
+                  : handleProjectNamed(retry.projectId))
+              }
+            />
+            {pooledSwitchAvailable ? (
+              <PooledSandboxSwitchCard
+                hasAssignedCloudPod={false}
+                sourceCloudLabel={
+                  setupJobProvider(job) === "azure"
+                    ? "Microsoft Azure"
+                    : setupJobProvider(job) === "gcp"
+                      ? "Google Cloud"
+                      : null
+                }
+                onSwitched={refreshAttach}
+                {...hostingBackOwner}
+              />
+            ) : null}
+            {openHomeFallback}
+          </div>
         ) : consentIntent && !authorized ? (
           <ConsentPendingCard
             entry={consentIntent}
-            busy={saving || azureSignIn.starting || sharedSaving}
+            busy={saving || azureSignIn.starting || sharedSaving || hostedSaving}
             onContinue={!ownCloudAvailable ? null : consentIntent.provider === "azure" ? () => void startAzureSetup()
               : consentIntent.project ? () => void handleProjectNamed(consentIntent.project) : null}
-            onChooseShared={() => void chooseShared()}
+            onChooseShared={pooledSwitchAvailable ? null : () => void chooseShared()}
+            onChooseSandbox={pooledSwitchAvailable ? () => void chooseHosted() : null}
           />
         ) : (!checked || !hostingStatusChecked) && !checkTimedOut && !authorized ? (
           <p
@@ -616,31 +994,152 @@ function OwnerCloudSetupPage({
             Checking your agent home…
           </p>
         ) : hostingMode === "byoc" && directBlocker ? (
-          <DirectIngressBlockedCard blocker={directBlocker}
-            onRetry={ownCloudAvailable ? () => {
-              if (ownerCurrent()) void retryDirectIngress().finally(refreshAgent);
-            } : null} />
+          <div className="space-y-4">
+            <DirectIngressBlockedCard
+              blocker={directBlocker}
+              onRetry={ownCloudAvailable ? () => {
+                if (ownerCurrent()) void retryDirectIngress().finally(refreshAgent);
+              } : null}
+            />
+            {pooledSwitchAvailable ? (
+              <PooledSandboxSwitchCard
+                hasAssignedCloudPod
+                isOwnerCloud
+                sourceCloudLabel={ownerCloudSourceLabel}
+                onSwitched={refreshAttach}
+                {...hostingBackOwner}
+              />
+            ) : null}
+          </div>
+        ) : byocAssignedConnecting ? (
+          <div className="space-y-4">
+            <ConnectingToAgentCard onRefresh={refreshAttach} />
+            {pooledSwitchAvailable ? (
+              <PooledSandboxSwitchCard
+                hasAssignedCloudPod
+                isOwnerCloud
+                sourceCloudLabel={ownerCloudSourceLabel}
+                onSwitched={refreshAttach}
+                {...hostingBackOwner}
+              />
+            ) : null}
+          </div>
+        ) : byocAssignedFailed ? (
+          <div className="space-y-4">
+            <div
+              className="space-y-3 rounded-2xl border border-[var(--app-border)] p-4"
+              role="alert"
+              data-testid="byoc-agent-failed"
+            >
+              <p className="text-sm font-semibold">We couldn&rsquo;t reach your agent</p>
+              <p className="text-sm text-[var(--app-text-secondary)]">
+                {ownerProvider === "azure"
+                  ? "Your agent in Microsoft Azure is paused or unreachable. Check the connection again or open Hosting settings to repair or move your agent."
+                  : "Your agent in Google Cloud is paused or unreachable. Check the connection again or open Hosting settings to repair or move your agent."}
+              </p>
+              <div className="flex flex-wrap gap-4">
+                <button
+                  type="button"
+                  className="min-h-11 self-start text-sm underline underline-offset-4"
+                  onClick={refreshAttach}
+                  data-testid="byoc-agent-failed-refresh"
+                >
+                  Check connection again
+                </button>
+                <button
+                  type="button"
+                  className="min-h-11 self-start text-sm underline underline-offset-4"
+                  onClick={() => {
+                    const rawReturnTo = searchParams.get("return_to");
+                    const hostingHref =
+                      typeof rawReturnTo === "string" &&
+                      rawReturnTo.startsWith("/") &&
+                      !rawReturnTo.startsWith("//") &&
+                      rawReturnTo.includes("profile_panel=hosting")
+                        ? rawReturnTo
+                        : ROUTES.PROFILE_HOSTING;
+                    const requested = requestInternalAppNavigation({
+                      href: hostingHref,
+                      replace: true,
+                      scroll: false,
+                      source: "programmatic",
+                      transitionMode: "full",
+                    });
+                    if (!requested) router.replace(hostingHref);
+                  }}
+                  data-testid="byoc-agent-failed-hosting"
+                >
+                  Open Hosting settings
+                </button>
+              </div>
+            </div>
+            {pooledSwitchAvailable ? (
+              <PooledSandboxSwitchCard
+                hasAssignedCloudPod
+                isOwnerCloud
+                sourceCloudLabel={ownerCloudSourceLabel}
+                onSwitched={refreshAttach}
+                {...hostingBackOwner}
+              />
+            ) : null}
+            {openHomeFallback}
+          </div>
         ) : connectedBefore ? (
           // Revisit: the cloud is recorded and proven; first-time setup cannot move an assigned pod.
-          <div
-            className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"
-            data-testid="byoc-cloud-connected"
-          >
-            <p className="text-sm font-semibold">
-              Connected: {existing.projectId}
-            </p>
-            <p className="text-sm text-[var(--app-text-secondary)]">
-              {existing.rationale || "Agent One remains assigned to this project."}
-            </p>
-            <AzureFreeTrialNote stages={job?.stages} />
+          <div className="space-y-4">
+            <div
+              className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"
+              data-testid="byoc-cloud-connected"
+            >
+              <p className="text-sm font-semibold">
+                Connected: {existing.projectId}
+              </p>
+              <p className="text-sm text-[var(--app-text-secondary)]">
+                {existing.rationale || "Agent One remains assigned to this project."}
+              </p>
+              <AzureFreeTrialNote stages={job?.stages} />
+            </div>
+            {pooledSwitchAvailable ? (
+              <PooledSandboxSwitchCard
+                hasAssignedCloudPod
+                isOwnerCloud
+                sourceCloudLabel={existing.projectId}
+                onSwitched={refreshAgent}
+                {...hostingBackOwner}
+              />
+            ) : isHostedAzureMigrationAvailable() && agentState === "active" ? (
+              <HusshPodsMigrationCard
+                sourceMode="byoc"
+                sourceTarget={agentTarget}
+                sourceProject={existing.projectId}
+                onMigrated={refreshAgent}
+                {...hostingBackOwner}
+                subtleAction
+              />
+            ) : null}
+            {openHomeFallback}
           </div>
         ) : recordedReservedProject ? (
           // The recorded home attaches by itself; a stop is shown with its typed reason.
-          attachBlocked ? <AttachBlockedCard code={attachBlocked}
-            onRetry={ownCloudAvailable ? () => {
-              if (ownerCurrent()) void retryOwnerCloudAttach().finally(refreshAttach);
-            } : null} />
-            : <ConnectingToAgentCard onRefresh={refreshAttach} />
+          attachBlocked ? (
+            <div className="space-y-4">
+              <AttachBlockedCard code={attachBlocked}
+                onRetry={ownCloudAvailable ? () => {
+                  if (ownerCurrent()) void retryOwnerCloudAttach().finally(refreshAttach);
+                } : null} />
+              {pooledSwitchAvailable ? (
+                <PooledSandboxSwitchCard
+                  hasAssignedCloudPod
+                  isOwnerCloud
+                  sourceCloudLabel={ownerCloudSourceLabel ?? reservedProjectId}
+                  onSwitched={refreshAttach}
+                  {...hostingBackOwner}
+                />
+              ) : null}
+            </div>
+          ) : (
+            <ConnectingToAgentCard onRefresh={refreshAttach} />
+          )
         ) : reservedProjectId && setupStatusReadOk && job === null ? (
           <div
             className="space-y-3 rounded-2xl border border-[var(--app-border)] p-4"
@@ -692,7 +1191,58 @@ function OwnerCloudSetupPage({
             </p>
           </div>
         ) : hostingMode === "hussh_pods" ? (
-          <HusshPodsPausedCard />
+          hostedUnderMaintenance ? (
+            <HusshPodsPausedCard deploymentTarget={agentTarget} />
+          ) : pooledSwitchAvailable ? (
+            <div className="space-y-4" data-testid="cloud-tier-choice">
+              <HostingChoiceCards
+                label="Where your agent runs"
+                options={hostingOptions}
+                value={selectedSandboxHosting}
+                onChange={setChoice}
+                busy={saving || hostedSaving || azureSignIn.starting}
+              />
+              {selectedSandboxHosting === "own" ? (
+                ownCloudAvailable ? (
+                  <OwnerCloudProviderChoice
+                    onProjectNamed={handleProjectNamed}
+                    projectBusy={saving}
+                    onConnectAzure={startAzureSetup}
+                    azureBusy={azureSignIn.starting}
+                  />
+                ) : null
+              ) : (
+                <>
+                  <HusshPodsActiveCard deploymentTarget={agentTarget} compactBelowPicker />
+                  {agentTarget !== "ace" ? (
+                    <PooledSandboxSwitchCard
+                      hasAssignedCloudPod
+                      sourceCloudLabel={hostedPodSourceLabel}
+                      onSwitched={refreshAgent}
+                      {...hostingBackOwner}
+                    />
+                  ) : null}
+                  {openHomeFallback}
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <HusshPodsActiveCard deploymentTarget={agentTarget} />
+              {isHostedAzureMigrationAvailable() &&
+              agentState === "active" &&
+              hostedPodProvider(agentTarget) === "gcp" ? (
+                <HusshPodsMigrationCard
+                  sourceMode="hussh_pods"
+                  sourceTarget={agentTarget}
+                  onMigrated={refreshAgent}
+                  {...hostingBackOwner}
+                  subtleAction
+                />
+              ) : null}
+              {openHomeFallback}
+            </div>
+          )
         ) : hostingMode === "unknown" || hostingMode === null ? (
           <div
             className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"
@@ -832,16 +1382,33 @@ function OwnerCloudSetupPage({
   const footerAndDialogs = (
     <>
       {authorized && aiReady ? <SetupCompletionFooter
-        label="Finish agent setup"
-        onComplete={finish}
+        label={pooledSwitchAvailable && !isSettingsHostingVisit ? "Finish setup" : "Finish agent setup"}
+        onComplete={() => void finish()}
         busy={hostingSaving}
         // The existing AI selector acknowledges only a saved, verified choice.
         // Keeping both prerequisites here avoids a second setup trip from the hub.
         disabled={!authorized || !aiReady || hostingSaving || !ownerCurrent()}
         controlId="one-setup-cloud-terminal"
         actionId="setup.finish_cloud"
-        purpose="Keep the verified hosting and AI choice, then return to setup."
+        purpose="Keep the verified hosting and AI choice, then continue."
       /> : null}
+      {user ? (
+        <VaultUnlockDialog
+          user={user}
+          open={vaultDialogOpen}
+          onOpenChange={(open) => {
+            setVaultDialogOpen(open);
+            if (!open && !finalizationInFlightRef.current) {
+              setPendingDirectVaultFinish(false);
+            }
+          }}
+          dismissible={false}
+          enableGeneratedDefault
+          title="Set a lock"
+          description="Only you can open what you save. Not even we can read it."
+          onSuccess={() => undefined}
+        />
+      ) : null}
     </>
   );
 
@@ -859,8 +1426,8 @@ function OwnerCloudSetupPage({
       as="main"
       width="reading"
       nativeTest={{
-        routeId: "/one/setup/cloud",
-        marker: "native-route-one-setup-cloud",
+        routeId: owningRoute,
+        marker: owningRoute === ROUTES.ONE_SETUP ? "native-route-one-setup" : "native-route-one-setup-cloud",
         authState: "authenticated",
         dataState: saving ? "loading" : "loaded",
       }}

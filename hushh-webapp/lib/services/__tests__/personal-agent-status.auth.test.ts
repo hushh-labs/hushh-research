@@ -45,7 +45,6 @@ vi.mock("@/lib/capacitor", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/capacitor")>(),
   HushhAuth: { getIdToken: authState.nativeToken },
 }));
-
 import { ApiService } from "@/lib/services/api-service";
 
 function mockFetchOnce(body: unknown, ok = true, status = 200) {

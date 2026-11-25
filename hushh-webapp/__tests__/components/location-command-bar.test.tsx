@@ -14,6 +14,7 @@ import type { OneSystemActionExecutor } from "@/lib/agent/one-system-action-exec
 
 const harness = vi.hoisted(() => ({
   pathname: "/one/agents",
+  commandsEnabled: true,
   ports: null as CommandPorts | null,
   captureInstances: 0,
   runtimeInstances: 0,
@@ -51,7 +52,7 @@ vi.mock("@/lib/connections/gemini-runtime-configuration", () => ({
 }));
 vi.mock("@/lib/one-voice/readiness", () => ({
   useOneVoiceLiveEnabled: () => false,
-  useOneVoiceCommandsEnabled: () => true,
+  useOneVoiceCommandsEnabled: () => harness.commandsEnabled,
   useOneVoiceReadiness: () => ({
     status: "resolved",
     microphoneOwner: "pod_commands",
@@ -162,6 +163,7 @@ import {
   AGENT_CONVERSATION_CANCEL_EVENT,
 } from "@/lib/agent/agent-voice-settings";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
+import { OwnerPodError } from "@/lib/services/owner-pod-crypto";
 import { ROUTES } from "@/lib/navigation/routes";
 
 function App({
@@ -212,6 +214,7 @@ beforeEach(() => {
   harness.captureInstances = 0;
   harness.runtimeInstances = 0;
   harness.pathname = "/one/agents";
+  harness.commandsEnabled = true;
   harness.runtime = null;
   window.history.replaceState({}, "", "/one/agents");
   harness.start.mockResolvedValue(undefined);
@@ -516,6 +519,22 @@ describe("mounted command bar", () => {
     });
     expect(harness.submit).not.toHaveBeenCalled();
   });
+  it("keeps unavailable idle voice out of sharing while retaining active work and cancellation", async () => {
+    harness.pathname = "/one/consent/"; harness.commandsEnabled = false;
+    const app = render(<App />);
+    expect(screen.queryByTestId("one-voice-agent-bar-start-icon")).toBeNull();
+    await present({ phase: "gate", message: "Allow location", gate: { kind: "permission", message: "Allow location" } });
+    expect(screen.getByText("Cancel task")).toBeVisible();
+    expect(screen.getByTestId("one-voice-agent-bar-start-icon")).toBeVisible();
+    await present({ phase: "working", message: "Finding a place" });
+    expect(screen.getByTestId("one-voice-agent-bar-start-icon")).toBeVisible();
+    await present({ phase: "idle", message: "" });
+    expect(screen.queryByTestId("one-voice-agent-bar-start-icon")).toBeNull();
+    harness.pathname = "/";app.rerender(<App />);
+    expect(screen.getByTestId("one-voice-agent-bar-start-icon")).toBeVisible();
+    harness.pathname = "/people/11111111-1111-4111-8111-111111111111";app.rerender(<App />);
+    expect(screen.queryByTestId("one-voice-agent-bar-start-icon")).toBeNull();
+  });
   it("survives route/chrome changes and keeps the page usable with distinct collapse/cancel/dismiss", async () => {
     const onPage = vi.fn();
     const app = render(<App onPage={onPage} />);
@@ -585,5 +604,27 @@ describe("mounted command bar", () => {
     expect(harness.start).toHaveBeenCalledOnce();
     expect(harness.finish).not.toHaveBeenCalled();
     expect(harness.transcribe).not.toHaveBeenCalled();
+  });
+
+  it("ignores passive OwnerPodError recovery failures on unlock and sanitizes active command pod errors", async () => {
+    harness.recover.mockRejectedValueOnce(new OwnerPodError("SELF_ENROLL_FAILED:403"));
+    const app = render(<App />);
+    await flush();
+    expect(screen.queryByText(/SELF_ENROLL_FAILED/)).toBeNull();
+    expect(screen.queryByText("Dismiss")).toBeNull();
+
+    harness.submit.mockRejectedValueOnce(new OwnerPodError("SELF_ENROLL_FAILED:403"));
+    app.rerender(<App />);
+    down();
+    up();
+    await flush();
+    fireEvent.click(screen.getByLabelText("Send recording"));
+    await flush();
+    expect(screen.queryByText(/SELF_ENROLL_FAILED/)).toBeNull();
+    expect(
+      screen.getByText(
+        "Your private agent connection could not be verified on this browser. Check Hosting settings and try again.",
+      ),
+    ).toBeInTheDocument();
   });
 });

@@ -9,6 +9,10 @@ import { ComputerUsePreview } from "@/components/computer-use/computer-use-previ
 import { ComputerUseClient } from "@/lib/services/computer-use-client";
 import { ComputerUseOwnerBridge } from "@/components/computer-use/computer-use-owner-bridge";
 import { ComputerUseActiveTasks } from "@/components/computer-use/computer-use-active-tasks";
+import {
+  WorkspaceSplitPaneDock,
+  WorkspaceSplitPaneProvider,
+} from "@/components/computer-use/workspace-split-pane";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { areScheduledTasksAvailable, PodScheduledTasksClient } from "@/lib/services/pod-scheduled-tasks";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
@@ -263,6 +267,18 @@ describe("private browser control", () => {
       expect(api.ownerPodRequest).toHaveBeenCalledOnce();
       expect(api.ownerPodRequest.mock.calls[0][1].signal.aborted).toBe(true);
     } finally { vi.useRealTimers(); }
+  });
+
+  it("refuses to submit a schedule reviewed on a different Pod", async () => {
+    api.getComputerUseAdmission.mockResolvedValueOnce({ ownerId: "owner", podId: "pod-first" })
+      .mockResolvedValueOnce({ ownerId: "owner", podId: "pod-second" });
+    api.ownerPodRequest.mockResolvedValue(Response.json({ available: true, code: null,
+      authorization_limit_at: 1000000, templates: ["agent_files.organize_file.v1"], tasks: [] }));
+    const client = new PodScheduledTasksClient("owner");
+    await client.status();
+    await expect(client.organizeFile({ id: "b".repeat(32), name: "test" }, 2000, "request-id"))
+      .rejects.toThrow("SCHEDULE_OWNER_POD_CHANGED");
+    expect(api.ownerPodRequest).toHaveBeenCalledOnce();
   });
 
   it("rediscovers current tasks but never admits recovered work from an old incarnation", async () => {
@@ -639,4 +655,131 @@ it("waits for an early first frame but refuses other preview errors", async () =
   expect(receive).toHaveBeenCalledOnce();
   await expect(createDirectComputerUseTransport(async () => Response.json({ detail: { code: "BROWSER_OWNER_REFUSED" } }, {status: 409}))
     .watchFrames(binding, new AbortController().signal, vi.fn())).rejects.toThrow("FRAME_REFUSED");
+});
+
+it("stops background polling and frame streaming while paused in needs_owner", async () => {
+  vi.useFakeTimers();
+  try {
+    const apiTransport = transport();
+    vi.mocked(apiTransport.read).mockResolvedValue(
+      snapshot({
+        phase: "needs_owner",
+        controlOwner: "agent",
+        approvedOrigins: ["https://example.com"],
+      }),
+    );
+    const view = render(<ComputerUseTaskCard binding={binding} transport={apiTransport} />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("browser-protected-entry-card")).toHaveTextContent(
+      "Waiting on example.com",
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(apiTransport.read).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "View browser" }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(apiTransport.watchFrames).not.toHaveBeenCalled();
+    view.unmount();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("docks WorkspaceSplitPane and switches across Browser, Activity, and Terminal without idle polling", async () => {
+  const apiTransport = transport();
+  api.ownerPodRequest.mockResolvedValue(
+    Response.json({
+      control_mode: "agent",
+      control_epoch: 1,
+      pressure: { level: "normal" },
+      events: [],
+    }),
+  );
+  const view = render(
+    <WorkspaceSplitPaneProvider>
+      <ComputerUseTaskCard binding={binding} transport={apiTransport} />
+      <WorkspaceSplitPaneDock />
+    </WorkspaceSplitPaneProvider>,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "View browser" }));
+  expect(await screen.findByTestId("workspace-split-pane-dock")).toBeVisible();
+  expect(api.ownerPodRequest).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole("tab", { name: "Activity" }));
+  expect(screen.getByTestId("workspace-activity-panel")).toBeVisible();
+  expect(api.ownerPodRequest).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole("tab", { name: "Terminal" }));
+  expect(await screen.findByTestId("workspace-terminal-panel")).toBeVisible();
+  await waitFor(() =>
+    expect(api.ownerPodRequest).toHaveBeenCalledWith(
+      "files/workspaces/status?workspace_id=ws_default",
+      expect.objectContaining({ method: "GET", cache: "no-store" }),
+      false,
+      undefined,
+      "owner",
+    ),
+  );
+  view.unmount();
+});
+
+it("accepts matching uat admission while refusing production and cross-environment replies", async () => {
+  const prodClient = new ComputerUseClient("owner");
+  api.getComputerUseAdmission.mockResolvedValueOnce({
+    ownerId: "owner",
+    podId: "pod",
+    environment: "production",
+  });
+  expect(await prodClient.capability(new AbortController().signal)).toEqual({
+    available: false,
+    code: "BROWSER_CLOUD_GATE_UNAVAILABLE",
+  });
+  expect(api.ownerPodRequest).not.toHaveBeenCalled();
+
+  const mismatchClient = new ComputerUseClient("owner");
+  api.getComputerUseAdmission.mockResolvedValueOnce({
+    ownerId: "owner",
+    podId: "pod",
+    environment: "uat",
+  });
+  api.ownerPodRequest.mockResolvedValueOnce(
+    Response.json({
+      available: true,
+      owner_id: "owner",
+      pod_id: "pod",
+      incarnation: "incarnation",
+      environment: "development",
+    }),
+  );
+  await expect(mismatchClient.capability(new AbortController().signal)).rejects.toThrow(
+    "BROWSER_CAPABILITY_REFUSED",
+  );
+
+  const uatClient = new ComputerUseClient("owner");
+  api.getComputerUseAdmission.mockResolvedValueOnce({
+    ownerId: "owner",
+    podId: "pod",
+    environment: "uat",
+  });
+  api.ownerPodRequest.mockResolvedValueOnce(
+    Response.json({
+      available: true,
+      code: "BROWSER_QUALIFIED",
+      owner_id: "owner",
+      pod_id: "pod",
+      incarnation: "incarnation",
+      environment: "uat",
+    }),
+  );
+  expect(await uatClient.capability(new AbortController().signal)).toEqual({
+    available: true,
+    code: "BROWSER_QUALIFIED",
+    publicResearchOnly: false,
+  });
 });

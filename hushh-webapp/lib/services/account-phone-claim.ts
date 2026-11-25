@@ -2,8 +2,8 @@ import { ApiService, type AccountIdentity } from "./api-service";
 import { ApiError, apiErrorCode } from "./api-client";
 
 type TransferProof = { token: string; transferId?: string; submitted?: boolean };
-export async function claimPhoneForOwner(idToken: string, phoneIdToken: string, ownerId: string, isCurrent: () => boolean): Promise<AccountIdentity | null> {
-    const response = await ApiService.claimAccountPhone(phoneIdToken, idToken, ownerId);
+export async function claimPhoneForOwner(idToken: string, phoneIdToken: string, ownerId: string, isCurrent: () => boolean, authRefreshRetry?: "never"): Promise<AccountIdentity | null> {
+    const response = await ApiService.claimAccountPhone(phoneIdToken, idToken, ownerId, isCurrent, authRefreshRetry);
     if (!isCurrent()) return null;
     const identity = response.identity ?? null;
     if (identity?.user_id !== ownerId) {

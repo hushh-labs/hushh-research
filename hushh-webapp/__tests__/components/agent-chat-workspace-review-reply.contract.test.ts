@@ -9,18 +9,21 @@ const source = readFileSync(
 );
 
 describe("chat consent review boundary", () => {
-  it("opens the full request for review without granting access from a partial notification", () => {
+  it("routes partial notifications to Consent Center without red chat errors and seals complete requests inline", () => {
     const handler = source.slice(
       source.indexOf("onPendingConsentApprove={"),
       source.indexOf("onPendingConsentDeny={", source.indexOf("onPendingConsentApprove={")),
     );
     expect(handler).toContain("router.push(`${ROUTES.CONSENTS}?${query.toString()}`)");
-    expect(handler).toContain('requestId: item.id');
+    expect(handler).toContain("requestId: item.id");
     expect(handler).toContain('query.set("bundleId", item.bundleId)');
-    expect(handler).toContain('from: pathname || ROUTES.ONE_HOME');
-    // The previous callback attempted a bundle decision and surfaced a loading
-    // guard as a red chat error before the owner could review the request.
-    expect(handler).not.toMatch(/resolvePendingConsentCardTargets|handleApproveBundle|addErrorMessage/);
+    expect(handler).toContain("from: pathname || ROUTES.ONE_HOME");
+    expect(handler).toContain("item.bundleScopeCount > hydratedCount");
+    expect(handler).toContain("resolvePendingConsentCardTargets");
+    expect(handler).toContain("consentActions.handleApproveBundle");
+    expect(handler).toContain("durationHours: chosenHours");
+    // Partial or unready notifications must never inject a red chat error bubble.
+    expect(handler).not.toMatch(/addErrorMessage/);
   });
 });
 

@@ -418,6 +418,11 @@ async def _run_calendar_read(
     """
     try:
         user_id = _user_id(tool_context)
+        from hushh_mcp.one_adk.pod_connector_tools import calendar_turn_refusal
+
+        refusal = await calendar_turn_refusal(tool_context)
+        if refusal is not None:
+            return refusal
         display_zone = normalize_time_zone(
             display_time_zone
             if display_time_zone is not None

@@ -559,7 +559,7 @@ via colocated `*.voice-action-contract.json` files next to each surface and
 regenerated with `npm run build:voice-gateway`. One's ADK agent tree treats
 guiding a new user through setup as an ordinary `run_app_action`/`open_screen`
 job (see [One Voice Runtime Architecture § Onboarding and Proactive
-Prompting](../one/one-voice-runtime-architecture.md#onboarding-and-proactive-prompting)
+Prompting](../../architecture/one/one-voice-runtime-architecture.md#onboarding-and-proactive-prompting)
 for the full mechanism, including the new `local_handler` execution path for
 in‑place state changes like answering a wizard question).
 

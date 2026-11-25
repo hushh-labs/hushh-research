@@ -1,6 +1,6 @@
 "use client";
 
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import {

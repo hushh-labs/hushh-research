@@ -235,6 +235,11 @@ class ConsentLifecycleService:
             **({"bundle_id": bundle_id} if bundle_id else {}),
             "decision_owner_uid": user_id,
             "owner_decision": "deny",
+            **(
+                {"upfront_price_reviewed": True}
+                if metadata.get("upfront_price_reviewed") is True
+                else {}
+            ),
         }
         from hushh_mcp.services.product_value_receipts import (
             capture_value_epoch,
@@ -358,6 +363,9 @@ async def _revoke_owner_grants(
     for token in [*internal_tokens, *active_tokens]:
         await _revoke_grant_row(db, user_id, token, scope=None, export_cache=export_cache)
         revoked += 1
+    from hushh_mcp.services.personal_agent_grant_service import invalidate_standing_door_grant_cache
+
+    invalidate_standing_door_grant_cache(user_id)
     return revoked
 
 
@@ -417,6 +425,11 @@ async def _revoke_grant_row(
         metadata=revoked_metadata or None,
     )
     logger.info("consent.revoked_event_saved scope=%s", resolved_scope)
+    from hushh_mcp.services.personal_agent_grant_service import invalidate_standing_door_grant_cache
+
+    invalidate_standing_door_grant_cache(subject_user_id)
+    if user_id != subject_user_id:
+        invalidate_standing_door_grant_cache(user_id)
     is_vault_owner = resolved_scope in ("vault.owner", "VAULT_OWNER")
     return {
         "status": "revoked",

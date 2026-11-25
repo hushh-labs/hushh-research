@@ -42,6 +42,14 @@ describe("executeAgentGatewayAction connected systems", () => {
     expect(input.router.push).not.toHaveBeenCalled();
   });
 
+  it("rejects the retired previous-account deletion review gateway action", async () => {
+    const actionId = "phone_mandate.review_previous_deletion";
+    const input = { ...baseInput(actionId), allowedActionIds: [actionId] };
+    const result = await executeAgentGatewayAction(input);
+    expect(result).toMatchObject({ status: "invalid", reason: "missing_action" });
+    expect(input.router.push).not.toHaveBeenCalled();
+  });
+
   it("opens Connected Systems for CRM update proposals", async () => {
     const input = baseInput("connected_system.crm.update.propose");
 

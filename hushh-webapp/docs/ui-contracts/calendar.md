@@ -117,7 +117,7 @@ does not treat an older default grant as proof that the new account connected.
 | Board read | `POST /api/one/calendar/board/day` reads each connected account for the selected local date in the browser's current time zone, refreshed on focus or visibility after travel. The backend pages readable events, includes hidden invitations, checks account bindings before/after reads, and reports unreadable calendars instead of silently claiming every event is visible. The UI keeps all returned events, including declined invitations. Each account shows up to three event rows before scrolling inside one shared event area, including imported non-blocking items; the page scrolls between account cards. Connection labels omit check times, while the board retains its overall check time. The board has no manual zone field, duration chips or calendar-inclusion accordion. |
 | Free time | Each account has its own full-day free windows, using the provider's busy response and the existing default calendar inclusion policy with a fixed 15-minute minimum opening. The server intersects all sets and returns shared openings only when every account check is complete. Free/busy failure, reauthorization or an account change leaves shared availability incomplete. Visible events may not block time when declined, transparent or from a calendar excluded by the default availability policy; those cases are labeled on event cards. A keyboard/touch Free time row opens a compact dialog, with a 60-minute default when it fits and shorter supported durations otherwise. Account rows bind the destination to that card; shared rows require an explicit account and show its address, without a calendar name. The existing proposal ledger checks every connected account, calendar selection, grant and busy interval again before the one confirmed create. Nothing is reserved by a displayed opening. |
 | Overlaps | A warning icon appears on affected event rows; a zero-overlap board uses a success icon. The server compares busy events across different accounts, excludes transparent/cancelled/declined events and suppresses mirrored occurrences. Conflict coverage is marked incomplete when any calendar's event details are unreadable. |
-| Event detail | Opens and closes on the Calendar page, shows the event title, source account and time once, then the organizer when known. Location and description remain available; a validated HTTPS conference URL provides Join meeting. The detail dialog omits the separate Google Calendar link. Event rows and invitation details carry the event's account to the Calendar Join launcher. For Google Meet, Join meeting opens Google's account handoff directly with the event account's email and the same meeting as its continuation; there is no Hussh account-confirmation dialog. Google reuses a matching browser session or presents its account/sign-in flow when that session is unavailable. Google controls the external session and any account choice. Other providers open directly. The existing invitation response component remains mounted for actionable invitations. |
+| Event detail | Opens and closes on the Calendar page, shows the event title, source account and time once, then the organizer when known. Location and description remain available; a validated HTTPS conference URL provides Join meeting. The detail dialog omits the separate Google Calendar link. Event rows and invitation details carry the event's account to the Calendar Join launcher. For Google Meet, Open Meet requests that account in the current browser using its email. If the account is signed out, Choose account opens Google's account chooser and returns to the same meeting after selection. Google controls the external session. Other providers open directly. The existing invitation response component remains mounted for actionable invitations. |
 | Conflict choice | The person chooses one meeting to keep and up to two overlapping invitations to decline, writes a separate note to each organizer and reviews the exact Calendar and Mail steps before confirmation. `POST /api/one/calendar/conflicts/workspace/review` prepares a sealed, ten-minute plan; it makes no provider change. `POST /api/one/calendar/conflicts/workspace/confirm` checks the account, event, conflict and kept-meeting state again before each decline. The dialog remains on Calendar. |
 | Partial outcome | Calendar RSVP and organizer email have independent results. A definitely failed Mail send can be reviewed for a manual email-only retry while the invitation remains declined; a sent or unknown retry is not offered again. The account board refreshes after a confirmed result when the dialog closes. Draft choices/notes survive an in-place board refresh, while a fresh provider review is required after authority changes. |
 | Recipient copy | For a new event without a user-provided title, Calendar's model instruction uses a recipient-facing title based on the verified inviter name, or a neutral title when no name is available. An explicit user title remains intact. Google owns the invitation email wrapper; the reviewed event title and description are the fields Calendar controls. On the board, decline reasons become professional, occurrence-specific Mail copy before review. The owner's reason remains intact; the final body is shown before confirmation. A changed title, time or organizer invalidates that review and requires a refresh. Chat's existing Calendar send handoff remains unchanged. |
@@ -158,19 +158,12 @@ not separate shipped files.
 | Setup/hero flow title | Connected setup h2 followed foundation; hero token28/34 | 28/36/600 | Scoped setup role; illustration unchanged. |
 | Board, free-time, Invitation and Insights sections | Several inherited foundation20–22px titles | 14/22/600 | Local heading variables, including app-shell h2→title3 cascade. |
 | Dialog/detail title | Foundation title-slot/heading cascade, not the JSX utility | 20/28/600 | Board, invitation, settings, attendance, disconnect, Calendar grant and phone portals. |
-| Account/event/invitation/library primary | Mixed 13–16px and 400–600 | 14/21/550 | Invitation day numerals and Insights metrics use the Connect display role at 28/36/600. |
+| Account/event/invitation/library primary | Mixed 13–16px and 400–600 | 14/21/550 | Row owners; invitation day numeral25/30, metrics24/28 and time rail stay specialized. |
 | Supporting copy | Mixed 11–14px | 12/18/400 | Status/count/read-only tone retained. Notes/transcripts stay readable14/21. |
 | Status, including connection/Ended/RSVP | Mixed 11–12px | 13/18/600 where status is a label | Event and invitation owners; warning/destructive color retained. |
 | Form label and semantic input | Mixed local label and shared Input17/22 | Label15/22/550; Input16/22 at≤620,14/22 above | Scoped Calendar workspace and modal tokens. Native date/select and textarea retain their shared/browser behavior. |
-| Compact action | Stock default/outline, often17/22/650 | 12/18/550 | Calendar actions and confirmation labels share this role. Confirmation and setup keep their existing prominence and target sizes. |
-| Utility/helper | Shared or local, role dependent | Utility12/18/550 and supporting copy12/18/400 | Existing Back/Cancel/Edit/Done/copy/source controls remain utility or links. |
-
-Calendar applies the shared roles inside booking, RSVP and Follow-up forms and
-their confirmation states. The chart uses the supporting role for ticks and
-labels and the row role for tooltip values. The Follow-ups pager uses the
-compact action role. Calendar-origin person previews and OAuth return pages
-receive the scope through their existing in-memory visit or callback attempt.
-Provider screens and system pickers continue to use their own presentation.
+| Compact action | Stock default/outline, often17/22/650 | 12/18/550 | Calendar ordinary-action wrapper; never applied to a final commit or full setup footer. |
+| Utility/helper | Shared or local, role dependent | Utility13/21/550,12px≤620; genuine helper13/18/400 | Existing Back/Cancel/Edit/Done/copy/source controls remain utility or links. |
 
 The ordinary Calendar action uses the same scoped recipe as Connect's person
 row: Morphy button with existing ripple/focus/disabled handling; the visible
@@ -187,9 +180,9 @@ target. The Board overlap warning remains warning-colored with44px target.
 | --- | --- | --- |
 | Ordinary compact | Changed: Board **Add account**, **Retry**, **Reconnect/Retry check**, **Resolve these overlaps**; fallback **Reconnect Calendar/Allow Calendar access**, **Retry**, inclusion, **Can't attend**, **Allow attendance changes/Review**, Mail recovery; invitation **Accept**, **Decline**, **Decline & offer another time**, access/Mail recovery; conflict **Keep this instead**, **Review Calendar and Mail**, failed-only **Review email retry for {meeting}**, Mail recovery; Insights **Try again**, **Continue checking this day**, **Open**, **Download**; public **Try again**; Calendar-branded connection directive. | Preserve each existing handler, account, current owner and disabled/busy condition. Retry reads; preparatory actions open local review or permission path. They do not imply a Calendar write. |
 | Full-flow primary/final | Verified exception: **Connect your calendar**, **Finish Calendar setup/Skip Calendar setup**, workspace **Try Calendar Agent with One**, conflict **Confirm selected changes/Send reviewed note**, RSVP **Confirm**, invitation send/confirm labels and proposal **Schedule meeting/Reschedule/Cancel**. | Existing shared primary/destructive owners, explicit confirmation, signed review and acknowledged outcomes stay distinct from quiet actions. |
-| Utility/link | Changed or verified: Calendar detail Back, Edit, Done, Insights Refresh/Copy/Back, proposal **Not now/Change time**, chat **Close invitations**, Calendar grant **Not now**, source/provider links and **Open this meeting in Google Calendar**. **Disconnect Calendar** remains destructive in tone. Shared shell Back and modal close keep their owner. | Quiet utility type is12/18/550 with44px targets. Back/close/selector actions are local; provider links and mailto hand off only. Destructive controls keep confirmation/tone. |
-| Selectors and rows | Verified exception: tabs, Events/Free time, Today, date, account select, duration, filters, checkboxes/radios, invitation/event/library whole rows, menu triggers. | Selection changes local state or starts its existing read. Board Free time rows open the booking form. Schedule meeting confirms the displayed details and runs the server checks before creating the event. |
-| Shared or provider-owned | Verified exception: shell Back/avatar, Dialog close and Google consent/OS picker/email composer. Calendar Sonner messages opt into the row and supporting roles at the individual toast. | Shared primitives retain focus, animation, platform and authority contracts. |
+| Utility/link | Changed or verified: Calendar detail Back, Edit, Done, Insights Refresh/Copy/Back, proposal **Not now/Change time**, chat **Close invitations**, Calendar grant **Not now**, source/provider links and **Open this meeting in Google Calendar**. **Disconnect Calendar** remains destructive in tone. Shared shell Back and modal close keep their owner. | Quiet utility type is13/21/550,12px≤620, with44px targets. Back/close/selector actions are local; provider links and mailto hand off only. Destructive controls keep confirmation/tone. |
+| Selectors and rows | Verified exception: tabs, Events/Free time, Today, date, account select, duration, filters, checkboxes/radios, invitation/event/library whole rows, menu triggers. | Selection changes local state or starts its existing read. Board Free time rows open the local booking dialog and require a separate reviewed confirmation before a write. |
+| Shared or provider-owned | Verified exception: shell Back/avatar, Dialog close and Google consent/OS picker/email composer. Calendar's portalled Sonner toast now opts into the product family and shared13/20 title,12/20 description roles while its shared behavior remains owned by Sonner. | Shared primitives retain focus, animation, platform and authority contracts. |
 
 The status below refers to executable mounted paths. Exact copy, negative,
 busy, stale, partial/unknown and dismissal branches remain in the detailed
@@ -202,7 +195,7 @@ which apparent requests are not mounted.
 | B OAuth/account/callback | Read/manage/list, Add account, targeted reconnect, web popup, same-window and native/private phone paths remain intact. **Cancel sign-in** aborts locally then reconciles status. Actual web callback is `/one/profile/google/oauth/return`, with shared **Finishing Google connection…** and recovery. Grant review, disconnect AlertDialog and Calendar phone handoff gained portal context; grant presentation follows the initiating Calendar connector rather than the list of grants being replaced. Google consent is provider-owned. |
 | C Workspace/header/tabs | Shared header aligned; both duplicate body titles hidden semantically. Board mounts for nonempty `accounts` plus required callbacks; otherwise single-account Schedule fallback. Local tab/filter selection and conditional mounts stay unchanged. |
 | D Board/accounts | `board/day` read/refresh, one/two/three account cards, stale/partial messages, count, avatars, status, date and account action menu stay. Add/Retry/Reconnect presentation and label roles changed. Account menu still contains only **Disconnect this Calendar account**. |
-| E Events/occasions/free | Event/occasion grouping, provider/status labels, occasion/event portals and per-account/shared windows remain. Free rows open the Board booking dialog; an account row fixes its destination and shared openings require a chosen writable account. The destination, date, duration, guests and place stay visible while scheduling. The form uses the device time zone. Existing video links identify supported Meet, Zoom, and Teams services without requiring Discord. Meet Join requests the event account and offers Google's account chooser. The Board has no fallback-only inclusion controls. |
+| E Events/occasions/free | Event/occasion grouping, provider/status labels, occasion/event portals and per-account/shared windows remain. Free rows open the Board booking dialog; an account row fixes its destination and shared openings require a chosen writable primary calendar. The destination identity, date, duration, guests and place remain visible through review. The device zone stays internal to time conversion; the booking form and review do not show a time-zone control or offset. Existing video links identify supported Meet, Zoom, and Teams services without requiring Discord. Meet Join requests the event account and offers Google's account chooser. The Board has no fallback-only inclusion controls. |
 | F Overlaps/Mail retry | Kept meeting, up to two declinable invitations, notes, review, confirm and separate Calendar/Mail outcomes remain. Preparatory action pills, review typography and modal title changed. Unknown/sent Mail has no automatic retry; definitely failed Mail requires fresh email-only review and confirm. |
 | G Schedule fallback | Today/Free time, timeline, date, event menu/detail, 15/30/60 minute choices, stale/error/partial reads and chat handoff remain. Timeline text and Join/more/detail hit targets changed; no Board layout or booking authority copied here. |
 | H Fallback settings/attendance | Session-only settings, inclusion/exclusion confirmation, attendance choice→review→confirm and separate result remain. Portals, labels and preparatory pills changed. Busy outside/Escape and trigger-focus restoration remain. |
@@ -314,20 +307,6 @@ Owners: [coordinator](../../components/onboarding/setup/setup-capability-coordin
 ## Google connection, callback and disconnect
 
 ### Connect and permission upgrades
-
-First shared-web Calendar connections from setup, chat cards and the connector
-drawer request Follow-ups Mail access in the same Google consent. The in-place
-paths check the selected account before requesting those scopes; an existing
-connection or targeted renewal does not add Mail permission. Google may decline
-a requested scope, and Follow-ups still verifies the saved account-bound grant.
-Monitoring remains separately enabled through its existing control.
-
-Follow-ups recovers expired owner authority through the existing vault renewal
-when the local vault remains unlocked. It rechecks the account lifetime before
-reading or changing a request, and clears protected rows when authority is lost.
-Failed renewal offers secure-connection recovery; only a genuinely locked vault
-requires unlocking. No key or token is persisted to avoid that boundary.
-
 
 | Path/control | Actual operation, cancel and acknowledgement boundary |
 | --- | --- |
@@ -584,8 +563,8 @@ mounted tab opens its local exact-time form.
 | --- | --- |
 | Tab panel | `top-shell-calendar-panel-invitations`, labelled by `top-shell-calendar-tab-invitations`; section accessible name **Invitations**. |
 | Response filters | Accessible **Invitation filters**; **Pending ({n})**, **Responded**, **All**. Before response: **Pending (…)**. Initial filter accepts `all` or `responded`, otherwise `pending`. Local change only; closes detail; disabled while a response settles. |
-| Pending | `response_status === "needsAction"`; heading **Needs your response** when rows exist. Count is pending invitations on the selected local day, from the shared response. |
-| Responded / All | Responded includes every status other than `needsAction`; heading **Your responses**. All has heading **All invitations**. Headings appear only when the filter has rows. No per-filter endpoint. |
+| Pending | `response_status === "needsAction"`; heading **Needs your response**. Count is pending invitations on the selected local day, from the shared response. |
+| Responded / All | Responded includes every status other than `needsAction`; heading **Your responses**. All has heading **All invitations**. No per-filter endpoint. |
 | Date | Accessible **Invitation date**; shared native date input plus **Today**, **Previous day**, **Next day**. Starts at today in the selected zone. Changing date closes selection and changes read window. Controls disable during an action. |
 | Day window | Requests UTC midnight on selected day−1 through selected day+2, then filters locally by selected civil day. All-day end date is exclusive; timed end uses end instant−1ms. Multi-day invitations can appear on each overlapping day. |
 | Read | Current ID token → `loadInvitationResource` → `GoogleCalendarService.invitations`; `time_zone,start_at,end_at`, optionally selected event/calendar IDs. `events,pending_count,unreadable_calendars,account_email` feed the list. All rows share this read. |
@@ -593,9 +572,9 @@ mounted tab opens its local exact-time form.
 | Failure | Alert **Invitations could not be loaded.** plus surfaced error message. **Retry** forces read for retryable/generic failures. Non-retry `GoogleCalendarError` offers **Allow Calendar access** → read authorization, requesting calendar-list access only for its permission reason. OAuth busy disables it. Failed read clears response instead of presenting empty success. |
 | Partial details | **Some calendars allow only free/busy access. Their invitation details and conflicts could not be checked.** from nonempty `unreadable_calendars`. |
 | List name | **Invitation list**. No separate request or provider write when focusing/expanding a row. |
-| Empty | **No pending invitations on this date.**, **No responded invitations on this date.**, **No invitations on this date.** Chat variants end **in this window.** The empty message aligns with the list and has no section heading. |
+| Empty | **No pending invitations on this date.**, **No responded invitations on this date.**, **No invitations on this date.** Chat variants end **in this window.** |
 | Row button | Accessible **Open invitation: {title}**, `aria-pressed` for selected `{calendar_id}:{id}`. Disabled during action. Click records trigger and selects that composite key; no RSVP or Mail write. |
-| Row fields | Date block; `title`; formatted `start/end`; organizer Connect profile name (matched people) → provider `displayName` → `email` → **Organizer**; optional email second line, stripped description and response. Calendar board account avatars, the Insights/Invitations account picker, booking destination, invitation organizers and guests use the Calendar-scoped HUSSH source. Invitation names and photos include the signed-in owner's verified primary/linked email and current Connect-visible people matched to organizer or attendee emails in the fetched event, whether connected or not; a matched person shows the name and photo Connect shows, and an unmatched person keeps the provider label or address and initials. Account surfaces additionally require the matching Google account's verified email claim. Missing, private, unverified, ambiguous and non-HUSSH people use initials. Chat and workspace use the same invitation portrait map. |
+| Row fields | Date block; `title`; formatted `start/end`; organizer Connect profile name (matched people) → provider `displayName` → `email` → **Organizer**; optional email second line, stripped description and response. Calendar board account avatars, the Insights/Invitations account picker, booking destination and review, invitation organizers and guests use the Calendar-scoped HUSSH source. Invitation names and photos include the signed-in owner's verified primary/linked email and current Connect-visible people matched to organizer or attendee emails in the fetched event, whether connected or not; a matched person shows the name and photo Connect shows, and an unmatched person keeps the provider label or address and initials. Account surfaces additionally require the matching Google account's verified email claim. Missing, private, unverified, ambiguous and non-HUSSH people use initials. Chat and workspace use the same invitation portrait map. |
 | HUSSH person photos | The Calendar workspace reads its owner-scoped Connections list for existing account and owner context. The signed-in owner's effective photo comes from the existing identity cache and refreshes after upload/remove; verified owner aliases come from the existing owner-only alias endpoint. Invitation peer names and photos come only from the owner-bound response's bounded map of current Connect-directory matches with unique, exact verified event emails, including people in Find People who are not Connections. A stale Connection email cannot override that fresh identity check. Contact listing eligibility still applies; failed or partial lookup leaves initials. The existing Calendar account userinfo read projects `google_email_verified` only for a current matching verified Google email, without changing binding or grants. Account and auth changes clear old matches; connection changes and window focus refresh the list. Calendar does not call Google People, request a photo token or show a photo-permission prompt. New Calendar OAuth grants do not request Contacts solely for photos. Historical `guest_photo_access` and token broker contracts remain for existing clients. Only safe portrait media is rendered; broken, transparent or unavailable images leave initials readable. Google account email labels and provider marks remain distinct. Synthetic screenshots prove layout and wiring, not live profile visibility or provider availability. |
 | Response badge | None for `needsAction`; **Accepted**, **Declined**, otherwise **Tentative**. |
 | Conflict | **Overlaps {first conflict title}**, fallback **another meeting**. It is not a separate conflict fetch per row. |
@@ -642,11 +621,6 @@ and results stay in React memory. Alternative defaults: tomorrow in selected
 zone, `09:00`–`17:00`, empty message. A chat handoff may prefill date, times and
 message. Although the handoff type includes `durationMinutes`, this form derives
 duration from exact times; there is no duration picker in this shared form.
-Board and Invitations hide the entire action section once the connected attendee
-has accepted or declined. A confirmed decline stays final if organizer Mail
-fails. The direct RSVP and workspace endpoints recheck this before preparing or
-applying a response. Reviewed Mail-only recovery and Board conflict resolution
-use their existing separate flows.
 
 | Path | Guard, content, call and effect |
 | --- | --- |
@@ -655,10 +629,10 @@ use their existing separate flows.
 | **Decline & offer another time** | `calendar_invitation_offer`; disabled busy/cannot respond. Mounted workspace enters exact-time form using its own Google grants. Chat requires its vault token for the existing Mail path. Only callers that explicitly supply `onOfferTimes` use that callback instead. |
 | Cannot respond | **This calendar only allows viewing. Respond from your own Calendar invitation.** |
 | Initial decision cue | **Review your accept response before confirming.** or **Review your decline response before confirming.** Initial accepted does not automatically prepare/execute. |
-| Decline heading/help | **Why can’t you attend?**; explains that declining shares the reason and sends an organiser email. |
+| Decline heading/help | **Why can’t you attend?**; a Calendar-only decline is available without a reason. An optional reason can accompany an explicitly reviewed organizer email. |
 | Decline input | Visible/accessibility **Reason for declining**, textarea max8000 characters, no authored placeholder. Changing draft clears review/result. |
-| Decline action | **Decline** prepares grammatical reason/email and confirms internally without an email preview; **Back** returns to the event. |
-| Decline send | **Decline**, busy **Declining…**. Disabled for empty reason or missing required authority. Only confirmed RSVP plus sent Mail closes the decline dialog; partial outcomes remain visible. |
+| Decline review | **Review decline** prepares a mail-free RSVP, then **Confirm decline** performs only the Calendar response. No vault unlock or organizer message is required. |
+| Decline send | **Review decline email** in workspace (or **Decline & send email** in Chat); busy **Preparing…**; expired-review recovery **Review email again**. Disabled busy/trimmed-empty message; Chat additionally requires its existing vault token. This is an explicit send action. |
 | Offer heading/help | **Offer another time**; **Choose the exact time to propose. The duration is calculated automatically.** |
 | Offer inputs | Labels **Date**, **From**, **Until**. Accessible **Alternative date**, **Alternative start time**, **Alternative end time**. Native date/time fields; no authored placeholder. End `00:00` becomes exclusive `24:00`. |
 | Offer message | Label **Reason and message to organiser**, accessible **Message to organiser**, max8000, no placeholder. |
@@ -981,9 +955,7 @@ any encrypted To-do information.
 | Missing conversation recovery | **Open the conversation containing your Calendar request to continue.** |
 | Optional generic clarification card | Question/options are dynamic. Default confirm **Yes**, selected-option commit **Confirm**, cancel **Cancel**; no built-in No button. Single option answers on tap; multi-select waits minimum selections/Confirm. Cancel clears directive and sends cancelled status. This is shared optional UI, not a guaranteed Calendar step. |
 
-Active ADK tools are `calendar_summary,calendar_invitations,open_calendar_invitation,calendar_calendars,calendar_events,calendar_event_detail,calendar_availability,calendar_free_slots,calendar_shared_free_slots,calendar_opening_detail,propose_calendar_event,propose_calendar_reschedule,propose_calendar_cancellation`.
-Shared free-time reads and saved-option detail use the existing Google Calendar
-activity presentation in live and restored Chat. Showing an option is read-only.
+Active ADK tools are `calendar_summary,calendar_invitations,open_calendar_invitation,calendar_calendars,calendar_events,calendar_event_detail,calendar_availability,calendar_free_slots,propose_calendar_event,propose_calendar_reschedule,propose_calendar_cancellation`.
 They call backend services directly, not the connected-tab HTTP read helpers.
 Exact tools/manifest own dynamic question policy and25-second read bound.
 Proposal tool malformed response: **Could not prepare that calendar change.
@@ -1743,17 +1715,3 @@ corrected against source. Publication uses the repository's existing CI checks;
 it does not turn source inspection or synthetic fixtures into live acceptance.
 No live provider, model, browser-account or native-device journey was performed
 for this reference.
-
-### Direct attendance response
-
-The reason form has Decline and Back. Decline prepares a manifest-owned polished
-organiser email and a short grammatical attendee comment, then confirms the
-existing sealed action without an intermediate email preview. The form explains
-that the organiser receives the reason and email. Chat and Calendar share this
-contract. Alternative-time responses preserve the requested date, duration and
-window; exact proposals include the verified date/time range and timezone in Mail.
-Conflict acknowledgement remains necessary; incomplete checks do not send.
-On confirmed decline and email sent, close the dialog and refresh the Board.
-Partial/unknown results remain visible. Draft failure performs no mutation.
-The legacy Calendar-only RSVP API remains available for compatible callers but
-is not the decline form's send path. No PKM behavior or authority changes.

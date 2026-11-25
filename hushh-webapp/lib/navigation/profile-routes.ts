@@ -3,14 +3,19 @@ import type { SupportMessageKind } from "@/lib/services/support-service";
 import { ROUTES, buildOneSetupCloudRoute } from "@/lib/navigation/routes";
 
 /** Management preserves its parent (Profile pane or direct route) for Back. */
-export function profileHostingSetupHref(originHref?: string | null): string {
+export function profileHostingSetupHref(
+  originHref?: string | null,
+  options?: { intent?: "own" },
+): string {
   const normalizedOrigin =
     typeof originHref === "string" &&
     originHref.startsWith("/") &&
     !originHref.startsWith("//")
       ? originHref
       : ROUTES.PROFILE_HOSTING;
-  return `${buildOneSetupCloudRoute(normalizedOrigin)}&${new URLSearchParams({ from: normalizedOrigin })}`;
+  const params = new URLSearchParams({ from: normalizedOrigin });
+  if (options?.intent) params.set("intent", options.intent);
+  return `${buildOneSetupCloudRoute(normalizedOrigin)}&${params}`;
 }
 
 export type ProfilePanel =
@@ -119,8 +124,11 @@ export function normalizeConnectorDetailId(value: string | null): string | null 
 const BUILT_IN_CONNECTOR_TITLES: Record<string, string> = {
   gmail: "Gmail",
   google_drive: "Google Drive",
+  drive: "Google Drive",
   calendar: "Calendar",
+  contacts: "Google Contacts",
   plaid: "Plaid",
+  stripe: "Stripe",
   instagram: "Instagram",
   linkedin: "LinkedIn",
 };

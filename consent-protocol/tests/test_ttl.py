@@ -350,3 +350,74 @@ class TestRevocationWorkerServerAttachPoint:
             "revoke must be called once per expired consent returned by fetch_expired"
         )
         assert report.revoked_count == 2
+
+    async def test_fetch_expired_consents_skips_tombstoned_deleted_accounts(self, monkeypatch):
+        """Expired rows for deleted accounts must be skipped cleanly instead of repeatedly
+        failing against `reject_deleted_account_identity_write`."""
+        from types import SimpleNamespace
+
+        from hushh_mcp.services.account_deletion_lifecycle_service import (
+            account_deletion_user_hash,
+        )
+        from hushh_mcp.services.consent_db import ConsentDBService
+
+        past_ms = int(_PAST.timestamp() * 1000)
+        deleted_uid = "deleted-owner-01"
+        active_uid = "active-owner-02"
+        deleted_hash = account_deletion_user_hash(deleted_uid)
+
+        class _FakeTable:
+            def __init__(self, rows):
+                self._rows = rows
+
+            def select(self, *_a, **_kw):
+                return self
+
+            def in_(self, *_a, **_kw):
+                return self
+
+            def order(self, *_a, **_kw):
+                return self
+
+            def limit(self, *_a, **_kw):
+                return self
+
+            def execute(self):
+                return SimpleNamespace(data=self._rows)
+
+        class _FakeDB:
+            def table(self, name: str):
+                if name == "consent_audit":
+                    return _FakeTable(
+                        [
+                            {
+                                "id": 10,
+                                "user_id": deleted_uid,
+                                "agent_id": "personal_agent",
+                                "scope": "pkm.read",
+                                "action": "CONSENT_GRANTED",
+                                "issued_at": past_ms - 1000,
+                                "expires_at": past_ms,
+                                "token_id": "tok-del",
+                            },
+                            {
+                                "id": 11,
+                                "user_id": active_uid,
+                                "agent_id": "developer:app_x",
+                                "scope": "attr.profile",
+                                "action": "CONSENT_GRANTED",
+                                "issued_at": past_ms - 1000,
+                                "expires_at": past_ms,
+                                "token_id": "tok-act",
+                            },
+                        ]
+                    )
+                if name == "account_deletion_tombstones":
+                    return _FakeTable([{"user_id_hash": deleted_hash}])
+                return _FakeTable([])
+
+        svc = ConsentDBService()
+        monkeypatch.setattr(svc, "_get_db", lambda: _FakeDB())
+
+        expired = await svc.fetch_expired_consents()
+        assert [item.consent_id for item in expired] == ["11"]

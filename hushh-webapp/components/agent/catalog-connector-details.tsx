@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { ConnectorVectorGlyph } from "@/components/agent/connector-brand-mark";
 import { StripeConnectorReadiness } from "@/components/agent/stripe-connector-readiness";
 import type { CustomConnectorAccess, PrepareRecovery } from "@/lib/connections/custom-connector-setup";
 import type { ExternalConnectorSummary } from "@/lib/services/external-connector-service";
@@ -39,11 +40,14 @@ export function CatalogConnectorDetails(props: Props) {
     !["not_connected", "revoked"].includes(connector.status)
     ? "Unavailable" : connector.curatedOAuth === true && connector.status === "verifying"
       ? "Sign-in needed" : props.statusLabel;
-  return <section className="space-y-3 rounded-xl border border-border p-3" aria-label={`${connector.displayName} details`}>
-    <h3 className="font-semibold">{connector.displayName}</h3>
+  return <section className="space-y-3 rounded-2xl border border-border bg-card/40 p-4" aria-label={`${connector.displayName} details`}>
+    <div className="flex items-center gap-2.5">
+      <ConnectorVectorGlyph id={connector.connectorId} variant="profile" />
+      <h3 className="font-semibold text-foreground">{connector.displayName}</h3>
+    </div>
     <p className="text-sm text-muted-foreground">{connector.description}</p>
     {connector.stripeReadiness && <StripeConnectorReadiness
-      access={props.access} onPrepareRecovery={props.onPrepareRecovery} />}
+      embedded access={props.access} onPrepareRecovery={props.onPrepareRecovery} />}
     {connector.accountLabel && <p className="break-all text-sm">{connector.accountLabel}</p>}
     {!connector.stripeReadiness && <p role="status" className="text-sm">{status}</p>}
     {connector.curatedOAuth === true && <CuratedActions {...props} />}

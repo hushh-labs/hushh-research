@@ -60,10 +60,10 @@ export const getVariantStyles = (
     case "blue":
     case "blue-gradient":
       if (effect === "fill") {
-        return "bg-[var(--app-accent)] text-[var(--app-accent-fg)] hover:bg-[var(--app-accent-hover)] transition-colors duration-100";
+        return "bg-[var(--app-accent)] text-[var(--app-accent-fg)] shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] hover:bg-[var(--app-accent-hover)] transition-colors duration-100";
       } else if (effect === "fade") {
-        // button-secondary-pill: transparent fill, accent border + text ("ghost pill").
-        return "bg-transparent border border-[var(--app-accent)] text-[var(--app-accent)] hover:bg-[var(--app-accent-tint)] transition-colors duration-100";
+        // Quiet tinted accent pill — crisp contrast in both light and dark modes.
+        return "bg-[var(--app-accent-tint)] border border-[var(--app-accent-border)] text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)] hover:bg-[var(--app-accent-surface)] transition-colors duration-100";
       } else {
         return "bg-white/50 dark:bg-black/50 shadow-sm border border-white/20 dark:border-white/10 backdrop-blur-md hover:bg-white/60 dark:hover:bg-black/60 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-100";
       }
@@ -217,10 +217,10 @@ export const getVariantStyles = (
     case "none":
     default:
       if (effect === "fill") {
-        return "bg-background text-foreground border border-border/60 hover:bg-muted/60 hover:text-foreground shadow-none transition-colors duration-100";
+        return "bg-[color:var(--app-neutral-fill)] text-foreground border border-[color:var(--app-card-border-strong)] hover:bg-[color:var(--app-neutral-fill-strong)] hover:text-foreground shadow-none transition-colors duration-100";
       }
       if (effect === "fade") {
-        return "bg-muted/55 text-foreground border border-transparent shadow-none backdrop-blur-none hover:bg-muted/80 hover:text-foreground transition-colors duration-100";
+        return "bg-[color:var(--app-neutral-fill)] text-foreground border border-transparent shadow-none backdrop-blur-none hover:bg-[color:var(--app-neutral-fill-strong)] hover:text-foreground transition-colors duration-100";
       }
       return "bg-white/40 dark:bg-black/40 text-foreground hover:text-foreground border border-white/20 dark:border-white/10 shadow-sm backdrop-blur-md hover:bg-white/50 dark:hover:bg-black/50 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-100";
   }

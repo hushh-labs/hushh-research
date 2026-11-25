@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { ProgressRowIcon, ResumeRowIcon, SyncRowIcon } from "@/components/icons";
 import {
@@ -62,7 +62,7 @@ const SLOW_NOTICE_CLASS_NAMES = {
 export function createSlowNoticeToastPort(onPersonDismiss: () => void): SlowNoticePort {
   return {
     show: (view) => {
-      toast.message(view.title, {
+      toast.noticeText(view.title, {
         id: SLOW_NOTICE_TOAST_ID,
         duration: Infinity,
         closeButton: true,
@@ -71,7 +71,7 @@ export function createSlowNoticeToastPort(onPersonDismiss: () => void): SlowNoti
         testId: SLOW_NOTICE_TEST_ID,
         classNames: SLOW_NOTICE_CLASS_NAMES,
         onDismiss: onPersonDismiss,
-      });
+      }, "message");
     },
     clear: () => {
       toast.dismiss(SLOW_NOTICE_TOAST_ID);

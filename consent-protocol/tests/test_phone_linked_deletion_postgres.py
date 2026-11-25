@@ -55,6 +55,7 @@ async def db(database_url, monkeypatch):
         monkeypatch.setattr(service, "_sync_referral_qualification_best_effort", AsyncMock())
         for name, value in {
             "ENVIRONMENT": "uat",
+            "APP_REVIEW_MODE": "false",
             "AUTH_PHONE_RECOVERY_ENABLED": "true",
             "HUSHH_UAT_PHONE_TEST_NUMBERS": f"{PHONE},{UNBOUND}",
             "HUSHH_UAT_PHONE_TEST_CODE": CODE,

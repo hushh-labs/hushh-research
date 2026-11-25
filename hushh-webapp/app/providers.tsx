@@ -1,6 +1,5 @@
 "use client";
 
-import { LivingMemoryBridge } from "@/components/profile/living-memory-bridge";
 import { LiveActivityBridge } from "@/components/profile/live-activity-bridge";
 
 /**
@@ -108,6 +107,7 @@ import {
   ROUTES,
   isFoundationPublicRoute,
   isOneSetupSurfaceRoute,
+  isPublicEditorialOrLegalRoute,
   isRiaRoute,
 } from "@/lib/navigation/routes";
 import { useAuth } from "@/hooks/use-auth";
@@ -252,6 +252,7 @@ function AppShellFrame({ children }: ProvidersProps) {
     routeLayout.route === ROUTES.ONE_SETUP ||
     routeLayout.route === ROUTES.ONE_SETUP_CONNECTIONS ||
     focusedLocationBottomTask ||
+    isPublicEditorialOrLegalRoute(pathname) ||
     focusedConnectCircleChromeFlow;
   const effectiveHideCommandBar =
     chromeState.hideCommandBar ||
@@ -406,7 +407,9 @@ function AppShellFrame({ children }: ProvidersProps) {
   // developers pages.
   const foundationVoiceOnlyChrome = isFoundationRoute && !isAuthenticated;
   const hideBottomNavigation =
-    effectiveHideCommandBar || foundationVoiceOnlyChrome;
+    effectiveHideCommandBar ||
+    foundationVoiceOnlyChrome ||
+    isPublicEditorialOrLegalRoute(pathname);
   // RIA and Foundation both use a persistent-but-pinned lower utility. Keep
   // the scroll-hide driver for ordinary signed-in navigation only.
   const nativeNavigationInstalled = useNativeNavigationInstalled();
@@ -864,7 +867,6 @@ function AppShellFrame({ children }: ProvidersProps) {
                   must work from Home, not only with Profile mounted. */}
               <AccountLifecycleStepBridge />
               <NativePrivateGoogleConnectorHandoff />
-              <LivingMemoryBridge />
               <LiveActivityBridge />
             </AgentRuntimeStateProvider>
           </OneLocationInteractionSurfaceProvider>
@@ -888,6 +890,9 @@ export function Providers({ children }: ProvidersProps) {
         <KeyboardInsetManager />
         {/* Step-based progress bar at top of viewport */}
         <StepProgressBar />
+        {/* Register native feedback ownership before route effects can publish
+            a toast during the first native presentation admission. */}
+        <NativeFeedbackToaster />
         <AuthProvider>
           <AzureReturnBootRecovery />
           <AuthenticatedFeedStream />
@@ -912,7 +917,6 @@ export function Providers({ children }: ProvidersProps) {
             </RenderPerfProfiler>
           </Suspense>
         </AuthProvider>
-        <NativeFeedbackToaster />
         <Toaster
           position="top-center"
           closeButton

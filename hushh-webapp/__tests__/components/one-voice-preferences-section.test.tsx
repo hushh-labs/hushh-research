@@ -91,6 +91,37 @@ describe("describeOneVoiceLiveStatus", () => {
       label: "Checking",
     });
   });
+
+  it("explains Confidential Sandbox private commands and Azure unavailability clearly", () => {
+    expect(
+      describeOneVoiceLiveStatus(
+        resolved({
+          microphoneOwner: "pod_commands",
+          hostingMode: "hussh_pods",
+          deploymentTarget: "ace",
+        }),
+      ),
+    ).toMatchObject({
+      status: "ready",
+      label: "Private commands",
+      description: "Recorded commands run privately on your Confidential Sandbox.",
+    });
+
+    expect(
+      describeOneVoiceLiveStatus(
+        resolved({
+          microphoneOwner: "none",
+          hostingMode: "byoc",
+          deploymentTarget: "user_azure",
+        }),
+      ),
+    ).toMatchObject({
+      status: "unavailable",
+      label: "Unavailable",
+      description:
+        "Voice is not supported on Azure hosting yet. Switch to Confidential Sandbox, Google Cloud, or Shared in Hosting to use voice.",
+    });
+  });
 });
 
 describe("speakerphone-safe preference storage", () => {

@@ -256,6 +256,13 @@ unconfigured), **populated** (must carry a real value), and **never inline** (mu
 reference). And where a platform genuinely cannot reach parity, record the divergence in the
 architecture doc rather than rendering a slot that lies about what works.
 
+For multi-cloud storage, KMS/Key Vault AAD, capability-prefix tokens, or BYOC/sandbox wire
+contracts, run `./bin/hushh protocol floci` (`docs/development/quality/floci-multicloud-wire-verification.md`)
+to exercise unmocked SDK/HTTP wire preconditions (`If-None-Match`, `If-Match`, `ifGenerationMatch`,
+KMS AAD, prefix confinement) in seconds on loopback before waiting on slow container builds or
+live cloud deploys; never use `MagicMock` wire stubs there, and never claim Tier-2 live-cloud
+qualification (`execution_qualified = True`) from Tier-1.5 passes alone.
+
 ## 2g. A missing CLI is not a missing capability
 
 `which gcloud` returning nothing does not mean there is no GCP access. It means there is

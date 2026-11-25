@@ -71,7 +71,7 @@ These are code-path findings, not measured production incident rates. The dispos
 | K03 | A failed free/busy calendar may be treated as free. | Closed: embedded per-calendar errors, malformed busy intervals and incomplete group expansion fail the availability read, including opening suggestions. |
 | K04 | Quota failure can look like lost permission. | Closed for recognized Google quota reasons: 403 rate limits map to retryable 429; other permission errors remain permission errors. See [Google Calendar errors](https://developers.google.com/workspace/calendar/api/guides/errors). |
 | K05 | A stale UI request can repopulate another owner's card. | Closed in use-calendar-upcoming-events.ts with owner, connection generation, and request fencing. |
-| K06 | Read coverage is narrower than the product request. | Subscribed-calendar list, selected-calendar bounded event list/search, exact detail, and bounded pagination are implemented. Live Voice next-page continuation keeps query/window/cursor private to the active session and rechecks the same grant. Typed list-to-detail and selected-calendar follow-ups use private owner/conversation/grant-bound ordinal offers and a new user turn. Owner-cloud scheduling has a bounded Contacts-to-availability continuation described below. Native Calendar consent requests the optional list scope only when the Calendar recovery directive explicitly includes `includeCalendarList`; ordinary base consent remains unchanged. |
+| K06 | Read coverage is narrower than the product request. | Subscribed-calendar list, selected-calendar bounded event list/search, exact detail, and bounded pagination are implemented. Live Voice next-page continuation keeps query/window/cursor private to the active session and rechecks the same grant; it never serializes query/cursor into durable Voice context. Typed list-to-detail and selected-calendar follow-ups use private owner/conversation/grant-bound ordinal offers. The external-read barrier allows one connector read per turn, so follow-ups need another user turn. Native Calendar consent requests the optional list scope only when the Calendar recovery directive explicitly includes `includeCalendarList`; ordinary base consent remains unchanged. |
 | K07 | Voice cannot read Calendar events. | Closed by read_calendar. Event details are on the private screen card and optionally a separate tool-less narration path; the operational Live model sees only count/status. Narration is rollout-gated and falls back to screen-only detail. |
 
 ## Scope decision and invariants
@@ -147,61 +147,6 @@ The original UAT request reached Google FreeBusy HTTP 200 and then backend 502 b
 - Private cards show busy timestamps, correct all-day ranges, attendee responses and safe Meet links. Owner and request generations fence connection labels and results. Auth failures offer the Calendar recovery path.
 - A nine-scenario actual Live-model canary passed after correcting an instruction that allowed a preparatory read for an unsupported write. This is bounded routing evidence; complete paraphrase accuracy and deployed p95 are not established.
 
-## Owner-cloud scheduling in typed chat
-
-One can look up a named guest through the existing Google Contacts read grant,
-offer the owner's Calendar openings, and prepare a meeting for the selected
-guest and time. A scheduling lookup requests names and email addresses and
-returns numbered mailbox hints to the model. One asks which person or address
-to use when there is ambiguity. After a successful lookup, the chat tool
-boundary admits one Calendar openings check for the exact window and duration
-that One supplied before the lookup.
-
-Selections expire after five minutes and bind to the owner, conversation, and
-the corresponding provider grant. Contacts candidates stay in process memory
-behind an opaque reference. Calendar openings use the existing encrypted chat
-session. The Calendar review shows the selected address and exact interval.
-The existing Calendar manage grant, conflict recheck, and single-claim
-confirmation govern invitation delivery and the Google Meet request. A
-Contacts grant change also invalidates a pending Contacts-based review.
-
-The pod action regression uses synthetic Google People and Calendar REST
-responses. It covers a follow-up selection, exact review and provider payload,
-duplicate confirmation, a foreign conversation, and replacement of either
-grant.
-
-Google People requests use the packaged discovery definitions in
-`google-api-python-client`. The private agent's async transport sends the
-scoped REST requests. A named scheduling lookup searches Other Contacts only
-if saved Contacts yields no usable address and the owner has granted
-`contacts.other.readonly`. Connections offers a separate native consent
-action. An existing base-only grant still serves saved Contacts.
-Multiple named guests are looked up together, with a separate group of bounded
-choices per name. The review requires one mailbox from each group.
-
-A selected event detail can supply numbered guest addresses for a later
-invite. The offer excludes the owner and room resources and requires a
-complete guest list. A selected inbound Gmail message can supply its exact
-From address through a bounded metadata read. Both handoffs use the same chat
-and the source grant. Calendar pagination keeps the exact search and cursor in
-encrypted chat state. Reschedule and cancellation use the current event
-selection and require a single reviewable occurrence and matching ETag.
-The sealed owner-cloud confirmation receipt lets a follow-up in the same
-conversation reschedule or cancel the recently created event by its exact
-provider ID. The current Calendar grant must still match. The owner can review
-edits to an organizer-owned event on a selected writable secondary calendar
-after granting calendar-list access. Both review and execution check the
-selected calendar's role. New events still target the selected account's
-primary calendar.
-
-When asked to schedule and reply in a selected Gmail thread, One prepares both
-effects in the existing review card. It shows the Calendar guest and the Gmail
-recipient separately because the source can have a different Reply-To address.
-The private agent claims the proposal once, confirms Calendar first, records
-the Calendar event receipt, and sends the reviewed message with the original
-thread and MIME headers. The sealed status read separates Calendar success
-from a refused or uncertain Gmail send. Checking status dispatches no effects.
-
 ## OAuth Scope & Voice Read-Continuity Invariants
 
 | Google Scope | Provider Permission | Current Product Boundary |
@@ -248,45 +193,6 @@ not a claim about provider latency or live speech interpretation.
 - Schedule compares absolute event instants for Happening now and Ended. Displaying another timezone does not change those states; Ended describes elapsed scheduled time, not verified attendance.
 
 
-## Cross-account free time in Chat
-
-`calendar_shared_free_slots` uses the Account Board's availability-only service:
-the same included-calendar policy, per-account free/busy calculation and shared
-intersection, without event-detail or portrait scans. It checks all one-to-three
-verified identities for a requested civil date, timezone and 15/30/60-minute
-duration. Missing details require clarification. Failed or unreadable coverage
-returns no shared openings; it never means the account is free. The bounded
-result contains one exact-duration candidate per fitting free interval, with
-one-based ordinals. It does not establish any guest's availability.
-
-The existing encrypted ADK opening-offer key holds owner/chat identity, original
-creation time, exact UTC intervals, zone, and every account's full opaque grant
-and selected calendars. Grants never enter the model response or public state.
-Refresh restores the original five-minute lookup expiry. `calendar_opening_detail`
-shows a saved option without proposing or executing anything. A later booking
-uses `propose_calendar_event(slot_ordinal=...)`; multiple accounts require an
-explicit verified hosting account, never a primary-account fallback. The existing
-Board booking authority compares all original grants and calendar coverage and
-rechecks availability before issuing review and before confirmed dispatch.
-Changing the caller's timezone cannot move the selected slot.
-
-A valid lookup is consumed when preparing a proposal. The existing proposal's
-advertised ten-minute expiry then controls confirmation, with live authority and
-availability rechecks. No new preference, reminder, scanner, PKM record or action
-store is introduced. Shared cross-account inventory is unavailable through
-owner-cloud/data-door ports; existing single-account owner-local reads remain.
-Both new reads use the existing external-content barrier, durable-history
-redaction and content-free tool timing.
-
-`tests/agents/test_calendar_shared_opening_tools.py` covers reference substitution,
-account ambiguity, reconnect races, changed coverage, busy slots, timezone/DST,
-and confirmed execution. `tests/services/test_calendar_chat_availability_postgres.py`
-uses actual OAuth account/grant storage, encrypted ADK session recovery and SQL
-proposal claims in an attested disposable PostgreSQL service. Only Google HTTP
-and unrelated product-value receipt ports are synthetic. These prove source
-contracts, not live model routing or deployed Google acceptance. UAT remains
-unverified; release blockers do not block this independent source qualification.
-
 ## Decline email and exact proposed times
 
 Decline asks for an editable reason; the explicit send button prepares and
@@ -304,3 +210,5 @@ a memory-only handoff, without a second model decision or another send.
 Expired reviews retain entered terms but require renewed confirmation.
 Recognized Google holiday feeds follow the Free time exclusion consistently;
 other unreadable included calendars block availability instead of appearing free.
+
+Dev source parity retains its existing named capability packs, primary-only mutation boundary and Calendar request-scope implementation. Cursor identity is kept private in snapshot and state-delta projections. Dev guest additions use verified exact addresses; UAT's separate Contacts-ordinal and recent-booking seams are not introduced by this port.

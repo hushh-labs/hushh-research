@@ -377,9 +377,9 @@ describe("One setup hub terminal action contract", () => {
     const cloudChoice = readFileSync(join(process.cwd(), "components/connections/cloud-ai-choice.tsx"), "utf8");
     expect(cloudChoice).toContain('<Badge variant="outline">Recommended</Badge>');
     expect(card).toContain("title={defaultLabel}");
-    for (const label of ["Use existing cloud", "Use Hussh AI"]) {
-      expect(card).toContain(label);
-    }
+    expect(card).toContain("Use existing cloud");
+    expect(card).not.toContain("Use Hussh AI");
+    expect(card).not.toContain("Azure AI key");
     expect(cloudChoice).toContain("Azure AI ·");
     expect(cloudChoice).toContain("Vertex AI ·");
     const keyChoice = readFileSync(
@@ -387,6 +387,7 @@ describe("One setup hub terminal action contract", () => {
     );
     expect(card).toContain("GeminiKeyChoice");
     expect(keyChoice).toContain('title="Gemini"');
+    expect(card).toContain('title="OpenAI"');
     // System nouns and vendor plumbing stay out of the two rows a person reads.
     expect(card).not.toContain("Hussh managed Gemini");
     expect(card).not.toContain("Use my Gemini access");

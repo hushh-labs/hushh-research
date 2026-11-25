@@ -259,6 +259,34 @@ async def test_scheduled_files_rechecks_approved_revisions_inside_mutation(
         await jobs.status(library, entry["id"])
 
 
+async def test_schedule_prepare_refuses_a_file_or_permission_changed_after_review(
+    queued_library, monkeypatch
+):
+    from hushh_mcp.services import pod_scheduled_files as adapter
+    from hushh_mcp.services.pod_scheduled_tasks import ScheduleRefused
+
+    library, entry = queued_library
+
+    async def allowed():
+        pass
+
+    @asynccontextmanager
+    async def operation(**kwargs):
+        yield library
+
+    monkeypatch.setattr(adapter, "operation", operation)
+    capability = adapter.ScheduledFileOrganization(allowed)
+    exact = {
+        "file_id": entry["id"],
+        "expected_file_revision": entry["revision"],
+        "expected_analysis_revision": (await library.settings())["revision"],
+    }
+    assert (await capability.prepare(exact))["file_revision"] == entry["revision"]
+    for revision in ("expected_file_revision", "expected_analysis_revision"):
+        with pytest.raises(ScheduleRefused, match="SCHEDULE_SOURCE_CHANGED"):
+            await capability.prepare({**exact, revision: exact[revision] + 1})
+
+
 @pytest.mark.parametrize("state", ["pending_delivery", "queued", "running", "completed", "none"])
 async def test_scheduled_files_never_adopts_another_requests_job(
     queued_library, monkeypatch, state

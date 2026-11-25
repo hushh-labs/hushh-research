@@ -3,18 +3,35 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from typing import Any
 
 import httpx
 
-from .config import PlaidRuntimeConfig
+from hushh_mcp.runtime_settings import get_app_runtime_settings
+
+from .config import _PLAID_BASE_URLS, PlaidRuntimeConfig
 
 logger = logging.getLogger(__name__)
 
 _PLAID_TIMEOUT = httpx.Timeout(30.0, connect=6.0)
 _PLAID_NETWORK_RETRY_ATTEMPTS = 2
 _PLAID_ATTEMPT_DEADLINE_SECONDS = 10.0
+
+# Keyed by (client_id, sha256(secret)) when ENVIRONMENT=dev holds Plaid Sandbox
+# credentials while runtime config still names `production`. Never consulted in
+# UAT or Production.
+_DEV_SANDBOX_CREDENTIAL_FINGERPRINTS: set[tuple[str, str]] = set()
+
+
+def _credential_fingerprint(config: PlaidRuntimeConfig) -> tuple[str, str]:
+    digest = hashlib.sha256(config.secret.encode("utf-8")).hexdigest()
+    return (config.client_id, digest)
+
+
+def _is_dev_runtime() -> bool:
+    return get_app_runtime_settings().environment == "dev"
 
 
 def _clean_text(value: Any, *, default: str = "") -> str:
@@ -55,6 +72,49 @@ class PlaidHttpClient:
         if not self._config.configured:
             raise RuntimeError("Plaid is not configured on this backend.")
 
+        fingerprint = _credential_fingerprint(self._config)
+        dev_can_try_sandbox = (
+            _is_dev_runtime()
+            and self._config.environment == "production"
+            and self._config.base_url != _PLAID_BASE_URLS["sandbox"]
+        )
+        initial_base_url = (
+            _PLAID_BASE_URLS["sandbox"]
+            if dev_can_try_sandbox and fingerprint in _DEV_SANDBOX_CREDENTIAL_FINGERPRINTS
+            else self._config.base_url
+        )
+        try:
+            return await self._post_against_base_url(
+                base_url=initial_base_url,
+                path=path,
+                payload=payload,
+            )
+        except PlaidApiError as exc:
+            if (
+                dev_can_try_sandbox
+                and initial_base_url != _PLAID_BASE_URLS["sandbox"]
+                and exc.error_code == "INVALID_API_KEYS"
+            ):
+                logger.warning(
+                    "plaid.dev_sandbox_fallback path=%s reason=INVALID_API_KEYS",
+                    path,
+                )
+                result = await self._post_against_base_url(
+                    base_url=_PLAID_BASE_URLS["sandbox"],
+                    path=path,
+                    payload=payload,
+                )
+                _DEV_SANDBOX_CREDENTIAL_FINGERPRINTS.add(fingerprint)
+                return result
+            raise
+
+    async def _post_against_base_url(
+        self,
+        *,
+        base_url: str,
+        path: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
         request_payload = {
             "client_id": self._config.client_id,
             "secret": self._config.secret,
@@ -62,7 +122,7 @@ class PlaidHttpClient:
         }
         response: httpx.Response | None = None
         async with httpx.AsyncClient(
-            base_url=self._config.base_url,
+            base_url=base_url,
             timeout=_PLAID_TIMEOUT,
         ) as client:
             for attempt in range(1, _PLAID_NETWORK_RETRY_ATTEMPTS + 1):
@@ -82,7 +142,7 @@ class PlaidHttpClient:
                             payload={
                                 "path": path,
                                 "attempts": attempt,
-                                "base_url": self._config.base_url,
+                                "base_url": base_url,
                             },
                         ) from exc
 
@@ -101,7 +161,7 @@ class PlaidHttpClient:
                 status_code=504,
                 error_code="PLAID_NETWORK_TIMEOUT",
                 error_type="NETWORK_ERROR",
-                payload={"path": path, "base_url": self._config.base_url},
+                payload={"path": path, "base_url": base_url},
             )
 
         try:

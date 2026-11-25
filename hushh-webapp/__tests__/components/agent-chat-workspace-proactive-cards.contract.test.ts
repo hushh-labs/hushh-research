@@ -3,10 +3,16 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-const source = readFileSync(
-  join(process.cwd(), "components/agent/agent-chat-workspace.tsx"),
-  "utf8",
-);
+const source = [
+  readFileSync(
+    join(process.cwd(), "components/agent/agent-chat-workspace.tsx"),
+    "utf8",
+  ),
+  readFileSync(
+    join(process.cwd(), "components/agent/workspace/agent-message-transforms.ts"),
+    "utf8",
+  ),
+].join("\n");
 
 /**
  * agent-chat-workspace.tsx has no existing mount/render test coverage at all

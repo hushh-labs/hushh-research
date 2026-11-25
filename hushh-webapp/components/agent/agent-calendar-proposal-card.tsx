@@ -170,7 +170,7 @@ export function AgentCalendarProposalCard({
   return (
     <div
       data-testid="agent-calendar-proposal-card"
-      data-connect-type-scale="page"
+      data-calendar-presentation
       className={
         isCancel
           ? `${calendarPresentation.chatCard} w-full rounded-[var(--app-card-radius-compact)] bg-destructive/5 p-4 sm:p-5`
@@ -226,7 +226,7 @@ export function AgentCalendarProposalCard({
           <div className="flex items-start gap-2.5 text-foreground">
             <CameraIcon className="mt-0.5 size-4 shrink-0 text-[color:var(--app-accent)]" />
             <p>
-              <span className={calendarPresentation.sectionLabel}>Google Meet link will be included</span>
+              <span className="font-semibold">Google Meet link will be included</span>
               <span className="text-muted-foreground">
                 {" "}
                 · created and shared in the Calendar invite after scheduling
@@ -273,7 +273,7 @@ export function AgentCalendarProposalCard({
 
       {conflicts.length > 0 ? (
         <div className="mt-4 rounded-xl bg-destructive/10 px-3 py-3">
-          <p className={`${calendarPresentation.sectionLabel} text-destructive`}>
+          <p className="text-sm font-semibold text-destructive">
             Conflicts with{" "}
             {conflicts.length === 1 ? "an existing event" : "existing events"}
           </p>
@@ -281,7 +281,7 @@ export function AgentCalendarProposalCard({
             {conflicts.map((conflict, index) => (
               <li
                 key={`${conflict.title ?? "conflict"}-${index}`}
-                className={`${calendarPresentation.support} break-words text-destructive/90`}
+                className="break-words text-sm text-destructive/90"
               >
                 {conflict.title || "Untitled event"}
                 {conflict.startAt
@@ -293,12 +293,12 @@ export function AgentCalendarProposalCard({
         </div>
       ) : null}
 
-      {reviewError ? <p role="alert" className={`${calendarPresentation.support} mt-4 text-destructive`}>{reviewError}</p> : null}
+      {reviewError ? <p role="alert" className="mt-4 text-sm text-destructive">{reviewError}</p> : null}
       {changingTime && onChangeTime ? <div className="mt-4">
         {timeOptions.length ? <Select onValueChange={value => { setChangingTime(false); onChangeTime(value); }}>
-          <SelectTrigger aria-label="Choose a start inside your free window" className="ui-text-input-value w-full"><SelectValue placeholder="Choose a time" /></SelectTrigger>
-          <SelectContent className={calendarPresentation.portal} data-connect-type-scale="page">{timeOptions.map(start => <SelectItem key={start} value={start}>{formatDateTime(start, displayZone)}</SelectItem>)}</SelectContent>
-        </Select> : <p className={`${calendarPresentation.support} text-muted-foreground`}>This window has passed. Ask One to find a new available time.</p>}
+          <SelectTrigger aria-label="Choose a start inside your free window" className="w-full"><SelectValue placeholder="Choose a time" /></SelectTrigger>
+          <SelectContent className={calendarPresentation.portal}>{timeOptions.map(start => <SelectItem key={start} value={start}>{formatDateTime(start, displayZone)}</SelectItem>)}</SelectContent>
+        </Select> : <p className="text-sm text-muted-foreground">This window has passed. Ask One to find a new available time.</p>}
       </div> : null}
       <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
         <Button

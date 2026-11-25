@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, LogOut, MoreHorizontal } from "@/components/icons";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
@@ -22,13 +22,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/lib/firebase/auth-context";
 import {
+  buildOneSetupCloudRoute,
   buildOneSetupRoute,
   normalizeStaticExportPathname,
   normalizeInvitationReturnTo,
   KAI_MARKET_PATH,
   ROUTES,
 } from "@/lib/navigation/routes";
+import { isPooledSandboxSwitchAvailable } from "@/lib/one/owner-cloud";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
+import { ApiService } from "@/lib/services/api-service";
 import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
@@ -119,20 +122,38 @@ export function PhoneMandatePageContent() {
       // redirect. Refresh the authoritative root state before resolving a
       // destination: a stale cached bootstrap result must never let a newly
       // verified account skip One setup and land in Profile/Home.
-      const setupResolved = await PreVaultUserStateService.bootstrapState(
+      const bootstrapState = await PreVaultUserStateService.bootstrapState(
         owner,
         {
           force: true,
         },
-      )
-        .then((state) => PreVaultUserStateService.isSetupResolved(state))
-        .catch((error) => {
-          console.warn(
-            "[RegisterPhonePage] Failed to refresh setup state:",
-            error,
-          );
-          return false;
-        });
+      ).catch((error) => {
+        console.warn(
+          "[RegisterPhonePage] Failed to refresh setup state:",
+          error,
+        );
+        return null;
+      });
+      if (
+        bootstrapState &&
+        PreVaultUserStateService.hasOneCloudProject?.(bootstrapState) &&
+        !PreVaultUserStateService.hasOneRuntimeChoice?.(bootstrapState) &&
+        typeof ApiService?.getPersonalAgentStatus === "function"
+      ) {
+        const agentStatus = await ApiService.getPersonalAgentStatus().catch(() => null);
+        if (
+          agentStatus?.hostingMode === "hussh_pods" &&
+          (agentStatus.deploymentTarget === "ace" || agentStatus.state === "active")
+        ) {
+          await PreVaultUserStateService.markOneRuntimeChoice?.(
+            owner,
+            "hushh_managed_vertex",
+          ).catch(() => undefined);
+        }
+      }
+      const setupResolved = bootstrapState
+        ? PreVaultUserStateService.isSetupResolved(bootstrapState)
+        : false;
       const idToken = await activeUser.getIdToken().catch(() => undefined);
 
       // The number they just verified is the trigger for claiming: if the SEC
@@ -179,6 +200,8 @@ export function PhoneMandatePageContent() {
             phoneNumber: activeUser.phoneNumber,
             phoneVerified: AccountIdentityService.hasVerifiedPhone(identity),
           })
+        : isPooledSandboxSwitchAvailable()
+        ? buildOneSetupCloudRoute(redirectPath)
         : buildOneSetupRoute({ returnTo: redirectPath });
       await PreVaultUserStateService.syncOnboardingJourney({
         userId: owner,
@@ -348,6 +371,7 @@ export function PhoneMandatePageContent() {
         className={styles.backButton}
       >
         <ChevronLeft className="h-[18px] w-[18px]" weight="bold" />
+        <span className={styles.backLabel}>Back</span>
       </button>
 
       <div className={styles.accountActions}>

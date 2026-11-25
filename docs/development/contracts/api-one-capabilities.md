@@ -74,7 +74,10 @@ Firebase eligibility, canonical identities, verified aliases, staff/test
 exclusions and deletion barriers before counting. The first connection retains
 canonical READ COMMITTED lifecycle/identity locks; a second read-only REPEATABLE
 READ transaction supplies one coherent business-record snapshot. Candidate
-membership is rechecked in that snapshot. Identity/policy/binding changes refuse
+membership is rechecked in that snapshot. The actual production Firebase app is
+validated before acquiring the database and rechecked before returning, including
+when no candidate accounts exist. A missing or foreign auth source is unavailable,
+never a valid empty aggregate. Identity/policy/binding changes refuse
 the result. No source RLS policy, grant, table, retention or record is modified;
 an RLS-filtered role must fail rather than return a misleading global zero.
 
@@ -88,10 +91,9 @@ can reserve two existing pool connections; qualify concurrency accordingly.
 
 The response contains only the two aggregate metric values and their
 `coverage/unit/basis`, source generation/scope/definition, requested period,
-source snapshot/check timestamps and reconciliation status. Closed periods have
-**partial** coverage, and the still-open UTC day has **provisional** coverage.
-Retained positive records cannot establish complete capture or historical
-deletion and identity coverage. Missing observations never establish inactivity.
+source snapshot/check timestamps and reconciliation status. Coverage remains
+**partial**: retained positive records do not prove complete capture or historical
+deletion/identity coverage. Missing observations never establish inactivity.
 No user ID, email/phone, prompt, result body, effect key or resource handle leaves
 the backend. The database snapshot time is not an all-device ingestion watermark.
 
@@ -113,7 +115,7 @@ iOS and Android use the same endpoints through `ApiService.apiFetch`.
 
 | Endpoint | Contract |
 | --- | --- |
-| `GET /api/one/connections/network/summary?person_ref=<UUID>` | Eligible public identity, viewer-relative `networkDegree` (`1`, `2`, `3`, or `null`), mutual count with up to two previews (`mutualConnectionPreviews`; `mutualConnectionPreview` is the first), `canBrowseConnections`, and nullable `visibleConnectionCount`. The count uses the unfiltered shared list's eligibility, excludes the viewer, and caps at 501 for the **500+** label. No internal identity, graph path, email, phone, or consent contents. |
+| `GET /api/one/connections/network/summary?person_ref=<UUID>` | Eligible public identity, viewer-relative `networkDegree` (`1`, `2`, `3`, or `null`), mutual count/preview, `canBrowseConnections`, and nullable `visibleConnectionCount`. The count uses the unfiltered shared list's eligibility, excludes the viewer, and caps at 501 for the **500+** label. No internal identity, graph path, email, phone, or consent contents. |
 | `GET /api/one/connections/network` | Optional `person_ref` selects that person's shared list. Omission discovers the viewer's network. Optional `degree=1\|2\|3` selects the exact shortest eligible distance over active accepted connections. Eligible accepted paths determine third degree automatically, without an intermediary sharing toggle. `query` searches names within that graph set (160 characters), `page>=1`, `limit=1..50` (20 by default). Returns eligible public people, degree, relationship, mutual metadata, page, and `hasMore`. The legacy `include_suggestions` flag is accepted and has no effect. A viewer with no eligible paths receives an empty list. Direct, second-degree, fourth-degree and unrelated people are excluded from the third-degree filter. Current eligibility and path permissions are rechecked after profile loading. The service refuses a result whose degree or permission changed during the read so that the caller can retry. |
 | `GET /api/one/connections/network/visibility` | Deprecated compatibility read: returns `{ "shareConnectionList": true, "automaticDiscovery": true }`. The former preference no longer controls discovery. |
 | `PATCH /api/one/connections/network/visibility` | Deprecated compatibility write: accepts the existing strict boolean body, returns the same effective automatic policy and performs no preference write. |
@@ -150,27 +152,6 @@ catalog. The existing evolution ledger retires Connections setup graph revisions
 authority into a new write inventory. This also retires the first revision's
 compatible predecessors for that workflow. Existing persisted connections and
 setup state are unchanged; an old workflow must be freshly admitted.
-
-## Feed history and search
-
-Feed adds owner-scoped read adapters; source features retain their existing write
-contracts, persistence, consent and provider behavior.
-
-| Method | Path | Authority / result |
-| --- | --- | --- |
-| POST | `/api/one/feed/search` | Firebase owner; bounded labels and agent/person/date criteria before stable pagination. No read acknowledgement. |
-| GET | `/api/one/feed/{item_id}/activity` | Firebase owner; exact grouped current summary and immutable dated steps. |
-| GET | `/api/one/feed/live` | Firebase recipient; current confirmed SOS incidents, independent of normal history. At most 100 per page; explicit next cursor. |
-| POST | `/api/one/feed/funding-history` | Matching Firebase and vault owner; existing recorded transfer states only. |
-| POST | `/api/one/feed/files/{audience}/search` | `owner` requires existing content-owner admission; `requester` requires vault owner plus participant, current identity, payment and file access. |
-| POST | `/api/one/feed/files/{audience}/file` | Same authority, with exact request/file reference and fresh source reread. |
-
-Authenticated responses are private/no-store. Filename criteria stay in POST
-bodies; encrypted candidates are bounded to 100 per scan and 20 returned matches.
-A continuation can exist with no matching file on the current scan. These readers
-never pay, reconcile, share, import, save reports or alter notification settings.
-The first Feed page includes `live_incidents: {items, next_cursor}`; ordinary
-history cursors and read/clear snapshots do not hide active incidents.
 
 ## Feed counterpart profile presentation
 
@@ -247,31 +228,34 @@ confirmation metadata remain until reconciliation or account erasure. Production
 qualification must separately verify the migration, exact authenticated
 two-person journey, platform transport and current processing-provider approval.
 
-## V1 chat memory preparation
+## People calling review implementation
 
-`POST /api/one/agent-chat` accepts the current owner's
-`forwardedProps.emailMemoryProjection` with a declared `budget_chars` of up to
-96,000 UTF-16 code units, matching the complete `one_memory.markdown` document.
-The document must fit both that declared budget and the server maximum. Email
-session reads and prompt preparation use the same memory bound without truncation.
-Owner matching, strict projection fields and request-only secret references remain
-required; the separate 18,000-character draft and 2,048-character fact-write limits
-are unchanged.
+`GET /api/one/messages/calls/capabilities` and signed
+`POST /api/one/messages/calls/{operation}` use Firebase identity plus separately
+purposed canonical-device proofs. Operations are register-key, directory, create,
+  offer, inbox, read, heartbeat, action, signal, credentials and iOS-only register-voip. Commands reject foreign,
+revoked, replayed, expired, oversized and unexpected fields without echoing
+signaling. Existing participant/relationship/block authority remains decisive.
+The existing One proxy and platform-aware service transport own client pairing.
+Native execution and release admission remain unavailable pending qualification.
+See [People calling](../../architecture/one/people-calling.md) for exact privacy, schema, retention
+and remaining E2EE/native requirements.
+
+## V1 chat memory preparation
 
 `POST /api/pkm/memory/rewrite` admits a matching Shared vault owner; the private
 owner equivalent is `POST /api/one/pod/memory/rewrite`, with app-role `pkm.read`
 admission, held owner incarnation and AI-selection checks before and after inference.
 The request contains `user_id`, `current_markdown`, incremental `messages`
-(`id`, `conversationId`, `role`, `content`), and `max_tokens`. Whitespace-only messages are
-rejected during request validation before inference. Meaningful Markdown
-indentation is preserved, and `current_markdown` may be empty for initial memory.
-The response is
+(`id`, `conversationId`, `role`, `content`), and `max_tokens`. The response is
 `{markdown}`: a proposed complete document with no persistence authority. The
 client validates and atomically commits ciphertext and its source checkpoint
 through the existing PKM writer. Invalid generation returns a bounded failure;
 there is no partial replacement or client-visible success before storage ACK.
 The platform-aware PKM proxy/native transport and explicit pod allowlists own
 placement; unknown/private owners never fall back to Shared inference.
+
+---
 
 ## Public market quotes
 
@@ -436,11 +420,6 @@ ID token stays in memory, bound to the current user, phone and verification
 attempt. It is cleared on resend, retirement, owner change, unmount or success.
 Ordinary successful links never create a secondary sign-in session.
 
-Linked-account deletion is a separate contract: confirming deletion links no
-phone to the surviving account. It releases the consumed proof and requires a
-fresh verification afterward. An uncertain confirmation uses the existing
-read-only recheck; it never replays deletion or reuses the spent SMS proof.
-
 After linking, clients send `{ "verified_phone_number": "+…" }` through the
 existing account proxy or shared native transport. The backend reads the current
 Firebase user, checks the authenticated UID and exact phone, and saves the claim
@@ -458,7 +437,9 @@ known same-owner app claim during a temporary lookup failure. The fixed-code
 fixture transport remains application-only. Isolated phone proof remains
 available to recovery flows. A legacy client cannot write a new claim through
 `/phone/claim` until it links the number to the signed-in Firebase UID. Qualify
-the updated native clients and frontend before rolling out that enforcement.
+the updated native clients and frontend before rolling out that enforcement. An
+expired challenge retires only its captured owner and attempt. Missing local
+state is `phone-verification-required`, distinct from provider `code-expired`.
 
 `GET /api/account/identity` reads only the authenticated application owner's saved
 identity through the read-only Firebase dependency. It returns
@@ -468,19 +449,19 @@ or claim write. Reviewer phone hydration uses this read and retains the existing
 owner, generation and publication-order checks, plus the identity-cache subscription.
 Read-only reviewer activity collection is suppressed at scope capture and dispatch.
 
-After an occupied-number deletion is admitted, the consumed real-SMS proof never
-authorizes a follow-up claim. The interface reports deletion requested and requires
-fresh verification; an uncertain deletion response is reconciled by observation.
-Configured test numbers use a new server-bound challenge through the existing
-qualified test transport. An
-expired challenge retires only its captured owner and attempt. Missing local
-state is `phone-verification-required`, distinct from provider `code-expired`.
-
 When a legacy app claim belongs to a different active owner, the app write
 refuses the claim even if Firebase accepted the link. That result requires
 reconciliation of the two records before release to accounts with unresolved
 legacy ownership. Qualify real SMS on an isolated Firebase test project or
 with explicitly designated test accounts when environments share Firebase.
+
+Dev retains its existing explicit recovery for a phone already linked in
+Firebase whose application claim could not be saved. Only an explicit real-SMS
+request uses the existing proof-only transport; ordinary linking never falls
+back to it. The retained proof remains bound to owner, phone and attempt.
+Transfer and in-place deletion retain their existing separate approvals,
+backend authority and unknown-outcome readback. Successful completion releases
+the native challenge without cancelling a provider cleanup operation.
 
 ## Messages unread action count
 
@@ -642,6 +623,13 @@ Meeting file upgrades wait for the matching grant. An expired popup, a lost
 response, a handoff that leaves the page, and a same-window reload can leave the
 attempt unknown. Calendar reports contain no Google account or event details.
 
+A manual Files upload or resume starts a client attempt in the existing Files
+workspace. A complete transfer returns only after the original Files response
+reports the whole file ready. Interrupted transfers and unacknowledged outcomes
+stay unknown. Organization runs separately and cannot change the upload report.
+File identifiers, names, bytes and paths are not attached. The Files Agent's
+existing environment availability is unchanged by this reporting contract.
+
 Dev uses the same owner/epoch read contract at `owner-dev`, `permission-dev` and
 `snapshot-dev`, with matching distinct HMAC purposes. It requires exactly
 `ENVIRONMENT=dev`, `GOOGLE_CLOUD_PROJECT=hushh-pda-dev`,
@@ -793,49 +781,4 @@ verified identity, owner epoch, explicit per-attempt choice and the separately
 qualified Matrix worker remain required. Keep the attempt key available for
 generation-bound unsubscribe even when new delivery is disabled.
 
-
-### Portfolio import incremental progress
-
-The import envelope remains `1.0`. Optional `progress.extraction_update` v1
-publishes immutable source units and known facts; `progress.extraction_reset`
-invalidates provisional units before the ambiguity fallback. See the canonical
-[streaming contract](../streaming/streaming-contract.md#incremental-portfolio-extraction).
-Final `complete` retains the portfolio, quality and explicit-save contract.
-Extraction diagnostics include unit count, source, fixed fallback reason,
-first-result latency (when a unit was published), and total duration. These are
-observations rather than a five-second SLA.
-
-## Optional advisor service matching
-
-Finance advisor discovery's **All** tab offers **Recommend advisor**. The existing
-`POST /api/one/finance/advisor-reviews/candidates` accepts
-`{"scope":"recommended","service":"portfolio_management"}`. The other service
-IDs are `retirement_planning`, `tax_planning`, and `estate_planning`.
-An optional `query` filters advisor names before the recommendation limit;
-`scope: "global"` with an empty query lists all eligible platform RIAs by name.
-The UI loads further All results while scrolling, without pagination controls.
-Existing Firebase and matching vault-owner authorization remain required.
-Unknown fields, including persona and portfolio payloads, are rejected.
-
-The server reads the existing RIA profile's `services_offered` array. It applies
-declared-service aliases, advisor verification, test-profile exclusion, bilateral
-blocks and existing open-review exclusion inside the canonical Connect directory query
-before pagination. Tied service matches use a stable owner/service permutation;
-the order is not a quality assessment. Candidate records add `servicesOffered`;
-missing legacy values become an empty list. Existing discovery scopes retain
-their behavior. Web and native use the same `ApiService` request and endpoint.
-Accepted reviews stay in the existing workspace; unexpired pending requests are
-not suggested again. An expired pending invitation may be retried. A connection
-alone does not exclude an advisor. Off-platform regulatory records are not
-invented as secure in-app recipients; a receiving key is still required to send.
-
-The optional `financial.profile.preferences.advisor_service` is saved through
-the existing encrypted merged-profile writer. It is excluded from the public
-profile summary. The choice is read only after opt-in. Persona and portfolio
-context remain client-side and do not affect ordering without corresponding
-structured advisor evidence. Matching makes no model or advisor-enrichment call; existing live-account checks still apply. Selecting
-a match opens the existing introduction/snapshot review; explicit approval and
-Send remain necessary. Closing, vault retirement and owner changes retire
-pending recommendation results. No schema migration or advisor-flow change is
-required. Removing the launcher rolls back the feature; older profile editors
-preserve the optional preference.
+Dev person requests use `POST /api/one/information-requests/price-preview` before Send. Supply its `price_binding` on the existing create route for atomic bundle and coin reservation. See the [commerce contract](../../../consent-protocol/docs/reference/consumer-scope-commerce.md).

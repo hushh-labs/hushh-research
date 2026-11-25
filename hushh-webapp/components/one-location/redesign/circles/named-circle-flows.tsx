@@ -2,9 +2,12 @@
 
 import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
+import type { NativeWorkspaceSurfaceSection } from "@/lib/capacitor/native-workspace-surface";
+import { NativeLocationLayer, useNativeLocationEnabled, useNativeLocationClose } from "../native-location-workspace";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { trackEvent } from "@/lib/observability/client";
 import {
   Check,
@@ -121,7 +124,7 @@ import { CirclePhotoEditor } from "@/components/connect/circles/circle-photo-edi
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { relationshipCta } from "@/lib/connections/relationship-label";
 import { ActionMenu } from "@/components/app-ui/action-menu";
-import { FlowActionGroup, QUIET_FLOW_ACTION_CLASSNAME } from "@/components/app-ui/flow-actions";
+import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { cn } from "@/lib/utils";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { CreateCirclePeopleBody, useCreateCirclePeopleModel, type CirclePeoplePageLoader } from "./create-circle-people-step";
@@ -142,9 +145,17 @@ const CIRCLES_EMPTY_STATE_WRAPPER =
 
 const CIRCLE_CREATE_FIELD_CLASSNAME = "h-[52px] w-full rounded-[14px] border border-transparent bg-[color:var(--app-card-surface-default-solid)] px-4 ui-text-input-value shadow-[var(--app-card-shadow-standard)] outline-none transition dark:shadow-none";
 
-/** Compact destructive action beside Add people; colour carries its purpose. */
+/**
+ * Leave / Delete circle.
+ *
+ * `variant="outline"` gave these a filled neutral slab with a red hairline and
+ * red label -- a painted button that reads as the loudest control on a screen
+ * whose actual primary action is "Add people". iOS puts a destructive row on
+ * the same card surface as everything else and lets the red label carry it,
+ * which is what this does.
+ */
 const CIRCLE_DESTRUCTIVE_ACTION =
-  "ui-text-button-label h-11 min-h-11 w-auto rounded-full px-2.5 text-[color:var(--app-destructive)] hover:bg-destructive/10 hover:text-[color:var(--app-destructive)]";
+  "ui-text-button-label h-11 min-h-11 w-full rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive";
 
 /**
  * A circle is a group of trusted people, so its glyph carries the PEOPLE role
@@ -237,8 +248,8 @@ function smsCircleCapacityDescription(
   loading: boolean,
   error: string | null,
 ): string {
-  if (loading) return "Checking how many people you can add…";
-  if (error) return "Couldn’t check how many people you can add.";
+  if (loading) return "Checking available places…";
+  if (error) return "Couldn’t check available places.";
   if (remainingCapacity === 0) return "Your SMS Circle is full.";
   return `You can add ${remainingCapacity} more ${remainingCapacity === 1 ? "person" : "people"}.`;
 }
@@ -617,6 +628,8 @@ const CIRCLE_KIND_OPTIONS: {
 ];
 
 export type CreateCircleFlowProps = {
+  /** A retained route may change vault owners without unmounting its model. */
+  resetKey?: unknown;
   active?: boolean;
   busy: boolean;
   onSubmit: (name: string, kind: OneLocationCircleKind, existingCircleId?: string, customTypeLabel?: string) => Promise<OneLocationCircleDetail>;
@@ -634,6 +647,7 @@ export type CreateCircleFlowProps = {
 /** One create/update writer and one people draft, shared by both renderers. */
 export function useCreateCircleFlow({
   active = true,
+  resetKey,
   busy,
   onSubmit,
   showCircleType = true,
@@ -645,6 +659,10 @@ export function useCreateCircleFlow({
   pathname = ROUTES.ONE_LOCATION,
   backLayerQuery = { action: "create-circle" },
 }: CreateCircleFlowProps) {
+  const session = useRef({ key: resetKey, revision: 0 });
+  const sessionChanged = session.current.key !== resetKey;
+  if (sessionChanged) session.current = { key: resetKey, revision: session.current.revision + 1 };
+  const sessionRevision = session.current.revision;
   const [name, setName] = useState("");
   const [nameRequirementActive, setNameRequirementActive] = useState(false);
   const [nameFocused, setNameFocused] = useState(false);
@@ -659,7 +677,7 @@ export function useCreateCircleFlow({
   const input = useRef({ name: "", kind: "family" as OneLocationCircleKind, customTypeLabel: "", revision: 0 });
   const inputRevision = useCallback(() => input.current.revision, []);
   const changeDraft = useCallback((draft: { name: string; kind: OneLocationCircleKind; customTypeLabel?: string }, expectedRevision?: number) => {
-    if (!mounted.current || submittingRef.current || expectedRevision !== undefined && input.current.revision !== expectedRevision ||
+    if (!mounted.current || session.current.revision !== sessionRevision || submittingRef.current || expectedRevision !== undefined && input.current.revision !== expectedRevision ||
       draft.name.length > 80 || !["family", "friends", "other"].includes(draft.kind)) return false;
     const nextType = draft.kind === "other" ? (draft.customTypeLabel ?? input.current.customTypeLabel) : "";
     if (nextType.length > MAX_CIRCLE_TYPE_LABEL_LENGTH) return false;
@@ -667,7 +685,7 @@ export function useCreateCircleFlow({
     input.current = { ...draft, customTypeLabel: nextType, revision: input.current.revision + 1 };
     setName(draft.name); setKind(draft.kind); setCustomTypeLabel(nextType); if (draft.name.trim()) setNameRequirementActive(false);
     return true;
-  }, []);
+  }, [sessionRevision]);
   // One typed character is a name. Requiring two silently withheld the button
   // from anyone naming a circle "A", with nothing on screen saying why.
   const trimmedName = name.trim();
@@ -709,19 +727,19 @@ export function useCreateCircleFlow({
 
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  const current = useCallback(() => mounted.current, []);
+  const current = useCallback(() => mounted.current && session.current.revision === sessionRevision, [sessionRevision]);
   const stepRef = useRef(step), addingRef = useRef(addingPeople);
   const mutationPending = useCallback(() => (submittingRef.current && stepRef.current === "details") || addingRef.current, []);
   stepRef.current = step; addingRef.current = addingPeople;
-  useEffect(() => {
-    if (active) return;
+  useLayoutEffect(() => {
+    if (active && !sessionChanged) return;
     input.current = { name: "", kind: "family", customTypeLabel: "", revision: input.current.revision + 1 };
     submittingRef.current = false; setName(""); setKind("family"); setCustomTypeLabel(""); setNameRequirementActive(false); setNameFocused(false);
     setStep("details"); setSavedCircle(null); setSaving(false); setAddingPeople(false);
     setError(null);
-  }, [active]);
+  }, [active, resetKey, sessionChanged]);
   const prepare = async (draft = input.current) => {
-    if (!mounted.current || submittingRef.current || busy || saving) return false;
+    if (!current() || submittingRef.current || busy || saving) return false;
     const nextName = draft.name.trim();
     const enteredType = draft.kind === "other" && customTypesSupported ? normalizeCircleTypeLabel(draft.customTypeLabel) : "";
     const nextType = customTypes.find(label => label.toLocaleLowerCase() === enteredType.toLocaleLowerCase()) ?? enteredType;
@@ -737,7 +755,7 @@ export function useCreateCircleFlow({
       const circle = savedCircle && savedCircle.name === nextName && savedCircle.kind === draft.kind && (savedCircle.customTypeLabel ?? "") === nextType
         ? savedCircle
         : await (nextType ? onSubmit(nextName, draft.kind, savedCircle?.id, nextType) : onSubmit(nextName, draft.kind, savedCircle?.id));
-      if (!mounted.current) return false;
+      if (!current()) return false;
       setSavedCircle(circle);
       if (nextType && circle.customTypeLabel !== nextType) {
         throw new Error("Could not save the Circle type. Please try again.");
@@ -751,18 +769,18 @@ export function useCreateCircleFlow({
       } catch {}
       return true;
     } catch (error) {
-      if (!mounted.current) return false;
+      if (!current()) return false;
       submittingRef.current = false;
       const message = circleFlowErrorMessage(error, "Could not create this Circle.");
       setError(message); toast.error(message, { className: connectTypography.toast });
       return false;
     } finally {
-      if (mounted.current) setSaving(false);
+      if (current()) setSaving(false);
     }
   };
-  const advance = () => { if (mounted.current && submittingRef.current) setStep("people"); };
+  const advance = () => { if (current() && submittingRef.current) setStep("people"); };
   const submit = async () => { if (await prepare()) advance(); };
-  const peopleProps = { circleId: savedCircle?.id ?? "", circleName: savedCircle?.name ?? "", active: active && step === "people", onLoad: onLoadPeople,
+  const peopleProps = { circleId: sessionChanged ? "" : savedCircle?.id ?? "", circleName: savedCircle?.name ?? "", active: active && !sessionChanged && step === "people", onLoad: onLoadPeople,
     onAdd: onAddPeople, onComplete, onBack: backToDetails, onSavingChange: setAddingPeople };
   const people = useCreateCirclePeopleModel(peopleProps);
   return { name, setName: (name: string) => changeDraft({ ...input.current, name }), nameRequirementActive, setNameRequirementActive, nameFocused, setNameFocused,
@@ -791,12 +809,22 @@ export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }
     }
   };
 
+  const closeLocation = useNativeLocationClose();
+  const nativeSections = step === "people" ? [
+    { key: "summary", rows: [{ key: "summary", label: `Add people to ${savedCircle?.name ?? "your Circle"}`, detail: `${people.selected.length} selected · ${people.limit} available` }] },
+    { key: "people", layout: "cards" as const, rows: people.people.map(person => ({ key: person.userId, label: person.displayName, person: { name: person.displayName, photoUrl: person.photoUrl, verified: person.isRia }, selected: people.selected.includes(person.userId), enabled: !people.saving && (people.selected.includes(person.userId) || people.selected.length < people.limit), run: () => people.selected.includes(person.userId) ? people.remove(person.userId) : people.add(person.userId) })) },
+    { key: "actions", rows: [{ key: "add", label: `Add ${people.selected.length || "people"}`, prominent: true, enabled: !people.loading && !people.saving && people.selected.length > 0 && people.selected.length <= people.limit, run: () => people.finish(true) },
+      { key: "later", label: "Add people later", enabled: !people.saving, run: () => people.finish(false) },
+      ...(people.hasMore ? [{ key: "more", label: "Load more people", enabled: !people.loading && !people.saving, run: people.more }] : []),
+      ...(people.failed ? [{ key: "retry", label: "Try again", run: people.retry }] : []),
+    ] },
+  ] : [{ key: "summary", rows: [{ key: "summary", label: "Create a Circle", detail: "Name your Circle, then add people now or later." }] }];
   const inTaskSurface = useTaskSurfacePresentation();
   const Body = inTaskSurface ? TaskSurfaceBody : "div";
   const Footer = inTaskSurface ? TaskSurfaceFooter : "div";
 
   return (
-    <div data-profile-type-scale={!inTaskSurface && step === "people" ? "circles" : undefined} data-testid="one-location-create-circle-flow" data-circle-create-step={step} className={inTaskSurface && step === "details" ? "contents" : step === "people" ? "flex min-h-0 flex-1 flex-col" : undefined}>
+    <NativeLocationLayer flow="create-circle" navigationDepth={step === "people" ? 4 : 3} title="Create a Circle" viewKey={`create-circle:${step}`} sections={nativeSections} search={step === "people" ? { query: people.query, label: "Search people", change: people.changeQuery } : undefined} textEditor={step === "details" ? { key: "circle-name", label: "Circle name", placeholder: "Name your Circle", maximum: 80, value: name, change: setName, submitLabel: "Continue", enabled: canSubmit, busy: busy || saving, error: model.error, submit: model.submit, cancel: () => closeLocation?.() } : undefined}><div data-profile-type-scale={!inTaskSurface && step === "people" ? "circles" : undefined} data-testid="one-location-create-circle-flow" data-circle-create-step={step} className={inTaskSurface && step === "details" ? "contents" : step === "people" ? "flex min-h-0 flex-1 flex-col" : undefined}>
       {savedCircle ? <div hidden={step !== "people"} className={step === "people" ? "flex min-h-0 flex-1 flex-col" : undefined}>
         <CreateCirclePeopleBody {...peopleProps} model={people} />
       </div> : null}
@@ -948,7 +976,7 @@ export function CreateCircleFlowBody({ model }: { model: CreateCircleFlowModel }
         </Button>
       </Footer>
       </div>
-    </div>
+    </div></NativeLocationLayer>
   );
 }
 
@@ -984,6 +1012,8 @@ export function JoinCircleFlow({
   /** Pre-fills the code input when arriving from a `/circle/join?code=` link. */
   initialCode?: string;
 }) {
+  const native = useNativeLocationEnabled();
+  const closeLocation = useNativeLocationClose();
   const [code, setCode] = useState(() => normalizeCodeInput(initialCode ?? ""));
   const [resolved, setResolved] = useState<{
     code: string;
@@ -1103,8 +1133,9 @@ export function JoinCircleFlow({
     window.requestAnimationFrame(() => inputRef.current?.focus());
   }, []);
 
+  useBackLayer(ROUTES.ONE_LOCATION, native && discardPreviewConfirmOpen ? 3 : 0, () => { if (!busy) setDiscardPreviewConfirmOpen(false); return true; });
   return (
-    <div className="space-y-5" data-profile-type-scale="circles" data-testid="one-location-join-circle-flow">
+    <NativeLocationLayer flow="join-circle" navigationDepth={preview ? 4 : 3} title="Join a Circle" viewKey={preview ? "join:preview" : "join:code"} sections={[{ key: "review", rows: preview ? [{ key: "preview", label: preview.name, detail: `${connectPersonName({ displayName: preview.ownerDisplayName })} · ${preview.memberCount} members`, symbol: "person.2.circle" }, { key: "join", label: preview.alreadyMember ? "Open Circle" : "Join Circle", prominent: true, enabled: !busy, pending: busy, run: join }, { key: "another", label: "Use Another Code", enabled: !busy, run: () => setDiscardPreviewConfirmOpen(true) }, { key: "close", label: "Cancel", enabled: !busy, run: () => closeLocation?.() }] : [{ key: "help", label: "Enter invite code", detail: "Review the Circle before joining." }, { key: "paste", label: "Paste from clipboard", enabled: !busy && !pasting, pending: pasting, run: pasteFromClipboard }] }]} textEditor={!preview ? { key: "circle-code", format: "circle-code", label: "Invite code", placeholder: "ABCD-EFGH-KMNP", maximum: 14, value: code, normalize: normalizeCodeInput, change: updateCode, submitLabel: "Review Circle", enabled: normalizedLength === 12 && !pasting, busy, error, submit: () => resolve(), cancel: () => closeLocation?.() } : undefined} confirmation={discardPreviewConfirmOpen ? { title: "Use another code?", description: "Discard this reviewed Circle and enter a different invite code.", confirm: { key: "discard-preview", label: "Use another code", enabled: !busy, run: clearPreviewForAnotherCode }, cancelLabel: "Keep this Circle", cancel: () => setDiscardPreviewConfirmOpen(false) } : undefined}><div className="space-y-5" data-profile-type-scale="circles" data-testid="one-location-join-circle-flow">
       <h1 className="sr-only">Join a Circle</h1>
 
       <div className="space-y-4">
@@ -1294,7 +1325,7 @@ export function JoinCircleFlow({
           At root level (not inside the preview conditional) so the dialog
           survives the state change it confirms. */}
       <AlertDialog
-        open={discardPreviewConfirmOpen}
+        open={discardPreviewConfirmOpen && !native}
         onOpenChange={setDiscardPreviewConfirmOpen}
       >
         <TaskAlertDialogContent size="sm">
@@ -1313,7 +1344,7 @@ export function JoinCircleFlow({
           </AlertDialogFooter>
         </TaskAlertDialogContent>
       </AlertDialog>
-    </div>
+    </div></NativeLocationLayer>
   );
 }
 
@@ -1697,6 +1728,9 @@ export function CircleDetailFlow({
   /** Connect-only enhancement; Location keeps its existing Circle flow. */
   livingCircleExperience?: boolean;
 }) {
+  const native = useNativeLocationEnabled();
+  const [nativeConfirmation, setNativeConfirmation] = useState<{ title: string; detail: string; kind: "remove" | "delete" | "leave"; memberId?: string; circleId: string; owner: string | null; scope: unknown } | null>(null);
+  const [nativeConfirmBusy, setNativeConfirmBusy] = useState(false);
   const [loadedCircle, setCircle] = useState<
     OneLocationCircleDetail | OneLocationCircleOverview | null
   >(null);
@@ -1861,6 +1895,7 @@ export function CircleDetailFlow({
   };
 
   useEffect(() => {
+    setNativeConfirmation(null); setNativeConfirmBusy(false);
     peopleMutationScopeRef.current = {};
     peopleSubmitInFlightRef.current = false;
     setPeopleSubmitting(false);
@@ -2493,7 +2528,108 @@ export function CircleDetailFlow({
     }
   };
 
-  return (
+  const closeNativeChild = () => {
+    if (nativeConfirmBusy || savingName || peopleSubmitting) return;
+    if (nativeConfirmation) setNativeConfirmation(null);
+    else if (replaceCodeConfirmOpen) setReplaceCodeConfirmOpen(false);
+    else if (renameSheetOpen) { setCircleName(circle?.name ?? ""); setRenameSheetOpen(false); }
+    else if (inviteCodeSheetOpen) { setInviteCodeSheetOpen(false); setCodeCopied(false); }
+    else if (peopleSheetOpen) {
+      setPeopleSheetOpen(false); peopleRequestRef.current += 1;
+      setPeopleSearch(""); setSelectedConnections(new Map());
+    } else onBack();
+  };
+  const nativeChild = renameSheetOpen || inviteCodeSheetOpen || peopleSheetOpen;
+  useBackLayer(ROUTES.ONE_LOCATION, native && (nativeChild || nativeConfirmation || replaceCodeConfirmOpen) ? 4 : 0, () => { closeNativeChild(); return true; });
+  const nativeSections: NativeWorkspaceSurfaceSection[] = [{ key: "identity", rows: [
+    { key: "circle", label: circle?.name ?? summary?.name ?? "Circle", detail: circle ? visibleMemberSummary : "Loading Circle…", symbol: "person.2.circle" },
+    ...(loadError ? [{ key: "load-error", label: loadError }, { key: "retry", label: "Try again", run: () => reload() }] : []),
+  ] }];
+  if (circle && !nativeChild) {
+    nativeSections.push({ key: "manage", rows: [
+      ...(isOwner && circle.systemKind !== "trusted" ? [{ key: "rename", label: "Rename Circle", enabled: !busy, run: () => { setCircleName(circle.name); setRenameSheetOpen(true); } }] : []),
+      ...(canInviteMembers ? [{ key: "add", label: "Add people", enabled: !busy, run: openPeopleSheet }] : []),
+      ...(canViewInviteCode ? [{ key: "invite-code", label: "Invite code", detail: inviteCode ? "Ready" : "Create", enabled: !busy, run: () => { setCodeCopied(false); setInviteCodeSheetOpen(true); } }] : []),
+    ] });
+    nativeSections.push({ key: "members", title: `Members · ${memberCountLabel}`, rows: filteredMembers.map(member => {
+      const self = member.userId === currentUserId;
+      const cta = !self && member.relationship && member.relationship !== "self" ? relationshipCta(member.relationship) : null;
+      const actions: NonNullable<NativeWorkspaceSurfaceSection["rows"][number]["inlineActions"]> = [
+        ...(!self && member.publicPersonRef ? [{ key: "profile", label: "Profile", tone: "ghost" as const, placement: "menu" as const,
+          run: () => requestInternalAppNavigation({ href: buildPersonProfileRoute(member.publicPersonRef!, { from: ROUTES.ONE_LOCATION }), replace: false, scroll: false, source: "tap", transitionMode: "full" }) }] : []),
+        ...(!self && member.publicPersonRef && member.relationship === "connected" ? [{ key: "message", label: "Message", tone: "ghost" as const, placement: "menu" as const,
+          run: () => requestInternalAppNavigation({ href: buildDirectMessageRoute({ personRef: member.publicPersonRef! }), replace: false, scroll: false, source: "tap", transitionMode: "full" }) }] : []),
+        ...(!self && member.secureLocationReady ? [{ key: "share", label: "Share location", enabled: !busy, tone: "ghost" as const, placement: "menu" as const, run: () => onShareWithMember(circle.id, member.userId) }] : []),
+        ...(cta?.action === "connect" ? [{ key: "connect", label: cta.label, enabled: !busy && !connectingUserId, pending: connectingUserId === member.userId, tone: "primary" as const, run: async () => {
+          if (connectingUserId) return; setConnectingUserId(member.userId);
+          try { await onConnectMember(circle.id, member.userId, { displayName: member.displayName ?? null, photoUrl: member.photoUrl ?? null }); } finally { setConnectingUserId(null); }
+        } }] : []),
+        ...(cta?.action === "respond" && member.publicPersonRef ? [{ key: "review", label: cta.label, tone: "primary" as const, run: () => requestInternalAppNavigation({ href: buildConsentCenterHref("pending"), replace: false, scroll: false, source: "tap", transitionMode: "full" }) }] : []),
+        ...(member.relationship === "pending_outgoing" && onCancelMemberRequest ? [{ key: "cancel-request", label: "Cancel request", enabled: !busy && !cancellingUserId, pending: cancellingUserId === member.userId, tone: "ghost" as const, run: async () => {
+          if (cancellingUserId) return; setCancellingUserId(member.userId);
+          try { await onCancelMemberRequest(circle.id, member.userId); } finally { setCancellingUserId(null); }
+        } }] : []),
+        ...(isOwner && member.role !== "owner" ? [{ key: "remove", label: "Remove from Circle", enabled: !busy, tone: "danger" as const, placement: "menu" as const,
+          run: () => setNativeConfirmation({ title: `Remove ${connectPersonName(member)}?`, detail: "They will no longer be a member of this Circle.", kind: "remove", memberId: member.userId, circleId: circle.id, owner: currentUserId, scope: sessionScope }) }] : []),
+      ];
+      return { key: member.userId, label: connectPersonName(member), detail: self ? member.role === "owner" ? "You · Owner" : "You" : member.role === "owner" ? "Owner" : member.secureLocationReady ? "Connected" : "Location setup needed",
+        person: { name: connectPersonName(member), photoUrl: member.photoUrl, verified: Boolean(member.isRia) },
+        ...(actions.length ? { inlineActions: actions, ...(actions.some(action => action.placement === "menu") ? { menuOnTap: true } : {}) } : {}), };
+    }) });
+    if (!filteredMembers.length) nativeSections.push({ key: "empty-members", rows: [{ key: "empty", label: membersLoading ? "Loading members…" : "No members found", detail: memberSearch ? "Try a different name." : undefined }] });
+    nativeSections.push({ key: "footer", rows: [
+      ...(memberHasMore ? [{ key: "more", label: "Load more members", pending: memberLoadingMore, enabled: !memberLoadingMore, run: loadMoreMembers }] : []),
+      ...(onProceedToSms && hasOtherMember ? [{ key: "proceed-sms", label: "Proceed to SMS", run: onProceedToSms }] : []),
+      ...(canDeleteCircle || canLeaveCircle ? [{ key: "leave-delete", label: canDeleteCircle ? "Delete Circle" : "Leave Circle", destructive: true, enabled: !busy,
+        run: () => setNativeConfirmation({ title: `${canDeleteCircle ? "Delete" : "Leave"} “${circle.name}”?`, detail: canDeleteCircle ? "This removes the Circle for every member." : "You will no longer be a member of this Circle.", kind: canDeleteCircle ? "delete" : "leave", circleId: circle.id, owner: currentUserId, scope: sessionScope }) }] : []),
+    ] });
+  } else if (circle && peopleSheetOpen) {
+    nativeSections.push({ key: "people", title: `Add people · ${selectedConnections.size} selected`, rows: [
+      ...(peopleLoadError ? [{ key: "error", label: peopleLoadError }, { key: "retry", label: "Try again", run: () => loadEligibleConnections() }] : []),
+      ...filteredEligibleConnections.map(person => ({ key: person.userId, label: connectPersonName(person), person: { name: connectPersonName(person), photoUrl: person.photoUrl, verified: Boolean(person.isRia) }, selected: selectedConnections.has(person.userId),
+        detail: selectedConnections.has(person.userId) ? "Selected" : undefined,
+        enabled: !peopleSubmitting && (selectedConnections.has(person.userId) || selectedConnections.size < selectionLimit), run: () => toggleInlineConnection(person.userId) })),
+      ...(!filteredEligibleConnections.length ? [{ key: "empty", label: peopleLoading ? "Loading people…" : "No people available" }] : []),
+      ...(peopleHasMore ? [{ key: "more", label: "Load more people", enabled: !peopleLoadingMore, pending: peopleLoadingMore, run: () => loadEligibleConnections({ page: peoplePage + 1, append: true }) }] : []),
+      ...pendingInvites.map(invite => ({ key: `invite:${invite.id}`, label: connectPersonName({ displayName: invite.inviteeDisplayName }), detail: "Waiting", inlineActions: [{ key: "cancel", label: "Cancel invitation", tone: "ghost" as const, enabled: !cancellingInviteId, pending: cancellingInviteId === invite.id, run: () => cancelMemberInvite(invite.id) }] })),
+    ] });
+    nativeSections.push({ key: "add-actions", rows: [{ key: "add", label: "Add to Circle", prominent: true, enabled: selectedConnections.size > 0 && !peopleSubmitting && !peopleLoading, pending: peopleSubmitting, run: sendMemberInvites }, { key: "cancel", label: "Cancel", enabled: !peopleSubmitting, run: closeNativeChild }] });
+  } else if (circle && inviteCodeSheetOpen) {
+    nativeSections.push({ key: "code", rows: inviteCode ? [
+      { key: "code", label: inviteCode.code, detail: "Share this code with someone you want to invite." },
+      { key: "copy", label: codeCopied ? "Copied" : "Copy code", run: () => copyInviteCode(inviteCode.code) },
+      { key: "share", label: "Share code", run: () => onShareCode(circle, inviteCode.code), web: true },
+      ...(canRotateInviteCode ? [{ key: "replace", label: "Replace code", destructive: true, enabled: !busy, run: () => setReplaceCodeConfirmOpen(true) }] : []),
+      { key: "done", label: "Done", run: closeNativeChild },
+    ] : [{ key: "help", label: inviteCodeNeedsOwnerRotation ? "The owner needs to replace this code" : "Create an invite code", detail: "People review this Circle before joining." },
+      ...(!inviteCodeNeedsOwnerRotation || canRotateInviteCode ? [{ key: "create", label: inviteCodeNeedsOwnerRotation ? "Replace code" : "Create code", enabled: !busy, pending: busy, run: () => generateCode(inviteCodeNeedsOwnerRotation) }] : []),
+      { key: "cancel", label: "Cancel", run: closeNativeChild }] });
+  }
+  const confirmationCurrent = nativeConfirmation?.circleId === circle?.id && nativeConfirmation?.owner === currentUserId && nativeConfirmation?.scope === sessionScope;
+  const nativeConfirm = nativeConfirmation && confirmationCurrent ? {
+    title: nativeConfirmation.title, description: nativeConfirmation.detail, cancelLabel: "Cancel", cancel: () => { if (!nativeConfirmBusy) setNativeConfirmation(null); },
+    confirm: { key: "confirm-circle", label: "Confirm", destructive: true, enabled: !nativeConfirmBusy, pending: nativeConfirmBusy, run: async () => {
+      if (nativeConfirmBusy || busy || !circle || !confirmationCurrent) return;
+      const intent = nativeConfirmation;
+      if (intent.kind === "remove" ? !isOwner || !members.some(member => member.userId === intent.memberId && member.role !== "owner") : intent.kind === "delete" ? !canDeleteCircle : !canLeaveCircle) { setNativeConfirmation(null); return; }
+      const scope = peopleMutationScopeRef.current;
+      setNativeConfirmBusy(true);
+      try {
+        if (intent.kind === "remove") await removeMember(intent.memberId!);
+        else if (intent.kind === "delete") await deleteCircle();
+        else await leaveCircle();
+        if (scope === peopleMutationScopeRef.current) setNativeConfirmation(null);
+      } finally { if (scope === peopleMutationScopeRef.current) setNativeConfirmBusy(false); }
+    } },
+  } : replaceCodeConfirmOpen ? { title: "Replace invite code?", description: "The previous code will stop working.", cancelLabel: "Cancel", cancel: () => setReplaceCodeConfirmOpen(false), confirm: { key: "replace-code", label: "Replace code", enabled: !busy, pending: busy, run: () => generateCode(true) } } : undefined;
+
+  const renderNative = (children: ReactNode) => <NativeLocationLayer flow="circle-detail" title={circle?.name ?? summary?.name ?? "Circle"} navigationDepth={nativeChild ? 4 : 3}
+    viewKey={`circle:${circleId}:${renameSheetOpen ? "rename" : peopleSheetOpen ? "people" : inviteCodeSheetOpen ? "code" : "members"}`} sections={nativeSections}
+    search={peopleSheetOpen ? { label: "Search people", query: peopleSearch, change: setPeopleSearch } : !nativeChild && showMemberSearch ? { label: "Search members", query: memberSearch, change: setMemberSearch } : undefined}
+    textEditor={renameSheetOpen ? { key: `rename:${circleId}`, label: "Circle name", placeholder: "Name", maximum: 80, value: circleName, change: value => { renameDraftRef.current.dirty = true; setCircleName(value); }, enabled: canSaveCircleName, busy: savingName, submitLabel: "Save", submit: renameCircle, cancel: closeNativeChild } : undefined}
+    confirmation={nativeConfirm}>{children}</NativeLocationLayer>;
+
+  return renderNative(
     // `space-y-5`, and every section below owns its own internal rhythm. The
     // screen used to pair a 24px stack gap with `SettingsGroup`'s own 28px
     // heading margin, so the one gap on the page that mattered least -- the
@@ -2592,7 +2728,7 @@ export function CircleDetailFlow({
             </div>
           ) : null}
           {livingCircleExperience ? (
-            <Sheet modal open={peopleSheetOpen} onOpenChange={open => {
+            <Sheet modal open={peopleSheetOpen && !native} onOpenChange={open => {
               if (peopleSubmitInFlightRef.current) return;
               if (open) openPeopleSheet();
               else { setPeopleSheetOpen(false); peopleRequestRef.current += 1; setPeopleSearch(""); setSelectedConnections(new Map()); }
@@ -2633,7 +2769,7 @@ export function CircleDetailFlow({
           {isOwner && circle.systemKind !== "trusted" ? (
             <Sheet
               modal
-              open={renameSheetOpen}
+              open={renameSheetOpen && !native}
               onOpenChange={(open) => {
                 if (renameInFlightRef.current) return;
                 setRenameSheetOpen(open);
@@ -2649,7 +2785,7 @@ export function CircleDetailFlow({
                 </SheetHeader>
                 <TaskSurfaceBody>
                   <label className="block space-y-2">
-                    <span data-connect-role="form-label" data-profile-role="label" className="text-[15px] font-semibold leading-5 text-foreground">
+                    <span data-profile-role="label" className="text-[15px] font-semibold leading-5 text-foreground">
                       Circle name
                     </span>
                     <div className={CIRCLE_NAME_ROW_CLASSNAME}>
@@ -2685,7 +2821,7 @@ export function CircleDetailFlow({
                     <p data-profile-role="description" className="text-sm text-destructive">Enter a name.</p>
                   ) : null}
                 </TaskSurfaceBody>
-                <TaskSurfaceFooter className="!border-t-0">
+                <TaskSurfaceFooter>
                   <FlowActionGroup
                     separateSecondary={false}
                     className={taskSurfaceStyles.actionGroup}
@@ -2732,6 +2868,7 @@ export function CircleDetailFlow({
 
           {canViewInviteCode ? (
             <SettingsGroup
+              title="Invite"
               separatorInset
               shellClassName="!rounded-[18px]"
               testId="one-location-circle-invite-card"
@@ -2755,7 +2892,7 @@ export function CircleDetailFlow({
           {canViewInviteCode ? (
             <Sheet
               modal
-              open={inviteCodeSheetOpen}
+              open={inviteCodeSheetOpen && !native}
               onOpenChange={(open) => {
                 setInviteCodeSheetOpen(open);
                 if (!open) {
@@ -2800,17 +2937,16 @@ export function CircleDetailFlow({
                   <TaskSurfaceFooter>
                     <FlowActionGroup
                       separateSecondary={false}
-                      className={connectStyles.inviteCodeActions}
+                      className={taskSurfaceStyles.actionGroup}
                       secondary={
                         <Button
                           type="button"
                           variant="outline"
                           size="compact"
-                          className="bg-transparent hover:bg-[color:var(--app-accent-tint)]"
                           disabled={busy}
                           onClick={() => void copyInviteCode(inviteCode.code)}
                         >
-                          <Copy className="size-4" />
+                          <Copy className="mr-2 h-4 w-4" />
                           {codeCopied ? "Copied" : "Copy code"}
                         </Button>
                       }
@@ -2823,7 +2959,7 @@ export function CircleDetailFlow({
                             void onShareCode(circle, inviteCode.code)
                           }
                         >
-                          <Share2 inheritColor className="size-4" />
+                          <Share2 onAccent className="mr-2 h-4 w-4" />
                           Share invite
                         </Button>
                       }
@@ -2832,9 +2968,7 @@ export function CircleDetailFlow({
                           <Button
                             type="button"
                             variant="text"
-                            size="compact"
-                            className={QUIET_FLOW_ACTION_CLASSNAME}
-                            disableHoverRipple
+                            size="standard"
                             disabled={busy}
                             onClick={() => setReplaceCodeConfirmOpen(true)}
                           >
@@ -2855,7 +2989,7 @@ export function CircleDetailFlow({
                     </p>
                   </TaskSurfaceBody>
                 ) : (
-                  <TaskSurfaceFooter className="!border-t-0 !pt-2">
+                  <TaskSurfaceFooter>
                     <FlowActionGroup
                       separateSecondary={false}
                       className={taskSurfaceStyles.actionGroup}
@@ -2865,8 +2999,7 @@ export function CircleDetailFlow({
                             type="button"
                             variant="text"
                             size="compact"
-                            className={cn("w-full justify-center", QUIET_FLOW_ACTION_CLASSNAME)}
-                            disableHoverRipple
+                            className="w-full justify-center"
                             onClick={() => setInviteCodeSheetOpen(false)}
                           >
                             Cancel
@@ -2898,7 +3031,7 @@ export function CircleDetailFlow({
 
           {canViewInviteCode && canRotateInviteCode ? (
             <AlertDialog
-              open={replaceCodeConfirmOpen}
+              open={replaceCodeConfirmOpen && !native}
               onOpenChange={setReplaceCodeConfirmOpen}
             >
               <TaskAlertDialogContent
@@ -2913,7 +3046,7 @@ export function CircleDetailFlow({
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel variant="ghost" size="standard" disableHoverRipple className={QUIET_FLOW_ACTION_CLASSNAME}>Cancel</AlertDialogCancel>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
                   <AlertDialogAction
                     disabled={busy}
                     onClick={() => void generateCode(true)}
@@ -2928,7 +3061,7 @@ export function CircleDetailFlow({
           {!livingCircleExperience ? (
             <Sheet
             modal
-            open={peopleSheetOpen}
+            open={peopleSheetOpen && !native}
             onOpenChange={(open) => {
               if (open && !canInviteMembers) return;
               setPeopleSheetOpen(open);
@@ -2965,8 +3098,8 @@ export function CircleDetailFlow({
 
                 <TaskSurfaceBody>
                   {peopleLoading ? (
-                    <div data-connect-role="description" role="status" className="flex min-h-32 items-center justify-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+                    <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-5 w-5 animate-spin" />
                       Loading connections…
                     </div>
                   ) : peopleLoadError ? (
@@ -3327,7 +3460,7 @@ export function CircleDetailFlow({
                   type="button"
                   variant="ghost"
                   data-connect-role="action"
-                  className={CIRCLE_DESTRUCTIVE_ACTION}
+                  className={cn(CARD_SURFACE, CIRCLE_DESTRUCTIVE_ACTION)}
                 >
                   <Trash2 inheritColor className="mr-2 h-4 w-4" />
                   Delete circle

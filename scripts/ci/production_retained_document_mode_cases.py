@@ -32,7 +32,9 @@ class RetainedDocumentModeCases(StagedWorkerFixture, unittest.TestCase):
     @contextmanager
     def retained_stage(self):
         with _healthy_worker_case(self) as (_value, ports):
-            ports.case.documents["prod-protected-document-release.json"] = copy.deepcopy(MODE)
+            ports.case.documents["prod-protected-document-release.json"] = (
+                copy.deepcopy(MODE)
+            )
             _ordinary(ports)
             value = worker.basis_owner.load("f" * 40)
             self.prepared["release_basis"] = value
@@ -40,7 +42,13 @@ class RetainedDocumentModeCases(StagedWorkerFixture, unittest.TestCase):
             self.bind_prepared()
             payload = archive(
                 self,
-                dict(zip(worker.FILES, (self.prepared, self.staged, self.scheduler), strict=True)),
+                dict(
+                    zip(
+                        worker.FILES,
+                        (self.prepared, self.staged, self.scheduler),
+                        strict=True,
+                    )
+                ),
             )
             intent = archive(
                 type("Intent", (), {"artifact": self.intent_artifact})(),
@@ -75,9 +83,13 @@ class RetainedDocumentModeCases(StagedWorkerFixture, unittest.TestCase):
         self,
     ):
         with self.retained_stage() as ports:
-            result = OWNER["retained_worker_mode"](RAW, target="f" * 40, stage_run="300")
+            result = OWNER["retained_worker_mode"](
+                RAW, target="f" * 40, stage_run="300"
+            )
             self.assertEqual(result, MODE)
-            self.assertEqual(ports.case.documents["prod-protected-document-release.json"], MODE)
+            self.assertEqual(
+                ports.case.documents["prod-protected-document-release.json"], MODE
+            )
             ports.runtimes[worker.SERVICE][1]["metadata"]["uid"] = "recreated-worker"
             with self.assertRaises(worker.receipts.retention.UnsafeState):
                 OWNER["retained_worker_mode"](RAW, target="f" * 40, stage_run="300")
@@ -113,7 +125,9 @@ class RetainedDocumentModeCases(StagedWorkerFixture, unittest.TestCase):
     def test_real_resolver_preserves_reader_verification_and_has_a_broken_code_control(
         self,
     ):
-        resolver = run_path(str(ROOT / "deploy/drive/resolve_protected_document_release.py"))
+        resolver = run_path(
+            str(ROOT / "deploy/drive/resolve_protected_document_release.py")
+        )
         namespace = resolver["main"].__globals__
         runtime = {
             "environment": "production",
@@ -147,7 +161,9 @@ class RetainedDocumentModeCases(StagedWorkerFixture, unittest.TestCase):
                         "reader_supported": lambda *_: True,
                         "run_path": lambda path: (
                             OWNER
-                            if str(path).endswith("rebind_protected_document_backend.py")
+                            if str(path).endswith(
+                                "rebind_protected_document_backend.py"
+                            )
                             else run_path(path)
                         ),
                     },
@@ -194,22 +210,32 @@ class RetainedDocumentModeCases(StagedWorkerFixture, unittest.TestCase):
         fixture = ReplayedProductionReleaseArtifactTest()
         fixture.setUp()
         with _continuation_case(fixture) as case:
-            case.original.documents["prod-protected-document-release.json"] = copy.deepcopy(MODE)
+            case.original.documents["prod-protected-document-release.json"] = (
+                copy.deepcopy(MODE)
+            )
             case.original.pack()
             with (
                 mock.patch.object(control.authority(), "api", case.api),
-                mock.patch.object(control.authority().retention, "run_command", case.download),
+                mock.patch.object(
+                    control.authority().retention, "run_command", case.download
+                ),
             ):
-                selected = OWNER["retained_worker_mode"](RAW, target="f" * 40, activation_run="400")
+                selected = OWNER["retained_worker_mode"](
+                    RAW, target="f" * 40, activation_run="400"
+                )
                 self.assertEqual(selected, MODE)
-                case.original.run["actor"]["login"] = "unapproved"
+                case.original.run["actor"]["type"] = "Bot"
                 with self.assertRaises(worker.receipts.retention.UnsafeState):
-                    OWNER["retained_worker_mode"](RAW, target="f" * 40, activation_run="400")
+                    OWNER["retained_worker_mode"](
+                        RAW, target="f" * 40, activation_run="400"
+                    )
 
     def test_cli_rejects_conflicting_or_nonproduction_origins_before_config_read(self):
         from contextlib import redirect_stderr
 
-        resolver = run_path(str(ROOT / "deploy/drive/resolve_protected_document_release.py"))
+        resolver = run_path(
+            str(ROOT / "deploy/drive/resolve_protected_document_release.py")
+        )
         argv = [
             "resolve",
             "--project=hushh-pda",
@@ -232,8 +258,14 @@ class RetainedDocumentModeCases(StagedWorkerFixture, unittest.TestCase):
         read = mock.Mock(side_effect=AssertionError("invalid selector reached config"))
         with mock.patch.dict(resolver["main"].__globals__, {"_cloud": read}):
             for arguments in conflicts:
-                with self.subTest(arguments=arguments), mock.patch.object(sys, "argv", arguments):
-                    with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                with (
+                    self.subTest(arguments=arguments),
+                    mock.patch.object(sys, "argv", arguments),
+                ):
+                    with (
+                        redirect_stderr(io.StringIO()),
+                        self.assertRaises(SystemExit) as error,
+                    ):
                         resolver["main"]()
                     self.assertEqual(error.exception.code, 2)
         read.assert_not_called()
@@ -303,7 +335,9 @@ class ColdRetainedDocumentModeCases(StagedWorkerFixture, unittest.TestCase):
                 control.revalidate_initial({"sealed_boundary": bundle})
 
     def test_cold_resolver_requalifies_healthy_basis_and_keeps_reader_gate(self):
-        resolver = run_path(str(ROOT / "deploy/drive/resolve_protected_document_release.py"))
+        resolver = run_path(
+            str(ROOT / "deploy/drive/resolve_protected_document_release.py")
+        )
         runtime = {
             "environment": "production",
             "google_cloud_project": "hushh-pda",
@@ -327,7 +361,9 @@ class ColdRetainedDocumentModeCases(StagedWorkerFixture, unittest.TestCase):
             return {**mode, "targetSha": "f" * 40}
 
         with _healthy_worker_case(self) as (_value, ports):
-            ports.case.documents["prod-protected-document-release.json"] = copy.deepcopy(MODE)
+            ports.case.documents["prod-protected-document-release.json"] = (
+                copy.deepcopy(MODE)
+            )
             _ordinary(ports)
             gate = mock.Mock(side_effect=reader)
             with (
@@ -339,7 +375,9 @@ class ColdRetainedDocumentModeCases(StagedWorkerFixture, unittest.TestCase):
                         "verify_readers": gate,
                         "run_path": lambda path: (
                             OWNER
-                            if str(path).endswith("rebind_protected_document_backend.py")
+                            if str(path).endswith(
+                                "rebind_protected_document_backend.py"
+                            )
                             else run_path(path)
                         ),
                     },
@@ -352,13 +390,16 @@ class ColdRetainedDocumentModeCases(StagedWorkerFixture, unittest.TestCase):
                 gate.assert_called_once_with(
                     MODE, project="hushh-pda", target="f" * 40, ancestor="a" * 40
                 )
-                with mock.patch.object(sys, "argv", arguments[:-1]), self.assertRaises(SystemExit):
+                with (
+                    mock.patch.object(sys, "argv", arguments[:-1]),
+                    self.assertRaises(SystemExit),
+                ):
                     resolver["main"]()
                 gate.side_effect = ValueError("reader refused")
                 with self.assertRaises(SystemExit):
                     resolver["main"]()
                 gate.side_effect = reader
-                ports.case.run["actor"]["login"] = "unapproved"
+                ports.case.run["actor"]["type"] = "Bot"
                 with self.assertRaises(SystemExit):
                     resolver["main"]()
 
@@ -375,8 +416,12 @@ class ColdRetainedDocumentModeCases(StagedWorkerFixture, unittest.TestCase):
                 "enabled": expected.get("stored_enabled", expected["enabled"]),
             }
             self.assertEqual(
-                OWNER["retained_worker_mode"](observed, target="f" * 40, cold_release=True),
+                OWNER["retained_worker_mode"](
+                    observed, target="f" * 40, cold_release=True
+                ),
                 expected,
             )
             with self.assertRaises(ValueError):
-                OWNER["retained_worker_mode"](observed, target="e" * 40, cold_release=True)
+                OWNER["retained_worker_mode"](
+                    observed, target="e" * 40, cold_release=True
+                )

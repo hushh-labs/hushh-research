@@ -2,7 +2,9 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import type React from "react";
 import { describe, expect, it, vi } from "vitest";
 
-const { push } = vi.hoisted(() => ({
+const { push, refresh, resource } = vi.hoisted(() => ({
+  refresh: vi.fn(),
+  resource: { error: null as string | null, items: [] as Array<{ id: string; investor_user_id: string; investor_display_name: string; status: string }> },
   push: vi.fn(),
 }));
 
@@ -29,7 +31,8 @@ vi.mock("@/lib/persona/persona-context", () => ({
 
 vi.mock("@/lib/cache/use-stale-resource", () => ({
   useStaleResource: () => ({
-    data: { items: [], total: 0, page: 1, limit: 100, has_more: false },
+    error: resource.error, refresh,
+    data: { items: resource.items, total: 0, page: 1, limit: 100, has_more: false },
     loading: false,
   }),
 }));
@@ -132,6 +135,28 @@ vi.mock("@/components/ria/nearby/nearby-around-you", () => ({
 import RiaClientsPage from "@/app/ria/clients/page";
 
 describe("RIA Clients page", () => {
+  it("keeps approved cached clients reachable after a failed refresh and exposes retry", () => {
+    resource.error = "private transport detail";
+    resource.items = [
+      { id: "a", investor_user_id: "fixture-a", investor_display_name: "Approved fixture", status: "approved" },
+      { id: "b", investor_user_id: "fixture-b", investor_display_name: "Pending fixture", status: "pending" },
+    ];
+    try {
+      render(<RiaClientsPage />);
+      expect(screen.getByRole("alert")).toHaveTextContent("couldn’t refresh");
+      expect(screen.queryByText(resource.error)).toBeNull();
+      expect(screen.queryByText("Pending fixture")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      expect(refresh).toHaveBeenCalledWith({ force: true });
+      fireEvent.click(screen.getByRole("button", { name: /Approved fixture/ }));
+      expect(push.mock.lastCall?.[0]).toContain("fixture-a");
+    } finally {
+      resource.error = null;
+      resource.items = [];
+      push.mockClear();
+    }
+  });
+
   it("switches between Connected and Around You without routing away", () => {
     render(<RiaClientsPage />);
 

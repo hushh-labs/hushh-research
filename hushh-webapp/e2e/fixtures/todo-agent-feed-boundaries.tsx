@@ -201,13 +201,22 @@ export default function Link({
 }
 
 // Full parent layout uses the real Sheet/Tabs/To-do renderers; unrelated sources stay isolated.
+export function useSearchParams() { return new URLSearchParams(window.location.search); }
 export function useOneDisplayName() { return "One"; }
 export function usePathname() { return "/one"; }
-export function useRouter() { return { push: (_href: string) => {}, replace: (_href: string) => {}, prefetch: async () => {} }; }
+export function useRouter() { return { push: (href: string) => change({ href }), replace: (href: string) => change({ href }), refresh: () => {}, prefetch: async () => {} }; }
 export function useStaleResource() { return { data: { items: [], has_more: false }, loading: false, error: null, refresh: async () => {} }; }
 export function useFeedLiveRefresh() {}
 export function LiveMirrorPreview() { return null; }
 export function NativeFeaturePage({ children }: { children: ReactNode }) { return <>{children}</>; }
+
+// Firebase/provider calls stay synthetic even through native workspace imports.
+export const app = null;
+export const auth = null;
+export const AuthService = { getCurrentUser: () => ({ uid: "fixture-owner" }), getIdToken: async () => "fixture-only" };
+export const getRecaptchaVerifier = () => { throw new Error("Authentication mutations are outside this fixture"); };
+export const prepareRecaptchaVerifier = () => { throw new Error("Authentication mutations are outside this fixture"); };
+export const resetRecaptcha = () => {};
 
 export const GEMINI_RUNTIME_CREDENTIAL_REF = "fixture-only";
 export const GEMINI_RUNTIME_TRANSPORT_REF = "fixture-only";

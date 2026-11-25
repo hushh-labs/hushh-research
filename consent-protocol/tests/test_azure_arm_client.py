@@ -538,3 +538,106 @@ def test_exact_replacement_verdict_settles_original_request_after_lost_poll(verd
         len(session.sent) == 2
         and session.sent[0]["headers"]["x-ms-client-request-id"] == journal.events[0][1]
     )
+
+
+def test_synchronous_created_resource_with_relative_location_settles_without_polling():
+    journal = _MutationJournal()
+    uami_path = "/subscriptions/s/resourceGroups/g/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-pod-slot03"
+    session = _Session(
+        _Response(
+            201,
+            {"id": uami_path, "properties": {"provisioningState": "Succeeded", "clientId": "c1"}},
+            {"Location": uami_path},
+        )
+    )
+    client = ArmClient(_BEARER, session=session, mutations=journal)
+    body = client.put(
+        uami_path, api_version=API_VERSIONS["managed_identity"], body={"location": "eastus2"}
+    )
+    assert body["properties"]["clientId"] == "c1"
+    assert len(session.sent) == 1
+    assert [event[0] for event in journal.events] == ["intent", "acknowledgement", "terminal"]
+    assert journal.events[-1][2] == "succeeded"
+
+
+def test_regional_arm_subdomain_async_operation_is_trusted_and_lookalike_rejected():
+    regional_op = "https://eastus2.management.azure.com/subscriptions/s/providers/Microsoft.App/locations/eastus2/operationStatuses/op-1?api-version=2025-01-01"
+    session = _Session(
+        _Response(
+            201,
+            {"properties": {"provisioningState": "Creating"}},
+            {"Azure-AsyncOperation": regional_op},
+        ),
+        _Response(200, {"status": "Succeeded"}),
+        _Response(200, {"id": _PATH, "properties": {"provisioningState": "Succeeded"}}),
+    )
+    client, _ = _client(session)
+    assert client.put(_PATH, api_version=API_VERSIONS["container_apps"], body={})["id"] == _PATH
+    assert session.sent[1]["url"] == regional_op
+
+    lookalike = _Session(
+        _Response(
+            202,
+            {},
+            {"Azure-AsyncOperation": "https://eastus2.management.azure.com.evil.example/op"},
+        ),
+    )
+    lookalike_client, _ = _client(lookalike)
+    with pytest.raises(ArmError) as refused:
+        lookalike_client.put(_PATH, api_version=API_VERSIONS["container_apps"], body={})
+    assert refused.value.code == "UntrustedPollUrl"
+    assert len(lookalike.sent) == 1
+
+
+def test_synchronous_created_resource_drops_regional_async_operation_header_in_receipt():
+    journal = _MutationJournal()
+    uami_path = (
+        "/subscriptions/s/resourceGroups/g/providers/Microsoft.ManagedIdentity/"
+        "userAssignedIdentities/id-hussh-one-pod"
+    )
+    regional_op = (
+        "https://eastus2.management.azure.com/subscriptions/s/providers/"
+        "Microsoft.ManagedIdentity/locations/eastus2/operationStatuses/op-sync?api-version=2023-01-31"
+    )
+    session = _Session(
+        _Response(
+            201,
+            {
+                "id": uami_path,
+                "properties": {"provisioningState": "Succeeded", "principalId": "p1"},
+            },
+            {"Azure-AsyncOperation": regional_op},
+        )
+    )
+    client = ArmClient(_BEARER, session=session, mutations=journal)
+    body = client.put(
+        uami_path, api_version=API_VERSIONS["managed_identity"], body={"location": "eastus2"}
+    )
+    assert body["properties"]["principalId"] == "p1"
+    assert [event[0] for event in journal.events] == ["intent", "acknowledgement", "terminal"]
+    ack_receipt = journal.events[1][2]
+    assert ack_receipt.status == 201
+    assert ack_receipt.operation_url is None
+    assert ack_receipt.operation_url_sha256 is None
+    assert ack_receipt.operation_kind is None
+    assert journal.events[-1][2] == "succeeded"
+
+
+def test_async_regional_poll_sanitizes_receipt_operation_url_for_sql_guard():
+    journal = _MutationJournal()
+    regional_op = (
+        "https://eastus2.management.azure.com/subscriptions/s/providers/"
+        "Microsoft.ManagedIdentity/locations/eastus2/operationStatuses/op-async?api-version=2023-01-31"
+    )
+    session = _Session(
+        _Response(202, {}, {"Azure-AsyncOperation": regional_op}),
+        _Response(200, {"status": "Succeeded"}),
+        _Response(200, {"id": _PATH, "properties": {"provisioningState": "Succeeded"}}),
+    )
+    client = ArmClient(_BEARER, session=session, sleep=lambda _: None, mutations=journal)
+    assert client.put(_PATH, api_version="2023-01-31", body={"location": "eastus2"})["id"] == _PATH
+    ack_receipt = journal.events[1][2]
+    assert ack_receipt.operation_url is None
+    assert ack_receipt.operation_kind is None
+    assert len(ack_receipt.operation_url_sha256 or "") == 64
+    assert journal.events[-1][2] == "succeeded"

@@ -71,7 +71,7 @@ export function podCloudProvider(target: unknown): OwnerCloudProvider | null {
 
 /** Display title identifying both Hussh Pods and its backing cloud provider when known. */
 export function hostedPodDisplayLabel(target: unknown): string {
-  if (target === "ace") return "Hussh Pods · Personal Sandbox";
+  if (target === "ace") return "Hussh Confidential Sandbox";
   const provider = hostedPodProvider(target);
   return provider ? `Hussh Pods · ${HOSTED_POD_PROVIDER_LABELS[provider]}` : "Hussh Pods";
 }
@@ -96,9 +96,10 @@ export function isAzureHomeSelectable(): boolean {
  * Whether the Hussh Pods card is paused for maintenance on this build.
  *
  * Explicit `NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE` ("0"/"false" vs "1"/"true")
- * always wins. When unset, the hosted `dev` and `uat` lanes open the card for
- * Personal Sandbox qualification while `production` and unconfigured builds
- * remain fail-closed.
+ * always wins. When unset, the hosted `dev` lane (`NEXT_PUBLIC_APP_ENV=dev`)
+ * opens the card for admitted Dev pilot owners while `uat`, `production`, and
+ * unconfigured builds remain fail-closed (backend `/byoc/hosted/select` still
+ * enforces fixed-cohort admission independently).
  */
 export function isHostedPodTierUnderMaintenance(): boolean {
   const explicit = String(process.env.NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE ?? "")
@@ -106,20 +107,19 @@ export function isHostedPodTierUnderMaintenance(): boolean {
     .toLowerCase();
   if (explicit === "0" || explicit === "false") return false;
   if (explicit === "1" || explicit === "true") return true;
-  const appEnv = String(process.env.NEXT_PUBLIC_APP_ENV ?? "").trim().toLowerCase();
-  return appEnv !== "dev" && appEnv !== "uat";
+  return String(process.env.NEXT_PUBLIC_APP_ENV ?? "").trim().toLowerCase() !== "dev";
 }
 
 /** Whether migrating an active pod onto Dev Hussh Pods (Azure Umbrella Cell) is available. */
 export function isHostedAzureMigrationAvailable(): boolean {
+  if (isPooledSandboxSwitchAvailable()) return false;
   if (process.env.NEXT_PUBLIC_HOSTED_AZURE_MIGRATION_ENABLED === "1") return true;
-  return String(process.env.NEXT_PUBLIC_APP_ENV ?? "").trim().toLowerCase() === "dev";
+  return false;
 }
 
 /** Whether switching onto Pooled Personal Sandbox is available on this build. */
 export function isPooledSandboxSwitchAvailable(): boolean {
-  const appEnv = String(process.env.NEXT_PUBLIC_APP_ENV ?? "").trim().toLowerCase();
-  return appEnv === "dev" || appEnv === "uat";
+  return String(process.env.NEXT_PUBLIC_APP_ENV ?? "").trim().toLowerCase() === "dev";
 }
 
 /** A private mode chooses direct admission; it never establishes authority. */
@@ -133,7 +133,7 @@ export function isPrivatePodBinding(binding: Record<string, unknown>): boolean {
     return !("hosting_mode" in binding);
   }
   if (binding.deployment_target === "ace" && !("hosting_mode" in binding)) {
-    return binding.environment === "dev" || binding.environment === "uat";
+    return binding.environment === "dev";
   }
   return (
     (binding.deployment_target === "gcp" || binding.deployment_target === "azure")

@@ -1,4 +1,3 @@
-import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import {
   act,
   cleanup,
@@ -11,6 +10,8 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect, type ReactNode } from "react";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import * as idleScheduler from "@/lib/perf/idle-scheduler";
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 
 const mapHarness = vi.hoisted(() => {
   type CameraListener = (data: unknown) => void;
@@ -83,6 +84,14 @@ const serviceHarness = vi.hoisted(() => ({
   requestNearbyConnection: vi.fn(),
   storeEnvelope: vi.fn(),
   updateMapPreferences: vi.fn(),
+}));
+
+const checkInCaptureHarness = vi.hoisted(() => ({
+  options: null as {
+    maxAgeMs?: number;
+    fresh?: boolean;
+    requireMeasurement?: boolean;
+  } | null,
 }));
 
 const overlayHarness = vi.hoisted(() => ({
@@ -258,6 +267,7 @@ vi.mock(
       onStateChange,
       onSearchAreaChange,
       onPlaceFocusChange,
+      captureCurrentPosition,
       presentationReady = true,
       onStartupReadyChange,
       rendererAccess,
@@ -270,6 +280,9 @@ vi.mock(
       onStateChange: (state: unknown, confirmedCheckIn?: true) => void;
       onSearchAreaChange: (point: unknown) => void;
       onPlaceFocusChange: (focus: unknown) => void;
+      captureCurrentPosition: (
+        options?: NonNullable<typeof checkInCaptureHarness.options>,
+      ) => Promise<unknown>;
     }) => {
       useEffect(() => { if (open && !experienceHarness.startupHeld) onStartupReadyChange?.(true); }, [open, onStartupReadyChange]);
       return (
@@ -279,6 +292,18 @@ vi.mock(
         data-open={open && presentationReady ? "true" : "false"}
       >
         {open && presentationReady ? rendererAccess : null}
+        {checkInCaptureHarness.options ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (checkInCaptureHarness.options) {
+                void captureCurrentPosition(checkInCaptureHarness.options);
+              }
+            }}
+          >
+            Capture current check-in position
+          </button>
+        ) : null}
         <button data-testid="finish-check-in-startup" onClick={() => onStartupReadyChange?.(true)}>Finish startup</button>
         <button
           type="button"
@@ -462,6 +487,7 @@ Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
 });
 
 beforeEach(() => {
+  checkInCaptureHarness.options = null;
   renderWebMarkerElements = false;
   webMarkerElements = new Map();
   mapHarness.map.addMarkers.mockImplementation(async (markers) => markers.map((value, index) => {
@@ -696,6 +722,60 @@ afterEach(() => {
 });
 
 describe("LocationImmersiveMap demo experience", () => {
+  it.each([
+    ["fresh", { fresh: true }],
+    ["zero-age", { maxAgeMs: 0 }],
+    ["measurement", { requireMeasurement: true }],
+  ] as const)(
+    "forwards %s capture requirements while an earlier fix is pending",
+    async (_label, options) => {
+      experienceHarness.demoMode = false;
+      experienceHarness.nearbyAvailable = true;
+      stubCheckInMapGeometry();
+      seedConsentedRenderer();
+      checkInCaptureHarness.options = options;
+
+      type Point = Awaited<ReturnType<typeof serviceHarness.captureCurrentPosition>>;
+      let finishEntryCapture: ((point: Point) => void) | undefined;
+      const entryCapture = new Promise<Point>((resolve) => {
+        finishEntryCapture = resolve;
+      });
+      serviceHarness.captureCurrentPosition.mockReturnValueOnce(entryCapture);
+      render(<LocationImmersiveMap surface="check-in" />);
+
+      try {
+        await waitFor(() => {
+          expect(serviceHarness.captureCurrentPosition).toHaveBeenCalled();
+          expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+            "data-map-ready",
+            "true",
+          );
+        });
+        await act(async () => {
+          fireEvent.click(
+            screen.getByRole("button", {
+              name: "Capture current check-in position",
+            }),
+          );
+        });
+        await waitFor(() => {
+          expect(serviceHarness.captureCurrentPosition).toHaveBeenCalledWith(options);
+        });
+      } finally {
+        await act(async () => {
+          finishEntryCapture?.({
+            latitude: 37.776,
+            longitude: -122.418,
+            accuracyM: 12,
+            capturedAt: "2026-07-23T00:00:00.000Z",
+            sourcePlatform: "ios",
+          });
+          await entryCapture;
+        });
+      }
+    },
+  );
+
   it("opens Your Map directly with existing acceptance without changing preferences", async () => {
     experienceHarness.demoMode = false;
     render(<LocationImmersiveMap />);
@@ -3344,6 +3424,10 @@ describe("LocationImmersiveMap reported map defects", () => {
     { native: false, count: 1 }, { native: false, count: 2 },
     { native: true, count: 1 }, { native: true, count: 2 },
   ])("frames owner and $count incoming people on entry (native=$native), once, with manual fitting retained", async ({ native, count }) => {
+    // Drive visibility directly so the exact read count measures that event.
+    const registerPeriodicTask = idleScheduler.registerPeriodicTask;
+    vi.spyOn(idleScheduler, "registerPeriodicTask").mockImplementation(task =>
+      task.id === "location-map:markers" ? () => undefined : registerPeriodicTask(task));
     platformHarness.native = native;
     stubPhoneGeometry();
     serviceHarness.captureCurrentPosition.mockResolvedValue({
@@ -3399,7 +3483,7 @@ describe("LocationImmersiveMap reported map defects", () => {
     // With people to show it frames them and says nothing -- the message is
     // reserved for the empty case it explains.
     expect(toast.message).not.toHaveBeenCalledWith(
-      "No one is sharing a live location with you yet.", { className: connectTypography.toast },
+      "No one is sharing a live location with you yet.",
     );
   });
 

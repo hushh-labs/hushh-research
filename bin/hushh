@@ -83,6 +83,7 @@ Consent Protocol package commands:
   typecheck
   test
   test-ci
+  floci
   security
   accuracy
   ci
@@ -131,6 +132,7 @@ Usage:
   ./bin/hushh agents ci-rerun --run-id <id> --expected-attempt <n> --sha <sha> [--failed|--all|--job-id <id>] [--json|--text]
   ./bin/hushh agents data-model-audit [--database-url-env <env-name>] [--pkm-aggregates] [--json|--text]
   ./bin/hushh agents audit [--json|--text]
+  ./bin/hushh agents release-parity [--dev-ref <ref>] [--uat-ref <ref>] [--main-ref <ref>] [--require-clean-upstream] [--live-cloud] [--json|--text]
   ./bin/hushh agents rca --surface <uat|runtime|ci> [--project <gcp-project>] [--region <region>] [--backend-service <name>] [--frontend-service <name>] [--backend-url <url>] [--frontend-url <url>] [--report-path <path>] [--json|--text]
 EOF
 }
@@ -585,6 +587,12 @@ run_agents() {
       fi
       exec python3 "$REPO_ROOT/.agents/skills/repo-context/scripts/repo_scan.py" audit "$format_flag"
       ;;
+    release-parity)
+      if [ "${#args[@]}" -gt 0 ]; then
+        exec python3 "$REPO_ROOT/scripts/ops/release_train_parity.py" "${args[@]}" "$format_flag"
+      fi
+      exec python3 "$REPO_ROOT/scripts/ops/release_train_parity.py" "$format_flag"
+      ;;
     rca)
       if [ "${#args[@]}" -gt 0 ]; then
         exec python3 "$REPO_ROOT/.agents/skills/autonomous-rca-governance/scripts/rca_runner.py" "${args[@]}" "$format_flag"
@@ -772,7 +780,7 @@ run_protocol() {
     sync|check-sync|push|push-force|verify-upstream-ci|verify-ci-parity|setup|verify-setup)
       exec bash "$REPO_ROOT/scripts/protocol/subtree.sh" "$subcommand" "$@"
       ;;
-    dev|lint|format|format-check|fix|typecheck|test|test-ci|security|accuracy|ci|clean)
+    dev|lint|format|format-check|fix|typecheck|test|test-ci|floci|security|accuracy|ci|clean)
       cd "$REPO_ROOT/consent-protocol"
       exec ./bin/consent-protocol "$subcommand" "$@"
       ;;

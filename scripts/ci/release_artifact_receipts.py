@@ -35,6 +35,7 @@ PRODUCTION_RELEASE_MEMBERS = frozenset(
         "prod-document-reader-compatibility.json",
         "phone-rollback/plan.json",
         "phone-rollback/qualified.json",
+        "phone-rollback/workos-after.json",
     }
 )
 
@@ -67,9 +68,7 @@ def validate_revision_names(release):
         if not isinstance(revision, str) or not re.fullmatch(pattern, revision):
             raise retention.UnsafeState(f"source release lacks a valid {lane} revision")
         rollback = release.get("predeploy", {}).get(f"{lane}_revision") or ""
-        if rollback and (
-            not isinstance(rollback, str) or not re.fullmatch(pattern, rollback)
-        ):
+        if rollback and (not isinstance(rollback, str) or not re.fullmatch(pattern, rollback)):
             raise retention.UnsafeState(f"source release has invalid {lane} rollback")
 
 
@@ -188,18 +187,12 @@ def _upload_window(
         timestamp(upload.get("started_at")),
         timestamp(upload.get("completed_at")),
     )
-    if (
-        not started
-        or not ended
-        or not timedelta(0) <= ended - started <= timedelta(minutes=5)
-    ):
+    if not started or not ended or not timedelta(0) <= ended - started <= timedelta(minutes=5):
         raise retention.UnsafeState("release attempt upload window is invalid")
     return started, ended
 
 
-def _artifact_created(
-    artifact: Document, run: Document, timestamp: Timestamp
-) -> datetime:
+def _artifact_created(artifact: Document, run: Document, timestamp: Timestamp) -> datetime:
     created = timestamp(artifact.get("created_at"))
     origin = artifact.get("workflow_run") or {}
     if (
@@ -241,11 +234,7 @@ def resolve_replayed_artifact(
     artifacts = result.get("artifacts")
     if not isinstance(artifacts, list) or result.get("total_count") != len(artifacts):
         raise retention.UnsafeState("release artifact inventory is incomplete")
-    matches = [
-        item
-        for item in artifacts
-        if isinstance(item, dict) and item.get("name") == name
-    ]
+    matches = [item for item in artifacts if isinstance(item, dict) and item.get("name") == name]
     if len(matches) < 2:
         raise retention.UnsafeState("release artifact is expired or ambiguous")
     jobs = api(repository, f"runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
@@ -303,19 +292,14 @@ def _status_bytes(
         with ZipFile(BytesIO(archive)) as bundle:
             entries = bundle.infolist()
             names = [entry.filename for entry in entries]
-            allowed = _member_names(
-                status_name, allow_legacy_production=allow_legacy_production
-            )
+            allowed = _member_names(status_name, allow_legacy_production=allow_legacy_production)
             matches = [name for name in names if name in allowed]
             if (
                 len(entries) > 500
                 or len(names) != len(set(names))
                 or len(matches) != 1
                 or sum(entry.file_size for entry in entries) > 20 * 1024 * 1024
-                or any(
-                    path.is_absolute() or ".." in path.parts
-                    for path in map(Path, names)
-                )
+                or any(path.is_absolute() or ".." in path.parts for path in map(Path, names))
             ):
                 raise retention.UnsafeState("release artifact has unsafe files")
             status = bundle.getinfo(matches[0])
@@ -353,9 +337,9 @@ def immutable_archive(
         timeout=timeout,
         text=False,
     ).stdout
-    if len(archive) != artifact["size_in_bytes"] or hashlib.sha256(
-        archive
-    ).hexdigest() != artifact["digest"].removeprefix("sha256:"):
+    if len(archive) != artifact["size_in_bytes"] or hashlib.sha256(archive).hexdigest() != artifact[
+        "digest"
+    ].removeprefix("sha256:"):
         raise retention.UnsafeState("release artifact digest changed")
     return archive
 
@@ -371,12 +355,8 @@ def download_replayed_artifact(
     allow_legacy_production: bool = False,
 ) -> None:
     """Download an immutable digest-verified archive and create only its status."""
-    archive = immutable_archive(
-        repository, artifact, run_command=run_command, timeout=timeout
-    )
-    status = _status_bytes(
-        archive, status_name, allow_legacy_production=allow_legacy_production
-    )
+    archive = immutable_archive(repository, artifact, run_command=run_command, timeout=timeout)
+    status = _status_bytes(archive, status_name, allow_legacy_production=allow_legacy_production)
     if directory.is_symlink():
         raise retention.UnsafeState("release artifact directory is a symlink")
     directory.mkdir(parents=True, exist_ok=True)
@@ -408,9 +388,7 @@ def _checkpoint_names(services) -> set[str]:
 
 def _checkpoint_shape(members, services, allow_missing_readme=False):
     allowed = _checkpoint_names(services) | {"README.txt"}
-    required = (
-        {"completed.json"} if allow_missing_readme else {"completed.json", "README.txt"}
-    )
+    required = {"completed.json"} if allow_missing_readme else {"completed.json", "README.txt"}
     if (
         not isinstance(members, dict)
         or not required.issubset(members)

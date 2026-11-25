@@ -15,3 +15,5 @@ Validate, admit and explicitly release a selected application revision.
 - [Validate the isolated PLG source](plg-only-source-validation.md)
 - [The pod completion judge](pod-completion-judge.md)
 - [Source and Release Rollback Runbook](source-snapshot-rollback.md)
+
+- [Repository history maintenance](repository-history-maintenance.md): separately approved preservation and recovery procedure; no history rewrite is authorized by a source sync.

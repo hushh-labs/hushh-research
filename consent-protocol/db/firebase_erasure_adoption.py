@@ -25,8 +25,10 @@ def qualification_sql(*, required: bool = False) -> str:
             if pin["proconfig"] is None
             else "ARRAY[" + ",".join("'" + v + "'" for v in pin["proconfig"]) + "]::text[]"
         )
+        accepted = pin.get("accepted_hashes") or (pin["hash"],)
+        hashes_sql = "ARRAY[" + ",".join("'" + h + "'" for h in accepted) + "]::text[]"
         rows.append(
-            f"('{signature}','{pin['hash']}','{pin['provolatile']}',{config},{str(pin['publicExecute']).lower()})"
+            f"('{signature}',{hashes_sql},'{pin['provolatile']}',{config},{str(pin['publicExecute']).lower()})"
         )
     triggers = ",".join(f"('{p['relname']}','{p['tgname']}','{p['hash']}')" for p in TRIGGERS)
     absent = "RAISE EXCEPTION 'Firebase erasure contract is absent';" if required else "RETURN;"
@@ -47,10 +49,10 @@ BEGIN
  IF registry_owner IS NULL OR current_user<>session_user OR registry_owner<>(SELECT oid FROM pg_roles WHERE rolname=current_user) THEN
   RAISE EXCEPTION 'Firebase erasure requires the qualified Dev database owner';
  END IF;
- FOR spec IN SELECT * FROM (VALUES {",".join(rows)}) p(signature,sha256,volatility,configuration,public_execute) LOOP
+ FOR spec IN SELECT * FROM (VALUES {",".join(rows)}) p(signature,sha256s,volatility,configuration,public_execute) LOOP
   SELECT p.*,encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex') AS sha256
    INTO actual FROM pg_proc p WHERE p.oid=to_regprocedure('public.'||spec.signature);
-  IF actual.sha256 IS DISTINCT FROM spec.sha256 OR actual.proowner IS DISTINCT FROM registry_owner
+  IF actual.sha256 IS NULL OR NOT (actual.sha256 = ANY(spec.sha256s)) OR actual.proowner IS DISTINCT FROM registry_owner
    OR actual.prosecdef IS DISTINCT FROM false OR actual.prokind IS DISTINCT FROM 'f'
    OR actual.provolatile::text IS DISTINCT FROM spec.volatility OR actual.proconfig IS DISTINCT FROM spec.configuration THEN
    RAISE EXCEPTION 'Firebase erasure function family changed: %',spec.signature;
@@ -252,6 +254,12 @@ PINS = {
     },
     "account_provider_cleanup_qualified(jsonb,jsonb,text,uuid)": {
         "hash": "e51c3dfb7150215f4f8c223e90ccbf9937bd054c66553d11dce73ec0a46d5b30",
+        "accepted_hashes": (
+            # Migration 423_account_shared_provider_authority.sql
+            "e51c3dfb7150215f4f8c223e90ccbf9937bd054c66553d11dce73ec0a46d5b30",
+            # Migration 455_uat_account_cleanup_prior_drive_revocation.sql
+            "1866985ec80a07532b2fc0a58110121da7184451bcfe3ba849a64d2cf706a500",
+        ),
         "provolatile": "i",
         "prosecdef": False,
         "prokind": "f",

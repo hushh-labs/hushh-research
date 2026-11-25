@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy import text
 
+from hushh_mcp.services import drive_sharing_service as sharing_module
 from hushh_mcp.services import drive_trusted_auto_service as trusted_module
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
 from hushh_mcp.services.drive_request_bulk_service import DriveRequestBulkService
@@ -176,17 +177,44 @@ async def test_a_typed_outbox_read_leaves_other_notices_in_their_place(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("requires_plan", [False, True])
+async def test_allow_wakes_checkout_only_when_it_can_progress(monkeypatch, requires_plan):
+    store = SimpleNamespace(
+        allow_request=AsyncMock(
+            return_value={"ownerAllowed": True, "_checkout_after_plan": requires_plan}
+        )
+    )
+    wake = AsyncMock()
+    monkeypatch.setattr(sharing_module, "wake_drive_work_stages", wake)
+    service = sharing_module.DriveSharingService(store=store, require_owner=AsyncMock())
+
+    assert await service.allow(
+        user_id="owner", request_id="request", revision=1, amount_cents=50
+    ) == {"ownerAllowed": True}
+    wake.assert_awaited_once_with("v1", "suggestions", *(() if requires_plan else ("sharing",)))
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("v1_only", "stages"), [(False, ["suggestions", "sharing"]), (True, ["v1"])]
+    ("v1_only", "committed", "stages"),
+    [
+        (False, False, ["suggestions", "sharing"]),
+        (False, True, ["sharing", "suggestions"]),
+        (True, False, ["v1"]),
+    ],
 )
-async def test_a_started_search_wakes_its_slice_and_the_checkout_lane(monkeypatch, v1_only, stages):
-    # Checkout needs only a started search. Waiting for the next sharing sweep
-    # added up to a minute before the payment button. The V1 slice runs Checkout.
+async def test_a_started_search_wakes_its_slice_and_the_checkout_lane(
+    monkeypatch, v1_only, committed, stages
+):
     class Started:
         def __init__(self, **_):
             pass
 
-        async def start_search(self, **_):
+        async def start_search(self, *, on_search_committed=None, **_):
+            if committed:
+                await on_search_committed()
+            if v1_only:
+                assert on_search_committed is None
             return {"status": "queued"}
 
     monkeypatch.setattr(trusted_module, "DriveRequestBulkService", Started)
@@ -197,7 +225,7 @@ async def test_a_started_search_wakes_its_slice_and_the_checkout_lane(monkeypatc
         ),
         defer_trusted_search=AsyncMock(),
     )
-    wake = AsyncMock()
+    wake = AsyncMock(return_value=True)
     auto = DriveTrustedAutoService(
         sharing=sharing, bulk=SimpleNamespace(), payment=SimpleNamespace(), wake=wake
     )

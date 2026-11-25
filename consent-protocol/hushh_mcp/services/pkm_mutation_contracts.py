@@ -326,6 +326,7 @@ class PkmMutationPlanV2(BaseModel):
                 raise ValueError("auto_save_with_active_recipients_not_allowed")
         if (
             self.sharing_impact.active_recipient_count > 0
+            and self.confirmation_receipt.authorization_mode != "owner_connected_source_sync"
             and not self.confirmation_receipt.sharing_impact_acknowledged
         ):
             raise ValueError("sharing_impact_acknowledgement_required")

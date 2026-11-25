@@ -221,6 +221,7 @@ export function OneVoiceControl({
       }
     >
       <div
+        data-agent-bar-extras
         className={cn(
           "pointer-events-none flex flex-col gap-2",
           BOTTOM_CHROME_COLUMN_CLASSNAME,

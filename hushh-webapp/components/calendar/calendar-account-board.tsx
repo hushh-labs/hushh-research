@@ -1,7 +1,10 @@
 "use client";
 
+import { NativeCalendarLayer, NativeCalendarBoardScope, calendarNativeDayControls, useNativeCalendarFrame, useNativeCalendarEnabled, type CalendarNativeSection, type CalendarNativeRow } from "./native-calendar-workspace";
+import { shiftCalendarDate } from "./calendar-schedule-presentation";
+import { Browser } from "@capacitor/browser";
 import presentationStyles from "./calendar-presentation.module.css";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle, ChevronDown, Clock, MoreHorizontal, Plus, RefreshCw } from "@/components/icons";
 import { Cake, Confetti } from "@/components/icons/ui/calendar-occasion-icons";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
@@ -11,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
+import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { useCoarseClock, usePeriodicTask } from "@/lib/perf/use-periodic-task";
@@ -34,7 +38,7 @@ import { CalendarPersonAvatar } from "./calendar-person-avatar";
 import { CalendarInsights } from "./calendar-insights";
 import { CalendarBookingDialog, type BookingOpening } from "./calendar-booking-dialog";
 import { CalendarFollowupsService } from "@/lib/services/calendar-followups-service";
-import { CalendarJoinLink } from "./calendar-join-link";
+import { CalendarJoinLink, calendarJoinHref } from "./calendar-join-link";
 import { bookingLocalFields } from "@/lib/calendar/calendar-booking-time";
 import { calendarFollowupHref } from "@/lib/calendar/calendar-followup-notification";
 import { calendarTimeZone } from "@/lib/calendar/calendar-time-zone";
@@ -125,6 +129,12 @@ function declineLabel(event: CalendarEventSummary, viewingEmail: string, respons
 
 function accountLabel(email: string | null) { return email || "Google account"; }
 
+function accountEmailParts(email: string | null): [string, string] {
+  const value = accountLabel(email);
+  const at = value.indexOf("@");
+  return at > 0 ? [value.slice(0, at), value.slice(at)] : [value, ""];
+}
+
 function CalendarAccountPicker({ accounts, value, onChange, people }: {
   accounts: GoogleCalendarAccount[]; value: string; onChange: (accountId: string) => void; people: CalendarHusshPeople;
 }) {
@@ -157,6 +167,10 @@ function JoinVideoIcon() {
 }
 
 export function CalendarAccountBoard({ userId, status, calendarPeople, busy, connectionRevision, connectionNotice, token, getIdToken, getVaultOwnerToken, recoverVaultOwnerToken, onAddAccount, onReconnectAccount, onDisconnectAccount, onAllowMeetingFiles, onConnect, onMailConnect, onFollowupMailConnect, onChat }: Props) {
+  const nativeFrame = useNativeCalendarFrame();
+  const nativeEnabled = useNativeCalendarEnabled();
+  const [nativeSharedPage, setNativeSharedPage] = useState({ key: "", page: 0 });
+  const [nativePage, setNativePage] = useState({ key: "", page: 0 });
   const [restored, setRestored] = useState(() => {
     const value = consumeCalendarMeetingOAuthReturn(userId);
     return value && status.accounts?.some(account => account.account_id === value.accountId) ? value : null;
@@ -168,6 +182,13 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
   const [tab, setTab] = useState<"board" | "invitations" | "insights">(restored ? "insights" : "board");
   const [invitationAccount, setInvitationAccount] = useState(status.accounts?.[0]?.account_id || "default");
   const [insightsAccount, setInsightsAccount] = useState(restored?.accountId || status.accounts?.[0]?.account_id || "default");
+  useEffect(() => {
+    const accounts = status.accounts;
+    if (!accounts?.length) return;
+    const remaining = accounts[0]!.account_id;
+    setInvitationAccount(current => accounts.some(account => account.account_id === current) ? current : remaining);
+    setInsightsAccount(current => accounts.some(account => account.account_id === current) ? current : remaining);
+  }, [status.accounts]);
   const [followupIntent, setFollowupIntent] = useState<{ accountId: string; requestId: string } | null>(null);
   const intentRead = useRef(false);
   useEffect(() => {
@@ -202,6 +223,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
   const error = snapshot.key === key ? snapshot.error : null;
   const loading = snapshot.key !== key;
   const [selected, setSelected] = useState<Selection | null>(null);
+  const people = useMemo(() => calendarEventPeople(calendarPeople, board?.people, userId), [calendarPeople, board?.people, userId]);
   const [booking, setBooking] = useState<BookingOpening | null>(null);
   const bookingRef = useRef(false); bookingRef.current = Boolean(booking);
   const bookingTrigger = useRef<HTMLButtonElement | null>(null);
@@ -256,10 +278,13 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
   }), [userId]);
 
   const accounts = board?.accounts || [];
+  const recoverAccount = (account: (typeof accounts)[number]) => {
+    const reauth = account.status === "needs_reauth" || account.reason_code?.includes("reauth");
+    return reauth ? account.account_id === "default" ? onConnect("manage", true) : onReconnectAccount(account.account_id) : setRevision(value => value + 1);
+  };
   const selectedAccount = selected ? accounts.find(account => account.account_id === selected.accountId) : null;
   const selectedEvent = selectedAccount?.events.find(event => eventIdentity(event) === identity(selected!));
   const organizerEmail = selectedEvent?.organizer?.email;
-  const people = useMemo(() => calendarEventPeople(calendarPeople, board?.people, userId), [calendarPeople, board?.people, userId]);
   const selectedDeclines = (() => {
     if (!selectedEvent || !selectedAccount) return null;
     const email = selectedAccount.google_email;
@@ -280,15 +305,26 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
     || (organizerEmail && organizerEmail.toLowerCase() === selectedAccount?.google_email?.toLowerCase() ? "you" : organizerEmail);
   const overlaps = selected && board ? board.conflicts.filter(pair => pairIncludes(pair, selected)) : [];
   const findEvent = (item: Selection) => accounts.find(account => account.account_id === item.accountId)?.events.find(event => eventIdentity(event) === identity(item));
-  const open = (event: CalendarEventSummary, button: HTMLButtonElement) => {
+  const open = (event: CalendarEventSummary, button: HTMLButtonElement | null) => {
     trigger.current = button;
     setResolving(false);
     setConflictDraft({ selected: [], notes: {} });
     setSelected({ accountId: event.account_id || "default", calendarId: event.calendar_id || "primary", eventId: event.id || "" });
   };
-  const close = () => { if (!actionBusy) { setSelected(null); setResolving(false); setConflictDraft({ selected: [], notes: {} }); if (refreshOnClose.current) { refreshOnClose.current = false; setRevision(value => value + 1); } } };
+  const close = useCallback(() => { if (!actionBusy) { setSelected(null); setResolving(false); setConflictDraft({ selected: [], notes: {} }); if (refreshOnClose.current) { refreshOnClose.current = false; setRevision(value => value + 1); } } }, [actionBusy]);
+  useEffect(() => {
+    if (loading || actionBusy) return;
+    if (selected && !selectedEvent) close();
+    if (occasionAccountId && !occasionEvents.length) setOccasionAccountId(null);
+  }, [loading, actionBusy, selected, selectedEvent, close, occasionAccountId, occasionEvents.length]);
   const checkedAt = board?.checked_at ? new Date(board.checked_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : null;
-  const openBooking = (window: { start_at: string; end_at: string }, accountId: string | null, button: HTMLButtonElement) => {
+  const openBooking = (window: { start_at: string; end_at: string }, accountId: string | null, button: HTMLButtonElement | null) => {
+    const openings = accountId ? board?.accounts.find(account => account.account_id === accountId)?.free_windows : board?.shared_free_windows;
+    if (busy || !board?.complete || error || board.date !== date || board.time_zone !== zone ||
+      !openings?.some(item => item.start_at === window.start_at && item.end_at === window.end_at)) {
+      morphyToast.error("Refresh Calendar before scheduling from this time.");
+      return;
+    }
     bookingTrigger.current = button;
     setBooking({ ...window, accountId, scope: accountId ? "account" : "all" });
   };
@@ -304,7 +340,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
     else setRevision(value => value + 1);
   };
 
-  return <AppPageShell width="agent" headerContentSpacing="compact" className={`${styles.shell} ${presentationStyles.scope}`} data-connect-type-scale="page" nativeTest={{ routeId: ROUTES.CALENDAR, marker: "native-route-calendar", authState: "authenticated", dataState: loading ? "loading" : error ? "error" : board?.complete ? "loaded" : "unavailable-valid" }}>
+  const content = <AppPageShell ref={nativeFrame} width="agent" headerContentSpacing="compact" className={`${styles.shell} ${presentationStyles.scope}`} data-connect-type-scale="page" nativeTest={{ routeId: ROUTES.CALENDAR, marker: "native-route-calendar", authState: "authenticated", dataState: loading ? "loading" : error ? "error" : board?.complete ? "loaded" : "unavailable-valid" }}>
     <div className={styles.content} data-calendar-account-board data-calendar-presentation>
       <PageHeader title="Calendar" titleRole="agent" titleVisuallyHidden actionsInlineMobile className={styles.accountSummary}
         description={<span className={styles.description}>{status.accounts?.length || accounts.length} of 3 Google accounts added</span>}
@@ -313,7 +349,9 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
           <Button variant="plain" size="icon" className="text-[color:var(--app-accent)]" aria-label="Refresh Calendar" disabled={busy || actionBusy} onClick={refreshCurrentView}><RefreshCw aria-hidden className="size-5" /></Button>
         </div>} />
       {connectionNotice}
-      <div className={styles.topTabs}><SegmentedTabs ariaLabel="Calendar sections" value={tab} onValueChange={value => setTab(value as typeof tab)} options={[{ value: "board", label: "Board" }, { value: "invitations", label: "Invitations" }, { value: "insights", label: "Insights" }]} /></div>
+      <div className={styles.topTabs}><TopShellTabs tabSet={{ id: "calendar", label: "Calendar sections", queryParam: null, activeValue: tab,
+        tabs: [{ value: "board", label: "Board", href: ROUTES.CALENDAR }, { value: "invitations", label: "Invitations", href: ROUTES.CALENDAR }, { value: "insights", label: "Insights", href: ROUTES.CALENDAR }] }} onValueChange={value => setTab(value as typeof tab)} /></div>
+      <div key={tab} className="motion-step-enter" role="tabpanel" id={`top-shell-calendar-panel-${tab}`} aria-labelledby={`top-shell-calendar-tab-${tab}`}>
       {tab === "board" ? <>
         <div className={styles.toolbar}>
           <CalendarDateNavigation date={date} today={today} disabled={busy || actionBusy} onChange={setDate} label="Calendar board date" />
@@ -368,7 +406,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
                 </div>
                 <p className={styles.connectionState} data-status={account.status}><span aria-hidden="true" />{account.status === "complete" ? "Connected" : account.status === "needs_reauth" ? "Reconnect needed" : "Check incomplete"}</p>
                 <div className={styles.accountTabs}><SegmentedTabs ariaLabel={`View for ${accountLabel(account.google_email)}`} variant="filter" value={view} onValueChange={value => setViews(current => ({ ...current, [account.account_id]: value as "events" | "free" }))} options={[{ value: "events", label: `Events (${account.events.length})` }, { value: "free", label: "Free time" }]} /></div>
-                {account.status !== "complete" ? <div className={styles.accountError} role="status"><AlertTriangle aria-hidden className="size-4" /><p>{account.error || "This account could not be checked. Its time is excluded from shared availability."}</p><CalendarCompactAction onClick={() => account.status === "needs_reauth" || account.reason_code?.includes("reauth") ? account.account_id === "default" ? onConnect("manage", true) : onReconnectAccount(account.account_id) : setRevision(value => value + 1)}>{account.status === "needs_reauth" || account.reason_code?.includes("reauth") ? "Reconnect" : "Retry check"}</CalendarCompactAction></div> : view === "events" ? <div className={styles.accountStream}>
+                {account.status !== "complete" ? <div className={styles.accountError} role="status"><AlertTriangle aria-hidden className="size-4" /><p>{account.error || "This account could not be checked. Its time is excluded from shared availability."}</p><CalendarCompactAction onClick={() => recoverAccount(account)}>{account.status === "needs_reauth" || account.reason_code?.includes("reauth") ? "Reconnect" : "Retry check"}</CalendarCompactAction></div> : view === "events" ? <div className={styles.accountStream}>
                   {account.unreadable_calendars.length ? <p className={styles.coverage}>Event details unavailable for {account.unreadable_calendars.map(calendar => calendar.name || calendar.id).join(", ")}. Busy time is still checked.</p> : null}
                   <div className={styles.eventBreakdown}><span>{meetings.length} meeting{meetings.length === 1 ? "" : "s"}</span>{occasions.length ? <button type="button" onClick={() => setOccasionAccountId(account.account_id)} aria-label={`View ${occasions.length} occasion${occasions.length === 1 ? "" : "s"} for ${accountLabel(account.google_email)}`}><span className={styles.occasionIcons} aria-hidden="true">{occasions.some(event => boardOccasionKind(event) === "birthday") ? <Cake /> : null}{occasions.some(event => boardOccasionKind(event) === "holiday") ? <Confetti /> : null}</span>{occasions.length} occasion{occasions.length === 1 ? "" : "s"}</button> : null}</div>
                   <div className={styles.eventViewport} role="region" aria-label={`Calendar events for ${accountLabel(account.google_email)}`} tabIndex={scrollEvents ? 0 : undefined} data-scrollable={scrollEvents || undefined}>
@@ -393,6 +431,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
         <CalendarAccountPicker accounts={status.accounts || []} value={insightsAccount} onChange={setInsightsAccount} people={people} />
         {status.accounts?.find(account => account.account_id === insightsAccount)?.connected ? <CalendarInsights key={`${userId}:${insightsAccount}:${zone}`} userId={userId} account={status.accounts.find(account => account.account_id === insightsAccount)!} today={today} zone={zone} connectionRevision={connectionRevision} refreshRevision={insightsRefreshRevision} refreshControl="external" initialLibrary={restored?.accountId === insightsAccount ? restored : null} getIdToken={getIdToken} getVaultOwnerToken={getVaultOwnerToken} recoverVaultOwnerToken={recoverVaultOwnerToken} onAllowMeetingFiles={onAllowMeetingFiles} onFollowupMailConnect={onFollowupMailConnect} followupRequestId={followupIntent?.accountId === insightsAccount ? followupIntent.requestId : null} onFollowupIntentHandled={() => setFollowupIntent(null)} onReviewFollowupMeeting={(request, startAt, endAt, timeZone) => setBooking({ start_at: startAt, end_at: endAt, accountId: insightsAccount, scope: "account", titleHint: request.title, timeZoneHint: timeZone, followupRequest: { id: request.id, revision: request.revision } })} /> : <p role="alert">Reconnect this account to see its insights.</p>}
       </section>}
+      </div>
       <div className={styles.footer}><Button onClick={() => onChat()} disabled={busy}>Try Calendar Agent with One</Button></div>
       {booking ? <CalendarBookingDialog key={`${booking.start_at}:${booking.end_at}:${booking.accountId || "all"}:${booking.followupRequest?.id || ""}`} opening={booking} accounts={status.accounts || []} people={calendarPeople} accountPeople={people} userId={userId} token={token} getIdToken={getIdToken} timeZone={booking.timeZoneHint || zone} alternatives={board?.shared_free_windows || []} onClose={closeBooking} onConflict={() => setRevision(value => value + 1)} onRequireWrite={accountId => accountId === "default" ? onConnect("manage", true) : onReconnectAccount(accountId)} onConfirmed={async (result, startAt, accountId, accountEmail) => {
         const request = booking.followupRequest;
@@ -470,4 +509,104 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
       </Dialog>
     </div>
   </AppPageShell>;
+  if (!nativeEnabled) return content;
+  const selectedPaneAccount = tab === "invitations" ? invitationAccount : insightsAccount;
+  const selectedPaneConnected = status.accounts?.find(account => account.account_id === selectedPaneAccount)?.connected;
+  const base: CalendarNativeSection[] = [{ key: "calendar-controls", title: `${status.accounts?.length || accounts.length} of 3 Google accounts added`, layout: "toolbar", rows: [
+    { key: "account-actions", label: "Calendar actions", inlineActions: [
+      { key: "add-account", label: "Add account", tone: "primary", symbol: "plus", enabled: !busy && !actionBusy && (status.accounts?.length || 0) < 3, web: true, run: onAddAccount },
+      { key: "refresh", label: "Refresh Calendar", tone: "ghost", symbol: "arrow.clockwise", enabled: !busy && !actionBusy, run: refreshCurrentView },
+      { key: "ask-one", label: "Try Calendar Agent with One", tone: "ghost", placement: "menu", enabled: !busy, run: () => onChat() },
+    ] },
+  ] }];
+  if (tab !== "board") {
+    const chosen = status.accounts?.find(account => account.account_id === selectedPaneAccount);
+    const choices = (status.accounts || []).map(account => ({ key: account.account_id, label: accountLabel(account.google_email), selected: selectedPaneAccount === account.account_id,
+      run: () => tab === "invitations" ? setInvitationAccount(account.account_id) : setInsightsAccount(account.account_id) }));
+    if (chosen && choices.length) base.push({ key: "account-selection", rows: [{ key: "calendar-account", label: "Calendar account", detail: accountLabel(chosen.google_email),
+      person: { name: accountLabel(chosen.google_email), photoUrl: verifiedCalendarAccountPhoto(chosen, chosen.google_email ?? "", people) },
+      ...(choices.length > 1 ? { choices } : {}),
+    }] });
+  }
+  const sections: CalendarNativeSection[] = [];
+  const dateControls = calendarNativeDayControls({ enabled: !busy && !actionBusy, previous: () => setDate(shiftCalendarDate(date, -1)), today: () => setDate(today), next: () => setDate(shiftCalendarDate(date, 1)) });
+  if (tab === "board") {
+    sections.push(dateControls);
+    if (loading) sections.push({ key: "loading", rows: [{ key: "loading", label: "Checking all connected calendars…", pending: true }] });
+    if (error) sections.push({ key: "error", rows: [{ key: "error", label: board ? `Latest refresh failed: ${error}. Times below were last checked ${checkedAt || "earlier"}.` : error }, { key: "retry", label: "Retry", run: () => setRevision(value => value + 1) }] });
+    if (board) {
+      sections.push({ key: "conflicts", rows: [{ key: "conflicts", label: board.conflicts_complete && !error ? `${board.conflicts.length} cross-account overlaps` : "Conflict check incomplete", detail: checkedAt ? `Checked ${checkedAt}` : "Checking" }] });
+      for (const account of accounts) {
+        const id = account.account_id, view = views[id] || "events";
+        const [name, domain] = accountEmailParts(account.google_email);
+        const verifiedAccount = status.accounts?.find(item => item.account_id === id);
+        const rows: CalendarNativeRow[] = [
+          { key: `${id}:identity`, label: name, detail: domain || undefined, trailing: account.status === "complete" ? "Connected" : account.status === "needs_reauth" ? "Reconnect needed" : "Check incomplete",
+            person: { name, photoUrl: verifiedCalendarAccountPhoto(verifiedAccount, account.google_email, people) }, inlineActions: [
+              { key: `${id}:disconnect`, label: "Disconnect", tone: "danger", placement: "menu", enabled: !busy && !actionBusy, run: () => onDisconnectAccount(id) },
+            ] },
+          { key: `${id}:view`, label: `View for ${accountLabel(account.google_email)}`, choiceStyle: "segmented", choices: (["events", "free"] as const).map(value => ({
+            key: value, label: value === "events" ? `Events (${account.events.length})` : "Free time", selected: view === value,
+            run: () => setViews(current => ({ ...current, [id]: value })),
+          })) },
+        ];
+        if (account.status !== "complete") {
+          const reauth = account.status === "needs_reauth" || account.reason_code?.includes("reauth");
+          rows.push({ key: `${id}:error`, label: account.error || "This account could not be checked. Its time is excluded from shared availability." },
+            { key: `${id}:retry`, label: reauth ? "Reconnect" : "Retry check", web: Boolean(reauth), enabled: !busy,
+              run: () => recoverAccount(account) });
+        } else {
+          const pageKey = `${date}:${id}:${view}`, page = nativePage.key === pageKey ? nativePage.page : 0;
+          const entries = view === "events" ? account.events.filter(event => boardOccasionKind(event) === null) : account.free_windows;
+          const pageCount = Math.ceil(entries.length / 12), visiblePage = Math.min(page, Math.max(0, pageCount - 1));
+          if (view === "events") {
+            if (account.unreadable_calendars.length) rows.push({ key: `${id}:coverage`, label: `Event details unavailable for ${account.unreadable_calendars.map(calendar => calendar.name || calendar.id).join(", ")}. Busy time is still checked.` });
+            const occasions = account.events.filter(event => boardOccasionKind(event) !== null);
+            const meetings = account.events.filter(isCountedBoardEvent);
+            const otherItems = account.events.filter(event => !isCountedBoardEvent(event) && boardOccasionKind(event) === null);
+            rows.push({ key: `${id}:meeting-count`, label: `${meetings.length} meeting${meetings.length === 1 ? "" : "s"}` });
+            if (occasions.length) rows.push({ key: `${id}:occasions`, label: `${occasions.length} occasions`, symbol: occasions.some(event => boardOccasionKind(event) === "birthday") ? "birthday.cake" : "party.popper", web: true, run: () => setOccasionAccountId(id) });
+            const events = [...meetings, ...otherItems];
+            rows.push(...events.slice(visiblePage * 12, (visiblePage + 1) * 12).map(event => {
+              const overlaps = board.conflicts.filter(pair => pairIncludes(pair, { accountId: id, calendarId: event.calendar_id || "primary", eventId: event.id || "" })).length;
+              const response = calendarResponse(event, account.google_email);
+              const ended = isCalendarEventEnded(event, now, zone), provider = meetingProvider(event);
+              const sourceIncluded = account.calendar_options?.find(calendar => calendar.id === (event.source_calendar_id || event.calendar_id))?.availability_default_included !== false;
+              const state = event.status === "cancelled" ? "Cancelled" : declineLabel(event, account.google_email, response)
+                ?? (event.transparency === "transparent" ? "Shown as free time" : !sourceIncluded ? "This calendar is not used for your free time" : response === "tentative" ? "You said maybe" : null);
+              const actions: NonNullable<CalendarNativeRow["inlineActions"]> = [];
+              if (!ended && safeMeetingUrl(event.conference_url)) actions.push({ key: `${id}:join:${eventIdentity(event)}`, label: "Join", symbol: "video", tone: "primary",
+                web: false,
+                run: async () => {
+                  const href = calendarJoinHref(event.conference_url, account.google_email);
+                  if (!href || isCalendarEventEnded(event, Date.now(), zone)) return;
+                  await Browser.open({ url: href });
+                } });
+              if (overlaps) actions.push({ key: `${id}:overlaps:${eventIdentity(event)}`, label: `Review ${overlaps} overlapping meeting${overlaps === 1 ? "" : "s"}`, symbol: "exclamationmark.triangle", tone: "ghost", web: true, run: () => open(event, null) });
+              return { key: `${id}:event:${eventIdentity(event)}`, label: event.title,
+                detail: [eventTime(event, zone), provider || event.calendar_name || "Primary calendar", state, !isCountedBoardEvent(event) ? "Other calendar item" : null].filter(Boolean).join("\n"),
+                trailing: ended ? "Ended" : undefined, symbol: provider ? "video" : "calendar", calendarEvent: { muted: Boolean(event.decline_view) || response === "declined" },
+                ...(actions.length ? { inlineActions: actions } : {}), web: true, run: () => open(event, null) };
+            }));
+          } else rows.push(...account.free_windows.slice(visiblePage * 12, (visiblePage + 1) * 12).map(window => ({ key: `${id}:free:${window.start_at}`, label: availabilityTimeRangeLabel(window.start_at, window.end_at, zone, date), enabled: !busy && board.complete && !error, web: true, run: () => openBooking(window, id, null) })));
+          if (!entries.length) rows.push({ key: `${id}:empty`, label: view === "events" ? "No readable events on this day." : "No free time on this day." });
+          if (visiblePage > 0) rows.push({ key: `${id}:previous`, label: "Previous entries", run: () => setNativePage({ key: pageKey, page: visiblePage - 1 }) });
+          if (visiblePage + 1 < pageCount) rows.push({ key: `${id}:next`, label: "More entries", run: () => setNativePage({ key: pageKey, page: visiblePage + 1 }) });
+        }
+        sections.push({ key: `account:${id}`, layout: "cards", rows });
+      }
+      const sharedRows: CalendarNativeRow[] = !board.complete || error ? [{ key: "shared-incomplete", label: "Reconnect or refresh the affected account before relying on shared free time." }] : board.shared_free_windows.map(window => ({ key: `shared:${window.start_at}`, label: availabilityTimeRangeLabel(window.start_at, window.end_at, zone, date), detail: "Schedule this time", enabled: !busy, web: true, run: () => openBooking(window, null, null) }));
+      const sharedPage = nativeSharedPage.key === key ? Math.min(nativeSharedPage.page, Math.max(0, Math.ceil(sharedRows.length / 12) - 1)) : 0;
+      const openings = sharedRows.slice(sharedPage * 12, (sharedPage + 1) * 12);
+      if (sharedPage > 0) openings.push({ key: "shared-previous", label: "Previous openings", run: () => setNativeSharedPage({ key, page: sharedPage - 1 }) });
+      if ((sharedPage + 1) * 12 < sharedRows.length) openings.push({ key: "shared-next", label: "More openings", run: () => setNativeSharedPage({ key, page: sharedPage + 1 }) });
+      sections.push({ key: "shared", title: "Free across all accounts", rows: openings.length ? openings : [{ key: "no-openings", label: "No shared opening on this day." }] });
+    }
+  } else if (!selectedPaneConnected) sections.push({ key: "reconnect", rows: [{ key: "reconnect-description", label: `Reconnect this account to see its ${tab}.` }, { key: "reconnect-account", label: "Reconnect account", web: true, enabled: !busy, run: () => onReconnectAccount(selectedPaneAccount) }] });
+  return <NativeCalendarBoardScope tabs={{ label: "Calendar sections", options: (["board", "invitations", "insights"] as const).map(value => ({ key: value, label: value === "board" ? "Board" : value === "invitations" ? "Invitations" : "Insights", selected: tab === value, run: () => setTab(value) })) }} sections={base}
+    webChild={Boolean(selected && selectedEvent || booking || occasionAccount && occasionEvents.length || actionBusy)}>
+    {content}
+    <NativeCalendarLayer active={tab === "board" || !selectedPaneConnected} title="Calendar" sections={sections} calendarDate={tab === "board" ? { key: "board", label: "Calendar board date", value: date, timeZone: zone, enabled: !busy && !actionBusy, change: setDate } : undefined}
+      fallback={null} />
+  </NativeCalendarBoardScope>;
 }

@@ -1608,6 +1608,17 @@ class GmailReceiptsService:
                 code="GMAIL_READ_PERMISSION_REQUIRED",
             )
 
+    async def preflight_mail_read_status(self, *, user_id: str) -> str | None:
+        """Return authored connection refusal code without token decryption or LLM calls."""
+        row = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
+        if not row or _clean_text(row.get("status"), "disconnected") == "disconnected":
+            return "connect_required"
+        if _clean_text(row.get("status")) != "connected" or _to_bool(row.get("revoked"), False):
+            return "reconnect_required"
+        if _GMAIL_READONLY_SCOPE not in self._granted_scopes(row):
+            return "reconnect_required"
+        return None
+
     async def read_grant_binding(self, *, user_id: str) -> tuple[str, ...] | None:
         """Observe the exact owner/account/row version before or after a private read.
 

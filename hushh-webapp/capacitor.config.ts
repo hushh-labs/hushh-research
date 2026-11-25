@@ -96,6 +96,7 @@ const config: CapacitorConfig = {
   plugins: {
     ...(SANDBOX_FRONTEND_ORIGIN ? { HushhOAuthReturn: { sandboxFrontendOrigin: SANDBOX_FRONTEND_ORIGIN } } : {}),
     HushhRuntime: {
+      backendUrl: NORMALIZED_BACKEND_URL,
       androidLocalBackendMode:
         process.env.NEXT_PUBLIC_ANDROID_LOCAL_BACKEND_MODE === "adb_reverse"
           ? "adb_reverse"

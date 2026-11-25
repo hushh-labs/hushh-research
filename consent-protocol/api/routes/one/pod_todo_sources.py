@@ -264,7 +264,7 @@ async def _private_todo_gene(**kwargs: Any) -> object:
     provider, model = pod_turn._resolve_model()
     payload, (provider, model, mode) = pod_turn._resolve_owner_target(payload, provider, model)
     # This surface never borrows the Shared service's model credentials.
-    if mode not in {"user_adc", "hosted_pod_adc", "byok", "user_azure_mi"}:
+    if mode not in {"user_adc", "hosted_pod_adc", "sentinel_vertex", "byok", "user_azure_mi"}:
         raise _refuse(503, "PRIVATE_TASK_MODEL_UNAVAILABLE")
     model_object = _runtime_model(
         runtime_model=model,

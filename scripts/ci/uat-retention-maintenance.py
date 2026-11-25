@@ -29,6 +29,7 @@ import production_phone_receipt
 import production_phone_lease
 import production_phone_nonproducer
 import production_retention_context
+import retention_admission
 import retention_pass_diagnostics as pass_diagnostics
 
 retention = importlib.import_module("cloudrun-retention")
@@ -110,7 +111,7 @@ REQUIRED_PRODUCTION_STEPS = (
 )
 
 
-GITHUB_LOOKUP_SECONDS = 90
+GITHUB_LOOKUP_SECONDS = 180
 PRODUCTION_RELEASE_LOOKUP_SECONDS = 150
 PASS_SECONDS = 300
 _LOOKUP_DEADLINE: ContextVar[float | None] = ContextVar("lookup_deadline", default=None)
@@ -1563,7 +1564,17 @@ def production_maintenance_due(repository: str, directory: Path) -> bool:
     return maintenance_due(repository, directory, environment="production")
 
 
-def live_release_matches(release: dict, *, environment: str = "uat") -> bool:
+class DriveWorkerCleanupDeferred(Exception):
+    """The accepted worker is serving while a newer worker candidate failed."""
+
+
+def live_release_matches(
+    release: dict,
+    *,
+    environment: str = "uat",
+    worker_release_run_id: int | None = None,
+    cleanup_worker: bool = False,
+) -> bool:
     if environment == "production" and "_maintenance_backend_identity" in release:
         production_retention_context.backend_identity(sys.modules[__name__], release["_maintenance_backend_identity"])
     if environment == "production" and "_maintenance_pending_retirement" in release:
@@ -1655,17 +1666,22 @@ def live_release_matches(release: dict, *, environment: str = "uat") -> bool:
                 )
             ):
                 return False
-    state = retention.service_state("consent-protocol-drive-worker", project, REGION)
-    if not any(
+    state = retention.service_state(retention_admission.UAT_DRIVE_WORKER, project, REGION)
+    traffic = retention.traffic_state(state)
+    serving = [name for name, percent, _ in traffic if percent]
+    if len(serving) != 1:
+        raise retention.UnsafeState("Drive worker serving state is ambiguous")
+    if any(
         c.get("type") == "Ready" and c.get("status") == "True"
         for c in state.get("status", {}).get("conditions", [])
     ):
-        raise retention.UnsafeState("Drive worker is not ready")
-    if (
-        len([name for name, percent, _ in retention.traffic_state(state) if percent])
-        != 1
+        return True
+    if not retention_admission.accepted_worker_with_failed_candidate(
+        retention, state, traffic, serving[0], release, worker_release_run_id
     ):
-        raise retention.UnsafeState("Drive worker serving state is ambiguous")
+        raise retention.UnsafeState("Drive worker is not ready")
+    if cleanup_worker:
+        raise DriveWorkerCleanupDeferred("Drive worker cleanup waits for service readiness")
     return True
 
 
@@ -1715,6 +1731,8 @@ def checkpoint(args, run_id, observed, pending, status):
     receipt_file = args.state_dir / "completed.json"
     prior = json.loads(receipt_file.read_text()) if receipt_file.exists() else {}
     bridge = capacity_bridge.receipt_state(prior.get("capacity_bridge"))
+    template_owner = importlib.import_module("production_template_restore")
+    restored = template_owner.receipt(prior.get("serving_template_restore"), retention.UnsafeState)
     retention.atomic_state(
         receipt_file,
         {
@@ -1727,6 +1745,7 @@ def checkpoint(args, run_id, observed, pending, status):
             "pass_status": status,
             "pending_services": list(pending),
             **({"capacity_bridge": bridge} if bridge is not None else {}),
+            **({"serving_template_restore": restored} if restored is not None else {}),
             **({"phone_rollback_qualification": args.phone_anchor} if getattr(args, "phone_anchor", None) else {}),
             **({"operational_backend": args.operational_anchor} if isinstance(getattr(args, "operational_anchor", None), dict) else {}),
             **({"pending_retirement": args.pending_context} if isinstance(getattr(args, "pending_context", None), dict) else {}),
@@ -1807,6 +1826,11 @@ def assert_no_pending_mutations(repository, directory, environment):
     if receipt.exists():
         state = json.loads(receipt.read_text())
         bridge = capacity_bridge.receipt_state(state.get("capacity_bridge"))
+        restored = importlib.import_module("production_template_restore").receipt(
+            state.get("serving_template_restore"), retention.UnsafeState
+        )
+        if restored is not None and restored["status"] != "verified":
+            raise retention.UnsafeState("Serving-template provider outcome requires maintenance reconciliation")
         if bridge is not None and bridge["status"] != "verified":
             raise retention.UnsafeState("Capacity bridge provider outcome requires maintenance reconciliation")
         if state.get("pass_status", "complete") == "unresolved":
@@ -1840,6 +1864,7 @@ def maintenance_cli():
     parser.add_argument("--state-dir", type=Path, required=True)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--production-capacity-bridge", action="store_true")
+    parser.add_argument("--restore-serving-template", action="store_true")
     parser.add_argument("--verify-source-only", action="store_true")
     parser.add_argument("--check-mutations", action="store_true")
     parser.add_argument(
@@ -1853,6 +1878,15 @@ def maintenance_cli():
     parser.add_argument("--operational-backend-proof-attempt", type=production_retention_context.optional_attempt)
     parser.add_argument("--staged-worker-run-id", default="")
     args = parser.parse_args()
+    if args.restore_serving_template and (
+        args.environment != "production" or not args.apply or not args.force_inspection
+        or args.verify_source_only or args.check_mutations or args.production_capacity_bridge
+        or args.qualified_cold_checkpoint_run_id or args.operational_backend_proof_run_id
+        or args.staged_worker_run_id or not args.release_run_id
+        or os.getenv("GITHUB_EVENT_NAME") != "workflow_dispatch"
+        or os.getenv("GITHUB_REF_NAME") != "main"
+    ):
+        parser.error("serving-template restoration requires a separate manual main production apply and exact healthy release")
     if args.production_capacity_bridge and (args.environment != "production" or not args.apply
             or args.verify_source_only or args.check_mutations or not args.force_inspection
             or os.getenv("GITHUB_EVENT_NAME") != "workflow_dispatch" or os.getenv("GITHUB_REF_NAME") != "main"):
@@ -1909,6 +1943,7 @@ def maintenance_pass() -> int:
         return 0
     run_id, release = found
     observation, service_settings, pending = args.preflight
+    worker_run_id = retention_admission.uat_worker_release_run_id(args, run_id)
     # An empty marker makes a completed pass supersede stale earlier artifacts.
     (args.state_dir / "README.txt").write_text(
         f"{args.environment} drain evidence; never deployment authority.\n"
@@ -1943,12 +1978,32 @@ def maintenance_pass() -> int:
             checkpoint(args, run_id, observation, pending, outcome)
             record_uat_cleanup_outcome(args, outcome)
             return 0
+        pass_diagnostics.CURRENT_STAGE.set("serving_template_restore")
+        try:
+            if not live_release_matches(release, environment="production"):
+                raise retention.UnsafeState("Live release changed before template restoration")
+            importlib.import_module("production_template_restore").maintain(
+                release, args.state_dir / "completed.json",
+                create=getattr(args, "restore_serving_template", False), owner=retention,
+            )
+            if not live_release_matches(release, environment="production"):
+                raise retention.UnsafeState("Live release changed after template restoration")
+        except (retention.BudgetExpired, retention.MutationUncertain) as exc:
+            outcome = "unresolved" if isinstance(exc, retention.MutationUncertain) else "deferred"
+            checkpoint(args, run_id, observation, pending, outcome)
+            record_uat_cleanup_outcome(args, outcome)
+            return 0
     for service, keep in service_settings.items():
         pass_diagnostics.CURRENT_STAGE.set("revision_cleanup")
         try:
             # The workflow holds the environment's deployment lock for this short pass.
             # Recheck the release before each service as defense against external changes.
-            if not live_release_matches(release, environment=args.environment):
+            if not live_release_matches(
+                release,
+                environment=args.environment,
+                worker_release_run_id=worker_run_id,
+                cleanup_worker=service == retention_admission.UAT_DRIVE_WORKER,
+            ):
                 raise retention.UnsafeState("live release changed during maintenance")
             flags = []
             lane = {"consent-protocol": "backend", "hushh-webapp": "frontend"}.get(
@@ -1987,6 +2042,9 @@ def maintenance_pass() -> int:
                     lane_config["project"],
                 ],
             )
+        except DriveWorkerCleanupDeferred as exc:
+            print(str(exc))
+            continue
         except (retention.BudgetExpired, retention.MutationUncertain) as exc:
             if not args.apply:
                 raise
@@ -2046,8 +2104,8 @@ def maintenance_pass() -> int:
                 )
     if args.apply:
         pass_diagnostics.CURRENT_STAGE.set("completion_checkpoint")
-        checkpoint(args, run_id, observation, [], "complete")
-        record_uat_cleanup_outcome(args, "applied")
+        checkpoint(args, run_id, observation, pending, "deferred" if pending else "complete")
+        record_uat_cleanup_outcome(args, "deferred" if pending else "applied")
     elif os.environ.get("GITHUB_OUTPUT"):
         with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
             output.write("cleanup_outcome=dry_run\n")

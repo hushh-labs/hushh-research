@@ -41,7 +41,7 @@ import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-kno
 import type { RiaHomeResponse } from "@/lib/services/ria-service";
 import { cn } from "@/lib/utils";
 
-type OneAgentMode = {
+export type OneAgentMode = {
   id: string;
   title: string;
   description: string;
@@ -269,6 +269,7 @@ function useCachedAgentMetrics(
 
 // The welcome illustration shares this roster's outline treatment.
 function rosterIcon(mode: OneAgentMode): OneCapabilityIcon {
+  if (mode.id === "goals") return mode.icon;
   return {
     kind: "custom",
     component: (props) => <OneRosterAgentIcon {...props} agentId={mode.id} />,
@@ -312,12 +313,12 @@ function buildModes(
         (!setupDismissed || capability.id === "finance"),
     );
 
-    const primaryMetric =
-      cachedMetrics[capability.id] ??
-      resolvePrimaryMetric({
-        capabilityId: capability.id,
-        status,
-      });
+    const primaryMetric = capability.id === "goals"
+      ? { value: "", label: "Goals and tasks" }
+      : cachedMetrics[capability.id] ?? resolvePrimaryMetric({
+          capabilityId: capability.id,
+          status,
+        });
 
     return {
       id: capability.id,
@@ -356,7 +357,7 @@ function resolvePrimaryMetric({
 }): OneAgentMode["primaryMetric"] {
   if (capabilityId === "consent") {
     if (!status || status.state === "unknown") {
-      return { value: "—", label: "checking" };
+      return { value: "--", label: "checking" };
     }
     const pendingConsentCount = status.pendingCount;
     return {
@@ -366,7 +367,7 @@ function resolvePrimaryMetric({
   }
 
   if (!status || status.state === "unknown") {
-    return { value: "—", label: "status not loaded" };
+    return { value: "--", label: "checking" };
   }
 
   if (status.pendingCount > 0) {
@@ -527,8 +528,8 @@ function AgentGridItem({
       title={mode.description}
       className={cn(
         "group relative flex min-h-[96px] min-w-0 w-full flex-col items-center justify-start gap-[7px] overflow-hidden rounded-[14px] px-1.5 py-2 text-center",
-        "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
-        "hover:bg-[rgba(120,120,128,.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60 focus-visible:ring-inset motion-reduce:transition-none",
+        "transition-[background-color,opacity] duration-[120ms] ease-[var(--ease-out)]",
+        "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-neutral-fill)] active:bg-[color:var(--app-neutral-fill-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60 focus-visible:ring-inset motion-reduce:transition-none",
         className,
       )}
     >
@@ -543,7 +544,7 @@ function AgentGridItem({
         size="roster-lg"
         treatment="profile"
         glyphContrast="default"
-        className="relative z-10"
+        className="relative z-10 transition-transform duration-[140ms] ease-[var(--ease-out)] motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:group-hover:-translate-y-[1px]"
       />
       <span className="relative z-10 flex w-full min-w-0 flex-col items-center gap-[2px] text-center">
         <span
@@ -570,8 +571,8 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       data-testid={`one-agent-list-row-${mode.id}`}
       className={cn(
         "group/agent-row relative grid min-h-[58px] w-full grid-cols-[40px_minmax(0,1fr)_minmax(84px,auto)_14px] items-center gap-x-3 overflow-hidden px-3.5 text-left outline-none",
-        "transition-colors duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
-        "hover:bg-[rgba(120,120,128,.08)] active:bg-[rgba(120,120,128,.12)]",
+        "transition-colors duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none",
+        "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-[color:var(--app-neutral-fill)] active:bg-[color:var(--app-neutral-fill-strong)]",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
       )}
     >
@@ -605,11 +606,11 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       </span>
       <CaretRightIcon
         aria-hidden
-        className="relative z-10 h-4 w-4 text-[#C7C7CC]"
+        className="relative z-10 h-4 w-4 text-[color:var(--app-tertiary-label)] transition-transform duration-[120ms] ease-[var(--ease-out)] motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:group-hover/agent-row:translate-x-0.5"
       />
       <span
         aria-hidden
-        className="pointer-events-none absolute bottom-0 left-16 right-4 h-px bg-[rgba(60,60,67,.12)] dark:bg-white/[0.09] group-last/agent-row:hidden"
+        className="pointer-events-none absolute bottom-0 left-16 right-4 h-px bg-[color:var(--app-separator)] group-last/agent-row:hidden"
       />
       <MaterialRipple variant="blue" effect="fade" className="z-0" />
     </Link>
@@ -627,18 +628,28 @@ function AgentRosterViewToggle({
     <div
       role="group"
       aria-label="Agent roster view"
-      className="inline-flex h-8 shrink-0 items-center gap-0.5 rounded-full bg-black/[0.04] p-[3px] backdrop-blur-md border border-black/[0.06] dark:border-white/[0.08] dark:bg-white/[0.06] shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)]"
+      className="relative inline-flex h-8 shrink-0 items-center gap-0.5 rounded-full bg-black/[0.04] p-[3px] backdrop-blur-md border border-black/[0.06] dark:border-white/[0.08] dark:bg-white/[0.06] shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)]"
     >
+      <span
+        aria-hidden
+        className="pointer-events-none absolute left-[3px] top-[3px] h-[26px] w-7 rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] transition-transform duration-[140ms] ease-[var(--ease-out)] motion-reduce:transition-none dark:bg-white/[0.16] dark:shadow-[0_1px_2px_rgba(0,0,0,0.25)]"
+        style={{
+          transform:
+            value === "list"
+              ? "translate3d(calc(100% + 2px), 0, 0)"
+              : "translate3d(0, 0, 0)",
+        }}
+      />
       <ShellActionSurface
         aria-label="Show agent grid view"
         aria-pressed={value === "grid"}
         data-testid="one-agents-view-grid"
         onClick={() => onChange("grid")}
         className={cn(
-          "h-[26px] w-7 rounded-full border-0 transition-[background-color,color,box-shadow,transform] duration-150",
+          "h-[26px] w-7 rounded-full border-0 bg-transparent shadow-none transition-colors duration-[140ms] ease-[var(--ease-out)] motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:hover:bg-transparent dark:bg-transparent",
           value === "grid"
-            ? "bg-white text-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] hover:bg-white dark:bg-white/[0.16] dark:text-white dark:shadow-[0_1px_2px_rgba(0,0,0,0.25)]"
-            : "bg-transparent text-muted-foreground/75 shadow-none hover:bg-transparent hover:text-foreground dark:bg-transparent",
+            ? "text-neutral-900 dark:text-white"
+            : "text-muted-foreground/75 [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground",
         )}
       >
         <GridIcon className="h-3.5 w-3.5" aria-hidden />
@@ -649,10 +660,10 @@ function AgentRosterViewToggle({
         data-testid="one-agents-view-list"
         onClick={() => onChange("list")}
         className={cn(
-          "h-[26px] w-7 rounded-full border-0 transition-[background-color,color,box-shadow,transform] duration-150",
+          "h-[26px] w-7 rounded-full border-0 bg-transparent shadow-none transition-colors duration-[140ms] ease-[var(--ease-out)] motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:hover:bg-transparent dark:bg-transparent",
           value === "list"
-            ? "bg-white text-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] hover:bg-white dark:bg-white/[0.16] dark:text-white dark:shadow-[0_1px_2px_rgba(0,0,0,0.25)]"
-            : "bg-transparent text-muted-foreground/75 shadow-none hover:bg-transparent hover:text-foreground dark:bg-transparent",
+            ? "text-neutral-900 dark:text-white"
+            : "text-muted-foreground/75 [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground",
         )}
       >
         <ListIcon className="h-3.5 w-3.5" aria-hidden />
@@ -664,16 +675,18 @@ function AgentRosterViewToggle({
 /** Search isn't pulling its weight yet at 9 agents -- off for now, easy to flip back on. */
 const SHOW_AGENT_SEARCH = false;
 
-export function OneAgentRoster({
-  capabilityStatusById,
-  userId,
-  messagesUnreadCount = null,
-}: {
+export type OneAgentRosterProps = {
   capabilityStatusById: Record<string, CapabilityStatus>;
   userId?: string | null;
   messagesUnreadCount?: number | null;
   displayName?: string | null;
-}) {
+};
+
+export function useOneAgentRosterModel({
+  capabilityStatusById,
+  userId,
+  messagesUnreadCount = null,
+}: OneAgentRosterProps) {
   const cachedMetrics = useCachedAgentMetrics(userId);
   const setupDismissed = Boolean(
     userId &&
@@ -722,6 +735,19 @@ export function OneAgentRoster({
     }
   };
 
+  return { modes, visibleModes, view, selectView, animateViewChange, query, setQuery, userId };
+}
+
+export function OneAgentRoster(props: OneAgentRosterProps) {
+  return <OneAgentRosterBody model={useOneAgentRosterModel(props)} />;
+}
+
+export function OneAgentRosterBody({ model, scheduledContent }: {
+  model: ReturnType<typeof useOneAgentRosterModel>;
+  scheduledContent?: import("react").ReactNode;
+}) {
+  const { modes, visibleModes, view, selectView, animateViewChange, query, setQuery, userId } = model;
+
   return (
     <section
       aria-labelledby="one-agents-heading"
@@ -746,7 +772,7 @@ export function OneAgentRoster({
           Agents ({modes.length})
         </PageTitle>
         <div className="flex shrink-0 items-center gap-2">
-          {userId && <ScheduledTasksPanel key={userId} ownerId={userId} />}
+          {scheduledContent === undefined ? userId && <ScheduledTasksPanel key={userId} ownerId={userId} /> : scheduledContent}
           <AgentRosterViewToggle value={view} onChange={selectView} />
         </div>
       </div>

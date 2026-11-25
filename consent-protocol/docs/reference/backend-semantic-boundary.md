@@ -13,36 +13,7 @@ booking, RSVP review or manage-permission card. Existing OAuth consent and the
 exact browser-confirmed executor remain independent. Scope refusal is recorded
 as `calendar.proposal_refused`, never as a successful provider action. Provider-free
 Chat runner tests cover enforcement; actual model interpretation and deployed
-provider behavior require separate read-only qualification. Scripted cases vary
-wording, allowed/forbidden staging actions, retry order and restored history;
-provider event/email text is excluded from scope evidence. A blocked action does
-not replace a valid read answer. Current-turn dates use the admitted turn instant;
-UTC/local projection and slot arithmetic validate instants rather than assessing
-intent. Context-only handoffs and source offers confer no action permission.
-
-The existing proposal tool can record a typed missing-guest question only after
-an explicit create assessment. It creates no proposal and grants no execution.
-The five-minute, single-use private context follows existing encrypted ADK
-session ownership and immediate-predecessor admission. Only its next authenticated
-guest reply can continue create, with exact evidence from both messages; current
-restrictions prevail. Prose, providers and attachments cannot create this context.
-A request-only callback supplies its original words, ISO clock and requested zone
-to the planning model after recovery without changing current input or its clock.
-The host validates provenance, lifetime and exact account/grant through staging;
-the model still decides meaning and plans the review. Actual-model interpretation
-of this clarification contract remains separate from scripted enforcement tests.
-
-### Declared: direct Gmail REST tools and ephemeral hybrid re-ranking
-
-- Owner: One (`agent_one`, `hushh_mcp/agents/one/agent.yaml`), with typed Gmail REST API v1 tools in `hushh_mcp/agents/email/chat_tools.py` (`gmail_search_mail`, `gmail_read_thread`, `gmail_list_needs_reply`, `open_gmail_reply_draft`) and pure in-RAM ranking gene `hushh_mcp/services/gmail_semantic_ranker.py`.
-- Semantic boundary: One decides when to query Mail, authors 1 to 3 complementary Gmail REST `q` queries (exact operator, synonym `OR` net, recent-window fallback), chooses whether to broaden on `no_match`, decides whether to drill into an offered thread or open an editable reply, and synthesizes the final answer. Host code never classifies user intent by regex/keywords, never routes around One, and never invents recipients or replies.
-- Deterministic support & validators:
-  - `workspace_mcp_tools._owner(tool_context, "gmail")` enforces owner identity, `typed_chat` admission, `gmail_chat_reads` feature admission, and cryptographic owner/pod token verification before every provider fetch.
-  - `gmail_metadata_reader.py` enforces `Accept-Encoding: identity`, byte/deadline/concurrency caps, owner-timezone epoch pinning (`_epoch_date_terms`), pre/post grant verification (`require_current`), and hidden-CSS/HTML prompt-injection stripping (`gmail_message_text.py`).
-  - `gmail_semantic_ranker.py` runs purely in RAM over the bounded REST candidates (Reciprocal Rank Fusion + Unicode lexical + optional already-loaded `intfloat/multilingual-e5-small`); candidate snippets and vectors are discarded before return and never persisted.
-  - `external_read_boundary.py` enforces a 3-state CaMeL taint lattice: zero-match reads clear taint up to 2 automatic retries; non-empty reads lock the turn to answer, at most one strict ordinal-only `gmail_read_thread` drill-down (`query == ""`), or a reviewable draft/reply (`open_gmail_reply_draft` with server-pinned AES-GCM `rs1.` `source_mail_ref`).
-  - `external_read_projection.py` strips tool arguments, bodies, `live_sources`, and `rs1.` tokens before encrypting durable sessions.
-- Verification before promotion: automated unit + real `multilingual-e5-small` Hinglish/conceptual ranking tests + real AES-GCM reply-source tampering negative controls + full ADK Runner E2E tests in `tests/services/test_gmail_chat_tools.py`, followed by UAT post-deploy verification over real Gmail REST accounts.
+provider behavior require separate read-only qualification.
 
 ### Declared: recipient-requested Finance object review
 
@@ -1383,64 +1354,19 @@ agent is added.
 - Live eval before promotion: mocked contract tests for the host policy only.
   Durable-fact quality on real owner activity is unmeasured.
 
-## Calendar attendance response composition
+### Declared: connector connection-readiness preflight and post-tool boundary
 
-The Calendar Response Writer (`agent_calendar_response_writer`) is authored in
-`hushh_mcp/agents/calendar/agent.yaml`. After the owner submits Decline or an
-alternative-time response, the existing attendance service validates the selected
-Calendar/Mail authority and invokes this tool-free, ephemeral single-turn child.
-Its `CalendarResponseText` contract returns `reason`, `subject`, and `body`.
-Validators enforce nonempty bounded fields; they do not replace model wording.
-The provider recipient, occurrence, account and exact proposed times remain
-service-owned facts. The exact time range and timezone are appended separately.
-Drafting failure stops before RSVP or Mail side effects. No PKM writes occur.
-Calendar and Mail settlement retain their existing independent results and replay
-protection. A changed comment is written even if attendance is already declined;
-explicit mail-only retries never rewrite attendance. Live quality evaluation must
-cover terse reasons, language variations, unavailable identity, sensitive reasons,
-all-day and DST boundaries, and exact alternative times before deployment claims.
+- Owner: Email, Drive, Calendar, and One ADK turn orchestration
+  (`GmailReceiptsService.preflight_mail_read_status`,
+  `PodLocalEmailReadPort.preflight_mail_read_status`,
+  `EmailChatService.handle_delegated_turn`, `agent_tree.ask_email_agent` /
+  `ask_documents_agent`, `pod_connector_tools.calendar_turn_refusal`, and
+  `external_read_boundary`).
+- Non-semantic gate only: inspects stored OAuth connection status (`status`,
+  `revoked`, granted scopes), Data Door grant presence, and pod placement
+  (`private_pod_runtime` vs `owner_cloud_agent`) strictly before invoking a
+  specialist planner LLM or emitting a post-tool `One` summary call.
+- Never inspects user message phrasing, intent keywords, or mailbox/file/event
+  text; semantically choosing which connector or operation the user asked for
+  remains exclusively inside the ADK model layers.
 
-
-## Incremental portfolio import layout and page extraction
-
-Before model layout discovery, the import decoder can read literal holdings
-tables directly. The existing marked QA PDF and exact USD CSV profiles remain
-available. The broader reader also admits CSV holdings tables with a unique
-header from explicit aliases, and searchable PDF holdings tables whose visual
-cells can be separated by the isolated PDFium worker. Neither route needs a
-fixture marker or a brokerage name to recognize a table.
-
-The reader copies the source cells and retains row or page provenance. CSV
-acceptance requires complete source-row coverage, consistent statement
-metadata, unambiguous numbers and reconciled positions. Recognized cash and
-account totals are verified against the source rows. PDF acceptance requires
-reconciled holdings counts and market values or a printed holdings footer,
-checks secondary position tables when present, and validates account controls
-separately from security totals. If the holdings are independently reconciled
-but a supplementary section is opaque, the checked holdings can be shown as
-provisional while the whole-document gene supplies the final record. Completion
-must retain the verified security set, exact numeric holding fields and
-currencies, or the result fails validation. A parser failure retains the model-backed route. Direct paths never override a model
-answer or invent missing values. Their sources are recorded as
-`csv_declared_layout`, `pdf_declared_layout`, `csv_structured_table`, or
-`pdf_structured_table`.
-
-`agent_portfolio_import_csv_layout` and `agent_portfolio_import_pdf_page` are
-manifest-authored, tool-free LOW single-turn children of Portfolio Import. CSV
-layout receives source records in bounded batches and owns semantic column
-meaning and row roles for ambiguous layouts. The host validates source
-references and decodes literal cells. Short unsupported PDFs retain the
-page-local model path, including existing continuation and quality checks.
-Larger PDFs without a complete direct layout go to whole-document extraction
-once, with the original PDF bytes. Cross-page ambiguities also retain this
-whole-document path. Provider failures remain bounded by the existing runtime
-contract.
-
-Extraction telemetry includes source, unit count, fallback reason, and
-latency. Public output, owner checks, final quality validation, encrypted
-persistence, and explicit review/save authority retain their existing owners.
-
-Qualification: synthetic source-integrity, cancellation, authority and real ADK
-adapter contract tests cover this change. The existing UAT provider failure and
-live extraction quality/latency require separate authorized runtime qualification;
-a five-second completion target is not established by mocked timings.

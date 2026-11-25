@@ -2,6 +2,8 @@
 
 [Architecture](../README.md)
 
+People communication: [disabled People calling implementation](./people-calling.md).
+
 ## Visual Map
 
 ```mermaid
@@ -76,9 +78,9 @@ for finance-specialist runtime references, and keep unshipped One proposals unde
 - [one-voice-onboarding-journey.md](./one-voice-onboarding-journey.md): the One Voice onboarding journey and its state contract.
 - [feed-notification-model.md](./feed-notification-model.md): the cross-domain Feed route (`/one/feed`) that replaced the top-bar `ActivityInbox` bell: the `feed_events` table, its six domain write paths (Consent, Location, Kai, KYC, Connected Systems, Connections), read/unread semantics, and the bottom-nav tab.
 - [gmail-owner-approved-email.md](./gmail-owner-approved-email.md): one shared Gmail connection for receipt/inbox context and owner-approved personal email drafting and delivery; includes the explicit boundary from the `one@hushh.ai` KYC mailbox.
-- [one-email-knowledge-graph.md](./one-email-knowledge-graph.md): evidence-backed current Email paths, authority boundaries and failure states, including the read-only receipt cutover.
+- [one-email-knowledge-graph.md](./one-email-knowledge-graph.md): evidence-backed current Email paths, authority boundaries, OAuth scopes, and reliability invariants, including the read-only receipt cutover.
 - [one-calendar-knowledge-graph.md](./one-calendar-knowledge-graph.md): evidence-backed Calendar read paths, OAuth and account boundaries, Live Voice read-only tool, FreeBusy invariants, and invitations contract.
-- [drive-connection-and-sharing-memory.md](./drive-connection-and-sharing-memory.md): current Drive connection, A-to-Trusted-circle share, B question and file-request paths, selected-file indexing, and latency investigation anchors.
+- [drive-connection-and-sharing-memory.md](./drive-connection-and-sharing-memory.md): current Drive connection, A-to-Trusted-circle share, B question and file-request paths, selected-file indexing, request pricing and owner payout, and latency investigation anchors.
 - [protected-document-delivery.md](./protected-document-delivery.md): additive consented One PDF copies, device encryption, exact paid terms, preview/download, activity, scoped revoke, recovery and environment-wide rollout boundaries.
 - [drive-four-group-index.md](./drive-four-group-index.md): the dark four-group Drive organizing aid (three signals fused into one precision-first shelf), its held-out synthetic evidence and limits, and the storage and page plan for slice 3.
 - [drive-public-financial-summary.md](./drive-public-financial-summary.md): default-ON scalar financial summaries with one owner visibility switch, separate discovery and sale counts, and independent connection, purchase and document-access authority.

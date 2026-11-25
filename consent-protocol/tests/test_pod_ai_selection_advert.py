@@ -21,7 +21,7 @@ with pytest.MonkeyPatch.context() as _pod_import_env:
 
 ADVERT = {
     "version": 1,
-    "providers": ["gemini", "openai", "azure_openai"],
+    "providers": ["gemini", "openai"],
     "defaultVerification": True,
 }
 
@@ -164,20 +164,16 @@ def test_the_provider_catalog_is_server_owned_and_signed_in_only():
                 "agentCapability": "openai",
                 "defaultModel": "gpt-5.6-luna",
             },
-            {
-                "id": "azure_openai",
-                "name": "Azure AI",
-                "availability": "available",
-                "methods": ["own_key"],
-                "agentCapability": "azure_openai",
-            },
             {"id": "anthropic", "name": "Claude", "availability": "coming_soon", "methods": []},
             {"id": "grok", "name": "Grok", "availability": "coming_soon", "methods": []},
         ],
     }
+    catalog_providers = client.get("/api/one/runtime/providers").json()["providers"]
+    assert all(p["id"] != "azure_openai" for p in catalog_providers), (
+        "azure_openai must be retired from BYOK catalog"
+    )
+    assert "azure_openai" not in pod_capabilities()["aiSelection"]["providers"]
     available = {
-        p["agentCapability"]
-        for p in client.get("/api/one/runtime/providers").json()["providers"]
-        if p["availability"] == "available"
+        p["agentCapability"] for p in catalog_providers if p["availability"] == "available"
     }
     assert available == set(ADVERT["providers"]), "every offered provider is one an agent can run"

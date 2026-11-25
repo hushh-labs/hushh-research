@@ -1,0 +1,29 @@
+{
+  "skill_name": "release-train-parity",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "run the 4-dimension release train parity matrix across dev, uat, and main before promoting dev to uat",
+        "top_k": 3
+      },
+      {
+        "prompt": "back-sync uat and main changes into dev first and resolve migration sequence collisions",
+        "top_k": 3
+      },
+      {
+        "prompt": "compute the next calendar release train and audit runtime capability flag parity across environments",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "run a frontend-only scoped UAT deploy and prove Cloud Build timing",
+        "owner": "uat-scoped-deploy"
+      },
+      {
+        "prompt": "synchronize the external consent-protocol subtree mirror",
+        "owner": "subtree-upstream-governance"
+      }
+    ]
+  }
+}

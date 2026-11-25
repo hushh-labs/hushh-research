@@ -5,25 +5,25 @@
 from __future__ import annotations
 
 import argparse
-from collections import Counter
 import json
+import sys
+from collections import Counter
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT / "consent-protocol" / "db") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "consent-protocol" / "db"))
+
+from migration_forward_governance import verify_forward_and_parked_governance  # noqa: E402
+
 MIGRATIONS_DIR = REPO_ROOT / "consent-protocol" / "db" / "migrations"
-MANIFEST_PATH = (
-    REPO_ROOT / "consent-protocol" / "db" / "release_migration_manifest.json"
-)
+MANIFEST_PATH = REPO_ROOT / "consent-protocol" / "db" / "release_migration_manifest.json"
+DEV_MANIFEST_PATH = REPO_ROOT / "consent-protocol" / "db" / "dev_migration_manifest.json"
 UAT_CONTRACT_PATH = (
     REPO_ROOT / "consent-protocol" / "db" / "contracts" / "uat_integrated_schema.json"
 )
-PROD_CONTRACT_PATH = (
-    REPO_ROOT / "consent-protocol" / "db" / "contracts" / "prod_core_schema.json"
-)
-DEV_CONTRACT_PATH = (
-    REPO_ROOT / "consent-protocol" / "db" / "contracts" / "dev_minimum_schema.json"
-)
+PROD_CONTRACT_PATH = REPO_ROOT / "consent-protocol" / "db" / "contracts" / "prod_core_schema.json"
+DEV_CONTRACT_PATH = REPO_ROOT / "consent-protocol" / "db" / "contracts" / "dev_minimum_schema.json"
 
 
 def _load_json(path: Path) -> dict:
@@ -75,25 +75,19 @@ def build_report() -> dict:
     unexpected_overlays = sorted(set(raw_overlays) - {"uat"})
     if unexpected_overlays:
         violations.append(
-            "release_manifest_unsupported_environment_overlays:"
-            + ",".join(unexpected_overlays)
+            "release_manifest_unsupported_environment_overlays:" + ",".join(unexpected_overlays)
         )
     uat_overlay = _migration_names(
         raw_overlays.get("uat"), label="environment_overlays.uat", violations=violations
     )
 
-    canonical_entries = sorted(
-        ordered + uat_overlay,
-        key=_migration_version,
-    )
-    duplicate_entries = sorted(
-        name for name, count in Counter(canonical_entries).items() if count != 1
-    )
+    canonical_entries = sorted(ordered + uat_overlay, key=_migration_version)
+    duplicate_entries = sorted(name for name, count in Counter(canonical_entries).items() if count != 1)
     if duplicate_entries:
-        violations.append(
-            "release_manifest_duplicate_canonical_entries:"
-            + ",".join(duplicate_entries)
-        )
+        violations.append("release_manifest_duplicate_canonical_entries:" + ",".join(duplicate_entries))
+    violations.extend(
+        verify_forward_and_parked_governance(MIGRATIONS_DIR, DEV_MANIFEST_PATH, canonical_entries)
+    )
 
     groups = manifest.get("groups")
     if not isinstance(groups, dict):
@@ -107,14 +101,17 @@ def build_report() -> dict:
         outside_base = sorted(set(group_entries) - base_set)
         if outside_base:
             violations.append(
-                f"release_manifest_group_outside_base:{group_name}:"
-                + ",".join(outside_base)
+                f"release_manifest_group_outside_base:{group_name}:" + ",".join(outside_base)
             )
 
     migration_versions = sorted(
         _migration_version(path.name)
         for path in MIGRATIONS_DIR.iterdir()
-        if path.is_file() and path.name[:3].isdigit() and path.suffix == ".sql"
+        if path.is_file()
+        and "_" in path.name
+        and len(path.name.split("_", 1)[0]) >= 3
+        and path.name.split("_", 1)[0].isdigit()
+        and path.suffix == ".sql"
     )
     for migration_name in canonical_entries:
         if not (MIGRATIONS_DIR / migration_name).exists():
@@ -151,8 +148,7 @@ def build_report() -> dict:
         violations.append("prod_contract_expected_migration_version_missing_or_invalid")
     elif prod_version != production_head:
         violations.append(
-            "prod_contract_version_mismatch:"
-            f"contract={prod_version}:lane={production_head}"
+            f"prod_contract_version_mismatch:contract={prod_version}:lane={production_head}"
         )
 
     if dev_contract.get("migration_version_policy") != "minimum":
@@ -162,8 +158,7 @@ def build_report() -> dict:
         violations.append("dev_contract_expected_migration_version_missing_or_invalid")
     elif dev_version != production_head:
         violations.append(
-            "dev_contract_version_mismatch:"
-            f"contract={dev_version}:lane={production_head}"
+            f"dev_contract_version_mismatch:contract={dev_version}:lane={production_head}"
         )
 
     return {
@@ -204,22 +199,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Verify release migration manifest and contract alignment."
     )
-    parser.add_argument(
-        "--json", action="store_true", help="Emit JSON instead of text."
-    )
+    parser.add_argument("--json", action="store_true", help="Emit JSON instead of text.")
     args = parser.parse_args()
 
     report = build_report()
     if args.json:
         print(json.dumps(report, indent=2))
     else:
-        print(
-            f"Production release head: {report['release_manifest']['production_head']}"
-        )
+        print(f"Production release head: {report['release_manifest']['production_head']}")
         print(f"UAT release head: {report['release_manifest']['uat_head']}")
-        print(
-            f"Repo migration head: {report['release_manifest']['highest_repo_version']}"
-        )
+        print(f"Repo migration head: {report['release_manifest']['highest_repo_version']}")
         print(
             "UAT contract: "
             f"{report['contracts']['uat_integrated_schema']['expected_version']} "

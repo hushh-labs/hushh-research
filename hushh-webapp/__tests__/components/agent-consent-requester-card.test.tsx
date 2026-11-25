@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   user: { uid: "requester-a", getIdToken: vi.fn(async () => "test-token") },
   unlocked: true, getViewer: vi.fn(), create: vi.fn(), getInformationRequest: vi.fn(),
   getInformationRequestExports: vi.fn(), readStoredConnector: vi.fn(), decryptScopedExport: vi.fn(),
-  searchScopeCatalog: vi.fn(),
+  searchScopeCatalog: vi.fn(), informationRequestPrice: vi.fn(),
 }));
 vi.mock("@/lib/services/agent-chat-client", () => ({ getAgentChatConsentOutcomes: async () => ({}) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user, userId: mocks.user.uid }) }));
@@ -21,7 +21,7 @@ vi.mock("@/lib/services/person-profile-service", async importOriginal => ({
   PersonProfileService: {
     getViewer: mocks.getViewer, createInformationRequest: mocks.create,
     getInformationRequest: mocks.getInformationRequest, getInformationRequestExports: mocks.getInformationRequestExports,
-    searchScopeCatalog: mocks.searchScopeCatalog,
+    searchScopeCatalog: mocks.searchScopeCatalog, informationRequestPrice: mocks.informationRequestPrice,
   },
 }));
 vi.mock("@/lib/services/one-kyc-client-zk-service", () => ({ OneKycClientZkService: {
@@ -43,7 +43,13 @@ import { AgentStructuredExperienceView, AgentTranscriptRevealContext } from "@/c
 import { ConsentCardPhaseContext, RequesterProgressBody } from "@/components/agent/consent/requester-consent-card";
 import { AccessEndedNotice } from "@/components/agent/consent/access-ended-notice";
 import { SharedDetailsList, humanSharedDetails, sharedItemRows } from "@/components/agent/consent/shared-details";
-import { parseRequestProgress, progressHeadline, timelineFor, type RequestProgress } from "@/components/agent/consent/request-progress";
+import {
+  parseRequestProgress,
+  progressHeadline,
+  requestStatusBadgeFor,
+  type RequestProgress,
+} from "@/components/agent/consent/request-progress";
+import { informationRequestOutcome } from "@/lib/consent/open-granted-person-information";
 import { askSentence } from "@/components/agent/consent/ask-proposal-card";
 import { parseScopeProposal } from "@/lib/agent/scope-proposal";
 import { parseAgentToolResultExperience } from "@/lib/agent/agui-structured-experiences";
@@ -62,17 +68,13 @@ const ENDS = "2099-10-05T12:00:00Z";
 
 function progress(overrides: Partial<Record<string, unknown>> = {}): RequestProgress {
   const parsed = parseRequestProgress({
-    requested_at: ASKED, delivered_at: null, seen_at: null, decided_at: null,
+    requested_at: ASKED, delivered_at: null, decided_at: null,
     outcome: "pending", access_ends_at: null, ended_at: null,
     fields: [{ scope: "attr.food.preferences.*", label: "Food preferences", status: "pending" }],
     ...overrides,
   });
   if (!parsed) throw new Error("fixture progress did not parse");
   return parsed;
-}
-
-function stateOf(steps: ReturnType<typeof timelineFor>) {
-  return Object.fromEntries(steps.map(step => [step.key, `${step.state}:${step.label}`]));
 }
 
 /** Memory tree exactly as the baseline screenshot rendered it raw. */
@@ -109,60 +111,120 @@ describe("request progress timeline", () => {
       fields: [{ label: "Food preferences", status: "cancelled" }] });
     expect(withdrawn.outcome).toBe("cancelled");
     expect(withdrawn.fields).toEqual([{ label: "Food preferences", status: "cancelled" }]);
-    const steps = timelineFor(withdrawn);
-    expect(stateOf(steps)).toMatchObject({ delivered: "done:Delivered", seen: "upcoming:Seen", decided: "done:Withdrawn" });
-    expect(steps.some(step => step.state === "current")).toBe(false);
-    expect(steps.map(step => step.key)).not.toContain("reading");
+    const badge = requestStatusBadgeFor(withdrawn);
+    expect(badge).toMatchObject({ state: "withdrawn", label: "Withdrawn", pulse: false, tone: "neutral" });
     expect(progressHeadline(withdrawn, "Kushal Trivedi")).toBe("You withdrew this request");
   });
 
-  it("walks Asked, Delivered, Seen, Decided with exactly one live step while waiting", () => {
-    expect(stateOf(timelineFor(progress()))).toMatchObject({ asked: "done:Asked", delivered: "current:Delivered", seen: "upcoming:Seen" });
-    expect(stateOf(timelineFor(progress({ delivered_at: ASKED })))).toMatchObject({ delivered: "done:Delivered", seen: "current:Seen" });
-    expect(stateOf(timelineFor(progress({ delivered_at: ASKED, seen_at: ASKED })))).toMatchObject({ seen: "done:Seen", decided: "current:Decided" });
-    for (const p of [progress(), progress({ delivered_at: ASKED }), progress({ delivered_at: ASKED, seen_at: ASKED })]) {
-      expect(timelineFor(p).filter(step => step.state === "current")).toHaveLength(1);
+  it("shows a pulsing Waiting status while pending regardless of delivery or legacy seen fields", () => {
+    for (const p of [
+      progress(),
+      progress({ delivered_at: ASKED }),
+      progress({ delivered_at: ASKED, seen_at: ASKED }),
+    ]) {
+      expect(requestStatusBadgeFor(p)).toMatchObject({
+        state: "waiting",
+        label: "Waiting",
+        pulse: true,
+        tone: "positive",
+      });
+      expect(progressHeadline(p, "Kushal Trivedi")).toBe("Waiting for Kushal's approval");
     }
   });
 
-  it("marks a decision done and only pulses Reading when the chat says so", () => {
-    const granted = progress({ decided_at: ASKED, outcome: "granted", access_ends_at: ENDS,
-      fields: [{ label: "Food preferences", status: "granted" }] });
-    const idle = stateOf(timelineFor(granted));
-    expect(idle).toMatchObject({ delivered: "done:Delivered", seen: "done:Seen", decided: "done:Shared", reading: "upcoming:Reading" });
-    expect(timelineFor(granted).some(step => step.state === "current")).toBe(false);
-    expect(stateOf(timelineFor(granted, "reading"))).toMatchObject({ reading: "current:Reading", answered: "upcoming:Answered" });
-    expect(timelineFor(granted, "answered").every(step => step.state === "done")).toBe(true);
+  it("shows Shared when granted and only pulses Reading when the chat says so", () => {
+    const granted = progress({
+      decided_at: ASKED,
+      outcome: "granted",
+      access_ends_at: ENDS,
+      fields: [{ label: "Food preferences", status: "granted" }],
+    });
+    expect(requestStatusBadgeFor(granted)).toMatchObject({
+      state: "shared",
+      label: "Shared",
+      pulse: false,
+      tone: "positive",
+    });
+    expect(requestStatusBadgeFor(granted, "reading")).toMatchObject({
+      state: "shared",
+      label: "Reading…",
+      pulse: true,
+      tone: "positive",
+    });
+    expect(requestStatusBadgeFor(granted, "answered")).toMatchObject({
+      state: "shared",
+      label: "Shared",
+      pulse: false,
+      tone: "positive",
+    });
   });
 
-  it("skips Reading for a decline and for an unanswered expiry", () => {
-    const denied = timelineFor(progress({ decided_at: ASKED, outcome: "denied", fields: [{ label: "Food preferences", status: "denied" }] }));
-    expect(denied.map(step => step.key)).toEqual(["asked", "delivered", "seen", "decided", "answered"]);
-    expect(denied.find(step => step.key === "decided")).toMatchObject({ label: "Declined", tone: "neutral" });
-    const lapsed = stateOf(timelineFor(progress({ outcome: "expired", delivered_at: ASKED })));
-    expect(lapsed).toMatchObject({ seen: "upcoming:Seen", decided: "done:No answer" });
+  it("maps denied, expired, and ended outcomes cleanly without Seen", () => {
+    const denied = progress({
+      decided_at: ASKED,
+      outcome: "denied",
+      fields: [{ label: "Food preferences", status: "denied" }],
+    });
+    expect(requestStatusBadgeFor(denied)).toMatchObject({
+      state: "declined",
+      label: "Declined",
+      pulse: false,
+      tone: "neutral",
+    });
+    const lapsed = progress({ outcome: "expired", delivered_at: ASKED });
+    expect(requestStatusBadgeFor(lapsed)).toMatchObject({
+      state: "expired",
+      label: "Expired",
+      pulse: false,
+      tone: "neutral",
+    });
+    const ended = progress({ outcome: "revoked", decided_at: ASKED, ended_at: ASKED });
+    expect(requestStatusBadgeFor(ended)).toMatchObject({
+      state: "ended",
+      label: "Access ended",
+      pulse: false,
+      tone: "neutral",
+    });
+  });
+
+  it("holds informationRequestOutcome at null while any granted item is not accessReady", () => {
+    expect(
+      informationRequestOutcome({
+        items: [
+          { status: "granted", accessReady: false },
+          { status: "granted", accessReady: true },
+        ],
+      } as Parameters<typeof informationRequestOutcome>[0]),
+    ).toBeNull();
+    expect(
+      informationRequestOutcome({
+        items: [{ status: "granted", accessReady: true }],
+      } as Parameters<typeof informationRequestOutcome>[0]),
+    ).toBe("granted");
   });
 });
 
 describe("living requester card body", () => {
   afterEach(cleanup);
 
-  it("pulses the current step only through motion-safe, so reduced motion stays still", () => {
+  it("pulses the Waiting pill only through motion-safe and never shows Seen or Delivered", () => {
     render(<RequesterProgressBody progress={progress({ delivered_at: ASKED })} personName="Kushal Trivedi" purpose="Dinner" />);
-    const pulse = screen.getByTestId("timeline-pulse");
+    const badge = screen.getByTestId("request-status-badge");
+    expect(badge).toHaveAttribute("data-state", "waiting");
+    expect(badge).toHaveTextContent("Waiting");
+    const pulse = screen.getByTestId("status-pulse");
     expect(pulse.className).toContain("motion-safe:animate-pulse");
     expect(pulse.className.split(/\s+/)).not.toContain("animate-pulse");
-    expect(screen.getByRole("list", { name: "Request progress" }).querySelector("[aria-current='step']"))
-      .toHaveAttribute("data-step", "seen");
-    expect(screen.getByRole("status")).toHaveTextContent("Delivered to Kushal");
+    expect(screen.getByRole("status")).toHaveTextContent("Waiting for Kushal's approval");
+    expect(document.body.textContent).not.toMatch(/Delivered|saw it|\bSeen\b/i);
   });
 
-  it("says when the person saw it, not that it was delivered, once Seen is done", () => {
+  it("does not expose read-receipt timing even if seen_at is present in legacy payloads", () => {
     const SEEN = "2026-09-28T14:05:00Z";
     render(<RequesterProgressBody progress={progress({ delivered_at: ASKED, seen_at: SEEN })} personName="Kushal Trivedi" purpose="Dinner" />);
     const status = screen.getByRole("status");
-    expect(status).toHaveTextContent(/^Kushal saw it\s*\d{1,2}:\d{2}\s?[AP]M$/);
-    expect(status).not.toHaveTextContent("Delivered");
+    expect(status).toHaveTextContent("Waiting for Kushal's approval");
+    expect(status).not.toHaveTextContent(/saw it|Delivered|Seen/i);
   });
 
   it("lists shared and declined items with human labels and when access ends", () => {
@@ -175,7 +237,7 @@ describe("living requester card body", () => {
     const body = screen.getByTestId("requester-progress");
     expect(body).toHaveTextContent("Shared Food preferences");
     expect(body).toHaveTextContent("Not shared Health notes");
-    expect(within(screen.getByRole("list", { name: "Request progress" })).getByText("Shared")).toBeInTheDocument();
+    expect(within(screen.getByTestId("request-status-badge")).getByText("Partly shared")).toBeInTheDocument();
     expect(screen.getByText("Access ends Oct 5")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "View shared information" })).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/scope|grant|attr\./i);
@@ -380,7 +442,7 @@ describe("InformationRequestReviewView with and without progress", () => {
     mocks.getInformationRequest.mockResolvedValue(bundle("pending", false));
     render(<AgentStructuredExperienceView experience={restored} />);
     expect(await screen.findByText("Waiting for Kushal Trivedi's approval")).toBeInTheDocument();
-    expect(screen.queryByTestId("request-timeline")).toBeNull();
+    expect(screen.queryByTestId("request-status-badge")).toBeNull();
   });
 
   it("renders the living card from progress and takes the phase from the chat", async () => {
@@ -393,7 +455,32 @@ describe("InformationRequestReviewView with and without progress", () => {
     expect(within(card).getByRole("status")).toHaveTextContent("Reading what Kushal shared…");
     expect(screen.getByText("Food preferences from Kushal Trivedi")).toBeInTheDocument();
     expect(screen.getByText("Access ends Oct 5")).toBeInTheDocument();
-    expect(card.querySelector("[aria-current='step']")).toHaveAttribute("data-step", "reading");
+    expect(card.querySelector("[data-testid='request-status-badge']")).toHaveTextContent("Reading");
+    expect(card.querySelector("[data-testid='status-pulse']")).not.toBeNull();
+  });
+
+  it("labels a withdrawn request without claiming information was shared", async () => {
+    const pending = bundle("pending", true);
+    mocks.getInformationRequest.mockResolvedValue({
+      ...pending, cancelled: true,
+      items: pending.items.map(item => ({ ...item, status: "cancelled" })),
+      progress: { ...pending.progress!, outcome: "cancelled",
+        fields: pending.progress!.fields.map(field => ({ ...field, status: "cancelled" })) },
+    });
+    render(<AgentStructuredExperienceView experience={restored} />);
+    await screen.findByTestId("requester-progress");
+    expect(screen.getByText("Request withdrawn")).toBeInTheDocument();
+    expect(screen.getByText("You withdrew this request")).toBeInTheDocument();
+    expect(screen.queryByText("Shared with you")).toBeNull();
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("replaces the static receipt with live progress without rendering commerce review links", async () => {
+    mocks.getInformationRequest.mockResolvedValue(bundle("pending", true));
+    render(<AgentStructuredExperienceView experience={restored} />);
+    await screen.findByTestId("requester-progress");
+    expect(screen.queryByRole("link", { name: /Review request/i })).toBeNull();
+    expect(mocks.create).not.toHaveBeenCalled();
   });
 
   it("renders an already waiting request as its living card, with no Send", async () => {
@@ -504,7 +591,10 @@ describe("InformationRequestReviewView with and without progress", () => {
     mocks.readStoredConnector.mockResolvedValue({ connector_key_id: "test-connector" });
     mocks.decryptScopedExport.mockResolvedValue(MEMORY_TREE);
     render(<AgentStructuredExperienceView experience={restored} />);
-    // The approval shows the secure card at once: no reveal control to find.
+    // In Chat, approved values stay compact behind the Detailed View Modal rather than flooding the transcript.
+    const viewDetails = await screen.findByTestId("shared-with-you-view-details");
+    expect(screen.queryByTestId("shared-with-you-values")).toBeNull();
+    fireEvent.click(viewDetails);
     const details = await screen.findByTestId("shared-with-you-values");
     expect(details).toHaveTextContent("Nopa");
     expect(screen.queryByRole("button", { name: "View shared information" })).toBeNull();
@@ -572,6 +662,11 @@ describe("One picks, you confirm", () => {
     vi.clearAllMocks();
     mocks.unlocked = true;
     mocks.getViewer.mockResolvedValue(viewer());
+    mocks.informationRequestPrice.mockImplementation(async ({personRef, scopeRefs, durationSeconds}: {personRef: string; scopeRefs: string[]; durationSeconds: number}) => ({
+      version: 1, personRef, durationSeconds, currency: "USD", coinsPerDollar: 100,
+      binding: "b".repeat(64), totalCoins: 0, availableCoins: 0, shortfallCoins: 0,
+      items: scopeRefs.map((scopeRef: string) => ({scopeRef, label: "Selected information", amountCoins: 0})),
+    }));
     mocks.create.mockResolvedValue({ personRef: person, bundleId, purpose: "dinner planning", durationSeconds: 168 * 3600,
       cancelled: false, items: [{ requestId, scopeRef: "scope-food", label: "Food preferences", sensitivity: "standard", status: "pending" }] });
     mocks.getInformationRequest.mockResolvedValue(bundle("pending", true));
@@ -645,7 +740,7 @@ describe("One picks, you confirm", () => {
     expect(mocks.create).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(onSubmitted).toHaveBeenCalledWith(expect.objectContaining({ bundleId, subjectRef: person,
       review: expect.objectContaining({ phase: "submitted", bundleId, subjectRef: person, durationLabel: "7 days" }) })));
-    expect(await screen.findByTestId("request-timeline")).toBeInTheDocument();
+    expect(await screen.findByTestId("request-status-badge")).toBeInTheDocument();
   });
 
   it("lifts its Send row above the composer once, when it appears", async () => {
@@ -768,6 +863,7 @@ describe("One picks, you confirm", () => {
     fireEvent.click(diet);
     expect(group).toHaveAttribute("aria-checked", "true");
 
+    await waitFor(() => expect(send).toBeEnabled());
     fireEvent.click(send);
     // Fully chosen, the group goes as its one broad item.
     await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ scopeRefs: ["scope-food-all"] })));

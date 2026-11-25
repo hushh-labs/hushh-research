@@ -1,3 +1,4 @@
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 /**
  * Sending a chat turn to a private agent that sleeps when idle.
  *
@@ -72,9 +73,9 @@ export class DeviceOfflineError extends Error {
   }
 }
 
-/** `navigator.onLine` is only trusted when it says false. */
+/** `isNetworkOnline()` is only trusted when it says false. */
 function deviceIsOffline(): boolean {
-  return typeof navigator !== "undefined" && navigator.onLine === false;
+  return !isNetworkOnline();
 }
 
 /** A step before the send got no answer: offline, or the agent is not reachable yet. */

@@ -97,6 +97,35 @@ def plg_runtime_sync():
     return module
 
 
+@pytest.mark.parametrize(
+    "environment,project", [("dev", "hushh-pda-dev"), ("uat", "hushh-pda-uat")]
+)
+def test_auth_authority_survives_the_real_runtime_writer(
+    monkeypatch, plg_runtime_sync, environment, project
+):
+    writes, target = _write_configuration(
+        monkeypatch,
+        plg_runtime_sync,
+        environment,
+        False,
+        {"firebase_auth_project_id": project},
+    )
+    config = json.loads(writes[target])
+    assert config["firebase_auth_project_id"] == project
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps(config))
+    monkeypatch.delenv("FIREBASE_AUTH_PROJECT_ID", raising=False)
+    runtime_settings.hydrate_runtime_environment()
+    runtime_settings.clear_runtime_settings_caches()
+    assert runtime_settings.get_firebase_credential_settings().auth_project_id == project
+
+
+def test_auth_authority_cannot_be_inherited_from_another_environment(monkeypatch, plg_runtime_sync):
+    with pytest.raises(SystemExit):
+        _write_configuration(
+            monkeypatch, plg_runtime_sync, "dev", False, {"firebase_auth_project_id": "hushh-pda"}
+        )
+
+
 @pytest.mark.feature_auth_reliability
 def test_listener_isolation_rollback_survives_the_deployment_writer(monkeypatch, plg_runtime_sync):
     writes, target = _write_configuration(
@@ -283,24 +312,16 @@ def test_owner_activity_settings_survive_writer_and_hydration(
     stored = {
         **dict.fromkeys(keys, enabled),
         "one_plg_activity_enabled": enabled,
-        "one_plg_attempt_email_enabled": enabled,
+        **({} if environment == "production" else {"one_plg_attempt_email_enabled": enabled}),
     }
-    # This branch ships UAT using reviewed Main release tooling. Other lanes'
-    # product hydration remains covered without asserting unqualified writers.
-    if environment == "uat":
-        writes, target = _write_configuration(
-            monkeypatch, plg_runtime_sync, environment, False, stored
-        )
-        actual = json.loads(writes[target])
-        assert all(actual[key] is value for key, value in stored.items())
-        assert "one_plg_export_account_ids" not in actual
-        payload = writes[target]
-    else:
-        payload = json.dumps(stored)
+    writes, target = _write_configuration(monkeypatch, plg_runtime_sync, environment, False, stored)
+    actual = json.loads(writes[target])
+    assert all(actual[key] is value for key, value in stored.items())
+    assert "one_plg_export_account_ids" not in actual
     monkeypatch.setattr(runtime_settings.os, "environ", os.environ.copy())
     for key in stored:
         monkeypatch.delenv(key.upper(), raising=False)
-    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", payload)
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", writes[target])
     runtime_settings.hydrate_runtime_environment()
     assert all(os.environ[key.upper()] == str(value).lower() for key, value in stored.items())
 

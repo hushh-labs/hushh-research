@@ -13,6 +13,10 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-
 
 const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
+  pathname: "/consents",
+  nativeEnabled: false,
+  nativeOptions: null as null | { active: boolean; content: { sections: Array<{ rows: Array<{ id: string; label: string }> }> }; actions: Map<string, () => Promise<unknown>> },
+  retireNative: vi.fn().mockResolvedValue(true),
   getIdToken: vi.fn().mockResolvedValue("id-token"),
   getVaultOwnerToken: vi.fn(() => "vault-token"),
   isVaultUnlocked: true,
@@ -64,8 +68,25 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mocks.replace }),
-  usePathname: () => "/consents",
+  usePathname: () => mocks.pathname,
   useSearchParams: () => new URLSearchParams(mocks.search),
+}));
+
+vi.mock("@/lib/capacitor/use-native-workspace", () => ({
+  useNativeWorkspacePresentation: () => ({ owner: {}, status: { held: false }, retireForWeb: mocks.retireNative }),
+  useNativeWorkspace: (options: typeof mocks.nativeOptions) => {
+    mocks.nativeOptions = options;
+    return mocks.nativeEnabled && options?.active ? "native" : "web";
+  },
+}));
+vi.mock("@/lib/capacitor/native-presentation-policy", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/capacitor/native-presentation-policy")>(),
+  customNativePresentationEnabled: () => mocks.nativeEnabled,
+}));
+vi.mock("@/lib/capacitor/session-privacy", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/capacitor/session-privacy")>(),
+  nativePrivacyCanInteract: () => true,
+  nativePrivacyObservation: () => ({ state: { appIsActive: true, shielded: false, generation: 1 } }),
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -78,6 +99,10 @@ vi.mock("@/hooks/use-auth", () => ({
 
 vi.mock("@/components/consent/document-share-review", () => ({
   DocumentShareReview: ({ requestId }: { requestId: string }) => <div data-testid="private-document-review">{requestId}</div>,
+}));
+
+vi.mock("@/components/consent/scope-commerce-request-panel", () => ({
+  ScopeCommerceRequestPanel: ({ requestId }: { requestId: string }) => <div data-testid="focused-sharing-agreement">{requestId}</div>,
 }));
 
 // This suite checks Consent Center deep-link routing. The typed review router
@@ -450,8 +475,29 @@ function groupedHistoryListResponse() {
 }
 
 describe("ConsentCenterPage requestId deep links", () => {
+  it.each(["https://foreign.example/sharing", "x".repeat(129)])("ignores malformed paid agreement links and keeps consent review available (%s)", async value => {
+    mocks.pathname = "/one/consent";
+    mocks.search = `tab=pending&commerceRequestId=${encodeURIComponent(value)}`;
+    render(<ConsentCenterPage />);
+    await screen.findByRole("textbox");
+    expect(screen.queryByTestId("focused-sharing-agreement")).toBeNull();
+    expect(mocks.handleApproveBundle).not.toHaveBeenCalled();
+  });
+
+  it("routes commerceRequestId links directly into the unified Consent sheet without a separate screen", async () => {
+    mocks.pathname = "/one/consent";
+    mocks.search = "tab=requests&commerceRequestId=one_person_paid";
+    render(<ConsentCenterPage />);
+    expect(await screen.findByRole("dialog", { name: "Consent details" })).toBeInTheDocument();
+    expect(screen.queryByTestId("focused-sharing-agreement")).toBeNull();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.pathname = "/consents";
+    mocks.nativeEnabled = false;
+    mocks.nativeOptions = null;
+    mocks.retireNative.mockReset().mockResolvedValue(true);
     mocks.search =
       "tab=pending&requestId=req_deep&from=%2Fone%2Fconnected-systems%2Fsalesforce-fsc-customer0";
     mocks.getVaultOwnerToken.mockImplementation(() => "vault-token");
@@ -490,6 +536,65 @@ describe("ConsentCenterPage requestId deep links", () => {
       missing_request_ids: [],
     });
     installDesktopMediaQuery();
+  });
+
+  it("keeps inline requests in the complete React presentation", async () => {
+    mocks.pathname = "/one/consent/";
+    mocks.nativeEnabled = true;
+    mocks.search = "tab=pending";
+    mocks.listEntries.mockResolvedValue(pendingListResponse(foodRequestEntry()));
+    render(<ConsentCenterPage />);
+    expect(await screen.findByText("Kushal Trivedi")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Allow" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Don't allow" })).toBeVisible();
+    expect(mocks.nativeOptions?.active).toBe(false);
+  });
+
+  it("keeps native retired through delayed detail navigation and returns after the detail closes", async () => {
+    mocks.pathname = "/one/consent/";
+    mocks.nativeEnabled = true;
+    mocks.search = "tab=history";
+    mocks.listEntries.mockResolvedValue(groupedHistoryListResponse());
+    let finishRetirement!: (value: boolean) => void;
+    mocks.retireNative.mockImplementation(() => new Promise<boolean>(resolve => { finishRetirement = resolve; }));
+    const view = render(<ConsentCenterPage />);
+    await waitFor(() => expect(mocks.nativeOptions?.content.sections[0]?.rows.some(row => row.label === "Macy's CRM")).toBe(true));
+    const options = mocks.nativeOptions!;
+    const row = options.content.sections[0]!.rows.find(item => item.label === "Macy's CRM")!;
+    let handoff!: Promise<unknown>;
+    act(() => { handoff = options.actions.get(row.id)!(); });
+    expect(mocks.replace).not.toHaveBeenCalled();
+    await act(async () => { finishRetirement(true); await handoff; });
+    expect(mocks.replace).toHaveBeenCalledWith(expect.stringContaining("requestId="), { scroll: false });
+    expect(mocks.nativeOptions?.active).toBe(false);
+    view.rerender(<ConsentCenterPage />); // URL has not committed yet.
+    expect(mocks.nativeOptions?.active).toBe(false);
+    mocks.search = "tab=history&requestId=identifier%3Amacy";
+    view.rerender(<ConsentCenterPage />);
+    await waitFor(() => expect(mocks.nativeOptions?.active).toBe(false));
+    mocks.search = "tab=history";
+    view.rerender(<ConsentCenterPage />);
+    await waitFor(() => expect(mocks.nativeOptions?.active).toBe(true));
+  });
+
+  it("drops a delayed detail handoff after vault lock", async () => {
+    mocks.pathname = "/one/consent/";
+    mocks.nativeEnabled = true;
+    mocks.search = "tab=history";
+    mocks.listEntries.mockResolvedValue(groupedHistoryListResponse());
+    let finishRetirement!: (value: boolean) => void;
+    mocks.retireNative.mockImplementation(() => new Promise<boolean>(resolve => { finishRetirement = resolve; }));
+    const view = render(<ConsentCenterPage />);
+    await waitFor(() => expect(mocks.nativeOptions?.content.sections[0]?.rows.some(row => row.label === "Macy's CRM")).toBe(true));
+    const options = mocks.nativeOptions!;
+    const row = options.content.sections[0]!.rows.find(item => item.label === "Macy's CRM")!;
+    let handoff!: Promise<unknown>;
+    act(() => { handoff = options.actions.get(row.id)!(); });
+    mocks.isVaultUnlocked = false;
+    view.rerender(<ConsentCenterPage />);
+    await act(async () => { finishRetirement(true); await handoff; });
+    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(mocks.nativeOptions?.active).toBe(false);
   });
 
   it("shows active people and their first connection date, not resolved request logs", async () => {
@@ -628,7 +733,12 @@ describe("ConsentCenterPage requestId deep links", () => {
       id, request_id: id, kind: "incoming_request", status: "pending", action: "REQUESTED",
       allowed_next_action: "review_request", scope, scope_description: label,
       counterpart_type: "person", counterpart_label: "Kushal Trivedi",
-      metadata: { bundle_id: "bundle-mixed", expiry_hours: 168 },
+      metadata: {
+        bundle_id: "bundle-mixed", expiry_hours: 168,
+        upfront_price_reviewed: true, commercial_required: id === "request-events",
+        request_price_coins: id === "request-events" ? 24 : 0, bundle_price_coins: 24,
+        commerce_status: id === "request-events" ? "awaiting_owner" : "free",
+      },
     });
     mocks.search = "tab=pending&bundleId=bundle-mixed&requestId=request-food";
     mocks.listEntries.mockResolvedValue(pendingListResponse({
@@ -643,6 +753,9 @@ describe("ConsentCenterPage requestId deep links", () => {
     render(<ConsentCenterPage />);
     const dialog = await screen.findByRole("dialog", { name: "Kushal Trivedi" });
     expect(within(screen.getByTestId("consent-bundle-choice")).getAllByRole("checkbox")).toHaveLength(2);
+    expect(within(dialog).getByText("Request total")).toBeTruthy();
+    expect(within(dialog).getByText("24 Hussh coins ($0.24)")).toBeTruthy();
+    expect(within(dialog).queryByRole("link", { name: "View sharing" })).toBeNull();
     const modelPermission = within(dialog).getByRole("checkbox", { name: /selected model/i });
     fireEvent.click(modelPermission);
     expect(modelPermission).toBeChecked();
@@ -932,6 +1045,23 @@ describe("ConsentCenterPage requestId deep links", () => {
     ).toBeTruthy();
     expect(screen.getByRole("option", { name: "2 days" })).toBeTruthy();
     expect(screen.queryByRole("option", { name: "7 days" })).toBeNull();
+  });
+
+  it("keeps the prepaid access duration fixed while the owner decides", async () => {
+    mocks.search="tab=requests&requestId=held-request";
+    mocks.listEntries.mockResolvedValue(pendingListResponse({
+      id:"held-request",request_id:"held-request",kind:"incoming_request",status:"pending",action:"REQUESTED",
+      scope:"attr.professional.role",scope_description:"Role",counterpart_type:"person",counterpart_id:"one",
+      counterpart_label:"Test requester",issued_at:"2026-07-24T09:00:00.000Z",
+      metadata:{expiry_hours:168,upfront_price_reviewed:true,commercial_required:true,request_price_coins:24,bundle_price_coins:24,commerce_status:"awaiting_owner"},
+    }));
+    render(<ConsentCenterPage />);
+    await screen.findByRole("button",{name:"Allow"});
+    expect(screen.getByText("Request value")).toBeTruthy();
+    expect(screen.getByText("24 Hussh coins ($0.24)")).toBeTruthy();
+    expect(screen.queryByRole("combobox",{name:"Access duration"})).toBeNull();
+    fireEvent.click(screen.getByRole("button",{name:"Allow"}));
+    await waitFor(()=>expect(mocks.handleApprove).toHaveBeenCalledWith(expect.objectContaining({id:"held-request",durationHours:168}),{modelProcessingAllowed:false}));
   });
 
   it("renders a fixed 24-hour request without a one-option selector and preserves its approval duration", async () => {
@@ -1913,8 +2043,10 @@ describe("ConsentCenterPage requestId deep links", () => {
 
   // Regression (localhost run 2026-09-28): one allowed request showed as one
   // Active row per field ("Food preferences kind", "Health dietary ...").
-  it("shows one Active row per request, named by the server, each field still its own access", async () => {
+  it.each([false, true])("shows one Active request with individually reachable fields (native=%s)", async (native) => {
     mocks.search = "tab=active";
+    mocks.nativeEnabled = native;
+    if (native) mocks.pathname = "/one/consent/";
     const grant = (id: string, scope: string, label: string) => ({
       id, request_id: `req_${id}`, kind: "active_grant", status: "active", action: "CONSENT_GRANTED",
       counterpart_type: "person", counterpart_id: "user-kushal", counterpart_label: "Kushal Trivedi",
@@ -1925,10 +2057,31 @@ describe("ConsentCenterPage requestId deep links", () => {
       metadata: { bundle_id: "bundle-dinner", request_source: "one_person_profile" },
     });
     mocks.listEntries.mockResolvedValue({
-      ...emptyListResponse(), surface: "active", total: 2,
+      ...emptyListResponse(), surface: "active", total: native ? 22 : 2, has_more: native,
       items: [grant("g1", "attr.food.preferences.*", "Food preferences"), grant("g2", "attr.health.dietary.*", "Dietary constraints")],
     });
     render(<ConsentCenterPage />);
+    if (native) {
+      const rows = () => mocks.nativeOptions!.content.sections[0]!.rows;
+      await waitFor(() => expect(rows().some(row => row.label === "Kushal Trivedi")).toBe(true));
+      const next = rows().find(row => row.label === "Next page")!;
+      await act(async () => { await mocks.nativeOptions!.actions.get(next.id)!(); });
+      expect(mocks.replace).toHaveBeenCalledWith(expect.stringContaining("page=2"), { scroll: false });
+      mocks.replace.mockClear();
+      const group = rows().find(row => row.label === "Kushal Trivedi")!;
+      expect(rows().filter(row => row.label === group.label)).toHaveLength(1);
+      await act(async () => { await mocks.nativeOptions!.actions.get(group.id)!(); });
+      expect(rows().filter(row => ["Food preferences", "Dietary constraints"].includes(row.label))).toHaveLength(2);
+      await act(async () => { await mocks.nativeOptions!.actions.get(group.id)!(); });
+      expect(rows().some(row => row.label === "Food preferences")).toBe(false);
+      await act(async () => { await mocks.nativeOptions!.actions.get(group.id)!(); });
+      const field = rows().find(row => row.label === "Dietary constraints")!;
+      await act(async () => { await mocks.nativeOptions!.actions.get(field.id)!(); });
+      expect(mocks.retireNative).toHaveBeenCalledTimes(1);
+      expect(mocks.replace).toHaveBeenCalledWith(expect.stringContaining("requestId=req_g2"), { scroll: false });
+      expect(mocks.handleRevoke).not.toHaveBeenCalled();
+      return;
+    }
     const rows = await screen.findAllByTestId("consent-active-request-row");
     expect(rows).toHaveLength(1);
     expect(rows[0]).toHaveTextContent("Food preferences and Dietary constraints");

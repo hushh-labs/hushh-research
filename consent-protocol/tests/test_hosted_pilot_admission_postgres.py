@@ -9,12 +9,20 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from tests.pkm_conformance.postgres_harness import find_pg_bin
-from tests.test_byoc_setup_job_azure_admission_postgres import ROOT, _Client, _server
+from tests import hosted_pilot_readiness_cases as _readiness_cases
+from tests.helpers.private_agent_adoption import canonical_database, install_legacy_guards
+from tests.pkm_conformance import postgres_harness
+from tests.pkm_conformance.postgres_harness import TempPostgres, find_pg_bin
+from tests.test_byoc_setup_job_azure_admission_postgres import ROOT, _Client
 
 psycopg2 = pytest.importorskip("psycopg2")
 pytestmark = pytest.mark.skipif(find_pg_bin() is None, reason="local PostgreSQL unavailable")
 POLICY = "11111111-1111-4111-8111-111111111111"
+
+
+@pytest.fixture
+def pg(monkeypatch):
+    yield from _readiness_cases.pg.__wrapped__(monkeypatch)
 
 
 def _assignment(owner: str, number: int) -> dict:
@@ -25,19 +33,6 @@ def _assignment(owner: str, number: int) -> dict:
         "projectNumber": str(100000000000 + number),
         "region": "us-central1",
     }
-
-
-@pytest.fixture
-def pg(monkeypatch):
-    # Reuse the provision-journal fixture through its exact 954 predecessor.
-    # Its minimal vault schema lacks 955's setup projection; complete release/dev
-    # replay remains a separate required migration gate before activation.
-    server = _server(monkeypatch, last=954)
-    try:
-        server.apply_file(ROOT / "db/migrations/parked/973_hosted_pod_pilot_admission.sql")
-        yield server
-    finally:
-        server.stop()
 
 
 def _policy(
@@ -496,3 +491,490 @@ def test_verified_phone_retains_fixed_cohort_selection(pg, monkeypatch):
     from tests.helpers.hosted_pilot_selection import prove_phone_pending_selection
 
     asyncio.run(prove_phone_pending_selection(pg, monkeypatch))
+
+
+def test_hosted_files_readiness_requires_executor_binding_and_refreshed_contract(pg, monkeypatch):
+    _readiness_cases.run_readiness_case(pg, monkeypatch)
+
+
+def _dev_custody_environment():
+    from db.hosted_custody_qualification import (
+        CUSTODY_PROFILE_ENV,
+        DEV_CONTROL_PLANE_OWNER_PROFILE,
+        DEV_CUSTODY_DATABASE,
+        DEV_CUSTODY_INSTANCE,
+        DEV_CUSTODY_PRINCIPAL,
+        DEV_CUSTODY_PROJECT_ID,
+    )
+
+    return {
+        CUSTODY_PROFILE_ENV: DEV_CONTROL_PLANE_OWNER_PROFILE,
+        "ENVIRONMENT": "dev",
+        "DEV_TARGET": "shared-dev",
+        "GCP_PROJECT_ID": DEV_CUSTODY_PROJECT_ID,
+        "GOOGLE_CLOUD_PROJECT": DEV_CUSTODY_PROJECT_ID,
+        "CLOUDSQL_INSTANCE_CONNECTION_NAME": DEV_CUSTODY_INSTANCE,
+        "DB_NAME": DEV_CUSTODY_DATABASE,
+        "DB_USER": DEV_CUSTODY_PRINCIPAL,
+    }
+
+
+def _complete_custody_sql(profile, *, require_family=True):
+    from db.hosted_custody_adoption import (
+        HOSTED_FILES_NEW_SIGNATURES,
+        HOSTED_FILES_QUALIFIED,
+        HOSTED_FILES_SERVICE_ROLE_SIGNATURES,
+        HOSTED_NATIVE_LOCATION_CONTRACT_QUALIFIED,
+        PERSONAL_AGENT_UPGRADE_HOST_BINDING_QUALIFIED,
+        QUALIFIED,
+    )
+    from db.hosted_custody_qualification import complete_family_qualification_sql
+
+    return complete_family_qualification_sql(
+        base_family=QUALIFIED,
+        files_family=HOSTED_FILES_QUALIFIED,
+        upgrade_family=PERSONAL_AGENT_UPGRADE_HOST_BINDING_QUALIFIED,
+        native_contract_family=HOSTED_NATIVE_LOCATION_CONTRACT_QUALIFIED,
+        service_role_signatures=HOSTED_FILES_SERVICE_ROLE_SIGNATURES,
+        hosted_files_new_signatures=HOSTED_FILES_NEW_SIGNATURES,
+        native_contract_new_signatures=frozenset(),
+        require_family=require_family,
+        profile=profile,
+    )
+
+
+def test_dev_custody_profile_requires_explicit_exact_runtime_configuration():
+    from db.hosted_custody_qualification import (
+        CUSTODY_PROFILE_ENV,
+        DEV_CONTROL_PLANE_OWNER_PROFILE,
+        STRICT_CUSTODY_PROFILE,
+        hosted_custody_profile_from_environment,
+    )
+
+    config = _dev_custody_environment()
+    profile = hosted_custody_profile_from_environment(config)
+    assert profile.name == DEV_CONTROL_PLANE_OWNER_PROFILE
+    assert profile.system_identifier_sha256 == (
+        "320fe60c039c7a44aa11e7b670de5e3576d9c4ab7e95de76657719b6c56810b0"
+    )
+
+    unselected = dict(config)
+    del unselected[CUSTODY_PROFILE_ENV]
+    assert hosted_custody_profile_from_environment(unselected).name == STRICT_CUSTODY_PROFILE
+
+    for key, wrong_value in (
+        ("ENVIRONMENT", "uat"),
+        ("GCP_PROJECT_ID", "hushh-pda-uat"),
+        ("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat"),
+        ("CLOUDSQL_INSTANCE_CONNECTION_NAME", "hushh-pda-prod:us-central1:hushh-prod-pg"),
+        ("DB_NAME", "scope_commerce_sandbox"),
+        ("DB_USER", "service_role"),
+        ("DEV_TARGET", "scope-commerce-sandbox"),
+    ):
+        wrong = {**config, key: wrong_value}
+        with pytest.raises(ValueError, match=key):
+            hosted_custody_profile_from_environment(wrong)
+
+    with pytest.raises(ValueError, match="DEV_TARGET"):
+        hosted_custody_profile_from_environment(
+            {CUSTODY_PROFILE_ENV: config[CUSTODY_PROFILE_ENV], "ENVIRONMENT": "dev"}
+        )
+
+
+def test_dev_profile_keeps_complete_979_family_checks_and_420_421_binding(monkeypatch):
+    from db.hosted_custody_qualification import (
+        DEV_CUSTODY_SYSTEM_IDENTIFIER_SHA256,
+        ROLLBACK_SOURCE_PREIMAGES,
+        hosted_custody_profile_from_environment,
+    )
+    from db.migration_authority import build_manifest_entries
+    from db.private_agent_adoption import execution_sql
+
+    profile = hosted_custody_profile_from_environment(_dev_custody_environment())
+    sql = _complete_custody_sql(profile)
+    assert "function vector or metadata" in sql
+    assert "rollback marker shape or ACL" in sql
+    assert "rollback preimages" in sql
+    assert "upgrade host trigger" in sql
+    assert "project grant trigger" in sql
+    assert "erasure registry trigger" in sql
+    assert "overload or missing function" in sql
+    assert DEV_CUSTODY_SYSTEM_IDENTIFIER_SHA256 in sql
+    assert "hushh_uat_app" in sql
+    assert "service_role')" in sql
+
+    from db.hosted_custody_adoption import HOSTED_FILES_QUALIFIED, QUALIFIED
+
+    for digest in (*QUALIFIED.values(), *HOSTED_FILES_QUALIFIED.values()):
+        assert digest.encode().hex() in sql
+    for digest in ROLLBACK_SOURCE_PREIMAGES.values():
+        assert digest.encode().hex() in sql
+
+    entries = build_manifest_entries(
+        ROOT / "db/migrations",
+        ["420_private_agent_lifecycle_foundation.sql", "421_cloud_removal_recovery.sql"],
+    )
+    for key, value in _dev_custody_environment().items():
+        monkeypatch.setenv(key, value)
+    for entry in entries:
+        replay_sql = execution_sql(entry)
+        assert replay_sql.count("Dev database identity") >= 2
+        assert DEV_CUSTODY_SYSTEM_IDENTIFIER_SHA256 in replay_sql
+        assert "owner-only function ACL" in replay_sql
+
+    invalid_config = _dev_custody_environment()
+    invalid_config["CLOUDSQL_INSTANCE_CONNECTION_NAME"] = "local-proxy"
+    monkeypatch.setenv(
+        "HUSHH_HOSTED_CUSTODY_PROFILE", invalid_config["HUSHH_HOSTED_CUSTODY_PROFILE"]
+    )
+    monkeypatch.setenv("DEV_TARGET", invalid_config["DEV_TARGET"])
+    monkeypatch.setenv("GCP_PROJECT_ID", invalid_config["GCP_PROJECT_ID"])
+    monkeypatch.setenv(
+        "CLOUDSQL_INSTANCE_CONNECTION_NAME", invalid_config["CLOUDSQL_INSTANCE_CONNECTION_NAME"]
+    )
+    monkeypatch.setenv("DB_NAME", invalid_config["DB_NAME"])
+    monkeypatch.setenv("DB_USER", invalid_config["DB_USER"])
+    with pytest.raises(ValueError, match="CLOUDSQL_INSTANCE_CONNECTION_NAME"):
+        execution_sql(entries[0])
+
+
+def test_dev_owner_only_readiness_rejects_wrong_cluster_service_role_and_acl_drift(
+    pg, monkeypatch, request, tmp_path
+):
+    import db.hosted_custody_qualification as custody_qualification
+    from db.hosted_custody_adoption import _successor_qualification
+    from hushh_mcp.services.pod_files.capability_contract import hosted_schema_ready
+    from tests.hosted_pilot_readiness_cases import (
+        _apply_hosted_predecessor_migrations,
+        _create_runtime_roles,
+    )
+
+    _create_runtime_roles(pg)
+    _apply_hosted_predecessor_migrations(pg, lambda: False)
+    for migration in (
+        "979_hosted_files_executor.sql",
+        "980_personal_agent_upgrade_host_binding.sql",
+        "981_hosted_native_location_contract.sql",
+    ):
+        pg.apply_file(ROOT / "db/migrations/parked" / migration)
+    pg.execute(_successor_qualification())
+
+    pg.execute("DROP OWNED BY service_role")
+    pg.execute("DROP ROLE service_role")
+    pg.execute("CREATE ROLE hushh_uat_app LOGIN SUPERUSER")
+    from db.hosted_custody_adoption import qualified_hosted_custody_family
+
+    for signature in qualified_hosted_custody_family():
+        name, _, arguments = signature.partition("(")
+        pg.execute(f'ALTER FUNCTION public."{name}"({arguments} OWNER TO hushh_uat_app')
+    pg.execute("ALTER TABLE public.personal_agent_registry OWNER TO hushh_uat_app")
+    pg.execute(
+        "ALTER TABLE public.hosted_files_executor_976_rollback_source OWNER TO hushh_uat_app"
+    )
+    local_system_identifier_hash = pg.execute(
+        "SELECT encode(sha256(convert_to(system_identifier::text,'UTF8')),'hex') "
+        "FROM pg_control_system()"
+    )[0][0]
+    monkeypatch.setattr(
+        custody_qualification,
+        "DEV_CUSTODY_SYSTEM_IDENTIFIER_SHA256",
+        local_system_identifier_hash,
+    )
+    for key, value in _dev_custody_environment().items():
+        monkeypatch.setenv(key, value)
+
+    import psycopg2
+
+    current_principal = pg.execute("SELECT current_user,session_user")[0]
+    assert current_principal == ("hushh", "hushh")
+    with pytest.raises(psycopg2.errors.RaiseException, match="Dev database identity"):
+        pg.execute(_successor_qualification())
+
+    owner_connection = psycopg2.connect(
+        host=pg.dir, port=pg.port, user="hushh_uat_app", dbname="postgres"
+    )
+    request.addfinalizer(owner_connection.close)
+    owner_connection.autocommit = True
+
+    def owner_execute(statement, params=None):
+        with owner_connection.cursor() as cursor:
+            cursor.execute(statement, params)
+            return cursor.fetchall() if cursor.description is not None else []
+
+    class ReadinessRepo:
+        def __init__(self):
+            self.connection = owner_connection
+
+        async def files_upgrade_admission_ready(self, **_kwargs):
+            return True
+
+        def _db(self):
+            return self
+
+        def execute_raw(self, sql, _params):
+            with self.connection.cursor() as cursor:
+                cursor.execute(sql)
+
+    repo = ReadinessRepo()
+
+    def ready():
+        return asyncio.run(hosted_schema_ready(repo))
+
+    assert ready()
+
+    # Execute the immutable 420/421 replay adapters against this same Dev-profile
+    # database. The wrong database principal must fail at the migration's
+    # server-side identity check before the owner-only profile is accepted.
+    import asyncpg
+
+    from db.migration_authority import MigrationMode, apply_manifest_entries, build_manifest_entries
+    from db.private_agent_adoption import execution_sql
+
+    entries = build_manifest_entries(
+        ROOT / "db/migrations",
+        ["420_private_agent_lifecycle_foundation.sql", "421_cloud_removal_recovery.sql"],
+    )
+
+    custody_family = _readiness_cases._custody_family()
+    empty_prelude = tmp_path / "empty-postgres-prelude.sql"
+    empty_prelude.write_text("SELECT 1;\n", encoding="utf-8")
+    monkeypatch.setattr(postgres_harness, "PRELUDE", empty_prelude)
+    monkeypatch.setattr(postgres_harness, "MIGRATIONS", [])
+    target_server = TempPostgres()
+    target_server.start()
+    request.addfinalizer(target_server.stop)
+
+    canonical_connection, database = canonical_database(
+        target_server, monkeypatch, database="postgres"
+    )
+    request.addfinalizer(canonical_connection.close)
+    install_legacy_guards(canonical_connection)
+    target_server.execute("CREATE ROLE hushh_uat_app LOGIN SUPERUSER")
+    canonical_connection.close()
+
+    target_connection = psycopg2.connect(
+        host=target_server.dir,
+        port=target_server.port,
+        user="hushh_uat_app",
+        dbname=database,
+    )
+    request.addfinalizer(target_connection.close)
+    target_connection.autocommit = True
+
+    def target_execute(statement, params=None):
+        with target_connection.cursor() as cursor:
+            cursor.execute(statement, params)
+            return cursor.fetchall() if cursor.description is not None else []
+
+    target_execute("SET check_function_bodies=off")
+    target_execute("ALTER TABLE public.personal_agent_registry OWNER TO hushh_uat_app")
+    _readiness_cases._copy_custody_family(pg, target_connection, custody_family)
+    _readiness_cases._copy_rollback_marker_and_trigger(
+        pg, target_connection, lambda statement, params=None: target_execute(statement, params)
+    )
+    target_execute("SET check_function_bodies=on")
+    target_server.execute("DROP OWNED BY service_role; DROP ROLE service_role")
+    target_identity = target_execute(
+        "SELECT current_database(),current_user,session_user,"
+        "(SELECT relowner::regrole::text FROM pg_class WHERE oid="
+        "'public.personal_agent_registry'::regclass)"
+    )[0]
+    assert target_identity == (
+        "postgres",
+        "hushh_uat_app",
+        "hushh_uat_app",
+        "hushh_uat_app",
+    )
+    assert not target_server.execute("SELECT 1 FROM pg_roles WHERE rolname='service_role'")
+    target_system_identifier_hash = target_execute(
+        "SELECT encode(sha256(convert_to(system_identifier::text,'UTF8')),'hex') "
+        "FROM pg_control_system()"
+    )[0][0]
+    monkeypatch.setattr(
+        custody_qualification,
+        "DEV_CUSTODY_SYSTEM_IDENTIFIER_SHA256",
+        target_system_identifier_hash,
+    )
+    for key, value in _dev_custody_environment().items():
+        monkeypatch.setenv(key, value)
+    for entry in entries:
+        adapted_sql = execution_sql(entry)
+        assert "Dev database identity" in adapted_sql
+        assert "owner-only function ACL" in adapted_sql
+    initial_custody_catalog = _readiness_cases._custody_family_catalog(
+        target_connection, custody_family
+    )
+    assert {function[1] for function in initial_custody_catalog.values()} == {"hushh_uat_app"}
+    target_execute(_successor_qualification())
+
+    async def replay_as(database_user, selected_entries):
+        connection = await asyncpg.connect(
+            host=target_server.dir,
+            port=target_server.port,
+            user=database_user,
+            database=database,
+        )
+        try:
+            return await apply_manifest_entries(
+                connection,
+                tuple(selected_entries),
+                mode=MigrationMode.REPLAY,
+                deploy_sha="synthetic-dev-owner-profile-replay",
+            )
+        finally:
+            await connection.close()
+
+    with pytest.raises(asyncpg.RaiseError, match="Dev database identity"):
+        asyncio.run(replay_as("hushh", entries[:1]))
+
+    target_server.execute("CREATE ROLE service_role NOLOGIN")
+    with pytest.raises(asyncpg.RaiseError, match="Dev database identity"):
+        asyncio.run(replay_as("hushh_uat_app", entries[:1]))
+    target_server.execute("DROP ROLE service_role")
+
+    custody_before = _readiness_cases._custody_family_catalog(target_connection, custody_family)
+    trigger_before = target_execute(
+        "SELECT tgname,pg_get_triggerdef(oid,true) FROM pg_trigger "
+        "WHERE tgrelid='public.personal_agent_registry'::regclass "
+        "AND tgname IN ('zx_project_grant_registry',"
+        "'zz_personal_agent_erasure_registry',"
+        "'zz_personal_agent_upgrade_lease_host_binding') ORDER BY tgname"
+    )
+    marker_before = target_execute(
+        "SELECT signature,definition FROM public.hosted_files_executor_976_rollback_source "
+        "ORDER BY signature"
+    )
+    replayed = asyncio.run(replay_as("hushh_uat_app", entries))
+    assert replayed == tuple(entry.filename for entry in entries)
+    assert (
+        _readiness_cases._custody_family_catalog(target_connection, custody_family)
+        == custody_before
+    )
+    assert (
+        target_execute(
+            "SELECT tgname,pg_get_triggerdef(oid,true) FROM pg_trigger "
+            "WHERE tgrelid='public.personal_agent_registry'::regclass "
+            "AND tgname IN ('zx_project_grant_registry',"
+            "'zz_personal_agent_erasure_registry',"
+            "'zz_personal_agent_upgrade_lease_host_binding') ORDER BY tgname"
+        )
+        == trigger_before
+    )
+    assert (
+        target_execute(
+            "SELECT signature,definition FROM public.hosted_files_executor_976_rollback_source "
+            "ORDER BY signature"
+        )
+        == marker_before
+    )
+    target_execute(_successor_qualification())
+
+    # Install the deferred-erasure successor on the actual Files owner topology,
+    # then replay the foundation without losing its five immutable preimages.
+    from db.legacy_cloud_removal_adoption import qualification_sql as legacy_qualification
+    from db.private_agent_adoption_successors import qualification_sql as retirement_qualification
+
+    # Native Dev's bounded administrator owns both lifecycle families. This
+    # canonical fixture originally transferred only the hosted family.
+    target_execute("""DO $$ DECLARE o record; BEGIN
+      FOR o IN SELECT c.oid::regclass AS name FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+       WHERE n.nspname='public' AND c.relkind IN ('r','p') LOOP
+       EXECUTE format('ALTER TABLE %s OWNER TO hushh_uat_app',o.name); END LOOP;
+      FOR o IN SELECT p.oid::regprocedure AS name FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+       WHERE n.nspname='public' AND p.prokind='f' AND NOT EXISTS(
+        SELECT 1 FROM pg_depend d WHERE d.classid='pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') LOOP
+       EXECUTE format('ALTER FUNCTION %s OWNER TO hushh_uat_app',o.name); END LOOP;
+    END $$""")
+    retirement_entries = build_manifest_entries(
+        ROOT / "db/migrations",
+        (
+            "423_account_shared_provider_authority.sql",
+            "437_account_legacy_generation_settlement.sql",
+        ),
+    ) + build_manifest_entries(
+        ROOT / "db/migrations/parked",
+        (
+            "985_legacy_cloud_removal_recovery.sql",
+            "986_legacy_cloud_removal_resume.sql",
+            "987_account_firebase_erasure.sql",
+            "988_account_cloud_retirement.sql",
+        ),
+    )
+    for entry in retirement_entries:
+        target_execute(execution_sql(entry))
+    target_execute(retirement_qualification(required=True))
+    target_execute(legacy_qualification(resume_required=True))
+    target_execute(_successor_qualification())
+    asyncio.run(replay_as("hushh_uat_app", entries))
+    target_execute(retirement_qualification(required=True))
+    target_execute(_successor_qualification())
+    assert (
+        target_execute(
+            "SELECT signature,definition FROM public.hosted_files_executor_976_rollback_source ORDER BY signature"
+        )
+        == marker_before
+    )
+    target_execute(
+        (ROOT / "db/migrations/rollback/988_account_cloud_retirement.rollback.sql").read_text()
+    )
+    target_execute(_successor_qualification())
+    assert (
+        _readiness_cases._custody_family_catalog(target_connection, custody_family)
+        == custody_before
+    )
+
+    monkeypatch.setattr(
+        custody_qualification,
+        "DEV_CUSTODY_SYSTEM_IDENTIFIER_SHA256",
+        local_system_identifier_hash,
+    )
+
+    monkeypatch.setattr(custody_qualification, "DEV_CUSTODY_SYSTEM_IDENTIFIER_SHA256", "0" * 64)
+    assert not ready(), "runtime readiness accepted a different PostgreSQL system identifier"
+    monkeypatch.setattr(
+        custody_qualification,
+        "DEV_CUSTODY_SYSTEM_IDENTIFIER_SHA256",
+        local_system_identifier_hash,
+    )
+
+    pg.execute("CREATE ROLE service_role NOLOGIN")
+    assert not ready(), "runtime readiness accepted a present service_role"
+    pg.execute("DROP ROLE service_role")
+    assert ready()
+
+    signature = "public.begin_hosted_files_executor(text,jsonb,jsonb,timestamptz,timestamptz,jsonb,text,text,text,jsonb,text,text)"
+    owner_execute("CREATE ROLE hosted_custody_unexpected NOLOGIN")
+    owner_execute(f"GRANT EXECUTE ON FUNCTION {signature} TO hosted_custody_unexpected")
+    assert not ready(), "runtime readiness accepted an unexpected ACL grantee"
+    owner_execute(f"REVOKE EXECUTE ON FUNCTION {signature} FROM hosted_custody_unexpected")
+    assert ready()
+
+    owner_execute(
+        f"GRANT EXECUTE ON FUNCTION {signature} TO hosted_custody_unexpected WITH GRANT OPTION"
+    )
+    assert not ready(), "runtime readiness accepted an ACL grant option"
+    owner_execute(f"REVOKE EXECUTE ON FUNCTION {signature} FROM hosted_custody_unexpected CASCADE")
+    assert ready()
+
+    public_signature = "public.personal_agent_upgrade_lease_host_binding(jsonb)"
+    owner_execute("CREATE ROLE hosted_custody_grantor NOLOGIN")
+    owner_execute(
+        f"GRANT EXECUTE ON FUNCTION {public_signature} TO hosted_custody_grantor WITH GRANT OPTION"
+    )
+    owner_execute("SET ROLE hosted_custody_grantor")
+    owner_execute(f"GRANT EXECUTE ON FUNCTION {public_signature} TO PUBLIC")
+    owner_execute("RESET ROLE")
+    assert owner_execute(
+        "SELECT EXISTS(SELECT 1 FROM pg_proc p CROSS JOIN LATERAL "
+        "aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a "
+        "WHERE p.oid=to_regprocedure(%s) AND a.grantee=0 "
+        "AND a.grantor=(SELECT oid FROM pg_roles WHERE rolname='hosted_custody_grantor'))",
+        (public_signature,),
+    )[0][0]
+    assert not ready(), "runtime readiness accepted a non-owner ACL grantor"
+    owner_execute(
+        f"REVOKE EXECUTE ON FUNCTION {public_signature} FROM hosted_custody_grantor CASCADE"
+    )
+    owner_execute("DROP ROLE hosted_custody_grantor")
+    owner_execute("DROP ROLE hosted_custody_unexpected")
+    assert ready()

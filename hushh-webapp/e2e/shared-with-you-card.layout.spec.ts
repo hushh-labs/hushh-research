@@ -123,8 +123,12 @@ for (const theme of ["light", "dark"] as const)
 
       // The skeleton holds the final rows' height: no jump when values land.
       const loadingRow = await page.locator("[data-state='loading'] [data-testid='shared-with-you-loading-outline'] > div").first().boundingBox();
-      const readyRow = await page.locator("[data-state='chat'] [data-testid='shared-with-you-row']").first().boundingBox();
+      const readyRow = await page.locator("[data-state='decrypted'] [data-testid='shared-with-you-row']").first().boundingBox();
       expect(Math.abs((loadingRow?.height ?? 0) - (readyRow?.height ?? 0))).toBeLessThanOrEqual(2);
+      // Chat keeps decrypted values compact behind the Detailed View Modal.
+      const chatSection = page.locator("[data-state='chat']");
+      await expect(chatSection.getByTestId("shared-with-you-chat-summary")).toBeVisible();
+      await expect(chatSection.getByTestId("shared-with-you-values")).toHaveCount(0);
 
       for (const state of STATES) {
         const section = page.locator(`[data-state='${state}']`);

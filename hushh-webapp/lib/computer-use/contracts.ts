@@ -1,10 +1,12 @@
+export type ComputerUseEnvironment = "development" | "uat";
+
 /** Private, in-memory view of an admitted browser task. No hub transcript payloads. */
 export type ComputerUseBinding = Readonly<{
   ownerId: string;
   podId: string;
   incarnation: string;
   taskId: string;
-  environment: "development";
+  environment: ComputerUseEnvironment;
 }>;
 
 export type ComputerUsePhase =
@@ -104,4 +106,11 @@ export function isComputerUseTerminal(phase: ComputerUsePhase): boolean {
 export function manualBrowserInputAllowed(snapshot: ComputerUseSnapshot | null): boolean {
   return Boolean(snapshot?.capability === "ready" && snapshot.controlOwner === "owner"
     && !snapshot.review && !isComputerUseTerminal(snapshot.phase));
+}
+
+export function isComputerUseActivelyStreaming(snapshot: ComputerUseSnapshot | null): boolean {
+  if (!snapshot || snapshot.capability !== "ready" || isComputerUseTerminal(snapshot.phase)) {
+    return false;
+  }
+  return snapshot.phase === "running" || snapshot.controlOwner === "owner";
 }

@@ -751,7 +751,7 @@ async def test_contact_lookup_to_reviewed_calendar_invite(agent, binding_change,
 
 @pytest.mark.parametrize("foreign_turn", ["voice", "other_owner"])
 async def test_calendar_tools_refuse_non_owner_turns_before_local_provider_access(
-    agent, foreign_turn
+    agent, foreign_turn, monkeypatch
 ):
     _log, tokens, google = agent
     context = (
@@ -759,6 +759,17 @@ async def test_calendar_tools_refuse_non_owner_turns_before_local_provider_acces
         if foreign_turn == "voice"
         else h.tool_context(owner="someone-else")
     )
+    from types import SimpleNamespace
+
+    from google.genai import types
+
+    context.invocation_id = "current-private-read"
+    context.user_content = types.Content(
+        role="user", parts=[types.Part(text="Show my meetings. Read only.")]
+    )
+    context.session = SimpleNamespace(events=[])
+    scope = AsyncMock(return_value=())
+    monkeypatch.setattr("hushh_mcp.agents.calendar.request_scope.request_scope", scope)
     before = (len(tokens.asks), len(google.requests))
     read = await calendar_tools.calendar_summary(context)
     write = await calendar_tools.propose_calendar_event(
@@ -770,6 +781,7 @@ async def test_calendar_tools_refuse_non_owner_turns_before_local_provider_acces
     assert read["status"] == "failed"
     assert write["status"] == "runtime_unavailable"
     assert (len(tokens.asks), len(google.requests)) == before
+    scope.assert_not_awaited()
 
 
 async def test_a_hub_consent_token_never_confirms(agent):

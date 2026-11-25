@@ -10,16 +10,17 @@ import { useNativePayments } from "./use-native-payments";
 
 /** Admission and shared feature lifetimes only. Profile retains routing/Back;
  * feature controllers retain validation and operation authority. */
-export function useNativeProfileFeatures({ panel, native, open, secure, owner, userId, connectors }: {
+export function useNativeProfileFeatures({ panel, native, open, secure, owner, userId, connectors, onOpenOwnCloud }: {
   panel: ProfilePanel | null; native: boolean; open: boolean; secure: boolean;
   owner: string; userId: string | null; connectors: ConnectorsPanelPresentation | undefined;
+  onOpenOwnCloud: () => void;
 }) {
   const [connectorsAvailable, setNativeConnectorsAvailable] = useState(false);
   const [paymentsAvailable, setNativePaymentsAvailable] = useState(false);
   const [paymentsFailed, setNativePaymentsFailed] = useState(false);
   const agentSettingsActive = (panel === "hosting" || panel === "software-updates") && (!native || open) && secure;
   const agentSettings = useAgentSettingsController({ kind: panel === "hosting" ? "hosting" : "software-updates", userId, enabled: agentSettingsActive });
-  const nativeAgentSettings = useNativeAgentSettings(agentSettings, agentSettingsActive, owner);
+  const nativeAgentSettings = useNativeAgentSettings(agentSettings, agentSettingsActive, owner, onOpenOwnCloud);
   const connectorsWanted = native && open && connectorsAvailable && panel === "connectors" && secure;
   const nativeConnectors = useNativeConnectors(connectors, owner, connectorsWanted);
   const nativeConnectorsActive = connectorsWanted && (!connectors || nativeConnectors.mapped) && !nativeConnectors.failed;

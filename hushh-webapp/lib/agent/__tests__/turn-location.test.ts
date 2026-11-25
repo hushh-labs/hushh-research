@@ -60,6 +60,22 @@ describe("resolveTurnLocation", () => {
     expect(bus.ensure).not.toHaveBeenCalled();
   });
 
+  it("reuses a fresh session measurement when WebKit reports prompt in syncPermission", async () => {
+    bus.syncPermission.mockResolvedValue("prompt");
+    bus.getState.mockReturnValue({
+      status: "ready",
+      snapshotOrigin: "fresh",
+      snapshot: { ...PRECISE, capturedAt: new Date().toISOString() },
+    });
+
+    expect(await resolveTurnLocation()).toEqual({
+      status: "available",
+      latitude: 37.77,
+      longitude: -122.42,
+    });
+    expect(bus.ensure).not.toHaveBeenCalled();
+  });
+
   it("bounds a stalled permission check before a chat can start", async () => {
     vi.useFakeTimers();
     try {

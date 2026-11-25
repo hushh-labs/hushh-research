@@ -12,8 +12,8 @@ after any route's authored Back case changes; do not hand-edit this file.
 
 ## Visual Map
 
-160 authored routes, 11 of them section/app
-roots. 12 routes additionally branch on query (an action sheet,
+165 authored routes, 11 of them section/app
+roots. 15 routes additionally branch on query (an action sheet,
 a tab, a detail view) -- those sub-flows are counted on their edge label, not
 drawn individually, so the diagram reads as the hierarchy rather than every
 authored test fixture. See the JSON contract directly for the full
@@ -62,7 +62,9 @@ flowchart TD
   r_one_gmail["/one/gmail"]
   r_one_email["/one/email"]
   r_one_calendar["/one/calendar"]
-  r_one_todos["/one/todos"]
+  r_one_goals["/one/goals"]
+  r_one_tasks["/one/tasks"]
+  r_one_todos{{"/one/todos"}}
   r_pkm{{"/pkm"}}
   r_one_pkm["/one/pkm"]
   r_one_pkm_recent["/one/pkm/recent"]
@@ -123,6 +125,7 @@ flowchart TD
   r_one_kai_portfolio_holdings["/one/kai/portfolio/holdings"]
   r_one_kai_portfolio_allocation["/one/kai/portfolio/allocation"]
   r_one_kai_portfolio_performance["/one/kai/portfolio/performance"]
+  r_one_kai_portfolio_analysis["/one/kai/portfolio/analysis"]
   r_one_kai_portfolio_sources["/one/kai/portfolio/sources"]
   r_marketplace["/marketplace"]
   r_marketplace_ria(["/marketplace/ria"])
@@ -184,6 +187,7 @@ flowchart TD
   r_blog_slug["/blog/[slug]"]
   r_research["/research"]
   r_research_protocol["/research/protocol"]
+  r_design_system["/design-system"]
   r_manishhussh(["/manishhussh"])
   r_ria_profile["/ria/profile"]
   r_people_personRef(["/people/[personRef]"])
@@ -193,6 +197,7 @@ flowchart TD
   r_one_profile_world_model["/one/profile/world-model"]
   r_world_model_invite["/world-model/invite"]
   r_calendar_reschedule["/calendar/reschedule"]
+  r_one_documents_open["/one/documents/open"]
 
   r_ria_clients_sample["/ria/clients/sample"]
 
@@ -205,7 +210,8 @@ flowchart TD
   r_one_gmail -->|push| r_one
   r_one_email -->|push| r_one
   r_one_calendar -->|push| r_one
-  r_one_todos -->|push| r_one
+  r_one_goals -->|push| r_one
+  r_one_tasks -->|push, +3 cases| r_one
   r_one_pkm -->|push| r_one
   r_one_pkm_recent -->|push| r_one_pkm
   r_one_pkm_location -->|push| r_one_pkm
@@ -216,15 +222,15 @@ flowchart TD
   r_one_files -->|push| r_one
   r_one_connected_systems -->|push| r_one
   r_one_connected_systems_systemId -->|push| r_one_connected_systems
-  r_one_connect -->|push, +4 cases| r_one
+  r_one_connect -->|push, +5 cases| r_one
   r_one_messages -->|push| r_one
   r_one_connect_settings -->|push| r_one_connect
   r_one_consent -->|push| r_one
   r_one_feed -->|push| r_one
   r_consents -->|push| r_one
-  r_one_kai -->|push, +7 cases| r_one
+  r_one_kai -->|push, +14 cases| r_one
   r_one_kai_news -->|push| r_one_kai
-  r_one_kai_import -->|push| r_one_setup
+  r_one_kai_import -->|push, +2 cases| r_one_setup
   r_one_setup_kai -->|push| r_one_setup
   r_one_setup_gmail -->|push| r_one_setup
   r_one_setup_calendar -->|push| r_one_setup
@@ -234,13 +240,14 @@ flowchart TD
   r_one_setup_finance_import -->|push| r_one_setup
   r_one_setup_ria -->|push| r_one_setup
   r_one_setup_connected_systems -->|push| r_one_setup
-  r_one_setup_cloud -->|push, +1 case| r_one_setup
+  r_one_setup_cloud -->|push, +2 cases| r_one_setup
   r_one_setup_cloud_azure_return -->|push| r_one_setup
   r_one_setup_connections -->|replace, +1 case| r_one_setup
   r_one_setup_capability -->|push| r_one_setup
   r_one_kai_portfolio_holdings -->|push| r_one_kai
   r_one_kai_portfolio_allocation -->|push| r_one_kai
   r_one_kai_portfolio_performance -->|push| r_one_kai
+  r_one_kai_portfolio_analysis -->|push| r_one_kai
   r_one_kai_portfolio_sources -->|push| r_one_kai
   r_marketplace -->|push| r_one
   r_marketplace_connections -->|push| r_marketplace
@@ -292,8 +299,10 @@ flowchart TD
   r_blog_slug -->|push| r_blog
   r_research -->|push| r_root
   r_research_protocol -->|push| r_root
+  r_design_system -->|push| r_root
   r_ria_profile -->|push| r_one
   r_one_profile_hosting -->|push| r_one_profile
   r_one_profile_software_updates -->|push| r_one_profile
   r_one_profile_world_model -->|push, +1 case| r_one_profile
+  r_one_documents_open -->|push, +1 case| r_one_consent
 ```

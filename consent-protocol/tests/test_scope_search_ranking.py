@@ -210,12 +210,35 @@ def test_negative_control_without_synonyms_restaurant_finds_nothing():
         ("attr.legal_entity.entity.fein", "Fein", "Federal EIN"),
         ("attr.legal_entity.entity.naics_code", "Naics code", "Industry code (NAICS)"),
         ("attr.legal_entity.entity.trade_name_dba", None, "Trade name (DBA)"),
+        ("attr.financial.summary.*", "Summary", "Financial summary"),
+        ("attr.financial.accounts.*", "Accounts", "Bank accounts"),
+        ("attr.financial.liabilities.*", "Liabilities", "Credit & loans"),
+        ("attr.financial.cashflow.*", "Cashflow", "Cash flow & recurring bills"),
     ],
 )
 def test_human_scope_labels(scope, stored, expected):
     from hushh_mcp.consent.scope_labels import human_scope_label
 
     assert human_scope_label(scope, stored) == expected
+
+
+@pytest.mark.parametrize(
+    ("scope", "expected"),
+    [
+        ("attr.food.preferences.*", "Food preferences"),
+        ("attr.food.preferences.entities._entities.kind", "Food preferences kind"),
+        ("attr.professional.employment.status", "Employment status"),
+        ("attr.legal_entity.entity.fein", "Federal EIN"),
+        (
+            "attr.professional.agent_memory.scope_access_rehearsal.role",
+            "Scope access rehearsal role",
+        ),
+    ],
+)
+def test_commerce_names_the_exact_information_without_storage_paths(scope, expected):
+    from hushh_mcp.services.scope_commerce.activity import scope_label
+
+    assert scope_label(scope) == expected
 
 
 def test_field_and_value_labels_match_their_shared_truth_table():

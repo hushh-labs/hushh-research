@@ -162,13 +162,19 @@ def draft_opened_message(gmail_send: str) -> str:
     )
 
 
-def mail_admission_instruction(*, admitted: bool, mailbox_changes: bool, timezone: object) -> str:
+def mail_admission_instruction(
+    *,
+    admitted: bool,
+    mailbox_changes: bool,
+    timezone: object,
+    include_clock: bool = True,
+) -> str:
     """The typed-chat Mail block for one turn."""
     if not admitted:
         return MAIL_READ_DISABLED
     return (
         _MAIL_READ_ENABLED
-        + owner_clock_line(timezone)
+        + (owner_clock_line(timezone) if include_clock else "")
         + (_MAILBOX_CHANGES if mailbox_changes else "")
     )
 

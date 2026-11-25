@@ -64,8 +64,11 @@ async def owner_access(
     request: Request, authorization: str | None, scope: str
 ) -> BrowserOwnerAccess:
     authority, claims = verified_session(authorization, role=ROLE_APP, scope=scope)
-    if authority.environment not in {"dev", "development"}:
+    if authority.environment not in {"dev", "development", "uat"}:
         raise refusal(BrowserRefused("BROWSER_ENVIRONMENT_UNAVAILABLE"))
+    wire_env: Literal["development", "uat"] = (
+        "uat" if authority.environment == "uat" else "development"
+    )
     incarnation = pod_incarnation()
     if "/tasks/" in request.url.path:
         if request.headers.get("X-Browser-Pod-Incarnation") != incarnation:
@@ -97,6 +100,7 @@ async def owner_access(
         incarnation=incarnation,
         expires_at=int(claims["exp"]),
         check=check,
+        environment=wire_env,
     )
     from hushh_mcp.services.pod_browser.composition import bind_browser_owner
 
@@ -213,7 +217,7 @@ async def browser_capability(request: Request, owner: ObserveOwner):
             owner_id=owner.owner_id,
             pod_id=owner.pod_id,
             incarnation=owner.incarnation,
-            environment="development",
+            environment=owner.environment,
         )
     try:
         await installed.require_owner(owner)
@@ -267,8 +271,11 @@ async def browser_worker(
 
 @router.get("/tasks", response_model=list[BrowserTaskReceipt])
 async def list_tasks(request: Request, owner: ObserveOwner):
+    installed = getattr(request.app.state, "browser_task_runtime", None)
+    if not isinstance(installed, BrowserTaskRuntime):
+        return []
     try:
-        return await runtime(request).list_tasks(owner)
+        return await installed.list_tasks(owner)
     except BrowserRefused as exc:
         raise refusal(exc) from None
 

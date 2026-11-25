@@ -1074,11 +1074,20 @@ class AccountService:
             results[table_name] = True
 
     def _assert_personal_agent_external_resources_absent(
-        self, conn, *, params: dict[str, Any], finalize_erasure: bool = False
+        self,
+        conn,
+        *,
+        params: dict[str, Any],
+        finalize_erasure: bool = False,
+        erased_ace_hushh_ids_out: list[str] | None = None,
     ) -> dict[str, bool]:
         """Verify absence under this account transaction's existing owner locks."""
         return assert_external_resources_absent(
-            conn, params=params, table_exists=self._table_exists, finalize_erasure=finalize_erasure
+            conn,
+            params=params,
+            table_exists=self._table_exists,
+            finalize_erasure=finalize_erasure,
+            erased_ace_hushh_ids_out=erased_ace_hushh_ids_out,
         )
 
     def assert_personal_agent_external_resources_absent(self, user_id: str) -> None:
@@ -1095,13 +1104,22 @@ class AccountService:
             self._assert_personal_agent_external_resources_absent(conn, params={"user_id": user_id})
 
     def _delete_personal_agent_state(
-        self, conn, *, params: dict[str, Any], results: dict[str, bool]
-    ) -> None:
+        self, conn, *, params: dict[str, Any], results: dict[str, Any]
+    ) -> list[str]:
         """Keep absence assertion and account-state deletion in one transaction."""
+        ace_hushh_ids: list[str] = []
         table_presence = self._assert_personal_agent_external_resources_absent(
-            conn, params=params, finalize_erasure=True
+            conn,
+            params=params,
+            finalize_erasure=True,
+            erased_ace_hushh_ids_out=ace_hushh_ids,
         )
-        results["personal_agent_external_resources_absent"] = True
+        from hushh_mcp.services.account_cloud_retirement import local_erasure_ready
+
+        deferred = local_erasure_ready(conn, params["user_id"])
+        results["personal_agent_external_resources_absent"] = not deferred
+        if deferred:
+            results["personal_agent_cloud_cleanup_deferred"] = True
         for table_name, present in table_presence.items():
             if present:
                 conn.execute(self._delete_by_user_queries[table_name], params)
@@ -1109,6 +1127,7 @@ class AccountService:
         self._delete_optional_user_tables(
             conn, table_names=["personal_agent_cloud_removals"], params=params, results=results
         )
+        return ace_hushh_ids
 
     @staticmethod
     def _lock_fabric_receipt_users(conn, *, user_ids: Iterable[str]) -> None:
@@ -1440,6 +1459,7 @@ class AccountService:
         *,
         reviewed_inventory_sha256: str | None = None,
         accept_local_erasure: bool = False,
+        reviewed_cloud_plan_sha256: str | None = None,
         admission_check: Callable[[Any], None] | None = None,
     ) -> Dict[str, Any]:
         """Delete either the whole account or one persona.
@@ -1471,6 +1491,11 @@ class AccountService:
                 requested_target=requested_target,
                 reviewed_inventory_sha256=reviewed_inventory_sha256,
                 accept_local_erasure=accept_local_erasure,
+                **(
+                    {"reviewed_cloud_plan_sha256": reviewed_cloud_plan_sha256}
+                    if reviewed_cloud_plan_sha256 is not None
+                    else {}
+                ),
                 admission_check=admission_check,
             )
 
@@ -1927,6 +1952,7 @@ class AccountService:
                 # Reset setup progress so the user re-runs setup. Keeps the
                 # vault row (identity + unlock methods) intact; only clears the
                 # setup/tour flags carried on it.
+                now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
                 conn.execute(
                     text(
                         """
@@ -1936,6 +1962,11 @@ class AccountService:
                             setup_completed_at = NULL,
                             nav_setup_completed_at = NULL,
                             nav_setup_skipped_at = NULL,
+                            setup_capability_ids = NULL,
+                            setup_capability_declined_ids = NULL,
+                            setup_capabilities_updated_at = NULL,
+                            one_chat_onboarding = NULL,
+                            one_runtime_setup_choice = NULL,
                             onboarding_journey_version = NULL,
                             onboarding_phase = NULL,
                             onboarding_active_capability = NULL,
@@ -1947,11 +1978,45 @@ class AccountService:
                         WHERE user_id = :user_id
                         """
                     ),
-                    {
-                        "user_id": user_id,
-                        "now_ms": int(datetime.now(timezone.utc).timestamp() * 1000),
-                    },
+                    {"user_id": user_id, "now_ms": now_ms},
                 )
+                if self._column_exists(
+                    conn, "vault_keys", "one_hosting_choice"
+                ) and self._column_exists(conn, "vault_keys", "one_hosting_choice_at"):
+                    conn.execute(
+                        text(
+                            "UPDATE vault_keys SET one_hosting_choice = NULL, one_hosting_choice_at = NULL WHERE user_id = :user_id"
+                        ),
+                        {"user_id": user_id},
+                    )
+                for optional_col, optional_stmt in (
+                    (
+                        "onboarding_callback_attempt_id",
+                        text(
+                            "UPDATE vault_keys SET onboarding_callback_attempt_id = NULL WHERE user_id = :user_id"
+                        ),
+                    ),
+                    (
+                        "initial_contacts_source",
+                        text(
+                            "UPDATE vault_keys SET initial_contacts_source = NULL WHERE user_id = :user_id"
+                        ),
+                    ),
+                    (
+                        "initial_contacts_welcome_acknowledged",
+                        text(
+                            "UPDATE vault_keys SET initial_contacts_welcome_acknowledged = NULL WHERE user_id = :user_id"
+                        ),
+                    ),
+                    (
+                        "initial_contacts_circle_id",
+                        text(
+                            "UPDATE vault_keys SET initial_contacts_circle_id = NULL WHERE user_id = :user_id"
+                        ),
+                    ),
+                ):
+                    if self._column_exists(conn, "vault_keys", optional_col):
+                        conn.execute(optional_stmt, {"user_id": user_id})
                 results["onboarding_reset"] = True
                 self._clear_live_memory_source_journal(conn, user_id, results, permanent=False)
 
@@ -1989,6 +2054,7 @@ class AccountService:
         backend_only: bool = False,
         reviewed_inventory_sha256: str | None = None,
         accept_local_erasure: bool = False,
+        reviewed_cloud_plan_sha256: str | None = None,
         admission_check: Callable[[Any], None] | None = None,
     ) -> Dict[str, Any]:
         """Prepare durable cleanup, or execute the attested UAT-only local reset."""
@@ -2004,6 +2070,11 @@ class AccountService:
                 requested_target=requested_target,
                 reviewed_inventory_sha256=reviewed_inventory_sha256,
                 accept_local_erasure=accept_local_erasure,
+                **(
+                    {"reviewed_cloud_plan_sha256": reviewed_cloud_plan_sha256}
+                    if reviewed_cloud_plan_sha256 is not None
+                    else {}
+                ),
                 admission_check=admission_check,
             )
         if admission_check is not None:
@@ -2022,13 +2093,21 @@ class AccountService:
         requested_target: DeleteAccountTarget,
         reviewed_inventory_sha256: str | None = None,
         accept_local_erasure: bool = False,
+        reviewed_cloud_plan_sha256: str | None = None,
         admission_check: Callable[[Any], None] | None = None,
     ) -> Dict[str, Any]:
         """Persist approval and custody before returning; the existing worker continues."""
 
+        from hushh_mcp.services.account_cloud_retirement import CloudRetirementReviewRequired
         from hushh_mcp.services.phone_transfer_service import PhoneTransferInProgressError
 
         try:
+            if reviewed_cloud_plan_sha256 is not None:
+                from hushh_mcp.services.account_cloud_retirement import verify_reviewed_authority
+
+                await settle_cleanup_database_call(
+                    verify_reviewed_authority, user_id, reviewed_cloud_plan_sha256
+                )
             prepared = await settle_cleanup_database_call(
                 prepare_full_account_cleanup_transaction,
                 self,
@@ -2037,6 +2116,11 @@ class AccountService:
                 requested_target=requested_target,
                 reviewed_inventory_sha256=reviewed_inventory_sha256,
                 accept_local_erasure=accept_local_erasure,
+                **(
+                    {"reviewed_cloud_plan_sha256": reviewed_cloud_plan_sha256}
+                    if reviewed_cloud_plan_sha256 is not None
+                    else {}
+                ),
                 admission_check=admission_check,
             )
         except AccountDeletionAdmissionRefused as refused:
@@ -2048,7 +2132,7 @@ class AccountService:
                 "error_code": "PHONE_TRANSFER_IN_PROGRESS",
                 "error": "PHONE_TRANSFER_IN_PROGRESS",
             }
-        except ProviderCleanupReviewChanged as changed:
+        except (ProviderCleanupReviewChanged, CloudRetirementReviewRequired) as changed:
             return changed.result()
         except PersonalAgentDeprovisioningRequiredError:
             from hushh_mcp.services.account_personal_agent_erasure import (
@@ -2070,6 +2154,12 @@ class AccountService:
             "success": True,
             "account_deleted": False,
             "cleanup_pending": True,
+            "ready_to_start_fresh": False,
+            **(
+                {"cloud_cleanup": prepared.cloud_cleanup}
+                if prepared.cloud_cleanup is not None
+                else {}
+            ),
             "requested_target": requested_target,
             "cleanup_operation": {
                 "id": prepared.cleanup_id,
@@ -2100,6 +2190,15 @@ class AccountService:
                 backend_only=backend_only,
                 **extra,
             )
+            if result["success"]:
+                erased_ace_ids = (result.get("details") or {}).pop("_erased_ace_hushh_ids", None)
+                if erased_ace_ids:
+                    from hushh_mcp.services.account_personal_agent_erasure import (
+                        purge_pooled_ace_storage_prefixes_best_effort,
+                    )
+
+                    await purge_pooled_ace_storage_prefixes_best_effort(list(erased_ace_ids))
+                    result["details"]["pooled_ace_storage_prefix_purged"] = True
             if result["success"] and provider_cleanup is not None:
                 result["details"]["provider_grant_release"] = {
                     "status": "cleanup_qualified_before_erasure"
@@ -2139,6 +2238,9 @@ class AccountService:
         cleanup = await self._erase_shared_files_if_present(claim.owner_id, backend_only=False)
         if cleanup is not None:
             return cleanup
+        from hushh_mcp.services.account_deletion_firebase_erasure import ensure_identity_absent
+
+        await ensure_identity_absent(claim)
         return await self._settle_full_account_transaction(
             claim.owner_id,
             requested_target=self._normalized_target(claim.requested_target),
@@ -2178,6 +2280,7 @@ class AccountService:
         provider_cleanup: ProviderCleanupClaim | None = None,
     ) -> tuple[Dict[str, Any], ProviderCredentialSnapshot]:
         logger.warning("🚨 FULL ACCOUNT DELETION requested for %s", user_id)
+        cloud_cleanup = None
         results = {
             "actor_identity_cache": False,
             "actor_verified_email_aliases": False,
@@ -2304,6 +2407,7 @@ class AccountService:
 
         provider_credentials = ProviderCredentialSnapshot(user_id=user_id)
         backend_cleanup = None
+        erased_ace_hushh_ids: list[str] = []
         graph_viewer_ids: set[str] = set()
         graph_hint_committed = False
         try:
@@ -2360,7 +2464,7 @@ class AccountService:
                 # before destructive statements, including bounded recovery batches.
                 conn.execute(_ACCOUNT_ERASURE_SQL_LIMITS)
                 guard_answer_erasure(conn, user_id=user_id)
-                self._delete_personal_agent_state(
+                erased_ace_hushh_ids = self._delete_personal_agent_state(
                     conn,
                     params=params,
                     results=results,
@@ -2715,6 +2819,19 @@ class AccountService:
                     from hushh_mcp.services import account_deletion_provider_journal as journal
 
                     journal.settle_local_erasure(conn, backend_cleanup)
+                if results.get("personal_agent_cloud_cleanup_deferred"):
+                    from hushh_mcp.services.account_cloud_retirement import summary_in_transaction
+
+                    cloud_cleanup = summary_in_transaction(conn, user_id)
+
+                if graph_viewer_ids:
+                    try:
+                        with conn.begin_nested():
+                            publish_connection_graph_events(conn, graph_viewer_ids)
+                    except Exception:  # noqa: BLE001 - preserve erasure if the hint fails
+                        logger.warning("account.graph_commit_hint_failed", exc_info=True)
+                    else:
+                        graph_hint_committed = True
 
                 if graph_viewer_ids:
                     try:
@@ -2759,6 +2876,8 @@ class AccountService:
 
         # Outside the erasure try-block on purpose: the deletion has committed,
         # and releasing provider grants is bounded best effort that never raises.
+        if erased_ace_hushh_ids:
+            results["_erased_ace_hushh_ids"] = erased_ace_hushh_ids
         if graph_viewer_ids:
             try:
                 from hushh_mcp.services.connections_service import _notify_connection_graph_changed
@@ -2773,6 +2892,11 @@ class AccountService:
             "requested_target": requested_target,
             "deleted_target": "both",
             "account_deleted": True,
+            **(
+                {"cloud_cleanup": cloud_cleanup, "ready_to_start_fresh": True}
+                if cloud_cleanup is not None
+                else {}
+            ),
             "remaining_personas": [],
             "details": results,
         }, provider_credentials
