@@ -1,0 +1,65 @@
+{
+  "id": "release-train-parity",
+  "role": "spoke",
+  "owner_family": "repo-operations",
+  "primary_scope": "release-train-parity-scope",
+  "description": "Use when planning or executing Dev, UAT, or Main cross-syncs, Calendar Release Train promotions, or auditing the 4-dimension Environment Parity Matrix (code ancestry, schema watermarks, runtime capability flags, and live cloud provenance).",
+  "owned_paths": [
+    "scripts/ops/release_train_parity.py",
+    "consent-protocol/tests/test_release_train_parity.py"
+  ],
+  "non_owned_paths": [
+    "repo-operations",
+    "uat-scoped-deploy",
+    "subtree-upstream-governance",
+    "backend"
+  ],
+  "task_types": [
+    "release-train-parity"
+  ],
+  "required_reads": [
+    ".agents/skills/release-train-parity/references/parity-matrix-contract.md",
+    ".agents/skills/repo-operations/references/admin-release-sop.md",
+    ".agents/skills/repo-operations/references/maintainer-branch-freshness.md",
+    "docs/operations/releases/branch-governance.md",
+    "docs/operations/releases/migration-governance.md"
+  ],
+  "required_commands": [
+    "./bin/hushh agents release-parity --text",
+    "./bin/hushh agents release-parity --require-clean-upstream --text",
+    "python3 scripts/ops/release_train_parity.py --text",
+    "python3 .agents/skills/skill-authoring/scripts/skill_lint.py"
+  ],
+  "verification_bundles": [
+    {
+      "id": "release-train-parity",
+      "commands": [
+        "./bin/hushh agents release-parity --text",
+        "python3 scripts/ops/release_train_parity.py --text",
+        "python3 .agents/skills/skill-authoring/scripts/skill_lint.py"
+      ],
+      "tests": [
+        "python3 .agents/skills/skill-authoring/scripts/skill_lint.py"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "repo-operations",
+    "uat-scoped-deploy",
+    "backend",
+    "quality-contracts"
+  ],
+  "adjacent_skills": [
+    "repo-operations",
+    "uat-scoped-deploy",
+    "subtree-upstream-governance",
+    "backend",
+    "quality-contracts"
+  ],
+  "risk_tags": [
+    "release-drift",
+    "migration-collision",
+    "env-parity-drift",
+    "branch-protection-drift"
+  ]
+}

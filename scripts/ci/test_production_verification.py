@@ -101,6 +101,7 @@ def verify_inputs(operation: str) -> dict[str, str]:
         "drive_live_mode": "preserve",
         "backend_image_source": "build-from-source",
         "phone_rollback_sha": "",
+        "phone_rollback_qualification": "uat",
         "phone_phase": "standard",
         "phone_worker_stage_run_id": "",
         "phone_activation_run_id": "",
