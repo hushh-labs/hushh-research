@@ -2,7 +2,7 @@
 
 import re
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -107,3 +107,14 @@ ACCOUNT_INSTRUCTION = (
     "cleanup or uncertain writes stay pending/uncertain. The private read continuation is answer-only: explain which requested changes still need their review, without claiming "
     "those later steps ran. Answer in the person's language without needless clarification."
 )
+
+
+def account_private_invocations(state: Any, events: list[Any]) -> set[str]:
+    """Exclude private account answers from existing derived-memory writers."""
+    return set((state or {}).get(STATE_ACCOUNT_CONTEXT_PRIVATE) or []) | {
+        invocation
+        for event in events
+        for invocation in getattr(getattr(event, "actions", None), "state_delta", {}).get(
+            STATE_ACCOUNT_CONTEXT_PRIVATE, []
+        )
+    }

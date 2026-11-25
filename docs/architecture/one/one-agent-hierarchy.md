@@ -83,6 +83,8 @@ verification, photo presence and the shadow observation timestamp. Missing or
 unavailable data stays unknown. The timestamp is neither signup date nor a fresh
 Firebase check. Facts and the detailed answer are removed from durable history;
 account handback names retain exact call pairing when an older binary reloads it.
+Existing chat-summary and pod-memory writers exclude tagged account answers,
+including direct raw-session calls; privacy-tag changes invalidate summary fences.
 The private answer invocation cannot call further tools. Compound requests must
 explain pending steps and their owning review rather than claim they ran.
 

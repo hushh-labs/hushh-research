@@ -193,3 +193,78 @@ def test_account_history_loads_without_new_binary_placeholder_allowlist():
     validate_tool_result_history(
         SimpleNamespace(session=projected), None, transport_placeholder_matches=lambda *_: False
     )
+
+
+def _private_account_memory_session():
+    from hushh_mcp.one_adk.account_context_contract import STATE_ACCOUNT_CONTEXT_PRIVATE
+
+    events = []
+    for index in range(8):
+        events.append(
+            Event(
+                author="user",
+                invocation_id=f"question-{index}",
+                content=types.Content(
+                    role="user", parts=[types.Part(text=f"Ordinary question {index}")]
+                ),
+            )
+        )
+        invocation = "account-private" if index == 0 else f"ordinary-{index}"
+        events.append(
+            Event(
+                author="one",
+                invocation_id=invocation,
+                content=types.Content(
+                    role="model",
+                    parts=[
+                        types.Part(
+                            text="PRIVATE_ACCOUNT_FACT_SENTINEL"
+                            if index == 0
+                            else f"Ordinary answer {index}"
+                        )
+                    ],
+                ),
+            )
+        )
+    events[1].actions.state_delta[STATE_ACCOUNT_CONTEXT_PRIVATE] = ["account-private"]
+    return Session(app_name="one", user_id="owner", id="thread", state={}, events=events)
+
+
+def test_raw_account_answers_are_excluded_from_summary_and_its_checkpoint_fence():
+    from hushh_mcp.one_adk import chat_memory
+    from hushh_mcp.one_adk.account_context_contract import (
+        PRIVATE_ACCOUNT_ANSWER,
+        STATE_ACCOUNT_CONTEXT_PRIVATE,
+    )
+
+    session = _private_account_memory_session()
+    snapshot = chat_memory.summary_snapshot(session)
+    assert snapshot is not None
+    assert "PRIVATE_ACCOUNT_FACT_SENTINEL" not in str(snapshot["messages"])
+    assert "Ordinary answer 1" in str(snapshot["messages"])
+    untagged = session.model_copy(deep=True)
+    untagged.events[1].actions.state_delta.clear()
+    assert chat_memory._consent_digest(
+        untagged.state, untagged.events
+    ) != chat_memory._consent_digest(
+        {STATE_ACCOUNT_CONTEXT_PRIVATE: ["account-private"]}, untagged.events
+    )
+    session.events[1].content.parts[0].text = PRIVATE_ACCOUNT_ANSWER
+    assert chat_memory._text(session.events[1]) == ""
+
+
+async def test_raw_account_answers_never_enter_pod_memory_ingestion():
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.one_adk.pod_chat_memory import PodChatMemory
+
+    session = _private_account_memory_session()
+    service = SimpleNamespace(add_session_to_memory=AsyncMock())
+    memory = PodChatMemory(
+        SimpleNamespace(owner="owner", hushh_id="pod", require_access=AsyncMock()), service
+    )
+    assert await memory._add_session_to_memory_with_status(session)
+    saved = service.add_session_to_memory.call_args.args[0]
+    assert "PRIVATE_ACCOUNT_FACT_SENTINEL" not in saved.model_dump_json()
+    assert "Ordinary answer 1" in saved.model_dump_json()
+    assert saved.user_id == "pod"

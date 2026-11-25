@@ -40,6 +40,10 @@ class PodChatMemory(BaseMemoryService):
             raise PermissionError("Pod memory owner mismatch.")
         if self.service is None:
             return False
+        from hushh_mcp.one_adk.account_context_contract import (
+            PRIVATE_ACCOUNT_ANSWER,
+            account_private_invocations,
+        )
         from hushh_mcp.one_adk.consent_redaction import tagged_bundles
 
         await self.context.require_access()
@@ -48,10 +52,19 @@ class PodChatMemory(BaseMemoryService):
         tagged = {
             invocation for ids in tagged_bundles(session.state).values() for invocation in ids
         }
+        tagged |= account_private_invocations(session.state, session.events)
         events = [
             event
             for event in session.events
-            if event.invocation_id not in tagged and (not tagged or event.invocation_id)
+            if event.invocation_id not in tagged
+            and (not tagged or event.invocation_id)
+            and not (
+                event.author == "one"
+                and any(
+                    getattr(part, "text", None) == PRIVATE_ACCOUNT_ANSWER
+                    for part in (getattr(event.content, "parts", None) or [])
+                )
+            )
         ]
         if not events:
             return False
