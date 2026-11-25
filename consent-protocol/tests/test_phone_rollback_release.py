@@ -387,3 +387,45 @@ def test_failed_cold_qualification_prevents_the_shell_primary_deploy():
     assert result.returncode != 0
     assert "primary-deployed" not in result.stdout
     assert "Phone fallback staging refused" in result.stderr
+
+
+def test_inspect_cold_retries_transient_tag_dns_propagation_url_error(release_plan, monkeypatch):
+    from urllib.error import URLError
+
+    import revision_qualification
+
+    state = release_plan
+    cold_name = "consent-protocol-00002-def"
+    state.revision["metadata"]["name"] = cold_name
+    state.revision["metadata"]["labels"].update(
+        {"deploy-source": "deploy-production-phone-rollback", "github-run-id": "42"}
+    )
+    values = state.revision["spec"]["containers"][0]["env"]
+    for row in values:
+        if row["name"] == "HUSHH_DEPLOY_SOURCE":
+            row["value"] = "deploy-production-phone-rollback"
+        elif row["name"] == "HUSHH_DEPLOY_RUN_ID":
+            row["value"] = "42"
+    values.extend(
+        [
+            {"name": "AUTH_PHONE_RECOVERY_ENABLED", "value": "false"},
+            {"name": "WORKOS_SSO_ENABLED", "value": "false"},
+        ]
+    )
+    state.service["status"]["traffic"].append(
+        {
+            "tag": "phone-rollback-42",
+            "revisionName": cold_name,
+            "percent": 0,
+            "url": "https://phone-rollback-42---consent-protocol-example-uc.a.run.app",
+        }
+    )
+    monkeypatch.setattr(revision_qualification, "COLD_HEALTH_RETRY_DELAY", 0.0)
+    ok_ctx = MagicMock()
+    ok_ctx.__enter__.return_value.status = 200
+    opener = MagicMock()
+    opener.open.side_effect = [URLError("Name or service not known"), ok_ctx]
+    monkeypatch.setattr(revision_qualification, "build_opener", lambda _handler: opener)
+    receipt = revision_qualification.inspect_cold(sha=FALLBACK, image=IMAGE, run_id="42")
+    assert receipt["health"] == "passed"
+    assert opener.open.call_count == 2

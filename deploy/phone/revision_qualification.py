@@ -7,19 +7,27 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import time
+from urllib.error import URLError
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, build_opener
 
 PROJECT = "hushh-pda"
 REGION = "us-central1"
 SERVICE = "consent-protocol"
+COLD_HEALTH_ATTEMPTS = 10
+COLD_HEALTH_RETRY_DELAY = 3.0
 
 
 def qualify_runtime(container: dict) -> None:
-    if container.get("command") not in (None, []) or container.get("args") not in (None, []):
+    if container.get("command") not in (None, []) or container.get("args") not in (
+        None,
+        [],
+    ):
         raise ValueError("phone_rollback_custom_launcher_refused")
     generation = [
-        row for row in container.get("env", [])
+        row
+        for row in container.get("env", [])
         if row.get("name") == "ACCOUNT_GENERATION_ADMISSION_ENABLED"
     ]
     if generation and (
@@ -162,7 +170,8 @@ def inspect_existing(
         or (
             positive[0].get("revisionName")
             or (latest if positive[0].get("latestRevision") else None)
-        ) != revision_name
+        )
+        != revision_name
     ):
         raise ValueError("phone_rollback_existing_must_solely_serve_traffic")
     address = urlparse(str(status.get("url") or ""))
@@ -246,9 +255,16 @@ def inspect_cold(*, sha: str, image: str, run_id: str) -> dict:
     )
     if receipt["revision"] != target["revisionName"]:
         raise ValueError("phone_fallback_tag_revision_mismatch")
-    with build_opener(_NoRedirect).open(
-        target["url"] + "/health", timeout=10
-    ) as response:
-        if response.status != 200:
-            raise ValueError("phone_fallback_health_failed")
+    for attempt in range(COLD_HEALTH_ATTEMPTS):
+        try:
+            with build_opener(_NoRedirect).open(
+                target["url"] + "/health", timeout=10
+            ) as response:
+                if response.status != 200:
+                    raise ValueError("phone_fallback_health_failed")
+            break
+        except URLError:
+            if attempt + 1 >= COLD_HEALTH_ATTEMPTS:
+                raise
+            time.sleep(COLD_HEALTH_RETRY_DELAY)
     return {**receipt, "health": "passed"}
