@@ -4856,6 +4856,7 @@ class OneLocationAgentService:
         exclude_network_user_ids: list[str] | None = None,
         extended_network_user_ids: list[str] | None = None,
         include_recommendations: bool = True,
+        advisor_service: str | None = None,
     ) -> dict[str, Any]:
         """Search existing Connect profiles before pagination.
 
@@ -5095,6 +5096,37 @@ class OneLocationAgentService:
                  AND profile.user_id = ANY(CAST(:extended_network_user_ids AS TEXT[])))
                 OR ({PUBLIC_RECOMMENDATION_FILTER_SQL}))"""  # nosec B608 -- module-owned SQL only.
 
+        service_aliases = None
+        if advisor_service is not None:
+            from hushh_mcp.services.advisor_matching import advisor_service_aliases
+
+            service_aliases = advisor_service_aliases(advisor_service)
+            # Reuse directory authority, including blocks, live accounts and
+            # environment enrollment. Filter the entire corpus BEFORE paging.
+            mutual_filter_clause += """ AND EXISTS (
+                SELECT 1 FROM ria_profiles service_ria
+                WHERE service_ria.user_id = profile.user_id
+                AND COALESCE(NULLIF(to_jsonb(service_ria)->>'advisory_status', ''),
+                             service_ria.verification_status) IN ('active', 'verified', 'finra_verified')
+                AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(
+                    CASE WHEN jsonb_typeof(to_jsonb(service_ria)->'services_offered') = 'array'
+                         THEN to_jsonb(service_ria)->'services_offered' ELSE '[]'::jsonb END
+                    ) offered(value)
+                    WHERE LOWER(REGEXP_REPLACE(BTRIM(offered.value), '\\s+', ' ', 'g'))
+                          = ANY(CAST(:advisor_service_aliases AS TEXT[])))
+            ) AND COALESCE(to_jsonb(marketplace)->'metadata'->>'is_test_profile', 'false') <> 'true'
+            AND NOT EXISTS (SELECT 1 FROM direct_message_blocks recommendation_block
+                WHERE (recommendation_block.blocker_user_id = :owner_user_id
+                       AND recommendation_block.blocked_user_id = profile.user_id)
+                   OR (recommendation_block.blocker_user_id = profile.user_id
+                       AND recommendation_block.blocked_user_id = :owner_user_id))
+            AND NOT EXISTS (SELECT 1 FROM advisor_review_requests open_review
+                WHERE open_review.owner_user_id = :owner_user_id
+                  AND open_review.advisor_user_id = profile.user_id
+                  AND (open_review.status = 'accepted'
+                       OR (open_review.status = 'pending'
+                           AND open_review.expires_at > clock_timestamp())))"""
+
         directory_sql = build_directory_candidate_statement(
             usable_name=usable_name,
             separator_sql=_DIRECTORY_SEPARATOR_SQL,
@@ -5106,6 +5138,11 @@ class OneLocationAgentService:
                 "CASE WHEN a.user_id = ANY(CAST(:extended_network_user_ids AS TEXT[])) THEN 0 ELSE 1 END,"
                 if extended_network_user_ids is not None
                 else ""
+            ),
+            **(
+                {"secondary_order_sql": "MD5(a.user_id || :advisor_rotation_seed)"}
+                if service_aliases
+                else {}
             ),
         )
         params: dict[str, Any] = {
@@ -5136,6 +5173,9 @@ class OneLocationAgentService:
         if extended_network_user_ids is not None:
             params["extended_network_user_ids"] = extended_network_user_ids
 
+        if service_aliases:
+            params["advisor_service_aliases"] = list(service_aliases)
+            params["advisor_rotation_seed"] = f"{owner_user_id}:{advisor_service}"
         # The cache is not account authority. Scan ordered SQL batches until
         # the requested logical page plus one current account is available.
         # Applying auth filtering after SQL OFFSET would permanently skip real
@@ -5208,7 +5248,12 @@ class OneLocationAgentService:
             key=lambda row: (
                 0 if extended_network_user_ids is None or row["user_id"] in extended_ids else 1,
                 cast(int, match_rank(row)),
-                str(row["display_name"]).strip().lower(),
+                hashlib.md5(
+                    (str(row["user_id"]) + str(params["advisor_rotation_seed"])).encode(),
+                    usedforsecurity=False,
+                ).hexdigest()
+                if service_aliases
+                else str(row["display_name"]).strip().lower(),
                 str(row["user_id"]),
             )
         )
@@ -6304,6 +6349,10 @@ class OneLocationAgentService:
         except OneLocationAgentError:
             raise
         except Exception as exc:
+            if is_account_deletion_write_guard(exc):
+                raise OneLocationAgentError(
+                    LOCATION_PEER_UNAVAILABLE, LOCATION_PEER_UNAVAILABLE_MESSAGE, status_code=409
+                ) from None
             logger.exception("one_location.create_grant_transaction_failed")
             raise OneLocationAgentError(
                 "LOCATION_GRANT_CREATE_FAILED",
@@ -10783,8 +10832,7 @@ class OneLocationAgentService:
                     status_code=409,
                 )
             self._repair_legacy_direct_request_deadlines(
-                owner_user_id,
-                requester_user_id=requester_user_id,
+                owner_user_id, requester_user_id=requester_user_id
             )
             row = self._execute_one(
                 """

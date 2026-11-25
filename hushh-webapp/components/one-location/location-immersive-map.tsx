@@ -1,5 +1,6 @@
 "use client";
 
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import { PersonProfileButton } from "@/components/connections/person-profile-button";
 import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import { MapPersonTrayChip, MapSharingPersonRow, activeSharePeopleFromGrants, type MapSharingPerson } from "./map-connection-rows";
@@ -89,7 +90,7 @@ import {
   getNativeMapsApiKey,
 } from "@/lib/one-location/maps-config";
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
-import { neutralWorldCamera } from "@/lib/one-location/map-world-view";
+import { neutralWorldCamera, wrappedLongitude } from "@/lib/one-location/map-world-view";
 import {
   attachWebPersonAvatarHosts,
   webPersonMarkerPlaceholder,
@@ -616,10 +617,6 @@ async function frameMarkers(
   // fit. A rejected bridge call must leave the existing street-scale dot alone
   // rather than painting a continent-sized circle over an unmoved camera.
   if (fittedZoom !== null) prepareCamera?.(fittedZoom);
-}
-
-function wrappedLongitude(longitude: number): number {
-  return ((((longitude + 180) % 360) + 360) % 360) - 180;
 }
 
 function radiusBounds(
@@ -3353,7 +3350,7 @@ export function LocationImmersiveMap({
         toast.success(
           nextMode === "ghost"
             ? "Demo Ghost Mode is on."
-            : "Demo visibility is on.",
+            : "Demo visibility is on.", { className: connectTypography.toast },
         );
         return;
       }
@@ -3376,10 +3373,10 @@ export function LocationImmersiveMap({
           ? privateShareCount > 0
             ? `Ghost Mode is on. The ${privateShareCount === 1 ? "person" : `${privateShareCount} people`} you share with privately can still see you.`
             : "Ghost Mode is on. You are hidden from your connections."
-          : "You are visible to your connections again.",
+          : "You are visible to your connections again.", { className: connectTypography.toast },
       );
     } catch {
-      toast.error("Map visibility could not be updated.");
+      toast.error("Map visibility could not be updated.", { className: connectTypography.toast });
     } finally {
       setBusy(null);
     }
@@ -3441,7 +3438,7 @@ export function LocationImmersiveMap({
       toast.error(
         isLocationPermissionDeniedError(error)
           ? LOCATION_COPY.denied
-          : LOCATION_COPY.noFix,
+          : LOCATION_COPY.noFix, { className: connectTypography.toast },
       );
       setBusy(null);
       return;
@@ -3449,7 +3446,7 @@ export function LocationImmersiveMap({
     try {
       await focusSelfPoint(point, { animate: true, select: true });
       if (demoMode) {
-        toast.success("Centered on your device location.");
+        toast.success("Centered on your device location.", { className: connectTypography.toast });
         return;
       }
       // Ghost Mode used to stop here, and that was the bug.
@@ -3491,7 +3488,7 @@ export function LocationImmersiveMap({
         toast.message(
           preferences.presenceMode === "ghost"
             ? "Ghost Mode is on, and you aren't sharing with anyone yet."
-            : "You aren't sharing your location with anyone yet.",
+            : "You aren't sharing your location with anyone yet.", { className: connectTypography.toast },
         );
         return;
       }
@@ -3516,11 +3513,11 @@ export function LocationImmersiveMap({
       );
       // Keeps the fact that other PEOPLE received it — that is the privacy-
       // relevant half. "Location updated" would hide it.
-      toast.success("Sent to the people you share with.");
+      toast.success("Sent to the people you share with.", { className: connectTypography.toast });
     } catch {
       // The map has already moved to the new position; what failed is telling
       // the people it is shared with.
-      toast.error("Couldn't send the update.");
+      toast.error("Couldn't send the update.", { className: connectTypography.toast });
     } finally {
       setBusy(null);
     }
@@ -3696,11 +3693,11 @@ export function LocationImmersiveMap({
               : item,
           ),
         }));
-        toast.success("Connection request sent.");
+        toast.success("Connection request sent.", { className: connectTypography.toast });
       } catch {
         if (requestIsCurrent()) {
           toast.error(
-            "That person may no longer be nearby. Open Check in and refresh the list.",
+            "That person may no longer be nearby. Open Check in and refresh the list.", { className: connectTypography.toast },
           );
         }
       } finally {
@@ -3747,7 +3744,7 @@ export function LocationImmersiveMap({
       closeRequestedRef.current = false;
       closeNavigationIdRef.current = null;
       setClosing(false);
-      toast.error("Couldn’t leave the map. Try again.");
+      toast.error("Couldn’t leave the map. Try again.", { className: connectTypography.toast });
       return;
     }
     closeNavigationIdRef.current =
@@ -3810,7 +3807,7 @@ export function LocationImmersiveMap({
     toast.message(
       nextEnabled
         ? "Showing fictional people. Locate Me still uses this device."
-        : "Fictional people hidden.",
+        : "Fictional people hidden.", { className: connectTypography.toast },
     );
   }, [demoAvailable, demoMode, entryLocationSettled]);
 
@@ -3866,7 +3863,7 @@ export function LocationImmersiveMap({
     // asked. `markers` is the incoming set: people who chose to share with this
     // account. Your own pin is not "everyone".
     if (markers.length === 0) {
-      toast.message("No one is sharing a live location with you yet.");
+      toast.message("No one is sharing a live location with you yet.", { className: connectTypography.toast });
     }
     if (visibleMarkers.length > 0) {
       const cameraRevision = settledCameraRevisionRef.current;
@@ -3921,7 +3918,7 @@ export function LocationImmersiveMap({
           pendingInitialFrame.generation = cameraCommandGeneration;
           pendingInitialFrame.cameraRevision = settledCameraRevisionRef.current;
         }
-        toast.error("Map could not frame everyone.");
+        toast.error("Map could not frame everyone.", { className: connectTypography.toast });
       }
       return;
     }

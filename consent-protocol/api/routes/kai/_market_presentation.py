@@ -2,6 +2,8 @@
 
 from typing import Any
 
+from hushh_mcp.market_data.movers import observation_time
+
 
 def recommendation_from_target(rows, quote_price, safe_float) -> dict[str, Any]:
     target = safe_float((rows[0] or {}).get("targetConsensus"))
@@ -34,6 +36,23 @@ def recommendation_from_target(rows, quote_price, safe_float) -> dict[str, Any]:
     }
 
 
+def overlay_index_rows(
+    overview: list[dict[str, Any]], latest: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Keep the newest observed quote for each benchmark on a saved Market page."""
+    by_symbol = {row["symbol"]: row for row in latest if row.get("symbol")}
+    result = []
+    for row in overview:
+        update = by_symbol.pop(row.get("symbol"), None)
+        if update is not None:
+            current_at = observation_time(row.get("as_of"))
+            update_at = observation_time(update.get("as_of"))
+            if current_at is None or (update_at is not None and update_at >= current_at):
+                row = update
+        result.append(row)
+    return result + list(by_symbol.values())
+
+
 def market_home_response(
     home_value,
     home_stale,
@@ -60,7 +79,7 @@ def market_home_response(
         payload["stale_reason"] = "served_stale_cache"
     payload["cache_age_seconds"] = home_age_seconds
 
-    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+    meta = dict(payload["meta"]) if isinstance(payload.get("meta"), dict) else {}
     meta["stale"] = bool(payload.get("stale"))
     meta["cache_age_seconds"] = home_age_seconds
     meta["cache_tier"] = str(meta.get("cache_tier") or home_cache_tier)

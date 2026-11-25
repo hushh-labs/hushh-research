@@ -19,6 +19,7 @@ from pydantic import PrivateAttr
 from hushh_mcp.agents.calendar import request_scope, tools
 from hushh_mcp.agents.calendar.read_projection import local_read_result, turn_clock
 from hushh_mcp.one_adk import agent_tree
+from hushh_mcp.services.google_calendar_service import GoogleCalendarService
 
 A07 = (
     "For owner@example.test, show my meetings on 6 November 2026, "
@@ -192,6 +193,84 @@ async def test_ordinary_booking_still_requires_explicit_confirmation(monkeypatch
     assert model._assessments == 1
 
 
+def calendar_port(monkeypatch, *, unreadable=False, secondary_busy=False):
+    binding = ("owner", "calendar", "subject", "connected", "connection-rev", "grant-rev")
+    port = GoogleCalendarService(
+        db=SimpleNamespace(),
+        connections=SimpleNamespace(read_grant_binding=AsyncMock(return_value=binding)),
+    )
+    monkeypatch.setattr(port, "_check_read_binding", AsyncMock())
+    monkeypatch.setattr(
+        port,
+        "list_calendars",
+        AsyncMock(
+            return_value={
+                "calendars": [
+                    {"id": "owner@example.test", "primary": True},
+                    {"id": "team"},
+                    {"id": "en.indian#holiday@group.v.calendar.google.com"},
+                ],
+                "truncated": False,
+            }
+        ),
+    )
+
+    async def freebusy(**kwargs):
+        calendars = {identifier: {"busy": []} for identifier in kwargs["calendar_ids"]}
+        if unreadable:
+            calendars["team"] = {"errors": [{"reason": "forbidden"}]}
+        elif secondary_busy:
+            calendars["team"]["busy"] = [
+                {"start": "2026-11-06T03:30:00Z", "end": "2026-11-06T04:00:00Z"}
+            ]
+        return {"calendars": calendars}
+
+    monkeypatch.setattr(port, "freebusy", AsyncMock(side_effect=freebusy))
+    return port
+
+
+@pytest.mark.parametrize(
+    "unreadable,secondary_busy", [(False, False), (False, True), (True, False)]
+)
+async def test_exact_free_slot_prompt_uses_all_included_calendars(
+    monkeypatch, unreadable, secondary_busy
+):
+    port = calendar_port(monkeypatch, unreadable=unreadable, secondary_busy=secondary_busy)
+    responses, session, _ = await chat(
+        monkeypatch,
+        A02,
+        [
+            [
+                call(
+                    "calendar_free_slots",
+                    start_at="2026-11-06T09:00:00+05:30",
+                    end_at="2026-11-06T18:00:00+05:30",
+                    duration_minutes=30,
+                    limit=3,
+                )
+            ]
+        ],
+        port,
+    )
+    result = responses[-1].response
+    assert port.freebusy.await_args.kwargs["calendar_ids"] == ["primary", "team"]
+    assert not session.state.get("hussh:pending_directive:calendar")
+    if unreadable:
+        assert result["status"] != "ok" and not result.get("openings")
+    else:
+        assert result["coverage_complete"] is True and result["suggestions_limited"] is True
+        starts = [slot["start_at"] for slot in result["openings"]]
+        assert starts == (
+            ["2026-11-06T04:00:00Z", "2026-11-06T04:30:00Z", "2026-11-06T05:00:00Z"]
+            if secondary_busy
+            else ["2026-11-06T03:30:00Z", "2026-11-06T04:00:00Z", "2026-11-06T04:30:00Z"]
+        )
+        assert session.state["hussh:calendar_opening_read_offer"]["window"]["calendar_ids"] == [
+            "primary",
+            "team",
+        ]
+
+
 @pytest.mark.parametrize(
     "utc,today,tomorrow",
     [
@@ -304,6 +383,81 @@ async def test_failed_scope_never_authorizes_a_review(monkeypatch, failure):
     assert await request_scope.require_action(scope_context(), "create")
 
 
+async def test_explicit_read_zone_overrides_browser_zone(monkeypatch):
+    port = SimpleNamespace(
+        list_events=AsyncMock(
+            return_value={
+                "events": [
+                    {
+                        "start": {"dateTime": "2026-11-06T17:30:00Z"},
+                        "end": {"dateTime": "2026-11-06T18:00:00Z"},
+                    }
+                ]
+            }
+        )
+    )
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: port)
+    context = scope_context()
+    context.state["hussh:timezone"] = "UTC"
+    # Scope is unrelated to read permission; prevent a model call in this leaf test.
+    monkeypatch.setattr(request_scope, "assess_scope", AsyncMock(side_effect=TimeoutError()))
+    result = await tools.calendar_events(
+        context,
+        start_at="2026-11-06T00:00:00",
+        end_at="2026-11-07T00:00:00",
+        time_zone="Asia/Kolkata",
+    )
+    assert result["display_time_zone"] == "Asia/Kolkata"
+    assert result["events"][0]["local_start_at"] == "2026-11-06T23:00:00+05:30"
+    assert port.list_events.await_args.kwargs["start_at"] == "2026-11-06T00:00:00+05:30"
+
+
+@pytest.mark.parametrize("changed", [False, True, "expired"])
+async def test_new_slot_coverage_is_rechecked_before_booking(monkeypatch, changed):
+    from hushh_mcp.services.google_calendar_booking import check_opening
+    from hushh_mcp.services.google_connection_service import GoogleConnectionError
+
+    port = calendar_port(monkeypatch)
+    day = "2000-11-06" if changed == "expired" else "2099-11-06"
+    opening = {
+        "start_at": f"{day}T03:30:00Z",
+        "end_at": f"{day}T04:00:00Z",
+        "available_until": f"{day}T12:30:00Z",
+    }
+    selection = {
+        "calendar_id": "primary",
+        "calendar_ids": ["primary", "team"],
+        "coverage_policy": "board_default",
+        "query_start": f"{day}T03:30:00Z",
+        "query_end": f"{day}T12:30:00Z",
+        "duration_minutes": 30,
+        "time_zone": "Asia/Kolkata",
+        "slot": opening,
+    }
+    plan = {
+        "calendar_id": "primary",
+        "start_at": opening["start_at"],
+        "end_at": opening["end_at"],
+        "time_zone": "Asia/Kolkata",
+        "opening_selection": selection,
+    }
+    if changed == "expired":
+        with pytest.raises(GoogleConnectionError, match="slot expired") as error:
+            await check_opening(port, user_id="owner", plan=plan, binding=("grant",))
+        assert error.value.status_code == 409
+        port.list_calendars.assert_not_awaited()
+        port.freebusy.assert_not_awaited()
+    elif changed:
+        port.list_calendars.return_value["calendars"].append({"id": "new-calendar"})
+        with pytest.raises(GoogleConnectionError) as error:
+            await check_opening(port, user_id="owner", plan=plan, binding=("grant",))
+        assert error.value.reason_code == "calendar_selection_changed"
+        port.freebusy.assert_not_awaited()
+    else:
+        await check_opening(port, user_id="owner", plan=plan, binding=("grant",))
+        assert port.freebusy.await_args.kwargs["calendar_ids"] == ["primary", "team"]
+
+
 def test_request_start_clock_survives_later_sdk_retry():
     context = scope_context()
     context.state.update(
@@ -343,30 +497,39 @@ async def test_parallel_calls_share_one_pending_deny_ceiling(monkeypatch):
     assert assessor.await_count == 1
 
 
-async def test_explicit_read_zone_overrides_browser_zone(monkeypatch):
-    port = SimpleNamespace(
-        list_events=AsyncMock(
-            return_value={
-                "events": [
-                    {
-                        "start": {"dateTime": "2026-11-06T17:30:00Z"},
-                        "end": {"dateTime": "2026-11-06T18:00:00Z"},
-                    }
-                ]
-            }
-        )
+async def test_window_and_new_slot_recheck_batch_more_than_twenty_calendars(monkeypatch):
+    from hushh_mcp.services.google_calendar_booking import check_opening
+
+    port = calendar_port(monkeypatch)
+    port.list_calendars.return_value["calendars"].extend(
+        {"id": f"included-{index}"} for index in range(21)
     )
-    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: port)
-    context = scope_context()
-    context.state["hussh:timezone"] = "UTC"
-    # Scope is unrelated to read permission; prevent a model call in this leaf test.
-    monkeypatch.setattr(request_scope, "assess_scope", AsyncMock(side_effect=TimeoutError()))
-    result = await tools.calendar_events(
-        context,
-        start_at="2026-11-06T00:00:00",
-        end_at="2026-11-07T00:00:00",
-        time_zone="Asia/Kolkata",
+    result = await port.find_openings(
+        user_id="owner",
+        start_at="2099-11-06T03:30:00Z",
+        end_at="2099-11-06T12:30:00Z",
+        duration_minutes=30,
+        limit=3,
+        include_subscribed_calendars=True,
     )
-    assert result["display_time_zone"] == "Asia/Kolkata"
-    assert result["events"][0]["local_start_at"] == "2026-11-06T23:00:00+05:30"
-    assert port.list_events.await_args.kwargs["start_at"] == "2026-11-06T00:00:00+05:30"
+    assert len(result["calendar_ids"]) == 23 and port.freebusy.await_count == 2
+    port.freebusy.reset_mock()
+    slot = result["openings"][0]
+    plan = {
+        "calendar_id": "primary",
+        "start_at": slot["start_at"],
+        "end_at": slot["end_at"],
+        "time_zone": "Asia/Kolkata",
+        "opening_selection": {
+            "calendar_id": "primary",
+            "calendar_ids": result["calendar_ids"],
+            "coverage_policy": "board_default",
+            "query_start": result["time_min"],
+            "query_end": result["time_max"],
+            "duration_minutes": 30,
+            "time_zone": "Asia/Kolkata",
+            "slot": slot,
+        },
+    }
+    await check_opening(port, user_id="owner", plan=plan, binding=("grant",))
+    assert port.freebusy.await_count == 2

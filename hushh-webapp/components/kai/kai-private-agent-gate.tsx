@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 
+import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { BodyText, PageTitle, SupportingText } from "@/components/app-ui/typography";
 import { useKaiPlacement } from "@/lib/kai/kai-placement";
 import { useAuth } from "@/lib/firebase/auth-context";
@@ -18,7 +19,7 @@ export function KaiPrivateAgentGate({ children }: { children: ReactNode }) {
     ? accountPrincipal : null;
   const placement = useKaiPlacement(principal, attempt);
   if (placement === "shared") return <>{children}</>;
-  if (placement === "checking") return null;
+  if (placement === "checking") return <HushhLoader label="Opening Finance…" />;
   return (
     <section
       className="mx-auto flex max-w-md flex-col gap-3 px-4 py-16 text-center"

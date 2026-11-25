@@ -64,6 +64,8 @@ export const AGENT_PKM_EXPLICIT_SAVE_DEADLINE_MS = 8 * 60_000;
 export type AgentMessage = {
   id: string;
   calendarMeeting?: MeetingSelection;
+  presentation?: "calendar";
+  liveFinancePreview?: boolean;
   /**
    * The server's id for this answer (ADK event id), set when the run's closing
    * snapshot arrives. Ratings key on this, so a thumbs given during the live
@@ -84,7 +86,15 @@ export type AgentMessage = {
   ephemeral?: boolean;
   restoredFromHistory?: boolean;
   memoryCapture?: AgentPkmCaptureStatus;
-  receiptPrivate?: { kind?: "account"; ownerId: string; vaultEpoch: number; conversationId: string | null; expiresAt: number };
+  receiptPrivate?: {
+    ownerId: string;
+    vaultEpoch: number;
+    conversationId: string | null;
+    expiresAt: number;
+    liveFinancePreview?: boolean;
+    presentation?: "calendar";
+    kind?: "portfolio" | "account";
+  };
   receiptRedacted?: boolean;
   kind?: "selection";
   /** Sent while One was working and taken into that reply at its next step. */

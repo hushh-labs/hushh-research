@@ -33,6 +33,13 @@ from hushh_mcp.one_adk.account_context_contract import (
     STATE_ACCOUNT_CONTEXT_ENABLED,
 )
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
+from hushh_mcp.one_adk.portfolio_context_contract import (
+    PORTFOLIO_CONTEXT_DESCRIPTION,
+    PORTFOLIO_CONTEXT_PARAMETERS,
+    PORTFOLIO_CONTEXT_TOOL,
+    PRIVATE_PORTFOLIO_ANSWER,
+    STATE_PORTFOLIO_CONTEXT_ENABLED,
+)
 from hushh_mcp.one_adk.receipt_client_tools import (
     PRIVATE_RECEIPT_ANSWER,
     STATE_RECEIPT_PENDING,
@@ -130,6 +137,27 @@ ACCOUNT_RESULT = {
         "phone_verified": None,
         "has_photo": False,
         "last_synced_at": "2026-11-24T06:00:00Z",
+    },
+}
+PORTFOLIO_QUERY = {"section": "holdings", "source": "last_card", "ticker": "AAPL"}
+PORTFOLIO_RESULT = {
+    "status": "ok",
+    "source": "statement",
+    "selection": "last_card",
+    "date_kind": "statement_end",
+    "as_of": "2026-10-13",
+    "currency": "USD",
+    "holdings": {
+        "positions": [
+            {
+                "ticker": "AAPL",
+                "name": PRIVATE_LABEL,
+                "currency": "USD",
+                "market_value": 7.0,
+            }
+        ],
+        "total_count": 2,
+        "matched_count": 1,
     },
 }
 
@@ -277,6 +305,15 @@ def state(**extra):
 
 def run_input(run_id, messages, *, operation=NAME, **extra_state):
     tools = [Tool(**receipt_tool_declaration(NAME))]
+    if operation == PORTFOLIO_CONTEXT_TOOL:
+        tools = [
+            Tool(
+                name=operation,
+                description=PORTFOLIO_CONTEXT_DESCRIPTION,
+                parameters=PORTFOLIO_CONTEXT_PARAMETERS,
+            )
+        ]
+        extra_state[STATE_PORTFOLIO_CONTEXT_ENABLED] = True
     if operation == ACCOUNT_CONTEXT_TOOL:
         tools = [
             Tool(
@@ -305,6 +342,7 @@ def run_input(run_id, messages, *, operation=NAME, **extra_state):
         (NAME, True, False),
         (NAME, False, True),
         (NAME, True, True),
+        (PORTFOLIO_CONTEXT_TOOL, True, False),
         (ACCOUNT_CONTEXT_TOOL, True, False),
         (ACCOUNT_CONTEXT_TOOL, False, True),
     ],
@@ -312,8 +350,15 @@ def run_input(run_id, messages, *, operation=NAME, **extra_state):
 async def test_native_receipt_result_current_turn_only_and_encrypted_reload(
     operation, streamed_function_call, same_worker
 ):
+    portfolio = operation == PORTFOLIO_CONTEXT_TOOL
     account = operation == ACCOUNT_CONTEXT_TOOL
-    query, result = (ACCOUNT_QUERY, ACCOUNT_RESULT) if account else (QUERY, RESULT)
+    query, result = (
+        (ACCOUNT_QUERY, ACCOUNT_RESULT)
+        if account
+        else (PORTFOLIO_QUERY, PORTFOLIO_RESULT)
+        if portfolio
+        else (QUERY, RESULT)
+    )
     store = SealedReadbackService()
     model = StubReceiptModel(
         model="synthetic-receipt-probe",
@@ -346,7 +391,9 @@ async def test_native_receipt_result_current_turn_only_and_encrypted_reload(
     user = UserMessage(
         id="synthetic-user-1",
         role="user",
-        content="What is my account name?" if account else "Show spending by merchant",
+        content="How much Apple was in those holdings?"
+        if portfolio
+        else "Show spending by merchant",
     )
     initial_events = [
         event
@@ -460,7 +507,13 @@ async def test_native_receipt_result_current_turn_only_and_encrypted_reload(
         and PRIVATE_ANSWER not in restored_json
         and not any("7.00" in text for text in string_values(json.loads(restored_json)))
     )
-    assert (PRIVATE_ACCOUNT_ANSWER if account else PRIVATE_RECEIPT_ANSWER) in restored_json
+    assert (
+        PRIVATE_ACCOUNT_ANSWER
+        if account
+        else PRIVATE_PORTFOLIO_ANSWER
+        if portfolio
+        else PRIVATE_RECEIPT_ANSWER
+    ) in restored_json
     assert restored.state[STATE_RECEIPT_PRIVATE]
     assert STATE_RECEIPT_RESULT not in restored_json and reference not in restored_json
 

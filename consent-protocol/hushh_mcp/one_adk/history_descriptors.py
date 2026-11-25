@@ -7,24 +7,19 @@ import re
 import uuid
 from typing import Any
 
+from hushh_mcp.one_adk.finance_chat_cards import finance_card_history_descriptor
 from hushh_mcp.one_adk.history_projection import (
     _bounded_text,
     _record,
     _safe_turn_location_permission_descriptor,
     _safe_workspace_connector_setup_descriptor,
 )
+from hushh_mcp.one_adk.output_privacy import public_text as _event_text
 from hushh_mcp.one_adk.queued_input import QUEUED_INPUT_KIND
 from hushh_mcp.one_adk.shared_with_me_card import (
     SHARED_WITH_ME_CARD_KIND,
     project_shared_with_me_card,
 )
-
-
-def _event_text(event: Any) -> str:
-    from hushh_mcp.one_adk.output_privacy import public_text
-
-    return public_text(event)
-
 
 _SAFE_PROFILE_PATH = re.compile(r"^/people/[A-Za-z0-9_-]{16,128}$")
 
@@ -635,7 +630,9 @@ def _safe_agent_history_metadata(
         or "event"
     )
     for index, part in enumerate(getattr(getattr(event, "content", None), "parts", None) or []):
-        descriptor = _safe_discovery_descriptor(event, [part])
+        descriptor = finance_card_history_descriptor(part)
+        if descriptor is None:
+            descriptor = _safe_discovery_descriptor(event, [part])
         if descriptor is None:
             descriptor = _safe_submitted_information_request_descriptor(event, [part])
         if descriptor is None:

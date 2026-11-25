@@ -135,7 +135,7 @@ export function KaiMarketHubPage() {
       fitContent
       width="agent"
       headerContentSpacing="compact"
-      className="relative"
+      className={`relative ${financeStyles.workspace}`}
       data-finance-workspace="true"
       nativeTest={{
         routeId: KAI_MARKET_PATH,
@@ -168,6 +168,7 @@ export function KaiMarketHubPage() {
         heightMode="active"
         holdHeightDuringTransition={false}
         panelInset="none"
+        panelGap={24}
         viewportMinHeight="fill"
         className="mt-[var(--page-header-section-gap)]"
       >

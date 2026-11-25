@@ -19,6 +19,8 @@ from hushh_mcp.one_adk.external_read_boundary import (
     STATE_EXECUTION_SURFACE,
     STATE_EXTERNAL_READ,
     STATE_EXTERNAL_READ_CONTINUATION,
+    STATE_MAIL_DRILLDOWN_USED,
+    STATE_MAIL_EMPTY_RETRIES,
     STATE_SELECTED_DRIVE_SHARE,
 )
 from hushh_mcp.one_adk.plaid_connector_tools import (
@@ -27,6 +29,12 @@ from hushh_mcp.one_adk.plaid_connector_tools import (
     STATE_PLAID_CLIENT_READY,
     STATE_PLAID_POSTURE,
     STATE_PLAID_RESULT,
+)
+from hushh_mcp.one_adk.portfolio_context_contract import (
+    PORTFOLIO_CONTEXT_TOOL,
+    PRIVATE_PORTFOLIO_ANSWER,
+    STATE_PORTFOLIO_CONTEXT_ENABLED,
+    STATE_PORTFOLIO_CONTEXT_PRIVATE,
 )
 from hushh_mcp.one_adk.receipt_client_tools import (
     PRIVATE_DEVICE_READ_TOOLS,
@@ -40,6 +48,7 @@ from hushh_mcp.one_adk.wiki_recall_tools import (
     STATE_WIKI_RESULT,
     WIKI_TOOL_NAMES,
 )
+from hushh_mcp.pod_connectors.contacts_tool import STATE_CONTACT_CALENDAR_READ
 
 _EPHEMERAL = frozenset(
     {
@@ -49,6 +58,9 @@ _EPHEMERAL = frozenset(
         STATE_DRIVE_READ_OUTCOME,
         STATE_EXTERNAL_READ,
         STATE_EXTERNAL_READ_CONTINUATION,
+        STATE_CONTACT_CALENDAR_READ,
+        STATE_MAIL_EMPTY_RETRIES,
+        STATE_MAIL_DRILLDOWN_USED,
         STATE_SELECTED_DRIVE_SHARE,
         STATE_RECEIPT_RESULT,
         STATE_WIKI_CLIENT_READY,
@@ -57,6 +69,7 @@ _EPHEMERAL = frozenset(
         STATE_PLAID_CLIENT_READY,
         STATE_PLAID_POSTURE,
         STATE_PLAID_RESULT,
+        STATE_PORTFOLIO_CONTEXT_ENABLED,
         STATE_ACCOUNT_CONTEXT_ENABLED,
         "temp:hussh:workspace_chat_admission",
         "temp:hussh:drive_search_selection",
@@ -71,6 +84,8 @@ _EPHEMERAL = frozenset(
         "temp:hussh:pending_email_draft",
         "hussh:gmail_information_request_context",
         "hussh:pending_directive:gmail_information_request_reply",
+        "hussh:pending_directive:agent_email_specialist",
+        "hussh:pending_directive:gmail_reply_draft",
     }
 )
 _PRIVATE_DRAFT_TOOLS = frozenset(
@@ -81,6 +96,7 @@ _PRIVATE_DRAFT_TOOLS = frozenset(
         "propose_calendar_cancellation",
         "open_gmail_email_draft",
         "open_gmail_information_request_reply",
+        "open_gmail_reply_draft",
     }
 )
 
@@ -104,6 +120,8 @@ def redacted_read_receipt(response: Any) -> dict[str, Any]:
     # Source labels are authored constants today. Do not start retaining file
     # names if a future source adds them; keep only opaque refs and kind here.
     safe = structured.model_dump(mode="json")
+    # Persist the legacy summary for installed clients that validate exact keys.
+    safe.pop("truncation_reasons", None)
     # Search text is private tool input. The UI restores active jobs through
     # their owner-authenticated API, not by replaying a stored tool receipt.
     safe["background_search_available"] = False
@@ -136,6 +154,21 @@ def durable_external_read_projection(session: Session) -> Session:
             if event.content
             for part in event.content.parts or []
             if part.function_call and part.function_call.name == ACCOUNT_CONTEXT_TOOL
+        }
+    )
+    portfolio_invocations = (
+        set(session.state.get(STATE_PORTFOLIO_CONTEXT_PRIVATE) or [])
+        | {
+            invocation
+            for event in session.events
+            for invocation in event.actions.state_delta.get(STATE_PORTFOLIO_CONTEXT_PRIVATE, [])
+        }
+        | {
+            event.invocation_id
+            for event in session.events
+            if event.content
+            for part in event.content.parts or []
+            if part.function_call and part.function_call.name == PORTFOLIO_CONTEXT_TOOL
         }
     )
     receipt_result_invocations = set(session.state.get(STATE_RECEIPT_PRIVATE) or []) | {
@@ -232,6 +265,8 @@ def durable_external_read_projection(session: Session) -> Session:
                 placeholder = (
                     PRIVATE_ACCOUNT_ANSWER
                     if event.invocation_id in account_invocations
+                    else PRIVATE_PORTFOLIO_ANSWER
+                    if event.invocation_id in portfolio_invocations
                     else PRIVATE_RECEIPT_ANSWER
                 )
                 part.text = None if part.thought else placeholder

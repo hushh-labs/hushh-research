@@ -5,29 +5,29 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/components/connect/advisors-nearby", async () => {
   const React = await vi.importActual<typeof import("react")>("react");
   return {
-    AdvisorsNearby: () => {
+    AdvisorsNearby: ({ filters }: { filters?: import("react").ReactNode }) => {
       const [count, setCount] = React.useState(0);
       return (
-        <button
+        <>{filters}<button
           type="button"
           data-testid="advisors-pane"
           onClick={() => setCount((current) => current + 1)}
         >
           advisors {count}
-        </button>
+        </button></>
       );
     },
   };
 });
 
 vi.mock("@/components/connect/insurance-agents-nearby", () => ({
-  InsuranceAgentsNearby: () => (
-    <div data-testid="insurance-pane">insurance</div>
+  InsuranceAgentsNearby: ({ filters }: { filters?: import("react").ReactNode }) => (
+    <>{filters}<div data-testid="insurance-pane">insurance</div></>
   ),
 }));
 
 vi.mock("@/components/connect/places-nearby", () => ({
-  PlacesNearby: () => <div data-testid="places-pane">places</div>,
+  PlacesNearby: ({ filters }: { filters?: import("react").ReactNode }) => <>{filters}<div data-testid="places-pane">places</div></>,
 }));
 
 import { NearbyDirectories } from "@/components/connect/nearby-directories";

@@ -6,6 +6,7 @@ import { markPeriodicTaskRan, registerPeriodicTask } from "@/lib/perf/idle-sched
 
 import {
   FEED_STATE_CHANGED_EVENT,
+  FEED_CONNECTION_REQUESTS_CHANGED_EVENT,
   feedStateChangeReason,
 } from "@/lib/feed/feed-events";
 import {
@@ -63,8 +64,10 @@ export const FEED_LIVE_POLL_INTERVAL_MS = 45_000;
  * `refresh` is read through a ref, so a caller may pass an inline closure without
  * tearing down and rebuilding the listeners on every render.
  */
+export type FeedRefreshScope = "consent" | "connections";
+
 export function useFeedLiveRefresh(
-  refresh: () => void,
+  refresh: (scope?: FeedRefreshScope) => void,
   enabled: boolean = true,
 ): void {
   const refreshRef = useRef(refresh);
@@ -80,8 +83,12 @@ export function useFeedLiveRefresh(
     // re-check runs in the same wake, after a frame, never while hidden. A
     // re-check the hook triggers itself (mount, focus, an event) tells the
     // clock so the next scheduled one is a full interval away.
-    const run = () => {
+    const run = (scope?: FeedRefreshScope) => {
       if (document.visibilityState !== "visible") return;
+      if (scope) {
+        refreshRef.current(scope);
+        return;
+      }
       markPeriodicTaskRan(taskId);
       refreshRef.current();
     };
@@ -113,13 +120,16 @@ export function useFeedLiveRefresh(
     // iOS webviews do not always pair `focus` with a `visibilitychange`, so both
     // are listened for. A duplicate refresh is harmless: `useStaleResource`
     // de-dupes concurrent loads of the same cache key onto one request.
-    window.addEventListener("focus", run);
+    const onFocus = () => run();
+    window.addEventListener("focus", onFocus);
 
     const onFeedStateChanged = (event: Event) => {
       if (feedStateChangeReason(event) === "read") return;
       run();
     };
     window.addEventListener(FEED_STATE_CHANGED_EVENT, onFeedStateChanged);
+    const onConnectionRequestsChanged = () => run("connections");
+    window.addEventListener(FEED_CONNECTION_REQUESTS_CHANGED_EVENT, onConnectionRequestsChanged);
 
     // A consent push or a decision made anywhere else (the Consent Center, the
     // chat card, another tab of this app) changes what "Needs you" should say.
@@ -127,7 +137,8 @@ export function useFeedLiveRefresh(
     // Allow button still live.
     const onConsentChanged = (event: Event) => {
       if (!isConsentChangeWorthRefreshing(event)) return;
-      run();
+      const source = (event as CustomEvent<{ source?: string }>).detail?.source;
+      run(source === "sse_document_feed" ? "consent" : undefined);
     };
     window.addEventListener(CONSENT_STATE_CHANGED_EVENT, onConsentChanged);
     window.addEventListener(CONSENT_ACTION_COMPLETE_EVENT, onConsentChanged);
@@ -137,8 +148,9 @@ export function useFeedLiveRefresh(
       window.removeEventListener(CONSENT_ACTION_COMPLETE_EVENT, onConsentChanged);
       unregister();
       document.removeEventListener("visibilitychange", onVisibilityChange);
-      window.removeEventListener("focus", run);
+      window.removeEventListener("focus", onFocus);
       window.removeEventListener(FEED_STATE_CHANGED_EVENT, onFeedStateChanged);
+      window.removeEventListener(FEED_CONNECTION_REQUESTS_CHANGED_EVENT, onConnectionRequestsChanged);
     };
   }, [enabled, taskId]);
 }

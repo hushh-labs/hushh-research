@@ -1,6 +1,7 @@
 "use client";
 
 import { isNetworkOnline } from "@/lib/runtime/network-status";
+import { sameCalendarInvitationOccurrence } from "@/lib/calendar/calendar-recipient-copy";
 import { CalendarLoading } from "./calendar-loading";
 import { CalendarAccountBoard } from "./calendar-account-board";
 import { CalendarDateNavigation } from "./calendar-date-navigation";
@@ -32,12 +33,13 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { useCoarseClock, usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
+import { useCalendarFollowupStartup } from "@/lib/calendar/use-calendar-followup-startup";
 import { calendarTimeZone } from "@/lib/calendar/calendar-time-zone";
 import { calendarDaySearchRequest } from "@/lib/calendar/calendar-day-search-request";
 import { CalendarJoinLink } from "./calendar-join-link";
-import { isCalendarEventEnded } from "@/lib/calendar/calendar-event-status";
+import { isCalendarEventEnded, isFinalInvitationResponse } from "@/lib/calendar/calendar-event-status";
 export { safeMeetingUrl } from "@/lib/calendar/calendar-url";
-import { GoogleCalendarService, GoogleCalendarError, calendarFailure, type CalendarEventSummary, type CalendarSource, type CalendarAvailability, type CalendarAttendanceReview, type CalendarAttendanceResult, type GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
+import { GoogleCalendarService, GoogleCalendarError, calendarFailure, type CalendarEventSummary, type CalendarSource, type CalendarAvailability, type CalendarAttendanceResult, type GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
 import { CalendarAvailabilityArt, CalendarHelperIcon, CalendarTimelineRow, calendarResponse, GoogleCalendarMark, calendarDate, availabilityTimeRangeLabel, calendarProviderDayUrl, MAIN_TABS, SCHEDULE_TABS, durationLabel, eventTime, timeRangeLabel } from "./calendar-schedule-presentation";
 export { calendarDate } from "./calendar-schedule-presentation";
 import { earliestCalendarSlot, type CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
@@ -63,24 +65,48 @@ type Props = {
   connectionNotice?: ReactNode;
   getIdToken: () => Promise<string>;
   getVaultOwnerToken?: () => string | null;
+  recoverVaultOwnerToken?: () => Promise<string | null>;
   connectionRevision?: number;
 };
 
 /** First-party Calendar reviews use the signed-in owner's Google grant. */
 export function CalendarConnectedWorkspace(props: Props) {
-  const { vaultOwnerToken, getVaultOwnerToken } = useVault();
+  const { vaultOwnerToken, getVaultOwnerToken, getVaultKey, retryOwnerTokenRenewal } = useVault();
+  const currentOwner = useRef<string | null>(props.userId);
+  useEffect(() => {
+    currentOwner.current = props.userId;
+    return () => { currentOwner.current = null; };
+  }, [props.userId]);
+  const recoverVaultOwnerToken = useCallback(async () => {
+    const token = getVaultOwnerToken();
+    if (token) return token;
+    const key = getVaultKey();
+    if (!key) return null;
+    const owner = props.userId;
+    await retryOwnerTokenRenewal();
+    if (currentOwner.current !== owner || getVaultKey() !== key) return null;
+    const renewed = getVaultOwnerToken();
+    if (!renewed) throw new Error("FOLLOWUPS_SESSION_UNAVAILABLE");
+    return renewed;
+  }, [props.userId, getVaultOwnerToken, getVaultKey, retryOwnerTokenRenewal]);
+  useCalendarFollowupStartup({
+    userId: props.userId,
+    accountIds: props.status.accounts?.filter(account => account.connected).map(account => account.account_id)
+      ?? (props.status.connected ? ["default"] : []),
+    connectionRevision: props.connectionRevision ?? 0,
+    getIdToken: props.getIdToken,
+  });
   const accountKey = (props.status.accounts || []).map(account => `${account.account_id}:${account.google_email}:${account.status}:${account.grant_generation || ""}`).join("|") || props.status.google_email || "";
-  const ownerAccountEmails = (props.status.accounts || []).filter(account => account.connected && account.google_email_verified === true && account.google_email).map(account => account.google_email as string);
-  const calendarPeople = useCalendarHusshPeople({ userId: props.userId, accountKey, ownerAccountEmails, connectionRevision: props.connectionRevision, getIdToken: props.getIdToken, vaultOwnerToken });
+  const calendarPeople = useCalendarHusshPeople({ userId: props.userId, accountKey, connectionRevision: props.connectionRevision, getIdToken: props.getIdToken, vaultOwnerToken });
   if (props.status.accounts?.length && props.onAddAccount && props.onDisconnectAccount && props.onReconnectAccount) {
-    return <CalendarAccountBoard key={props.userId} {...props} getVaultOwnerToken={getVaultOwnerToken} onAddAccount={props.onAddAccount}
+    return <CalendarAccountBoard key={props.userId} {...props} getVaultOwnerToken={getVaultOwnerToken} recoverVaultOwnerToken={recoverVaultOwnerToken} onAddAccount={props.onAddAccount}
       onReconnectAccount={props.onReconnectAccount} calendarPeople={calendarPeople}
       onDisconnectAccount={props.onDisconnectAccount} token={vaultOwnerToken} />;
   }
-  return <ConnectedSchedule key={props.userId} {...props} getVaultOwnerToken={getVaultOwnerToken} calendarPeople={calendarPeople} />;
+  return <ConnectedSchedule key={props.userId} {...props} getVaultOwnerToken={getVaultOwnerToken} recoverVaultOwnerToken={recoverVaultOwnerToken} calendarPeople={calendarPeople} />;
 }
 
-function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, onAllowMeetingFiles, onChat, onDisconnect, onMailConnect, connectionNotice, getIdToken, getVaultOwnerToken, connectionRevision }: Props & { calendarPeople: CalendarHusshPeople }) {
+function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, onAllowMeetingFiles, onChat, onDisconnect, onMailConnect, connectionNotice, getIdToken, getVaultOwnerToken, recoverVaultOwnerToken, connectionRevision }: Props & { calendarPeople: CalendarHusshPeople }) {
   const getIdTokenRef = useRef(getIdToken);
   getIdTokenRef.current = getIdToken;
   const [tab, setTab] = useState("schedule");
@@ -157,10 +183,9 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
   const [storedSelected, setSelected] = useState<CalendarEventSummary | null>(null);
   const [selectedEmail, setSelectedEmail] = useState(status.google_email);
   const selected = selectedEmail === status.google_email ? storedSelected : null;
-  const [step, setStep] = useState<"details" | "choice" | "review" | "result">("details");
+  const [step, setStep] = useState<"details" | "choice" | "result">("details");
   const [offerTimes, setOfferTimes] = useState(false);
-  const [message, setMessage] = useState("I can't attend our meeting. Please choose another time using the link below and update the invitation.");
-  const [review, setReview] = useState<CalendarAttendanceReview | null>(null);
+  const [message, setMessage] = useState("");
   const [result, setResult] = useState<CalendarAttendanceResult | null>(null);
   const [actionError, setActionError] = useState<Error | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -169,6 +194,8 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
   const refreshButton = useRef<HTMLButtonElement | null>(null);
   const accountMenuButton = useRef<HTMLButtonElement | null>(null);
   const settingsTrigger = useRef<HTMLButtonElement | null>(null);
+  const settingsFromMenu = useRef(false);
+  const settingsHeading = useRef<HTMLHeadingElement>(null);
   const selection = useRef<{ event: CalendarEventSummary; email: string | null | undefined } | null>(null);
   const eventRequest = useRef(0), availabilityRequest = useRef(0);
   const lastReadStarted = useRef({ events: 0, availability: 0 });
@@ -209,8 +236,7 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
         if (prior && prior.email === status.google_email) {
           const fresh = response.events.find(event => event.id === prior.event.id && event.calendar_id === prior.event.calendar_id);
           selection.current = fresh ? { event: fresh, email: status.google_email } : null;
-          setSelected(fresh || null); setSelectedEmail(status.google_email); setReview(null);
-          setStep(current => current === "review" ? "choice" : current);
+          setSelected(fresh || null); setSelectedEmail(status.google_email);
         }
       }
     } catch (error) {
@@ -288,20 +314,19 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
   }, [tab, view, selected, loadEvents, checkAvailability, availabilityError]);
   useEffect(() => {
     if (selection.current && selection.current.email !== status.google_email) {
-      selection.current = null; setSelected(null); setReview(null); setResult(null); setActionError(null); setStep("details");
+      selection.current = null; setSelected(null); setResult(null); setActionError(null); setStep("details");
     }
   }, [status.google_email]);
 
   const closeDetails = () => {
     if (submittingRef.current) return;
     selection.current = null;
-    setSelected(null); setReview(null); setResult(null); setActionError(null); setStep("details");
+    setSelected(null); setResult(null); setActionError(null); setStep("details");
   };
   useBackLayer("/one/calendar", settingsActive ? pendingExclusion ? 2 : 1 : selected ? (step === "details" ? 1 : 2) : 0, () => {
     if (submittingRef.current) return true;
     if (settingsActive) { if (pendingExclusion) setPendingExclusion(null); else setSettingsOpen(false); return true; }
-    if (step === "review") { setStep("choice"); setReview(null); }
-    else if (step === "choice") setStep("details");
+    if (step === "choice") setStep("details");
     else closeDetails();
     return true;
   });
@@ -317,30 +342,31 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
   const prepareReview = () => runAction(async () => {
     if (!selected?.id) throw new Error("Calendar access changed. Reload this invitation.");
     const owner = snapshotValidatedAuthSessionOwner();
-    const isCurrent = () => !lifetime.current?.signal.aborted && (!owner || isValidatedAuthSessionOwnerCurrent(owner));
+    const selectedAtSubmit = selection.current;
+    const isCurrent = () => selection.current === selectedAtSubmit && !lifetime.current?.signal.aborted && (!owner || isValidatedAuthSessionOwnerCurrent(owner));
     const firebaseIdToken = await getIdToken?.();
     if (!isCurrent()) return;
     if (!firebaseIdToken) throw new Error("Sign in again to review attendance changes.");
-    const next = offerTimes
-      ? await GoogleCalendarService.reviewWorkspaceAttendance({ ...windowParams, firebaseIdToken, isEffectCurrent: isCurrent, eventId: selected.id, calendarId: selected.calendar_id, responseStatus: "declined", offerTimes: true, exactTime: false, sendMessage: true, message })
-      : await GoogleCalendarService.reviewRsvp({ firebaseIdToken, isEffectCurrent: isCurrent, eventId: selected.id, calendarId: selected.calendar_id || "primary", responseStatus: "declined", timeZone: zone });
+    const next = await GoogleCalendarService.reviewWorkspaceAttendance({ ...windowParams, firebaseIdToken,
+      isEffectCurrent: isCurrent, eventId: selected.id, calendarId: selected.calendar_id,
+      expectedAccountEmail: status.google_email || undefined, responseStatus: "declined",
+      offerTimes, exactTime: false, sendMessage: true, message, declineReason: message, composeMessage: true });
     if (!isCurrent()) return;
-    setReview(next); setStep("review");
+    if (!sameCalendarInvitationOccurrence(selected, next)) throw new Error("The organiser changed. Refresh the invitation before declining.");
+    if (next.conflicts?.length || next.unchecked_calendars?.length) throw new Error("The proposed time could not be confirmed as available. Choose another time or try again.");
+    const confirmationToken = await getIdToken?.();
+    if (!isCurrent()) return;
+    if (!confirmationToken) throw new Error("Sign in again to confirm attendance changes.");
+    const outcome = await GoogleCalendarService.confirmWorkspaceAttendance({ firebaseIdToken: confirmationToken,
+      isEffectCurrent: isCurrent, reviewId: next.review_id, reviewToken: next.review_token });
+    if (!isCurrent()) return;
+    setResult(outcome); setStep("result");
+    if (outcome.calendar === "declined") { notifyCalendarChanged(userId); void loadEvents(); }
+    if (outcome.calendar === "declined" && outcome.email === "sent") {
+      selection.current = null; setSelected(null); setResult(null); setStep("details");
+    }
   });
-  const confirm = () => runAction(async () => {
-    if (!review) return;
-    const owner = snapshotValidatedAuthSessionOwner();
-    const isCurrent = () => !lifetime.current?.signal.aborted && (!owner || isValidatedAuthSessionOwnerCurrent(owner));
-    const firebaseIdToken = await getIdToken?.();
-    if (!isCurrent()) return;
-    if (!firebaseIdToken) throw new Error("Sign in again to confirm attendance changes.");
-    const next = offerTimes
-      ? await GoogleCalendarService.confirmWorkspaceAttendance({ firebaseIdToken, isEffectCurrent: isCurrent, reviewId: review.review_id, reviewToken: review.review_token })
-      : await GoogleCalendarService.confirmRsvp({ firebaseIdToken, isEffectCurrent: isCurrent, reviewId: review.review_id, reviewToken: review.review_token });
-    if (!isCurrent()) return;
-    setResult(next); setStep("result");
-    if (next.calendar === "declined") { notifyCalendarChanged(userId); void loadEvents(); }
-  });
+
   const saveSettings = () => {
     try {
       if (!/^\d{2}:\d{2}$/.test(settingsStart) || !/^\d{2}:\d{2}$/.test(settingsEnd) || settingsStart >= settingsEnd) throw new Error("Availability end must be after start.");
@@ -355,18 +381,18 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
   };
   const recovery = (error: Error, availabilityFailure = false) => (
     <div role="alert" className="space-y-2">
-      <p className="font-semibold">{availabilityFailure ? "Availability could not be checked." : "Calendar could not be loaded."}</p>
-      <p className="text-sm text-muted-foreground">{availabilityFailure && error instanceof GoogleCalendarError && error.reasonCode === "calendar_invalid_response" ? "Calendar information was incomplete or invalid. Try again." : error.message}</p>
+      <p className={presentationStyles.sectionLabel}>{availabilityFailure ? "Availability could not be checked." : "Calendar could not be loaded."}</p>
+      <p className={`${presentationStyles.support} text-muted-foreground`}>{availabilityFailure && error instanceof GoogleCalendarError && error.reasonCode === "calendar_invalid_response" ? "Calendar information was incomplete or invalid. Try again." : error.message}</p>
       {error instanceof GoogleCalendarError && error.recovery !== "retry" ? (
         <CalendarCompactAction disabled={busy} onClick={() => onConnect("manage", true)}>{error.recovery === "reconnect" ? "Reconnect Calendar" : "Allow Calendar access"}</CalendarCompactAction>
-      ) : availabilityFailure ? <div className="flex flex-wrap gap-2"><CalendarCompactAction disabled={availabilityLoading} onClick={() => void checkAvailability()}>Retry</CalendarCompactAction></div> : <p className="text-sm text-muted-foreground" role="status">Checking again automatically when connected.</p>}
+      ) : availabilityFailure ? <div className="flex flex-wrap gap-2"><CalendarCompactAction disabled={availabilityLoading} onClick={() => void checkAvailability()}>Retry</CalendarCompactAction></div> : <p className={`${presentationStyles.support} text-muted-foreground`} role="status">Checking again automatically when connected.</p>}
     </div>
   );
   const windowControls = (prefix: string) => (
     <div className="grid grid-cols-2 gap-[var(--app-form-section-gap)] sm:grid-cols-3">
-      <label className="col-span-2 space-y-[var(--app-form-field-gap)] sm:col-span-1"><span className="text-sm font-semibold text-muted-foreground">Date</span><Input aria-label={`${prefix} date`} disabled={submitting || busy} type="date" value={alternativeDate} onChange={e => { if (e.target.value) setAlternativeDate(e.target.value); }} /></label>
-      <label className="space-y-[var(--app-form-field-gap)]"><span className="text-sm font-semibold text-muted-foreground">From</span><Input aria-label={`${prefix} window start`} disabled={submitting || busy} type="time" value={startTime} onChange={e => setStartTime(e.target.value)} /></label>
-      <label className="space-y-[var(--app-form-field-gap)]"><span className="text-sm font-semibold text-muted-foreground">Until</span><Input aria-label={`${prefix} window end`} disabled={submitting || busy} type="time" value={endTime} onChange={e => setEndTime(e.target.value)} /></label>
+      <label className="col-span-2 space-y-[var(--app-form-field-gap)] sm:col-span-1"><span className={`${presentationStyles.fieldLabel} text-muted-foreground`}>Date</span><Input aria-label={`${prefix} date`} disabled={submitting || busy} type="date" value={alternativeDate} onChange={e => { if (e.target.value) setAlternativeDate(e.target.value); }} /></label>
+      <label className="space-y-[var(--app-form-field-gap)]"><span className={`${presentationStyles.fieldLabel} text-muted-foreground`}>From</span><Input aria-label={`${prefix} window start`} disabled={submitting || busy} type="time" value={startTime} onChange={e => setStartTime(e.target.value)} /></label>
+      <label className="space-y-[var(--app-form-field-gap)]"><span className={`${presentationStyles.fieldLabel} text-muted-foreground`}>Until</span><Input aria-label={`${prefix} window end`} disabled={submitting || busy} type="time" value={endTime} onChange={e => setEndTime(e.target.value)} /></label>
       <div className="col-span-2 sm:col-span-3"><SegmentedTabs disabled={submitting || busy} variant="filter" ariaLabel={`${prefix} duration`} value={String(duration)} options={[15, 30, 60].map(value => ({ value: String(value), label: `${value} min` }))} onValueChange={value => setDuration(Number(value) as 15 | 30 | 60)} /></div>
     </div>
   );
@@ -379,8 +405,8 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
     selection.current = { event, email: status.google_email };
     detailTrigger.current = trigger; setSelectedEmail(status.google_email); setSelected(event); setStep("details"); setActionError(null);
     setAlternativeDate(date);
-    setOfferTimes(false); setReview(null); setResult(null);
-    setMessage("I can't attend our meeting. Please choose another time using the link below and update the invitation.");
+    setOfferTimes(false); setResult(null);
+    setMessage("");
   };
   const providerUrl = calendarProviderDayUrl(date, status.google_email);
   const openSettings = (trigger?: HTMLButtonElement) => { settingsTrigger.current = trigger || accountMenuButton.current; setSettingsStart(startTime); setSettingsEnd(endTime); setSettingsError(""); setSelectionDraft({ key: calendarAccountKey, overrides: JSON.parse(selectionJson) }); setPendingExclusion(null); setSettingsOpen(true); };
@@ -398,14 +424,18 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
   const scheduleLoading = view === "today" ? eventsLoading : availabilityLoading;
   const reconnectRequired = [eventsError, availabilityError].some(error => error instanceof GoogleCalendarError && (error.recovery === "reconnect" || error.recovery === "connect"));
 
-  const calendarFooter = <div className="mx-auto flex w-full max-w-[420px] flex-col items-center gap-2 pt-4"><AskOneButton showIcon={false} disabled={busy || submitting} onClick={() => onChat()} className="!h-[50px] !w-full rounded-full !text-[15px] sm:!text-lg !bg-[color:var(--app-accent)] !text-[color:var(--app-accent-fg)]">Try Calendar Agent with One</AskOneButton><button type="button" disabled={busy || submitting} className={`${presentationStyles.utility} w-full px-3 text-destructive hover:text-destructive/80 focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]`} onClick={onDisconnect}>Disconnect Calendar</button></div>;
+  const calendarFooter = <div className="mx-auto flex w-full max-w-[420px] flex-col items-center gap-2 pt-4"><AskOneButton showIcon={false} disabled={busy || submitting} onClick={() => onChat()} className="!h-[50px] !w-full rounded-full !bg-[color:var(--app-accent)] !text-[color:var(--app-accent-fg)]">Try Calendar Agent with One</AskOneButton><button type="button" disabled={busy || submitting} className={`${presentationStyles.utility} w-full px-3 text-destructive hover:text-destructive/80 focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]`} onClick={onDisconnect}>Disconnect Calendar</button></div>;
 
-  return <AppPageShell width="agent" headerContentSpacing="compact" fitContent className="relative isolate" data-profile-type-scale="page" nativeTest={{ routeId: ROUTES.CALENDAR, marker: "native-route-calendar", authState: "authenticated", dataState: view === "today" ? eventsLoading ? "loading" : eventsError ? "error" : events?.length ? "loaded" : "empty-valid" : availabilityLoading ? "loading" : availabilityError ? "error" : availability ? availability.windows.length ? "loaded" : "empty-valid" : "unavailable-valid" }}>
+  return <AppPageShell width="agent" headerContentSpacing="compact" fitContent className={`relative isolate ${presentationStyles.scope}`} data-connect-type-scale="page" nativeTest={{ routeId: ROUTES.CALENDAR, marker: "native-route-calendar", authState: "authenticated", dataState: view === "today" ? eventsLoading ? "loading" : eventsError ? "error" : events?.length ? "loaded" : "empty-valid" : availabilityLoading ? "loading" : availabilityError ? "error" : availability ? availability.windows.length ? "loaded" : "empty-valid" : "unavailable-valid" }}>
     <div className={`${presentationStyles.workspace} mx-auto w-full space-y-[var(--page-header-section-gap)]`} data-calendar-workspace data-calendar-presentation>
       <PageHeader title="Calendar" titleRole="agent" titleVisuallyHidden actionsInlineMobile description={<div className="space-y-1"><p className={`${presentationStyles.support} break-all text-muted-foreground`}>{status.google_email || "Connected Google account"}</p><p className={`flex items-center gap-1.5 ${presentationStyles.status} ${reconnectRequired ? "text-muted-foreground" : "text-[color:var(--app-success-deep)]"}`}>{reconnectRequired ? <Lock aria-hidden className="size-4" /> : <CheckCircle aria-hidden weight="fill" className="size-5 text-[color:var(--app-success)]" />}{reconnectRequired ? "Reconnect required" : "Connected"}</p></div>} actions={<>
         <a aria-label="Open Google Calendar" className="inline-flex size-11 items-center justify-center rounded-[var(--app-radius-sm)] border border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-compact)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] sm:size-12" href={providerUrl} target="_blank" rel="noopener noreferrer"><GoogleCalendarMark className="size-7" /></a>
-        <DropdownMenu><DropdownMenuTrigger asChild><Button ref={accountMenuButton} aria-label="Calendar settings and actions" disabled={busy || submitting} variant="ghost" size="icon" className="size-11 rounded-[var(--app-radius-sm)] bg-[color:var(--app-segmented-track-surface)] !text-[color:var(--app-label)] sm:size-[46px]"><MoreHorizontal className="size-5" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={() => openSettings()}>Settings</DropdownMenuItem>
+        <DropdownMenu><DropdownMenuTrigger asChild><Button ref={accountMenuButton} aria-label="Calendar settings and actions" disabled={busy || submitting} variant="ghost" size="icon" className="size-11 rounded-[var(--app-radius-sm)] bg-[color:var(--app-segmented-track-surface)] !text-[color:var(--app-label)] sm:size-[46px]"><MoreHorizontal className="size-5" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end" className={presentationStyles.scope} data-connect-type-scale="page"
+          onCloseAutoFocus={event => {
+            if (settingsFromMenu.current) event.preventDefault();
+            settingsFromMenu.current = false;
+          }}>
+          <DropdownMenuItem onSelect={() => { settingsFromMenu.current = true; openSettings(); }}>Settings</DropdownMenuItem>
           <DropdownMenuItem disabled={scheduleLoading} onSelect={() => void (view === "free" ? checkAvailability() : loadEvents())}>Refresh Calendar</DropdownMenuItem>
           <DropdownMenuItem asChild><a href={providerUrl} target="_blank" rel="noopener noreferrer">Open Google Calendar</a></DropdownMenuItem>
           <DropdownMenuItem onSelect={onDisconnect}>Disconnect Calendar</DropdownMenuItem>
@@ -413,14 +443,14 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
       </>} />
       {connectionNotice}
       <TopShellTabs disabled={submitting || busy} tabSet={{ id: "calendar", label: "Calendar", queryParam: null, activeValue: tab, tabs: MAIN_TABS }} onValueChange={setTab} />
-      {tab === "invitations" ? <div role="tabpanel" id="top-shell-calendar-panel-invitations" aria-labelledby="top-shell-calendar-tab-invitations"><CalendarInvitations workspaceLayout calendarPeople={calendarPeople} userId={userId} accountEmail={status.google_email} zone={zone} getIdToken={getIdToken} busy={busy} connectionRevision={connectionRevision} onConnect={onConnect} onMailConnect={onMailConnect} onBusyChange={setSubmitting} /></div> : tab !== "schedule" ? <div role="tabpanel" id="top-shell-calendar-panel-insights" aria-labelledby="top-shell-calendar-tab-insights"><CalendarInsights key={`${userId}:${calendarAccountKey}:${epoch}:${today}:${zone}`} userId={userId} account={status.accounts?.find(account => account.account_id === "default") || { account_id: "default", google_email: status.google_email || null, connected: status.connected, status: status.status, access_level: status.access_level ?? null, calendar_list_access: status.calendar_list_access ?? false, scope_csv: status.scope_csv }} today={today} zone={zone} connectionRevision={connectionRevision} getIdToken={getIdToken} getVaultOwnerToken={getVaultOwnerToken} onAllowMeetingFiles={onAllowMeetingFiles} /></div> : <div role="tabpanel" id="top-shell-calendar-panel-schedule" className="space-y-3">
+      {tab === "invitations" ? <div role="tabpanel" id="top-shell-calendar-panel-invitations" aria-labelledby="top-shell-calendar-tab-invitations"><CalendarInvitations workspaceLayout calendarPeople={calendarPeople} userId={userId} accountEmail={status.google_email} zone={zone} getIdToken={getIdToken} busy={busy} connectionRevision={connectionRevision} onConnect={onConnect} onMailConnect={onMailConnect} onBusyChange={setSubmitting} /></div> : tab !== "schedule" ? <div role="tabpanel" id="top-shell-calendar-panel-insights" aria-labelledby="top-shell-calendar-tab-insights"><CalendarInsights key={`${userId}:${calendarAccountKey}:${epoch}:${today}:${zone}`} userId={userId} account={status.accounts?.find(account => account.account_id === "default") || { account_id: "default", google_email: status.google_email || null, connected: status.connected, status: status.status, access_level: status.access_level ?? null, calendar_list_access: status.calendar_list_access ?? false, scope_csv: status.scope_csv }} today={today} zone={zone} connectionRevision={connectionRevision} getIdToken={getIdToken} getVaultOwnerToken={getVaultOwnerToken} recoverVaultOwnerToken={recoverVaultOwnerToken} onAllowMeetingFiles={onAllowMeetingFiles} /></div> : <div role="tabpanel" id="top-shell-calendar-panel-schedule" className="space-y-3">
         <div className="py-1"><SegmentedTabs disabled={submitting || busy} variant="filter" ariaLabel="Schedule views" options={SCHEDULE_TABS} value={view} onValueChange={setView} /></div>
         <CalendarDateNavigation date={date} today={today} disabled={submitting || busy} onChange={setDate} todayRef={refreshButton} />
         {view === "today" ? <section aria-label="Today's events" aria-busy={eventsLoading} className="space-y-3">
           {eventsLoading && !events ? <CalendarLoading label="Events loading" /> : eventsError && !events ? <SurfaceCard className="p-5 shadow-none">{recovery(eventsError)}</SurfaceCard> : <>
-            {eventsError && events ? <SurfaceCard className="p-4 shadow-none"><p className="text-sm">Showing the last loaded events; updates could not be checked.</p>{recovery(eventsError)}</SurfaceCard> : null}
-            {unreadableCalendars.length ? <p role="status" className="text-xs text-muted-foreground">Event details are not shared for {unreadableCalendars.map(calendar => calendar.name || calendar.id).join(", ")}. Their busy times are included in availability checks.</p> : null}
-            {events?.length === 0 && !eventsError ? <SurfaceCard className="p-6 shadow-none"><p>{eventsLoading ? "Last check found no events." : date === today ? "No events today." : "No events on this day."}</p><p className="mt-1 text-sm text-muted-foreground">{eventsLoading ? "Updates have not been confirmed yet." : unreadableCalendars.length ? "No events in calendars that share event details." : "Your included calendars are clear."}</p></SurfaceCard> : <>
+            {eventsError && events ? <SurfaceCard className="p-4 shadow-none"><p className={presentationStyles.body}>Showing the last loaded events; updates could not be checked.</p>{recovery(eventsError)}</SurfaceCard> : null}
+            {unreadableCalendars.length ? <p role="status" className={`${presentationStyles.support} text-muted-foreground`}>Event details are not shared for {unreadableCalendars.map(calendar => calendar.name || calendar.id).join(", ")}. Their busy times are included in availability checks.</p> : null}
+            {events?.length === 0 && !eventsError ? <SurfaceCard className="p-6 shadow-none"><p>{eventsLoading ? "Last check found no events." : date === today ? "No events today." : "No events on this day."}</p><p className={`mt-1 ${presentationStyles.support} text-muted-foreground`}>{eventsLoading ? "Updates have not been confirmed yet." : unreadableCalendars.length ? "No events in calendars that share event details." : "Your included calendars are clear."}</p></SurfaceCard> : <>
               {allDay.length ? <div className="space-y-2"><h3 className={`${presentationStyles.sourceGroup} text-muted-foreground`}>All-day events</h3>{timeline(allDay)}</div> : null}
               {timed.length ? timeline(timed) : null}
             </>}
@@ -441,56 +471,59 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
             {availability.full_count > 3 ? <p className={`${presentationStyles.support} text-muted-foreground`}>Showing 3 of {availability.full_count} available windows.</p> : null}
             <p className={`${presentationStyles.support} text-muted-foreground`}>Availability can change. These times aren't reserved.</p>
           </div> : null}
-          <SurfaceCard className="shadow-none bg-[color:var(--app-card-surface-surface)]"><button type="button" onClick={() => onChat(calendarDaySearchRequest(date, zone, duration), undefined, undefined, undefined, { ownerId: userId, timeZone: zone })} className="flex min-h-[90px] w-full items-start gap-[14px] px-3 py-[14px] text-left sm:gap-[17px] sm:px-4 sm:py-[13px] focus-visible:rounded-[var(--app-card-radius-standard)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"><CalendarHelperIcon /><span><span className="block text-sm font-normal">Need a different time?</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">Just ask One to find time, schedule a meeting or reschedule for you.</span></span></button></SurfaceCard>
+          <SurfaceCard className="shadow-none bg-[color:var(--app-card-surface-surface)]"><button type="button" onClick={() => onChat(calendarDaySearchRequest(date, zone, duration), undefined, undefined, undefined, { ownerId: userId, timeZone: zone })} className="flex min-h-[90px] w-full items-start gap-[14px] px-3 py-[14px] text-left sm:gap-[17px] sm:px-4 sm:py-[13px] focus-visible:rounded-[var(--app-card-radius-standard)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"><CalendarHelperIcon /><span><span className={`block ${presentationStyles.windowPrimary}`}>Need a different time?</span><span className={`mt-1 block ${presentationStyles.support} text-muted-foreground`}>Just ask One to find time, schedule a meeting or reschedule for you.</span></span></button></SurfaceCard>
         </section>}
 
       </div>}
       {tab !== "insights" ? calendarFooter : null}
     </div>
     <Dialog modal open={settingsActive} onOpenChange={open => { if (!open && pendingExclusion) setPendingExclusion(null); else setSettingsOpen(open); }}>
-      <DialogContent className={`${presentationStyles.portal} max-h-[85dvh] overflow-y-auto`} data-profile-type-scale="calendar" onEscapeKeyDown={event => { if (pendingExclusion) { event.preventDefault(); setPendingExclusion(null); } }} onCloseAutoFocus={event => { if (settingsTrigger.current?.isConnected) { event.preventDefault(); settingsTrigger.current.focus(); } }}><DialogHeader><DialogTitle>Calendar settings</DialogTitle><DialogDescription>Choose calendars and alternative meeting hours. Free time checks the whole selected day.</DialogDescription></DialogHeader>
-        <fieldset className="grid grid-cols-2 gap-3"><legend className="mb-2 text-sm font-semibold">Alternative meeting hours</legend><label className="space-y-2"><span className="text-sm font-semibold text-muted-foreground">From</span><Input aria-label="Availability window start" type="time" value={settingsStart} onChange={event => setSettingsStart(event.target.value)} /></label><label className="space-y-2"><span className="text-sm font-semibold text-muted-foreground">Until</span><Input aria-label="Availability window end" type="time" value={settingsEnd} onChange={event => setSettingsEnd(event.target.value)} /></label></fieldset>
-        <fieldset className="space-y-3"><legend className="text-sm font-medium">Calendars used for Free time</legend>
-          <p className="text-xs text-muted-foreground">Google holiday feeds are informational by default. These choices only affect Free time; calendars stay visible in Schedule.</p>
-          {!calendarOptions.length ? <p className="text-sm">Open Free time to load your calendars.</p> : <ul className="space-y-3">{calendarOptions.map(calendar => {
+      <DialogContent className={`${presentationStyles.portal} max-h-[85dvh] overflow-y-auto`} data-connect-type-scale="page"
+        onOpenAutoFocus={event => {
+          if (settingsHeading.current) {
+            event.preventDefault();
+            settingsHeading.current.focus({ preventScroll: true });
+          }
+        }}
+        onEscapeKeyDown={event => { if (pendingExclusion) { event.preventDefault(); setPendingExclusion(null); } }} onCloseAutoFocus={event => { if (settingsTrigger.current?.isConnected) { event.preventDefault(); settingsTrigger.current.focus(); } }}><DialogHeader><DialogTitle ref={settingsHeading} tabIndex={-1}>Calendar settings</DialogTitle><DialogDescription>Choose calendars and alternative meeting hours. Free time checks the whole selected day.</DialogDescription></DialogHeader>
+        <fieldset className="grid grid-cols-2 gap-3"><legend className={`${presentationStyles.fieldLabel} mb-2`}>Alternative meeting hours</legend><label className="space-y-2"><span className={`${presentationStyles.fieldLabel} text-muted-foreground`}>From</span><Input aria-label="Availability window start" type="time" value={settingsStart} onChange={event => setSettingsStart(event.target.value)} /></label><label className="space-y-2"><span className={`${presentationStyles.fieldLabel} text-muted-foreground`}>Until</span><Input aria-label="Availability window end" type="time" value={settingsEnd} onChange={event => setSettingsEnd(event.target.value)} /></label></fieldset>
+        <fieldset className="space-y-3"><legend className={presentationStyles.windowPrimary}>Calendars used for Free time</legend>
+          <p className={`${presentationStyles.support} text-muted-foreground`}>Google holiday feeds are informational by default. These choices only affect Free time; calendars stay visible in Schedule.</p>
+          {!calendarOptions.length ? <p className={presentationStyles.body}>Open Free time to load your calendars.</p> : <ul className="space-y-3">{calendarOptions.map(calendar => {
             const included = selectionDraft.overrides[calendar.id] ?? calendar.availability_default_included !== false;
             return <li key={calendar.id} aria-label={calendar.name || calendar.id} className="space-y-1">
-              <p className="break-words text-sm font-medium">{calendar.name || calendar.id}</p>
-              <p className="text-xs text-muted-foreground">{included ? "Blocks availability" : calendar.availability_default_included === false ? "Informational holiday feed" : "Excluded from availability"}</p>
+              <p className={`${presentationStyles.windowPrimary} break-words`}>{calendar.name || calendar.id}</p>
+              <p className={`${presentationStyles.support} text-muted-foreground`}>{included ? "Blocks availability" : calendar.availability_default_included === false ? "Informational holiday feed" : "Excluded from availability"}</p>
               <CalendarCompactAction disabled={Boolean(pendingExclusion)} onClick={() => included ? setPendingExclusion(calendar) : setSelectionDraft(current => ({ ...current, overrides: { ...current.overrides, [calendar.id]: true } }))}>{included ? "Exclude this calendar from availability" : "Include in availability"}</CalendarCompactAction>
             </li>;
           })}</ul>}
           {pendingExclusion ? <div role="alert" className="space-y-2 rounded-lg border p-3">
-            <p className="text-sm">Exclude {pendingExclusion.name || pendingExclusion.id} from availability? Free time may overlap its events. It will remain visible in Schedule.</p>
+            <p className={presentationStyles.body}>Exclude {pendingExclusion.name || pendingExclusion.id} from availability? Free time may overlap its events. It will remain visible in Schedule.</p>
             <div className="flex flex-wrap gap-2"><Button variant="ghost" size="compact" className={presentationStyles.utility} onClick={() => setPendingExclusion(null)}>Keep included</Button><Button onClick={() => { setSelectionDraft(current => ({ ...current, overrides: { ...current.overrides, [pendingExclusion.id]: false } })); setPendingExclusion(null); }}>Confirm exclusion</Button></div>
           </div> : null}
         </fieldset>
-        {settingsError ? <p role="alert" className="text-sm text-destructive">{settingsError}</p> : null}
+        {settingsError ? <p role="alert" className={`${presentationStyles.support} text-destructive`}>{settingsError}</p> : null}
         <Button disabled={Boolean(pendingExclusion)} onClick={saveSettings}>Save settings</Button>
       </DialogContent>
     </Dialog>
     <Dialog modal open={Boolean(selected)} onOpenChange={open => { if (!open) closeDetails(); }}>
-      <DialogContent className={`${presentationStyles.portal} max-h-[80dvh] overflow-y-auto`} data-profile-type-scale="calendar" onCloseAutoFocus={event => { event.preventDefault(); if (detailTrigger.current?.isConnected) detailTrigger.current.focus(); else refreshButton.current?.focus(); }} onEscapeKeyDown={event => { if (submittingRef.current) event.preventDefault(); }} onInteractOutside={event => { if (submittingRef.current) event.preventDefault(); }}>
+      <DialogContent className={`${presentationStyles.portal} max-h-[80dvh] overflow-y-auto`} data-connect-type-scale="page" onCloseAutoFocus={event => { event.preventDefault(); if (detailTrigger.current?.isConnected) detailTrigger.current.focus(); else refreshButton.current?.focus(); }} onEscapeKeyDown={event => { if (submittingRef.current) event.preventDefault(); }} onInteractOutside={event => { if (submittingRef.current) event.preventDefault(); }}>
         {selected ? <>
-        <DialogHeader><DialogTitle>{step === "review" ? "Review your response" : step === "result" ? "Your response" : selected?.title}</DialogTitle><DialogDescription>{selected ? eventTime(selected, zone) : "Invitation details"}</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>{step === "result" ? "Your response" : selected?.title}</DialogTitle><DialogDescription>{selected ? eventTime(selected, zone) : "Invitation details"}</DialogDescription></DialogHeader>
         {connectionNotice}
         {step === "details" && selected ? <div className="space-y-4">
-          {selected.description ? <p className="whitespace-pre-wrap break-words text-sm">{selected.description}</p> : null}
-          {selected.location ? <p className="text-sm">{selected.location}</p> : null}
-          {selected.organizer?.email ? <p className="break-all text-sm text-muted-foreground">Organizer: {selected.organizer.email}</p> : null}
+          {selected.description ? <p className={`${presentationStyles.body} whitespace-pre-wrap break-words`}>{selected.description}</p> : null}
+          {selected.location ? <p className={presentationStyles.body}>{selected.location}</p> : null}
+          {selected.organizer?.email ? <p className={`break-all ${presentationStyles.support} text-muted-foreground`}>Organizer: {selected.organizer.email}</p> : null}
           {isCalendarEventEnded(selected, now, zone) ? <p className={`${presentationStyles.status} text-muted-foreground`}>Ended</p> : safeMeetingUrl(selected.conference_url) ? <CalendarJoinLink className={presentationStyles.joinLink} url={selected.conference_url} accountEmail={status.google_email} /> : null}
-          {selected.can_decline ? <CalendarCompactAction onClick={() => { setStep("choice"); setResult(null); setReview(null); }}>Can't attend</CalendarCompactAction> : <p className="text-sm text-muted-foreground">Attendance changes are available on invitations to your connected account.</p>}
+          {isFinalInvitationResponse(calendarResponse(selected, status.google_email)) ? null : selected.can_decline ? <CalendarCompactAction onClick={() => { setStep("choice"); setResult(null); }}>Can't attend</CalendarCompactAction> : <p className={`${presentationStyles.support} text-muted-foreground`}>Attendance changes are available on invitations to your connected account.</p>}
         </div> : step === "choice" ? <div className="space-y-4">
-          <fieldset disabled={submitting || busy} className="space-y-2"><legend className="text-sm font-semibold">Can't attend</legend><label className="flex min-h-11 items-center gap-3"><input type="radio" name="attendance" checked={!offerTimes} onChange={() => setOfferTimes(false)} />Decline only</label><label className="flex min-h-11 items-center gap-3"><input type="radio" name="attendance" checked={offerTimes} onChange={() => setOfferTimes(true)} />Decline &amp; offer another time</label></fieldset>
-          <p className="text-sm text-muted-foreground">Only your attendance response changes. The organizer keeps the meeting.</p>
-          {offerTimes ? <><label className="block space-y-[var(--app-form-field-gap)]"><span className="text-sm font-semibold">Message to organizer</span><Textarea disabled={submitting || busy} aria-label="Message to organizer" rows={4} value={message} onChange={event => setMessage(event.target.value)} /></label>{windowControls("Alternative")}<p className="text-xs text-muted-foreground">A recipient-accessible link to checked alternatives will be included for review. The organizer chooses a time and updates the invitation.</p></> : null}
-          {status.access_level !== "manage" ? <CalendarCompactAction disabled={busy} onClick={() => onConnect("manage")}>Allow attendance changes</CalendarCompactAction> : <CalendarCompactAction disabled={submitting || busy} onClick={() => void prepareReview()}>{submitting ? "Preparing review…" : "Review"}</CalendarCompactAction>}
-        </div> : step === "review" && review ? <div className="space-y-4">
-          <p>Decline your attendance at <strong>{review.title}</strong>.</p>
-          {review.message ? <><p className="break-all text-sm">From: {review.sender_label}<br />To: {review.recipient}</p><p className="text-sm font-semibold">{review.subject}</p><p className="whitespace-pre-wrap break-words text-sm">{review.rescheduling_link ? review.message.replace(review.rescheduling_link, "").trim() : review.message}</p>{review.rescheduling_link ? <a href={review.rescheduling_link} target="_blank" rel="noopener noreferrer" className={presentationStyles.sourceLink}>Review recipient rescheduling link</a> : null}<p className="text-xs text-muted-foreground">Link expires in 3 days. The organizer can view the offered times without signing in to One and reply with a choice.</p></> : <p className="text-sm text-muted-foreground">Google Calendar will record your declined attendance.</p>}
-          <div className="flex flex-wrap gap-2"><Button variant="ghost" size="compact" className={presentationStyles.utility} disabled={submitting} onClick={() => { setStep("choice"); setReview(null); }}>Edit</Button><Button disabled={submitting || busy} onClick={() => void confirm()}>{submitting ? "Confirming…" : "Confirm"}</Button></div>
-        </div> : result ? <div role="status" className="space-y-3"><p>{result.calendar === "declined" ? "Your attendance was declined." : result.calendar === "unknown" ? "Calendar response could not be confirmed. Check the invitation before trying again." : "Your attendance could not be declined."}</p>{result.calendar_error ? <p className="text-sm text-muted-foreground">{result.calendar_error}</p> : null}{result.email === "sent" ? <p>The organizer's email was sent.</p> : result.email === "failed" || result.email === "unknown" ? <p className="text-sm text-destructive">{result.email_error || "Organizer email delivery could not be confirmed. Check Sent Mail before trying again."}</p> : offerTimes ? <p className="text-sm text-muted-foreground">The organizer's email was not sent.</p> : null}<Button variant="ghost" size="compact" className={presentationStyles.utility} onClick={closeDetails}>Done</Button></div> : null}
-        {actionError ? <div role="alert" className="space-y-2"><p className="text-sm text-destructive">{actionError.message}</p>{actionError instanceof GoogleCalendarError && actionError.reasonCode?.startsWith("GMAIL") && onMailConnect ? <CalendarCompactAction disabled={submitting} onClick={() => void runAction(onMailConnect)}>Enable Mail sending</CalendarCompactAction> : actionError instanceof GoogleCalendarError && actionError.recovery === "permission" ? <CalendarCompactAction disabled={busy} onClick={() => onConnect("manage", true)}>Allow Calendar access</CalendarCompactAction> : null}</div> : null}
+          <fieldset disabled={submitting || busy} className="space-y-2"><legend className={presentationStyles.fieldLabel}>Can't attend</legend><label className="flex min-h-11 items-center gap-3"><input type="radio" name="attendance" checked={!offerTimes} onChange={() => setOfferTimes(false)} />Decline</label><label className="flex min-h-11 items-center gap-3"><input type="radio" name="attendance" checked={offerTimes} onChange={() => setOfferTimes(true)} />Decline &amp; offer another time</label></fieldset>
+          <p className={`${presentationStyles.support} text-muted-foreground`}>Only your attendance response changes. The organizer keeps the meeting.</p>
+          <><label className="block space-y-[var(--app-form-field-gap)]"><span className={presentationStyles.fieldLabel}>Message to organizer</span><Textarea disabled={submitting || busy} aria-label="Message to organizer" rows={4} value={message} onChange={event => setMessage(event.target.value)} /></label>{offerTimes ? <>{windowControls("Alternative")}<p className={`${presentationStyles.support} text-muted-foreground`}>A recipient-accessible link to checked alternatives will be included for review. The organizer chooses a time and updates the invitation.</p></> : null}</>
+          {status.access_level !== "manage" ? <CalendarCompactAction disabled={busy} onClick={() => onConnect("manage")}>Allow attendance changes</CalendarCompactAction> : <CalendarCompactAction disabled={submitting || busy || !message.trim()} onClick={() => void prepareReview()}>{submitting ? "Sending your response…" : offerTimes ? "Decline & offer another time" : "Decline"}</CalendarCompactAction>}
+        </div> : result ? <div role="status" className="space-y-3"><p>{result.calendar === "declined" ? "Your attendance was declined." : result.calendar === "unknown" ? "Calendar response could not be confirmed. Check the invitation before trying again." : "Your attendance could not be declined."}</p>{result.calendar_error ? <p className={`${presentationStyles.support} text-muted-foreground`}>{result.calendar_error}</p> : null}{result.email === "sent" ? <p>The organizer's email was sent.</p> : result.email === "failed" || result.email === "unknown" ? <p className={`${presentationStyles.support} text-destructive`}>{result.email_error || "Organizer email delivery could not be confirmed. Check Sent Mail before trying again."}</p> : <p className={`${presentationStyles.support} text-muted-foreground`}>The organizer's email was not sent.</p>}<Button variant="ghost" size="compact" className={presentationStyles.utility} onClick={closeDetails}>Done</Button></div> : null}
+        {actionError ? <div role="alert" className="space-y-2"><p className={`${presentationStyles.support} text-destructive`}>{actionError.message}</p>{actionError instanceof GoogleCalendarError && actionError.reasonCode?.startsWith("GMAIL") && onMailConnect ? <CalendarCompactAction disabled={submitting} onClick={() => void runAction(onMailConnect)}>Enable Mail sending</CalendarCompactAction> : actionError instanceof GoogleCalendarError && actionError.recovery === "permission" ? <CalendarCompactAction disabled={busy} onClick={() => onConnect("manage", true)}>Allow Calendar access</CalendarCompactAction> : null}</div> : null}
         </> : <DialogHeader><DialogTitle>Calendar</DialogTitle><DialogDescription>Calendar access is being restored.</DialogDescription></DialogHeader>}
       </DialogContent>
     </Dialog>

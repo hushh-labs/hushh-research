@@ -3,6 +3,8 @@ import { RECEIPT_SETUP_EXPERIENCE_TYPE } from "./mail-chat-experiences";
 
 export const RECEIPT_ANSWER_REDACTED_TEXT = "Receipt analysis was shown for that turn. Ask again for a fresh analysis.";
 export const RECEIPT_ANSWER_UNFINISHED_TEXT = "Receipt analysis ended before it was shown. Ask again.";
+const PORTFOLIO_ANSWER_REDACTED_TEXT = "A private portfolio answer was shown for that turn. Ask again to read the portfolio.";
+const PORTFOLIO_ANSWER_UNFINISHED_TEXT = "The portfolio read ended before it finished. Ask again.";
 const STOPPED_TEXTS = new Set(["Stopped.", "Agent turn canceled."]);
 const RECEIPT_SETUP_ID = ":receipt-setup";
 
@@ -17,7 +19,7 @@ type ReceiptTurnMessage = {
   streamEvents?: unknown[];
   sources?: unknown[];
   followUps?: string[];
-  receiptPrivate?: { ownerId?: string; kind?: "account" };
+  receiptPrivate?: { ownerId?: string; kind?: "portfolio" | "account" };
 };
 
 /** The receipt sync state a setup card shows, or null for the Connect Gmail card and other cards. */
@@ -42,10 +44,11 @@ export function withoutSyncingReceiptCard<E extends Entry>(entries: readonly E[]
 export function redactReceiptAnswer<T extends ReceiptTurnMessage>(message: T): T {
   const cards = withoutSyncingReceiptCard(message.structuredExperiences).filter(entry => entry.id.endsWith(RECEIPT_SETUP_ID));
   const unavailable = cards.some(entry => setupState(entry) === "sync_required" || setupState(entry) === null);
+  const portfolio = message.receiptPrivate?.kind === "portfolio";
   const account = message.receiptPrivate?.kind === "account";
-  const completedText = account ? "A private account answer was shown for that turn. Ask again to read your account." : RECEIPT_ANSWER_REDACTED_TEXT;
-  const unfinishedText = account ? "The account read ended before it finished. Ask again." : RECEIPT_ANSWER_UNFINISHED_TEXT;
-  const text = message.status === "error" ? message.errorNotice ?? (account ? unfinishedText : message.text)
+  const completedText = account ? "A private account answer was shown for that turn. Ask again to read your account." : portfolio ? PORTFOLIO_ANSWER_REDACTED_TEXT : RECEIPT_ANSWER_REDACTED_TEXT;
+  const unfinishedText = account ? "The account read ended before it finished. Ask again." : portfolio ? PORTFOLIO_ANSWER_UNFINISHED_TEXT : RECEIPT_ANSWER_UNFINISHED_TEXT;
+  const text = message.status === "error" ? message.errorNotice ?? (account || portfolio ? unfinishedText : message.text)
     : message.status === "done" && STOPPED_TEXTS.has(message.text) ? message.text
       : message.status === "done" && !unavailable ? completedText : unfinishedText;
   return {
@@ -59,6 +62,6 @@ export function redactReceiptAnswer<T extends ReceiptTurnMessage>(message: T): T
  * later updates, so a turn still running is settled now; otherwise it would
  * stream forever with its timer running and its real outcome never shown.
  */
-export function retireReceiptAnswer<T extends ReceiptTurnMessage & { receiptPrivate?: unknown }>(message: T): T {
+export function retireReceiptAnswer<T extends ReceiptTurnMessage>(message: T): T {
   return { ...redactReceiptAnswer(message), receiptPrivate: undefined, status: message.status === "streaming" ? "done" : message.status };
 }

@@ -200,7 +200,7 @@ test("pending recipient metadata keeps the mobile SMS composer usable without di
 });
 
 for (const dark of [false, true]) {
-  for (const width of [360, 393, 430, 620, 621, 768, 1024, 1440]) {
+  for (const width of [320, 360, 393, 430, 620, 621, 768, 1024, 1440]) {
     test(`scoped SOS empty-contact title and primary recovery at ${width}px ${dark ? "dark" : "light"}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 852 });
       await page.setContent(`<html class="${dark ? "dark" : ""}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body data-readiness="empty"><div id="root"></div></body></html>`);
@@ -224,9 +224,23 @@ for (const dark of [false, true]) {
       await expect(add).toBeVisible();
       expect(measured.title).toMatchObject({ size: "28px", line: "36px", weight: "600" });
       expect(measured.title.family).toContain("Plus Jakarta Sans");
-      expect(measured.add).toMatchObject({ size: "17px", line: "22px", weight: "650" });
+      expect(measured.add).toMatchObject({ size: "12px", line: "18px", weight: "550" });
       expect(measured.addHeight).toBeGreaterThanOrEqual(52);
       expect(measured.overflow).toBeLessThanOrEqual(1);
+      if (width === 320) {
+        const enlarged = await add.evaluate((button) => {
+          button.style.setProperty("--type-button-label-size", "34px");
+          const label = Array.from(button.childNodes).find((node) => node.nodeType === Node.TEXT_NODE)!;
+          const range = document.createRange();
+          range.selectNodeContents(label);
+          const text = range.getBoundingClientRect();
+          const box = button.getBoundingClientRect();
+          return { fits: text.left >= box.left && text.right <= box.right && text.top >= box.top && text.bottom <= box.bottom, height: box.height, line: parseFloat(getComputedStyle(button).lineHeight) };
+        });
+        expect(enlarged.fits).toBe(true);
+        expect(enlarged.line).toBeGreaterThan(43);
+        expect(enlarged.height).toBeGreaterThan(measured.addHeight);
+      }
       await add.click();
       await expect(page.locator("body")).toHaveAttribute("data-edited-contacts", "true");
       await expect(page.locator("body")).not.toHaveAttribute("data-sent-count");
@@ -339,7 +353,7 @@ test("preset, edit, cancel, hold, live receipt and Stop work through real browse
     const style = getComputedStyle(node);
     return { family: style.fontFamily, size: style.fontSize, line: style.lineHeight, weight: style.fontWeight };
   });
-  expect(stopTitle).toMatchObject({ size: "20px", line: "25px", weight: "600" });
+  expect(stopTitle).toMatchObject({ size: "20px", line: "28px", weight: "600" });
   expect(stopTitle.family).toContain("Plus Jakarta Sans");
   await stopDialog.getByRole("button", { name: "Stop alert", exact: true }).click();
   await expect(message).toBeVisible();

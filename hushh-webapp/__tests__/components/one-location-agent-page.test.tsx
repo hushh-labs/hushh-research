@@ -22,7 +22,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // the same ladder, so the test reads the same list the component does.
 import { ROUTES } from "@/lib/navigation/routes";
 import { navigateTopShellBack, resolveTopShellBackAction } from "@/lib/navigation/top-shell-back";
-import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
 import { buildOneLocationNotificationHref } from "@/lib/one-location/notifications";
 import * as locationNotifications from "@/lib/one-location/notifications";
 import * as liveMapModule from "@/components/one-location/live-map";
@@ -42,6 +41,16 @@ import { ApiError } from "@/lib/services/api-client";
 // Do not mock operation/gesture owners or relax the behavioral assertions here.
 vi.mock("@/lib/morphy-ux/hooks/use-page-enter", () => ({
   usePageEnterAnimation: () => undefined,
+}));
+
+const activityAttempt = vi.hoisted(() => ({
+  capture: vi.fn(),
+  started: vi.fn(),
+  settled: vi.fn(),
+}));
+vi.mock("@/lib/observability/product-activity-client", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/observability/product-activity-client")>(),
+  captureProductAttempt: activityAttempt.capture,
 }));
 
 function openDropdownMenu(trigger: HTMLElement) {
@@ -2395,8 +2404,8 @@ describe("OneLocationAgentPage", () => {
     expect(
       within(primary).getByRole("button", { name: "Share location" }),
     ).toHaveClass(
-      "h-10",
-      "min-h-10",
+      "h-auto",
+      "min-h-9",
       "w-full",
       "max-w-[244px]",
       "mr-auto",
@@ -2499,6 +2508,20 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText("Quick actions")).toBeNull();
   });
 
+  it("records a single Location Settings attempt when the person opens the in-app controls", async () => {
+    activityAttempt.capture.mockReturnValue(activityAttempt);
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Settings", exact: true }));
+
+    expect(await screen.findByRole("heading", { name: "Settings", exact: true })).toBeTruthy();
+    expect(activityAttempt.capture).toHaveBeenCalledExactlyOnceWith("location.open_settings", "user_a");
+    expect(activityAttempt.started).toHaveBeenCalledTimes(1);
+    expect(activityAttempt.settled).toHaveBeenCalledExactlyOnceWith("returned");
+    expect(mockOpenLocationSettings).not.toHaveBeenCalled();
+  });
+
   it("keeps the heading and location toggle inline as the only header action", async () => {
     mockGetState.mockResolvedValue({
       ...locationState(),
@@ -2511,9 +2534,7 @@ describe("OneLocationAgentPage", () => {
     const headerActions = screen.getByRole("group", {
       name: "Location",
     });
-    expect(headerActions.className).toContain("ml-auto");
-    expect(headerActions.className).toContain("items-center");
-    expect(headerActions.className).toContain("justify-center");
+    expect(headerActions.querySelector("label")?.querySelector("[role=switch]")).toBeTruthy();
     // The actions column owns the switch and its compact visible status.
     const status = screen.getByTestId("one-location-header-status");
     expect(headerActions.contains(status)).toBe(true);
@@ -2537,7 +2558,7 @@ describe("OneLocationAgentPage", () => {
     const heading = screen.getByRole("heading", { name: "Location" });
     const headerRow = heading.closest('[data-testid="one-location-status-row"]');
     expect(headerRow).toBeTruthy();
-    expect(headerRow).toHaveClass("flex", "items-center", "justify-end");
+    expect(headerRow).toHaveClass("contents");
     expect(screen.queryByTestId("page-header")).toBeNull();
     expect(heading).toHaveClass("sr-only");
     expect(screen.queryByTestId("one-location-header-icon")).toBeNull();
@@ -2692,7 +2713,7 @@ describe("OneLocationAgentPage", () => {
     const autoApproveActions = autoApproveDialog.querySelector(
       '[data-ui-role="flow-actions"]',
     );
-    expect(autoApproveActions).toHaveClass("mx-auto", "max-w-[244px]");
+    expect(autoApproveActions).toHaveClass("mx-auto", "max-w-44");
     const allContacts = screen.getByRole("checkbox", { name: "All contacts" });
     fireEvent.click(allContacts);
     expect(allContacts).toHaveAttribute("aria-checked", "true");
@@ -5881,8 +5902,8 @@ describe("OneLocationAgentPage", () => {
       name: /Create link/i,
     });
     expect(createLinkButton).toHaveClass(
-      "h-12",
-      "min-h-12",
+      "h-[50px]",
+      "min-h-[50px]",
       "w-auto",
       "self-start",
       "rounded-full",
@@ -6238,7 +6259,7 @@ describe("OneLocationAgentPage", () => {
   });
 
   it.each(["active", "revoked", "expired"])(
-    "lands an incoming Feed share on Shared with me with current status=%s",
+    "lands the existing shared workspace on Shared with me with current status=%s",
     async (status) => {
       const active = status === "active";
       const grant = {
@@ -6276,15 +6297,9 @@ describe("OneLocationAgentPage", () => {
                 },
               ],
       });
-      const href = presentFeedItem({
-        id: "feed-1",
-        source_domain: "location",
-        event_type: "location_share_created",
-        actor_label: "Trusted B",
-        metadata: { feed_audience: "recipient", duration_hours: 1 },
-        read: true,
-        created_at: "2026-09-01T00:00:00.000Z",
-      }).href!;
+      // Exercise the existing shared workspace directly. A Feed receipt without
+      // a verified grant now opens its own history instead of this generic route.
+      const href = "/one/location?section=shared";
       mockUseSearchParams.mockReturnValue(
         new URL(href, "https://app.test").searchParams,
       );

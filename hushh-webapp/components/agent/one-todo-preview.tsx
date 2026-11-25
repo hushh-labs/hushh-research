@@ -1,13 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { User } from "firebase/auth";
 import { ClipboardList, Plus } from "@/components/icons";
-import { SurfaceInset } from "@/components/app-ui/surfaces";
-import { createTodo, TodoListPkmService, type TodoItem } from "@/lib/services/todo-list-pkm-service";
-import { TodoAddItemSheet, emptyTaskDraft, type EditableTodoFields } from "@/components/todos/todo-add-item-sheet";
-import { Button } from "@/components/ui/button";
-import { TodoRow, DueReceiptRow, extractDueReceipts, groupByDate } from "@/components/todos/todo-list-presentation";
+import { TodoListPkmService, createTodo, type TodoItem } from "@/lib/services/todo-list-pkm-service";
+import { TodoAddItemSheet, type EditableTodoFields } from "@/components/todos/todo-add-item-sheet";
+import { DueReceiptRow, extractDueReceipts, groupByDate } from "@/components/todos/todo-list-presentation";
 import { useTodoLiveTasks } from "@/lib/todos/use-todo-live-tasks";
 import { taskCapabilitySchema, type TaskCapability } from "@/lib/todos/task-suggestion-model";
 import { TodoTaskSources } from "@/components/todos/todo-task-sources";
@@ -16,6 +14,8 @@ import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import { getCachedGmailReceipts, cachedGmailReceiptDisplayItems } from "@/lib/profile/gmail-receipts-cache";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import styles from "./one-agent-profile-sheet.module.css";
+import workspace from "@/components/todos/todo-workspace.module.css";
+import { TodoCompactRow } from "@/components/todos/todo-compact-row";
 
 export function OneTodoPreview({
   user,
@@ -24,6 +24,7 @@ export function OneTodoPreview({
   vaultOwnerToken,
   isVaultUnlocked,
   onDetailBackChange,
+  onDetailModeChange,
 }: {
   user: User;
   /** Validated application owner (useAuth().userId); `user` supplies only the Firebase ID token. */
@@ -32,6 +33,7 @@ export function OneTodoPreview({
   vaultOwnerToken: string | null;
   isVaultUnlocked: boolean;
   onDetailBackChange?: (handler: (() => boolean) | null) => void;
+  onDetailModeChange?: (open: boolean) => void;
 }) {
   const ready = Boolean(ownerId && isVaultUnlocked && vaultKey && vaultOwnerToken);
   const epoch = snapshotVaultSessionEpoch();
@@ -42,12 +44,11 @@ export function OneTodoPreview({
   const [selected, setSelected] = useState<readonly TaskCapability[]>([]);
   const [choicesOwner, setChoicesOwner] = useState<symbol | null>(null);
   const [detail, setDetail] = useState<{ identity: symbol; task: TodoItem } | null>(null);
-  const taskWrite = useRef<symbol | null>(null);
-  const [editor, setEditor] = useState<{ identity: symbol; id: string } | null>(null);
-  const [draft, setDraft] = useState(emptyTaskDraft);
-  const [addError, setAddError] = useState(false);
-  const openEditor = ready && editor?.identity === identity;
   const [snapshot, setSnapshot] = useState({ identity, tasks: [] as TodoItem[], loading: true, error: false, mutationError: false, savingTaskId: null as string | null });
+  const [editorOpen, setEditorOpen] = useState(false);
+  const addTrigger = useRef<HTMLButtonElement>(null);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [saveError, setSaveError] = useState(false);
   const current = ready && snapshot.identity === identity;
   const tasks = useMemo(() => current ? snapshot.tasks : [], [current, snapshot.tasks]);
   const loading = ready && (!current || snapshot.loading);
@@ -76,13 +77,6 @@ export function OneTodoPreview({
     void loadTasks();
     return () => { requestRef.current += 1; };
   }, [loadTasks]);
-
-  useEffect(() => {
-    taskWrite.current = null;
-    setEditor(null);
-    setDraft(emptyTaskDraft());
-    setAddError(false);
-  }, [identity]);
 
   const idTokenProvider = useCallback(
     () => user.getIdToken(),
@@ -127,9 +121,7 @@ export function OneTodoPreview({
   );
 
   const persistTask = async (task: TodoItem, status: "done" | "pending" | "deleted") => {
-    if (!ready || !vaultKey || !vaultOwnerToken || loading || taskWrite.current || identityRef.current !== identity || snapshotVaultSessionEpoch() !== epoch) return false;
-    const write = Symbol();
-    taskWrite.current = write;
+    if (!ready || !vaultKey || !vaultOwnerToken || loading || savingTaskId || identityRef.current !== identity || snapshotVaultSessionEpoch() !== epoch) return false;
     const request = ++requestRef.current;
     const isCurrent = () => identityRef.current === identity && requestRef.current === request && snapshotVaultSessionEpoch() === epoch;
     // Keep automatic-task tombstones so a live source cannot resurrect an item.
@@ -149,65 +141,59 @@ export function OneTodoPreview({
         setSnapshot(previous => ({ ...previous, tasks, savingTaskId: null, mutationError: true }));
       }
       return false;
-    } finally {
-      if (taskWrite.current === write) taskWrite.current = null;
     }
   };
   const toggleTask = (task: TodoItem, complete: boolean) => persistTask(task, complete ? "done" : "pending");
-  const deleteTask = (task: TodoItem) => persistTask(task, "deleted");
-
-  const saveTask = async (fields: EditableTodoFields) => {
-    if (!editor || !openEditor || !vaultKey || !vaultOwnerToken || taskWrite.current
-      || identityRef.current !== identity || snapshotVaultSessionEpoch() !== epoch) return;
-    const write = Symbol();
-    taskWrite.current = write;
+  const saveManualTask = async (input: EditableTodoFields) => {
+    if (!ready || !vaultKey || !vaultOwnerToken || loading || savingTaskId || identityRef.current !== identity || snapshotVaultSessionEpoch() !== epoch) return;
     const request = ++requestRef.current;
     const isCurrent = () => identityRef.current === identity && requestRef.current === request && snapshotVaultSessionEpoch() === epoch;
-    setAddError(false);
-    setSnapshot(previous => ({ ...previous, savingTaskId: editor.id }));
+    setSaveError(false);
+    setSnapshot(previous => ({ ...previous, savingTaskId: "new-item", error: false }));
     try {
-      const { task, result } = await createTodo({ ...fields, id: editor.id, type: "manual" }, { userId: ownerId, vaultKey, vaultOwnerToken });
-      if (!isCurrent()) return;
-      if (!result.success) { setAddError(true); return; }
-      setSnapshot(previous => ({ ...previous, tasks: [task, ...previous.tasks.filter(item => item.id !== task.id)] }));
-      setEditor(null);
-      setDraft(emptyTaskDraft());
+      const { task, result } = await createTodo(
+        { ...input, type: "manual" },
+        { userId: ownerId, vaultKey, vaultOwnerToken },
+      );
+      if (!result.success) throw new Error("Task could not be saved");
+      if (isCurrent()) {
+        setSnapshot(previous => ({ ...previous, tasks: [task, ...previous.tasks], savingTaskId: null }));
+        setEditorOpen(false);
+      }
     } catch {
-      if (isCurrent()) setAddError(true);
-    } finally {
-      if (taskWrite.current === write) taskWrite.current = null;
-      if (isCurrent()) setSnapshot(previous => ({ ...previous, savingTaskId: null }));
+      if (isCurrent()) {
+        setSnapshot(previous => ({ ...previous, savingTaskId: null }));
+        setSaveError(true);
+      }
     }
   };
 
   const currentDetail = detail?.identity === identity && (tasks.find(item => item.id === detail.task.id) ?? live.pending.find(item => item.id === detail.task.id) ?? detail.task);
+  const detailVisible = Boolean(currentDetail && current && ready && currentDetail.status !== "deleted");
+  useLayoutEffect(() => { onDetailModeChange?.(detailVisible); return () => onDetailModeChange?.(false); }, [detailVisible, onDetailModeChange]);
   if (currentDetail && current && ready && currentDetail.status !== "deleted") return <TodoTaskDetail
-    task={currentDetail} error={mutationError ? "Couldn’t save. Try again." : null} busy={loading || Boolean(savingTaskId)} onBack={() => setDetail(null)} onToggle={toggleTask}
+    task={currentDetail} busy={loading || Boolean(savingTaskId)} error={mutationError ? "Couldn’t save. Try again." : null} onBack={() => setDetail(null)} onToggle={(task, complete) => {
+      void toggleTask(task, complete).then(saved => {
+        if (saved && complete) setDetail(null);
+      });
+    }}
     onDetailBackChange={onDetailBackChange}
     onRemove={task => { void persistTask(task, "deleted").then(saved => { if (saved) setDetail(null); }); }} />;
 
   return (
-    <div className={`${styles.todo} profile-home-content`} data-profile-type-scale="todo" aria-busy={loading || Boolean(savingTaskId)}>
-      <div className={styles.sectionHeading}>
-        <h3 data-profile-role="header">Tasks</h3>
-        <div className="flex items-center gap-2">
-        {ready && current && choicesOwner === identity && vaultKey && vaultOwnerToken ? <TodoTaskSources persistence={{ userId: ownerId, vaultKey, vaultOwnerToken }} selected={selected} coverage={live.coverage} evidence={live.evidence} loading={live.sourceLoading} disabled={loading || Boolean(savingTaskId) || error}
-          isCurrent={() => identityRef.current === identity && snapshotVaultSessionEpoch() === epoch} onChange={setSelected} onRefresh={retry} onSaved={() => { void loadTasks(); }} /> : null}
-        {ready ? (
-          <Button size="compact" variant="outline" disabled={loading || Boolean(savingTaskId)}
-            className="border-[color:var(--app-accent)]"
-            onClick={() => { setAddError(false); setDraft(emptyTaskDraft()); setEditor({ identity, id: `todo_${crypto.randomUUID()}` }); }}>
-            <Plus className="mr-1 size-4" aria-hidden="true" /> Add item
-          </Button>
-        ) : null}
+    <div className={workspace.workspace} data-profile-type-scale="todo" aria-busy={loading || Boolean(savingTaskId)}>
+      <header className={workspace.toolbar} inert={editorOpen || undefined}>
+        <h3>Your tasks</h3>
+        <div className={workspace.tools}>
+          {ready && current && choicesOwner === identity && vaultKey && vaultOwnerToken ? <TodoTaskSources presentation="pane" onOpenChange={setSourcesOpen} onBackChange={onDetailBackChange} persistence={{ userId: ownerId, vaultKey, vaultOwnerToken }} selected={selected} coverage={live.coverage} loading={live.sourceLoading} disabled={loading || Boolean(savingTaskId) || error}
+            isCurrent={() => identityRef.current === identity && snapshotVaultSessionEpoch() === epoch} onChange={setSelected} /> : null}
+          <button ref={addTrigger} type="button" className={workspace.add} data-todo-add-item="true" aria-label="Add item" disabled={!ready || loading || Boolean(savingTaskId) || sourcesOpen} onClick={() => { setSaveError(false); setEditorOpen(true); }}><Plus aria-hidden /></button>
         </div>
-      </div>
-
-      {openEditor ? <TodoAddItemSheet draft={draft} onDraftChange={setDraft} open
-        saving={Boolean(savingTaskId)} error={addError ? "Item couldn’t be saved. Try again." : undefined}
-        onOpenChange={value => { if (!value && !taskWrite.current) setEditor(null); }} onSave={saveTask} /> : null}
+      </header>
+      <div className={workspace.list} inert={sourcesOpen || editorOpen || undefined}>
 
       {mutationError ? <p role="alert" className={styles.notice}>Couldn’t save. Try again.</p> : null}
+
       {ready && (error || sourceError) ? (
         <div className={styles.notice} role="status">
           <p>{error ? "Your saved tasks could not refresh." : "Some tasks could not refresh."}</p>
@@ -229,68 +215,29 @@ export function OneTodoPreview({
           <span>Tasks and due payments will appear here.</span>
         </div>
       ) : (
-        <div className="space-y-3">
-          {/* 1. Any time section comes FIRST */}
-          {anytimeGroup ? (
-            <section key={anytimeGroup.id} className="space-y-2">
-              <h4 data-profile-role="group-label" className="px-1">
-                {anytimeGroup.label}
-              </h4>
-              <SurfaceInset className="divide-y divide-border/60 p-0">
-                {anytimeGroup.tasks.map((task) => (
-                  <TodoRow
-                    key={task.id}
-                    task={task}
-                    saving={loading || Boolean(savingTaskId)}
-                    onToggle={toggleTask}
-                    onDelete={deleteTask}
-                    onOpen={task => setDetail({ identity, task })}
-                  />
-                ))}
-              </SurfaceInset>
-            </section>
-          ) : null}
-
-          {/* 2. Receipts in between */}
-          {dueReceipts.length > 0 ? (
-            <section className="space-y-2">
-              <h4 data-profile-role="group-label" className="px-1">
-                Receipts & Due Payments
-              </h4>
-              <SurfaceInset className="divide-y divide-border/60 p-0">
-                {dueReceipts.map((receipt) => (
-                  <DueReceiptRow key={receipt.id} receipt={receipt} />
-                ))}
-              </SurfaceInset>
-            </section>
-          ) : null}
-
-          {/* 3. Dated events below */}
-          {datedGroups.map((group) => (
-            <section key={group.id} className="space-y-2">
-              <h4 data-profile-role="group-label" className="px-1">
-                {group.label}
-              </h4>
-              <SurfaceInset className="divide-y divide-border/60 p-0">
-                {group.tasks.map((task) => (
-                  <TodoRow
-                    key={task.id}
-                    task={task}
-                    saving={loading || Boolean(savingTaskId)}
-                    onToggle={toggleTask}
-                    onDelete={deleteTask}
-                    onOpen={task => setDetail({ identity, task })}
-                  />
-                ))}
-              </SurfaceInset>
-            </section>
-          ))}
+        <div>
+          {[...datedGroups, ...(anytimeGroup ? [anytimeGroup] : [])].map(group => <section key={group.id}>
+            <h4 className={workspace.groupLabel}>{group.label}</h4>
+            {group.tasks.map(task => <TodoCompactRow key={task.id} task={task} saving={loading || Boolean(savingTaskId)} onToggle={toggleTask} onOpen={task => setDetail({ identity, task })} />)}
+          </section>)}
+          {dueReceipts.length ? <section><h4 className={workspace.groupLabel}>Receipts & Due Payments</h4>{dueReceipts.map(receipt => <DueReceiptRow key={receipt.id} receipt={receipt} />)}</section> : null}
         </div>
       )}
-      {completedTasks.length ? <details>
-        <summary className="min-h-11 cursor-pointer py-3 text-xs text-muted-foreground">Completed ({completedTasks.length})</summary>
-        {completedTasks.map(task => <TodoRow key={task.id} task={task} saving={loading || Boolean(savingTaskId)} onToggle={toggleTask} onDelete={deleteTask} onOpen={task => setDetail({ identity, task })} />)}
+      {completedTasks.length ? <details className={workspace.completed}>
+        <summary>Completed ({completedTasks.length})</summary>
+        {completedTasks.map(task => <TodoCompactRow key={task.id} task={task} saving={loading || Boolean(savingTaskId)} onToggle={toggleTask} onOpen={task => setDetail({ identity, task })} />)}
       </details> : null}
+      </div>
+      <TodoAddItemSheet
+        presentation="pane"
+        onBackChange={onDetailBackChange}
+        onCloseAutoFocus={() => addTrigger.current?.focus()}
+        open={editorOpen}
+        saving={Boolean(savingTaskId)}
+        error={saveError ? "Couldn’t save. Try again." : null}
+        onOpenChange={setEditorOpen}
+        onSave={saveManualTask}
+      />
     </div>
   );
 }

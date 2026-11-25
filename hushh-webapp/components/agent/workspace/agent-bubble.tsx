@@ -239,6 +239,10 @@ export const AgentBubble = memo(function AgentBubble({
   businessProfileCard,
   pendingPhase = "thinking",
   pendingLabel = null,
+  conversationId,
+  allowFinancePreviewStart = false,
+  onConfirmFinanceAnalysis,
+  onMailQuickAction,
 }: {
   message: AgentMessage;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
@@ -283,6 +287,10 @@ export const AgentBubble = memo(function AgentBubble({
   /** Phase-accurate pending indicator driven by live wake/reconnect/stream state. */
   pendingPhase?: OneTurnPendingPhase;
   pendingLabel?: string | null;
+  conversationId?: string | null;
+  allowFinancePreviewStart?: boolean;
+  onConfirmFinanceAnalysis?: (confirmation: string) => Promise<void>;
+  onMailQuickAction?: (prompt: string) => void;
 }) {
   const backgroundCard = ephemeralCard ?? businessProfileCard;
   const [copied, setCopied] = useState(false);
@@ -579,6 +587,10 @@ export const AgentBubble = memo(function AgentBubble({
             </>
           ) : shouldRenderStreamPanel ? (
             <AgentTurnStreamPanel
+              conversationId={conversationId}
+              allowFinancePreviewStart={allowFinancePreviewStart}
+              onConfirmFinanceAnalysis={onConfirmFinanceAnalysis}
+              onMailQuickAction={onMailQuickAction}
               streamEvents={streamEvents}
               sources={message.sources}
               structuredExperience={message.structuredExperience}

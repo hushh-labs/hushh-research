@@ -12,13 +12,16 @@ if TYPE_CHECKING:
 class CalendarAccountConnectionView:
     """A narrow account-bound authority port for the existing Calendar runtime."""
 
-    def __init__(self, owner: GoogleConnectionService, account_id: str) -> None:
+    def __init__(
+        self, owner: GoogleConnectionService, account_id: str, *, expected_email: str | None = None
+    ) -> None:
         if not account_id or len(account_id) > 128:
             from hushh_mcp.services.google_connection_service import GoogleConnectionError
 
             raise GoogleConnectionError("Choose a valid Calendar account", status_code=422)
         self.owner = owner
         self.account_id = account_id
+        self.expected_email = expected_email
 
     async def access_token(
         self,
@@ -47,6 +50,13 @@ class CalendarAccountConnectionView:
     async def read_grant_binding(
         self, *, user_id: str, service: Literal["drive", "calendar"]
     ) -> tuple[str, ...] | None:
+        if self.expected_email is not None:
+            return await self.owner.read_grant_binding(
+                user_id=user_id,
+                service=service,
+                account_id=self.account_id,
+                expected_calendar_email=self.expected_email,
+            )
         return await self.owner.read_grant_binding(
             user_id=user_id, service=service, account_id=self.account_id
         )

@@ -226,4 +226,20 @@ describe("DirectMessagesRoute", () => {
     expect(screen.getByTestId("messages")).toHaveTextContent("null");
   });
 
+  it("renders the bare inbox without crashing when browser history contains corrupted JSON", () => {
+    // Simulate corrupted/truncated data in history state that would previously cause JSON.parse to throw
+    window.history.replaceState({ directMessageSelection: "{broken-json!!!" }, "", "/one/messages");
+    window.dispatchEvent(new Event("direct-message-selection-change"));
+    expect(() => render(<DirectMessagesRoute />)).not.toThrow();
+    expect(screen.getByTestId("messages")).toHaveTextContent("null");
+  });
+
+  it("renders the bare inbox without crashing when history state has wrong shape", () => {
+    // JSON parses but shape is wrong (missing owner/token fields)
+    window.history.replaceState({ directMessageSelection: JSON.stringify({ foo: "bar" }) }, "", "/one/messages");
+    window.dispatchEvent(new Event("direct-message-selection-change"));
+    expect(() => render(<DirectMessagesRoute />)).not.toThrow();
+    expect(screen.getByTestId("messages")).toHaveTextContent("null");
+  });
+
 });

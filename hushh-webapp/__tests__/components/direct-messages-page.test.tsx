@@ -1645,7 +1645,10 @@ describe("DirectMessagesPage", () => {
     } finally { vi.useRealTimers(); }
     const menu = screen.getByRole("menu");
     expect(within(menu).getByRole("group", { name: "Quick reactions" })).toBeInTheDocument();
-    expect(within(menu).getByRole("menuitem", { name: "More reactions…", exact: true })).toBeInTheDocument();
+    const quickReactions = within(menu).getByRole("group", { name: "Quick reactions" });
+    expect(within(quickReactions).getAllByRole("menuitem", { name: /^React / })).toHaveLength(5);
+    expect(within(quickReactions).getByRole("menuitem", { name: "More reactions…", exact: true }).textContent).toBe("");
+    expect(within(menu).queryByText("More reactions…")).not.toBeInTheDocument();
     fireEvent.click(within(menu).getByRole("menuitem", { name: "React ❤️", exact: true }));
     await waitFor(() =>
       expect(mocks.reactToMessage).toHaveBeenCalledWith({
@@ -1662,6 +1665,7 @@ describe("DirectMessagesPage", () => {
 
     fireEvent.contextMenu(bubble);
     fireEvent.click(await screen.findByRole("menuitem", { name: "More reactions…", exact: true }));
+    expect(await screen.findByRole("dialog", { name: "Emoji picker" })).toHaveFocus();
     fireEvent.change(await screen.findByPlaceholderText("Search emoji"), { target: { value: "heart" } });
     expect(screen.getByRole("button", { name: "Use ❤️" })).toBeVisible();
     fireEvent.keyDown(screen.getByRole("dialog", { name: "Emoji picker" }), { key: "Escape" });

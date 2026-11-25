@@ -83,11 +83,15 @@ class CalendarReadResult(ToolResult):
     returned_count: int = 0
     truncated: bool = False
     time_zone: str | None = None
+    coverage_complete: bool | None = None
+    suggestion_limit: int | None = None
+    suggestions_limited: bool | None = None
+    available_slot_count: int | None = None
 
     def model_public(self) -> dict[str, Any]:
         # No Google-supplied text or identifiers enter the operational session,
         # including its provider-side compressed history/resumption handle.
-        return {
+        public = {
             "status": self.status,
             "operation": self.operation,
             "returned_count": self.returned_count,
@@ -95,6 +99,20 @@ class CalendarReadResult(ToolResult):
             "reason_code": self.reason_code,
             "spoken_facts": self.spoken_facts,
         }
+        if self.operation == "openings":
+            public.update(
+                {
+                    key: getattr(self, key)
+                    for key in (
+                        "coverage_complete",
+                        "suggestion_limit",
+                        "suggestions_limited",
+                        "available_slot_count",
+                    )
+                    if getattr(self, key) is not None
+                }
+            )
+        return public
 
     def narratable_digest(self) -> str:
         # This crosses only into the isolated, tool-less TTS context. The
@@ -133,7 +151,10 @@ class CalendarReadResult(ToolResult):
                 "Their times are on screen."
             )
         if self.operation == "openings":
-            return f"I found {self.returned_count} available openings. Their times are on screen."
+            return (
+                f"Here are {self.returned_count} available opening suggestions. Their times are on screen."
+                + (" More options fit this window." if self.suggestions_limited else "")
+            )
         return ""
 
 
@@ -404,7 +425,13 @@ async def _read_calendar(ctx: ToolContext, args: ReadCalendarInput) -> ToolResul
             openings=rows,
             returned_count=len(rows),
             time_zone=data.get("time_zone") or ctx.timezone,
-            spoken_facts=[f"I found {len(rows)} available openings. Their times are on screen."],
+            coverage_complete=data.get("coverage_complete"),
+            suggestion_limit=data.get("suggestion_limit"),
+            suggestions_limited=data.get("suggestions_limited"),
+            available_slot_count=data.get("available_slot_count"),
+            spoken_facts=[
+                f"Here are {len(rows)} available opening suggestions. Their times are on screen."
+            ],
         )
     except GoogleConnectionError as exc:
         # Provider errors can contain third-party text. Map by status only.

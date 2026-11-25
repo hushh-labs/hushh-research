@@ -272,6 +272,32 @@ def _recipient(headers: dict[str, str], *, owner_email: str) -> tuple[str, str]:
     return address, _display_name(name, address)
 
 
+def calendar_linked_reply(
+    message: dict[str, Any], *, owner_email: str, body: str
+) -> dict[str, Any]:
+    """Freeze the reviewed Gmail envelope and thread in an owner-local proposal."""
+    thread_id = str(message.get("threadId") or "")
+    if not _ID.fullmatch(thread_id) or not body.strip() or len(body) > 4000:
+        raise _error(HEADERS_INVALID, "Provide a reply and select its original email.", 422)
+    headers = _header_map(message)
+    address, _ = _recipient(headers, owner_email=owner_email)
+    in_reply_to, references = _thread_headers(headers)
+    if not in_reply_to or not references:
+        raise _error(HEADERS_INVALID, "The original email has no usable message identifier.", 422)
+    draft = normalize_draft(
+        {
+            "to": [address],
+            "subject": _reply_subject(_safe_header(headers.get("subject", ""))),
+            "body": body,
+        }
+    )
+    reply = GmailReplyContext(thread_id=thread_id, in_reply_to=in_reply_to, references=references)
+    return {
+        "draft": json.loads(draft.canonical_json()),
+        "reply": json.loads(reply.canonical_json()),
+    }
+
+
 def reply_source_from_message(
     message: dict[str, Any], *, account: str, owner_email: str
 ) -> GmailReplySource:

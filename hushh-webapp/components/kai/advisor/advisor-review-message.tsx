@@ -1,15 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useFinanceShareContext } from "@/lib/finance-sharing/use-finance-share-context";
 import { advisorWorkspaceHref } from "@/lib/advisor-review/contract";
 import { AdvisorWorkspace } from "./advisor-workspace";
 
 export function AdvisorReviewMessage({ id }: { id: string }) {
-  const { capture, session } = useFinanceShareContext();
+  const { capture, ready, session } = useFinanceShareContext();
   const [opened, setOpened] = useState<string | null>(null);
-  const context = opened === session ? capture() : null;
+  const context = useMemo(
+    () => opened === session && ready ? capture() : null,
+    [capture, opened, ready, session],
+  );
   return (
     <>
       <button

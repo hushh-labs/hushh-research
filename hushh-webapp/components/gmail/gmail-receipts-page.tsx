@@ -972,7 +972,7 @@ export default function GmailReceiptsPage({
   }, [isConnected, onConnectionStateChange]);
 
   const preserveGmailModify = gmail.status?.modify_permission_granted === true;
-  const handleConnectGmail = useCallback((purpose: "read" | "send" = "send"): Promise<boolean> => {
+  const handleConnectGmail = useCallback((purpose: "read" | "send" | "full" = "full"): Promise<boolean> => {
     const operationDeadline = Date.now() + GMAIL_OAUTH_POPUP_TIMEOUT_MS;
     if (!user || !userId || gmailActionBusy !== null) return Promise.resolve(false);
     const operationOwner = userId;
@@ -1021,10 +1021,11 @@ export default function GmailReceiptsPage({
             journey.onboardingActiveCapability === "gmail",
           );
           const idToken = await withDeadline(user.getIdToken(), operationDeadline);
+          const nativePurpose: "read" | "send" = purpose === "read" ? "read" : "send";
           const nativeStart = await withDeadline(GmailReceiptsService.startNativeConnect({
             idToken,
             userId,
-            purpose,
+            purpose: nativePurpose,
           }), operationDeadline);
           if (!nativeStart.configured || !nativeStart.server_client_id) {
             throw new Error(
@@ -1055,7 +1056,7 @@ export default function GmailReceiptsPage({
             idToken,
             userId,
             serverAuthCode,
-            purpose,
+            purpose: nativePurpose,
           }), operationDeadline);
           await withDeadline(refreshGmailStatus({ force: true }), operationDeadline);
 
@@ -1088,7 +1089,7 @@ export default function GmailReceiptsPage({
       })();
     }
 
-    const attempt = createGmailOAuthPopupAttempt(userId, purpose);
+    const attempt = createGmailOAuthPopupAttempt(userId, purpose === "send" ? "send" : "read");
     const popup = openGmailOAuthPopup(attempt);
     if (popup) {
       gmailPopupRef.current = popup;
@@ -1133,7 +1134,7 @@ export default function GmailReceiptsPage({
           idToken,
           userId,
           loginHint: isGoogleProvider ? user.email : null,
-          includeGrantedScopes: purpose === "send" || isGoogleProvider,
+          includeGrantedScopes: purpose !== "read" || isGoogleProvider,
           purpose,
         }), operationDeadline);
 

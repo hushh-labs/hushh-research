@@ -56,6 +56,11 @@ on:
         required: true
         default: false
         type: boolean
+      restore_serving_template:
+        description: Restore the accepted serving template to its existing revision without changing traffic or adding a workload
+        required: true
+        default: false
+        type: boolean
       production_capacity_bridge:
         description: Create/reconcile the fixed zero-traffic healthy-source production capacity bridge
         required: true
@@ -107,6 +112,7 @@ jobs:
           STAGED_WORKER_RUN_ID: ${{ inputs.staged_worker_run_id }}
           CLOCK_EVENT_TYPE: ${{ github.event.action }}
           CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}
+          RESTORE_SERVING_TEMPLATE: ${{ inputs.restore_serving_template }}
           APPLY: ${{ inputs.apply }}
         run: |
           set -euo pipefail
@@ -122,6 +128,9 @@ jobs:
           fi
           if [[ "$CAPACITY_BRIDGE" = true ]]; then
             [[ "$GITHUB_EVENT_NAME" = workflow_dispatch && "$RELEASE_ENV" = production && "$APPLY" = true ]] || exit 1
+          fi
+          if [[ "${RESTORE_SERVING_TEMPLATE:-}" = true ]]; then
+            [[ "$GITHUB_EVENT_NAME" = workflow_dispatch && "$RELEASE_ENV" = production && "$APPLY" = true && "$CAPACITY_BRIDGE" != true && -z "$COLD_CHECKPOINT_RUN_ID$OPERATIONAL_RUN_ID$OPERATIONAL_ATTEMPT$STAGED_WORKER_RUN_ID" ]] || exit 1
           fi
           case "$GITHUB_EVENT_NAME" in
             schedule) ;;
@@ -167,6 +176,7 @@ jobs:
           OPERATIONAL_ATTEMPT: ${{ inputs.operational_backend_proof_attempt }}
           STAGED_WORKER_RUN_ID: ${{ inputs.staged_worker_run_id }}
           CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}
+          RESTORE_SERVING_TEMPLATE: ${{ inputs.restore_serving_template }}
         run: |
           flags=()
           if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then flags=(--force-inspection); fi
@@ -364,6 +374,7 @@ jobs:
           OPERATIONAL_ATTEMPT: ${{ inputs.operational_backend_proof_attempt }}
           STAGED_WORKER_RUN_ID: ${{ inputs.staged_worker_run_id }}
           CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}
+          RESTORE_SERVING_TEMPLATE: ${{ inputs.restore_serving_template }}
         run: |
           flags=()
           if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then flags=(--force-inspection); fi
@@ -403,11 +414,13 @@ jobs:
           STAGED_WORKER_RUN_ID: ${{ inputs.staged_worker_run_id }}
           APPLY: ${{ github.event_name == 'schedule' || github.event_name == 'repository_dispatch' || inputs.apply }}
           CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}
+          RESTORE_SERVING_TEMPLATE: ${{ inputs.restore_serving_template }}
         run: |
           set -euo pipefail
           flags=()
           if [ "$APPLY" = true ]; then flags=(--apply); fi
           if [[ "$CAPACITY_BRIDGE" = true ]]; then flags+=(--production-capacity-bridge); fi
+          if [[ "${RESTORE_SERVING_TEMPLATE:-}" = true ]]; then flags+=(--restore-serving-template); fi
           if [[ "$GITHUB_EVENT_NAME" = workflow_dispatch ]]; then flags+=(--force-inspection); fi
           python3 scripts/ci/uat-retention-maintenance.py --environment production \
             --release-run-id "$RELEASE_RUN_ID" \

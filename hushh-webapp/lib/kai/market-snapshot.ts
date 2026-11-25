@@ -8,14 +8,10 @@ export type TickerMarketSnapshot = {
   change_pct: number | null;
   observed_at: string | null;
   source: string;
+  company_name?: string;
 };
 
-type SnapshotCandidate = {
-  last_price: number;
-  change_pct: number | null;
-  observed_at: string | null;
-  source: string;
-};
+type SnapshotCandidate = Omit<TickerMarketSnapshot, "ticker" | "last_price"> & { last_price: number };
 
 function toFiniteNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -60,6 +56,7 @@ function collectRowCandidate(params: {
   price: unknown;
   changePct?: unknown;
   observedAt?: unknown;
+  companyName?: string;
 }): SnapshotCandidate | null {
   const symbol = String(params.symbol || "")
     .trim()
@@ -77,6 +74,7 @@ function collectRowCandidate(params: {
     change_pct: toFiniteNumber(params.changePct),
     observed_at: observedAt,
     source: params.source,
+    ...(params.companyName?.trim() ? { company_name: params.companyName.trim() } : {}),
   };
 }
 
@@ -101,6 +99,7 @@ export function extractTickerMarketSnapshotFromKaiHome(
       price: row?.price,
       changePct: row?.change_pct,
       observedAt: row?.as_of,
+      companyName: row?.company_name,
     });
     if (candidate) best = pickLatestCandidate(best, candidate);
   }
@@ -114,6 +113,7 @@ export function extractTickerMarketSnapshotFromKaiHome(
       price: row?.price,
       changePct: row?.change_pct,
       observedAt: row?.as_of,
+      companyName: row?.company_name,
     });
     if (candidate) best = pickLatestCandidate(best, candidate);
   }
@@ -131,6 +131,7 @@ export function extractTickerMarketSnapshotFromKaiHome(
       price: row?.price,
       changePct: row?.change_pct,
       observedAt: row?.as_of,
+      companyName: row?.company_name,
     });
     if (candidate) best = pickLatestCandidate(best, candidate);
   }
@@ -138,10 +139,7 @@ export function extractTickerMarketSnapshotFromKaiHome(
   if (!best) return null;
   return {
     ticker: normalizedTicker,
-    last_price: best.last_price,
-    change_pct: best.change_pct,
-    observed_at: best.observed_at,
-    source: best.source,
+    ...best,
   };
 }
 

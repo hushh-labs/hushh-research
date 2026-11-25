@@ -45,7 +45,6 @@ def refuse(code: str, status: int = 409) -> HTTPException:
         detail={
             "code": code,
             "message": {
-                "PHONE_ALREADY_VERIFIED": "This number is already linked to another email account. Sign in to that account or use a different number.",
                 "PHONE_TRANSFER_CONFIRMATION_REQUIRED": "This number is linked to another account. Choose how to continue.",
                 "PHONE_TRANSFER_STALE": "This transfer has changed. Request a fresh SMS code and try again.",
                 "PHONE_TRANSFER_REAL_SMS_REQUIRED": "Use a real SMS verification code to transfer this number.",
@@ -228,4 +227,4 @@ async def assert_claim_available(user_id: str, phone: str) -> None:
     from hushh_mcp.services.actor_identity_service import ActorIdentityService
 
     if not await ActorIdentityService().can_claim_test_phone(user_id=user_id, phone_number=phone):
-        raise refuse("PHONE_ALREADY_VERIFIED")
+        raise refuse("PHONE_TRANSFER_CONFIRMATION_REQUIRED")

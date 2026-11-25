@@ -107,6 +107,77 @@ async def test_fresh_degraded_quotes_retry_without_losing_fallback(monkeypatch, 
         assert calls == [True]
 
 
+@pytest.mark.asyncio
+async def test_market_refresh_failure_uses_one_shared_retry_window(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.market_data.ports import MarketDataUnavailable
+
+    store = _FakeStore()
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: store)
+    fetch = AsyncMock(side_effect=RuntimeError("provider throttled"))
+
+    async def read():
+        monkeypatch.setattr(market_insights, "market_insights_cache", MarketInsightsCache())
+        return await market_insights._get_or_refresh_public_module(
+            key=market_insights.INDIA_MOVERS_KEY,
+            fresh_ttl_seconds=300,
+            stale_ttl_seconds=600,
+            fetcher=fetch,
+            serve_stale_while_revalidate=False,
+        )
+
+    with pytest.raises(RuntimeError, match="provider throttled"):
+        await read()
+    # The next process has a cold memory cache, but sees the same recent attempt.
+    with pytest.raises(MarketDataUnavailable, match="shared_market_refresh_cooldown"):
+        await read()
+    fetch.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_index_refresh_retains_unavailable_or_regressed_benchmarks(monkeypatch):
+    from api.routes.kai._shared_last_close import INDEX_LAST_CLOSE_KEY
+
+    now = market_insights.time()
+    store = _FakeStore()
+    old = "2026-07-14T13:55:00+00:00"
+    observed = "2026-07-14T13:59:00+00:00"
+    store.entries[INDEX_LAST_CLOSE_KEY] = _FakeEntry(
+        {
+            "quotes": {
+                symbol: {"price": 100, "quoted_at": old} for symbol in ("^GSPC", "^DJI", "^IXIC")
+            }
+        },
+        now - 130,
+        now - 10,
+        now + 600,
+    )
+    monkeypatch.setattr(market_insights, "market_insights_cache", MarketInsightsCache())
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: store)
+
+    async def fetch():
+        return {
+            "quotes": {
+                "^GSPC": {"price": 75, "quoted_at": "2026-07-13T20:00:00Z"},
+                "^IXIC": {"price": 115, "quoted_at": observed},
+            },
+            "provider_status": {},
+        }
+
+    value, *_ = await market_insights._get_or_refresh_public_module(
+        key=INDEX_LAST_CLOSE_KEY,
+        fresh_ttl_seconds=120,
+        stale_ttl_seconds=600,
+        fetcher=fetch,
+        serve_stale_while_revalidate=False,
+    )
+    assert value["quotes"]["^GSPC"] == {"price": 100, "quoted_at": old, "is_stale": True}
+    assert value["quotes"]["^DJI"] == {"price": 100, "quoted_at": old, "is_stale": True}
+    assert value["quotes"]["^IXIC"] == {"price": 115, "quoted_at": observed}
+    assert store.entries[INDEX_LAST_CLOSE_KEY].payload == value
+
+
 def test_market_home_cache_key_uses_shared_baseline_and_user_scoped_personalization():
     baseline_user_a = market_insights._market_home_cache_key(
         user_id="user_a",
@@ -446,6 +517,39 @@ async def test_stock_history_closed_backfill_cache_fences_and_stale_fallback(mon
             unavailable["unavailable_reason"] == "provider_unavailable"
             and unavailable["points"] == []
         )
+
+
+@pytest.mark.asyncio
+async def test_india_stock_history_is_owner_checked_and_nse_roster_scoped(monkeypatch):
+    from fastapi import HTTPException
+
+    from api.routes.kai import price_history
+    from hushh_mcp.operons.kai import fetchers
+
+    calls = []
+
+    async def fetch(symbols, *, range_period):
+        calls.append((symbols, range_period))
+        return [
+            {
+                "sparkline_points": [{"t": 1762000000, "p": 100}, {"t": 1762086400, "p": 101}],
+                "source": "fixture",
+                "fetched_at": "2026-11-12T10:00:00Z",
+            }
+        ]
+
+    monkeypatch.setattr(fetchers, "_fetch_yahoo_quotes", fetch)
+    monkeypatch.setattr(market_insights, "market_insights_cache", MarketInsightsCache())
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: _FakeStore())
+    with pytest.raises(HTTPException) as wrong_owner:
+        await price_history.get_stock_price_history("owner", "TCS", "other", "IN")
+    assert wrong_owner.value.status_code == 403
+    with pytest.raises(HTTPException) as invalid:
+        await price_history.get_stock_price_history("owner", "UNKNOWN", "owner", "IN")
+    assert invalid.value.status_code == 422 and calls == []
+    result = await price_history.get_stock_price_history("owner", "TCS", "owner", "IN")
+    assert result["currency"] == "INR" and len(result["points"]) == 2
+    assert calls == [(["TCS.NS"], "1mo")]
 
 
 def test_daily_snapshot_keeps_only_real_observations():

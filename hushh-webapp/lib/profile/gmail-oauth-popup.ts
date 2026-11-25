@@ -21,6 +21,7 @@ export type GmailOAuthPopupAttempt = {
   startedAt: number;
   ownerId: string;
   purpose?: "read" | "send";
+  presentation?: "calendar";
 };
 
 export type GmailOAuthPopupSettlement = {
@@ -65,6 +66,7 @@ function isAttemptId(value: unknown): value is string {
 export function createGmailOAuthPopupAttempt(
   ownerId: string,
   purpose: "read" | "send" = "read",
+  presentation?: GmailOAuthPopupAttempt["presentation"],
 ): GmailOAuthPopupAttempt {
   const attemptId =
     typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -76,6 +78,7 @@ export function createGmailOAuthPopupAttempt(
     startedAt: Date.now(),
     ownerId,
     purpose,
+    ...(presentation && { presentation }),
   };
 }
 

@@ -276,7 +276,7 @@
       "runtime": {
         "adk_mode": "task",
         "factory": null,
-        "kind": "adk",
+        "kind": "hybrid",
         "transport": [
           "in_process",
           "chat"
@@ -1351,12 +1351,13 @@
       "exact_tables": [
         "advisor_review_requests",
         "advisor_review_subscriptions",
-        "advisor_billing_cleanup"
+        "advisor_billing_cleanup",
+        "advisor_review_payments"
       ],
       "id": "finance_advisor_handshake",
       "lifecycle_status": "release_schema_qualification",
       "owner": "iam-consent-governance",
-      "primary_access_path": "One explicitly approved connection and full Finance snapshot request; participant-scoped review workspaces, Calendar time agreement and test-only recurring Stripe plans."
+      "primary_access_path": "One explicitly approved connection and full Finance snapshot request, participant-scoped review workspaces, Calendar time agreement and test-only one-time Stripe payments."
     },
     {
       "data_class": "personal_encrypted",
@@ -2635,6 +2636,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "analysis.confirm_preview",
           "calendar.invitation.review",
           "onboarding.claim_one",
           "wallet.add",
@@ -3883,7 +3885,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "feed.search_activity"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.feed"
       }
@@ -4387,6 +4391,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "finance.advisor.recommend",
           "route.kai_portfolio_analysis"
         ],
         "delegate_agent_ids": [],
@@ -6191,7 +6196,9 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "setup.hub_continue",
           "setup.hub_master_ack",
+          "setup.memory_import_skip",
           "setup.open_calendar",
           "setup.open_cloud",
           "setup.open_connected_systems",
@@ -7418,21 +7425,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
-    "action_gateway": "e9147325c349746fc144d505a30e51d0c316e8cfe38dc4938f0c970d104ee6dc",
-    "agent_registry": "5124212320b6842d9f1f9146325e62e4f736dca679673a9b0b7a3fda9454af0c",
+    "action_gateway": "6ee22c0dfe499186bf893099fc6207157cb382faac86fbe93aac969a3f8d8e70",
+    "agent_registry": "7103a453404f3d6ad1879dc965c19b902647d64fbec1e52f71042442b05d0e18",
     "cache_manifest": "7346b95662ec5d232310f8cd5df9f423245441d410ab16963e6eb19baee7fc5e",
-    "data_plane": "c8fbcc295480ad1d07e9571e563f93e7e711b1b7154e965fcff4b67d89f907b1",
+    "data_plane": "80f3365bd25e7a5067f868967fb35c4edc9a993d6ef27a8201ce8729b8b05b77",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
-    "one_specialist_tools": "f74f1e5c46e17d60e314b533aed43713213c46ffebdcf1c5a23a9b4dfe448412",
-    "route_index": "444d46816184c3a658652eb0f9f6a080f473dae47bbb5ba97782ecfd895f9610",
-    "route_layout": "c04f5e0e33cdd491329b09265e228de860fedb137d4d81977e850c167c024b87",
-    "surface_map": "7ba1d97510e38191866bb64478c9f38dd4110f94534388066b2c933e09232552",
+    "one_specialist_tools": "1af4badea5099908aa16463d04147aa7a97a195b5de530ed318ef76161dbadbf",
+    "route_index": "b3adb3da01a0bf0544e373a067a31f9ee5ca1824659c1db0b3122bc685554d12",
+    "route_layout": "39b96f0db36aa90f06fc6b8eea85c72bcdf13c6a9f03ec082d9e738b78d05e90",
+    "surface_map": "f6d12911be9da082889ccc8cce4b2da2fdcf80116d4b523237f2ebffb55b0dbc",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 334,
+    "actions": 347,
     "agents": 23,
     "aliases": 4,
     "decision_required": 2,

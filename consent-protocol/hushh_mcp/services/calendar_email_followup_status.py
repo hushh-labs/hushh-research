@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from hushh_mcp.services.calendar_email_followup_coverage import coverage
+from hushh_mcp.services.calendar_email_followup_relevance import ASSESSMENT_VERSION
 from hushh_mcp.services.calendar_email_followup_store_types import Monitor
 
 
@@ -37,15 +38,19 @@ def monitor_status(
             "historical_start_at": None,
             "time_zone": None,
         }
+    checkpoint = monitor.checkpoint or {}
+    scan_state = monitor.scan_state
+    if scan_state == "complete" and checkpoint.get("assessment_version") != ASSESSMENT_VERSION:
+        scan_state = "pending"
     return {
         **base,
-        "scan_state": monitor.scan_state,
-        "incomplete_source_count": len((monitor.checkpoint or {}).get("incomplete_sources", {})),
+        "scan_state": scan_state,
+        "incomplete_source_count": len(checkpoint.get("incomplete_sources", {})),
         "coverage": coverage(
-            scan_state=monitor.scan_state,
+            scan_state=scan_state,
             error_code=monitor.scan_error_code,
             consecutive_failures=monitor.consecutive_failures,
-            checkpoint=monitor.checkpoint,
+            checkpoint=checkpoint,
         ),
         "last_complete_at": monitor.last_complete_at.isoformat()
         if monitor.last_complete_at

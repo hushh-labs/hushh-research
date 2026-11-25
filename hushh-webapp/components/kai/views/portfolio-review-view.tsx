@@ -16,36 +16,26 @@
 
 "use client";
 
-import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import { PortfolioReviewSummary } from "@/components/kai/cards/portfolio-review-summary";
 
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import type { ColumnDef } from "@tanstack/react-table";
 import {
-  Plus,
-  Save,
-  RefreshCw,
   Loader2,
   Building2,
   PieChart,
   Wallet,
 } from "@/components/icons";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
-import { cn } from "@/lib/utils";
-import { Icon, SegmentedTabs } from "@/lib/morphy-ux/ui";
+import { Icon } from "@/lib/morphy-ux/ui";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { HoldingRowActions } from "@/components/kai/holdings/holding-row-actions";
-import { DataTable } from "@/components/app-ui/data-table";
-import { Tabs, TabsContent } from "@/components/ui/tabs";
-
+import { PortfolioReviewHoldingsTable } from "@/components/kai/holdings/portfolio-review-holdings-table";
+import { PortfolioReviewHoldingsFilter, type ReviewHoldingsFilter } from "@/components/kai/holdings/portfolio-review-holdings-filter";
+import { ReviewEntriesSheet } from "@/components/kai/holdings/review-entries-sheet";
+import { toHoldingViewModel } from "@/components/kai/holdings/holding-view-model";
 
 import {
   Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
 } from "@/components/ui/accordion";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
@@ -56,17 +46,11 @@ import {
   type PortfolioData as CachedPortfolioData,
 } from "@/lib/cache/cache-context";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
-import { Button as MorphyButton } from "@/lib/morphy-ux/button";
+import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { VaultService } from "@/lib/services/vault-service";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
-import {
-  Card as MorphyCard, 
-  CardContent, 
-  CardHeader, 
-  CardTitle,
-} from "@/lib/morphy-ux/card";
 import { EditHoldingModal } from "@/components/kai/modals/edit-holding-modal";
 import { findHoldingValidationIssue, holdingValueIssue, isCashEquivalentHolding, type HoldingValidationIssue } from "@/lib/kai/holding-validation";
 import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
@@ -85,42 +69,21 @@ import {
   KAI_AUXILIARY_STEP_TIMEOUT_MS,
   runKaiStepWithTimeout,
 } from "@/lib/kai/brokerage/kai-operation-timeout";
-import { consolidateHoldingsBySymbol } from "@/lib/utils/portfolio-normalize";
+import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
+import { groupHoldingPositions, prepareHoldingEntryEdit } from "@/lib/kai/holding-positions";
+import type { Holding as PortfolioHolding } from "@/components/kai/types/portfolio";
+import { PortfolioReviewFrame, PortfolioReviewSection, PortfolioReviewHoldingsPanel } from "./portfolio-review-layout";
+import { ImportProgressStatus } from "./import-progress-view";
 
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 
-
-
+import { formatCurrency as formatDisplayCurrency } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 // =============================================================================
 // TYPES
 // =============================================================================
 
-export interface Holding {
-  symbol: string;
-  symbol_cusip?: string;
-  identifier_type?: "ticker" | "cusip" | "derived";
-  position_side?: "long" | "short" | "liability";
-  is_short_position?: boolean;
-  is_liability_position?: boolean;
-  name: string;
-  quantity: number;
-  price: number;
-  market_value: number;
-  cost_basis?: number;
-  unrealized_gain_loss?: number;
-  unrealized_gain_loss_pct?: number;
-  asset_type?: string;
-  instrument_kind?: string;
-  is_cash_equivalent?: boolean;
-  is_investable?: boolean;
-  analyze_eligible?: boolean;
-  debate_eligible?: boolean;
-  optimize_eligible?: boolean;
-  symbol_source?: string;
-  symbol_kind?: string;
-  security_listing_status?: string;
-  is_sec_common_equity_ticker?: boolean;
-  pending_delete?: boolean;
-}
+export type Holding = PortfolioHolding & { pending_delete?: boolean };
 
 export interface AccountInfo {
   holder_name?: string;
@@ -136,6 +99,9 @@ export interface AccountSummary {
   ending_value?: number;
   cash_balance?: number;
   equities_value?: number;
+  declared_security_count?: number;
+  securities_market_value?: number;
+  pending_receivables?: number;
   change_in_value?: number;
   total_change?: number;
   net_deposits_withdrawals?: number;
@@ -244,6 +210,9 @@ export interface PortfolioReviewViewProps {
   onReimport: () => void;
   /** Callback to go back */
   onBack?: () => void;
+  importFileName?: string;
+  publishOptimistically?: boolean;
+  preserveScroll?: boolean;
   /** Additional CSS classes */
   className?: string;
 }
@@ -257,15 +226,8 @@ type ReviewHoldingRow = Holding & {
 // HELPER FUNCTIONS
 // =============================================================================
 
-function formatCurrency(value: number | undefined | null): string {
-  if (value === undefined || value === null) return "$0.00";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
+const formatCurrency = (value: number | undefined | null, currency = "USD") =>
+  formatDisplayCurrency(value ?? 0, currency);
 
 function _formatPercent(value: number | undefined | null): string {
   if (value === undefined || value === null) return "0.00%";
@@ -313,23 +275,6 @@ function deriveRiskBucket(holdings: Holding[]): string {
   if (topHoldingPct > 30) return "aggressive";
   if (topHoldingPct > 15) return "moderate";
   return "conservative";
-}
-
-function getPositionSide(holding: Holding): "long" | "short" | "liability" {
-  if (holding.position_side === "long" || holding.position_side === "short" || holding.position_side === "liability") {
-    return holding.position_side;
-  }
-  if (holding.is_liability_position) return "liability";
-  if (holding.is_short_position) return "short";
-  const qty = toFiniteNumber(holding.quantity);
-  const marketValue = toFiniteNumber(holding.market_value);
-  if ((holding.is_cash_equivalent || isCashEquivalentHolding(holding)) && (marketValue ?? 0) < 0) {
-    return "liability";
-  }
-  if ((qty ?? 0) < 0 || (marketValue ?? 0) < 0) {
-    return "short";
-  }
-  return "long";
 }
 
 function inferHoldingIdentifierType(holding: Holding): "ticker" | "cusip" | "derived" {
@@ -411,7 +356,7 @@ function isAuthFailureMessage(message: string): boolean {
   );
 }
 
-function normalizeHoldingForStorage(holding: Holding): Holding {
+function normalizeHoldingForStorage({ pending_delete: _pendingDelete, ...holding }: Holding): Holding {
   const isCashEquivalent = isCashEquivalentHolding(holding);
   const identifierType = inferHoldingIdentifierType(holding);
   const isInvestable = !isCashEquivalent && identifierType === "ticker";
@@ -426,6 +371,12 @@ function normalizeHoldingForStorage(holding: Holding): Holding {
     debate_eligible: isInvestable,
     optimize_eligible: isInvestable,
   };
+}
+
+function holdingsForStorage(holdings: Holding[]): Holding[] {
+  return normalizeStoredPortfolio({ holdings: holdings.map(normalizeHoldingForStorage) }, {
+    preserveEntries: true,
+  }).holdings as Holding[];
 }
 
 function isHoldingAnalyzeEligible(holding: Holding): boolean {
@@ -481,6 +432,9 @@ function sanitizeAccountSummary(value: unknown): AccountSummary {
     ending_value: toFiniteNumber(record.ending_value),
     cash_balance: toFiniteNumber(record.cash_balance),
     equities_value: toFiniteNumber(record.equities_value),
+    declared_security_count: toFiniteNumber(record.declared_security_count),
+    securities_market_value: toFiniteNumber(record.securities_market_value),
+    pending_receivables: toFiniteNumber(record.pending_receivables),
     change_in_value: toFiniteNumber(record.change_in_value),
     total_change: toFiniteNumber(record.total_change),
     net_deposits_withdrawals: toFiniteNumber(record.net_deposits_withdrawals),
@@ -598,6 +552,9 @@ function hasSummaryValues(summary: AccountSummary): boolean {
     summary.ending_value !== undefined ||
     summary.cash_balance !== undefined ||
     summary.equities_value !== undefined ||
+    summary.declared_security_count !== undefined ||
+    summary.securities_market_value !== undefined ||
+    summary.pending_receivables !== undefined ||
     summary.change_in_value !== undefined ||
     summary.total_change !== undefined ||
     summary.net_deposits_withdrawals !== undefined ||
@@ -717,7 +674,11 @@ export function PortfolioReviewView({
   onReimport,
   onBack: _onBack,
   className,
+  importFileName,
+  publishOptimistically = true,
+  preserveScroll = false,
 }: PortfolioReviewViewProps) {
+  useMarketCurrency();
   const { setPortfolioData: setCachePortfolioData } = useCache();
   const { user } = useAuth();
   const {
@@ -774,15 +735,14 @@ export function PortfolioReviewView({
   const [editingHolding, setEditingHolding] = useState<Holding | null>(null);
   const [holdingValidationIssue, setHoldingValidationIssue] = useState<HoldingValidationIssue | null>(null);
   const [editingHoldingIndex, setEditingHoldingIndex] = useState<number>(-1);
-  const [holdingsTab, setHoldingsTab] = useState<"all" | "analyze" | "non-analyze" | "cash">(
-    "all"
-  );
+  const [managedPositionId, setManagedPositionId] = useState<string | null>(null);
+  const [holdingsTab, setHoldingsTab] = useState<ReviewHoldingsFilter>("all");
 
   // Computed values
   // Scroll to top on mount to ensure clean view framing after progress view
   useEffect(() => {
-    scrollAppToTop("auto");
-  }, []);
+    if (!preserveScroll) scrollAppToTop("auto");
+  }, [preserveScroll]);
 
   const serializeEditableState = useCallback(
     (nextAccountInfo: AccountInfo, nextHoldings: Holding[]): string =>
@@ -920,6 +880,7 @@ export function PortfolioReviewView({
     return holdingsCash ?? 0;
   }, [activeHoldings, hasUnsavedChanges, reportedCashBalance]);
 
+  const pendingReceivables = toFiniteNumber(accountSummary.pending_receivables) ?? 0;
   const totalValue = useMemo(() => {
     const holdingsTotal = activeHoldings.reduce(
       (sum, h) => sum + (toFiniteNumber(h.market_value) ?? 0),
@@ -930,7 +891,7 @@ export function PortfolioReviewView({
       (holding) => toFiniteNumber(holding.market_value) !== undefined
     );
     // When cash-equivalent positions are already in holdings, do not add cash again.
-    const derivedTotal = holdingsTotal + (holdingsCash !== undefined ? 0 : liveCashBalance);
+    const derivedTotal = holdingsTotal + (holdingsCash !== undefined ? 0 : liveCashBalance) + pendingReceivables;
     // Before edits, trust statement totals over derived sums. This avoids
     // rendering drift when parsed holdings are internally inconsistent.
     if (!hasUnsavedChanges && reportedTotalValue !== undefined) {
@@ -943,6 +904,7 @@ export function PortfolioReviewView({
     hasUnsavedChanges,
     reportedTotalValue,
     liveCashBalance,
+    pendingReceivables,
   ]);
 
   const totalUnrealizedGainLoss = useMemo(() => {
@@ -1012,12 +974,9 @@ export function PortfolioReviewView({
       const issue = holdingValueIssue(updatedHolding);
       if (issue) { setHoldingValidationIssue(issue); return; }
 
-      const normalizedHolding: Holding = {
-        ...updatedHolding,
-        quantity,
-        price,
-        market_value: marketValue,
-      };
+      const normalizedHolding = prepareHoldingEntryEdit({
+        ...updatedHolding, quantity, price, market_value: marketValue,
+      }, holdings[editingHoldingIndex], holdings);
 
       setHoldings((prev) => {
         const next = [...prev];
@@ -1042,38 +1001,16 @@ export function PortfolioReviewView({
         toast.success("Holding added");
       }
     },
-    [closeHoldingModal, editingHoldingIndex]
+    [closeHoldingModal, editingHoldingIndex, holdings]
   );
 
-  const handleAddHolding = useCallback(() => {
-    const newHolding: Holding = {
-      symbol: "",
-      identifier_type: "ticker",
-      name: "",
-      quantity: 0,
-      price: 0,
-      market_value: 0,
-      instrument_kind: "equity",
-      is_cash_equivalent: false,
-      is_investable: false,
-      analyze_eligible: false,
-      debate_eligible: false,
-      optimize_eligible: false,
-      pending_delete: false,
-    };
-    setEditingHolding(newHolding);
-    setEditingHoldingIndex(-1);
-  }, []);
-
-  const tableHoldingRows = useMemo<ReviewHoldingRow[]>(
-    () =>
-      holdings
-        .map((holding, index) => ({
-          ...holding,
-          client_id: `holding-${index}`,
-          source_index: index,
-        }))
-        .sort(compareHoldingsByNameAsc),
+  const tableHoldingRows = useMemo(
+    () => groupHoldingPositions(holdings.map((holding, index): ReviewHoldingRow => ({
+      ...normalizeHoldingForStorage(holding),
+      pending_delete: holding.pending_delete,
+      client_id: "holding-" + index,
+      source_index: index,
+    }))).sort(compareHoldingsByNameAsc),
     [holdings]
   );
 
@@ -1089,134 +1026,39 @@ export function PortfolioReviewView({
     [tableHoldingRows]
   );
 
-  const holdingsTableColumns = useMemo<ColumnDef<ReviewHoldingRow>[]>(
-    () => [
-      {
-        id: "row_actions",
-        header: () => <span className="sr-only">Actions</span>,
-        cell: ({ row }) => {
-          const holding = row.original;
-          const deleted = Boolean(holding.pending_delete);
-          return (
-            <div className="flex items-start justify-center pt-1">
-              <HoldingRowActions
-                symbol={holding.symbol}
-                isDeleted={deleted}
-                disableEdit={deleted}
-                layout="row"
-                className="w-auto"
-                onEdit={() => handleEditHolding(holding.source_index)}
-                onToggleDelete={() => handleDeleteHolding(holding.source_index)}
-              />
-            </div>
-          );
-        },
-      },
-      {
-        accessorKey: "symbol",
-        header: "Holding",
-        cell: ({ row }) => {
-          const holding = row.original;
-          const deleted = Boolean(holding.pending_delete);
-          const side = getPositionSide(holding);
-          const sideClass =
-            side === "short"
-              ? "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
-              : side === "liability"
-                ? "border-rose-500/40 bg-rose-500/10 text-rose-600 dark:text-rose-400"
-                : "border-emerald-500/35 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
-          return (
-            <div
-              className={cn(
-                "min-w-[170px] max-w-[240px] sm:max-w-[280px] lg:max-w-[340px]",
-                deleted && "opacity-60"
-              )}
-            >
-              <div className="flex items-center gap-2">
-                <p className={cn("font-semibold", deleted && "line-through")}>
-                  {holding.symbol || "—"}
-                </p>
-                <Badge variant="outline" className={cn("h-5 px-1.5 text-xs uppercase", sideClass)}>
-                  {side}
-                </Badge>
-              </div>
-              <p
-                title={holding.name || "Unnamed security"}
-                className={cn("truncate text-xs text-muted-foreground", deleted && "line-through")}
-              >
-                {holding.name || "Unnamed security"}
-              </p>
-            </div>
-          );
-        },
-      },
-      {
-        id: "position",
-        header: "Shares @ Price",
-        cell: ({ row }) => {
-          const holding = row.original;
-          const side = getPositionSide(holding);
-          const quantityValue = Number(holding.quantity || 0);
-          const quantityLabel =
-            side === "short" || side === "liability"
-              ? Math.abs(quantityValue).toLocaleString()
-              : quantityValue.toLocaleString();
-          return (
-            <span
-              className={cn(
-                "text-xs sm:text-sm leading-tight",
-                holding.pending_delete && "line-through text-muted-foreground"
-              )}
-            >
-              {quantityLabel} @{" "}
-              {formatCurrency(Number(holding.price || 0))}
-            </span>
-          );
-        },
-      },
-      {
-        accessorKey: "market_value",
-        header: "Market Value",
-        cell: ({ row }) => {
-          const holding = row.original;
-          return (
-            <span
-              className={cn(
-                "font-semibold text-xs sm:text-sm leading-tight",
-                holding.pending_delete && "line-through text-muted-foreground"
-              )}
-            >
-              {formatCurrency(Number(holding.market_value || 0))}
-            </span>
-          );
-        },
-      },
-      {
-        accessorKey: "unrealized_gain_loss",
-        header: "Gain / Loss",
-        cell: ({ row }) => {
-          const holding = row.original;
-          const gain = Number(holding.unrealized_gain_loss || 0);
-          const gainText = `${gain >= 0 ? "+" : ""}${formatCurrency(gain)}`;
-          return (
-            <span
-              className={cn(
-                "font-medium",
-                holding.pending_delete
-                  ? "line-through text-muted-foreground"
-                  : gain >= 0
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-rose-600 dark:text-rose-400"
-              )}
-            >
-              {gainText}
-            </span>
-          );
-        },
-      },
-    ],
-    [handleDeleteHolding, handleEditHolding]
+  const managedPosition = useMemo(
+    () => tableHoldingRows.find((position) => position.client_id === managedPositionId) ?? null,
+    [tableHoldingRows, managedPositionId]
   );
+  const managedEntries = useMemo(
+    () => (managedPosition?.entries ?? []).map((entry) => toHoldingViewModel(entry, totalValue)),
+    [managedPosition, totalValue]
+  );
+
+  const handleAddEntry = useCallback(() => {
+    if (!managedPosition) return;
+    const first = managedPosition.entries[0];
+    // Identity (account, source, security) is inherited from the position on save.
+    setEditingHolding({
+      ...(first ?? {}),
+      symbol: managedPosition.symbol,
+      name: managedPosition.name,
+      identifier_type: managedPosition.identifier_type ?? "ticker",
+      quantity: 0,
+      price: 0,
+      market_value: 0,
+      cost_basis: undefined,
+      acquisition_date: undefined,
+      unrealized_gain_loss: undefined,
+      unrealized_gain_loss_pct: undefined,
+      pending_delete: false,
+    } as Holding);
+    setEditingHoldingIndex(-1);
+  }, [managedPosition]);
+
+  function entryByClientId(id: string) {
+    return managedPosition?.entries.find((entry) => entry.client_id === id);
+  }
 
   const resolveVaultOwnerTokenForSave = useCallback(
     async (forceRefresh = false): Promise<string | undefined> => {
@@ -1271,12 +1113,7 @@ export function PortfolioReviewView({
         total_value: totalValue,
         cash_balance: liveCashBalance,
         asset_allocation: assetAllocation,
-        holdings: consolidateHoldingsBySymbol(
-          activeHoldings.map((holding) => normalizeHoldingForStorage(holding)) as unknown as Record<
-            string,
-            unknown
-          >[]
-        ) as Holding[],
+        holdings: holdingsForStorage(activeHoldings),
         income_summary: incomeSummary,
         realized_gain_loss: realizedGainLoss,
       };
@@ -1394,17 +1231,13 @@ export function PortfolioReviewView({
         "legal_and_disclosures",
       ] as const;
 
-      const normalizedActiveHoldings = activeHoldings.map((holding) =>
-        normalizeHoldingForStorage(holding)
-      );
-      const consolidatedActiveHoldings = consolidateHoldingsBySymbol(
-        normalizedActiveHoldings as unknown as Record<string, unknown>[]
-      ) as Holding[];
+      const savedHoldings = holdingsForStorage(activeHoldings);
+      const savedPositions = groupHoldingPositions(savedHoldings);
       const savePayload: PortfolioData = {
         account_info: accountInfo,
         account_summary: accountSummary,
         asset_allocation: assetAllocation,
-        holdings: consolidatedActiveHoldings,
+        holdings: savedHoldings,
         historical_values: initialData.historical_values,
         income_summary: incomeSummary,
         realized_gain_loss: realizedGainLoss,
@@ -1421,8 +1254,10 @@ export function PortfolioReviewView({
           account_holder: savePayload.account_info?.holder_name,
         },
       };
-      setCachePortfolioData(userId, optimisticCachePortfolioData);
-      CacheSyncService.onPortfolioUpserted(userId, optimisticCachePortfolioData);
+      if (publishOptimistically) {
+        setCachePortfolioData(userId, optimisticCachePortfolioData);
+        CacheSyncService.onPortfolioUpserted(userId, optimisticCachePortfolioData);
+      }
 
       saveTaskId = AppBackgroundTaskService.startTask({
         userId,
@@ -1453,11 +1288,11 @@ export function PortfolioReviewView({
       const parsedAssetAllocation = sanitizeAssetAllocation(assetAllocation);
       const parsedCashBalance =
         toFiniteNumber(initialData.cash_balance) ?? parsedAccountSummary.cash_balance;
-      const holdingsTotal = consolidatedActiveHoldings.reduce(
+      const holdingsTotal = savedHoldings.reduce(
         (sum, holding) => sum + (toFiniteNumber(holding.market_value) ?? 0),
         0
       );
-      const derivedCashBalance = deriveCashFromHoldings(consolidatedActiveHoldings);
+      const derivedCashBalance = deriveCashFromHoldings(savedHoldings);
       const holdingsIncludeCash = derivedCashBalance !== undefined;
 
       // 3. Append structured statement snapshot (no raw PDF bytes).
@@ -1476,16 +1311,16 @@ export function PortfolioReviewView({
         parsedAccountSummary.ending_value ??
         (holdingsTotal > 0
           ? holdingsTotal +
-            (holdingsIncludeCash ? 0 : parsedCashBalance ?? derivedCashBalance ?? 0)
+            (holdingsIncludeCash ? 0 : parsedCashBalance ?? derivedCashBalance ?? 0) + pendingReceivables
           : undefined);
       const resolvedCashBalance = hasUnsavedChanges ? liveCashBalance : parsedCashBalance ?? derivedCashBalance;
       const resolvedTotalValue =
         (hasUnsavedChanges ? totalValue : statementTotalValue) ??
         (holdingsTotal > 0
-          ? holdingsTotal + (holdingsIncludeCash ? 0 : resolvedCashBalance ?? 0)
+          ? holdingsTotal + (holdingsIncludeCash ? 0 : resolvedCashBalance ?? 0) + pendingReceivables
           : undefined) ??
         0;
-      const derivedAssetAllocation = deriveAssetAllocationFromHoldings(consolidatedActiveHoldings);
+      const derivedAssetAllocation = deriveAssetAllocationFromHoldings(savedHoldings);
 
       const resolvedAccountSummary = compactRecord({
         ...parsedAccountSummary,
@@ -1535,7 +1370,7 @@ export function PortfolioReviewView({
         asset_allocation: hasAllocationValues(resolvedAssetAllocation)
           ? resolvedAssetAllocation
           : undefined,
-        holdings: consolidatedActiveHoldings,
+        holdings: savedHoldings,
         income_summary: hasRecordValues(normalizedIncomeSummary as Record<string, unknown>)
           ? normalizedIncomeSummary
           : undefined,
@@ -1576,6 +1411,7 @@ export function PortfolioReviewView({
           updated_at: nowIso,
         },
         source: {
+          file_name: importFileName?.trim().slice(0, 255) || null,
           brokerage: accountInfo.brokerage || null,
           statement_period_start: accountInfo.statement_period_start || null,
           statement_period_end: accountInfo.statement_period_end || null,
@@ -1585,7 +1421,7 @@ export function PortfolioReviewView({
         account_summary: hasSummaryValues(statementAccountSummary)
           ? statementAccountSummary
           : null,
-        holdings: consolidatedActiveHoldings || [],
+        holdings: savedHoldings || [],
         transactions:
           initialData.transactions ||
           initialData.activity_and_transactions ||
@@ -1713,13 +1549,13 @@ export function PortfolioReviewView({
       const financialSummary = {
         ...buildFinancialDomainSummary(nextFinancialDomain as Record<string, unknown>),
         intent_source: "kai_import_llm",
-        attribute_count: consolidatedActiveHoldings.length,
-        item_count: consolidatedActiveHoldings.length,
-        holdings_count: consolidatedActiveHoldings.length,
-        investable_positions_count: consolidatedActiveHoldings.filter(
+        attribute_count: savedHoldings.length,
+        item_count: savedHoldings.length,
+        holdings_count: savedPositions.length,
+        investable_positions_count: savedPositions.filter(
           (holding) => holding.is_investable
         ).length,
-        cash_positions_count: consolidatedActiveHoldings.filter(
+        cash_positions_count: savedPositions.filter(
           (holding) => holding.is_cash_equivalent
         ).length,
         allocation_coverage_pct: hasAllocationValues(resolvedAssetAllocation) ? 1 : 0,
@@ -1932,76 +1768,38 @@ export function PortfolioReviewView({
     onReimport();
   }, [confirmDiscardChanges, onReimport]);
 
+  const statementCheck = initialData.quality_report_v2?.quality_gate;
+  const statementCount = toFiniteNumber(statementCheck?.declared_security_count);
+  const extractedCount = toFiniteNumber(statementCheck?.extracted_security_count);
+  const hasCountMismatch = statementCount !== undefined && extractedCount !== undefined && statementCount !== extractedCount;
+  const hasValueMismatch = statementCheck?.reconciled_within_cent === false;
+
   return (
-    <div className={cn(financeStyles.detail, "relative w-full", className)}>
+    <PortfolioReviewFrame className={className}
+      status={<ImportProgressStatus stage="complete" fileName={importFileName} />}
+      actions={<ShellActionSurface variant="pill" className="min-h-11 ui-text-compact-button-label motion-step-enter" onClick={handleReimportAttempt}>Start over</ShellActionSurface>}
+    >
+      {hasCountMismatch || hasValueMismatch ? (
+        <p role="status" className="ui-text-row-description text-muted-foreground">
+          {hasCountMismatch ? `Found ${extractedCount} of ${statementCount} securities listed on the statement. ` : null}
+          {hasValueMismatch ? "The total securities value differs from the statement. " : null}
+          Check the holdings before saving.
+        </p>
+      ) : null}
+      <PortfolioReviewSummary
+        totalValue={totalValue}
+        unrealizedGainLoss={totalUnrealizedGainLoss}
+        gainLossAvailable={activeHoldings.some(h => !isCashEquivalentHolding(h)) && activeHoldings.filter(h => !isCashEquivalentHolding(h)).every(h => typeof h.unrealized_gain_loss === "number" && Number.isFinite(h.unrealized_gain_loss))}
+        holdingCount={tableHoldingRows.filter((position) => !position.pending_delete).length}
+        riskBucket={riskBucket}
+        cashBalance={liveCashBalance}
+      />
+      <Accordion type="multiple" className="w-full min-w-0 space-y-3">
 
-
-      <div className="w-full space-y-5 pb-6 pt-4 transition-[opacity,transform] duration-150 ease-out md:pt-6">
-
-
-
-      {/* Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start gap-3">
-          <div className="px-1">
-	            <h1 className="text-[20px] font-medium tracking-normal">Review Portfolio</h1>
-	            <p className="max-w-[28rem] text-sm leading-snug text-muted-foreground">
-	              {onStageForFinish && !effectiveVaultKey
-	                ? "Review now. Your portfolio is protected when setup finishes."
-	                : hasVault === false
-	                  ? "Review your portfolio, then create your Vault to save it."
-	                  : "Review before saving to Vault"}
-	            </p>
-	          </div>
-	        </div>
-        <MorphyButton 
-          variant="muted" 
-          size="default" 
-          onClick={handleReimportAttempt}
-          className="shrink-0"
-          icon={{ 
-            icon: RefreshCw
-          }}
-        >
-          <span className="hidden sm:inline ml-2 font-bold">Re-import</span>
-          <span className="sm:hidden font-bold">Try again</span>
-        </MorphyButton>
-
-
-      </div>
-
-
-
-      <div className="md:grid md:grid-cols-12 md:items-start md:gap-5">
-        {/* Left Column / Mobile Top: Summary & Info */}
-        <div className="space-y-5 md:col-span-5">
-          <PortfolioReviewSummary
-            totalValue={totalValue}
-            unrealizedGainLoss={totalUnrealizedGainLoss}
-            holdingCount={activeHoldings.length}
-            riskBucket={riskBucket}
-            cashBalance={liveCashBalance}
-          />
-
-      {/* Account & Meta Accordions */}
-      <Accordion type="multiple" defaultValue={["account", "income"]} className="w-full space-y-4">
-
-        <AccordionItem
-          value="account"
-          className="border-b-0 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-default)] px-5 shadow-[var(--app-card-shadow-standard)]"
-        >
-          <AccordionTrigger className="text-sm font-semibold py-4 hover:no-underline">
-
-
-            <div className="flex items-center gap-2">
-              <Icon icon={Building2} size="sm" aria-hidden="true" />
-              Account Information
-            </div>
-          </AccordionTrigger>
-          <AccordionContent>
-            <div className="grid grid-cols-1 gap-4 pt-2 sm:grid-cols-2">
+        <PortfolioReviewSection value="account" title="Account Information" icon={<Icon icon={Building2} size="sm" aria-hidden="true" />}>
+            <div className="grid gap-x-4 gap-y-3 pt-2 sm:grid-cols-2">
               <div>
-                <Label htmlFor="account-holder" className="text-xs">Account Holder</Label>
+                <Label htmlFor="account-holder" className="ui-text-form-label">Account Holder</Label>
                 <Input
                   id="account-holder"
                   value={accountInfo.holder_name || ""}
@@ -2012,12 +1810,12 @@ export function PortfolioReviewView({
                     }))
                   }
                   placeholder="Name"
-                  className="mt-1 truncate"
+                  className="mt-1 w-full"
                   title={accountInfo.holder_name || ""}
                 />
               </div>
               <div>
-                <Label htmlFor="account-number" className="text-xs">Account Number</Label>
+                <Label htmlFor="account-number" className="ui-text-form-label">Account Number</Label>
                 <Input
                   id="account-number"
                   value={accountInfo.account_number || ""}
@@ -2028,12 +1826,12 @@ export function PortfolioReviewView({
                     }))
                   }
                   placeholder="XXX-XXXX"
-                  className="mt-1 truncate"
+                  className="mt-1 w-full"
                   title={accountInfo.account_number || ""}
                 />
               </div>
               <div>
-                <Label htmlFor="account-brokerage" className="text-xs">Brokerage</Label>
+                <Label htmlFor="account-brokerage" className="ui-text-form-label">Brokerage</Label>
                 <Input
                   id="account-brokerage"
                   value={accountInfo.brokerage || ""}
@@ -2044,12 +1842,12 @@ export function PortfolioReviewView({
                     }))
                   }
                   placeholder="Brokerage name"
-                  className="mt-1 truncate"
+                  className="mt-1 w-full"
                   title={accountInfo.brokerage || ""}
                 />
               </div>
               <div>
-                <Label htmlFor="account-type" className="text-xs">Account Type</Label>
+                <Label htmlFor="account-type" className="ui-text-form-label">Account Type</Label>
                 <Input
                   id="account-type"
                   value={accountInfo.account_type || ""}
@@ -2060,29 +1858,17 @@ export function PortfolioReviewView({
                     }))
                   }
                   placeholder="Individual, IRA, etc."
-                  className="mt-1 truncate"
+                  className="mt-1 w-full"
                   title={accountInfo.account_type || ""}
                 />
               </div>
             </div>
-          </AccordionContent>
-        </AccordionItem>
+          </PortfolioReviewSection>
 
         {/* Asset Allocation */}
-        {hasAllocationValues(displayAssetAllocation) && (
-        <AccordionItem
-          value="allocation"
-          className="border-b-0 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-default)] px-5 shadow-[var(--app-card-shadow-standard)]"
-        >
-            <AccordionTrigger className="text-sm font-semibold py-4 hover:no-underline">
+        <PortfolioReviewSection value="allocation" title="Asset Allocation" icon={<Icon icon={PieChart} size="sm" aria-hidden="true" />}>
+              {!hasAllocationValues(displayAssetAllocation) ? <p className="ui-text-row-description text-muted-foreground">Not supplied in this statement.</p> : null}
 
-
-              <div className="flex items-center gap-2">
-                <Icon icon={PieChart} size="sm" aria-hidden="true" />
-                Asset Allocation
-              </div>
-            </AccordionTrigger>
-            <AccordionContent>
               <div className="space-y-3 pt-2">
                 {displayAssetAllocation.cash_pct !== undefined && (
                   <div className="flex justify-between items-center">
@@ -2153,25 +1939,12 @@ export function PortfolioReviewView({
                     </div>
                   )}
               </div>
-            </AccordionContent>
-          </AccordionItem>
-        )}
+            </PortfolioReviewSection>
 
         {/* Income Summary */}
-        {incomeSummary.total_income !== undefined && (
-        <AccordionItem
-          value="income"
-          className="border-b-0 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-default)] px-5 shadow-[var(--app-card-shadow-standard)]"
-        >
-            <AccordionTrigger className="text-sm font-semibold py-4 hover:no-underline">
+        <PortfolioReviewSection value="income" title="Income Summary" icon={<Icon icon={Wallet} size="sm" aria-hidden="true" />}>
+              {incomeSummary.total_income === undefined ? <p className="ui-text-row-description text-muted-foreground">{incomeSummary.dividends_taxable !== undefined || incomeSummary.interest_income !== undefined ? "Total income not supplied." : "Not supplied in this statement."}</p> : null}
 
-
-              <div className="flex items-center gap-2">
-                <Icon icon={Wallet} size="sm" aria-hidden="true" />
-                Income Summary
-              </div>
-            </AccordionTrigger>
-            <AccordionContent>
               <div className="space-y-3 pt-2">
                 {incomeSummary.dividends_taxable !== undefined && (
                   <div className="flex justify-between">
@@ -2189,176 +1962,43 @@ export function PortfolioReviewView({
                     </span>
                   </div>
                 )}
-                <div className="flex justify-between border-t pt-2">
+                {incomeSummary.total_income !== undefined ? <div className="flex justify-between border-t pt-2">
                   <span className="text-sm font-medium">Total Income</span>
                   <span className="font-semibold text-emerald-600">
                     {formatCurrency(incomeSummary.total_income)}
                   </span>
-                </div>
+                </div> : null}
               </div>
-            </AccordionContent>
-          </AccordionItem>
-        )}
+            </PortfolioReviewSection>
       </Accordion>
-        </div>
-
-        {/* Right Column / Mobile Bottom: Holdings */}
-        <div className="mt-8 md:col-span-7 xl:mt-0 min-w-0 max-w-full">
-          <MorphyCard variant="none" preset="surface" className="h-full min-w-0 max-w-full overflow-hidden">
-            <CardHeader className="border-b border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-sticky-header)] px-6 pb-4 pt-6">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <CardTitle className="text-sm font-semibold tracking-normal text-foreground">
-                    Holdings ({holdings.length})
-                    {pendingDeleteCount > 0 ? (
-                      <span className="ml-2 text-[11px] font-semibold text-muted-foreground">
-                        {pendingDeleteCount} pending remove
-                      </span>
-                    ) : null}
-                  </CardTitle>
-                </div>
-                <MorphyButton
-                  variant="none"
-                  effect="fade"
-                  size="sm"
-                  onClick={handleAddHolding}
-                >
-                  <Icon icon={Plus} size="sm" className="mr-1" aria-hidden="true" />
-                  Add Holding
-                </MorphyButton>
-              </div>
-            </CardHeader>
-
-            <CardContent className="space-y-4 px-6 pb-6 pt-6 min-w-0 max-w-full overflow-hidden">
-              <div className="rounded-[var(--app-card-radius-compact)] border border-transparent bg-[var(--app-card-surface-compact)] px-3 py-2.5 text-xs text-muted-foreground shadow-[var(--shadow-xs)]">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-semibold text-foreground">Current State</span>
-                  <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">
-                    Assets: {activeHoldings.length}
-                  </span>
-                  <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">
-                    Marked remove: {pendingDeleteCount}
-                  </span>
-                  <span className="rounded-full border border-transparent bg-[var(--app-card-surface-default)] px-2 py-0.5 shadow-[var(--shadow-xs)]">
-                    Cash positions: {holdingTables.cashSweep.length}
-                  </span>
-                </div>
-              </div>
-
-              <Tabs
-                value={holdingsTab}
-                onValueChange={(value) =>
-                  setHoldingsTab(value as "all" | "analyze" | "non-analyze" | "cash")
-                }
-                className="space-y-3"
-              >
-                <SegmentedTabs
-                  value={holdingsTab}
-                  onValueChange={(value) =>
-                    setHoldingsTab(value as "all" | "analyze" | "non-analyze" | "cash")
-                  }
-                  options={[
-                    { value: "all", label: `All (${holdingTables.all.length})` },
-                    { value: "analyze", label: `Equity (${holdingTables.analyzeEligible.length})` },
-                    { value: "non-analyze", label: `Other (${holdingTables.nonAnalyzable.length})` },
-                    { value: "cash", label: `Cash (${holdingTables.cashSweep.length})` },
-                  ]}
-                  className="w-full"
-                  mobileColumns={2}
-                />
-
-                <TabsContent value="all">
-                  <DataTable
-                    columns={holdingsTableColumns}
-                    data={holdingTables.all}
-                    globalSearchKeys={["symbol", "name"]}
-                    searchPlaceholder="Search holdings by symbol or name..."
-                    initialPageSize={8}
-                    pageSizeOptions={[8, 16, 24]}
-                    rowClassName={(holding) =>
-                      holding.pending_delete ? "bg-muted/45 text-muted-foreground" : "bg-transparent"
-                    }
-                    tableContainerClassName="w-full"
-                    tableClassName="w-full"
-                  />
-                </TabsContent>
-
-                <TabsContent value="analyze">
-                  <DataTable
-                    columns={holdingsTableColumns}
-                    data={holdingTables.analyzeEligible}
-                    globalSearchKeys={["symbol", "name"]}
-                    searchPlaceholder="Search equities..."
-                    initialPageSize={8}
-                    pageSizeOptions={[8, 16, 24]}
-                    rowClassName={(holding) =>
-                      holding.pending_delete ? "bg-muted/45 text-muted-foreground" : "bg-transparent"
-                    }
-                    tableContainerClassName="w-full"
-                    tableClassName="w-full"
-                  />
-                </TabsContent>
-
-                <TabsContent value="non-analyze">
-                  <DataTable
-                    columns={holdingsTableColumns}
-                    data={holdingTables.nonAnalyzable}
-                    globalSearchKeys={["symbol", "name"]}
-                    searchPlaceholder="Search other assets..."
-                    initialPageSize={8}
-                    pageSizeOptions={[8, 16, 24]}
-                    rowClassName={(holding) =>
-                      holding.pending_delete ? "bg-muted/45 text-muted-foreground" : "bg-transparent"
-                    }
-                    tableContainerClassName="w-full"
-                    tableClassName="w-full"
-                  />
-                </TabsContent>
-
-                <TabsContent value="cash">
-                  <DataTable
-                    columns={holdingsTableColumns}
-                    data={holdingTables.cashSweep}
-                    globalSearchKeys={["symbol", "name"]}
-                    searchPlaceholder="Search cash holdings..."
-                    initialPageSize={8}
-                    pageSizeOptions={[8, 16, 24]}
-                    rowClassName={(holding) =>
-                      holding.pending_delete ? "bg-muted/45 text-muted-foreground" : "bg-transparent"
-                    }
-                    tableContainerClassName="w-full"
-                    tableClassName="w-full"
-                  />
-                </TabsContent>
-              </Tabs>
-            </CardContent>
-          </MorphyCard>
-        </div>
-      </div>
-      </div>
-
-      {/* Keep the save action outside the card's overflow container so it can
-          stick above the measured Talk to One/navigation stack while reviewing. */}
-      <div
+      <PortfolioReviewHoldingsPanel>
+          {pendingDeleteCount > 0 ? (
+            <p className="ui-text-row-description mb-2 text-muted-foreground">{pendingDeleteCount} pending removal</p>
+          ) : null}
+          <div className="flex flex-col gap-3">
+            <PortfolioReviewHoldingsFilter value={holdingsTab} onChange={setHoldingsTab} />
+            <PortfolioReviewHoldingsTable
+              positions={holdingsTab === "all" ? holdingTables.all : holdingsTab === "analyze"
+                ? holdingTables.analyzeEligible : holdingsTab === "cash" ? holdingTables.cashSweep : holdingTables.nonAnalyzable}
+              totalValue={totalValue}
+              onManageEntries={setManagedPositionId}
+            />
+          </div>
+      </PortfolioReviewHoldingsPanel>
+      <footer
         data-portfolio-review-save
-        className="sticky bottom-[calc(var(--app-sticky-bottom-offset,0px)+0.75rem)] z-20 px-6 pt-3"
+        className="flex justify-end pt-2"
       >
-        <MorphyButton
-          variant="none"
-          effect="fade"
-          className="app-button-black"
-          fullWidth
+        <Button
+          size="standard"
+          className="w-full scroll-mb-[calc(var(--bottom-chrome-stack-height,0px)+1rem)] ui-text-compact-button-label sm:w-auto"
           onClick={() => {
             createdVaultCopyRef.current = hasVault === false;
             void handleSave();
           }}
           disabled={isBusySaving || activeHoldings.length === 0}
         >
-          {isBusySaving ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Icon icon={Save} size="sm" className="mr-2" aria-hidden="true" />
-          )}
+          {isBusySaving ? <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" /> : null}
           {isBusySaving
             ? hasVault === false
               ? "Creating Vault and saving portfolio..."
@@ -2370,8 +2010,26 @@ export function PortfolioReviewView({
             : hasVault === false
             ? "Create Vault"
             : "Save to Vault"}
-        </MorphyButton>
-      </div>
+        </Button>
+      </footer>
+
+      <ReviewEntriesSheet
+        open={Boolean(managedPosition) && !editingHolding}
+        position={managedPosition ? toHoldingViewModel(managedPosition, totalValue) : null}
+        entries={managedEntries}
+        onOpenChange={(open) => {
+          if (!open) setManagedPositionId(null);
+        }}
+        onEditEntry={(id) => {
+          const entry = entryByClientId(id);
+          if (entry) handleEditHolding(entry.source_index);
+        }}
+        onToggleDeleteEntry={(id) => {
+          const entry = entryByClientId(id);
+          if (entry) handleDeleteHolding(entry.source_index);
+        }}
+        onAddEntry={handleAddEntry}
+      />
 
       <EditHoldingModal
         isOpen={Boolean(editingHolding)}
@@ -2429,6 +2087,6 @@ export function PortfolioReviewView({
           </div>
         </div>
       )}
-	</div>
-	  );
+    </PortfolioReviewFrame>
+  );
 }

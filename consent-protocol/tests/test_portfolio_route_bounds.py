@@ -6,6 +6,9 @@ Verifies that oversized path, query, and form params are rejected with 422
 before any business logic is reached.
 """
 
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -22,6 +25,7 @@ def _make_app():
     app = FastAPI()
     app.include_router(portfolio_mod.router, prefix="/api/kai")
     app.dependency_overrides[api_middleware.require_vault_owner_token] = _stub_auth
+    app.dependency_overrides[portfolio_mod.hub_content_owner] = _stub_auth
     return app
 
 
@@ -97,3 +101,36 @@ def test_cancel_run_user_id_too_long(client):
         params={"user_id": _LONG_128},
     )
     assert resp.status_code == 422
+
+
+def test_import_stream_reuses_only_the_same_file(monkeypatch):
+    existing_bytes = b"Symbol,Quantity\nAAPL,3\n"
+    active_run = SimpleNamespace(
+        run_id="active-run", filename="statement.csv", is_csv_upload=True, content=existing_bytes
+    )
+
+    async def stream_run_events(*, run, **_kwargs):
+        assert run is active_run
+        yield {"event": "stage", "data": "{}"}
+
+    monkeypatch.setattr(
+        portfolio_mod,
+        "_IMPORT_RUN_MANAGER",
+        SimpleNamespace(
+            start_or_get_active=AsyncMock(return_value=("active", active_run)),
+            stream_run_events=stream_run_events,
+        ),
+    )
+    with TestClient(_make_app()) as web:
+
+        def upload(content):
+            return web.post(
+                "/api/kai/portfolio/import/stream",
+                data={"user_id": "uid_test_123"},
+                files={"file": ("statement.csv", content, "text/csv")},
+            )
+
+        different = upload(b"Symbol,Quantity\nMSFT,4\n")
+        assert different.status_code == 409
+        assert different.json()["detail"]["code"] == "IMPORT_RUN_ALREADY_ACTIVE"
+        assert upload(existing_bytes).status_code == 200

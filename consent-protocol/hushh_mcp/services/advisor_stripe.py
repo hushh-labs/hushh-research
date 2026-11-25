@@ -12,8 +12,9 @@ class Resource:
     def call(self, action, resource_id=None, **arguments):
         key = arguments.pop("api_key")
         options = {}
-        if "idempotency_key" in arguments:
-            options["idempotency_key"] = arguments.pop("idempotency_key")
+        for option in ("idempotency_key", "stripe_account"):
+            if option in arguments:
+                options[option] = arguments.pop(option)
         transport = stripe.RequestsClient(timeout=5)
         try:
             client = stripe.StripeClient(key, http_client=transport, max_network_retries=0)
@@ -22,8 +23,11 @@ class Resource:
                 resource = getattr(resource, part)
             operation = getattr(resource, action)
             if resource_id is None:
-                return operation(params=arguments, options=options)
-            return operation(resource_id, params=arguments, options=options)
+                result = operation(params=arguments, options=options)
+            else:
+                result = operation(resource_id, params=arguments, options=options)
+            # SDK 16 objects are not mappings: dict(result) raises TypeError.
+            return result.to_dict() if hasattr(result, "to_dict") else result
         finally:
             transport.close()
 
@@ -33,17 +37,33 @@ class Resource:
     def retrieve(self, resource_id, **arguments):
         return self.call("retrieve", resource_id, **arguments)
 
+    def list(self, **arguments):
+        return self.call("list", **arguments)
+
     def expire(self, resource_id, **arguments):
         return self.call("expire", resource_id, **arguments)
 
     def cancel(self, resource_id, **arguments):
         return self.call("cancel", resource_id, **arguments)
 
+    def create_login_link(self, resource_id, **arguments):
+        return Resource((*self.path, "login_links")).call("create", resource_id, **arguments)
+
+
+class _Webhook:
+    """Signed events are SDK objects, which have no .get; callers read plain dicts."""
+
+    @staticmethod
+    def construct_event(payload, signature, secret, **options):
+        return stripe.Webhook.construct_event(payload, signature, secret, **options).to_dict()
+
 
 def provider():
     return SimpleNamespace(
         Account=Resource(("accounts",)),
+        AccountLink=Resource(("account_links",)),
+        Payout=Resource(("payouts",)),
         Subscription=Resource(("subscriptions",)),
         checkout=SimpleNamespace(Session=Resource(("checkout", "sessions"))),
-        Webhook=stripe.Webhook,
+        Webhook=_Webhook,
     )

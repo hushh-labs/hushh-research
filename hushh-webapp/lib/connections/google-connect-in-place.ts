@@ -79,6 +79,8 @@ export type InPlaceConnectOwner = {
 };
 
 export type ConnectControls = {
+  includeCalendarList?: boolean;
+  presentation?: "calendar";
   /** Ends the attempt without a UI update (unmount, account switch). */
   signal?: AbortSignal;
   /** The person's explicit "Cancel sign-in"; ends quietly as not connected. */
@@ -154,9 +156,10 @@ async function connectPrivate(connector: 'gmail' | 'calendar', current: () => bo
   const { connectGoogleConnector } = await import('@/lib/one/google-native-connect');
   if (!current() || controls.cancelSignal?.aborted) return false;
   const outcome = await connectGoogleConnector(connector, { isCurrent: () => current() && !controls.cancelSignal?.aborted,
-    vaultOwnerCapability: controls.vaultOwnerCapability, confirmLegacyTransition: controls.confirmLegacyTransition });
+    vaultOwnerCapability: controls.vaultOwnerCapability, confirmLegacyTransition: controls.confirmLegacyTransition,
+    ...(connector === 'calendar' && controls.includeCalendarList ? { includeCalendarList: true } : {}) });
   if (!current() || controls.cancelSignal?.aborted) return false;
-  if (!outcome.ok && outcome.code === 'PHONE_HANDOFF_REQUIRED') { requestGoogleConnectorPhoneHandoff(connector); return 'phone_handoff'; }
+  if (!outcome.ok && outcome.code === 'PHONE_HANDOFF_REQUIRED') { requestGoogleConnectorPhoneHandoff(connector, controls.presentation, controls.includeCalendarList); return 'phone_handoff'; }
   if (!outcome.ok && outcome.code === 'PRIVATE_AGENT_UNLOCK_REQUIRED') return 'unlock_required';
   if (!outcome.ok && outcome.code !== 'SIGN_IN_CANCELLED') throw new Error('Google connection could not be completed.');
   if (outcome.ok && outcome.legacyCleanup === 'unconfirmed') return 'cleanup_unconfirmed';
@@ -189,7 +192,7 @@ function gmailSettlementMatcher(attemptId: string) {
 export function connectGmailInPlace(
   request: ConnectControls & {
     owner: InPlaceConnectOwner;
-    purpose: "read" | "send" | "modify";
+    purpose: "read" | "send" | "compose" | "modify" | "settings" | "full";
   },
 ): InPlaceConnectStart {
   const input = bindConnectOwner(request);
@@ -199,14 +202,18 @@ export function connectGmailInPlace(
     connected?: boolean;
     scope_csv?: string;
     send_permission_granted?: boolean;
+    compose_permission_granted?: boolean;
     modify_permission_granted?: boolean;
+    settings_permission_granted?: boolean;
   }) =>
     status.connected === true &&
-    (purpose === "read"
+    (purpose === "read" || purpose === "full"
       ? typeof status.scope_csv === "string" &&
         status.scope_csv.replaceAll(",", " ").split(/\s+/).includes("https://www.googleapis.com/auth/gmail.readonly")
       : purpose === "send" ? status.send_permission_granted === true
-        : status.modify_permission_granted === true);
+        : purpose === "compose" ? status.compose_permission_granted === true
+          : purpose === "settings" ? status.settings_permission_granted === true
+            : status.modify_permission_granted === true);
   // A confirmed connection reaches the shared connector status, which starts this device's receipt sync.
   const settle = (status: GmailConnectionStatus, current: () => boolean): InPlaceConnectOutcome => {
     if (status.connected === true && current()) void import("@/lib/profile/gmail-connector-store")
@@ -227,7 +234,7 @@ export function connectGmailInPlace(
           const status = await GmailReceiptsService.getStatus({ idToken: await owner.getIdToken(), userId: input.applicationOwnerId, force: true });
           return settle(status, current);
         }
-        if (purpose === 'modify') return 'not_connected';
+        if (purpose === 'modify' || purpose === 'compose' || purpose === 'settings') return 'not_connected';
         const idToken = await owner.getIdToken();
         if (!current()) return "stale";
         const before = await GmailReceiptsService.getStatus({
@@ -236,10 +243,11 @@ export function connectGmailInPlace(
           force: true,
         }).catch(() => null);
         if (!current()) return "stale";
+        const nativePurpose: "read" | "send" = purpose === "read" ? "read" : "send";
         const start = await GmailReceiptsService.startNativeConnect({
           idToken,
           userId: input.applicationOwnerId,
-          purpose,
+          purpose: nativePurpose,
         });
         if (!current()) return "stale";
         if (!start.configured) return "failed";
@@ -271,6 +279,7 @@ export function connectGmailInPlace(
   const attempt = createGmailOAuthPopupAttempt(
     input.applicationOwnerId,
     purpose === "send" ? "send" : "read",
+    input.presentation,
   );
   const popup = openGmailOAuthPopup(attempt);
   if (!popup) return started('checking', () => fenced(input, () => undefined, async (current) => {
@@ -331,7 +340,7 @@ export function connectGmailInPlace(
   );
 }
 
-/** Calendar access. Setup asks for scheduling, the calendar list and meeting files at once. */
+/** Calendar setup keeps scheduling, meeting files and optional Mail in one consent. */
 export function connectCalendarInPlace(
   request: ConnectControls & {
     owner: InPlaceConnectOwner;
@@ -339,6 +348,8 @@ export function connectCalendarInPlace(
     accountId?: string;
     includeCalendarList?: boolean;
     includeMeetingFiles?: boolean;
+    /** Include Follow-ups Mail permission for a new shared-web Calendar connection. */
+    includeMailAccess?: boolean;
   },
 ): InPlaceConnectStart {
   const input = bindConnectOwner(request);
@@ -421,12 +432,22 @@ export function connectCalendarInPlace(
         clearCalendarSetupOAuthReturn();
         const idToken = await owner.getIdToken();
         if (!current()) return "stale";
+        let includeMailAccess = false;
+        if (input.includeMailAccess) {
+          const prior = await GoogleCalendarService.status(idToken, input.applicationOwnerId);
+          if (!current()) return "stale";
+          if (input.cancelSignal?.aborted) return "not_connected";
+          const selected = calendarAccountStatus(prior, accountId);
+          // A targeted renewal must not silently expand an existing grant.
+          includeMailAccess = !selected || selected.status === "disconnected";
+        }
         const start = await GoogleCalendarService.startConnect({
           idToken,
           userId: input.applicationOwnerId,
           accessLevel,
           ...(accountId !== "default" ? { accountId, additional: true } : {}),
           ...(includeMeetingFiles ? { includeMeetingFiles: true } : {}),
+          ...(includeMailAccess ? { includeMailAccess: true } : {}),
         });
         if (!current()) return "stale";
         if (!isGoogleAuthorizeUrl(start.authorize_url)) return "failed";
@@ -460,7 +481,7 @@ export function connectCalendarInPlace(
   );
 }
 
-export type InPlaceConnectKind = "gmail_send" | "gmail_modify" | "calendar";
+export type InPlaceConnectKind = "gmail_send" | "gmail_modify" | "gmail_compose" | "gmail_settings" | "calendar";
 
 /** The chat's one line of feedback for each finished in-place connect. */
 export function inPlaceConnectCopy(
@@ -485,6 +506,24 @@ export function inPlaceConnectCopy(
       connected: "Gmail changes allowed. Ask One again to organize your mailbox.",
       not_connected: "Gmail changes were not allowed.",
       failed: "Unable to request Gmail permission. Please try again.",
+    },
+    gmail_compose: {
+      unlock_required: 'Unlock your vault, then connect Gmail again.',
+      cleanup_unconfirmed: 'Gmail connected. The previous Google connection still needs verification.',
+      window_blocked: OAUTH_WINDOW_BLOCKED_COPY,
+      phone_handoff: "Finish connecting Gmail on your phone, then ask your private agent again.",
+      connected: "Gmail drafts allowed. Ask One again to create or update your draft.",
+      not_connected: "Gmail drafts permission was not allowed.",
+      failed: "Unable to request Gmail drafts permission. Please try again.",
+    },
+    gmail_settings: {
+      unlock_required: 'Unlock your vault, then connect Gmail again.',
+      cleanup_unconfirmed: 'Gmail connected. The previous Google connection still needs verification.',
+      window_blocked: OAUTH_WINDOW_BLOCKED_COPY,
+      phone_handoff: "Finish connecting Gmail on your phone, then ask your private agent again.",
+      connected: "Gmail settings access allowed. Ask One again to manage filters, signatures, or vacation responder.",
+      not_connected: "Gmail settings permission was not allowed.",
+      failed: "Unable to request Gmail settings permission. Please try again.",
     },
     calendar: {
       unlock_required: 'Unlock your vault, then connect Calendar again.',

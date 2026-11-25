@@ -13,6 +13,9 @@
  * refuses with the placement so the copy can say what to do. There is no fallback
  * from the agent to the hub.
  */
+import { Capacitor } from "@capacitor/core";
+import { hasAuthSessionIdentity, snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+import { isFirebaseSessionOwnerCurrent } from "@/lib/auth/firebase-session-owner";
 import { AuthService } from "./auth-service";
 
 export type SpecialistFocus = "email" | "location" | "information" | "finance";
@@ -29,12 +32,17 @@ export type SpecialistChatReply = {
  * confirmed Shared owner (or no signed-in owner, whom every hub route refuses).
  */
 export async function ownerContentIsPrivate(): Promise<boolean> {
-  if (!AuthService.getCurrentUser()?.uid) return false;
+  const principal = snapshotValidatedAuthSessionPrincipal();
+  if (!principal && !hasAuthSessionIdentity() && !AuthService.getCurrentUser() && !Capacitor.isNativePlatform()) return false;
+  if (!principal || !isFirebaseSessionOwnerCurrent(principal)) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
   const [{ ApiService }, { usesOwnerPod }] = await Promise.all([
     import("./api-service"),
     import("./pod-app-access"),
   ]);
-  return usesOwnerPod(() => ApiService.getPersonalAgentStatus());
+  if (!isFirebaseSessionOwnerCurrent(principal)) throw new Error("POD_OWNER_CHANGED");
+  const usePod = await usesOwnerPod(() => ApiService.getPersonalAgentStatusForRouting({ fresh: true }));
+  if (!isFirebaseSessionOwnerCurrent(principal)) throw new Error("POD_OWNER_CHANGED");
+  return usePod;
 }
 
 /** One specialist tab turn on the owner's own agent, in the tab's reply shape. */
@@ -46,14 +54,15 @@ export async function privateAgentSpecialistTurn(input: {
   vaultKey: string | null | undefined;
   signal?: AbortSignal;
 }): Promise<SpecialistChatReply> {
-  const userId = AuthService.getCurrentUser()?.uid;
-  if (!userId) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
+  const principal = snapshotValidatedAuthSessionPrincipal();
+  if (!principal || !isFirebaseSessionOwnerCurrent(principal)) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
   const message = (input.message ?? "").trim();
   if (!message) throw new Error("Type a message to ask your agent.");
   if (!input.vaultKey) throw new Error("Unlock your vault to chat with your agent.");
   const { streamAgentChat } = await import("./agent-chat-client");
+  if (!isFirebaseSessionOwnerCurrent(principal)) throw new Error("POD_OWNER_CHANGED");
   const result = await streamAgentChat({
-    userId,
+    userId: principal.ownerId,
     message,
     conversationId: input.conversationId ?? null,
     vaultOwnerToken: input.vaultOwnerToken,

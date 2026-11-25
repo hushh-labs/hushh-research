@@ -1,5 +1,6 @@
 "use client";
 
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import { TaskSurfaceHeader, TaskSurfaceToolbar, TaskSurfaceBody, TaskSurfaceFooter, useTaskSurfacePresentation, taskSurfaceStyles } from "@/lib/morphy-ux/ui/task-surfaces";
 import { SheetSearch } from "@/components/app-ui/sheet-parts";
 import { connectPersonName } from "@/lib/connections/person-label";
@@ -114,7 +115,7 @@ export function useCreateCirclePeopleModel({ circleId, active, onLoad, onAdd, on
       if (mountedRef.current && lookup.current.circleId === circleId && lookup.current.ownerEpoch === ownerEpoch) onComplete(circleId);
     } catch {
       if (!mountedRef.current || lookup.current.circleId !== circleId || lookup.current.ownerEpoch !== ownerEpoch) return;
-      toast.error("Could not add those people. Try again or add people later.");
+      toast.error("Could not add those people. Try again or add people later.", { className: connectTypography.toast });
     } finally {
       inFlight.current = false;
       if (mountedRef.current) {

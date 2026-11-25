@@ -11,14 +11,11 @@ import { calendarHusshPeople, type CalendarHusshPeople } from "./calendar-hussh-
 
 const EMPTY_CONNECTIONS: readonly ConnectionSummaryEntry[] = [];
 const EMPTY_ALIASES: readonly AccountEmailAlias[] = [];
-const EMPTY_EMAILS: readonly string[] = [];
 
 /** One owner-scoped Connections read for all Calendar person avatars. */
-export function useCalendarHusshPeople({ userId, accountKey, ownerAccountEmails = EMPTY_EMAILS, connectionRevision, getIdToken, vaultOwnerToken }: {
+export function useCalendarHusshPeople({ userId, accountKey, connectionRevision, getIdToken, vaultOwnerToken }: {
   userId: string;
   accountKey: string;
-  /** Verified Google accounts the owner connected to Calendar. */
-  ownerAccountEmails?: readonly string[];
   connectionRevision?: number;
   getIdToken: () => Promise<string>;
   vaultOwnerToken: string | null;
@@ -85,6 +82,5 @@ export function useCalendarHusshPeople({ userId, accountKey, ownerAccountEmails 
     ownerEmailVerified: admitted && user?.emailVerified === true,
     ownerPhotoUrl: admitted ? ownerPhotoUrl : null,
     ownerAliases: current?.aliases ?? EMPTY_ALIASES,
-    ownerAccountEmails: admitted ? ownerAccountEmails : EMPTY_EMAILS,
   });
 }

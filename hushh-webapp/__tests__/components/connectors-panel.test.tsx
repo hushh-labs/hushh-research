@@ -1073,16 +1073,31 @@ describe("supported connector catalog", () => {
     expect(state.startOAuthConnect).not.toHaveBeenCalled();
   });
 
-  it("offers explicit Gmail draft permission only for a connected account without it", async () => {
-    state.gmailStatus = { connected: true, compose_permission_granted: false };
+  it("offers explicit Gmail draft and organize permissions plus one-click enable-all when multiple permissions are missing", async () => {
+    state.gmailStatus = {
+      connected: true,
+      send_permission_granted: true,
+      compose_permission_granted: false,
+      modify_permission_granted: false,
+    };
     render(panel());
     fireEvent.click(await screen.findByRole("button", { name: "Gmail" }));
     expect(screen.getByRole("button", { name: "Enable Gmail drafts" })).toBeInTheDocument();
-    state.gmailStatus = { connected: true, compose_permission_granted: true };
+    expect(screen.getByRole("button", { name: "Enable Gmail organize" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Enable all Mail permissions" })).toBeInTheDocument();
+
+    state.gmailStatus = {
+      connected: true,
+      send_permission_granted: true,
+      compose_permission_granted: true,
+      modify_permission_granted: true,
+    };
     cleanup();
     render(panel());
     fireEvent.click(await screen.findByRole("button", { name: "Gmail" }));
     expect(screen.queryByRole("button", { name: "Enable Gmail drafts" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Enable Gmail organize" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Enable all Mail permissions" })).not.toBeInTheDocument();
   });
 
   it("requests the Gmail send grant during the first native connection", async () => {
@@ -1185,6 +1200,15 @@ describe("supported connector catalog", () => {
       fireEvent.click(screen.getByRole("button", { name: "Calendar", exact: true }));
       expect(within(screen.getByRole("region", { name: "Calendar details" })).getByText("Connected as schedule@example.invalid")).toBeInTheDocument();
     }
+  });
+
+  it("states that Mail is connected once, on the account line", async () => {
+    state.gmailStatus = { connected: true, google_email: "mail@example.invalid" };
+    render(panel());
+    fireEvent.click(await screen.findByRole("button", { name: "Gmail" }));
+    const mail = within(await screen.findByRole("region", { name: "Gmail" }));
+    expect(mail.getByText("Connected as mail@example.invalid")).toBeInTheDocument();
+    expect(mail.queryByText("Connected", { exact: true })).not.toBeInTheDocument();
   });
 
   it("retains each account while sign-in needs to be refreshed", async () => {
@@ -1677,12 +1701,16 @@ describe("supported connector catalog", () => {
         userId: "owner-a",
         accessLevel: "manage",
         includeMeetingFiles: true,
+        includeMailAccess: true,
       });
       expect(await screen.findByText("Finish signing in with Google in the window that opened.")).toBeInTheDocument();
       const attempt = attemptOf(popup);
       expect(attempt?.service).toBe("calendar");
       // The attempt marker in the popup carries no OAuth state or credentials.
       expect(popup.sessionStorage.getItem(ATTEMPT_KEY)).not.toContain("synthetic=calendar");
+
+      expect(state.calendarStatus).toHaveBeenCalledOnce();
+      state.calendarStatus.mockClear();
 
       // Negative controls: none of these may settle the attempt.
       await post(settlement(attempt!.attemptId), popup, "https://attacker.invalid");
@@ -1758,6 +1786,8 @@ describe("supported connector catalog", () => {
       vi.spyOn(window, "open").mockReturnValue(popup);
       await openCalendar();
       await waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
+      expect(state.calendarStatus).toHaveBeenCalledOnce();
+      state.calendarStatus.mockClear();
       const attempt = attemptOf(popup)!;
       fireEvent.click(screen.getByRole("button", { name: "Cancel sign-in" }));
       expect(await screen.findByText("Calendar not connected.")).toBeInTheDocument();

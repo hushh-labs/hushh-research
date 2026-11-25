@@ -232,3 +232,42 @@ def test_the_backend_image_bakes_after_the_model_and_source_and_before_dropping_
     assert any("HUSHH_DRIVE_EMBEDDING_MODEL_DIR=" + BAKED_MODEL_DIR in line for line in lines)
     # The runtime reads the file from the directory the image copies the model into.
     assert Path(BAKED_MODEL_DIR).parent == Path("/opt/hushh/models")
+
+
+@pytest.mark.parametrize("recipe", ["Dockerfile", "Dockerfile.pod"])
+def test_email_router_artifact_is_baked_before_copy_and_served_offline(recipe):
+    from hushh_mcp.services.email_oss.routing import BAKED_MODEL_CACHE, BAKED_MODEL_CACHE_ENV
+
+    source = (BACKEND_ROOT / recipe).read_text()
+    bake = source.index("RUN python -m scripts.ops.bake_email_router_model")
+    assert source.index("COPY scripts/ops/bake_email_router_model.py") < bake
+    assert source.index("COPY hushh_mcp/services/email_oss/routing.py") < bake
+    assert bake < source.index("COPY --from=builder /opt/hushh/models /opt/hushh/models")
+    assert BAKED_MODEL_CACHE_ENV + "=" + BAKED_MODEL_CACHE in source
+    assert "HF_HUB_OFFLINE=1" in source[source.index("# Stage 2:") :]
+
+
+def test_email_router_cache_revision_and_checksums_fail_closed_before_encoder(
+    tmp_path, monkeypatch
+):
+    from hushh_mcp.services.email_oss import routing
+
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    monkeypatch.setenv(routing.BAKED_MODEL_CACHE_ENV, str(tmp_path))
+    called = Mock(side_effect=AssertionError("must not initialize/download an unverified model"))
+    monkeypatch.setattr("semantic_router.encoders.FastEmbedEncoder", called)
+    repository = tmp_path / routing.MODEL_CACHE_REPOSITORY
+    (repository / "refs").mkdir(parents=True)
+    (repository / "refs" / "main").write_text("changed-revision")
+    with pytest.raises(RuntimeError, match="revision mismatch"):
+        routing.create_email_router()
+    (repository / "refs" / "main").write_text(routing.MODEL_REVISION)
+    snapshot = repository / "snapshots" / routing.MODEL_REVISION
+    snapshot.mkdir(parents=True)
+    (snapshot / "config.json").write_bytes(b"tampered")
+    with pytest.raises(RuntimeError, match="checksum mismatch"):
+        routing.create_email_router()
+    monkeypatch.delenv("HF_HUB_OFFLINE")
+    with pytest.raises(RuntimeError, match="requires offline"):
+        routing.create_email_router()
+    assert not called.called

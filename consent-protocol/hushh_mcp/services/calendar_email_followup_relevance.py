@@ -14,15 +14,8 @@ import re
 from collections.abc import Iterable, Sequence
 from typing import Literal, Protocol, TypeVar
 
-# Bump when the extraction contract changes. Messages that still back a visible
-# request assessed under an older version are re-assessed once, so earlier
-# misclassifications can be corrected. 3 adds the scheduled-event category,
-# what a passing date means (``after_date``) and replacement of an earlier
-# request.
-ASSESSMENT_VERSION = 3
-# A message that produced no visible request under this contract or later was
-# already judged not to be Calendar work; it is never read again for a bump.
-SETTLED_ASSESSMENT_VERSION = 2
+# v5 distills the title for Calendar and requires grounded timing for automated obligations.
+ASSESSMENT_VERSION = 5
 
 Relevance = Literal["actionable", "informational", "uncertain"]
 Category = Literal[

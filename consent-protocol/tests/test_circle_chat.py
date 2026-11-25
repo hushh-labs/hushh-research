@@ -569,7 +569,6 @@ def test_member_add_batch_is_exact_and_legacy_events_stay_separate(chat_db):
     assert [event["subjectName"] for event in grouped] == ["Carol", "dana"]
     assert {event["actorName"] for event in grouped} == {"Alice"}
     assert [event["subjectName"] for event in events if event["batchId"] is None] == [
-        "Alice",
         "Bob",
         "Erin",
     ]
@@ -1863,3 +1862,22 @@ def test_direct_push_transaction_queue_read_block_and_expiry(chat_db, monkeypatc
         ids[2]: "sent",
         ids[3]: "suppressed",
     }
+
+
+def test_initial_owner_join_is_hidden_but_real_membership_events_remain(chat_db):
+    service = CircleChatService(chat_db)
+    circle = _seed(chat_db)
+    events = service.messages("alice", circle)["events"]
+    assert not any(e["subjectName"] == "Alice" for e in events)
+    assert any(e["subjectName"] == "Bob" for e in events)
+    with chat_db.engine.begin() as conn:
+        conn.execute(
+            text("""INSERT INTO circle_chat_membership_events
+            (circle_id,kind,subject_user_id,actor_user_id)
+            VALUES(CAST(:circle AS uuid),'member_joined','alice','alice')"""),
+            {"circle": circle},
+        )
+    # Even an unusual later owner event must not be mistaken for initialization.
+    assert (
+        sum(e["subjectName"] == "Alice" for e in service.messages("alice", circle)["events"]) == 1
+    )

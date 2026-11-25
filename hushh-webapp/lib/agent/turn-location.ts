@@ -41,6 +41,46 @@ export async function resolveTurnLocation(): Promise<TurnLocation> {
   const startedAt = Date.now();
   try {
     const preSyncState = LocationBus.getState();
+    const freshPromptSnapshot =
+      preSyncState?.status === "ready" &&
+      preSyncState?.snapshotOrigin === "fresh" &&
+      preSyncState?.snapshot &&
+      isUsableFixAge(preSyncState.snapshot.capturedAt) &&
+      Number.isFinite(preSyncState.snapshot.latitude) &&
+      Number.isFinite(preSyncState.snapshot.longitude)
+        ? preSyncState.snapshot
+        : null;
+
+    // Zero-wait fast path: if LocationBus already knows permission and holds a
+    // fresh fix in memory, return immediately (0 ms) without blocking chat send.
+    const cachedPermission = preSyncState?.permission;
+    const cachedSnapshot = preSyncState?.snapshot;
+    if (
+      cachedPermission === "granted" &&
+      cachedSnapshot &&
+      isUsableFixAge(cachedSnapshot.capturedAt) &&
+      Number.isFinite(cachedSnapshot.latitude) &&
+      Number.isFinite(cachedSnapshot.longitude)
+    ) {
+      return {
+        status: "available",
+        latitude: coarse(cachedSnapshot.latitude),
+        longitude: coarse(cachedSnapshot.longitude),
+      };
+    }
+    if (cachedPermission === "denied" || cachedPermission === "restricted") {
+      return { status: "denied" };
+    }
+    if (cachedPermission === "prompt") {
+      if (freshPromptSnapshot) {
+        return {
+          status: "available",
+          latitude: coarse(freshPromptSnapshot.latitude),
+          longitude: coarse(freshPromptSnapshot.longitude),
+        };
+      }
+      return { status: "not_granted" };
+    }
     const permission = await withinDeadline(LocationBus.syncPermission(), FRESH_FIX_WAIT_MS);
     if (permission === "denied" || permission === "restricted") return { status: "denied" };
     // Safari/WebKit cannot query the geolocation descriptor in the Permissions

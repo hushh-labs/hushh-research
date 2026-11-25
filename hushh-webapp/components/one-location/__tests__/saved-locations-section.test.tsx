@@ -1,3 +1,4 @@
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 // @vitest-environment jsdom
 import {
   act,
@@ -666,7 +667,7 @@ describe("SavedLocationsSection", () => {
 
     await waitFor(() =>
       expect(mocks.toastError).toHaveBeenCalledWith(
-        "Resume Location before adding a saved place.",
+        "Resume Location before adding a saved place.", { className: connectTypography.toast },
       ),
     );
     expect(mocks.addSavedLocation).not.toHaveBeenCalled();
@@ -697,7 +698,7 @@ describe("SavedLocationsSection", () => {
 
     expect(mocks.addSavedLocation).not.toHaveBeenCalled();
     expect(mocks.toastError).toHaveBeenCalledWith(
-      "This place is already saved as Home. Choose a different place or remove it first.",
+      "This place is already saved as Home. Choose a different place or remove it first.", { className: connectTypography.toast },
     );
     expect(
       screen.getByRole("dialog", { name: "Address details" }),
@@ -729,7 +730,7 @@ describe("SavedLocationsSection", () => {
 
     await waitFor(() =>
       expect(mocks.toastError).toHaveBeenCalledWith(
-        "This place is already saved as Home. Choose a different place or remove it first.",
+        "This place is already saved as Home. Choose a different place or remove it first.", { className: connectTypography.toast },
       ),
     );
     expect(

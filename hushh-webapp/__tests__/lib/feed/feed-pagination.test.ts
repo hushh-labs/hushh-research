@@ -63,7 +63,7 @@ describe("Feed history reading continuity", () => {
     expect(result.current.hasNew).toBe(false);
   });
 
-  it("ignores an outgoing-only arrival without offering new activity or raising the read watermark", () => {
+  it("offers a confirmed outgoing location request as new activity without marking it seen while scrolled", () => {
     const initial = page([3, 2], "older");
     const { result, rerender } = renderHook(
       ({ data }) => useFeedHistoryPresentation("reader", data),
@@ -75,11 +75,12 @@ describe("Feed history reading continuity", () => {
       metadata: { feed_audience: "requester" },
     };
     rerender({ data: { ...page([], "new-cursor"), items: [outgoing, ...initial.items] } });
-    expect(result.current.hasNew).toBe(false);
+    expect(result.current.hasNew).toBe(true);
     expect(result.current.page!.items.map(row => row.id)).toEqual(["3", "2"]);
     expect(latestFeedId(result.current.page!.items)).toBe("3");
     act(() => result.current.showNew());
-    expect(root.scrollTop).toBe(600);
+    expect(root.scrollTop).toBe(0);
+    expect(result.current.page!.items[0]!.id).toBe("4");
     expect(result.current.pagination.nextCursor).toBe("older");
   });
 
@@ -122,6 +123,7 @@ describe("Feed history reading continuity", () => {
     const { result, rerender } = renderHook(({ data }) => useFeedHistoryPresentation("reader", data), { initialProps: { data: initial } });
     act(() => { root.scrollTop = 600; root.dispatchEvent(new Event("scroll")); });
     const next = page([5, 4, 2], "next");
+    next.items[0] = { ...next.items[0]!, source_domain: "kai", event_type: "kai_analysis_completed" };
     next.items[1]!.metadata = { feed_group_key: "share-a", feed_silent: true };
     next.items[1]!.event_type = "location_share_expired";
     rerender({ data: next });
@@ -136,6 +138,7 @@ describe("Feed history reading continuity", () => {
     const { result, rerender } = renderHook(({ data }) => useFeedHistoryPresentation("reader", data), { initialProps: { data: initial } });
     act(() => { root.scrollTop = 600; root.dispatchEvent(new Event("scroll")); });
     const updated = page([4, 3, 2], "new-older");
+    updated.items[0] = { ...updated.items[0]!, source_domain: "kai", event_type: "kai_analysis_completed" };
     updated.items[1]!.actor_label = "Updated label";
     rerender({ data: updated });
     expect(result.current.page!.items.map((row) => row.id)).toEqual(["3", "2", "1"]);

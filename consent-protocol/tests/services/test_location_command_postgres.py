@@ -1,4 +1,4 @@
-"""Real transaction tests. Run with ONE_COMMAND_TEST_DATABASE_URL pointing to an isolated test DB."""
+"""Real transaction tests against disposable databases on the local command test server."""
 
 import asyncio
 import os
@@ -1346,6 +1346,26 @@ async def test_actual_private_share_commits_ciphertext_events_and_audience_recei
         Service().create_grant_with_initial_envelope(
             **{**args, "command_operation_id": None, "share_kind": "sos"}
         )
+
+
+def test_legacy_request_deadline_repair_skips_deleted_counterparty(db, monkeypatch):
+    service = audience_writer_schema(db, monkeypatch)()
+    db.execute_raw("""
+        INSERT INTO one_location_access_requests (requester_user_id, owner_user_id, status)
+        VALUES ('owner', 'other', 'pending'), ('owner', 'third', 'pending');
+        INSERT INTO public.actor_profiles (user_id) VALUES ('other');
+        DELETE FROM public.actor_profiles WHERE user_id = 'other';
+    """)
+
+    service._repair_legacy_direct_request_deadlines("owner")
+
+    assert db.execute_raw("""
+        SELECT owner_user_id, expires_at IS NOT NULL AS repaired
+        FROM one_location_access_requests ORDER BY owner_user_id
+    """).data == [
+        {"owner_user_id": "other", "repaired": False},
+        {"owner_user_id": "third", "repaired": True},
+    ]
 
 
 @pytest.mark.asyncio

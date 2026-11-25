@@ -35,6 +35,14 @@ _SINGLE_TURN_REQUEST_LABELS: ContextVar[dict[str, str] | None] = ContextVar(
 )
 
 
+class SingleTurnInvalidJsonError(ValueError):
+    """The model returned text that cannot be decoded as JSON."""
+
+
+class SingleTurnEmptyResponseError(ValueError):
+    """The model returned no response text."""
+
+
 @contextmanager
 def bind_single_turn_request_labels(labels: Mapping[str, str] | None) -> Iterator[None]:
     """Scope low-cardinality Vertex billing labels to one trusted operation."""
@@ -60,6 +68,17 @@ def _manifest_instruction(manifest_or_subagent: AgentManifestV2 | AgentSubagentC
     return instruction
 
 
+def single_turn_processing_scope(agent_id: str) -> str | None:
+    """Bind authored gene families to their existing managed text profile."""
+    if agent_id == "agent_documents" or agent_id.startswith("agent_documents_"):
+        return "drive_document_requests"
+    if agent_id in {"one_conversation_title", "one_portfolio_review"} or agent_id.startswith(
+        "agent_portfolio_import_"
+    ):
+        return "one_text_chat"
+    return None
+
+
 def build_single_turn_agent(
     manifest_or_subagent: AgentManifestV2 | AgentSubagentConfig,
     *,
@@ -73,24 +92,21 @@ def build_single_turn_agent(
     config = _manifest_config(manifest_or_subagent)
     configured_model = resolve_fleet_model_name(config.name)
     agent_id = str(getattr(manifest_or_subagent, "id", "single_turn") or "single_turn")
-    # Authored Documents identities own this scope; model output never selects it.
-    scope = (
-        {"processing_scope": "drive_document_requests"}
-        if agent_id == "agent_documents" or agent_id.startswith("agent_documents_")
-        else {"processing_scope": "one_text_chat"}
-        if agent_id == "one_conversation_title"
-        else {}
-    )
+    # Authored identities own this scope; model output never selects it.
+    processing_scope = single_turn_processing_scope(agent_id)
     from hushh_mcp.managed_ai_config import load_scoped_text_policy
 
-    policy = load_scoped_text_policy(scope["processing_scope"]) if scope else None
-    # Managed policy defaults to Azure in UAT; Vertex retains regional failover.
+    policy = load_scoped_text_policy(processing_scope) if processing_scope else None
+    # Scoped profiles own provider selection; Vertex retains regional failover.
     # Azure failures do not silently switch this turn to Vertex.
-    resolved = (
-        model
-        if model is not None
-        else build_managed_regional_gemini_adk_model(configured_model, **scope)
-    )
+    if model is not None:
+        resolved = model
+    elif processing_scope is not None:
+        resolved = build_managed_regional_gemini_adk_model(
+            configured_model, processing_scope=processing_scope
+        )
+    else:
+        resolved = build_managed_regional_gemini_adk_model(configured_model)
     model_name = resolved if isinstance(resolved, str) else str(getattr(resolved, "model", ""))
     if not model_name:
         model_name = config.name
@@ -101,7 +117,7 @@ def build_single_turn_agent(
         "response_mime_type": "application/json",
         "automatic_function_calling": types.AutomaticFunctionCallingConfig(disable=True),
         "max_output_tokens": policy["max_output_tokens"]
-        if policy is not None and scope["processing_scope"] == "drive_document_requests"
+        if policy is not None and processing_scope == "drive_document_requests"
         else manifest_or_subagent.performance.max_output_tokens,
         "thinking_config": thinking_config_for(
             model_name,
@@ -151,7 +167,7 @@ def _decode(text: str, schema: Any) -> Any:
     try:
         value = json.loads(text)
     except json.JSONDecodeError as error:
-        raise ValueError("single-turn agent returned invalid JSON") from error
+        raise SingleTurnInvalidJsonError("single-turn agent returned invalid JSON") from error
     if isinstance(schema, type) and issubclass(schema, BaseModel):
         return schema.model_validate(value)
     if not isinstance(value, dict):
@@ -210,7 +226,7 @@ async def run_single_turn(
         )
         text = turn.final_text.strip()
         if not text:
-            raise ValueError("single-turn agent returned an empty response")
+            raise SingleTurnEmptyResponseError("single-turn agent returned an empty response")
         return _decode(text, schema)
 
 

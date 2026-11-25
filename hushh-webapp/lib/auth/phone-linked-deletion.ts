@@ -2,15 +2,21 @@ import type { User } from "firebase/auth";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { requireUsablePhoneTestStart } from "@/lib/auth/phone-test-eligibility";
-import { PhoneRecoveryService, type LinkedDeletionReceipt } from "@/lib/services/phone-recovery-service";
+import { PhoneRecoveryService, type LinkedDeletionProof, type LinkedDeletionReceipt } from "@/lib/services/phone-recovery-service";
 
-export type LinkedDeletionInput = { operationId: string; phoneNumber: string; testCode?: string; readbackOnly?: boolean };
+export type LinkedDeletionInput = {
+  operationId: string;
+  phoneNumber: string;
+  testCode?: string;
+  recheck?: boolean;
+  readbackOnly?: boolean;
+};
 type RetainedProof = { token: string; userId: string; epoch: number } | null;
 /** AuthProvider keeps identity authority; this module only sequences existing calls. */
 export type LinkedDeletionPorts = {
   user: () => User | null;
   retained: () => RetainedProof;
-  isCurrent: () => boolean;
+  isCurrent?: () => boolean;
   requireOwner: (uid: string, epoch: number) => void;
   finalize: (user: User) => void;
 };
@@ -63,8 +69,9 @@ const unsettled = (receipt: LinkedDeletionReceipt | null) => !receipt || ["prepa
 export async function confirmLinkedDeletion(input: LinkedDeletionInput, ports: LinkedDeletionPorts): Promise<User> {
   const user = ports.user();
   if (!user) throw new Error("Sign in before verifying a phone number.");
-  const retained = input.testCode || input.readbackOnly ? null : ports.retained();
-  if (!input.testCode && !input.readbackOnly) {
+  const readbackOnly = Boolean(input.recheck || input.readbackOnly);
+  const retained = input.testCode || readbackOnly ? null : ports.retained();
+  if (!input.testCode && !readbackOnly) {
     // AuthProvider's owner fence binds the retained proof to this signed-in attempt.
     try {
       if (!retained) throw new Error("No retained phone proof.");
@@ -74,19 +81,25 @@ export async function confirmLinkedDeletion(input: LinkedDeletionInput, ports: L
     }
   }
   const current = () => {
-    if (!ports.isCurrent() || ports.user()?.uid !== user.uid) return false;
-    if (!retained) return Boolean(input.testCode || input.readbackOnly);
+    if ((ports.isCurrent && !ports.isCurrent()) || ports.user()?.uid !== user.uid) return false;
+    if (!retained) return Boolean(input.testCode || readbackOnly);
     if (ports.retained() !== retained) return false;
     try { ports.requireOwner(retained.userId, retained.epoch); return true; } catch { return false; }
   };
   if (!current()) throw new Error("Your account changed. Sign in again.");
+  // Check again observes the original operation without resending its proof.
   // A typed refusal is definite; a lost response is read back, never re-sent.
-  let receipt = await (input.readbackOnly
+  const proof: LinkedDeletionProof | null = readbackOnly
+    ? null
+    : input.testCode
+      ? { test_code: input.testCode }
+      : { phone_id_token: retained!.token };
+  let receipt: LinkedDeletionReceipt | null = await (readbackOnly
     ? PhoneRecoveryService.linkedDeletionStatus(user, input.operationId, current)
-    : PhoneRecoveryService.confirmLinkedDeletion(user, input.operationId, input.phoneNumber, input.testCode ? { test_code: input.testCode } : { phone_id_token: retained!.token }, current))
+    : PhoneRecoveryService.confirmLinkedDeletion(user, input.operationId, input.phoneNumber, proof!, current))
     .catch((error: unknown) => {
       const code = apiErrorCode(error);
-      if (code && !input.readbackOnly && code !== "PHONE_LINKED_DELETION_NOT_FOUND" &&
+      if (code && !readbackOnly && code !== "PHONE_LINKED_DELETION_NOT_FOUND" &&
           (!(error instanceof ApiError) || error.status < 500)) throw error;
       return null;
     });

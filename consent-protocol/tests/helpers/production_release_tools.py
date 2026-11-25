@@ -54,6 +54,7 @@ CI_PRODUCTION_TOOLS = (
     "tag-last-known-good.sh",
     "resolve-rollback-target.sh",
     "production-capacity-bridge.py",
+    "production_template_restore.py",
     "production_capacity_bridge_contract.py",
     "production_recovery_capacity.py",
     "release_artifact_receipts.py",

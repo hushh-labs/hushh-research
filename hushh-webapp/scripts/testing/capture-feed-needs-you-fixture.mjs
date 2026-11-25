@@ -159,22 +159,26 @@ it("captures the Needs you rows", () => {
       <SettingsGroup title="Needs you" separatorInset>
         {ROWS.map((item) => <FeedActionableRow key={item.id} item={item} />)}
       </SettingsGroup>
-      <SettingsGroup title="Live" separatorInset>
-        {groupFeedSmsAlerts([0, 1, 2].map((index) => ({
-          id: "sms-emergency:incident-" + index,
-          smsEmergency: { senderId: "sms-sender" },
+      <section aria-label="Live"><SettingsGroup title="Live" separatorInset>
+        {[0, 1].map(index => <FeedActionableRow key={index} item={{
+          id: "sms-emergency:active-" + index, smsEmergency: { senderId: "sms-sender" },
           person: { displayName: "A contact with a very long display name", photoUrl: null },
-          title: "A contact with a very long display name",
-          description: index === 0 ? "Emergency SMS · Active" : index === 1 ? "Emergency SMS · Revoked" : "Emergency SMS · Expired",
-          emphasis: index === 0 ? "emergency" as const : undefined,
-          href: index === 0 ? "/one/location?grantId=incident-0&open=1&section=shared" : null,
-          chevron: index === 0,
-          displayTimestamp: Date.parse("2026-08-17T03:04:00Z") - index * 86400000,
-          sortAt: 3 - index,
+          title: "A contact with a very long display name", description: "Emergency SMS · Active",
+          emphasis: "emergency", href: "/one/location?grantId=active-" + index + "&open=1&section=shared", chevron: true,
+          displayTimestamp: Date.parse("2026-08-17T03:04:00Z") - index * 60000, sortAt: 4-index,
+          icon: MapPin, iconTone: "capability", actions: [],
+        }} />)}
+      </SettingsGroup></section>
+      <SettingsGroup title="Recent SMS alerts" separatorInset>
+        {groupFeedSmsAlerts([2, 3].map(index => ({
+          id: "sms-emergency:ended-" + index, smsEmergency: { senderId: "sms-sender" },
+          person: { displayName: "A contact with a very long display name", photoUrl: null },
+          title: "A contact with a very long display name", description: index === 2 ? "Emergency SMS · Revoked" : "Emergency SMS · Expired",
+          href: null, chevron: false, displayTimestamp: Date.parse("2026-08-17T03:04:00Z") - index * 86400000, sortAt: 4-index,
           icon: MapPin, iconTone: "capability" as const, actions: [],
-        }))).map((group) => <FeedSmsAlertGroup key={group.id} group={group} />)}
+        }))).map(group => <FeedSmsAlertGroup key={group.id} group={group} />)}
       </SettingsGroup>
-      <SettingsGroup title="In progress" separatorInset>
+      <SettingsGroup title="Request detail · component checks" separatorInset>
         <FeedDriveProgressRow item={{ id: "queued", title: "Waiting to start", description: "Request allowed. The Drive search starts soon.", href: "/one/consents", requestedAt: 1786934040000, waiting: true }} />
         <FeedDriveProgressRow item={{ id: "unavailable", title: "Documents unavailable", description: "Estimate $1 · Couldn’t verify documents", href: "/one/consents", requestedAt: 1786934040000 }} />
       </SettingsGroup>

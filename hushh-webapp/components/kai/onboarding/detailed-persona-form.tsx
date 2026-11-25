@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState, type FormEvent } from "react";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { Check } from "@/components/icons";
 import {
   detailedPersonaQuestions,
   type DetailedPersonaAnswer,
@@ -11,6 +12,8 @@ import type { PersonaPreferences } from "@/lib/kai/investing-persona";
 import { FinancePersonaReveal } from "./finance-persona-form";
 import styles from "./finance-persona.module.css";
 
+const answerTones = ["careful", "balanced", "growth"] as const;
+
 export function DetailedPersonaForm({
   initial,
   onSave,
@@ -18,7 +21,7 @@ export function DetailedPersonaForm({
   onSavingChange,
 }: {
   initial: PersonaPreferences;
-  onSave: (answers: DetailedPersonaAnswers) => Promise<void>;
+  onSave: (answers: DetailedPersonaAnswers) => Promise<PersonaPreferences>;
   onDone: () => void;
   onSavingChange: (saving: boolean) => void;
 }) {
@@ -28,7 +31,7 @@ export function DetailedPersonaForm({
       detailedPersonaQuestions.map(() => undefined),
   );
   const [step, setStep] = useState(0);
-  const [saved, setSaved] = useState<DetailedPersonaAnswers | null>(null);
+  const [saved, setSaved] = useState<PersonaPreferences | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
   const saving = useRef(false);
@@ -44,8 +47,9 @@ export function DetailedPersonaForm({
 
   const proceed = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (saving.current || answers[step] === undefined) return;
+    if (saving.current) return;
     if (!final) {
+      setAnswers((previous) => previous.map((answer, index) => index === step ? answer ?? null : answer));
       setStep(step + 1);
       return;
     }
@@ -55,8 +59,7 @@ export function DetailedPersonaForm({
     onSavingChange(true);
     setError(false);
     try {
-      await onSave(completed);
-      setSaved(completed);
+      setSaved(await onSave(completed));
     } catch {
       setError(true);
     } finally {
@@ -68,7 +71,7 @@ export function DetailedPersonaForm({
   if (saved)
     return (
       <FinancePersonaReveal
-        preferences={{ ...initial, detailed_assessment_v1: saved }}
+        preferences={saved}
         actionLabel="Back to analysis"
         onDone={onDone}
       />
@@ -76,44 +79,40 @@ export function DetailedPersonaForm({
 
   return (
     <form
-      className={styles.form}
+      className={`${styles.form} ${styles.assessmentForm}`}
       onSubmit={(event) => void proceed(event)}
       aria-busy={busy}
     >
-      <div className="flex items-center justify-between gap-3">
-        <p className="ui-text-helper-text">
-          Question {step + 1} of {total}
-        </p>
-        <progress
-          value={step + 1}
-          max={total}
-          aria-label="Assessment progress"
-        />
+      <div className="flex flex-wrap items-baseline justify-between gap-x-2 ui-text-helper-text">
+        <p>Question {step + 1} of {total}</p>
+        <p>{step < 8 ? "Risk comfort" : "Planning needs"}</p>
+      </div>
+      <div
+        className={styles.assessmentProgress}
+        role="progressbar"
+        aria-label="Assessment answers"
+        aria-valuenow={answers.filter((answer) => answer !== undefined).length}
+        aria-valuemin={0}
+        aria-valuemax={total}
+      >
+        {detailedPersonaQuestions.map(({ prompt }, index) => {
+          const answer = answers[index];
+          const tone = answer === undefined ? "future" : answer === null ? "unsure" : answerTones[answer];
+          return <span key={prompt} data-tone={tone} data-current={index === step ? "true" : undefined} aria-hidden="true" />;
+        })}
       </div>
       <div className={styles.detailedQuestion}>
         <fieldset key={step} disabled={busy}>
-          <legend tabIndex={-1} ref={focusQuestion}>
-            {question.prompt}
-          </legend>
-          {[...question.choices, "I’m not sure yet"].map((label, index) => {
-            const value = ([0, 1, 2, null] as const)[index]!;
-            return (
-              <label key={label}>
-                <input
-                  type="radio"
-                  name="answer"
-                  checked={answers[step] === value}
-                  onChange={() =>
-                    setAnswers((previous) =>
-                      previous.map((current, item) =>
-                        item === step ? value : current,
-                      ),
-                    )
-                  }
-                />
-                <span>{label}</span>
-              </label>
-            );
+          <legend tabIndex={-1} ref={focusQuestion}>{question.prompt}</legend>
+          {question.choices.map((label, index) => {
+            const value = ([0, 1, 2] as const)[index]!;
+            return <button key={label} type="button" className={styles.choice}
+              aria-pressed={answers[step] === value}
+              onClick={() => setAnswers(previous => previous.map((current, item) =>
+                item === step ? current === value ? null : value : current))}>
+              <span className={styles.box} aria-hidden="true"><Check size={14} /></span>
+              <span>{label}</span>
+            </button>;
           })}
         </fieldset>
       </div>
@@ -122,22 +121,21 @@ export function DetailedPersonaForm({
           Couldn’t save your assessment. Try again.
         </p>
       ) : null}
-      <footer className={styles.actions}>
-        {step > 0 ? (
-          <ShellActionSurface
-            variant="pill"
-            disabled={busy}
-            onClick={() => setStep(step - 1)}
-          >
-            Back
-          </ShellActionSurface>
-        ) : null}
+      <footer className={`${styles.actions} ${styles.assessmentActions}`}>
+        <ShellActionSurface
+          variant="pill"
+          className="ui-text-compact-button-label"
+          disabled={busy}
+          onClick={() => step > 0 ? setStep(step - 1) : onDone()}
+        >
+          Back
+        </ShellActionSurface>
         <ShellActionSurface
           type="submit"
           variant="pill"
-          className={styles.primary}
+          className={`${styles.primary} ui-text-compact-button-label`}
           rippleEffect="fill"
-          disabled={busy || answers[step] === undefined}
+          disabled={busy}
         >
           {busy ? "Saving…" : final ? "Save assessment" : "Continue"}
         </ShellActionSurface>

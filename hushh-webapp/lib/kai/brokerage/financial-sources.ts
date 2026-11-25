@@ -146,6 +146,7 @@ export function getStatementSnapshotOptions(
     return {
       id: String(snapshot.id),
       label: formatStatementSnapshotLabel(snapshot),
+      fileName: typeof source?.file_name === "string" ? cleanText(source.file_name) : null,
       brokerage: cleanText(source?.brokerage),
       statementPeriodEnd: cleanText(source?.statement_period_end),
       importedAt: cleanText(snapshot.imported_at),

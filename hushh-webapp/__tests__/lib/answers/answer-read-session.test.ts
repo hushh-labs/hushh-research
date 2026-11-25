@@ -2,7 +2,7 @@ import "fake-indexeddb/auto";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const transport = vi.hoisted(() => ({ apiFetch: vi.fn(), encrypt: vi.fn(), refreshAccountIdentityShadow: vi.fn(), getPersonalAgentStatus: vi.fn(), firebaseUser: { uid: "answer-read-owner" } as { uid: string } | null }));
+const transport = vi.hoisted(() => ({ apiFetch: vi.fn(), encrypt: vi.fn(), refreshAccountIdentityShadow: vi.fn(), getPersonalAgentStatus: vi.fn(), getPersonalAgentStatusForRouting: vi.fn(), firebaseUser: { uid: "answer-read-owner" } as { uid: string } | null }));
 vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => false } }));
 vi.mock("@/lib/capacitor", () => ({ HushhPersonalKnowledgeModel: {}, HushhVault: { encryptData: transport.encrypt } }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: transport }));
@@ -139,6 +139,7 @@ beforeEach(async () => {
   vi.setSystemTime(new Date("2026-10-13T12:00:00.000Z"));
   transport.apiFetch.mockReset();
   transport.getPersonalAgentStatus.mockReset().mockResolvedValue({ hostingMode: "shared" });
+  transport.getPersonalAgentStatusForRouting.mockReset().mockImplementation(() => transport.getPersonalAgentStatus());
   transport.firebaseUser = { uid: OWNER };
   publishValidatedAuthSessionPrincipal({ firebaseUid: OWNER, ownerId: OWNER, accountGeneration: 0 });
   transport.refreshAccountIdentityShadow.mockReset();

@@ -7,7 +7,9 @@ const mocks = vi.hoisted(() => ({
   onConnectionGraphMutated: vi.fn(),
   onFeedChanged: vi.fn(),
   onFeedHistoryMutated: vi.fn(),
+  onFeedConnectionRequestsChanged: vi.fn(),
   dispatchFeedStateChanged: vi.fn(),
+  dispatchFeedConnectionRequestsChanged: vi.fn(),
   dispatchConsentStateChanged: vi.fn(),
   setPayoutStreamState: vi.fn(),
   // Generation-0 accounts: the application owner equals the Firebase UID.
@@ -30,9 +32,13 @@ vi.mock("@/lib/cache/cache-sync-service", () => ({
     onConnectionGraphMutated: mocks.onConnectionGraphMutated,
     onFeedChanged: mocks.onFeedChanged,
     onFeedHistoryMutated: mocks.onFeedHistoryMutated,
+    onFeedConnectionRequestsChanged: mocks.onFeedConnectionRequestsChanged,
   },
 }));
-vi.mock("@/lib/feed/feed-events", () => ({ dispatchFeedStateChanged: mocks.dispatchFeedStateChanged }));
+vi.mock("@/lib/feed/feed-events", () => ({
+  dispatchFeedStateChanged: mocks.dispatchFeedStateChanged,
+  dispatchFeedConnectionRequestsChanged: mocks.dispatchFeedConnectionRequestsChanged,
+}));
 vi.mock("@/lib/consent/consent-events", () => ({
   dispatchConsentStateChanged: mocks.dispatchConsentStateChanged,
 }));
@@ -163,6 +169,23 @@ describe("document Feed stream", () => {
     expect(mocks.onConsentMutated).toHaveBeenCalledTimes(2);
     expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();
     expect(JSON.stringify(mocks.dispatchConsentStateChanged.mock.calls)).not.toContain("private.pdf");
+    result.unmount();
+  });
+
+  it("refreshes incoming connections on their own hint without invalidating history or consent", async () => {
+    vi.useFakeTimers();
+    mocks.open.mockResolvedValue(ok(stream(
+      'event: feed_changed\ndata: {"reason":"connection_mutated"}\n\n',
+    )));
+    const user = { uid: "requester", getIdToken: vi.fn().mockResolvedValue("token") };
+    const result = renderHook(() => useDocumentFeedStream(user));
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+
+    expect(mocks.onFeedConnectionRequestsChanged).toHaveBeenCalledWith("requester");
+    expect(mocks.dispatchFeedConnectionRequestsChanged).toHaveBeenCalledOnce();
+    expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();
+    expect(mocks.onFeedChanged).not.toHaveBeenCalled();
+    expect(mocks.onConsentMutated).not.toHaveBeenCalled();
     result.unmount();
   });
 

@@ -1,6 +1,8 @@
+import { Capacitor } from "@capacitor/core";
 import { isPrivateHostingMode } from "@/lib/one/owner-cloud";
 import { AuthService } from "./auth-service";
-import { snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { hasAuthSessionIdentity, snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+import { isFirebaseSessionOwnerCurrent } from "@/lib/auth/firebase-session-owner";
 import {
   forgetAgentAnswers as clearTransportAgentAnswers,
   markAgentAnswered,
@@ -54,14 +56,13 @@ function prewarmGrantsCacheKey(uid: string, endpoint: PinnedEndpoint): string {
 
 function capturePodOwner() {
   const principal = snapshotValidatedAuthSessionPrincipal();
-  if (!principal || AuthService.getCurrentUser()?.uid !== principal.firebaseUid)
+  if (!principal || !isFirebaseSessionOwnerCurrent(principal))
     throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
   return principal;
 }
 
 function podOwnerIsCurrent(principal: NonNullable<ReturnType<typeof snapshotValidatedAuthSessionPrincipal>>): boolean {
-  return isValidatedAuthSessionOwnerCurrent(principal)
-    && AuthService.getCurrentUser()?.uid === principal.firebaseUid;
+  return isFirebaseSessionOwnerCurrent(principal);
 }
 function refuseRetiredOwner(isCurrent?: () => boolean): void {
   if (isCurrent && !isCurrent()) throw new Error("POD_OWNER_CHANGED");
@@ -894,18 +895,23 @@ export async function agentChatRequest(
  */
 export async function introMayReachHub(
   hosting: () => Promise<{ hostingMode?: string }>,
+  confirmedNativeGuest = false,
 ): Promise<boolean> {
-  if (!AuthService.getCurrentUser()) return true;
   const admittedOwner = snapshotValidatedAuthSessionPrincipal();
-  if (!admittedOwner || !podOwnerIsCurrent(admittedOwner)) return false;
-  const uid = admittedOwner.ownerId;
-  const ownerPod = await import("./owner-pod-endpoint");
-  if (await ownerPod.loadPinnedEndpoint(uid).catch(() => null)) return false;
-  const mode = await hosting().then(
-    (status) => status.hostingMode,
-    () => undefined,
-  );
-  return podOwnerIsCurrent(admittedOwner) && mode === "shared";
+  if (!admittedOwner) {
+    return !hasAuthSessionIdentity() && !AuthService.getCurrentUser()
+      && (!Capacitor.isNativePlatform() || confirmedNativeGuest);
+  }
+  if (!podOwnerIsCurrent(admittedOwner)) return false;
+  try {
+    const ownerPod = await import("./owner-pod-endpoint");
+    if (await ownerPod.loadPinnedEndpoint(admittedOwner.ownerId)) return false;
+    if (!podOwnerIsCurrent(admittedOwner)) return false;
+    const status = await hosting();
+    return podOwnerIsCurrent(admittedOwner) && status.hostingMode === "shared";
+  } catch {
+    return false;
+  }
 }
 
 /** Shared by chat and review; a direct failure must never fall back to the hub. */
@@ -916,6 +922,7 @@ export async function usesOwnerPod(
   const uid = admittedOwner.ownerId;
   const ownerPod = await import("./owner-pod-endpoint");
   let usePod = Boolean(await ownerPod.loadPinnedEndpoint(uid));
+  if (!podOwnerIsCurrent(admittedOwner)) throw new Error("POD_OWNER_CHANGED");
   if (!usePod) {
     const status = await hosting();
     if (isPrivateHostingMode(status.hostingMode)) usePod = true;

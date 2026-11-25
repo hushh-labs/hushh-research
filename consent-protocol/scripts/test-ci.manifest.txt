@@ -28,6 +28,7 @@ tests/test_native_ship_artifact_workflows.py
 
 # Mail/Drive connector lifecycle: real PostgreSQL in the existing test-only CI service.
 tests/services/test_external_connector_lifecycle_postgres.py
+tests/services/test_calendar_chat_availability_postgres.py
 tests/test_isolated_postgres_guard.py
 # Shared ciphertext writes cannot outlive account-erasure fencing.
 tests/services/test_shared_files_lifecycle_postgres.py
@@ -111,7 +112,12 @@ tests/services/test_oauth_redirect_policy.py
 tests/agents/test_calendar_agent_tools.py
 # Calendar current-turn authority and existing Follow-ups producer/read contracts.
 tests/test_calendar_routes.py
+tests/agents/test_calendar_shared_opening_tools.py
 tests/agents/test_calendar_request_scope.py
+tests/agents/test_calendar_contract_matrix.py
+tests/agents/test_calendar_guest_clarification.py
+tests/agents/test_calendar_conversation_compatibility.py
+tests/agents/test_calendar_slot_matrix.py
 tests/services/test_calendar_email_followup_boundaries.py
 tests/services/test_calendar_email_followup_extraction.py
 tests/services/test_calendar_email_followup_relevance.py
@@ -207,6 +213,7 @@ tests/services/test_drive_live_query_lifecycle.py
 tests/services/test_connector_feature_admission.py
 tests/test_external_connector_oauth_routes.py
 tests/services/test_gmail_metadata_reader.py
+tests/services/test_gmail_chat_tools.py
 tests/services/test_email_delegated_read.py
 tests/services/test_receipt_memory_read.py
 tests/test_email_agent_a2a.py
@@ -269,6 +276,7 @@ tests/test_finance_sharing_contract.py
 tests/test_finance_recipient_hub_authority.py
 tests/test_advisor_review_contract.py
 tests/test_advisor_review_authority.py
+tests/services/test_one_portfolio_review.py
 tests/test_advisor_review_postgres.py
 tests/test_advisor_review_calendar.py
 tests/test_finance_consent_lifecycle.py
@@ -346,6 +354,7 @@ tests/test_ria_picks_routes.py
 tests/test_kai_optimize_realtime_contract.py
 tests/test_portfolio_stream_quality_rules.py
 tests/test_portfolio_import_gene_runtime.py
+tests/test_portfolio_import_incremental.py
 tests/test_stream_path_query_bounds_cwe400.py
 tests/performance/test_market_cache_instrumentation.py
 tests/test_llm_operon_stream_error_leak.py
@@ -1639,7 +1648,6 @@ tests/test_phone_transfer_postgres.py
 tests/test_phone_linked_deletion_postgres.py
 
 tests/test_phone_transfer_authority.py
-tests/test_phone_binding_policy.py
 tests/test_phone_bootstrap.py
 tests/test_phone_schema_qualification.py
 tests/test_phone_schema_origin.py

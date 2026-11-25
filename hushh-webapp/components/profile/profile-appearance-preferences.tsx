@@ -41,11 +41,11 @@ function ChevronIcon() {
   );
 }
 
-function RowCopy({ title, description }: { title: string; description: string }) {
+function RowCopy({ title, description }: { title: string; description?: string }) {
   return (
     <span className={styles.copy}>
       <span className={styles.title}>{title}</span>
-      <span className={styles.description}>{description}</span>
+      {description ? <span className={styles.description}>{description}</span> : null}
     </span>
   );
 }
@@ -62,7 +62,7 @@ export function ProfileAppearancePreferences({
       <div className={styles.card}>
         <div className={styles.row}>
           <span className={styles.icon}><ProfilePreferenceAppearanceIcon /></span>
-          <RowCopy title="Appearance" description="Light, dark, or system." />
+          <RowCopy title="Appearance" />
           <span className={styles.trailing}>
             <ThemeToggleLean
               size="expanded"
@@ -74,7 +74,7 @@ export function ProfileAppearancePreferences({
 
         <div className={styles.row}>
           <span className={styles.icon}><ProfilePreferenceAccentIcon /></span>
-          <RowCopy title="Accent" description="Choose the app accent." />
+          <RowCopy title="Accent" />
           <span className={styles.trailing}>
             <select
               className={styles.select}
@@ -90,13 +90,13 @@ export function ProfileAppearancePreferences({
 
         <button type="button" className={`${styles.row} ${styles.action}`} onClick={onGeminiClick}>
           <span className={styles.icon}><Brain /></span>
-          <RowCopy title="AI connection" description="Cloud connection or your own key." />
+          <RowCopy title="AI connection" description="Cloud or your own key." />
           <span className={`${styles.trailing} ${styles.chevron}`}><ChevronIcon /></span>
         </button>
 
         <button type="button" className={`${styles.row} ${styles.action}`} onClick={onVoiceClick}>
           <span className={styles.icon}><ProfilePreferenceVoiceIcon /></span>
-          <RowCopy title="Voice" description="What One’s voice can do, and its safety controls." />
+          <RowCopy title="Voice" description="Abilities and safety controls." />
           <span className={`${styles.trailing} ${styles.chevron}`}><ChevronIcon /></span>
         </button>
       </div>

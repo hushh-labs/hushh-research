@@ -18,9 +18,13 @@
  * evaluates correctly in both environments.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { TopBarRouteAccessoryHost } from "./top-bar-route-accessory";
+import { visitFeedSearchRoute } from "@/lib/feed/feed-search-memory";
+import { openFeedSearch } from "@/lib/feed/feed-search-events";
 import { OnboardingRouteActions } from "@/components/onboarding/onboarding-route-actions";
 import { useNativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
 import {
+  Search,
   BriefcaseBusiness,
   Code2,
   AccentedKeyIcon,
@@ -408,6 +412,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   const { activePersona, riaCapability, riaEntryRoute, switchPersona } =
     usePersonaState();
   const pathname = usePathname();
+  useEffect(()=>{if(pathname)visitFeedSearchRoute(pathname);},[pathname]);
   // The top bar is suppressed on every setup surface, so its avatar must not
   // spend a pool connection fetching an image nobody is looking at while a
   // first-run person waits on the gate. It still renders from cache, and
@@ -1246,6 +1251,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                       <OnboardingRouteActions key={userId ?? "signed-out"} />
                     ) : (
                       <>
+                        {pathname === "/one/feed" && !["funding_event", "statement_id", "institution_id", "analysis_id"].some(key => searchParams?.has(key)) ? <ShellActionSurface variant="icon" aria-label="Search Feed" data-voice-control-id="feed.search.open" onClick={openFeedSearch}><Search className="h-5 w-5" /></ShellActionSurface> : null}
                         {showVaultUnlockAction ? (
                           <ShellActionSurface
                             variant="icon"
@@ -1256,6 +1262,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                           </ShellActionSurface>
                         ) : null}
 
+                        <TopBarRouteAccessoryHost />
                         <OpenProfileAction avatarUrl={effectiveAvatarUrl} displayName={user?.displayName} />
                       </>
                     )}

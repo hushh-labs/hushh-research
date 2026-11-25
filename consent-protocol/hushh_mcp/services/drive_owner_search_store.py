@@ -47,6 +47,7 @@ from hushh_mcp.services.drive_request_review_policy import (
     autoshare_selection,
     checkpoint_requires_owner_review,
 )
+from hushh_mcp.services.drive_request_search_binding import require_uat_processor_transition
 from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
@@ -923,20 +924,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 ):
                     raise DriveReadError("search_in_progress")
             previous_migration = private.get("processor_migration")
-            if previous_migration:
-                # Permit this exact second transition, retaining the original receipt.
-                # All existing owner, connector, expiry and lease fences above still apply.
-                if not (
-                    isinstance(previous_migration, dict)
-                    and previous_migration.get("version") == 1
-                    and previous_migration.get("to_binding") == old_binding
-                    and isinstance(old_binding, dict)
-                    and old_binding.get("provider") == "azure_openai"
-                    and target["provider"] == "gemini"
-                    and target.get("authorization_basis") == "uat_policy"
-                    and "previous_migration" not in previous_migration
-                ):
-                    raise DriveReadError("search_superseded")
+            require_uat_processor_transition(old_binding, target, previous_migration)
             record = {
                 "version": 1,
                 "basis": "administrator_rollout",

@@ -15,9 +15,9 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION = ROOT / "db/migrations/459_control_plane_kyc_redaction_and_call_indexes.sql"
+MIGRATION = ROOT / "db/migrations/463_control_plane_kyc_redaction_and_call_indexes.sql"
 ROLLBACK = (
-    ROOT / "db/migrations/rollback/459_control_plane_kyc_redaction_and_call_indexes.rollback.sql"
+    ROOT / "db/migrations/rollback/463_control_plane_kyc_redaction_and_call_indexes.rollback.sql"
 )
 DIRECT_CALL_INDEXES = {
     "idx_direct_communication_keys_user_device",
@@ -163,7 +163,7 @@ def test_migration_459_redacts_legacy_kyc_minifies_mail_display_and_rolls_back()
             assert kyc["counterparty_label"] is None
             assert kyc["draft_subject"] is None
             assert kyc["last_error_message"] is None
-            assert kyc["redacted_by"] == "459_control_plane_kyc_redaction_and_call_indexes"
+            assert kyc["redacted_by"] == "463_control_plane_kyc_redaction_and_call_indexes"
 
             mail_rows = dict(
                 conn.execute(

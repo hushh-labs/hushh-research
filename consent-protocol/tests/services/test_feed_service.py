@@ -1,7 +1,8 @@
+from __future__ import annotations
+
 import base64
 import itertools
 import json
-import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID
@@ -19,6 +20,7 @@ from hushh_mcp.services.feed_service import (
     FeedService,
     _safe_photo_url,
 )
+from tests.feed_fixture_support import _dismissed_with, _live_ids, _sqlite_feed
 
 
 class _Db:
@@ -27,6 +29,8 @@ class _Db:
         self.inserted: list[dict] = []
 
     def execute_raw(self, sql: str, params: dict):
+        if "FROM information_schema.columns" in sql:
+            return SimpleNamespace(data=[])
         self.raw_calls.append((sql, params))
         return SimpleNamespace(data=[])
 
@@ -93,10 +97,12 @@ class _QueuedDb:
         return query
 
     def execute_raw(self, sql: str, params: dict):
+        if "FROM information_schema.columns" in sql:
+            return SimpleNamespace(data=[])
         self.raw_calls.append((sql, params))
         if "AS history_revision" in sql:
             data = [{"history_revision": "fixture-history-revision"}]
-        elif sql.startswith("\nWITH keyed"):
+        elif sql.startswith("\nWITH source_events"):
             query = self.queries.pop(0)
             data = (
                 [{"unread_count": query.count}]
@@ -137,6 +143,23 @@ def test_source_backed_feed_event_uses_idempotent_projection_insert() -> None:
     assert params["source_row_id"] == "circle_code:invite-1:user-2"
     assert params["metadata_json"] == '{"circle_id": "circle-1"}'
     assert db.inserted == []
+
+
+def test_saved_result_ack_requires_persistence_but_other_projections_remain_best_effort() -> None:
+    from unittest.mock import Mock
+
+    service = FeedService()
+    service._db = Mock()
+    service._db.execute_raw.side_effect = RuntimeError("database unavailable")
+    event = dict(
+        user_id="owner",
+        source_domain="kai",
+        event_type="kai_analysis_completed",
+        source_row_id="run",
+    )
+    service.record_event(**event)
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        service.record_event(**event, require_confirmation=True)
 
 
 def test_legacy_feed_event_without_source_id_keeps_append_only_insert() -> None:
@@ -203,17 +226,16 @@ def test_list_feed_uses_bounded_keyset_pagination_and_exact_unread_count() -> No
     assert result["next_cursor"] == "9"
     assert result["unread_count"] == 41
     assert result["history_revision"] == "fixture-history-revision"
-    assert service._db.raw_calls[0][1] == {"user_id": "user-1"}
+    from hushh_mcp.services.feed_activity_policy import POLICY_REVISION
+
+    assert service._db.raw_calls[0][1] == {"user_id": "user-1", "policy_revision": POLICY_REVISION}
     sql, params = service._db.raw_calls[1]
     assert params == {"user_id": "user-1", "cursor": 11, "page_size": 3}
     assert "FROM grouped WHERE" in sql
-    assert "row_number() OVER (PARTITION BY thread_key ORDER BY id DESC)" in sql
+    assert "row_number() OVER (PARTITION BY thread_key ORDER BY" in sql
     assert "LIMIT :page_size" in sql
-    assert "COALESCE(f.metadata->>'pwm_outcome', '') NOT IN ('ready', 'partial')" in sql
-    assert (
-        "COALESCE(f.metadata->>'pwm_outcome', '') NOT IN ('ready', 'partial')"
-        in service._db.raw_calls[-1][0]
-    )
+    assert "f.metadata->>'pwm_outcome' IN ('ready','partial')" in sql
+    assert "f.metadata->>'pwm_outcome' IN ('ready','partial')" in service._db.raw_calls[-1][0]
     assert service._db.raw_calls[-1][1] == {"user_id": "user-1"}
 
 
@@ -256,7 +278,7 @@ def test_feed_mutations_only_touch_the_owner_and_snapshot() -> None:
         {key: value for key, value in entry.items() if key != "dismissal_token"} for entry in params
     ] == [
         {"user_id": "owner-a", "item_id": 42},
-        {"user_id": "owner-a", "item_id": 42, "surfacing_ids": []},
+        {"user_id": "owner-a", "item_id": 42, "operation_ids": [], "surfacing_ids": []},
         {"user_id": "owner-a", "item_id": 42},
         {"user_id": "owner-a", "up_to_id": 99},
         {"user_id": "owner-a", "up_to_id": 99, "surfacing_ids": []},
@@ -281,123 +303,54 @@ def test_feed_mutations_only_touch_the_owner_and_snapshot() -> None:
 
 
 def test_grouped_feed_hides_latest_dismissed_thread_until_new_activity() -> None:
-    sql = FeedService()._grouped_feed_sql(count=False)
-    assert "row_number() OVER (PARTITION BY thread_key ORDER BY id DESC)" in sql
+    service = FeedService()
+    service._feed_source_shape = {}
+    sql = service._grouped_feed_sql(count=False)
+    assert "row_number() OVER (PARTITION BY thread_key ORDER BY" in sql
     assert "thread_rank = 1 AND dismissed_at IS NULL" in sql
     assert "last_dismissed_id IS NULL OR id > last_dismissed_id" in sql
 
 
-class _SqliteFeedDb:
-    """Runs FeedService's own mutation SQL on sqlite, as psycopg2 runs it on Postgres.
-
-    sqlite has no array type, so only the ``= ANY(CAST(:ids AS BIGINT[]))``
-    membership test is mapped to ``json_each``; everything else in each
-    statement runs verbatim. JSON metadata is decoded on read, as psycopg2
-    decodes JSONB. tests/test_feed_account_session_postgres.py runs the same
-    statements on PostgreSQL.
-    """
-
-    def __init__(self, connection: sqlite3.Connection) -> None:
-        self.connection = connection
-
-    def execute_raw(self, sql: str, params: dict):
-        params = dict(params)
-        for name, value in list(params.items()):
-            marker = f"= ANY(CAST(:{name} AS BIGINT[]))"
-            if marker in sql:
-                sql = sql.replace(marker, f"IN (SELECT value FROM json_each(:{name}))")
-                params[name] = json.dumps(value)
-        cursor = self.connection.execute(sql, params)
-        data = (
-            [
-                dict(zip([column[0] for column in cursor.description], row, strict=True))
-                for row in cursor.fetchall()
-            ]
-            if cursor.description
-            else []
-        )
-        for row in data:
-            if isinstance(row.get("metadata"), str):
-                row["metadata"] = json.loads(row["metadata"])
-        self.connection.commit()
-        return SimpleNamespace(data=data)
-
-
-def _sqlite_feed(
-    rows: list[tuple[int, str, str, str, dict]],
-    *,
-    stamp: list[str],
-    payment_status: dict[str, str] | None = None,
-) -> tuple[sqlite3.Connection, FeedService]:
-    connection = sqlite3.connect(":memory:")
-    connection.create_function("now", 0, lambda: stamp[0])
-    connection.execute(
-        "CREATE TABLE feed_events(id INTEGER PRIMARY KEY,user_id TEXT,source_domain TEXT,"
-        "event_type TEXT,metadata TEXT,dismissed_at TEXT,dismissal_token TEXT,read_at TEXT)"
-    )
-    connection.executemany(
-        "INSERT INTO feed_events(id,user_id,source_domain,event_type,metadata) VALUES(?,?,?,?,?)",
-        [(*row[:4], json.dumps(row[4])) for row in rows],
-    )
-    service = FeedService()
-    service._db = _SqliteFeedDb(connection)
-    statuses = payment_status or {}
-
-    def current_payment_status(_user_id: str, feed_rows: list[dict]) -> list[dict]:
-        # Stands in for the read-time order status the Feed list puts on Pay rows.
-        return [
-            {
-                **row,
-                "metadata": {
-                    **row["metadata"],
-                    "current_payment_status": statuses.get(
-                        row["metadata"].get("request_id"), "unavailable"
-                    ),
-                },
-            }
-            if row.get("event_type") == "document_share_payment_ready"
-            else row
-            for row in feed_rows
-        ]
-
-    service._with_drive_payment_status = current_payment_status  # type: ignore[method-assign]
-    return connection, service
-
-
-def _dismissed_with(connection: sqlite3.Connection, stamp: str) -> list[int]:
-    return [
-        row[0]
-        for row in connection.execute(
-            "SELECT id FROM feed_events WHERE dismissed_at = ? ORDER BY id", (stamp,)
-        )
-    ]
-
-
-def _live_ids(connection: sqlite3.Connection, user_id: str) -> list[int]:
-    return [
-        row[0]
-        for row in connection.execute(
-            "SELECT id FROM feed_events WHERE user_id = ? AND dismissed_at IS NULL ORDER BY id",
-            (user_id,),
-        )
-    ]
-
-
 def test_dismissal_sql_persists_owner_scoped_groups_and_snapshot() -> None:
     stamp = ["first-dismiss"]
+    doc = {"request_id": "57c15623-868c-471a-9b93-0055aa2f1ef6"}
     connection, service = _sqlite_feed(
         [
             (1, "owner", "consent", "consent_requested", {"bundle_id": "bundle-a"}),
             (2, "owner", "consent", "consent_requested", {"bundle_id": "bundle-a"}),
             (3, "other", "consent", "consent_requested", {"bundle_id": "bundle-a"}),
             (4, "owner", "consent", "consent_requested", {"bundle_id": "bundle-b"}),
-            (5, "owner", "connected_systems", "document_share_decided", {"request_id": "req-a"}),
-            (6, "owner", "connected_systems", "document_share_outcome", {"request_id": "req-a"}),
-            (7, "owner", "connected_systems", "document_share_outcome", {"request_id": "req-a"}),
+            (
+                5,
+                "owner",
+                "connected_systems",
+                "document_share_decided",
+                doc,
+            ),
+            (
+                6,
+                "owner",
+                "connected_systems",
+                "document_share_outcome",
+                doc,
+            ),
+            (
+                7,
+                "owner",
+                "connected_systems",
+                "document_share_outcome",
+                doc,
+            ),
             (8, "owner", "connected_systems", "document_share_outcome", {"request_id": "req-b"}),
             (9, "owner", "kai", "kai_analysis_completed", {}),
             (10, "owner", "consent", "consent_requested", {"bundle_id": "bundle-a"}),
-            (11, "owner", "connected_systems", "document_share_outcome", {"request_id": "req-a"}),
+            (
+                11,
+                "owner",
+                "connected_systems",
+                "document_share_outcome",
+                doc,
+            ),
         ],
         stamp=stamp,
     )
@@ -429,11 +382,11 @@ def test_dismissal_sql_persists_owner_scoped_groups_and_snapshot() -> None:
         for row in connection.execute(
             "SELECT id FROM feed_events WHERE dismissed_at='drive-dismiss' ORDER BY id"
         )
-    ] == [6, 7]
-    # The earlier suppressed outcome stays hidden, but a valid Drive decision
-    # and a later outcome remain independent Feed rows.
+    ] == [5, 6, 7]
+    # The earlier rows leave together, while the later outcome remains visible.
     assert (
-        connection.execute("SELECT dismissed_at FROM feed_events WHERE id=5").fetchone()[0] is None
+        connection.execute("SELECT dismissed_at FROM feed_events WHERE id=5").fetchone()[0]
+        == "drive-dismiss"
     )
     assert (
         connection.execute("SELECT dismissed_at FROM feed_events WHERE id=11").fetchone()[0] is None
@@ -563,8 +516,14 @@ def test_removing_any_visible_drive_row_never_surfaces_a_row_it_hid() -> None:
 
 def test_removing_no_files_outcome_also_removes_the_rows_it_was_hiding() -> None:
     stamp = ["removed"]
-    no_files = {"request_id": "req-a", "user_facing_status": "no_files_shared"}
-    available = {"request_id": "req-a", "user_facing_status": "pending"}
+    no_files = {
+        "request_id": "req-a",
+        "user_facing_status": "no_files_shared",
+    }
+    available = {
+        "request_id": "req-a",
+        "user_facing_status": "pending",
+    }
     connection, service = _sqlite_feed(
         [
             (8, "owner", "connected_systems", "document_share_payment_ready", available),
@@ -1120,7 +1079,11 @@ def test_direct_message_feed_body_is_only_a_recipient_scoped_transient_preview(
     assert result["items"] == [
         {
             "id": "10",
+            "scope_id": "connections",
+            "agent_label": "Connect",
             "source_domain": "connections",
+            "subagent_id": "agent_connections",
+            "activity_kind": "outcome",
             "event_type": "direct_message_received",
             "actor_label": None,
             "metadata": {
@@ -1494,11 +1457,14 @@ def test_legacy_duration_event_prefers_its_authoritative_grant_id() -> None:
     assert grant_id in service._db.raw_calls[0][1]["grant_ids_json"]
 
 
-def test_grouped_chat_metadata_is_computed_and_not_copied_from_storage():
+@pytest.mark.parametrize(
+    "event,unread", [("location_circle_message", 12), ("direct_message_received", 3)]
+)
+def test_grouped_chat_metadata_is_computed_and_not_copied_from_storage(event, unread):
     item = FeedService._to_item(
         {
             "id": 21,
-            "event_type": "location_circle_message",
+            "event_type": event,
             "metadata": {"chat_unread_count": 9999, "circle_name": "Family"},
             "thread_key": "circle:c1",
             "thread_message_count": 12,
@@ -1508,7 +1474,7 @@ def test_grouped_chat_metadata_is_computed_and_not_copied_from_storage():
 
     assert item["metadata"]["chat_thread_key"] == "circle:c1"
     assert item["metadata"]["chat_message_count"] == 12
-    assert item["metadata"]["chat_unread_count"] == 3
+    assert item["metadata"]["chat_unread_count"] == unread
     assert (
         FeedService._to_item(
             {"id": 1, "metadata": {"chat_thread_key": "direct:foreign", "chat_unread_count": 99}}
@@ -1580,3 +1546,18 @@ def test_terminal_drive_outcome_uses_live_counts_not_forged_snapshot(
     assert item["metadata"].get("current_outcome_reason") == reason
     assert "outcome_search_matched" not in str(item)
     assert "current_outcome_reason" not in service._to_item(row)["metadata"]
+
+
+def test_feed_activity_policy_ships_in_root_and_backend_build_context():
+    import hushh_mcp.services.feed_activity_policy as feed_policy
+    from hushh_mcp.services.generated_contracts import BACKEND_ROOT, REPO_ROOT
+
+    in_context = BACKEND_ROOT / "contracts" / "feed" / "activity-policy.v1.json"
+    canonical = REPO_ROOT / "contracts" / "feed" / "activity-policy.v1.json"
+
+    assert feed_policy._POLICY_PATH == in_context
+    assert in_context.is_file()
+    assert canonical.is_file()
+    assert in_context.read_text(encoding="utf-8").replace("\r\n", "\n") == canonical.read_text(
+        encoding="utf-8"
+    ).replace("\r\n", "\n")

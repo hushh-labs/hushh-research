@@ -211,7 +211,7 @@ describe("One agent profile feed preview", () => {
     mocks.list.mockResolvedValue({
       items: [
         item("1", "calendar_connected"),
-        item("2", "mail_connected"),
+        item("2", "mail_message_sent"),
         item("3", "connected_systems_connected"),
       ],
       next_cursor: null,
@@ -497,7 +497,7 @@ describe("One agent profile feed preview", () => {
     const back = () => native ? fireEvent.click(screen.getByRole("button", { name: "Back to Chat" })) : fireEvent.keyDown(document, { key: "Escape" });
     back();
     expect(screen.queryByRole("region", { name: "Task details" })).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Tasks" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Your tasks" })).toBeVisible();
     expect(mocks.close).not.toHaveBeenCalled();
     back();
     expect(mocks.close).toHaveBeenCalledWith(false);

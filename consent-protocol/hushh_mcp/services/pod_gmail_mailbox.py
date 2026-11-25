@@ -14,13 +14,18 @@ from __future__ import annotations
 import base64
 import json
 import logging
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any, Optional
 
 import httpx
 
 from hushh_mcp.services import pod_connector_credentials as credentials
-from hushh_mcp.services.gmail_delivery_service import _message_for, normalize_draft
+from hushh_mcp.services.gmail_delivery_service import (
+    GmailReplyContext,
+    _message_for,
+    normalize_draft,
+)
 from hushh_mcp.services.gmail_mailbox_actions import (
     LABEL_ACTIONS,
     MAILBOX_ACTIONS,
@@ -90,6 +95,8 @@ class PodGmailMailboxActions(GmailMailboxActions):
         limit: int,
         label: str,
         require_access: RequireAccess,
+        message_ids: Sequence[str] | None = None,
+        expect_account: str | None = None,
     ) -> dict[str, Any]:
         if user_id != self._owner:
             raise _error("GMAIL_NOT_CONNECTED", "Connect Gmail first.")
@@ -97,21 +104,35 @@ class PodGmailMailboxActions(GmailMailboxActions):
             raise _error("GMAIL_MAILBOX_INVALID", "Choose one mailbox change.", 422)
         bound = self._credential().credential_id
         await self.assert_modify_ready(user_id=user_id)
-        arguments: dict[str, Any] = {
-            "limit": limit,
-            "mailbox": "inbox" if action == "archive" else mailbox,
-        }
-        if query.strip():
-            arguments["query"] = query.strip()
-        reader = self._reader_factory(
-            gmail=self._gmail,
-            user_id=user_id,
-            require_access=require_access,
-            transport=self._transport,
-        )
-        targets = await reader.resolve_targets(
-            arguments, label_name=label.strip() if action in LABEL_ACTIONS else None
-        )
+        target_mailbox = "inbox" if action == "archive" else mailbox
+        label_name = label.strip() if action in LABEL_ACTIONS else None
+        if message_ids:
+            reader = self._reader_factory(
+                gmail=self._gmail,
+                user_id=user_id,
+                require_access=require_access,
+                transport=self._transport,
+                expect_account=expect_account,
+            )
+            targets = await reader.resolve_targets_by_ids(
+                message_ids,
+                mailbox=target_mailbox,
+                label_name=label_name,
+            )
+        else:
+            arguments: dict[str, Any] = {
+                "limit": limit,
+                "mailbox": target_mailbox,
+            }
+            if query.strip():
+                arguments["query"] = query.strip()
+            reader = self._reader_factory(
+                gmail=self._gmail,
+                user_id=user_id,
+                require_access=require_access,
+                transport=self._transport,
+            )
+            targets = await reader.resolve_targets(arguments, label_name=label_name)
         if not targets.message_ids:
             return {"status": "no_match", "preview": targets.preview}
         self._credential(bound)
@@ -226,12 +247,40 @@ class PodGmailMailboxActions(GmailMailboxActions):
             await self._proposals().settle(proposal_id=proposal_id, status="executed")
         return result
 
-    async def _deliver(self, token: str, proposal: dict[str, Any]) -> dict[str, Any]:
+    async def linked_calendar_token(self, *, credential_id: str, account: str) -> str:
+        self._credential(credential_id)
+        token = await self._gmail.get_modify_access_token(
+            user_id=self._owner, expected_google_sub=account
+        )
+        self._credential(credential_id)
+        return token
+
+    async def send_linked_calendar_reply(
+        self, *, credential_id: str, account: str, envelope: dict[str, Any]
+    ) -> dict[str, Any]:
+        token = await self.linked_calendar_token(credential_id=credential_id, account=account)
+        return await self._deliver(
+            token,
+            {"action": "send_email", "draft": envelope["draft"]},
+            reply_context=GmailReplyContext(**envelope["reply"]),
+        )
+
+    async def _deliver(
+        self,
+        token: str,
+        proposal: dict[str, Any],
+        *,
+        reply_context: GmailReplyContext | None = None,
+    ) -> dict[str, Any]:
         draft = normalize_draft(proposal["draft"])
-        raw = base64.urlsafe_b64encode(_message_for(draft).as_bytes()).decode("ascii")
+        raw = base64.urlsafe_b64encode(
+            _message_for(draft, reply_context=reply_context).as_bytes()
+        ).decode("ascii")
         save = proposal["action"] == "save_draft"
         path = "/drafts" if save else "/messages/send"
         payload = {"message": {"raw": raw}} if save else {"raw": raw}
+        if reply_context is not None:
+            payload["threadId"] = reply_context.thread_id
         from opentelemetry.instrumentation.utils import suppress_instrumentation  # noqa: PLC0415
 
         with suppress_instrumentation():
@@ -254,7 +303,11 @@ class PodGmailMailboxActions(GmailMailboxActions):
         except ValueError:
             raise _unknown_outcome() from None
         identifier = body.get("id") if isinstance(body, dict) else None
-        if not isinstance(identifier, str) or not 1 <= len(identifier) <= 256:
+        if (
+            not isinstance(identifier, str)
+            or not 1 <= len(identifier) <= 256
+            or (reply_context is not None and body.get("threadId") != reply_context.thread_id)
+        ):
             raise _unknown_outcome()
         return {
             "status": "saved" if save else "sent",

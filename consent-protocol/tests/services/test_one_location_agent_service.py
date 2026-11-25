@@ -320,6 +320,60 @@ def test_atomic_private_share_lock_precedes_fresh_snapshot_mutation(
     assert state["exited"] is True
 
 
+@pytest.mark.parametrize("atomic", [False, True], ids=["event-bound", "atomic-share"])
+@pytest.mark.parametrize(
+    "constraint",
+    [
+        "account_deletion_tombstone_guard",
+        "account_retired_generation_update_guard",
+        "account_identity_reference_immutable_guard",
+    ],
+)
+def test_location_mutation_classifies_only_account_deletion_guard(
+    monkeypatch: pytest.MonkeyPatch, atomic: bool, constraint: str
+) -> None:
+    driver = RuntimeError("private driver detail")
+    driver.diag = SimpleNamespace(constraint_name=constraint)
+    wrapped = RuntimeError("private SQL values")
+    wrapped.__cause__ = driver
+
+    class Connection:
+        def execute(self, statement, params):
+            if "pg_advisory_xact_lock" not in str(statement):
+                raise wrapped
+
+    @contextmanager
+    def fake_connection():
+        yield Connection()
+
+    service = OneLocationAgentService()
+    monkeypatch.setattr(one_location_service_module, "get_db_connection", fake_connection)
+
+    def write():
+        if atomic:
+            return service._execute_atomic_private_share(
+                recipient_key_lock_key="key:recipient",
+                pair_lock_key="grant:owner:recipient",
+                mutation_sql="SELECT :value",
+                params={"value": True, "owner_user_id": "owner", "recipient_user_id": "recipient"},
+            )
+        service._key_writer_connection = Connection()
+        try:
+            return service._execute_one("SELECT :value", {"value": True})
+        finally:
+            del service._key_writer_connection
+
+    if constraint != "account_identity_reference_immutable_guard":
+        with pytest.raises(OneLocationAgentError) as error:
+            write()
+        assert (error.value.status_code, error.value.code) == (409, "LOCATION_PEER_UNAVAILABLE")
+        assert "private" not in str(error.value)
+    else:
+        with pytest.raises(RuntimeError) as error:
+            write()
+        assert error.value is wrapped
+
+
 def test_recipient_key_registration_locks_before_mutation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -7,7 +7,7 @@ import {
   FEED_STATE_CHANGED_EVENT,
   feedStateChangeReason,
 } from "@/lib/feed/feed-events";
-import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
+import { useFeedLiveRefresh, type FeedRefreshScope } from "@/lib/feed/use-feed-live-refresh";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import { FeedService } from "@/lib/services/feed-service";
 import { currentFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
@@ -115,7 +115,9 @@ export function useFeedUnreadCount(options?: { enabled?: boolean }): number | nu
   // badge and the Feed list re-check on the same tick and cannot drift into
   // saying different things about the same unread rows.
   useFeedLiveRefresh(
-    useCallback(() => void load(true), [load]),
+    useCallback((scope?: FeedRefreshScope) => {
+      if (scope !== "connections") void load(true);
+    }, [load]),
     Boolean(userId) && enabled && rootChatReady && !foregroundChatActive,
   );
 

@@ -36,6 +36,8 @@ from hushh_mcp.services.pod_connector_credential_seal import (
     GOOGLE_OWNER_CLIENT,
     KIND_AUTHORIZATION_CODE,
     KIND_MCP_OAUTH,
+    OTHER_CONTACTS_SCOPE,
+    POD_CALENDAR_LIST_SCOPE,
     PROVIDER_GOOGLE,
     REFRESH_TOKEN_MISSING,
     OpenedConnectorCredential,
@@ -197,7 +199,12 @@ async def _redeem(
         subject = google.id_token_subject(grant.id_token, client_id=client_id)
         if not grant.refresh_token:
             raise ConnectRefused(REFRESH_TOKEN_MISSING)
-        granted = tuple(s for s in grant.scopes if s in allowed_scopes(opened.connector_id))
+        granted = tuple(
+            s
+            for s in grant.scopes
+            if s in allowed_scopes(opened.connector_id)
+            and (s not in {OTHER_CONTACTS_SCOPE, POD_CALENDAR_LIST_SCOPE} or s in opened.scopes)
+        )
         required_scopes(opened.connector_id, "read", granted)
     except (google.GoogleOAuthError, ConnectorTokenError, ConnectRefused) as exc:
         # An unverified account (subject None) may be any account on this client.

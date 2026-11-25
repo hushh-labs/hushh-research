@@ -105,6 +105,39 @@ async def test_event_read_is_screen_only_and_owner_local(context):
     assert ctx.entities.offered_calendar_events.calendar_id == "primary"
 
 
+@pytest.mark.parametrize("capacity", [1, 5, 18])
+async def test_opening_receipt_separates_provider_coverage_from_suggestion_limit(context, capacity):
+    from datetime import UTC, datetime, timedelta
+
+    ctx, service = context
+    count = min(capacity, 5)
+    start = datetime(2030, 11, 6, 9, tzinfo=UTC)
+    service.find_openings.return_value.update(
+        openings=[
+            {
+                "start_at": (start + timedelta(minutes=30 * i)).isoformat(),
+                "end_at": (start + timedelta(minutes=30 * (i + 1))).isoformat(),
+            }
+            for i in range(count)
+        ],
+        coverage_complete=True,
+        suggestion_limit=5,
+        suggestions_limited=capacity > 5,
+        available_slot_count=capacity,
+    )
+    outcome = await ToolExecutor().call(
+        ctx, "read_calendar", {"operation": "openings", "duration_minutes": 30, **_window()}
+    )
+    receipt = outcome.result.model_public()
+    assert receipt["returned_count"] == count
+    assert receipt["coverage_complete"] is True and receipt["suggestion_limit"] == 5
+    assert receipt["suggestions_limited"] == (capacity > 5)
+    assert receipt["available_slot_count"] == capacity
+    assert receipt["truncated"] is False  # Event pagination is a different contract.
+    assert "suggestions" in outcome.result.narratable_digest()
+    assert "start_at" not in json.dumps(receipt)
+
+
 async def test_event_detail_requires_current_offered_position_and_grant(context):
     ctx, service = context
     executor = ToolExecutor()

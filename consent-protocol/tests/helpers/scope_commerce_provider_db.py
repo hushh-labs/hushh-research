@@ -97,14 +97,7 @@ async def provider_postgres():
 
 
 async def _seller_credit(store, amount_cents=100):
-    from hushh_mcp.consent.export_envelope import connector_key_fingerprint
-
-    public_key = base64.b64encode(b"k" * 32).decode()
-
-    async def seed(connection: Any) -> None:
-        await _configure_earnings_parties(connection, public_key)
-
-    await store._transaction(seed)
+    quote, purchase = await _approve_fixture_purchase(store, amount_cents)
     funding_id = str(uuid4())
     await store.reserve_funding(
         payer_user_id="payer", funding_id=funding_id, amount_cents=amount_cents
@@ -121,6 +114,30 @@ async def _seller_credit(store, amount_cents=100):
         fee_micro_usd=0,
         livemode=False,
     )
+    await store.reserve_purchase(
+        payer_user_id="payer", quote_id=quote["quoteId"], idempotency_key=str(uuid4())
+    )
+
+    async def mature(connection: Any) -> None:
+        await _mature_earned_fixture(connection, store, purchase, amount_cents)
+
+    await store._transaction(mature)
+    return {
+        "funding_id": funding_id,
+        "charge_id": "ch_" + funding_id,
+        "purchase_id": purchase["purchaseId"],
+    }
+
+
+async def _approve_fixture_purchase(store, amount_cents):
+    from hushh_mcp.consent.export_envelope import connector_key_fingerprint
+
+    public_key = base64.b64encode(b"k" * 32).decode()
+
+    async def seed(connection: Any) -> None:
+        await _configure_earnings_parties(connection, public_key)
+
+    await store._transaction(seed)
     await store.set_tariff(
         owner_user_id="owner",
         scope_handle="scope_abcdefgh",
@@ -147,19 +164,7 @@ async def _seller_credit(store, amount_cents=100):
     purchase = await store.approve_quote(
         owner_user_id="owner", quote_id=quote["quoteId"], request_id=request_id
     )
-    await store.reserve_purchase(
-        payer_user_id="payer", quote_id=quote["quoteId"], idempotency_key=str(uuid4())
-    )
-
-    async def mature(connection: Any) -> None:
-        await _mature_earned_fixture(connection, store, purchase, amount_cents)
-
-    await store._transaction(mature)
-    return {
-        "funding_id": funding_id,
-        "charge_id": "ch_" + funding_id,
-        "purchase_id": purchase["purchaseId"],
-    }
+    return quote, purchase
 
 
 async def _configure_earnings_parties(connection: Any, public_key: str) -> None:

@@ -8,6 +8,7 @@ import pytest
 from fastapi import HTTPException
 
 from api.routes.kai import market_insights
+from hushh_mcp.operons.kai.fetchers import _parse_google_news_rss
 from hushh_mcp.services.market_news_images import YAHOO_PUBLISHER_LOGO, attach_article_images
 
 
@@ -37,6 +38,12 @@ def test_news_images_join_publisher_identity_without_guessing_by_headline():
         },
         {"title": "Same title", "url": "https://example.test/unrelated", "image_url": None},
         {"title": "Keep photo", "url": publisher, "image_url": "https://example.test/original.jpg"},
+        {"url": publisher, "image_thumbnail_url": "https://example.test/thumbnail.jpg"},
+        {
+            "url": publisher,
+            "image_url": YAHOO_PUBLISHER_LOGO,
+            "image": "https://example.test/original.jpg",
+        },
     ]
     rows = attach_article_images(selected, metadata, rss)
     assert rows[0]["image_url"] == "https://media.zenfs.com/photo.jpg"
@@ -44,7 +51,7 @@ def test_news_images_join_publisher_identity_without_guessing_by_headline():
     assert rows[0]["url"] == selected[0]["url"]
     assert rows[0]["provider"] == "finnhub"
     assert rows[1]["image_url"] is None
-    assert rows[2] == selected[2]
+    assert rows[2:] == selected[2:]
     assert attach_article_images(selected[:1], [], rss)[0]["image_url"] is None
 
 
@@ -85,6 +92,30 @@ def test_optional_news_image_never_breaks_an_article_or_accepts_unsafe_urls():
         )
         == "https://example.test/news.jpg"
     )
+
+
+def test_cached_news_rows_use_the_publisher_domain_instead_of_the_redirect_host():
+    rss = """<rss><channel><item><title>A headline</title>
+      <link>https://news.google.com/rss/articles/redirect</link>
+      <source url="https://publisher.com/">Publisher</source>
+    </item></channel></rss>"""
+    rows = _parse_google_news_rss(rss, "SPY")
+    rows.extend(
+        [
+            {"title": "Direct article", "url": "https://example.com/markets/article"},
+            {"title": "Wrapped article", "url": "https://finnhub.io/api/news?id=example"},
+        ]
+    )
+    normalized = market_insights._normalize_market_news_rows(rows, symbol="SPY")
+    assert (
+        normalized[0]["source_logo_url"]
+        == "https://www.google.com/s2/favicons?domain=publisher.com&sz=128"
+    )
+    assert (
+        normalized[1]["source_logo_url"]
+        == "https://www.google.com/s2/favicons?domain=example.com&sz=128"
+    )
+    assert normalized[2]["source_logo_url"] is None
 
 
 def test_market_news_round_robin_deduplicates_tracking_urls_and_headlines():

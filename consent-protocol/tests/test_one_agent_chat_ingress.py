@@ -21,6 +21,11 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_PKM_CONTEXT,
     STATE_USER_ID,
 )
+from hushh_mcp.one_adk.portfolio_context_contract import (
+    PORTFOLIO_CONTEXT_PARAMETERS,
+    PORTFOLIO_CONTEXT_TOOL,
+    STATE_PORTFOLIO_CONTEXT_ENABLED,
+)
 
 
 def request(headers=None):
@@ -70,11 +75,18 @@ async def test_only_verified_intro_state_selects_intro(monkeypatch, no_secret_st
     monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", placement)
     monkeypatch.setattr(agent_chat, "verify_firebase_bearer", lambda header: "synthetic-owner")
     data = incoming(
-        state={STATE_CONSENT_TOKEN: "forged-reference", STATE_PKM_CONTEXT: "forged-private"}
+        state={
+            STATE_CONSENT_TOKEN: "forged-reference",
+            STATE_PKM_CONTEXT: "forged-private",
+            STATE_PORTFOLIO_CONTEXT_ENABLED: True,
+        },
+        forwarded_props={"portfolioContextContract": 1},
     )
     assert await select(request(headers), data) is agent_chat._intro_agent
     assert data.state[STATE_CONSENT_TOKEN] == ""
     assert data.state[STATE_PKM_CONTEXT] == ""
+    assert not data.state[STATE_PORTFOLIO_CONTEXT_ENABLED]
+    assert not any(tool.name == PORTFOLIO_CONTEXT_TOOL for tool in data.tools)
     assert data.state[STATE_USER_ID] != "forged-owner"
     if headers:
         placement.assert_awaited_once_with("synthetic-owner")
@@ -328,6 +340,7 @@ async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(
         "_session_service",
         SimpleNamespace(is_legacy_session=AsyncMock(return_value=False)),
     )
+    from hushh_mcp.one_adk.email_memory_turn import STATE_EMAIL_MEMORY
     from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 
     monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
@@ -343,7 +356,15 @@ async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(
         forwarded_props={
             "pkmContext": "synthetic-scoped-context",
             "accountContextContract": 1,
+            "portfolioContextContract": 1,
             "calendarReviewContract": 1,
+            "emailMemoryProjection": {
+                "source": "one_memory.markdown",
+                "owner_id": "owner-a",
+                "markdown": "synthetic-scoped-memory",
+                "budget_chars": 96_000,
+                "revision": 1,
+            },
         },
     )
     assert await select(request({"x-hushh-consent": "HCT:synthetic"}), data) is agent_chat._agent
@@ -355,10 +376,14 @@ async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(
     )
     assert "accountContextContract" not in data.forwarded_props
     assert data.state["temp:one_calendar_review_contract"] is True
+    assert data.state[STATE_PORTFOLIO_CONTEXT_ENABLED]
+    tool = next(tool for tool in data.tools if tool.name == PORTFOLIO_CONTEXT_TOOL)
+    assert tool.parameters == PORTFOLIO_CONTEXT_PARAMETERS
+    assert "portfolioContextContract" not in data.forwarded_props
     assert data.state[STATE_CONSENT_TOKEN] != "synthetic-owner-capability"
     assert resolve_request_secret(data.state[STATE_CONSENT_TOKEN]) == "synthetic-owner-capability"
     assert resolve_request_secret(data.state[STATE_PKM_CONTEXT]) == "synthetic-scoped-context"
-    assert data.state["temp:one_calendar_review_contract"] is True
+    assert resolve_request_secret(data.state[STATE_EMAIL_MEMORY]) == "synthetic-scoped-memory"
 
 
 async def test_shared_owner_selected_gmail_request_is_refetched_and_sealed(

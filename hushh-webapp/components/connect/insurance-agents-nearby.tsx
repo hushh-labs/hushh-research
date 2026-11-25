@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Building2 } from "@/components/icons";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { InsuranceAgentDetailSurface } from "@/components/connect/insurance-agent-detail-surface";
 import {
+  DirectoryEmptyState,
   DirectoryAttributionFooter,
   DirectoryLoadingRows,
   ExpandRadiusButton,
@@ -56,8 +57,10 @@ const RADIUS_OPTIONS = INSURANCE_AGENT_RADIUS_OPTIONS_MI.map((miles) => ({
  */
 export function InsuranceAgentsNearby({
   getIdToken,
+  filters,
 }: {
   getIdToken: () => Promise<string | null>;
+  filters?: ReactNode;
 }) {
   const location = useCurrentLocation();
 
@@ -191,6 +194,7 @@ export function InsuranceAgentsNearby({
 
   if (!anchor) {
     return (
+      <div className="space-y-4">{filters}
       <LocationPrompt
         denied={
           location.status === "denied" || location.status === "unavailable"
@@ -203,17 +207,26 @@ export function InsuranceAgentsNearby({
         useLocationTestId="insurance-agents-use-location"
         postalInputTestId="insurance-agents-postal-input"
       />
+      </div>
     );
   }
 
   return (
     <div className="space-y-4" data-testid="insurance-agents-nearby">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        {filters}
+        <div className="flex items-center gap-3 md:w-auto">
+          <span data-connect-role="description" className="text-muted-foreground">Within</span>
+          <div className="min-w-0 flex-1 md:w-64">
       <SegmentedTabs
         value={String(radiusMi)}
         onValueChange={(value) => setRadiusMi(Number(value))}
         options={RADIUS_OPTIONS}
         disabled={blockingLoading}
       />
+          </div>
+        </div>
+      </div>
 
       {!error && cards.length > 0 ? (
         <NearbyDirectorySearch
@@ -256,24 +269,23 @@ export function InsuranceAgentsNearby({
         // Coordinates can be perfectly good and still match nobody — the
         // locator covers US Nationwide agencies only. Offer the one input that
         // can actually help rather than a dead end.
-        <QuietBlock
-          title="Nothing nearby"
-          subtitle="Try a US ZIP, or search a wider radius."
+        <DirectoryEmptyState
+          title={`No insurance agents within ${radiusMi} mi`}
           testId="insurance-agents-empty"
+          expandAction={
+            <ExpandRadiusButton
+              nextRadiusMi={nextRadiusMi}
+              onExpand={setRadiusMi}
+            />
+          }
         >
-          <div className="flex w-full flex-col items-center gap-4">
             <PostalCodeForm
               busy={loading}
               initialValue={anchor.kind === "postal" ? anchor.postalCode : ""}
               onSearch={handlePostalCode}
               testId="insurance-agents-postal-input"
             />
-            <ExpandRadiusButton
-              nextRadiusMi={nextRadiusMi}
-              onExpand={setRadiusMi}
-            />
-          </div>
-        </QuietBlock>
+        </DirectoryEmptyState>
       ) : null}
 
       {!error && !blockingLoading && cards.length > 0 && filteredCards.length === 0 ? (

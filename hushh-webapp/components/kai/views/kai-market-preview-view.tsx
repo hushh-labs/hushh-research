@@ -8,7 +8,7 @@ import { symbolAvatarFallback } from "@/components/kai/shared/symbol-avatar";
 import { NativeFinanceLayer, useNativeFinancePaneActive } from "../native-finance-workspace";
 import { useVault } from "@/lib/vault/vault-context";
 import type { NativeWorkspaceSurfaceSection } from "@/lib/capacitor/native-workspace-surface";
-import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   Activity,
@@ -26,10 +26,12 @@ import {
   Zap,
 } from "@/components/icons";
 import { IndexSparkline, MarketIndexDetailSurface } from "@/components/kai/cards/market-index-detail";
+import { MarketMoverDetailSurface, type MarketMoverSelection } from "@/components/kai/cards/market-mover-detail-surface";
 import { AppPageContentRegion } from "@/components/app-ui/app-page-shell";
 import { SectionHeader } from "@/components/app-ui/page-sections";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import marketBriefingStyles from "@/components/kai/shared/market-briefing.module.css";
 import { KaiWorkspaceHeader } from "@/components/kai/kai-workspace-header";
 import { ConnectPortfolioCta } from "@/components/kai/cards/connect-portfolio-cta";
@@ -38,9 +40,6 @@ export { SectorRotationChart, getMarketSectorPeriodVoiceInventory, sectorRowsFor
 import { OneMarketNewsBriefing } from "@/components/kai/cards/market-news-briefing";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 export { OneMarketNewsBriefing, OneMarketNewsCover, marketNewsImageUrl, shouldShowNewsCompanyLogo } from "@/components/kai/cards/market-news-briefing";
-import {
-  SymbolAvatar,
-} from "@/components/kai/shared/symbol-avatar";
 import { PermissionGate } from "@/components/privacy/permission-gate/permission-gate";
 import {
   type MarketOverviewDetailPanel,
@@ -55,19 +54,21 @@ import {
 } from "@/components/kai/shared/local-market-preview";
 import type { ThemeFocusItem } from "@/components/kai/cards/theme-focus-list";
 import { Button } from "@/lib/morphy-ux/button";
-import {
-  type KaiHomeInsightsV2,
-  type KaiHomeRenaissanceItem,
-  type KaiHomeWatchlistItem,
-} from "@/lib/services/api-service";
+import type { KaiHomeInsightsV2 } from "@/lib/services/api-service";
 import { diversifyMarketNewsRows } from "@/lib/kai/market-news-diversity";
-import {
-  openExternalUrl,
-  requestInternalAppNavigation,
-} from "@/lib/utils/browser-navigation";
+import { useAuth } from "@/hooks/use-auth";
+import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
+import { useIndiaMarketHome } from "@/lib/kai/use-india-market-home";
+import type { MarketRegion } from "@/lib/kai/market-region";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 import { cn } from "@/lib/utils";
-import { normalizeMarketSymbol, useKaiMarketHome } from "@/components/kai/shared/kai-market-home-context";
-import { formatLocalDateTime } from "@/lib/utils/local-date-time";
+import { useKaiMarketHome } from "@/components/kai/shared/kai-market-home-context";
+import { formatMarketQuoteTime, formatOverviewAsOf } from "@/lib/kai/market-quote-time";
+import { toMoverGroups, type OneMarketDisplayRow, type OneMarketMoverTab } from "@/lib/kai/market-mover-rows";
+import { OneMarketMovers, openOneMarketHref } from "@/components/kai/cards/one-market-movers";
+
+export { OneMarketMovers, balancedMoverCount } from "@/components/kai/cards/one-market-movers";
+export { toMoverGroups } from "@/lib/kai/market-mover-rows";
 import { buildKaiMarketRoute, ROUTES } from "@/lib/navigation/routes";
 import {
   usePublishVoiceSurfaceMetadata,
@@ -102,10 +103,6 @@ const THEME_ICON_MAP: Array<{ test: RegExp; icon: LucideIcon }> = [
   { test: /energy|oil|gas|renewable|power/i, icon: Zap },
 ];
 
-function formatMarketQuoteTime(value: string | null | undefined): string {
-  return formatLocalDateTime(value, { hour: "numeric", minute: "2-digit" }) ?? "Time unavailable";
-}
-
 const oneMarketRootClassName = cn(
   marketSurfaceVariablesClassName,
   "relative isolate mx-auto flex min-h-0 w-full !max-w-none flex-col overflow-x-hidden !px-0 pb-0",
@@ -134,125 +131,16 @@ const oneMarketRootClassName = cn(
   "[--one-gutter:0px]",
 );
 
-type OneMarketDisplayRow = {
-  symbol: string;
-  companyName: string;
-  price: number | null;
-  changePct: number | null;
-  volume?: number | null;
-  sparkline?: number[] | null;
-  degraded?: boolean;
-  asOf?: string | null;
-};
-
-type OneMarketMoverTab = "gain" | "lose" | "active";
-
-function formatOneMarketPercent(value: number | null | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "N/A";
-  const sign = value >= 0 ? "+" : "";
-  return `${sign}${value.toFixed(2)}%`;
-}
-
-function toOneMarketRows(
-  rows:
-    | Array<
-        | KaiHomeWatchlistItem
-        | KaiHomeRenaissanceItem
-        | NonNullable<KaiHomeInsightsV2["movers"]>["gainers"][number]
-      >
-    | null
-    | undefined,
-): OneMarketDisplayRow[] {
-  if (!Array.isArray(rows)) return [];
-  return rows
-    .map((row) => {
-      const sparklineSource = (
-        row as { sparkline?: unknown } | null | undefined
-      )?.sparkline;
-      const sparkline =
-        Array.isArray(sparklineSource) && sparklineSource.length > 1
-          ? sparklineSource.filter(
-              (point): point is number =>
-                typeof point === "number" && Number.isFinite(point),
-            )
-          : null;
-      return {
-        symbol: normalizeMarketSymbol(row?.symbol),
-        companyName: String(
-          row?.company_name || row?.symbol || "Market name",
-        ).trim(),
-        price:
-          typeof row?.price === "number" && Number.isFinite(row.price)
-            ? row.price
-            : null,
-        changePct:
-          typeof row?.change_pct === "number" && Number.isFinite(row.change_pct)
-            ? row.change_pct
-            : null,
-        volume:
-          typeof row?.volume === "number" && Number.isFinite(row.volume)
-            ? row.volume
-            : null,
-        sparkline: sparkline && sparkline.length > 1 ? sparkline : null,
-        degraded: Boolean(row?.degraded),
-        asOf: row?.as_of ?? null,
-      };
-    })
-    .filter((row) => Boolean(row.symbol));
-}
-
-function dedupeOneMarketRows(
-  rows: OneMarketDisplayRow[],
-): OneMarketDisplayRow[] {
-  const seen = new Set<string>();
-  return rows.filter((row) => {
-    const key = row.symbol.toUpperCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function isDirectionalMover(
-  row: OneMarketDisplayRow,
-  direction: "gain" | "lose",
-): boolean {
-  if (typeof row.changePct !== "number" || !Number.isFinite(row.changePct))
-    return false;
-  return direction === "gain" ? row.changePct > 0 : row.changePct < 0;
-}
-
-export function toMoverGroups(
-  payload: KaiHomeInsightsV2 | null,
-): Record<OneMarketMoverTab, OneMarketDisplayRow[]> {
-  // Provider buckets are advisory. The displayed direction must always agree
-  // with the quote itself so a negative move can never appear in Gainers.
-  const gainers = dedupeOneMarketRows(
-    toOneMarketRows(payload?.movers?.gainers).filter((row) =>
-      isDirectionalMover(row, "gain"),
-    ),
-  )
-    .sort((left, right) => Number(right.changePct) - Number(left.changePct))
-    .slice(0, 4);
-  const losers = dedupeOneMarketRows(
-    toOneMarketRows(payload?.movers?.losers).filter((row) =>
-      isDirectionalMover(row, "lose"),
-    ),
-  )
-    .sort((left, right) => Number(left.changePct) - Number(right.changePct))
-    .slice(0, 4);
-  const active = dedupeOneMarketRows(toOneMarketRows(payload?.movers?.active))
-    .sort((left, right) => Number(right.volume || 0) - Number(left.volume || 0))
-    .slice(0, 4);
-  const groupDegraded = Boolean(payload?.movers?.degraded);
-  const withGroupStatus = (rows: OneMarketDisplayRow[]) => rows.map((row) => ({
-    ...row, degraded: Boolean(row.degraded || groupDegraded),
-  }));
-  return { gain: withGroupStatus(gainers), lose: withGroupStatus(losers), active: withGroupStatus(active) };
-}
+const INDIA_INDEX_SPECS = [
+  { label: "NIFTY 50", symbol: "^NSEI", match: (label: string) => label === "nifty 50" },
+  { label: "SENSEX", symbol: "^BSESN", match: (label: string) => label.includes("sensex") },
+  { label: "NIFTY Bank", symbol: "^NSEBANK", match: (label: string) => label.includes("bank") },
+  { label: "NIFTY IT", symbol: "^CNXIT", match: (label: string) => label === "nifty it" },
+];
 
 export function toIndexStripItems(
   payload: KaiHomeInsightsV2 | null,
+  region: MarketRegion = "US",
 ): MarketOverviewMetric[] {
   const overviewRows = Array.isArray(payload?.market_overview)
     ? payload.market_overview.filter(
@@ -262,7 +150,7 @@ export function toIndexStripItems(
       )
     : [];
 
-  return [
+  return (region === "IN" ? INDIA_INDEX_SPECS : [
     {
       label: "S&P 500",
       symbol: "^GSPC",
@@ -276,24 +164,19 @@ export function toIndexStripItems(
       symbol: "^RUT",
       match: (label: string) => label.includes("russell"),
     },
-  ].map(({ label, symbol, match }) => {
+  ]).map(({ label, symbol, match }) => {
     const row =
       overviewRows.find((candidate) =>
         (!candidate.symbol || candidate.symbol === symbol) &&
         match(String(candidate.label || "").toLowerCase()),
       ) || null;
-    return row && typeof row.value === "number" && Number.isFinite(row.value) && row.value > 0
-      ? toIndexOverviewMetric({ ...row, label, degraded: Boolean(row.degraded || payload?.stale) }, label)
+    const metric = row && typeof row.value === "number" && Number.isFinite(row.value) && row.value > 0
+      ? toIndexOverviewMetric({ ...row, label }, label)
       : toIndexOverviewMetric(null, label);
+    return region === "IN" && metric.detailPanel
+      ? { ...metric, detailPanel: { ...metric.detailPanel, summary: "India equity index · points" } }
+      : metric;
   });
-}
-
-function openOneMarketHref(href: string) {
-  if (/^https?:\/\//i.test(href)) {
-    openExternalUrl(href);
-    return;
-  }
-  requestInternalAppNavigation({ href, scroll: false });
 }
 
 function OneMarketSectionHeader({
@@ -301,17 +184,19 @@ function OneMarketSectionHeader({
   actionLabel,
   actionHref,
   actions,
+  className,
 }: {
   title: string;
   actionLabel?: string;
   actionHref?: string;
   actions?: ReactNode;
+  className?: string;
 }) {
   return (
     <SectionHeader
       title={title}
       accent="neutral"
-      className={cn(marketBriefingStyles.sectionHeader, "[&_[data-slot=section-header-row]]:flex-row [&_[data-slot=section-header-row]]:items-center [&_[data-slot=section-header-actions]]:w-auto")}
+      className={cn(marketBriefingStyles.sectionHeader, "[&_[data-slot=section-header-row]]:flex-row [&_[data-slot=section-header-row]]:items-center [&_[data-slot=section-header-actions]]:w-auto", className)}
       actions={actions ?? (actionLabel && actionHref ? (
         <button type="button" onClick={() => openOneMarketHref(actionHref)}
           className="relative isolate inline-flex min-h-11 items-center gap-1.5 overflow-hidden rounded-md px-1 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
@@ -324,10 +209,8 @@ function OneMarketSectionHeader({
 }
 
 /**
- * Honest, data-driven sparkline built on recharts. Renders the REAL series;
- * when no series exists it renders a flat dashed baseline instead of
- * inventing a chart shape. Stroke color follows the actual tone, never a
- * hardcoded "always up" green.
+ * Sparklines color the observed series relative to its first point.
+ * Missing series render a neutral dashed guide.
  */
 export function OneMarketIndexStrip({
   metrics,
@@ -343,12 +226,12 @@ export function OneMarketIndexStrip({
   return (
     <div className={marketBriefingStyles.typography}>
     <p className="mb-2 text-xs leading-[18px] text-muted-foreground">Index levels in points</p>
-    <div className="grid w-full divide-y divide-border/50 sm:grid-cols-4 sm:divide-x sm:divide-y-0">
+    <div className={cn(marketBriefingStyles.indexGrid, "grid w-full grid-cols-2 sm:grid-cols-4 sm:divide-x sm:divide-border/50")}>
       {metrics.map((metric) => (
         <button key={metric.id || metric.label} type="button"
           onClick={() => onMetricSelect(metric)}
           aria-label={`${[`${metric.label}: ${metric.value}`, metric.delta, metric.quoteStatus].filter(Boolean).join(", ")}. Open details`}
-          className="relative isolate grid min-h-[76px] min-w-0 grid-cols-[minmax(0,1fr)_40px_minmax(6rem,auto)] items-center gap-3 overflow-hidden rounded-sm py-3 text-left focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary sm:flex sm:flex-col sm:items-stretch sm:gap-0 sm:px-4 sm:first:pl-0 sm:last:pr-0">
+          className={cn(financeStyles.interactiveRow, "relative isolate flex min-w-0 flex-col items-stretch overflow-hidden rounded-sm px-3 py-2 text-left focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary sm:px-4")}>
           <span className="min-w-0">
             <span className={cn("block text-foreground", marketBriefingStyles.indexLabel)}>{metric.label}</span>
             <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
@@ -358,13 +241,13 @@ export function OneMarketIndexStrip({
               </time> : sharedStatus ? "Time unavailable" : null}
             </span>
           </span>
-          <span className="sm:order-last sm:mt-2"><IndexSparkline tone={metric.tone} series={metric.sparkline} /></span>
-          <span className="flex min-w-0 flex-col gap-1 text-right sm:mt-3 sm:text-left">
+          <span className="mt-auto flex min-w-0 flex-col gap-1 pt-2 sm:pt-3">
             <span className={cn("block text-foreground", marketBriefingStyles.indexValue)}>{metric.value}</span>
             <span className={cn("text-xs font-medium tabular-nums",
               metric.tone === "positive" ? "text-[color:var(--one-up)]" : metric.tone === "negative" ? "text-[color:var(--one-down)]" : "text-muted-foreground")}>{metric.delta}</span>
           </span>
-          <MaterialRipple variant="none" effect="fade" className="z-10" />
+          <span className="mt-2 block min-w-0"><IndexSparkline tone={metric.tone} series={metric.sparkline} /></span>
+          <MaterialRipple variant="none" effect="fade" disableHover className="z-10" />
         </button>
       ))}
     </div>
@@ -373,56 +256,16 @@ export function OneMarketIndexStrip({
   );
 }
 
+function formatOneMarketPercent(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "N/A";
+  const sign = value >= 0 ? "+" : "";
+  return `${sign}${value.toFixed(2)}%`;
+}
+
 function sharedMoverQuoteTime(groups: Record<OneMarketMoverTab, OneMarketDisplayRow[]>): string | null {
   const shown = [...groups.gain.slice(0, 3), ...groups.lose.slice(0, 3)];
   const time = shown[0]?.asOf;
   return time && shown.every(row => row.asOf === time) && Number.isFinite(Date.parse(time)) ? time : null;
-}
-
-export function OneMarketMovers({ groups }: { groups: Record<OneMarketMoverTab, OneMarketDisplayRow[]> }) {
-  const id = useId();
-  const columns = [
-    { key: "gain", title: "Movers", rows: groups.gain.slice(0, 3) },
-    { key: "lose", title: "Losers", rows: groups.lose.slice(0, 3) },
-  ] as const;
-  const commonAsOf = sharedMoverQuoteTime(groups);
-  const sharedTime = Boolean(commonAsOf);
-  return (
-    <div>
-      <div className="grid grid-cols-2 gap-4">
-        {columns.map(({ key, title }) => <h3 key={key} id={`${id}-${key}`} className={marketBriefingStyles.groupLabel}>{title}</h3>)}
-      </div>
-      <div className="divide-y divide-border/50">
-        {Array.from({ length: 3 }, (_, rank) => (
-          <div key={rank} className="grid grid-cols-2 items-stretch gap-4" data-market-mover-pair>
-            {columns.map(({ key, title, rows }) => {
-              const row = rows[rank];
-              if (!row) return <p key={key} data-market-mover-empty
-                aria-label={`${title} ${rank + 1}: Quote unavailable`}
-                className="flex min-h-12 items-center py-3 text-sm text-muted-foreground">Quote unavailable</p>;
-              return <button key={`${key}:${row.symbol}`} type="button" aria-describedby={`${id}-${key}`}
-                onClick={() => openOneMarketHref(buildKaiMarketRoute("analysis", { ticker: row.symbol }))}
-                className="relative isolate flex min-h-12 min-w-0 w-full flex-col items-stretch gap-1 overflow-hidden rounded-sm py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
-                <span className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-1 gap-y-1">
-                  <span className="min-w-0 break-words text-sm font-semibold text-foreground">{row.symbol}</span>
-                  <span className={cn("shrink-0 text-right text-sm font-semibold tabular-nums", key === "gain" ? "text-[color:var(--one-up)]" : "text-[color:var(--one-down)]")}>{formatOneMarketPercent(row.changePct)}</span>
-                </span>
-                <span className="min-w-0 break-words text-xs leading-[18px] text-muted-foreground">
-                  <SymbolAvatar symbol={row.symbol} name={row.companyName} size="md" className="float-left mr-1 mt-px h-4 w-4 rounded-full [&_img]:h-4 [&_img]:w-4" />
-                  {row.companyName}
-                </span>
-                {!sharedTime && row.asOf && Number.isFinite(Date.parse(row.asOf)) ? <time dateTime={row.asOf} className="block text-xs text-muted-foreground" title={formatOverviewAsOf(row.asOf)}>{formatMarketQuoteTime(row.asOf)}</time> : null}
-                <MaterialRipple variant="none" effect="fade" className="z-10" />
-              </button>;
-            })}
-          </div>
-        ))}
-      </div>
-      {sharedTime && commonAsOf && Number.isFinite(Date.parse(commonAsOf)) ? <p className="mt-1 border-t border-border/50 pt-3 text-xs leading-[18px] text-muted-foreground" data-market-mover-freshness>
-        <time dateTime={commonAsOf}>{formatOverviewAsOf(commonAsOf)}</time>
-      </p> : null}
-    </div>
-  );
 }
 
 function isUnavailableText(value: string): boolean {
@@ -447,10 +290,6 @@ function normalizeOverviewSource(
   const text = source.trim();
   if (!text || isUnavailableText(text)) return null;
   return text;
-}
-
-function formatOverviewAsOf(value: string | null | undefined): string {
-  return formatLocalDateTime(value) ?? "Timestamp unavailable";
 }
 
 function formatOverviewValue(
@@ -585,7 +424,7 @@ function indexQuoteStatus(
     return "Delayed";
   if (!Number.isFinite(quotedAt)) return "Time unavailable";
   if (row.market_state === "closed") return "Market closed";
-  if (row.degraded) return "";
+  if (row.degraded) return "Saved quote";
   return age > 10 * 60 * 1000 ? "Snapshot" : "Latest quote";
 }
 
@@ -618,6 +457,8 @@ function toIndexOverviewMetric(
     quoteStatus: indexQuoteStatus(row),
     quotedAt: row?.as_of && Number.isFinite(Date.parse(row.as_of)) ? row.as_of : null,
     sparkline: sparkline && sparkline.length >= 2 ? sparkline : undefined,
+    sparklinePoints: Array.isArray(row?.sparkline_points) && sparkline && row.sparkline_points.length === sparkline.length && row.sparkline_points.every((point, index) => Number.isFinite(point.t) && point.p === sparkline[index]) ? row.sparkline_points : undefined,
+    chartTimeZone: ["^NSEI", "^BSESN"].includes(row?.symbol || "") ? "Asia/Kolkata" : "America/New_York",
     detailPanel: buildIndexDetailPanel(row, label, value, delta, tone),
   };
 }
@@ -767,13 +608,23 @@ export function KaiMarketPreviewView() {
     activePickSource,
     loadInsights,
   } = useKaiMarketHome();
-  const [retainedPayload, setRetainedPayload] =
-    useState<KaiHomeInsightsV2 | null>(payload);
-  const usingLocalPreviewFallback = Boolean(localPreviewPayload && !payload);
-  const displayPayload = payload ?? localPreviewPayload;
-  const displayLoading = usingLocalPreviewFallback ? false : loading;
-  const displayRefreshing = usingLocalPreviewFallback ? false : refreshing;
-  const displayError = usingLocalPreviewFallback ? null : error;
+  const { userId } = useAuth();
+  const [selectedMover, setSelectedMover] = useState<MarketMoverSelection | null>(null);
+  // The selected market is the Finance-wide currency mode; the layout's bridge resolves it
+  // once (choice, portfolio, account, device) and this page only reads and changes it.
+  const { region: marketRegion, selectRegion: chooseMarket } = useMarketCurrency();
+  const indiaHome = useIndiaMarketHome(userId, marketRegion === "IN");
+  const inIndia = marketRegion === "IN";
+  const [retained, setRetained] = useState<{ region: MarketRegion; payload: KaiHomeInsightsV2 } | null>(
+    payload ? { region: "US", payload } : null,
+  );
+  const usingLocalPreviewFallback = !inIndia && Boolean(localPreviewPayload && !payload);
+  const displayPayload = inIndia ? indiaHome.data : payload ?? localPreviewPayload;
+  const displayLoading = inIndia ? indiaHome.loading : usingLocalPreviewFallback ? false : loading;
+  const displayRefreshing = inIndia ? indiaHome.refreshing : usingLocalPreviewFallback ? false : refreshing;
+  const displayError = inIndia ? indiaHome.error : usingLocalPreviewFallback ? null : error;
+  const reloadMarket = () =>
+    inIndia ? void indiaHome.refresh({ force: true }) : void loadInsights({ manual: true });
   const [selectedOverviewMetricId, setSelectedOverviewMetricId] = useState<
     string | null
   >(null);
@@ -786,11 +637,12 @@ export function KaiMarketPreviewView() {
 
   useEffect(() => {
     if (displayPayload) {
-      setRetainedPayload(displayPayload);
+      setRetained({ region: marketRegion, payload: displayPayload });
     }
-  }, [displayPayload]);
+  }, [displayPayload, marketRegion]);
 
-  const effectivePayload = displayPayload ?? retainedPayload;
+  // A retained US view must never stand in for India while India loads, or the reverse.
+  const effectivePayload = displayPayload ?? (retained?.region === marketRegion ? retained.payload : null);
   const marketPaneActive = !searchParams?.get("tab") || searchParams.get("tab") === "market";
   const hasPayload = Boolean(effectivePayload);
   const pickRows = useMemo(
@@ -805,8 +657,8 @@ export function KaiMarketPreviewView() {
     [effectivePayload],
   );
   const indexStripItems = useMemo(
-    () => toIndexStripItems(effectivePayload),
-    [effectivePayload],
+    () => toIndexStripItems(effectivePayload, marketRegion),
+    [effectivePayload, marketRegion],
   );
   const selectedOverviewMetric = useMemo(
     () =>
@@ -866,11 +718,6 @@ export function KaiMarketPreviewView() {
           "Shows benchmark index levels, session changes, and quote freshness.",
       },
       {
-        id: "market_news",
-        title: "Market news",
-        purpose: "Presents the lead company story and recent market headlines.",
-      },
-      {
         id: "sector_rotation",
         title: "Sector rotation",
         purpose: "Compares sector returns over one day or five trading sessions.",
@@ -890,6 +737,11 @@ export function KaiMarketPreviewView() {
             },
           ]
         : []),
+      {
+        id: "market_news",
+        title: "Market news",
+        purpose: "Presents the lead company story and recent market headlines.",
+      },
     ];
     const actions = [
       {
@@ -1030,8 +882,10 @@ export function KaiMarketPreviewView() {
     () =>
       diversifyMarketNewsRows(
         Array.isArray(effectiveNewsTape) ? effectiveNewsTape : [],
+        // India headlines share one topic, so the per-symbol cap would hide all but two.
+        inIndia ? { maxPerSymbol: 4 } : {},
       ),
-    [effectiveNewsTape],
+    [effectiveNewsTape, inIndia],
   );
   const sectorRotationRows = useMemo(
     () =>
@@ -1083,18 +937,22 @@ export function KaiMarketPreviewView() {
         <AppPageContentRegion>
           <SurfaceCard>
           <SurfaceCardContent className={marketBriefingStyles.cardBody}>
-          <OneMarketSectionHeader title="US markets" actions={
-            <div className="flex items-center gap-1">
-            {marketStatus ? <span data-testid="market-header-status" className="inline-flex min-h-8 items-center gap-2 whitespace-nowrap text-xs text-muted-foreground">
-              <span aria-hidden="true" className={cn("h-1.5 w-1.5 rounded-full", marketStatus.isOpen && !marketStatus.degraded ? "bg-[color:var(--one-up)]" : "bg-muted-foreground")} />
-              {marketStatus.label}
-            </span> : null}
-            <ShellActionSurface aria-label="Refresh market home" disabled={displayRefreshing}
-              onClick={() => void loadInsights({ manual: true })}
-              className="h-11 w-11"
-              >
-              {displayRefreshing ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="h-4 w-4" aria-hidden="true" />}
-            </ShellActionSurface>
+          <OneMarketSectionHeader title={inIndia ? "India markets" : "US markets"} className={marketBriefingStyles.overviewHeader} actions={
+            <div className={cn("flex flex-wrap items-center justify-end gap-x-2 gap-y-1", marketBriefingStyles.overviewActions)}>
+              {marketStatus ? (
+                <span data-testid="market-header-status" className={cn("inline-flex min-h-8 items-center gap-2 text-xs text-muted-foreground", marketBriefingStyles.marketStatus)}>
+                  <span>{marketStatus.label}</span>
+                  <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", marketBriefingStyles.marketStatusDot, marketStatus.isOpen && !marketStatus.degraded ? "bg-[color:var(--one-up)]" : "bg-muted-foreground")} />
+                </span>
+              ) : null}
+              <div className={cn("flex items-center gap-2", marketBriefingStyles.overviewControls)}>
+                <SegmentedTabs value={marketRegion} onValueChange={(value) => chooseMarket(value === "IN" ? "IN" : "US")}
+                  ariaLabel="Market" variant="filter" className="w-auto"
+                  options={[{ value: "US", label: "US" }, { value: "IN", label: "India" }]} />
+                <ShellActionSurface aria-label="Refresh market home" disabled={displayRefreshing} onClick={reloadMarket} className="h-11 w-11">
+                  {displayRefreshing ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="h-4 w-4" aria-hidden="true" />}
+                </ShellActionSurface>
+              </div>
             </div>
           } />
           <OneMarketIndexStrip
@@ -1108,7 +966,7 @@ export function KaiMarketPreviewView() {
 
           {displayLoading && !hasPayload ? (
             <div className="mt-9 w-full">
-              <div className="flex min-h-32 flex-col items-center justify-center gap-3 rounded-[var(--app-card-radius-compact)] bg-[color:var(--one-card)] p-5 text-center text-[14px] text-[color:var(--one-fg2)] shadow-[var(--app-card-shadow-standard)]">
+              <div className="flex flex-col items-center justify-center gap-2 rounded-[var(--app-card-radius-compact)] bg-[color:var(--one-card)] p-4 text-center text-[14px] text-[color:var(--one-fg2)] shadow-[var(--app-card-shadow-standard)]">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 <p>Loading your market view.</p>
               </div>
@@ -1131,7 +989,7 @@ export function KaiMarketPreviewView() {
                   variant="none"
                   effect="fade"
                   size="sm"
-                  onClick={() => void loadInsights({ manual: true })}
+                  onClick={reloadMarket}
                 >
                   Retry
                 </Button>
@@ -1152,7 +1010,7 @@ export function KaiMarketPreviewView() {
                   variant="none"
                   effect="fade"
                   size="sm"
-                  onClick={() => void loadInsights({ manual: true })}
+                  onClick={reloadMarket}
                 >
                   Retry
                 </Button>
@@ -1162,13 +1020,6 @@ export function KaiMarketPreviewView() {
 
           {hasPayload ? (
             <div className={marketBriefingStyles.sections}>
-              <section aria-label="Market news">
-                <OneMarketSectionHeader title="Market news" actionLabel="All news" actionHref={ROUTES.KAI_NEWS} />
-                <SurfaceCard><SurfaceCardContent className={marketBriefingStyles.cardBody}>
-                <OneMarketNewsBriefing rows={marketNewsRows} />
-                </SurfaceCardContent></SurfaceCard>
-              </section>
-
               <div className={sectorRotationRows.length ? marketBriefingStyles.activity : "grid"}>
                 {sectorRotationRows.length ? (
                   <section className="min-w-0" aria-label="Sector rotation">
@@ -1180,8 +1031,14 @@ export function KaiMarketPreviewView() {
                 ) : null}
                 <section className="min-w-0" aria-label="Market movers">
                   <OneMarketSectionHeader title="Market movers" />
-                  <SurfaceCard><SurfaceCardContent className={marketBriefingStyles.moversBody}>
-                  <OneMarketMovers groups={moverGroups} />
+                  <SurfaceCard><SurfaceCardContent className={marketBriefingStyles.cardBody}>
+                  <OneMarketMovers groups={moverGroups} linkable={!inIndia} balanced={inIndia} onSelect={row => setSelectedMover({ row, market: inIndia ? "IN" : "US" })}
+                    note={[
+                      effectivePayload?.movers?.stale ? "Saved prices" : null,
+                      inIndia && effectivePayload?.movers?.universe_size
+                        ? `Among ${effectivePayload.movers.universe_size} large NSE stocks`
+                        : null,
+                    ].filter(Boolean).join(" · ") || undefined} />
                   </SurfaceCardContent></SurfaceCard>
                 </section>
               </div>
@@ -1189,6 +1046,15 @@ export function KaiMarketPreviewView() {
               {showConnectPortfolio ? (
                 <section><PermissionGate permission="portfolio_valuation"><ConnectPortfolioCta /></PermissionGate></section>
               ) : null}
+
+              <section aria-label="Market news">
+                {inIndia
+                  ? <OneMarketSectionHeader title="Market news" actionLabel="All news" actionHref={`${ROUTES.KAI_NEWS}?market=IN`} />
+                  : <OneMarketSectionHeader title="Market news" actionLabel="All news" actionHref={ROUTES.KAI_NEWS} />}
+                <SurfaceCard><SurfaceCardContent className={marketBriefingStyles.newsCardBody}>
+                <OneMarketNewsBriefing rows={marketNewsRows} loading={displayLoading} />
+                </SurfaceCardContent></SurfaceCard>
+              </section>
             </div>
           ) : null}
         </AppPageContentRegion>
@@ -1200,6 +1066,12 @@ export function KaiMarketPreviewView() {
         onOpenChange={(open) => {
           if (!open) setSelectedOverviewMetricId(null);
         }}
+      />
+      <MarketMoverDetailSurface
+        selection={selectedMover}
+        userId={userId}
+        onClose={() => setSelectedMover(null)}
+        footer={selectedMover?.market === "US" ? <Button size="standard" onClick={() => openOneMarketHref(buildKaiMarketRoute("analysis", { ticker: selectedMover.row.symbol }))}>Analyze {selectedMover.row.symbol}</Button> : undefined}
       />
     </div>
   );
@@ -1249,5 +1121,5 @@ export function KaiMarketPreviewView() {
       { key: "continue-exploring", label: "Or continue exploring", run: () => openOneMarketHref(ROUTES.KAI_HOME) },
     ] : [{ key: "portfolio-locked", label: "Unlock your vault to see portfolio valuation." }] });
   }
-  return <NativeFinanceLayer pane="market" active contentPresentation={marketNewsRows.slice(0, 4).some(row => marketNewsCoverSources(row, true).some(url => !nativeFinanceArtworkSource(url))) ? "rich" : "native"} title="Market" sections={sections} webChild={Boolean(retainedOverviewMetric?.detailPanel)} fallback={content} />;
+  return <NativeFinanceLayer pane="market" active contentPresentation={marketNewsRows.slice(0, 4).some(row => marketNewsCoverSources(row, true).some(url => !nativeFinanceArtworkSource(url))) ? "rich" : "native"} title="Market" sections={sections} webChild={Boolean(retainedOverviewMetric?.detailPanel || selectedMover)} fallback={content} />;
 }

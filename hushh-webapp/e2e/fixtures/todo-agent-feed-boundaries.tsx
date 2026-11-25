@@ -3,10 +3,17 @@ import React, { useSyncExternalStore, type ReactNode } from "react";
 import type { FeedActionable } from "../../lib/feed/use-feed-actionables";
 import { documentRequestTaskTitle } from "../../lib/consent/document-request-setup";
 
+// Session is supplied by useAuth below; no Firebase SDK or auth iframe runs.
+export const app = {};
+export const auth = { currentUser: null };
+export function getRecaptchaVerifier(): never {
+  throw new Error("Phone authentication is outside the To-do fixture");
+}
+
 let state = {
   unlocked: true,
   error: false,
-  failSave: false,
+  failSave: typeof window !== "undefined" && new URLSearchParams(window.location.search).has("failSave"),
   hideAgent: false,
   preview: false,
   providerTasks: false,
@@ -68,8 +75,9 @@ const previewItems: FeedActionable[] = [items[0], {
 }];
 export function useFeedActionables({ enabled }: { enabled: boolean }) {
   const value = useFixture();
+  const visual = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("profile");
   return {
-    actionables: enabled && !value.hideAgent ? [...(value.preview ? previewItems : items), ...(value.providerTasks ? [{
+    actionables: enabled && !value.hideAgent && !visual ? [...(value.preview ? previewItems : items), ...(value.providerTasks ? [{
       id: "consent:fixture-document:setup:drive", todo: { source: "drive" as const,
         title: documentRequestTaskTitle("drive", "Saru"), href: "/one/profile?profile_panel=connectors" },
     }] : [])] : [],
@@ -125,6 +133,15 @@ export function useCalendarUpcomingEvents() {
     loaded: true, loading: false, error: null, refresh: () => {} };
 }
 let domain: Record<string, unknown> = { _private: { tasks: [] } };
+if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("profile")) {
+  const now = "2026-11-19T12:00:00Z";
+  domain = { _private: { tasks: [
+    { id: "demo-request", title: "Review Ankit\u2019s document request", sourceAgent: "consent", date: "2026-11-19", time: null, notes: "Ankit has requested access to a document." },
+    { id: "demo-meeting", title: "Demo with Ankit", sourceAgent: "calendar", date: "2026-11-20", time: "15:00", notes: "Show Ankit the onboarding flow and document access.\n\nFrom your conversation\n\u201cFor Friday\u2019s demo, could you show the onboarding flow and how document access works?\u201d\n\nAnkit \u00b7 Gmail" },
+    { id: "demo-project", title: "Project update from Divya", sourceAgent: "messages", date: null, time: null, notes: "Waiting for Divya. There is nothing you need to do right now." },
+    { id: "demo-groceries", title: "Pick up groceries", sourceAgent: null, date: null, time: null, notes: null },
+  ].map(task => ({ ...task, type: task.sourceAgent ? "automatic" : "manual", status: "pending", sourceId: task.id, link: null, createdAt: now, updatedAt: now, completedAt: null, deletedAt: null })) } };
+}
 export const PersonalKnowledgeModelService = {
   loadDomainData: async () => domain,
 };
@@ -183,14 +200,31 @@ export default function Link({
   );
 }
 
-// Isolated Next route context for the Tasks browser fixture.
+// Full parent layout uses the real Sheet/Tabs/To-do renderers; unrelated sources stay isolated.
 export function useSearchParams() { return new URLSearchParams(window.location.search); }
-export function usePathname() { return "/one/tasks"; }
-export function useRouter() { return { push: (href: string) => change({ href }), replace: (href: string) => change({ href }), refresh: () => {} }; }
+export function useOneDisplayName() { return "One"; }
+export function usePathname() { return "/one"; }
+export function useRouter() { return { push: (href: string) => change({ href }), replace: (href: string) => change({ href }), refresh: () => {}, prefetch: async () => {} }; }
+export function useStaleResource() { return { data: { items: [], has_more: false }, loading: false, error: null, refresh: async () => {} }; }
+export function useFeedLiveRefresh() {}
+export function LiveMirrorPreview() { return null; }
+export function NativeFeaturePage({ children }: { children: ReactNode }) { return <>{children}</>; }
 
 // Firebase/provider calls stay synthetic even through native workspace imports.
 export const app = null;
 export const auth = null;
 export const AuthService = { getCurrentUser: () => ({ uid: "fixture-owner" }), getIdToken: async () => "fixture-only" };
+export const getRecaptchaVerifier = () => { throw new Error("Authentication mutations are outside this fixture"); };
 export const prepareRecaptchaVerifier = () => { throw new Error("Authentication mutations are outside this fixture"); };
 export const resetRecaptcha = () => {};
+
+export const GEMINI_RUNTIME_CREDENTIAL_REF = "fixture-only";
+export const GEMINI_RUNTIME_TRANSPORT_REF = "fixture-only";
+export const GEMINI_VERTEX_LOCATION_REF = "fixture-only";
+export const GEMINI_VERTEX_PROJECT_REF = "fixture-only";
+export const RUNTIME_CREDENTIAL_MODE_REF = "fixture-only";
+
+export const FeedService = { list: async () => ({ items: [], has_more: false }) };
+export function nativeDrawersPlatformEligible() { return false; }
+
+export function nativeDrawerIsolation() { return { isolated: false, generation: 0 }; }

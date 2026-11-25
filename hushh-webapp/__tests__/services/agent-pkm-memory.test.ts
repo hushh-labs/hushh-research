@@ -4,7 +4,8 @@ import { LIVE_MIRROR_PACKET_HEADER } from "@/lib/pkm/live-mirror-agent-facts";
 const apiFetchMock = vi.fn();
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
-    apiFetch: (...args: unknown[]) => apiFetchMock(...args), getPersonalAgentStatus: async () => ({ hostingMode: "shared" }),
+    apiFetch: (...args: unknown[]) => apiFetchMock(...args),
+    getPersonalAgentStatusForRouting: async () => ({ hostingMode: "shared" }),
   },
 }));
 vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getCurrentUser: () => ({ uid: "user_1" }) } }));

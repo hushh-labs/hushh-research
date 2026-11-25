@@ -23,7 +23,7 @@ _QUERY_SECRET_RE = re.compile(
     # An optional dotted prefix covers nested names such as the Weather API's
     # ``location.latitude``.
     r"([?&](?:[A-Za-z_]+\.)*(?:access_token|api[_-]?key|apikey|auth|client_secret|key|"
-    r"private_key|refresh_token|secret|signature|token|code|state|picked_file_ids|q|pageToken|"
+    r"private_key|refresh_token|secret|signature|token|code|state|picked_file_ids|q|query|pageToken|"
     # Drive carries an optional share note, written by a person, in the URL.
     r"emailMessage|"
     # A person's position is as sensitive as a credential and leaks the same

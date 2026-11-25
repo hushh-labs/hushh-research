@@ -79,6 +79,7 @@ REQUIRED_WORKFLOWS = [
     "data-model-audit",
     "github-contribution-governance",
     "uat-scoped-deploy",
+    "release-train-parity",
     "pre-pr-readiness",
     "security-consent-audit",
     "mobile-parity-check",

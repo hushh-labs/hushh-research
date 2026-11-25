@@ -11,8 +11,9 @@ import math
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from time import time
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
@@ -21,10 +22,16 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from fastapi.encoders import jsonable_encoder
 
 from api.middleware import require_firebase_auth, verify_user_id_match
+from hushh_mcp.market_data import india_market
+from hushh_mcp.market_data.fx_rate import fetch_usd_inr_rate
+from hushh_mcp.market_data.india_market import assemble_india_payload, load_india_home
 from hushh_mcp.market_data.movers import (
     MIN_MOVERS,
+    MOVERS_REFRESH_SECONDS,
     assemble_movers,
     complete_movers,
+    mover_refresh_regressed,
+    observation_time,
     select_movers,
     stale_movers,
 )
@@ -38,7 +45,11 @@ from hushh_mcp.operons.kai.fetchers import (
 from hushh_mcp.services.fmp_call_budget import is_budget_critical, record_fmp_call
 from hushh_mcp.services.market_cache_store import get_market_cache_store_service
 from hushh_mcp.services.market_insights_cache import market_insights_cache
-from hushh_mcp.services.market_news_images import article_image_url, enrich_market_news_images
+from hushh_mcp.services.market_news_images import (
+    article_image_url,
+    enrich_market_news_images,
+    publisher_logo_url,
+)
 from hushh_mcp.services.market_provider_telemetry import record_provider_request
 from hushh_mcp.services.market_refresh_policy import (
     seconds_until_us_market_open,
@@ -53,6 +64,7 @@ from hushh_mcp.services.symbol_master_service import get_symbol_master_service
 from . import _shared_last_close as shared_last_close
 from ._market_presentation import (
     market_home_response,
+    overlay_index_rows,
     quote_observation_fields,
     recommendation_from_target,
     resolve_public_module,
@@ -72,11 +84,12 @@ HOME_STALE_TTL_SECONDS = 1800
 
 QUOTES_FRESH_TTL_SECONDS = 600
 QUOTES_STALE_TTL_SECONDS = 1800
-MOVERS_FRESH_TTL_SECONDS = 600
+US_MOVERS_KEY = "movers:v2:us"
+MOVERS_FRESH_TTL_SECONDS = MOVERS_REFRESH_SECONDS
 MOVERS_STALE_TTL_SECONDS = 1800
 SECTORS_FRESH_TTL_SECONDS = 600
 SECTORS_STALE_TTL_SECONDS = 1800
-NEWS_FRESH_TTL_SECONDS = 600
+NEWS_FRESH_TTL_SECONDS = 300
 NEWS_STALE_TTL_SECONDS = 1800
 SPARKLINES_FRESH_TTL_SECONDS = 600
 SPARKLINES_STALE_TTL_SECONDS = 1800
@@ -221,8 +234,6 @@ MARKET_PRICE_SENSITIVE_PREFIXES = (
 MARKET_PRICE_REFRESH_PREFIXES = ("quotes:", "movers:", "sectors:", "macro:", "sparklines:")
 # Modules that should stay relatively static and never tighten on the open.
 MARKET_LOW_VOLATILITY_PREFIXES = (
-    "news:",
-    "news_feed:",
     "recommendation:",
     "financial_summary:",
 )
@@ -245,6 +256,8 @@ def _market_aware_fresh_ttl(key: str, base_fresh_ttl_seconds: int) -> int:
     Returns the base TTL unchanged for keys that are neither price-sensitive nor
     low-volatility, so any future module keeps its caller-provided behavior.
     """
+    if key == US_MOVERS_KEY and _us_market_is_open():
+        return MOVERS_FRESH_TTL_SECONDS
     if key.startswith(MARKET_LOW_VOLATILITY_PREFIXES):
         if _us_market_is_open():
             return base_fresh_ttl_seconds
@@ -788,6 +801,12 @@ def _market_news_image_url(article: dict[str, Any]) -> str | None:
     return None
 
 
+def _market_news_publisher_logo(article: dict[str, Any]) -> str | None:
+    source = article.get("source")
+    publisher = source.get("url") if isinstance(source, dict) else None
+    return publisher_logo_url(publisher) or publisher_logo_url(article.get("url"))
+
+
 def _market_news_feed_cache_key(symbols: list[str], days_back: int) -> str:
     canonical_symbols = ",".join(sorted(set(symbols)))
     return f"news_feed:v5:{canonical_symbols}:{days_back}"
@@ -843,6 +862,19 @@ def _decode_market_news_cursor(cursor: str | None) -> tuple[str, int] | None:
     return str(payload["s"]), int(payload["o"])
 
 
+def _news_published_at(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    try:
+        stamp = datetime.fromisoformat(value)
+    except ValueError:
+        try:
+            stamp = parsedate_to_datetime(value)
+        except (TypeError, ValueError):
+            return ""
+    return stamp.astimezone(timezone.utc).isoformat() if stamp.tzinfo else stamp.isoformat()
+
+
 def _normalize_market_news_rows(
     rows: list[dict[str, Any]],
     *,
@@ -864,8 +896,9 @@ def _normalize_market_news_rows(
                 "title": title,
                 "summary": str(article.get("description") or "").strip() or None,
                 "url": url,
-                "published_at": str(article.get("publishedAt") or _now_iso()),
+                "published_at": _news_published_at(article.get("publishedAt")),
                 "source_name": source_name or "Market news",
+                "source_logo_url": _market_news_publisher_logo(article),
                 "provider": str(article.get("provider") or "unknown"),
                 "image_url": _market_news_image_url(article),
                 "image_thumbnail_url": _market_news_image_url(
@@ -1002,6 +1035,8 @@ async def _get_market_news_feed_page(
             symbols=symbols,
             limit=NEWS_FEED_ROWS_MAX,
         )
+        # The short Market preview balances subjects; All News is a time-ordered feed.
+        deduped.sort(key=lambda row: row.get("published_at") or "", reverse=True)
         return {
             "rows": deduped,
             "provider_status": statuses,
@@ -1128,6 +1163,15 @@ async def _get_or_refresh_public_module(
         refresh_prefixes=MARKET_PRICE_REFRESH_PREFIXES,
         sensitive_prefixes=MARKET_PRICE_SENSITIVE_PREFIXES,
         last_close_prefixes=(*shared_last_close.LAST_CLOSE_PREFIXES, "movers:"),
+        shared_refresh_keys=frozenset(
+            {
+                US_MOVERS_KEY,
+                shared_last_close.INDEX_LAST_CLOSE_KEY,
+                INDIA_MOVERS_KEY,
+                INDIA_INDICES_KEY,
+            }
+        ),
+        index_keys=frozenset({shared_last_close.INDEX_LAST_CLOSE_KEY, INDIA_INDICES_KEY}),
     ).read(
         key=key,
         fresh_ttl_seconds=fresh_ttl_seconds,
@@ -1712,18 +1756,15 @@ async def _legacy_fetch_symbol_series_batch(symbols: list[str]) -> dict[str, lis
 
 
 async def _legacy_fetch_movers_from_fmp() -> tuple[dict[str, Any], dict[str, str]]:
-    gainers_task = _fetch_pmp_json(
-        ["/stable/biggest-gainers", "/stable/market-gainers", "/stable/market/gainers"], {}
-    )
-    losers_task = _fetch_pmp_json(
-        ["/stable/biggest-losers", "/stable/market-losers", "/stable/market/losers"], {}
-    )
-    active_task = _fetch_pmp_json(
-        ["/stable/most-actives", "/stable/market-most-actives", "/stable/market/actives"], {}
-    )
-    gainers_rows, losers_rows, active_rows = await asyncio.gather(
-        gainers_task, losers_task, active_task
-    )
+    gainers_rows: list[dict[str, Any]] = []
+    losers_rows: list[dict[str, Any]] = []
+    active_rows: list[dict[str, Any]] = []
+    if not is_budget_critical():
+        gainers_rows, losers_rows, active_rows = await asyncio.gather(
+            _fetch_pmp_json(["/stable/biggest-gainers"], {}),
+            _fetch_pmp_json(["/stable/biggest-losers"], {}),
+            _fetch_pmp_json(["/stable/most-actives"], {}),
+        )
 
     primary = {
         bucket: select_movers(
@@ -1746,7 +1787,11 @@ async def _legacy_fetch_movers_from_fmp() -> tuple[dict[str, Any], dict[str, str
         from hushh_mcp.services.market_movers import fetch_mover_recovery
 
         fallback = await fetch_mover_recovery(missing)
-    return assemble_movers(primary, fallback, _now_iso())
+    # Keep each published ranking from one source and one observed window.
+    for bucket, rows in fallback.items():
+        if len(rows) >= (1 if bucket == "active" else MIN_MOVERS):
+            primary[bucket] = rows
+    return assemble_movers(primary, {}, _now_iso())
 
 
 async def _legacy_fetch_sector_rotation_from_fmp() -> tuple[list[dict[str, Any]], str]:
@@ -1928,6 +1973,28 @@ def _fallback_sector_rotation_from_watchlist(
     return out[:8]
 
 
+def _index_metric(
+    label: str, symbol: str, quote: dict[str, Any] | None, series: list[float] | None = None
+) -> dict[str, Any]:
+    quote = quote or {}
+    return {
+        "id": symbol.lower(),
+        "label": label,
+        "symbol": symbol,
+        "value": _safe_float(quote.get("price")),
+        "delta_pct": _safe_float(quote.get("change_percent")),
+        "as_of": quote.get("quoted_at"),
+        "retrieved_at": quote.get("fetched_at"),
+        "is_delayed": bool(quote.get("is_delayed")),
+        "quote_delay_minutes": quote.get("quote_delay_minutes"),
+        "market_state": quote.get("market_state"),
+        "source": str(quote.get("source") or "Unavailable"),
+        "degraded": not quote or bool(quote.get("is_stale")),
+        "sparkline": quote.get("sparkline") or series or None,
+        "sparkline_points": quote.get("sparkline_points") if quote.get("sparkline") else None,
+    }
+
+
 def _build_market_overview(
     sp500_quote: dict[str, Any] | None,
     nasdaq_quote: dict[str, Any] | None,
@@ -1939,33 +2006,11 @@ def _build_market_overview(
 ) -> list[dict[str, Any]]:
     sparklines = sparklines or {}
 
-    def metric_from_quote(
-        label: str, symbol: str, quote: dict[str, Any] | None, degraded: bool
-    ) -> dict[str, Any]:
-        quote = quote or {}
-        return {
-            "id": symbol.lower(),
-            "label": label,
-            "symbol": symbol,
-            "value": _safe_float(quote.get("price")),
-            "delta_pct": _safe_float(quote.get("change_percent")),
-            "as_of": quote.get("quoted_at"),
-            "retrieved_at": quote.get("fetched_at"),
-            "is_delayed": bool(quote.get("is_delayed")),
-            "quote_delay_minutes": quote.get("quote_delay_minutes"),
-            "market_state": quote.get("market_state"),
-            "source": str(quote.get("source") or "Unavailable"),
-            "degraded": degraded or bool(quote.get("is_stale")),
-            "sparkline": quote.get("sparkline") or sparklines.get(symbol) or None,
-        }
-
     out = [
-        metric_from_quote("S&P 500", "^GSPC", sp500_quote, degraded=not bool(sp500_quote)),
-        metric_from_quote(
-            "NASDAQ Composite", "^IXIC", nasdaq_quote, degraded=not bool(nasdaq_quote)
-        ),
-        metric_from_quote("Dow Jones", "^DJI", dow_quote, degraded=not bool(dow_quote)),
-        metric_from_quote("Russell 2000", "^RUT", russell_quote, degraded=not bool(russell_quote)),
+        _index_metric("S&P 500", "^GSPC", sp500_quote, sparklines.get("^GSPC")),
+        _index_metric("NASDAQ Composite", "^IXIC", nasdaq_quote, sparklines.get("^IXIC")),
+        _index_metric("Dow Jones", "^DJI", dow_quote, sparklines.get("^DJI")),
+        _index_metric("Russell 2000", "^RUT", russell_quote, sparklines.get("^RUT")),
         {
             "id": "volatility",
             "symbol": "^VIX",
@@ -2157,6 +2202,72 @@ def _market_startup_warm_timeout_seconds() -> float:
     return min(120.0, max(1.0, value))
 
 
+async def _load_us_movers(warm_source: str, *, wait_for_refresh: bool = False):
+    return await resolve_public_module(
+        "movers",
+        _get_or_refresh_public_module(
+            key=US_MOVERS_KEY,
+            fresh_ttl_seconds=MOVERS_FRESH_TTL_SECONDS,
+            stale_ttl_seconds=MOVERS_STALE_TTL_SECONDS,
+            fetcher=_fetch_movers_from_fmp,
+            warm_source=warm_source,
+            serve_stale_while_revalidate=not wait_for_refresh,
+        ),
+        lambda status_value: (
+            {},
+            {f"movers:{bucket}": status_value for bucket in ("gainers", "losers", "active")},
+        ),
+        _provider_status_from_exception,
+        logger,
+    )
+
+
+def _us_mover_response(value: Any, stale: bool) -> tuple[dict[str, Any], dict[str, Any]]:
+    pair = value if isinstance(value, (tuple, list)) else ({}, {})
+    payload = pair[0] if len(pair) > 0 and isinstance(pair[0], dict) else {}
+    statuses = pair[1] if len(pair) > 1 and isinstance(pair[1], dict) else {}
+    payload = {
+        **payload,
+        "degraded": bool(payload.get("degraded")) or not complete_movers(payload),
+    }
+    return (stale_movers(payload) if stale else payload), statuses
+
+
+async def _overlay_us_priority_snapshots(payload: dict[str, Any], warm_source: str) -> None:
+    index_read, movers_read = await asyncio.gather(
+        _shared_quotes().load_indices(warm_source), _load_us_movers(warm_source)
+    )
+    quotes = index_read[0].get("quotes") or {}
+    provider_status = {
+        **(payload.get("provider_status") or {}),
+        **(index_read[0].get("provider_status") or {}),
+    }
+    overview = payload.get("market_overview", [])
+    latest = [
+        _index_metric(
+            row["label"],
+            row["symbol"],
+            {
+                **quotes[row["symbol"]],
+                "is_stale": index_read[1] or quotes[row["symbol"]].get("is_stale"),
+            },
+        )
+        for row in overview
+        if quotes.get(row.get("symbol"))
+    ]
+    payload["market_overview"] = overlay_index_rows(overview, latest)
+    movers, statuses = _us_mover_response(movers_read[0], movers_read[1])
+    saved_movers = payload.get("movers")
+    now = datetime.fromtimestamp(time(), tz=timezone.utc)
+    if any(movers.get(bucket) for bucket in ("gainers", "losers", "active")) and (
+        not complete_movers(saved_movers)
+        or (complete_movers(movers) and not mover_refresh_regressed(saved_movers, movers, now))
+    ):
+        payload["movers"] = movers
+    payload["provider_status"] = {**provider_status, **statuses}
+    payload["meta"] = {**(payload.get("meta") or {}), "provider_status": payload["provider_status"]}
+
+
 async def _refresh_public_market_modules_once() -> None:
     refresh_summary: list[str] = []
 
@@ -2169,11 +2280,13 @@ async def _refresh_public_market_modules_once() -> None:
     if summary := await _shared_quotes().warm():
         refresh_summary.append(summary)
 
+    _, stale, age_seconds, tier, cache_hit = await _load_us_movers("startup", wait_for_refresh=True)
+    refresh_summary.append(
+        f"movers:tier={tier},hit={str(cache_hit).lower()},stale={str(stale).lower()},age={age_seconds}s"
+    )
+
     if is_budget_critical():
-        # Preserve remaining daily FMP quota for real user requests: skip this
-        # proactive background warm cycle entirely once we are down to the
-        # last ~10% of the daily call budget. Real requests still fall back to
-        # cache/stale-serving as usual; they are never blocked by this check.
+        # Preserve the remaining FMP budget. Movers can still use Yahoo recovery.
         logger.warning(
             "[Kai Market] background warm refresh skipped - FMP daily call budget critical"
         )
@@ -2193,23 +2306,6 @@ async def _refresh_public_market_modules_once() -> None:
         )
     except Exception as exc:
         logger.warning("[Kai Market] background macro refresh failed: %s", type(exc).__name__)
-
-    try:
-        _, stale, age_seconds, tier, cache_hit = await _get_or_refresh_public_module(
-            # v2 separates cached payloads created before ``changes`` was
-            # correctly treated as a currency delta rather than a percent.
-            key="movers:v2:us",
-            fresh_ttl_seconds=MOVERS_FRESH_TTL_SECONDS,
-            stale_ttl_seconds=MOVERS_STALE_TTL_SECONDS,
-            fetcher=_fetch_movers_from_fmp,
-            warm_source="startup",
-            serve_stale_while_revalidate=False,
-        )
-        refresh_summary.append(
-            f"movers:tier={tier},hit={str(cache_hit).lower()},stale={str(stale).lower()},age={age_seconds}s"
-        )
-    except Exception as exc:
-        logger.warning("[Kai Market] background movers refresh failed: %s", type(exc).__name__)
 
     try:
         _, stale, age_seconds, tier, cache_hit = await _get_or_refresh_public_module(
@@ -2244,10 +2340,7 @@ async def _run_refresh_with_advisory_lock() -> None:
         if not acquired:
             return
     except Exception as exc:
-        logger.warning(
-            "[Kai Market] advisory lock unavailable; falling back: %s", type(exc).__name__
-        )
-        await _refresh_public_market_modules_once()
+        logger.warning("[Kai Market] shared warmer lock unavailable: %s", type(exc).__name__)
 
 
 async def _warm_shared_baseline_market_home_once() -> None:
@@ -2445,26 +2538,7 @@ async def _get_market_insights_payload(
                     },
                 },
             ),
-            safe_public_module(
-                "movers",
-                _get_or_refresh_public_module(
-                    # Keep this in lockstep with the proactive warmer above.
-                    # Existing v1 entries can contain false percentage values.
-                    key="movers:v2:us",
-                    fresh_ttl_seconds=MOVERS_FRESH_TTL_SECONDS,
-                    stale_ttl_seconds=MOVERS_STALE_TTL_SECONDS,
-                    fetcher=_fetch_movers_from_fmp,
-                    warm_source=warm_source,
-                ),
-                lambda status_value: (
-                    {},
-                    {
-                        "movers:gainers": status_value,
-                        "movers:losers": status_value,
-                        "movers:active": status_value,
-                    },
-                ),
-            ),
+            _load_us_movers(warm_source),
             safe_public_module(
                 "sectors",
                 _get_or_refresh_public_module(
@@ -2483,6 +2557,10 @@ async def _get_market_insights_payload(
             quotes_read[0], index_read[0], picks_read[0]
         )
         quote_map = quote_bundle["quotes"]
+        if index_read[1]:
+            for symbol in shared_last_close.INDEX_SYMBOLS:
+                if quote := quote_map.get(symbol):
+                    quote_map[symbol] = {**quote, "is_stale": True}
         provider_status.update({str(k): str(v) for k, v in quote_bundle["provider_status"].items()})
         for _value, read_stale, _age, read_tier, read_hit in (quotes_read, index_read, picks_read):
             stale = stale or read_stale
@@ -2695,19 +2773,7 @@ async def _get_market_insights_payload(
                 }
             )
 
-        movers_pair = movers_value if isinstance(movers_value, (tuple, list)) else ({}, {})
-        movers_payload = (
-            movers_pair[0] if len(movers_pair) > 0 and isinstance(movers_pair[0], dict) else {}
-        )
-        movers_status = (
-            movers_pair[1] if len(movers_pair) > 1 and isinstance(movers_pair[1], dict) else {}
-        )
-        movers_payload = {
-            **movers_payload,
-            "degraded": bool(movers_payload.get("degraded")) or not complete_movers(movers_payload),
-        }
-        if movers_stale:
-            movers_payload = stale_movers(movers_payload)
+        movers_payload, movers_status = _us_mover_response(movers_value, movers_stale)
         provider_status.update({str(k): str(v) for k, v in movers_status.items()})
 
         stale = stale or movers_stale
@@ -2777,7 +2843,7 @@ async def _get_market_insights_payload(
                             "symbol": symbol,
                             "title": str(article.get("title") or "").strip(),
                             "url": str(article.get("url") or "").strip(),
-                            "published_at": str(article.get("publishedAt") or _now_iso()),
+                            "published_at": _news_published_at(article.get("publishedAt")),
                             "source_name": str(
                                 (
                                     (article.get("source") or {})
@@ -2787,6 +2853,7 @@ async def _get_market_insights_payload(
                                 or "Unknown"
                             ),
                             "provider": str(article.get("provider") or "unknown"),
+                            "source_logo_url": _market_news_publisher_logo(article),
                             "image_url": _market_news_image_url(article),
                             "image_thumbnail_url": _market_news_image_url(
                                 {"image_url": article.get("image_thumbnail_url")}
@@ -3078,6 +3145,11 @@ async def _get_market_insights_payload(
             empty["market_overview"] = [_scheduled_market_status_fallback(DEFAULT_EXCHANGE)]
         return empty
 
+    if home_cache_hit and isinstance(home_value, dict):
+        # Component updates are shared while a viewer's aggregate can still be warm.
+        home_value = dict(home_value)
+        await _overlay_us_priority_snapshots(home_value, warm_source)
+
     return market_home_response(
         home_value,
         home_stale,
@@ -3139,13 +3211,213 @@ async def get_market_company_facts(
     return {"facts": dict(await asyncio.gather(*(load(symbol) for symbol in requested)))}
 
 
+USD_INR_FRESH_TTL_SECONDS = 6 * 60 * 60
+# Long on purpose: a rate-limited provider keeps serving the last good rate for two weeks
+# rather than dropping the India display mode back to dollars.
+USD_INR_STALE_TTL_SECONDS = 14 * 24 * 60 * 60
+
+
+async def _get_usd_inr_rate() -> dict[str, Any]:
+    value, stale, age_seconds, *_ = await _get_or_refresh_public_module(
+        key="fx:usd_inr:v1",
+        fresh_ttl_seconds=USD_INR_FRESH_TTL_SECONDS,
+        stale_ttl_seconds=USD_INR_STALE_TTL_SECONDS,
+        fetcher=fetch_usd_inr_rate,
+        warm_source="fx_usd_inr",
+    )
+    return {**value, "stale": stale, "cache_age_seconds": age_seconds}
+
+
+@router.get("/market/fx/usd-inr/{user_id}")
+async def get_market_usd_inr_rate(
+    user_id: _UserId,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Rupees per dollar for the India display mode, with the day it was quoted.
+
+    Public market data, never derived from a person's vault. With no cached rate and the
+    provider down it answers 503, so the client keeps showing dollars instead of a guess.
+    """
+    verify_user_id_match(firebase_uid, user_id)
+    try:
+        return await _get_usd_inr_rate()
+    except Exception as exc:
+        logger.warning("[Kai Market] USD/INR rate unavailable: %s", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Exchange rate unavailable.") from exc
+
+
+INDIA_HOME_FRESH_TTL_SECONDS = 300
+INDIA_HOME_STALE_TTL_SECONDS = 7 * 24 * 60 * 60
+# Movers have their own cache entry so a rate-limited refresh never overwrites the last good
+# list: the stale copy is served until a refresh succeeds.
+INDIA_MOVERS_FRESH_TTL_SECONDS = 300
+INDIA_MOVERS_STALE_TTL_SECONDS = 7 * 24 * 60 * 60
+
+
+INDIA_MOVERS_KEY = "india_movers:v1"
+INDIA_INDICES_KEY = "india_indices:v1"
+INDIA_INDICES_FRESH_TTL_SECONDS = 120
+
+
+async def _refresh_india_movers() -> dict[str, Any]:
+    """Keep the last complete NSE ranking through thin or regressed refreshes."""
+    value = await india_market.fetch_india_movers()
+    previous: Any = market_insights_cache.peek(INDIA_MOVERS_KEY)
+    previous_value = previous.value if previous else None
+    if previous_value is None:
+        try:
+            entry = await get_market_cache_store_service().get_entry(INDIA_MOVERS_KEY)
+            previous_value = entry.payload if entry else None
+        except Exception:
+            previous_value = None
+    if isinstance(previous_value, dict):
+        previous_time = observation_time(previous_value.get("as_of"))
+        current_time = observation_time(value.get("as_of"))
+        if previous_time and (current_time is None or current_time < previous_time):
+            raise RuntimeError("india_movers_regressed_refresh")
+        if (
+            previous_value.get("universe_size", 0) >= india_market.INDIA_MOVERS_MIN_COVERAGE
+            and complete_movers(previous_value)
+            and value.get("degraded")
+        ):
+            raise RuntimeError("india_movers_incomplete_refresh")
+    return value
+
+
+async def _get_india_market_payload(user_id: str, days_back: int) -> dict[str, Any]:
+    """India market view. Its cache key is outside every US-gated prefix on purpose:
+    NSE hours never overlap the US session, so a US-closed pause would freeze it."""
+
+    async def indices() -> dict[str, Any]:
+        async def fetch() -> dict[str, Any]:
+            rows = await india_market.fetch_india_indices()
+            if not rows:
+                raise RuntimeError("india_indices_empty")
+            return {"quotes": rows}
+
+        value, stale, *_ = await _get_or_refresh_public_module(
+            key=INDIA_INDICES_KEY,
+            fresh_ttl_seconds=INDIA_INDICES_FRESH_TTL_SECONDS,
+            stale_ttl_seconds=INDIA_HOME_STALE_TTL_SECONDS,
+            fetcher=fetch,
+            warm_source="india_market",
+        )
+        return {
+            symbol: {**row, "is_stale": stale or row.get("is_stale")}
+            for symbol, row in value["quotes"].items()
+        }
+
+    async def movers() -> dict[str, Any]:
+        value, stale, *_ = await _get_or_refresh_public_module(
+            key=INDIA_MOVERS_KEY,
+            fresh_ttl_seconds=INDIA_MOVERS_FRESH_TTL_SECONDS,
+            stale_ttl_seconds=INDIA_MOVERS_STALE_TTL_SECONDS,
+            fetcher=_refresh_india_movers,
+            warm_source="india_market",
+        )
+        return stale_movers(value) if stale else dict(value)
+
+    async def news() -> list[dict[str, Any]]:
+        async def fetch() -> list[dict[str, Any]]:
+            rows = await india_market.fetch_india_news(days_back)
+            if not rows:
+                raise RuntimeError("india_news_empty")
+            return rows
+
+        value, *_ = await _get_or_refresh_public_module(
+            key=f"india_news:v1:{days_back}",
+            fresh_ttl_seconds=300,
+            stale_ttl_seconds=24 * 60 * 60,
+            fetcher=fetch,
+            warm_source="india_market",
+        )
+        return list(value)
+
+    async def build() -> dict[str, Any]:
+        loaded = await load_india_home(
+            days_back,
+            lambda: _fetch_market_status_for_exchange("NS"),
+            lambda: _scheduled_market_status_fallback("NS"),
+            movers,
+            news,
+            indices,
+        )
+        base = _empty_market_home_payload(
+            user_id=user_id,
+            requested_watchlist_symbols=[],
+            filtered_symbols=[],
+            stale_reason="india_home",
+            market_mode="baseline",
+        )
+        return jsonable_encoder(assemble_india_payload(base, loaded))
+
+    try:
+        value, stale, age_seconds, cache_tier, cache_hit = await _get_or_refresh_public_module(
+            key=f"india_home:v1:{days_back}",
+            fresh_ttl_seconds=INDIA_HOME_FRESH_TTL_SECONDS,
+            stale_ttl_seconds=INDIA_HOME_STALE_TTL_SECONDS,
+            fetcher=build,
+            warm_source="india_market",
+        )
+    except Exception as exc:
+        logger.exception("[Kai Market] India home failed: %s", type(exc).__name__)
+        empty = _empty_market_home_payload(
+            user_id=user_id,
+            requested_watchlist_symbols=[],
+            filtered_symbols=[],
+            stale_reason="india_home_failed",
+            provider_status={"india_home": _provider_status_from_exception(exc)},
+            market_mode="baseline",
+        )
+        empty["market"] = "IN"
+        empty["market_overview"] = [_scheduled_market_status_fallback("NS")]
+        return empty
+    result = dict(value)
+    if cache_hit:
+        # Quotes, news and movers advance independently of the aggregate and sectors.
+        index_rows, mover_rows, news_rows = await asyncio.gather(
+            indices(), movers(), news(), return_exceptions=True
+        )
+        if isinstance(index_rows, dict):
+            latest = [
+                row
+                for row in india_market.build_india_overview(
+                    index_rows, _scheduled_market_status_fallback("NS")
+                )
+                if row.get("symbol") in index_rows
+            ]
+            result["market_overview"] = overlay_index_rows(
+                result.get("market_overview", []), latest
+            )
+        if isinstance(mover_rows, dict) and any(
+            mover_rows.get(bucket) for bucket in ("gainers", "losers", "active")
+        ):
+            result["movers"] = mover_rows
+        if isinstance(news_rows, list):
+            result["news_tape"] = news_rows
+    result["stale"] = bool(result.get("stale")) or stale
+    result["meta"] = {
+        **result.get("meta", {}),
+        "stale": result["stale"],
+        "cache_age_seconds": age_seconds,
+        "cache_tier": cache_tier,
+        "cache_hit": cache_hit,
+    }
+    return result
+
+
 @router.get("/market/insights/baseline/{user_id}")
 async def get_market_insights_baseline(
     user_id: _UserId,
     days_back: int = Query(default=7, ge=1, le=14),
+    market: Literal["US", "IN"] = Query(
+        default="US", description="Market view. IN is the India view (NIFTY, SENSEX)."
+    ),
     firebase_uid: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
     verify_user_id_match(firebase_uid, user_id)
+    if market == "IN":
+        return await _get_india_market_payload(user_id, days_back)
 
     requested_watchlist_symbols = list(DEFAULT_SYMBOLS)
     filtered_symbols: list[dict[str, Any]] = []
@@ -3283,6 +3555,7 @@ async def get_market_news(
         le=NEWS_FEED_PAGE_MAX,
     ),
     token_data: dict = Depends(hub_content_owner),
+    market: Literal["US", "IN"] = "US",
 ) -> dict[str, Any]:
     """Read one cursor page from a vault-owner's bounded market-news snapshot."""
     if token_data["user_id"] != user_id:
@@ -3296,6 +3569,31 @@ async def get_market_news(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing or invalid consent token",
         )
+    if market == "IN":
+        symbol = (symbols or "").strip().upper()
+        if symbol not in india_market.NSE_LARGE_CAPS or cursor:
+            raise HTTPException(status_code=422, detail="Select a supported NSE stock.")
+
+        async def fetch_india_company_news() -> list[dict[str, Any]]:
+            return await india_market.fetch_india_news(days_back, symbol=symbol)
+
+        rows, stale, age, tier, hit = await _get_or_refresh_public_module(
+            key=f"india_company_news:v1:{symbol}:{days_back}",
+            fresh_ttl_seconds=300,
+            stale_ttl_seconds=24 * 60 * 60,
+            fetcher=fetch_india_company_news,
+            warm_source="india_market",
+        )
+        return {
+            "items": rows[:limit],
+            "next_cursor": None,
+            "has_more": False,
+            "snapshot_id": f"india:{symbol}",
+            "generated_at": _now_iso(),
+            "stale": stale,
+            "cache": {"tier": tier, "age_seconds": age, "hit": hit},
+            "provider_status": {"india_news": "partial" if stale else "ok"},
+        }
     return await _get_market_news_feed_page(
         user_id=user_id,
         symbols=_select_news_symbols(symbols),

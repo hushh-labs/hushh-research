@@ -26,11 +26,9 @@
     "docs/development/contracts/api-contracts.md",
     "consent-protocol/docs/README.md",
     ".agents/skills/backend-runtime-governance/references/async-runtime-performance.md",
-    "docs/architecture/schema-migration-discipline.md",
-    "docs/development/quality/floci-multicloud-wire-verification.md"
+    "docs/architecture/schema-migration-discipline.md"
   ],
   "required_commands": [
-    "./bin/hushh protocol floci",
     "cd consent-protocol && python3 -m pytest tests/services -q",
     "./bin/hushh agents data-model-audit"
   ],
@@ -38,12 +36,10 @@
     {
       "id": "backend-runtime",
       "commands": [
-        "./bin/hushh protocol floci",
         "cd consent-protocol && python3 -m pytest tests/services -q",
         "./bin/hushh agents data-model-audit"
       ],
       "tests": [
-        "./bin/hushh protocol floci",
         "cd consent-protocol && python3 -m pytest tests/services -q",
         "./bin/hushh agents data-model-audit"
       ]

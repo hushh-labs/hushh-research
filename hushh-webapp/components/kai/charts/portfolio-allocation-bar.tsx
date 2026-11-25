@@ -16,15 +16,8 @@ import { cn } from "@/lib/utils";
 import styles from "@/components/kai/shared/finance-workspace.module.css";
 import { allocationColor } from "@/lib/kai/allocation-colors";
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    notation: value >= 1_000_000 ? "compact" : "standard",
-    maximumFractionDigits: value >= 1_000_000 ? 1 : 0,
-  }).format(value);
-}
-
+import { formatCurrencyAdaptive as formatCurrency } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 export interface PortfolioAllocationDatum {
   name: string;
   value: number;
@@ -37,6 +30,7 @@ interface PortfolioAllocationBarProps {
   onSelectionChange?: (name: string | null) => void;
   className?: string;
   embedded?: boolean;
+  formatValue?: (value: number) => string;
 }
 
 function toChartKey(name: string, index: number): string {
@@ -54,7 +48,9 @@ export function PortfolioAllocationBar({
   onSelectionChange,
   className,
   embedded,
+  formatValue = formatCurrency,
 }: PortfolioAllocationBarProps) {
+  useMarketCurrency();
   const { segments, total, chartConfig, chartRow } = useMemo(() => {
     const eligible = data.filter(
       (entry) => Number.isFinite(entry.value) && entry.value > 0,
@@ -121,7 +117,7 @@ export function PortfolioAllocationBar({
                     <div className="flex min-w-[10rem] items-baseline justify-between gap-4">
                       <span className="text-muted-foreground">{label}</span>
                       <span className="font-medium text-foreground">
-                        {formatCurrency(amount)}
+                        {formatValue(amount)}
                       </span>
                     </div>
                   );
@@ -164,8 +160,7 @@ export function PortfolioAllocationBar({
               className={cn(
                 styles.allocationRow,
                 styles.interactiveRow,
-                "relative isolate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                selected ? "bg-accent-surface text-accent-strong" : "hover:text-foreground",
+                "relative isolate focus-visible:outline-none",
               )}
               data-finance-selected={selected || undefined}
               aria-pressed={selected}
@@ -179,14 +174,14 @@ export function PortfolioAllocationBar({
                 <span className={styles.allocationName}>{segment.name}</span>
               </span>
               <span className={styles.allocationAmount}>
-                <span>{formatCurrency(segment.value)}</span>
+                <span>{formatValue(segment.value)}</span>
                 <span className={styles.allocationMeta}>{segment.percent.toFixed(1)}%</span>
               </span>
             </button>
           );
         })}
       </div>
-      <p className={styles.allocationMeta}>Percentages use {formatCurrency(totalValue ?? total)} total portfolio value.</p>
+      <p className={styles.allocationMeta}>Percentages use {formatValue(totalValue ?? total)} total portfolio value.</p>
     </AllocationSection>
   );
 }
