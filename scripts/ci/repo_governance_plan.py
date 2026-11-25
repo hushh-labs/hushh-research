@@ -14,8 +14,8 @@ from typing import Sequence
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MAX_CHANGED_BYTES = 128 * 1024
-MAX_CHANGED_PATHS = 2048
+MAX_CHANGED_BYTES = 1024 * 1024
+MAX_CHANGED_PATHS = 16384
 MAX_PATH_BYTES = 2048
 REGRESSION_GROUPS = ("controller", "retention", "agent")
 VALID_LEVELS = ("focused", "release", "diagnostic")
@@ -292,14 +292,15 @@ DIAGNOSTIC_IDS = frozenset(check.check_id for check in CHECKS if check.diagnosti
 
 KNOWN_ROOTS = frozenset(
     {
-        ".agents", ".github", "LICENSES", "archive", "artifacts", "bin", "clawhub", "config",
+        ".agents", ".github", ".githooks", "LICENSES", "archive", "artifacts", "bin", "clawhub", "config",
         "consent-protocol", "contracts", "data", "deploy", "docs", "hushh-webapp",
         "ios", "android", "packages", "scripts", "skillsagentic", "tests",
     }
 )
 KNOWN_ROOT_FILES = frozenset(
     {
-        ".gitignore", "AGENTS.md", "LICENSE", "LICENSES", "Makefile", "NOTICE", "README.md",
+        ".gitattributes", ".gitignore", "AGENTS.md", "LICENSE", "LICENSES", "Makefile", "NOTICE", "README.md",
+        "llms.txt",
         # Recognize removal of retired, tracked documentation generators.
         "hussh-mega-map.gen.py", "hussh-mega-map-v2.gen.py",
         "hussh-mega-map.dark.svg", "hussh-mega-map.light.svg",
@@ -432,6 +433,9 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
             "scripts/verify-doc-brand.cjs",
             "scripts/verify-doc-links.cjs",
             "scripts/verify-doc-runtime-parity.cjs",
+            "scripts/shareable-source-classification.cjs",
+            "scripts/verify-shareable-links.cjs",
+            "scripts/ops/report_prod_contract_posture.py",
             "scripts/ci/test_secret_scan_ranges.py",
             "scripts/ci/tag-last-known-good.sh",
             "scripts/ci/verify-predecessor-acceptance.py",
