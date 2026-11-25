@@ -698,15 +698,10 @@ export function useRouteTransition() {
     }
     if (pathnameChanged) {
       if (pendingViewTransitionResolve) {
-        // Release the View Transition snapshot after one animation frame so the
-        // incoming route's DOM commit is painted before the browser begins the
-        // simultaneous compositor cross-glide.
-        if (enterFrame !== null) window.cancelAnimationFrame(enterFrame);
-        enterFrame = window.requestAnimationFrame(() => {
-          enterFrame = null;
-          completePendingViewTransition();
-          setRouteState("idle");
-        });
+        // The incoming route has committed. WebKit can withhold animation
+        // frames until this callback settles and it can capture the new page.
+        completePendingViewTransition();
+        setRouteState("idle");
       } else if (document.documentElement.dataset.routeTransition === "pending") {
         // Fallback browsers without View Transitions: let the incoming page's
         // first layout/paint frame complete before starting the directional enter.
