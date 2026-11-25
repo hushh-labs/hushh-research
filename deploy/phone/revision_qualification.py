@@ -5,9 +5,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import time
+from pathlib import Path
 from urllib.error import URLError
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, build_opener
@@ -17,6 +19,12 @@ REGION = "us-central1"
 SERVICE = "consent-protocol"
 COLD_HEALTH_ATTEMPTS = 10
 COLD_HEALTH_RETRY_DELAY = 3.0
+CLOUD_SDK_CA_BUNDLE = "/usr/lib/google-cloud-sdk/lib/third_party/certifi/cacert.pem"
+
+
+def _ensure_tls_trust_roots() -> None:
+    if not os.environ.get("SSL_CERT_FILE") and Path(CLOUD_SDK_CA_BUNDLE).is_file():
+        os.environ["SSL_CERT_FILE"] = CLOUD_SDK_CA_BUNDLE
 
 
 def qualify_runtime(container: dict) -> None:
@@ -255,6 +263,7 @@ def inspect_cold(*, sha: str, image: str, run_id: str) -> dict:
     )
     if receipt["revision"] != target["revisionName"]:
         raise ValueError("phone_fallback_tag_revision_mismatch")
+    _ensure_tls_trust_roots()
     for attempt in range(COLD_HEALTH_ATTEMPTS):
         try:
             with build_opener(_NoRedirect).open(
