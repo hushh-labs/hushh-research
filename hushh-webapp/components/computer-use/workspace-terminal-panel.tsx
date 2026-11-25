@@ -64,10 +64,10 @@ function tokenizeCommand(raw: string): string[] {
 
 /** On-demand terminal session panel for the unified sandbox runtime. Zero idle polling. */
 export function WorkspaceTerminalPanel({
-  ownerId,
+  podId,
   active,
 }: {
-  ownerId: string;
+  podId: string;
   active: boolean;
 }) {
   const [status, setStatus] = useState<WorkspaceStatusState | null>(null);
@@ -85,7 +85,7 @@ export function WorkspaceTerminalPanel({
         { method: "GET", cache: "no-store", signal },
         false,
         undefined,
-        ownerId,
+        podId,
       );
       if (signal?.aborted) return;
       if (!response.ok) {
@@ -124,7 +124,7 @@ export function WorkspaceTerminalPanel({
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, [ownerId]);
+  }, [podId]);
 
   useEffect(() => {
     if (!active) return;
@@ -150,7 +150,7 @@ export function WorkspaceTerminalPanel({
         },
         false,
         undefined,
-        ownerId,
+        podId,
       );
       if (!response.ok) {
         morphyToast.error("Couldn't update terminal control right now.");
@@ -197,7 +197,7 @@ export function WorkspaceTerminalPanel({
         },
         false,
         undefined,
-        ownerId,
+        podId,
       );
       if (!response.ok) {
         morphyToast.error("Couldn't execute that command in the sandbox.");
