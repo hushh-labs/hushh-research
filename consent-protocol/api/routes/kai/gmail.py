@@ -428,6 +428,7 @@ def _live_receipt_http_error(exc: Exception) -> HTTPException:
             "GMAIL_RECEIPT_NOTICE_TIMEOUT": "One couldn't finish checking in time.",
             "GMAIL_RECEIPT_NOTICE_UNAVAILABLE": "One can't check right now.",
             "GMAIL_RECEIPT_NOTICE_INVALID": "One got an unusable answer.",
+            "GMAIL_RECEIPT_NOTICE_IN_PROGRESS": "One is already checking.",
         }
         return HTTPException(
             status_code=503
@@ -450,6 +451,7 @@ def _live_receipt_http_error(exc: Exception) -> HTTPException:
                     "GMAIL_RECEIPT_EXTRACTION_TIMEOUT",
                     "GMAIL_RECEIPT_NOTICE_TIMEOUT",
                     "GMAIL_RECEIPT_NOTICE_UNAVAILABLE",
+                    "GMAIL_RECEIPT_NOTICE_IN_PROGRESS",
                 },
             },
             headers={"Cache-Control": "private, no-store", "Pragma": "no-cache"},

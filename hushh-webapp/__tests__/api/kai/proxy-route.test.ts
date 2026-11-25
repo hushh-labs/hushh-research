@@ -190,6 +190,8 @@ describe("/api/kai/[...path] proxy", () => {
     expect(timeout.res.status).toBe(504);
     expect(timeout.res.headers.get("Cache-Control")).toContain("no-store");
     expect(timeout.json).toEqual({ detail: { code: "GMAIL_RECEIPT_NOTICE_TIMEOUT", message: "One couldn't finish checking in time.", retryable: true } });
+    const busy = await call({ detail: { code: "GMAIL_RECEIPT_NOTICE_IN_PROGRESS", message: "x" } }, 409);
+    expect(busy.json).toEqual({ detail: { code: "GMAIL_RECEIPT_NOTICE_IN_PROGRESS", message: "One is already checking.", retryable: true } });
     const invalid = await call({ detail: { code: "GMAIL_RECEIPT_NOTICE_INVALID", message: "x" } }, 502);
     expect(invalid.json.detail).toMatchObject({ code: "GMAIL_RECEIPT_NOTICE_INVALID", retryable: false });
     const unsafe = await call({ detail: "provider body owner@example.test order=SECRET-ORDER" }, 502);

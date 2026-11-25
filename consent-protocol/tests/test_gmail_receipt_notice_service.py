@@ -303,6 +303,30 @@ async def test_model_failures_are_typed_and_never_return_findings(monkeypatch):
         assert (caught.value.code, caught.value.status_code) == (code, status)
 
 
+async def test_one_check_per_owner_runs_at_a_time_and_the_lane_frees_afterwards():
+    import asyncio
+
+    session = FakeSession("a@x.test", [*netflix_history(), NOTICE])
+    release = asyncio.Event()
+
+    class Slow(Runner):
+        async def __call__(self, prompt: str, user_id: str, consent_token: str) -> dict[str, Any]:
+            await release.wait()
+            return await super().__call__(prompt, user_id, consent_token)
+
+    service = service_for(session, Slow())
+    first = asyncio.create_task(run(service, session, ["n1", "n2", "n3"]))
+    await asyncio.sleep(0.05)
+    with pytest.raises(GmailApiError) as caught:
+        await run(service, session, ["n1", "n2", "n3"])
+    assert (
+        caught.value.code == "GMAIL_RECEIPT_NOTICE_IN_PROGRESS" and caught.value.status_code == 409
+    )
+    release.set()
+    assert (await first)["findings"]
+    assert (await run(service, session, ["n1", "n2", "n3"]))["findings"]  # the lane is free again
+
+
 async def test_the_kill_switch_stops_every_model_call(monkeypatch):
     monkeypatch.setenv("KAI_RECEIPT_NOTICE_ENABLED", "false")
     session = FakeSession("a@x.test", [*netflix_history(), NOTICE])

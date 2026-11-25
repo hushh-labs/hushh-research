@@ -119,6 +119,7 @@ const LIVE_RECEIPT_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   GMAIL_RECEIPT_NOTICE_TIMEOUT: "One couldn't finish checking in time.",
   GMAIL_RECEIPT_NOTICE_UNAVAILABLE: "One can't check right now.",
   GMAIL_RECEIPT_NOTICE_INVALID: "One got an unusable answer.",
+  GMAIL_RECEIPT_NOTICE_IN_PROGRESS: "One is already checking.",
   GMAIL_RECEIPT_UNAVAILABLE:
     "Receipts are temporarily unavailable. Please try again.",
 };
@@ -155,7 +156,7 @@ function sanitizeLiveReceiptErrorPayload(
                 "GMAIL_PROVIDER_UNAVAILABLE", "GMAIL_RECEIPT_SCAN_TIMEOUT",
                 "GMAIL_RECEIPT_DETAIL_TIMEOUT", "GMAIL_RECEIPT_EXTRACTION_TIMEOUT",
                 "GMAIL_RECEIPT_EXTRACTION_UNAVAILABLE", "GMAIL_RECEIPT_NOTICE_TIMEOUT",
-                "GMAIL_RECEIPT_NOTICE_UNAVAILABLE"].includes(code),
+                "GMAIL_RECEIPT_NOTICE_UNAVAILABLE", "GMAIL_RECEIPT_NOTICE_IN_PROGRESS"].includes(code),
           },
         };
       }

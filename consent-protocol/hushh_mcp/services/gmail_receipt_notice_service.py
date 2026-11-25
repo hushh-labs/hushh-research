@@ -141,6 +141,8 @@ class GmailReceiptNoticeService:
         self._live = live
         self._runner = runner or _run_notice_gene
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        # One model-backed check per owner at a time, so repeated taps or tabs cannot stack model calls.
+        self._active: set[str] = set()
 
     def _service(self) -> GmailLiveReceiptsService:
         return self._live or get_gmail_live_receipts_service()
@@ -317,6 +319,35 @@ class GmailReceiptNoticeService:
                 status_code=503,
                 code="GMAIL_RECEIPT_NOTICE_UNAVAILABLE",
             )
+        if user_id in self._active:
+            raise GmailApiError(
+                "One is already checking.",
+                status_code=409,
+                code="GMAIL_RECEIPT_NOTICE_IN_PROGRESS",
+            )
+        self._active.add(user_id)
+        try:
+            return await self._analyze(
+                user_id=user_id,
+                consent_token=consent_token,
+                require_access=require_access,
+                receipt_keys=receipt_keys,
+                expected_account=expected_account,
+                prior=prior,
+            )
+        finally:
+            self._active.discard(user_id)
+
+    async def _analyze(
+        self,
+        *,
+        user_id: str,
+        consent_token: str,
+        require_access: RequireAccess,
+        receipt_keys: list[str],
+        expected_account: str | None,
+        prior: list[dict[str, Any]] | None,
+    ) -> dict[str, Any]:
         now = self._clock()
         prior_items = _prior(prior)
         try:
