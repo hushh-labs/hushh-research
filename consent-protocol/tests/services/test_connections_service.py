@@ -3522,3 +3522,78 @@ def test_directory_mutual_preview_uses_eligible_profile_outside_current_page():
     assert item["mutualConnectionCount"] == 2
     assert item["mutualConnectionPreview"] is None
     assert queries[-1][1]["page_user_ids"] == ["candidate"]
+
+
+def test_tombstone_sealed_pending_requests_feed_transition_and_accept_retirement():
+    svc = _svc()
+    svc._display_name_for = lambda uid: f"Name:{uid}"
+    executed: list[tuple[str, dict]] = []
+
+    def record_one(sql, params=None):
+        executed.append((sql, dict(params or {})))
+        return {"id": "feed-row-1"}
+
+    svc._execute_one = record_one
+    svc._record_connection_feed_transition(
+        owner_user_id="deleted-requester",
+        counterpart_user_id="active-addressee",
+        actor_user_id="active-addressee",
+        event_type="connection_rejected",
+        source_row_id="req-123",
+    )
+    assert len(executed) == 1
+    assert "account_deletion_tombstones" in executed[0][0]
+    assert executed[0][1]["owner_user_id"] == "deleted-requester"
+
+    many_queries: list[tuple[str, dict]] = []
+
+    def record_many(sql, params=None):
+        many_queries.append((sql, dict(params or {})))
+        return []
+
+    svc._execute_many = record_many
+    assert svc.list_requests("active-addressee", direction="incoming") == []
+    assert "account_deletion_tombstones" in many_queries[-1][0]
+    assert "cr.requester_user_id" in many_queries[-1][0]
+
+    # When accepting a cached pending request from a tombstoned requester on a real DB
+    # transaction, the service retires the request as cancelled and raises 410 cleanly.
+    class _FakeTxConn:
+        engine = object()
+
+        def execute(self, stmt, params=None):
+            return SimpleNamespace(first=lambda: None)
+
+    fake_conn = _FakeTxConn()
+    svc._transaction = lambda: nullcontext()
+    svc._transaction_connection = fake_conn
+    svc._load_request = lambda req_id, for_update=False: {
+        "id": req_id,
+        "requester_user_id": "deleted-requester",
+        "addressee_user_id": "active-addressee",
+        "status": "pending",
+    }
+    svc._expire_pending_scope_proposals = lambda req_id: None
+    svc._reviewable_scope_proposals = lambda req_id: []
+    resolved_proposals: list[tuple[str, str, str]] = []
+    svc._resolve_pending_scope_proposals = lambda req_id, *, status, actor_user_id, reason: (
+        resolved_proposals.append((req_id, status, reason))
+    )
+    cancel_writes: list[tuple[str, dict]] = []
+
+    def fake_exec_one(sql, params=None):
+        cancel_writes.append((sql, dict(params or {})))
+        if "INSERT INTO connections" in sql:
+            return None
+        return {"id": "req-dead-1"}
+
+    svc._execute_one = fake_exec_one
+
+    with patch("hushh_mcp.services.connections_service.lock_connection_graph_users"):
+        with pytest.raises(ConnectionsError) as exc_info:
+            svc.accept_request("active-addressee", "req-dead-1")
+
+    assert exc_info.value.code == "CONNECTION_REQUESTER_DELETED"
+    assert exc_info.value.status_code == 410
+    assert any("SET status = 'cancelled'" in sql for sql, _ in cancel_writes)
+    assert resolved_proposals == [("req-dead-1", "declined", "requester_account_deleted")]

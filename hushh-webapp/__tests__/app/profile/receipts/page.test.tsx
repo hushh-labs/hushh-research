@@ -1092,9 +1092,15 @@ describe("ProfileReceiptsPage", () => {
     expect(
       hero.compareDocumentPosition(recent) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+    // The page header names the list; the list has no heading of its own.
+    const labelId = recent.getAttribute("aria-labelledby");
+    expect(labelId).toBeTruthy();
+    const title = document.getElementById(labelId as string);
+    expect(title).toHaveTextContent("Receipts");
+    expect(title?.tagName).toBe("H2");
     expect(
-      await within(recent).findByRole("heading", { name: "Recent receipts" }),
-    ).toBeVisible();
+      title && recent.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_PRECEDING,
+    ).toBeTruthy();
     expect(await within(recent).findAllByText("Myntra")).toHaveLength(3);
     expect(within(recent).getByText("—")).toBeVisible();
     expect(recent.querySelectorAll('[data-logo-kind="fallback"]')).toHaveLength(

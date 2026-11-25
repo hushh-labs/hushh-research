@@ -7426,13 +7426,13 @@
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
     "action_gateway": "6ee22c0dfe499186bf893099fc6207157cb382faac86fbe93aac969a3f8d8e70",
-    "agent_registry": "9971f60d358e0171ca426e46b7523e9df10ee252a327d291b0392371ded41417",
+    "agent_registry": "1fb4bf48b0654f71b87956f060e08d1075a5c2451ddf8a6a10f2147618497cb8",
     "cache_manifest": "623128d22f35fad11a0befd080164bcd3eed7253f68ecbc4028c5ca5259e735a",
     "data_plane": "80f3365bd25e7a5067f868967fb35c4edc9a993d6ef27a8201ce8729b8b05b77",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "1af4badea5099908aa16463d04147aa7a97a195b5de530ed318ef76161dbadbf",
     "route_index": "b3adb3da01a0bf0544e373a067a31f9ee5ca1824659c1db0b3122bc685554d12",
-    "route_layout": "39b96f0db36aa90f06fc6b8eea85c72bcdf13c6a9f03ec082d9e738b78d05e90",
+    "route_layout": "b2471f36c5086347100cbb20e774f864b691bd180cb4b0a47355de70ca2b3b6e",
     "surface_map": "841f304f27ba6212a21ce70ac659d17506cbdffa9f2c6f9ae06affed0fd993a1",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"

@@ -35,14 +35,28 @@ def _run_ace_block(
     edge_url: str = "https://sandbox-edge-gateway.example.run.app",
     has_seal_secret: bool = True,
     has_master_secret: bool = True,
-) -> dict[str, str]:
+    has_ed25519_secrets: bool = True,
+    edge_has_public_keys: bool = True,
+    inject_dev_sim: str = "",
+    inject_byoc_live: str = "",
+    check: bool = True,
+) -> subprocess.CompletedProcess[str] | dict[str, str]:
     dev_block = _extract_block("# BEGIN DEV ACE SANDBOX PARITY", "# END DEV ACE SANDBOX PARITY")
     uat_block = _extract_block("# BEGIN UAT ACE SANDBOX PARITY", "# END UAT ACE SANDBOX PARITY")
+    closure_block = _extract_block(
+        "# BEGIN CAPABILITY DEPENDENCY CLOSURE GATE",
+        "# END CAPABILITY DEPENDENCY CLOSURE GATE",
+    )
     resolved_project = project_id or {
         "dev": "hushh-pda-dev",
         "uat": "hushh-pda-uat",
         "production": "hushh-pda",
     }.get(deploy_env, "hushh-pda")
+    edge_env_json = (
+        '[{"name":"CONSENT_ED25519_PUBLIC_KEYS"},{"name":"OWNER_FEED_ED25519_PUBLIC_KEYS"}]'
+        if edge_has_public_keys
+        else '[{"name":"CONSENT_ED25519_PUBLIC_KEYS"}]'
+    )
     harness = f"""
 set -euo pipefail
 _DEPLOY_ENV="{deploy_env}"
@@ -63,7 +77,7 @@ personal_agent_autoprovision=""
 gcp_backend_live=""
 consent_plane_sa=""
 pod_invoker_member=""
-user_gcp_live=""
+user_gcp_live="{inject_byoc_live}"
 user_gcp_substrate_apply=""
 pod_ingress=""
 personal_agent_reconcile=""
@@ -78,7 +92,7 @@ pod_durable_identity=""
 pod_migration=""
 pod_files_enabled=""
 trusted_device_enabled=""
-dev_simulation_enabled=""
+dev_simulation_enabled="{inject_dev_sim}"
 agent_sandbox_cutover_enabled=""
 hub_storage_prefix_base_url=""
 hub_storage_token_provider=""
@@ -87,11 +101,23 @@ sandbox_edge_public_url=""
 source_pod_retirement_sweep_enabled=""
 dev_custody_broker_seal_key_secret=""
 dev_sandbox_identity_master_key_secret=""
+consent_signing_alg=""
+consent_ed25519_kid=""
+dev_consent_ed25519_private_secret=""
+dev_consent_ed25519_public_keys_secret=""
+owner_feed_signing_alg=""
+owner_feed_ed25519_kid=""
+dev_owner_feed_private_secret=""
+dev_owner_feed_public_keys_secret=""
 
 gcloud() {{
   if [[ "$1" == "run" && "$2" == "services" && "$3" == "describe" ]]; then
     if [[ "$4" == "sandbox-edge-gateway" ]]; then
-      printf '%s' "{edge_url}"
+      if [[ "$*" == *"--format=json"* ]]; then
+        printf '{{"status":{{"url":"%s"}},"spec":{{"template":{{"spec":{{"containers":[{{"env":%s}}]}}}}}}}}' "{edge_url}" '{edge_env_json}'
+      else
+        printf '%s' "{edge_url}"
+      fi
       return 0
     fi
     printf '%s' "https://consent-protocol.example.run.app"
@@ -104,6 +130,9 @@ gcloud() {{
     if [[ "$3" == "sandbox-edge-identity-master-key" && "{str(has_master_secret).lower()}" == "true" ]]; then
       return 0
     fi
+    if [[ "$3" =~ ^(CONSENT_ED25519_|OWNER_FEED_ED25519_) && "{str(has_ed25519_secrets).lower()}" == "true" ]]; then
+      return 0
+    fi
     return 1
   fi
   return 1
@@ -111,9 +140,22 @@ gcloud() {{
 
 if [[ "${{_DEPLOY_ENV}}" == "dev" && -z "${{commerce_preview_prefix:-}}" ]]; then
   hub_url="https://consent-protocol.example.run.app"
+  personal_agent_enabled="true"
+  trusted_device_enabled="true"
+  if [[ "{str(has_ed25519_secrets).lower()}" == "true" ]]; then
+    consent_signing_alg="ed25519"
+    consent_ed25519_kid="hushh-consent-dev-1"
+    dev_consent_ed25519_private_secret="CONSENT_ED25519_PRIVATE_KEY"
+    dev_consent_ed25519_public_keys_secret="CONSENT_ED25519_PUBLIC_KEYS"
+    owner_feed_signing_alg="ed25519"
+    owner_feed_ed25519_kid="hushh-owner-feed-dev-1"
+    dev_owner_feed_private_secret="OWNER_FEED_ED25519_PRIVATE_KEY"
+    dev_owner_feed_public_keys_secret="OWNER_FEED_ED25519_PUBLIC_KEYS"
+  fi
 {dev_block}
 fi
 {uat_block}
+{closure_block}
 
 printf 'HUSSH_AGENT_SANDBOX_CUTOVER_ENABLED=%s\\n' "${{agent_sandbox_cutover_enabled}}"
 printf 'HUSSH_HUB_STORAGE_PREFIX_BASE_URL=%s\\n' "${{hub_storage_prefix_base_url}}"
@@ -130,13 +172,23 @@ printf 'HUSSH_USER_GCP_SUBSTRATE_APPLY=%s\\n' "${{user_gcp_substrate_apply}}"
 printf 'HUSSH_CONSENT_PLANE_SA=%s\\n' "${{consent_plane_sa}}"
 printf 'HUSSH_POD_INGRESS=%s\\n' "${{pod_ingress}}"
 printf 'HUSHH_DEV_SIMULATION_ENABLED=%s\\n' "${{dev_simulation_enabled}}"
+printf 'CONSENT_TOKEN_SIGNING_ALG=%s\\n' "${{consent_signing_alg}}"
+printf 'CONSENT_ED25519_KID=%s\\n' "${{consent_ed25519_kid}}"
+printf 'CONSENT_ED25519_PRIVATE_KEY=%s\\n' "${{dev_consent_ed25519_private_secret}}"
+printf 'CONSENT_ED25519_PUBLIC_KEYS=%s\\n' "${{dev_consent_ed25519_public_keys_secret}}"
+printf 'OWNER_FEED_SIGNING_ALG=%s\\n' "${{owner_feed_signing_alg}}"
+printf 'OWNER_FEED_ED25519_KID=%s\\n' "${{owner_feed_ed25519_kid}}"
+printf 'OWNER_FEED_ED25519_PRIVATE_KEY=%s\\n' "${{dev_owner_feed_private_secret}}"
+printf 'OWNER_FEED_ED25519_PUBLIC_KEYS=%s\\n' "${{dev_owner_feed_public_keys_secret}}"
 """
     proc = subprocess.run(  # noqa: S603 - repository-owned bash guard verification
         ["bash", "-c", harness],  # noqa: S607
         text=True,
         capture_output=True,
-        check=True,
+        check=check,
     )
+    if not check:
+        return proc
     out: dict[str, str] = {}
     for line in proc.stdout.splitlines():
         key, _, value = line.partition("=")
@@ -146,6 +198,7 @@ printf 'HUSHH_DEV_SIMULATION_ENABLED=%s\\n' "${{dev_simulation_enabled}}"
 
 def test_dev_ace_bindings_are_emitted_in_shared_dev_when_resources_exist() -> None:
     result = _run_ace_block(deploy_env="dev")
+    assert isinstance(result, dict)
     assert {k: result[k] for k in list(result)[:8]} == {
         "HUSSH_AGENT_SANDBOX_CUTOVER_ENABLED": "1",
         "HUSSH_HUB_STORAGE_PREFIX_BASE_URL": "https://consent-protocol.example.run.app/api/one/pod/storage-gateway",
@@ -158,8 +211,9 @@ def test_dev_ace_bindings_are_emitted_in_shared_dev_when_resources_exist() -> No
     }
 
 
-def test_uat_ace_bindings_are_emitted_in_shared_uat_when_resources_exist() -> None:
+def test_uat_ace_bindings_are_emitted_with_byoc_off_in_shared_uat() -> None:
     result = _run_ace_block(deploy_env="uat", project_id="hushh-pda-uat")
+    assert isinstance(result, dict)
     assert result == {
         "HUSSH_AGENT_SANDBOX_CUTOVER_ENABLED": "1",
         "HUSSH_HUB_STORAGE_PREFIX_BASE_URL": "https://consent-protocol.example.run.app/api/one/pod/storage-gateway",
@@ -171,28 +225,76 @@ def test_uat_ace_bindings_are_emitted_in_shared_uat_when_resources_exist() -> No
         "HUSSH_SANDBOX_IDENTITY_MASTER_KEY": "sandbox-edge-identity-master-key",
         "PERSONAL_AGENT_ENABLED": "true",
         "HUSSH_TRUSTED_DEVICE_ENABLED": "true",
-        "HUSSH_USER_GCP_LIVE": "true",
-        "HUSSH_USER_GCP_SUBSTRATE_APPLY": "true",
-        "HUSSH_CONSENT_PLANE_SA": "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com",
-        "HUSSH_POD_INGRESS": "all",
+        "HUSSH_USER_GCP_LIVE": "",
+        "HUSSH_USER_GCP_SUBSTRATE_APPLY": "",
+        "HUSSH_CONSENT_PLANE_SA": "",
+        "HUSSH_POD_INGRESS": "",
         "HUSHH_DEV_SIMULATION_ENABLED": "",
+        "CONSENT_TOKEN_SIGNING_ALG": "ed25519",
+        "CONSENT_ED25519_KID": "hushh-consent-uat-1",
+        "CONSENT_ED25519_PRIVATE_KEY": "CONSENT_ED25519_PRIVATE_KEY",
+        "CONSENT_ED25519_PUBLIC_KEYS": "CONSENT_ED25519_PUBLIC_KEYS",
+        "OWNER_FEED_SIGNING_ALG": "ed25519",
+        "OWNER_FEED_ED25519_KID": "hushh-owner-feed-uat-1",
+        "OWNER_FEED_ED25519_PRIVATE_KEY": "OWNER_FEED_ED25519_PRIVATE_KEY",
+        "OWNER_FEED_ED25519_PUBLIC_KEYS": "OWNER_FEED_ED25519_PUBLIC_KEYS",
     }
+
+
+def test_uat_capability_closure_fails_closed_when_ed25519_or_edge_keys_missing() -> None:
+    missing_secrets = _run_ace_block(
+        deploy_env="uat",
+        project_id="hushh-pda-uat",
+        has_ed25519_secrets=False,
+        check=False,
+    )
+    assert isinstance(missing_secrets, subprocess.CompletedProcess)
+    assert missing_secrets.returncode != 0
+    assert "missing required Secret Manager secret" in missing_secrets.stderr
+
+    missing_edge_mount = _run_ace_block(
+        deploy_env="uat",
+        project_id="hushh-pda-uat",
+        edge_has_public_keys=False,
+        check=False,
+    )
+    assert isinstance(missing_edge_mount, subprocess.CompletedProcess)
+    assert missing_edge_mount.returncode != 0
+    assert "sandbox-edge-gateway is missing" in missing_edge_mount.stderr
+
+
+@pytest.mark.parametrize("deploy_env", ["uat", "production"])
+def test_capability_closure_forbids_dev_simulation_or_byoc_live_outside_dev(
+    deploy_env: str,
+) -> None:
+    sim_leak = _run_ace_block(deploy_env=deploy_env, inject_dev_sim="true", check=False)
+    assert isinstance(sim_leak, subprocess.CompletedProcess)
+    assert sim_leak.returncode != 0
+    assert "HUSHH_DEV_SIMULATION_ENABLED is forbidden" in sim_leak.stderr
+
+    byoc_leak = _run_ace_block(deploy_env=deploy_env, inject_byoc_live="true", check=False)
+    assert isinstance(byoc_leak, subprocess.CompletedProcess)
+    assert byoc_leak.returncode != 0
+    assert "BYOC live provisioning flags must stay unset" in byoc_leak.stderr
 
 
 @pytest.mark.parametrize("deploy_env", ["production", "prod", "manual", ""])
 def test_non_dev_uat_lanes_emit_zero_ace_bindings(deploy_env: str) -> None:
     result = _run_ace_block(deploy_env=deploy_env)
+    assert isinstance(result, dict)
     assert all(value == "" for value in result.values())
 
 
 def test_uat_in_non_uat_project_emits_zero_ace_bindings() -> None:
     result = _run_ace_block(deploy_env="uat", project_id="hushh-pda")
+    assert isinstance(result, dict)
     assert all(value == "" for value in result.values())
 
 
 @pytest.mark.parametrize("deploy_env", ["dev", "uat"])
 def test_commerce_preview_emits_zero_ace_bindings(deploy_env: str) -> None:
     result = _run_ace_block(deploy_env=deploy_env, commerce_prefix="SCOPE_COMMERCE_SANDBOX_")
+    assert isinstance(result, dict)
     assert all(value == "" for value in result.values())
 
 
@@ -214,7 +316,12 @@ def test_ace_block_skips_cleanly_when_edge_or_secret_missing(
         has_seal_secret=has_seal,
         has_master_secret=has_master,
     )
-    assert all(value == "" for value in result.values())
+    assert isinstance(result, dict)
+    if deploy_env == "uat":
+        assert all(value == "" for value in result.values())
+    else:
+        assert result["HUSSH_AGENT_SANDBOX_CUTOVER_ENABLED"] == ""
+        assert result["HUSSH_SANDBOX_EDGE_PUBLIC_URL"] == ""
 
 
 def test_backend_deploy_wires_all_ace_bindings_without_hardcoded_dev_hashes() -> None:

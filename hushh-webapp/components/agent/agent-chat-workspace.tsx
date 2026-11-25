@@ -219,6 +219,7 @@ import calendarType from "@/components/calendar/calendar-presentation.module.css
 import { SelectionChip } from "@/components/agent/selection-chip";
 import { AgentFollowUpSuggestions, visibleFollowUps } from "@/components/agent/agent-follow-up-suggestions";
 import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
+import { isPuppyLiveOnBuild } from "@/lib/one/owner-cloud";
 import {
   PRIVATE_MEMORY_PREPARATION_EVENT_ID,
   connectorBrandForTool,
@@ -314,7 +315,9 @@ import { calendarInvitationInstruction, type CalendarInvitationHandoff } from "@
 import { calendarAccountStatus, calendarDirectiveAccountId } from "@/lib/calendar/calendar-account-status";
 import { readFileScheduleProposal, type FileScheduleProposal } from "@/lib/agent/file-schedule-proposal";
 import { ChatGoalPlanCard } from "@/components/goals/chat-goal-plan-card";
+import { areGoalsAvailable } from "@/lib/goals/availability";
 import type { GoalPlanInput } from "@/lib/services/goals-pkm-service";
+import { areScheduledTasksAvailable } from "@/lib/services/pod-scheduled-tasks";
 import { ChatFileScheduleCard } from "@/components/scheduled-tasks/chat-file-schedule-card";
 import { calendarSlotInstruction, calendarSlotProposalError, calendarSlotStarts, type CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import { isCalendarDaySearchRequest } from "@/lib/calendar/calendar-day-search-request";
@@ -891,6 +894,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // on the owner's machine.
   const [agentSurface, setAgentSurface] = useState<AgentChatSurface>("one");
   const isPuppySurface = agentSurface === "puppy";
+  const puppyLiveOnBuild = isPuppyLiveOnBuild();
   const chatWake = useChatAgentWake(
     applicationOwnerId ?? null,
     isCanonicalChatRoute && isVaultUnlocked && !authLoading && !sessionVerificationRequired,
@@ -1109,7 +1113,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const inlineOneStreamEventIdsRef = useRef<Set<string>>(new Set());
   const reconcileOneStreamRef = useRef<(() => void) | null>(null);
   const historyListOwner = useRef<{ auth: NonNullable<ReturnType<typeof snapshotValidatedAuthSessionOwner>>; epoch: number } | null>(null);
-  const puppyHistory = usePuppyConversations(applicationOwnerId ?? null, isPuppySurface);
+  const puppyHistory = usePuppyConversations(
+    applicationOwnerId ?? null,
+    isPuppySurface && puppyLiveOnBuild,
+  );
   const { conversations: puppyConversations, activeId: puppyConversationId } = puppyHistory;
   const [messages, setMessages] = useState<AgentMessage[]>(() => {
     if (initialActiveSession && initialActiveSession.messages.length > 0) {
@@ -10266,16 +10273,46 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               which a `hidden` ancestor cannot reach. Nothing is shared between
               the two: no message, no history row. */}
           {puppyEverOpened ? (
-            <PuppyOneSurface
-              key={applicationOwnerId ?? "signed-out"}
-              active={isPuppySurface}
-              sharedDock={isCanonicalChatRoute}
-              composerDisabled={isHistoryDrawerOpen}
-              conversations={puppyConversations}
-              activeConversationId={puppyConversationId}
-              onCreateConversation={handleCreateNewPuppyChat}
-              className={cn(!isPuppySurface && "hidden", "lg:px-8")}
-            />
+            puppyLiveOnBuild ? (
+              <PuppyOneSurface
+                key={applicationOwnerId ?? "signed-out"}
+                active={isPuppySurface}
+                sharedDock={isCanonicalChatRoute}
+                composerDisabled={isHistoryDrawerOpen}
+                conversations={puppyConversations}
+                activeConversationId={puppyConversationId}
+                onCreateConversation={handleCreateNewPuppyChat}
+                className={cn(!isPuppySurface && "hidden", "lg:px-8")}
+              />
+            ) : null
+          ) : null}
+
+          {isPuppySurface && !puppyLiveOnBuild ? (
+            <section
+              data-testid="puppy-coming-soon-surface"
+              aria-live="polite"
+              className="mx-auto flex min-h-0 flex-1 max-w-md flex-col items-center justify-center gap-3 px-6 py-16 text-center"
+            >
+              <span className="inline-flex items-center rounded-full bg-foreground/[0.06] px-3 py-1 text-xs font-medium text-[var(--app-text-secondary)]">
+                Coming soon
+              </span>
+              <h2 className="text-xl font-semibold tracking-tight text-foreground">
+                Puppy One is coming soon
+              </h2>
+              <p className="text-sm leading-relaxed text-[var(--app-text-secondary)]">
+                Run a private companion model on your own computer, paired directly with One.
+              </p>
+              <div className="mt-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => setAgentSurface("one")}
+                  data-testid="puppy-coming-soon-back"
+                >
+                  Back to One
+                </Button>
+              </div>
+            </section>
           ) : null}
 
           {/* One's transcript region is hidden as a WHOLE, not just the
@@ -10424,7 +10461,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               }}
               className={cn(
                 "h-full w-full touch-pan-y overflow-y-auto px-4 pt-5 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
-                "pb-[max(var(--agent-chat-native-occlusion,0px),calc(var(--agent-chat-composer-bottom,5rem)+max(5.5rem,var(--agent-chat-composer-stack-height,0px)+1.75rem)))] lg:px-8",
+                "pb-[max(var(--agent-chat-native-occlusion,0px),calc(var(--agent-chat-composer-bottom,5rem)+max(5.5rem,var(--agent-chat-composer-stack-height,0px)+1.75rem)))] scroll-pb-[max(var(--agent-chat-native-occlusion,0px),calc(var(--agent-chat-composer-bottom,5rem)+max(5.5rem,var(--agent-chat-composer-stack-height,0px)+1.75rem)))] lg:px-8",
               )}
               tabIndex={0}
               role="region"
@@ -11147,14 +11184,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 />
               ) : null}
 
-              {goalPlanReview && planningCredentials && isCanonicalChatRoute && !isPuppySurface &&
+              {areGoalsAvailable() && goalPlanReview && planningCredentials && isCanonicalChatRoute && !isPuppySurface &&
                 goalPlanReview.ownerId === planningCredentials.userId && goalPlanReview.epoch === vaultSessionEpoch &&
                 messages.some(message => message.role === "assistant" && message.id === goalPlanReview.assistantId) ? (
                   <ChatGoalPlanCard key={goalPlanReview.assistantId} proposal={goalPlanReview.proposal}
                     credentials={planningCredentials} onDismiss={() => setGoalPlanReview(null)} />
                 ) : null}
 
-              {fileScheduleReview && planningCredentials && isCanonicalChatRoute && !isPuppySurface &&
+              {areScheduledTasksAvailable() && fileScheduleReview && planningCredentials && isCanonicalChatRoute && !isPuppySurface &&
                 fileScheduleReview.ownerId === planningCredentials.userId && fileScheduleReview.epoch === vaultSessionEpoch &&
                 messages.some(message => message.id === fileScheduleReview.assistantId) ? (
                   <ChatFileScheduleCard key={fileScheduleReview.assistantId} proposal={fileScheduleReview.proposal}

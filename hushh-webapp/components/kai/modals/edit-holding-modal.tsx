@@ -21,7 +21,7 @@ import { toHoldingViewModel } from "@/components/kai/holdings/holding-view-model
 import { HoldingAcquisitionDateField } from "@/components/kai/holdings/holding-acquisition-date-field";
 import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import { cn } from "@/lib/utils";
-import { Button } from "@/lib/morphy-ux/button";
+import { Button } from "@/components/ui/button";
 import {
   getTickerUniverseSnapshot,
   preloadTickerUniverse,
@@ -627,23 +627,22 @@ export function EditHoldingModal({
         </div>
  
         <DrawerFooter className="shrink-0 border-t bg-background/80 pb-[max(1rem,var(--app-safe-area-bottom-effective))]">
-          <div className="flex gap-3 w-full">
+          <div className="grid w-full grid-cols-2 gap-3">
             <DrawerClose asChild>
               <Button
-                variant="none"
-                effect="glass"
-                className="flex-1 h-12 border"
+                type="button"
+                variant="outline"
+                className="h-12"
               >
                 Cancel
               </Button>
             </DrawerClose>
             <Button
+              type="button"
               onClick={handleSave}
-              variant="none"
-              effect="fill"
-              className="flex-1 h-12"
-              icon={{ icon: Save, gradient: false }}
+              className="h-12"
             >
+              <Save aria-hidden="true" />
               {isNewHolding ? "Add" : "Save Changes"}
             </Button>
           </div>

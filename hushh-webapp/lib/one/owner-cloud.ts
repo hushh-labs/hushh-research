@@ -13,6 +13,8 @@
  * closed rather than be coerced into an owner cloud.
  */
 
+import { resolveAppEnvironment } from "@/lib/app-env";
+
 export const OWNER_CLOUD_TARGETS = ["user_gcp", "user_azure"] as const;
 
 export type OwnerCloudTarget = (typeof OWNER_CLOUD_TARGETS)[number];
@@ -119,7 +121,28 @@ export function isHostedAzureMigrationAvailable(): boolean {
 
 /** Whether switching onto Pooled Personal Sandbox is available on this build. */
 export function isPooledSandboxSwitchAvailable(): boolean {
-  return String(process.env.NEXT_PUBLIC_APP_ENV ?? "").trim().toLowerCase() === "dev";
+  const env = String(process.env.NEXT_PUBLIC_APP_ENV ?? "").trim().toLowerCase();
+  return env === "dev" || env === "uat";
+}
+
+/**
+ * Whether Bring Your Own Cloud is selectable for new setups on this build.
+ * Live in Dev and local development; gracefully marked Coming soon on UAT and Production.
+ */
+export function isByocSelectableOnBuild(): boolean {
+  if (process.env.NEXT_PUBLIC_BYOC_SELECTABLE === "1") return true;
+  if (process.env.NEXT_PUBLIC_BYOC_SELECTABLE === "0") return false;
+  return resolveAppEnvironment() === "development";
+}
+
+/**
+ * Whether Puppy One desktop loopback pairing is live on this build.
+ * Live in Dev and local development; gracefully marked Coming soon on UAT and Production.
+ */
+export function isPuppyLiveOnBuild(): boolean {
+  if (process.env.NEXT_PUBLIC_PUPPY_ONE_ENABLED === "1") return true;
+  if (process.env.NEXT_PUBLIC_PUPPY_ONE_ENABLED === "0") return false;
+  return resolveAppEnvironment() === "development";
 }
 
 /** A private mode chooses direct admission; it never establishes authority. */
@@ -133,7 +156,7 @@ export function isPrivatePodBinding(binding: Record<string, unknown>): boolean {
     return !("hosting_mode" in binding);
   }
   if (binding.deployment_target === "ace" && !("hosting_mode" in binding)) {
-    return binding.environment === "dev";
+    return binding.environment === "dev" || binding.environment === "uat";
   }
   return (
     (binding.deployment_target === "gcp" || binding.deployment_target === "azure")

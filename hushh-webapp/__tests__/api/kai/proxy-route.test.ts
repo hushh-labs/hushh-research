@@ -170,6 +170,35 @@ describe("/api/kai/[...path] proxy", () => {
     expect(logged).not.toContain("999");
   });
 
+  it("keeps One's mailbox check private: no-store, safe copy, nothing from the body relayed", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const call = async (body: unknown, status: number) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }),
+      );
+      const res = await kaiRoute.POST(
+        createRequest("http://localhost:3000/api/kai/gmail/receipts/notice", {
+          method: "POST",
+          headers: { Authorization: "Bearer firebase-id-token", "X-Hushh-Consent": "Bearer vault-owner-token", "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: "owner-uid", account_key: "a@x.test", receipt_keys: ["grs1_" + "a".repeat(40)] }),
+        }),
+        { params: Promise.resolve({ path: ["gmail", "receipts", "notice"] }) },
+      );
+      return { res, json: await res.json() };
+    };
+    const timeout = await call({ detail: { code: "GMAIL_RECEIPT_NOTICE_TIMEOUT", message: "Netflix said SECRET to owner@example.test" } }, 504);
+    expect(timeout.res.status).toBe(504);
+    expect(timeout.res.headers.get("Cache-Control")).toContain("no-store");
+    expect(timeout.json).toEqual({ detail: { code: "GMAIL_RECEIPT_NOTICE_TIMEOUT", message: "One couldn't finish checking in time.", retryable: true } });
+    const busy = await call({ detail: { code: "GMAIL_RECEIPT_NOTICE_IN_PROGRESS", message: "x" } }, 409);
+    expect(busy.json).toEqual({ detail: { code: "GMAIL_RECEIPT_NOTICE_IN_PROGRESS", message: "One is already checking.", retryable: true } });
+    const invalid = await call({ detail: { code: "GMAIL_RECEIPT_NOTICE_INVALID", message: "x" } }, 502);
+    expect(invalid.json.detail).toMatchObject({ code: "GMAIL_RECEIPT_NOTICE_INVALID", retryable: false });
+    const unsafe = await call({ detail: "provider body owner@example.test order=SECRET-ORDER" }, 502);
+    expect(JSON.stringify(unsafe.json)).not.toContain("owner@example.test");
+    expect(JSON.stringify(consoleError.mock.calls)).not.toContain("SECRET");
+  });
+
   it("uses its own safe copy for recognized live receipt errors", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(globalThis, "fetch").mockResolvedValue(

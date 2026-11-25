@@ -129,13 +129,13 @@ describe("Wallet visit introduction", () => {
   afterEach(() => vi.clearAllMocks());
   const enter = async () => {
     fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
-    await screen.findByRole("tab", { name: "My cards", hidden: true });
+    await screen.findByRole("tab", { name: "Cards", hidden: true });
     await waitFor(() => expect(screen.getByTestId("one-wallet-add")).not.toBeDisabled());
   };
   it("shows the illustration once, then opens Cards on later visits", async () => {
     const page = render(<WalletWorkspace />);
     expect(await screen.findByTestId("one-wallet-empty-art")).toBeTruthy();
-    expect(screen.queryByRole("tab", { name: "My cards", hidden: true })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Cards", hidden: true })).toBeNull();
     await enter();
     expect(screen.getByTestId("wallet-card-browser")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open Agent One Profile", hidden: true })).toBeTruthy();
@@ -146,29 +146,29 @@ describe("Wallet visit introduction", () => {
     expect(serviceMock.addCard).not.toHaveBeenCalled();
     expect(serviceMock.getCard).not.toHaveBeenCalled();
     expect(serviceMock.deleteCard).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByTestId("one-wallet-add"));
+    fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
     expect(screen.getByTestId("secure-card-add-form")).toBeTruthy();
-    fireEvent.click(screen.getByRole("tab", { name: "My cards", hidden: true }));
+    fireEvent.click(screen.getByRole("tab", { name: "Cards", hidden: true }));
     expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
     page.unmount();
     render(<WalletWorkspace />);
-    expect(await screen.findByRole("tab", { name: "My cards", hidden: true })).toBeVisible();
+    expect(await screen.findByRole("tab", { name: "Cards", hidden: true })).toBeVisible();
     expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
   });
-  it("opens entry directly in Add, retains drafts across tabs, and clears a cancelled draft", async () => {
+  it("opens Add and retires protected drafts when its tab closes", async () => {
     render(<WalletWorkspace />);
     await enter();
-    fireEvent.click(screen.getByTestId("one-wallet-add"));
+    fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
     fireEvent.change(screen.getByLabelText("Name on card"), { target: { value: "Travel" } });
     fireEvent.change(screen.getByLabelText("Card number"), { target: { value: "4242424242424242" } });
-    fireEvent.click(screen.getByRole("tab", { name: "My cards", hidden: true }));
-    fireEvent.click(screen.getByTestId("one-wallet-add"));
-    expect(screen.getByLabelText("Name on card")).toHaveValue("TRAVEL");
-    expect(screen.getByLabelText("Card number")).toHaveValue("4242 4242 4242 4242");
+    fireEvent.click(screen.getByRole("tab", { name: "Cards", hidden: true }));
+    fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
+    expect(screen.getByLabelText("Name on card")).toHaveValue("");
+    expect(screen.getByLabelText("Card number")).toHaveValue("");
     expect(screen.getByLabelText("CVV")).toHaveAttribute("type", "password");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.getByRole("tab", { name: "My cards", hidden: true })).toHaveAttribute("aria-selected", "true");
-    fireEvent.click(screen.getByTestId("one-wallet-add"));
+    expect(screen.getByRole("tab", { name: "Cards", hidden: true })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
     expect(screen.getByLabelText("Name on card")).toHaveValue("");
   });
   it("keeps real cards behind Continue and opens unlocked saved details with recipients", async () => {
@@ -207,14 +207,14 @@ describe("Wallet visit introduction", () => {
     });
     render(<WalletWorkspace />);
     await enter();
-    fireEvent.click(screen.getByTestId("one-wallet-add"));
+    fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
     fireEvent.change(screen.getByLabelText("Name on card"), { target: { value: "New card" } });
     fireEvent.change(screen.getByLabelText(/Card number/), { target: { value: "4242424242424242" } });
     fireEvent.change(screen.getByLabelText("Expiry (MM/YY)"), { target: { value: "04/30" } });
     fireEvent.change(screen.getByLabelText("Issuing region"), { target: { value: "IN" } });
     await waitFor(() => expect(screen.getByTestId("secure-card-save")).toBeEnabled());
     fireEvent.click(screen.getByTestId("secure-card-save"));
-    await waitFor(() => expect(screen.getByRole("tab", { name: "My cards", hidden: true })).toHaveAttribute("aria-selected", "true"));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Cards", hidden: true })).toHaveAttribute("aria-selected", "true"));
     fireEvent.click(await screen.findByRole("button", { name: "New card", exact: true }));
     await screen.findByTestId("wallet-selected-card");
     expect(screen.getByRole("button", { name: "Open New card, ending 4242", hidden: true })).toHaveAttribute("aria-pressed", "true");
@@ -231,7 +231,7 @@ describe("Wallet visit introduction", () => {
   it("removes the form and card details when the vault locks", async () => {
     const page = render(<WalletWorkspace />);
     await enter();
-    fireEvent.click(screen.getByTestId("one-wallet-add"));
+    fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
     fireEvent.change(screen.getByLabelText("Card number"), { target: { value: "4242424242424242" } });
     vaultMock.locked = true;
     page.rerender(<WalletWorkspace />);

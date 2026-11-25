@@ -13,6 +13,7 @@ export const useVault = () => vault;
 export const useEffectiveAvatarUrl = () => null;
 export const usePersonaState = () => ({ activePersona: 'investor', riaCapability: 'disabled', riaEntryRoute: '/ria', switchPersona() {} });
 export const useNativePresentationRegions = () => {};
+export const subscribeNativeShellInset = () => () => {};
 export const VaultService = { peekVaultPresence: () => true, checkVault: async () => true };
 export const DELETE_ACCOUNT_DIALOG_DESCRIPTION = 'Delete your account';
 export const DELETE_ACCOUNT_DIALOG_TITLE = 'Delete account';
@@ -53,8 +54,15 @@ export const GmailInformationRequestsService = {
  list: async (input?: { view?: string }) => ({ workflows: document.documentElement.dataset.queue === '1' && input?.view !== 'activity' ? [syntheticRequest] : [], next_offset: null, total_count: document.documentElement.dataset.queue === '1' && input?.view !== 'activity' ? 1 : 0 }),
  scanStream: async () => ({ accepted: true, scanned_count: 0, unchanged_count: 0, matched_count: 0, failed_count: 0, workflow_ids: [] }),
 };
-export const ApiService = new Proxy({}, { get: (_target, name) => name === 'getPersonalAgentStatus'
+// Only One's mailbox check and the email behind a finding may reach the page's own fetch, where a test answers them.
+export const ApiService = new Proxy({}, { get: (_target, name) => name === 'getPersonalAgentStatus' || name === 'getPersonalAgentStatusForRouting'
  ? async () => ({ hostingMode: 'shared' })
+ : name === 'apiFetch'
+ ? async (path: string, init?: RequestInit) => {
+  if (!/^\/api\/kai\/gmail\/receipts\/notice(\/source)?$/.test(path)) throw new Error('Unhandled fixture network request');
+  return window.fetch(path, init);
+ }
+
  : async () => { throw new Error('Unhandled fixture network request'); } });
 export const HushhPersonalKnowledgeModel = {};
 export const HushhVault = {};

@@ -3,6 +3,35 @@ import { expect, test, type Page } from "@playwright/test";
 export function registerAdvisorReviewChecks(
   mount: (page: Page, width: number) => Promise<void>,
 ) {
+  test("Finance persona has a visible action and matching assessment buttons", async ({ page }) => {
+    await mount(page, 320);
+    await page.evaluate(() => { document.body.dataset.portfolioPersonaIncomplete = "true"; });
+    await page.getByRole("button", { name: "Toggle sample analysis" }).click();
+    const trigger = page.getByRole("button", { name: "Complete persona", exact: true });
+    await expect(trigger).toBeVisible();
+    expect(await trigger.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+    await trigger.click();
+    const dialog = page.getByRole("dialog", { name: "Complete persona" });
+    const back = dialog.getByRole("button", { name: "Back", exact: true });
+    const next = dialog.getByRole("button", { name: "Continue", exact: true });
+    const expectMatchingSize = async (forward: typeof next) => {
+      const { backBox, forwardBox } = await back.evaluate(
+        (backButton, forwardButton) => ({
+          backBox: backButton.getBoundingClientRect().toJSON(),
+          forwardBox: forwardButton.getBoundingClientRect().toJSON(),
+        }),
+        await forward.elementHandle(),
+      );
+      expect(backBox.width).toBeCloseTo(forwardBox.width, 0);
+      expect(backBox.height).toBeGreaterThanOrEqual(44);
+      expect(backBox.height).toEqual(forwardBox.height);
+      expect(backBox.y).toBeCloseTo(forwardBox.y, 0);
+    };
+    await expectMatchingSize(next);
+    for (let question = 1; question < 13; question++) await next.click();
+    await expectMatchingSize(dialog.getByRole("button", { name: "Save assessment" }));
+  });
+
   for (const width of [393, 1440]) {
     test(`Advisor recommendations require opt-in and preserve introduction approval at ${width}px`, async ({
       page,
@@ -304,29 +333,33 @@ export function registerAdvisorReviewChecks(
     await analysis.screenshot({ path: info.outputPath("portfolio-two-cards.png") });
   });
 
-  test("Finance portfolio review reopens the saved result without another model request", async ({ page }) => {
+  test("Finance portfolio review reopens the encrypted result after reload without another model request", async ({ page }) => {
     await mount(page, 960);
-    await page.getByRole("button", { name: "Toggle sample analysis" }).click();
+    const toggle = page.getByRole("button", { name: "Toggle sample analysis" });
+    await toggle.click();
     const review = page.getByRole("region", { name: "Portfolio review", exact: true });
     const allow = review.getByRole("button", { name: "Allow portfolio review" });
+    const calls = "data-portfolio-review-calls";
+    const takeaway = review.getByText("One holding dominates this snapshot.", { exact: true });
     await allow.click();
-    await expect(review.getByText("72 / 100")).toBeVisible();
+    await expect(takeaway).toBeVisible();
+    await expect(page.locator("body")).toHaveAttribute(calls, "1");
 
-    await page.evaluate(() => {
-      Object.defineProperty(document, "hidden", { configurable: true, value: true });
-      document.dispatchEvent(new Event("visibilitychange"));
-      Object.defineProperty(document, "hidden", { configurable: true, value: false });
-      document.dispatchEvent(new Event("visibilitychange"));
-    });
-    await expect(review.getByText("72 / 100")).toBeVisible();
+    // Leaving and reopening waits for the encrypted result to commit.
+    await toggle.click();
+    await toggle.click();
+    await expect(takeaway).toBeVisible();
+    await expect(page.locator("body")).toHaveAttribute(calls, "1");
+    await mount(page, 960);
+    await toggle.click();
+    await expect(takeaway).toBeVisible();
     await expect(allow).toHaveCount(0);
-    await expect(review.getByRole("button", { name: "Turn off automatic review" })).toHaveCount(0);
-    await expect(page.locator("body")).toHaveAttribute("data-portfolio-review-calls", "1");
+    await expect(page.locator("body")).not.toHaveAttribute(calls);
 
     await page.getByRole("button", { name: "Update sample portfolio" }).click();
-    await expect(review.getByText("72 / 100")).toHaveCount(0);
+    await expect(takeaway).toHaveCount(0);
     await expect(allow).toBeEnabled();
-    await expect(page.locator("body")).toHaveAttribute("data-portfolio-review-calls", "1");
+    await expect(page.locator("body")).not.toHaveAttribute(calls);
   });
 
   test("Finance advisor scheduling uses a rounded time picker and scrollable time zones", async ({ page, browserName, isMobile }, info) => {

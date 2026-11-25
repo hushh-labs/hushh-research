@@ -117,6 +117,8 @@ POST /api/kai/gmail/receipts-memory/preview
 GET /api/kai/gmail/receipts/{user_id}
 POST /api/kai/gmail/receipts/scan
 POST /api/kai/gmail/receipts/detail
+POST /api/kai/gmail/receipts/notice
+POST /api/kai/gmail/receipts/notice/source
 POST /api/kai/gmail/reconcile
 POST /api/kai/gmail/sync
 GET /api/kai/gmail/sync/{run_id}

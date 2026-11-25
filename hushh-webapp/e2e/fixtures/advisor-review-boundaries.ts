@@ -3,6 +3,11 @@ import type { AdvisorReview, AdvisorSnapshot } from "@/lib/advisor-review/contra
 import { readSavedFinance } from "./finance-sharing-boundaries";
 import { matchAdvisorServices, normalizeAdvisorService, type AdvisorService } from "@/lib/advisor-review/matching";
 
+export const KaiProfileSyncService = {
+  getPendingSyncState: async () => ({ hasPending: false }),
+  syncPendingToVault: async () => ({ synced: false }),
+};
+
 let savedAdvisorService: AdvisorService | null = null;
 export const KaiProfileService = {
   getProfile: async () => {

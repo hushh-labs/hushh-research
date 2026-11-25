@@ -1,0 +1,67 @@
+/* The page shell locks h2 to the title3 tokens and h3 to the headline tokens, so each role overrides the token, not the size. */
+.pageTitle {
+  --foundation-title3-size: 24px;
+  --foundation-title3-line: 30px;
+  --foundation-title3-weight: 700;
+  --foundation-title3-tracking: -0.01em;
+}
+.cardTitle {
+  --foundation-headline-size: 18px;
+  --foundation-headline-line: 24px;
+  --foundation-headline-weight: 700;
+  --foundation-headline-tracking: -0.005em;
+}
+.monthTitle {
+  --foundation-headline-size: 17px;
+  --foundation-headline-line: 22px;
+  --foundation-headline-weight: 600;
+  --foundation-headline-tracking: normal;
+}
+.sectionTitle {
+  --foundation-headline-size: 15px;
+  --foundation-headline-line: 22px;
+  --foundation-headline-weight: 700;
+  --foundation-headline-tracking: normal;
+}
+.primaryPill {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 24px;
+  background: var(--app-accent);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  cursor: pointer;
+}
+.primaryPill:hover { background: var(--app-accent-deep); }
+.primaryPill:focus-visible { outline: 2px solid var(--app-accent-ring); outline-offset: 2px; }
+.primaryPill:disabled { opacity: 0.5; cursor: not-allowed; }
+.secondaryPill {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--app-accent) 32%, var(--app-card-border-standard));
+  border-radius: 999px;
+  padding: 0 24px;
+  background: var(--app-card-surface-default-solid);
+  color: var(--app-accent);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  cursor: pointer;
+}
+.secondaryPill:focus-visible { outline: 2px solid var(--app-accent-ring); outline-offset: 2px; }
+.secondaryPill:disabled { opacity: 0.5; cursor: not-allowed; }
+@media (max-width: 639px) {
+  .primaryPill, .secondaryPill { width: 100%; }
+}

@@ -5,6 +5,7 @@ import { ApiService } from "@/lib/services/api-service";
 import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { CACHE_TTL, CacheService } from "@/lib/services/cache-service";
 import { clearCachedGmailReceipts } from "@/lib/profile/gmail-receipts-cache";
+import { type NoticeCheck, type NoticeSource, parseNoticeResponse, parseNoticeSource } from "@/lib/mail/receipt-notice";
 import {
   type GmailConnectStartResponse,
   type GmailNativeConnectStartResponse,
@@ -789,6 +790,67 @@ function buildSealedHeaders(
 }
 
 export class GmailReceiptsService {
+  /**
+   * Ask One what the saved receipts and the providers' other mail call for. Read-only: the answer is findings
+   * the server has already checked against the emails; nothing is cancelled, paid, sent or stored there.
+   */
+  static async checkReceiptNotice(params: {
+    idToken: string;
+    vaultOwnerToken: string;
+    userId: string;
+    accountKey: string;
+    receiptKeys: string[];
+    prior: Array<{ id: string; kind: string; provider: string; headline: string }>;
+    signal?: AbortSignal;
+  }): Promise<NoticeCheck> {
+    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Mail receipt insights');
+    const response = await ApiService.apiFetch(GMAIL_RECEIPTS_API_TEMPLATES.receiptNotice, {
+      method: "POST",
+      cache: "no-store",
+      signal: params.signal,
+      headers: { ...buildSealedHeaders(params.idToken, params.vaultOwnerToken), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        user_id: params.userId,
+        account_key: params.accountKey,
+        receipt_keys: params.receiptKeys.slice(0, 40),
+        prior: params.prior.slice(0, 12),
+      }),
+    });
+    if (!response.ok) throw await extractLiveReceiptError(response, "One couldn't check your receipts.");
+    const payload: unknown = await response.json().catch(() => { throw invalidLiveReceiptResponse(); });
+    try {
+      return parseNoticeResponse(payload, params.accountKey);
+    } catch {
+      throw invalidLiveReceiptResponse();
+    }
+  }
+
+  /** The one email behind a finding, read fresh from the owner's own mailbox. */
+  static async openNoticeSource(params: {
+    idToken: string;
+    vaultOwnerToken: string;
+    userId: string;
+    accountKey: string;
+    openKey: string;
+    signal?: AbortSignal;
+  }): Promise<NoticeSource> {
+    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Mail receipt insights');
+    const response = await ApiService.apiFetch(GMAIL_RECEIPTS_API_TEMPLATES.receiptNoticeSource, {
+      method: "POST",
+      cache: "no-store",
+      signal: params.signal,
+      headers: { ...buildSealedHeaders(params.idToken, params.vaultOwnerToken), "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: params.userId, account_key: params.accountKey, open_key: params.openKey }),
+    });
+    if (!response.ok) throw await extractLiveReceiptError(response, "That email isn't available.");
+    const payload: unknown = await response.json().catch(() => { throw invalidLiveReceiptResponse(); });
+    try {
+      return parseNoticeSource(payload);
+    } catch {
+      throw invalidLiveReceiptResponse();
+    }
+  }
+
   static async getStatus(params: {
     idToken: string;
     userId: string;

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ComputerUseTaskCard } from "@/components/computer-use/computer-use-task-card";
 import { type ComputerUseBinding, type ComputerUseSnapshot, type ComputerUseTransport } from "@/lib/computer-use/contracts";
@@ -230,6 +230,57 @@ describe("private browser control", () => {
     await waitFor(() => expect(discover).toHaveBeenCalledOnce());
     expect(view.container).toBeEmptyDOMElement();
   });
+  it("updates review counts from live task phases through approval and Stop without rediscovery", async () => {
+    const discover = vi.spyOn(ComputerUseClient.prototype, "tasks")
+      .mockResolvedValue([{ binding, phase: "running", current: true }]);
+    const direct = transport();
+    vi.spyOn(ComputerUseClient.prototype, "transport").mockReturnValue(direct);
+    const count = vi.fn();
+    const view = render(<ComputerUseActiveTasks ownerId="owner" refreshKey={1} route="/one" onReviewCountChange={count} />);
+    await screen.findByRole("button", { name: "Close browser preview" });
+    const review = { id: "safety", purpose: "provider_safety" as const, origins: [], details: [] };
+    vi.mocked(direct.read).mockResolvedValue(snapshot({ phase: "needs_owner", revision: 2, review }));
+    fireEvent(document, new Event("visibilitychange"));
+    await waitFor(() => expect(count).toHaveBeenLastCalledWith(1));
+    vi.mocked(direct.review).mockResolvedValue(snapshot({ revision: 3 }));
+    fireEvent.click(screen.getByRole("button", { name: "Review request" }));
+    fireEvent.click(screen.getByRole("button", { name: "Allow this action" }));
+    await waitFor(() => expect(count).toHaveBeenLastCalledWith(0));
+    vi.mocked(direct.read).mockResolvedValue(snapshot({ phase: "needs_owner", revision: 4, review }));
+    fireEvent(document, new Event("visibilitychange"));
+    await waitFor(() => expect(count).toHaveBeenLastCalledWith(1));
+    vi.mocked(direct.control).mockResolvedValue(snapshot({ phase: "cancelled", controlOwner: "stopped", controlEpoch: 2, revision: 5 }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    await waitFor(() => expect(count).toHaveBeenLastCalledWith(0));
+    expect(discover).toHaveBeenCalledOnce();
+    expect(direct.review).toHaveBeenCalledOnce();
+    expect(direct.control).toHaveBeenCalledOnce();
+    view.unmount();
+  });
+  it("rejects late task-count updates across same-owner reauthentication", async () => {
+    const discover = vi.spyOn(ComputerUseClient.prototype, "tasks")
+      .mockResolvedValueOnce([{ binding, phase: "running", current: true }]).mockResolvedValue([]);
+    const direct = transport();
+    vi.spyOn(ComputerUseClient.prototype, "transport").mockReturnValue(direct);
+    const count = vi.fn();
+    const props = { ownerId: "owner", refreshKey: 1, route: "/one", onReviewCountChange: count };
+    const view = render(<ComputerUseActiveTasks {...props} />);
+    await screen.findByRole("button", { name: "Close browser preview" });
+    let finish!: (value: ComputerUseSnapshot) => void;
+    vi.mocked(direct.read).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    fireEvent(document, new Event("visibilitychange"));
+    await act(async () => {
+      publishValidatedAuthSessionOwner(null);
+      publishValidatedAuthSessionOwner("owner");
+      finish(snapshot({ phase: "needs_owner", revision: 2 }));
+    });
+    expect(count).not.toHaveBeenCalledWith(1);
+    view.rerender(<ComputerUseActiveTasks {...props} />);
+    await waitFor(() => expect(discover).toHaveBeenCalledTimes(2));
+    expect(count).toHaveBeenLastCalledWith(0);
+    expect(screen.queryByLabelText("Browser task")).toBeNull();
+    view.unmount();
+  });
   it.each(["completed", "unavailable"] as const)("rediscovers a %s owner outcome without restarting or uploading the task", async (phase) => {
     vi.spyOn(ComputerUseClient.prototype, "tasks").mockResolvedValue([{ binding, phase, current: true }]);
     const direct = transport();
@@ -255,8 +306,8 @@ describe("private browser control", () => {
     expect(unwindBackLayer("/")).toBe(false);
   });
 
-  it("refuses every production schedule operation before admission or transport", async () => {
-    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
+  it.each(["production", "uat", "staging"])("refuses %s scheduling before admission or transport", async (environment) => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", environment);
     const client = new PodScheduledTasksClient("owner");
     const task = { id: "schedule_" + "a".repeat(32), revision: 1 } as Parameters<typeof client.control>[0];
     for (const result of [client.status(), client.control(task, "pause"),
@@ -268,7 +319,7 @@ describe("private browser control", () => {
     expect(api.ownerPodRequest).not.toHaveBeenCalled();
   });
 
-  it.each(["dev", "development", "uat", "staging"])("preserves %s scheduling in optimized builds", async (environment) => {
+  it.each(["dev", "development"])("preserves %s scheduling in optimized builds", async (environment) => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", environment);
     api.getComputerUseAdmission.mockResolvedValue({ ownerId: "owner", podId: "pod" });
@@ -729,14 +780,16 @@ it("stops background polling and frame streaming while paused in needs_owner", a
 
 it("docks WorkspaceSplitPane and switches across Browser, Activity, and Terminal without idle polling", async () => {
   const apiTransport = transport();
-  api.ownerPodRequest.mockResolvedValue(
-    Response.json({
-      control_mode: "agent",
+  let controlMode = "agent";
+  api.ownerPodRequest.mockImplementation(async (path: string) => {
+    if (path === "files/workspaces/control") controlMode = "owner";
+    return Response.json({
+      control_mode: controlMode,
       control_epoch: 1,
       pressure: { level: "normal" },
       events: [],
-    }),
-  );
+    });
+  });
   const view = render(
     <WorkspaceSplitPaneProvider>
       <ComputerUseTaskCard binding={binding} transport={apiTransport} />
@@ -759,9 +812,18 @@ it("docks WorkspaceSplitPane and switches across Browser, Activity, and Terminal
       expect.objectContaining({ method: "GET", cache: "no-store" }),
       false,
       undefined,
-      "owner",
+      "pod",
     ),
   );
+  fireEvent.click(within(screen.getByTestId("workspace-terminal-panel")).getByRole("button", { name: "Take control" }));
+  await screen.findByText("You are in control");
+  fireEvent.change(screen.getByRole("textbox", { name: "Terminal command" }), { target: { value: "pwd" } });
+  fireEvent.click(screen.getByRole("button", { name: "Run" }));
+  await waitFor(() => expect(api.ownerPodRequest.mock.calls.some(([path]) => path === "files/workspaces/execute")).toBe(true));
+  expect(new Set(api.ownerPodRequest.mock.calls.map(([path]) => path))).toEqual(new Set([
+    "files/workspaces/status?workspace_id=ws_default", "files/workspaces/control", "files/workspaces/execute",
+  ]));
+  expect(api.ownerPodRequest.mock.calls.every(call => call[4] === binding.podId && call[4] !== binding.ownerId)).toBe(true);
   view.unmount();
 });
 

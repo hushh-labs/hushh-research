@@ -41,7 +41,9 @@ export function ReviewEntriesSheet({
       leading={position ? <SymbolAvatar symbol={position.symbol} name={position.name} isCash={position.isCash} size="lg" /> : undefined}
       surfaceClassName={financeStyles.detail} mobilePresentation="sheet" showMobileCloseButton
       desktopMaxWidthClassName="sm:!max-w-[32.5rem]"
-      footer={<ShellActionSurface variant="pill" className="min-h-11" onClick={() => onOpenChange(false)}>Done</ShellActionSurface>}>
+      footer={<div className="flex w-full justify-end">
+        <ShellActionSurface variant="pill" className="min-h-11" onClick={() => onOpenChange(false)}>Done</ShellActionSurface>
+      </div>}>
       <div className="px-5 pb-2">
         <p className={financeStyles.value}>{position ? formatCurrency(position.marketValue, position.currency) : "—"}</p>
         <p className="ui-text-row-description mt-1 text-muted-foreground">{summary}</p>

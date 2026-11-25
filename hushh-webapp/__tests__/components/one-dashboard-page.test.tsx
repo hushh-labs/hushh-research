@@ -46,6 +46,14 @@ describe("Scheduled tasks placement", () => {
     expect(schedule.hosting).not.toHaveBeenCalled();
     expect(schedule.status).not.toHaveBeenCalled();
   });
+  it("hides Goals and Scheduled tasks on the UAT dashboard", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+    render(<OneDashboardPage userId="owner" />);
+    expect(screen.queryByRole("link", { name: "Open Goals" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Scheduled tasks" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open Location" })).toBeInTheDocument();
+    expect(schedule.status).not.toHaveBeenCalled();
+  });
   it("explains the Shared limit without admitting or waking a pod", async () => {
     schedule.hosting.mockResolvedValue({ hostingMode: "shared" });
     render(<ScheduledTasksPanel ownerId="owner" />);

@@ -449,6 +449,8 @@ const KYC_SCAN_WEB_FETCH_TIMEOUT_MS = 95_000;
 // direct routes; normal app and hub requests retain the 60-second bound.
 const OWNER_POD_WAKE_FETCH_TIMEOUT_MS = 120_000;
 const LIVE_GMAIL_RECEIPT_FETCH_TIMEOUT_MS = 80_000;
+// One's mailbox check reads the mailbox and waits for one model answer, so it outlasts a scan (the proxy allows 90 s).
+const RECEIPT_NOTICE_FETCH_TIMEOUT_MS = 95_000;
 
 /**
  * Keep the browser alive long enough to receive the KYC scan proxy's bounded
@@ -468,6 +470,14 @@ function isLiveGmailReceiptPath(path: string): boolean {
   return (
     pathname === "/api/kai/gmail/receipts/scan" ||
     pathname === "/api/kai/gmail/receipts/detail"
+  );
+}
+
+function isReceiptNoticePath(path: string): boolean {
+  const pathname = path.split("?", 1)[0] ?? "";
+  return (
+    pathname === "/api/kai/gmail/receipts/notice" ||
+    pathname === "/api/kai/gmail/receipts/notice/source"
   );
 }
 
@@ -499,6 +509,7 @@ export function webFetchTimeoutMsForPath(path: string): number {
   if (pathname === "/api/account/delete" || pathname === "/api/account/delete-lost-vault") {
     return ACCOUNT_DELETE_WEB_FETCH_TIMEOUT_MS;
   }
+  if (isReceiptNoticePath(path)) return RECEIPT_NOTICE_FETCH_TIMEOUT_MS;
   if (isLiveGmailReceiptPath(path)) return LIVE_GMAIL_RECEIPT_FETCH_TIMEOUT_MS;
   return pathname === "/api/one/email/information-requests/scan"
     ? KYC_SCAN_WEB_FETCH_TIMEOUT_MS
@@ -948,6 +959,8 @@ async function apiFetch(
           ? 180_000
           : path.split("?", 1)[0] === "/api/one/agent-chat/proposals"
             ? LOCATION_COMMAND_PROPOSAL_FETCH_TIMEOUT_MS
+          : isReceiptNoticePath(path)
+            ? RECEIPT_NOTICE_FETCH_TIMEOUT_MS
           : isLiveGmailReceiptPath(path)
             ? LIVE_GMAIL_RECEIPT_FETCH_TIMEOUT_MS
           : isMemoryRewritePath(path)
@@ -2062,6 +2075,18 @@ export class ApiService {
       );
     }
     ApiService.clearRoutingHostingBurstCache();
+    if (options.target === "shared") {
+      try {
+        const { snapshotValidatedAuthSessionPrincipal } = await import("@/lib/auth/session-owner");
+        const principal = snapshotValidatedAuthSessionPrincipal();
+        if (principal?.ownerId) {
+          const ownerPod = await import("./owner-pod-endpoint");
+          await ownerPod.clearPinnedPodEndpoint(principal.ownerId);
+        }
+      } catch {
+        // Best-effort local pin eviction; server detach remains authoritative.
+      }
+    }
     return payload;
   }
 
@@ -2105,6 +2130,16 @@ export class ApiService {
       );
     }
     ApiService.clearRoutingHostingBurstCache();
+    try {
+      const { snapshotValidatedAuthSessionPrincipal } = await import("@/lib/auth/session-owner");
+      const principal = snapshotValidatedAuthSessionPrincipal();
+      if (principal?.ownerId) {
+        const ownerPod = await import("./owner-pod-endpoint");
+        await ownerPod.clearPinnedPodEndpoint(principal.ownerId);
+      }
+    } catch {
+      // Best-effort local pin refresh before re-admitting the newly adopted sandbox.
+    }
     return payload;
   }
 

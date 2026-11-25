@@ -88,7 +88,7 @@ vi.mock("@/components/kai/views/analysis-summary-view", () => ({ AnalysisSummary
 vi.mock("@/components/kai/views/analysis-history-dashboard", () => ({ AnalysisHistoryDashboard: () => <p>History entries</p> }));
 vi.mock("@/components/kai/views/kai-stocks-view", () => ({ KaiStocksView: ({ browseStocks, historyRequested, onAnalyze }: { browseStocks: boolean; historyRequested: boolean; onAnalyze: (ticker: string, source: string) => void }) => <>{browseStocks ? <><p>Stock browser</p><button onClick={() => onAnalyze("TEST", "default")}>Analyze TEST</button></> : null}{historyRequested ? <p>Stock history</p> : null}</> }));
 vi.mock("@/components/kai/cards/stock-comparison-preview", () => ({ StockComparisonPreview: () => <p>Preview details</p> }));
-vi.mock("@/components/app-ui/kai-control-surface", () => ({ KaiControlSurface: ({ open, children, footer, onOpenChange }: { open: boolean; children: ReactNode; footer: ReactNode; onOpenChange: (open: boolean) => void }) => open ? <div role="dialog" data-state="open" onKeyDown={event => { if (event.key === "Escape") onOpenChange(false); }}>{children}{footer}</div> : null }));
+vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => true }));
 vi.mock("@/components/kai/debate-stream-view", () => ({ DebateStreamView: ({ onDecisionReady }: { onDecisionReady: (entry: unknown, meta: unknown) => void }) => {
   useEffect(() => { state.controllerMounts += 1; }, []);
   return <button onClick={() => onDecisionReady(state.entry, { runId: "run-1" })}>Finish synthetic analysis</button>;
@@ -155,6 +155,18 @@ describe("Finance shared Back with the mounted analysis page", () => {
     fireEvent.click(start);
     await waitFor(() => expect(state.setAnalysisParams).toHaveBeenCalledWith(expect.objectContaining({ ticker: "TEST", launchConfirmed: true })));
     expect(new URL(state.getHref(), "https://app.test").searchParams.get("focus")).toBe("active");
+  });
+
+  it("closes the mobile stock preview and returns to the stock browser", async () => {
+    state.navigate("/one/kai?tab=analysis&ticker=TEST");
+    render(<KaiAnalysisPageContent />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Close", exact: true }));
+
+    expect(state.getHref()).toBe("/one/kai?tab=analysis");
+    expect(screen.getByText("Stock browser")).toBeVisible();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(state.context).not.toHaveBeenCalled();
   });
 
   it("blocks confirmation while the current preview loads, even if an earlier request finishes", async () => {

@@ -1397,7 +1397,6 @@ export function KaiAnalysisPageContent() {
             description={previewCompany ? previewTickerFromQuery : undefined}
             headerTextOverflow="wrap"
             surfaceClassName="app-type-compact !max-h-[calc(100dvh-var(--kb-height,0px))]"
-            showMobileCloseButton={false}
             footer={
               <div className="flex w-full justify-center">
                 <Button

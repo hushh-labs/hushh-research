@@ -49,6 +49,33 @@ for (const width of [393, 1024]) {
     await expect(page.locator("body")).not.toHaveAttribute("data-finance-publishes");
   });
 }
+test("Portfolio home shows and opens both sharing actions inline", async ({ page }) => {
+  await mount(page, 393);
+  const overview = page.getByTestId("portfolio-overview");
+  const card = overview.getByTestId("portfolio-sharing-card");
+  const shareButton = card.getByRole("button", { name: "Share portfolio", exact: true });
+  const manageButton = card.getByRole("button", { name: "Manage sharing", exact: true });
+  await expect(card.getByRole("heading", { name: "Sharing" })).toBeVisible();
+  await expect(overview.getByRole("tablist")).toHaveCount(0);
+  const [shareBox, manageBox] = await Promise.all([shareButton.boundingBox(), manageButton.boundingBox()]);
+  expect(shareBox!.width).toBeCloseTo(manageBox!.width);
+  expect(shareBox!.y).toBeCloseTo(manageBox!.y);
+  expect(shareBox!.height).toBeCloseTo(manageBox!.height);
+  expect(await card.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await shareButton.click();
+  const share = page.getByRole("dialog", { name: "Share Finance", exact: true });
+  await expect(share).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(share).toHaveCount(0);
+  await manageButton.click();
+  const manager = page.getByRole("dialog", { name: "Finance sharing", exact: true });
+  await expect(manager).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(manager).toHaveCount(0);
+  await expect(overview.getByRole("heading", { name: "Sharing" })).toBeVisible();
+  await expect(page.locator("body")).not.toHaveAttribute("data-finance-publishes");
+});
+
 test("Finance sharing swipes retain one fixed frame across resize and reduced motion", async ({ page }) => {
   await mount(page, 393);
   await page.getByRole("button", { name: "Open sample Finance sharing", exact: true }).click();
@@ -183,7 +210,7 @@ for (const width of [393, 1440]) test(`Finance update access uses latest choices
   await mount(page, width);
   // Creation/approval is proved above. Start this independent scenario from
   // existing approved transport data; every update still uses production UI.
-  await page.getByRole("button", { name: "Open sample existing Finance access", exact: true }).click();
+  await page.getByRole("button", { name: "Open sample existing Finance access", exact: true }).press("Enter");
   const edit = page.getByRole("dialog", { name: "Share Finance", exact: true });
   await expect(edit.getByRole("checkbox", { name: "Other connection 1", exact: true })).toBeVisible();
   await expect(edit.getByRole("checkbox", { name: /Sample connection/ })).toHaveCount(0);
@@ -200,7 +227,22 @@ for (const width of [393, 1440]) test(`Finance update access uses latest choices
   await amount.fill("");
   await amount.pressSequentially("3");
   await expect(amount).toHaveValue("3");
-  await update.getByLabel("Duration unit").selectOption("3600");
+  const unit = update.getByLabel("Duration unit");
+  await amount.press("Tab");
+  await expect(unit).toBeFocused();
+  const focusedFieldStyle = async (field: Element) => {
+    const style = getComputedStyle(field);
+    await Promise.allSettled(field.getAnimations().map((animation) => animation.finished));
+    const { backgroundColor, borderRadius, boxShadow, height, outlineStyle } = style;
+    return { backgroundColor, borderRadius, boxShadow, height, outlineStyle };
+  };
+  const unitStyle = await unit.evaluate(focusedFieldStyle);
+  await unit.press("Shift+Tab");
+  await expect(amount).toBeFocused();
+  expect(await amount.evaluate(focusedFieldStyle)).toEqual(unitStyle);
+  expect(unitStyle.boxShadow).not.toBe("none");
+  expect(unitStyle.outlineStyle).toBe("none");
+  await unit.selectOption("3600");
   await expect(amount).toHaveValue("3");
   await update.getByRole("button", { name: "Preview", exact: true }).click();
   const review = page.getByRole("dialog", { name: "Review before sharing", exact: true });

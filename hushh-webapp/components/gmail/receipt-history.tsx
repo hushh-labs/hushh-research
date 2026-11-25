@@ -22,7 +22,7 @@ export function ReceiptHistory({ session, getIdToken, allowRead, active, showEmp
         "Saved history · original Mail account unverified"}</HelperText>
       {resource.error ? <MailActionButton disabled={resource.refreshing} onClick={() => void open(true)}>Try opening history again</MailActionButton> : null}
     </div>
-    {resource.items.length ? <GmailRecentReceipts accountKey={null} headingId="earlier-receipts-title" title="Earlier saved receipts" showOverview={false} nativePresentation={false}
+    {resource.items.length ? <GmailRecentReceipts accountKey={null} headingId="earlier-receipts-title" title="Earlier saved receipts" showOverview={false} showInsights={false} nativePresentation={false}
       receipts={resource.items} loadReceiptDetail={detail} /> : null}
   </section>;
 }

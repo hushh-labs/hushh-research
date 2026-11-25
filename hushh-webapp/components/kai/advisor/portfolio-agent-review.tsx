@@ -49,9 +49,10 @@ export function PortfolioAgentReview({
   useEffect(() => {
     let cancelled = false;
     const current = () => !cancelled && context.isCurrent() && !document.hidden;
-    void readPortfolioReviewInput(context, readKey.sourceKey).then(async (input) => {
-      if (!current()) return;
-      const stored = await readSavedPortfolioReview(context);
+    void Promise.all([
+      readPortfolioReviewInput(context, readKey.sourceKey),
+      readSavedPortfolioReview(context).catch(() => null),
+    ]).then(([input, stored]) => {
       if (!current()) return;
       setRecentPreferences({ sourceKey: readKey.sourceKey, value: input.preferences });
       setSaved({ key: readKey, input, cached: stored?.digest === input.digest ? stored.review : undefined });
@@ -64,7 +65,9 @@ export function PortfolioAgentReview({
     return () => { cancelled = true; };
   }, [context, readKey]);
 
-  const input = saved?.key === readKey && context.isCurrent() ? saved.input : null;
+  const snapshot = saved?.key === readKey && context.isCurrent() ? saved : null;
+  const input = snapshot?.input;
+  const cachedReview = snapshot?.cached;
   const enabled = approval !== null && approval === getReviewSession()?.approval && approval.scope === scope && (!input || approval.sourceFence === input.sourceFence);
   useEffect(() => {
     if (input && approval && input.sourceFence !== approval.sourceFence) {
@@ -75,7 +78,7 @@ export function PortfolioAgentReview({
   }, [input, approval]);
 
   useEffect(() => {
-    if (!input || !approval || !enabled || !context.isCurrent() || document.hidden) return;
+    if (!input || cachedReview || !approval || !enabled || !context.isCurrent() || document.hidden) return;
     const abort = new AbortController();
     const current = () => !abort.signal.aborted && context.isCurrent() && !document.hidden && getReviewSession()?.approval === approval;
     void (async () => {
@@ -105,10 +108,10 @@ export function PortfolioAgentReview({
       }
     })();
     return () => abort.abort();
-  }, [approval, attempt, context, enabled, input]);
+  }, [approval, attempt, cachedReview, context, enabled, input]);
 
   const result = input && enabled && settled?.digest === input.digest && settled.attempt === attempt ? settled : null;
-  const review = result?.review ?? (input ? saved?.cached : undefined);
+  const review = result?.review ?? cachedReview;
   const preferences = recentPreferences?.sourceKey === sourceKey ? recentPreferences.value : null;
   const missing = input && [
     input.payload.horizon === null ? "withdrawal timing" : null,

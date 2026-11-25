@@ -21,6 +21,7 @@ import type {
 import { describeSelection } from "@/lib/agent/describe-selection";
 import {
   isSosShareReadyRecipient,
+  createSosSendIntent,
   runSosPanic,
   selectSmsRecipients,
   selectSosConnectedRecipients,
@@ -370,6 +371,7 @@ export function useLocationChat(params: {
           publicUrl: publicInviteUrlLabel(publicUrl),
         });
       } else if (action.type === "sos_panic") {
+        const sendIntent = createSosSendIntent();
         const state = await OneLocationService.getState(vaultOwnerToken);
         const connected = selectSosConnectedRecipients(
           state.recipients ?? [],
@@ -387,6 +389,7 @@ export function useLocationChat(params: {
         const point = await OneLocationService.captureCurrentPosition();
         await runSosPanic({
           vaultOwnerToken,
+          sendIntent,
           recipients: ready,
           point,
           publish: async (grant, recipient, pt) => {
@@ -399,6 +402,7 @@ export function useLocationChat(params: {
               vaultOwnerToken,
               grantId: grant.id,
               envelope,
+              isEffectCurrent: sendIntent.isCurrent,
             });
           },
         });
