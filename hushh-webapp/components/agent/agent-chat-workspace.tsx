@@ -10426,7 +10426,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               }}
               className={cn(
                 "h-full w-full touch-pan-y overflow-y-auto px-4 pt-5 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
-                "pb-[max(var(--agent-chat-native-occlusion,0px),calc(var(--agent-chat-composer-bottom,5rem)+max(5.5rem,var(--agent-chat-composer-stack-height,0px)+1.75rem)))] lg:px-8",
+                "pb-[max(var(--agent-chat-native-occlusion,0px),calc(var(--agent-chat-composer-bottom,5rem)+max(5.5rem,var(--agent-chat-composer-stack-height,0px)+1.75rem)))] scroll-pb-[max(var(--agent-chat-native-occlusion,0px),calc(var(--agent-chat-composer-bottom,5rem)+max(5.5rem,var(--agent-chat-composer-stack-height,0px)+1.75rem)))] lg:px-8",
               )}
               tabIndex={0}
               role="region"
