@@ -47,7 +47,12 @@ export function ComputerUseTaskCard({
   transport: ComputerUseTransport;
   route?: string;
   openReviewSignal?: number;
-  onDownloadSaved?: (receipt: { fileId: string; name: string }) => void;
+  onDownloadSaved?: (receipt: {
+    fileId: string;
+    name: string;
+    bytes: number;
+    sha256: string;
+  }) => void;
   onTerminalSnapshot?: (snapshot: ComputerUseSnapshot) => void;
   onSnapshotChange?: (snapshot: ComputerUseSnapshot) => void;
 }) {
@@ -107,10 +112,10 @@ export function ComputerUseTaskCard({
     setOpen(true);
   }, [snapshot, state.verified, taskIdentity]);
   useEffect(() => {
-    if (snapshot && isComputerUseTerminal(snapshot.phase)) {
+    if (state.verified && snapshot && isComputerUseTerminal(snapshot.phase)) {
       onTerminalSnapshot?.(snapshot);
     }
-  }, [snapshot, onTerminalSnapshot]);
+  }, [onTerminalSnapshot, snapshot, state.verified]);
   useEffect(() => {
     if (openReviewSignal === lastOpenSignalRef.current) return;
     lastOpenSignalRef.current = openReviewSignal;

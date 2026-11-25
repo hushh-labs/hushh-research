@@ -24,11 +24,13 @@ import logging
 import os
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Optional
 
 from hushh_mcp.services.pod_ai_selection_seal import (
+    PROVIDER_UNSUPPORTED,
     STALE_SELECTION,
+    SUPPORTED_PROVIDERS,
     AiSelectionRefused,
     OpenedSelection,
 )
@@ -37,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 POD_AI_SELECTION_RECORD_KIND = "pod_ai_selection_v1"
 POD_AI_SELECTION_VERSION = 1
+RETIRED_BYOK_PROVIDERS: frozenset[str] = frozenset({"azure", "azure_openai"})
 _APPEND_ATTEMPTS = 3
 
 
@@ -46,6 +49,10 @@ class AiSelectionUnavailable(RuntimeError):
 
 class AiSelectionStoreMissing(RuntimeError):
     """This pod has no durable store, so it cannot hold a selection."""
+
+
+class AiSelectionNotConfigured(LookupError):
+    """The requested saved provider configuration does not exist on this pod."""
 
 
 @dataclass(frozen=True)
@@ -92,16 +99,20 @@ def _from_payload(payload: Mapping[str, Any]) -> Optional[AiSelection]:
         return None
 
 
-def selection_from_records(
+def selection_state_from_records(
     records: Any, *, hushh_id: str, strict: bool = False
-) -> tuple[Optional[AiSelection], int]:
-    """(newest selection for this owner or None, newest ``issuedAtMs`` ever seen).
+) -> tuple[dict[str, AiSelection], Optional[str], int, Optional[str]]:
+    """Replay saved BYOK configs, active provider, floor, and retired provider for this owner.
 
     ``strict`` is for the turn path: a newest record that cannot be read raises, so
     turns refuse instead of reading "no selection" and falling back. Writes read
     leniently, so the owner can always replace a damaged record with a fresh choice.
+    Legacy ``azure`` / ``azure_openai`` records advance ``floor`` and gracefully
+    fall back to built-in AI (never marking the store unreadable).
     """
-    current: Optional[AiSelection] = None
+    saved_map: dict[str, AiSelection] = {}
+    active_provider: Optional[str] = None
+    retired_provider: Optional[str] = None
     floor = 0
     unreadable = False
     for record in records or []:
@@ -113,19 +124,86 @@ def selection_from_records(
         issued = payload.get("issuedAtMs")
         if type(issued) is int:
             floor = max(floor, issued)
-        cleared = payload.get("cleared") is True
-        current = None if cleared else _from_payload(payload)
-        unreadable = not cleared and current is None
+        action = payload.get("action")
+        if action == "deactivate" or payload.get("cleared") is True:
+            active_provider = None
+            retired_provider = None
+            if action != "deactivate" and payload.get("preserveSaved") is not True:
+                saved_map.clear()
+            unreadable = False
+            continue
+        if action == "delete_provider":
+            target = str(payload.get("provider") or "")
+            saved_map.pop(target, None)
+            if active_provider == target:
+                active_provider = None
+            unreadable = False
+            continue
+        if action == "activate":
+            target = str(payload.get("provider") or "")
+            if target in saved_map:
+                checked = payload.get("checkedAtMs")
+                checked_ms = (
+                    int(checked) if type(checked) is int else saved_map[target].checked_at_ms
+                )
+                saved_map[target] = replace(saved_map[target], checked_at_ms=checked_ms)
+                active_provider = target
+                retired_provider = None
+                unreadable = False
+            elif target in RETIRED_BYOK_PROVIDERS:
+                retired_provider = target
+                active_provider = None
+                unreadable = False
+            else:
+                active_provider = None
+                unreadable = True
+            continue
+        raw_provider = str(payload.get("provider") or "")
+        if raw_provider in RETIRED_BYOK_PROVIDERS:
+            retired_provider = raw_provider
+            active_provider = None
+            unreadable = False
+            continue
+        sel = _from_payload(payload)
+        if sel is not None:
+            saved_map[sel.provider] = sel
+            active_provider = sel.provider
+            retired_provider = None
+            unreadable = False
+        else:
+            active_provider = None
+            unreadable = True
     if strict and unreadable:
         raise AiSelectionUnavailable("the newest AI selection record could not be read")
-    return current, floor
+    return saved_map, active_provider, floor, retired_provider
+
+
+def selection_from_records(
+    records: Any, *, hushh_id: str, strict: bool = False
+) -> tuple[Optional[AiSelection], int]:
+    """(active selection for this owner or None, newest ``issuedAtMs`` ever seen)."""
+    saved_map, active_provider, floor, _retired = selection_state_from_records(
+        records, hushh_id=hushh_id, strict=strict
+    )
+    return (saved_map.get(active_provider) if active_provider else None), floor
+
+
+async def _snapshot_state(
+    log: Any, *, hushh_id: str
+) -> tuple[dict[str, AiSelection], Optional[str], int, Optional[str], int]:
+    records = await log.replay()
+    saved_map, active_provider, floor, retired_provider = selection_state_from_records(
+        records, hushh_id=hushh_id
+    )
+    last_seq = int(records[-1]["seq"]) if records else 0
+    return saved_map, active_provider, floor, retired_provider, last_seq
 
 
 async def _snapshot(log: Any, *, hushh_id: str) -> tuple[Optional[AiSelection], int, int]:
-    records = await log.replay()
-    current, floor = selection_from_records(records, hushh_id=hushh_id)
-    last_seq = int(records[-1]["seq"]) if records else 0
-    return current, floor, last_seq
+    saved_map, active_provider, floor, _retired, last_seq = await _snapshot_state(
+        log, hushh_id=hushh_id
+    )
+    return (saved_map.get(active_provider) if active_provider else None), floor, last_seq
 
 
 async def read_ai_selection(log: Any, *, hushh_id: str) -> tuple[Optional[AiSelection], int]:
@@ -135,17 +213,15 @@ async def read_ai_selection(log: Any, *, hushh_id: str) -> tuple[Optional[AiSele
     return selection_from_records(await log.replay(), hushh_id=hushh_id, strict=True)
 
 
-async def _append_against_snapshot(log: Any, *, hushh_id: str, build: Any) -> Any:
-    """Append ``build(current, floor)`` only onto the head it was computed from.
-
-    Two writes racing must not both pass the "newer than what I hold" check, so the
-    append names the sequence it read; a competing commit means read and decide again.
-    """
+async def _append_against_snapshot_state(log: Any, *, hushh_id: str, build: Any) -> Any:
+    """Append ``build(saved_map, active_provider, floor, retired_provider)`` onto head."""
     from hushh_mcp.services.pod_commit_log import PodLogConflict  # noqa: PLC0415
 
     for _ in range(_APPEND_ATTEMPTS):
-        current, floor, last_seq = await _snapshot(log, hushh_id=hushh_id)
-        payload, result = build(current, floor)
+        saved_map, active_provider, floor, retired_provider, last_seq = await _snapshot_state(
+            log, hushh_id=hushh_id
+        )
+        payload, result = build(saved_map, active_provider, floor, retired_provider)
         if payload is None:
             return result
         try:
@@ -156,10 +232,25 @@ async def _append_against_snapshot(log: Any, *, hushh_id: str, build: Any) -> An
     raise PodLogConflict("the selection could not be recorded against a stable head")
 
 
+async def _append_against_snapshot(log: Any, *, hushh_id: str, build: Any) -> Any:
+    """Append ``build(current, floor)`` only onto the head it was computed from.
+
+    Two writes racing must not both pass the "newer than what I hold" check, so the
+    append names the sequence it read; a competing commit means read and decide again.
+    """
+    return await _append_against_snapshot_state(
+        log,
+        hushh_id=hushh_id,
+        build=lambda saved_map, active_provider, floor, _retired: build(
+            saved_map.get(active_provider) if active_provider else None, floor
+        ),
+    )
+
+
 async def record_ai_selection(
     log: Any, *, hushh_id: str, opened: OpenedSelection, checked_at_ms: int
 ) -> AiSelection:
-    """Make ``opened`` this owner's selection. Refuses one that is not strictly newer."""
+    """Make ``opened`` this owner's active selection while preserving other saved providers."""
     if log is None:
         raise AiSelectionStoreMissing("this pod has no durable store for its owner's selection")
     selection = AiSelection(
@@ -175,9 +266,15 @@ async def record_ai_selection(
         azure_endpoint=opened.azure_endpoint,
     )
 
-    def build(_current: Optional[AiSelection], floor: int) -> tuple[dict, AiSelection]:
+    def build(
+        saved_map: dict[str, AiSelection],
+        _active_provider: Optional[str],
+        floor: int,
+        _retired: Optional[str],
+    ) -> tuple[dict, tuple[dict[str, AiSelection], AiSelection]]:
         if selection.issued_at_ms <= floor:
             raise AiSelectionRefused(STALE_SELECTION)
+        next_saved = {**saved_map, selection.provider: selection}
         return {
             "hushh_id": hushh_id,
             "version": POD_AI_SELECTION_VERSION,
@@ -191,10 +288,10 @@ async def record_ai_selection(
             "selectionId": selection.selection_id,
             "checkedAtMs": selection.checked_at_ms,
             "azureEndpoint": selection.azure_endpoint,
-        }, selection
+        }, (next_saved, selection)
 
-    recorded: AiSelection = await _append_against_snapshot(log, hushh_id=hushh_id, build=build)
-    set_active_ai_selection(recorded)
+    next_saved, recorded = await _append_against_snapshot_state(log, hushh_id=hushh_id, build=build)
+    _apply_state(next_saved, recorded.provider, None)
     return recorded
 
 
@@ -205,11 +302,16 @@ async def clear_ai_selection(
     expected_floor: int | None = None,
     verified_default: dict[str, Any] | None = None,
 ) -> None:
-    """Remove the selection; idempotent. The replay floor survives the clear."""
+    """Remove all saved selections; idempotent. The replay floor survives the clear."""
     if log is None:
         raise AiSelectionStoreMissing("this pod has no durable store for its owner's selection")
 
-    def build(current: Optional[AiSelection], floor: int) -> tuple[Optional[dict], None]:
+    def build(
+        _saved_map: dict[str, AiSelection],
+        _active_provider: Optional[str],
+        floor: int,
+        _retired: Optional[str],
+    ) -> tuple[Optional[dict], None]:
         if expected_floor is not None and floor != expected_floor:
             raise AiSelectionRefused(STALE_SELECTION)
         # Even an already-default connection needs a durable verification record.
@@ -223,19 +325,152 @@ async def clear_ai_selection(
             "verifiedDefault": verified_default,
         }, None
 
-    await _append_against_snapshot(log, hushh_id=hushh_id, build=build)
-    set_active_ai_selection(None)
+    await _append_against_snapshot_state(log, hushh_id=hushh_id, build=build)
+    _apply_state({}, None, None)
     global _DEFAULT_VERIFICATION
     _DEFAULT_VERIFICATION = dict(verified_default) if verified_default else None
 
 
+async def deactivate_ai_selection(
+    log: Any,
+    *,
+    hushh_id: str,
+    expected_floor: int | None = None,
+    verified_default: dict[str, Any] | None = None,
+) -> tuple[dict[str, AiSelection], Optional[str]]:
+    """Fall back to built-in sandbox AI without wiping saved provider configurations."""
+    if log is None:
+        raise AiSelectionStoreMissing("this pod has no durable store for its owner's selection")
+
+    def build(
+        saved_map: dict[str, AiSelection],
+        _active_provider: Optional[str],
+        floor: int,
+        _retired: Optional[str],
+    ) -> tuple[dict, dict[str, AiSelection]]:
+        if expected_floor is not None and floor != expected_floor:
+            raise AiSelectionRefused(STALE_SELECTION)
+        return {
+            "hushh_id": hushh_id,
+            "version": POD_AI_SELECTION_VERSION,
+            "cleared": True,
+            "preserveSaved": True,
+            "action": "deactivate",
+            "issuedAtMs": floor,
+            "clearedAtMs": _now_ms(),
+            "verifiedDefault": verified_default,
+        }, dict(saved_map)
+
+    saved_map = await _append_against_snapshot_state(log, hushh_id=hushh_id, build=build)
+    _apply_state(saved_map, None, None)
+    global _DEFAULT_VERIFICATION
+    _DEFAULT_VERIFICATION = dict(verified_default) if verified_default else None
+    return saved_map, None
+
+
+async def delete_provider_ai_selection(
+    log: Any,
+    *,
+    hushh_id: str,
+    provider: str,
+) -> tuple[dict[str, AiSelection], Optional[str]]:
+    """Remove a single saved provider configuration while keeping others intact."""
+    if provider not in SUPPORTED_PROVIDERS:
+        raise AiSelectionRefused(PROVIDER_UNSUPPORTED)
+    if log is None:
+        raise AiSelectionStoreMissing("this pod has no durable store for its owner's selection")
+
+    def build(
+        saved_map: dict[str, AiSelection],
+        active_provider: Optional[str],
+        floor: int,
+        _retired: Optional[str],
+    ) -> tuple[dict, tuple[dict[str, AiSelection], Optional[str]]]:
+        next_saved = dict(saved_map)
+        next_saved.pop(provider, None)
+        next_active = None if active_provider == provider else active_provider
+        return {
+            "hushh_id": hushh_id,
+            "version": POD_AI_SELECTION_VERSION,
+            "action": "delete_provider",
+            "provider": provider,
+            "issuedAtMs": floor,
+            "clearedAtMs": _now_ms(),
+        }, (next_saved, next_active)
+
+    next_saved, next_active = await _append_against_snapshot_state(
+        log, hushh_id=hushh_id, build=build
+    )
+    _apply_state(next_saved, next_active, None)
+    return next_saved, next_active
+
+
+async def activate_saved_ai_selection(
+    log: Any,
+    *,
+    hushh_id: str,
+    provider: str,
+    checked_at_ms: int,
+) -> AiSelection:
+    """Switch the active provider to an already-saved configuration."""
+    if provider not in SUPPORTED_PROVIDERS:
+        raise AiSelectionRefused(PROVIDER_UNSUPPORTED)
+    if log is None:
+        raise AiSelectionStoreMissing("this pod has no durable store for its owner's selection")
+
+    def build(
+        saved_map: dict[str, AiSelection],
+        _active_provider: Optional[str],
+        floor: int,
+        _retired: Optional[str],
+    ) -> tuple[dict, tuple[dict[str, AiSelection], AiSelection]]:
+        current = saved_map.get(provider)
+        if current is None:
+            raise AiSelectionNotConfigured(provider)
+        updated = replace(current, checked_at_ms=checked_at_ms)
+        next_saved = {**saved_map, provider: updated}
+        return {
+            "hushh_id": hushh_id,
+            "version": POD_AI_SELECTION_VERSION,
+            "action": "activate",
+            "provider": provider,
+            "issuedAtMs": floor,
+            "checkedAtMs": checked_at_ms,
+        }, (next_saved, updated)
+
+    next_saved, activated = await _append_against_snapshot_state(
+        log, hushh_id=hushh_id, build=build
+    )
+    _apply_state(next_saved, provider, None)
+    return activated
+
+
 # -- process-wide active copy and the last failure ----------------------------------
 
+_SAVED: dict[str, AiSelection] = {}
+_ACTIVE_PROVIDER: Optional[str] = None
+_RETIRED_PROVIDER: Optional[str] = None
 _ACTIVE: Optional[AiSelection] = None
 _LOAD_FAILED = False
 _REVISION = 0
 _LAST_FAILURE: Optional[dict[str, Any]] = None
 _DEFAULT_VERIFICATION: Optional[dict[str, Any]] = None
+
+
+def _apply_state(
+    saved_map: Mapping[str, AiSelection],
+    active_provider: Optional[str],
+    retired_provider: Optional[str],
+) -> None:
+    global _SAVED, _ACTIVE_PROVIDER, _RETIRED_PROVIDER, _ACTIVE, _LOAD_FAILED, _REVISION
+    global _DEFAULT_VERIFICATION
+    _SAVED = dict(saved_map)
+    _ACTIVE_PROVIDER = active_provider
+    _RETIRED_PROVIDER = retired_provider
+    _ACTIVE = _SAVED.get(active_provider) if active_provider else None
+    _LOAD_FAILED = False
+    _REVISION += 1
+    _DEFAULT_VERIFICATION = None
 
 
 def default_verification() -> Optional[dict[str, Any]]:
@@ -254,6 +489,16 @@ def current_ai_selection() -> Optional[AiSelection]:
     return None if _LOAD_FAILED else _ACTIVE
 
 
+def saved_ai_selection(provider: str) -> Optional[AiSelection]:
+    """A saved provider configuration by id, or None."""
+    return None if _LOAD_FAILED else _SAVED.get(provider)
+
+
+def retired_ai_provider() -> Optional[str]:
+    """The legacy retired provider name encountered during replay, if any."""
+    return None if _LOAD_FAILED else _RETIRED_PROVIDER
+
+
 def ai_selection_load_failed() -> bool:
     return _LOAD_FAILED
 
@@ -264,11 +509,14 @@ def owner_ai_in_force() -> bool:
 
 
 def set_active_ai_selection(selection: Optional[AiSelection]) -> None:
-    global _ACTIVE, _LOAD_FAILED, _REVISION, _DEFAULT_VERIFICATION
-    _ACTIVE = selection
-    _LOAD_FAILED = False
-    _REVISION += 1
-    _DEFAULT_VERIFICATION = None
+    if selection is None:
+        _apply_state({}, None, None)
+        return
+    if selection.provider in RETIRED_BYOK_PROVIDERS:
+        _apply_state(_SAVED, None, selection.provider)
+        return
+    next_saved = {**_SAVED, selection.provider: selection}
+    _apply_state(next_saved, selection.provider, None)
 
 
 def ai_selection_revision() -> int:
@@ -300,6 +548,28 @@ def public_selection(selection: Optional[AiSelection]) -> dict[str, Any]:
     }
 
 
+def public_saved_selections(
+    saved: Optional[Mapping[str, AiSelection]] = None,
+    active_provider: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    """Public metadata for all saved provider configurations; never the key."""
+    if saved is None:
+        if _LOAD_FAILED:
+            return []
+        saved = _SAVED
+        active_provider = _ACTIVE_PROVIDER
+    return [
+        {
+            "provider": item.provider,
+            "model": item.model,
+            "transport": item.transport,
+            "checkedAtMs": item.checked_at_ms,
+            "active": item.provider == active_provider,
+        }
+        for item in saved.values()
+    ]
+
+
 async def load_active_ai_selection(
     log: Any = None, *, records: Any = None
 ) -> Optional[AiSelection]:
@@ -316,20 +586,21 @@ async def load_active_ai_selection(
             from hushh_mcp.services.pod_memory_service import _resolve_log  # noqa: PLC0415
 
             log = _resolve_log()
-        selection, _floor = None, 0
+        saved_map: dict[str, AiSelection] = {}
+        active_provider: Optional[str] = None
+        retired_provider: Optional[str] = None
         if hushh_id:
             if records is None:
                 records = await log.replay() if log is not None else []
-            selection, _floor = (
-                selection_from_records(records, hushh_id=hushh_id, strict=True)
-                if records is not None
-                else await read_ai_selection(log, hushh_id=hushh_id)
+            saved_map, active_provider, _floor, retired_provider = selection_state_from_records(
+                records, hushh_id=hushh_id, strict=True
             )
     except Exception as exc:  # noqa: BLE001 - startup must never fail on this read
         logger.warning("pod_ai_selection.load_failed reason=%s", type(exc).__name__)
         _LOAD_FAILED = True
         return None
-    set_active_ai_selection(selection)
+    _apply_state(saved_map, active_provider, retired_provider)
+    selection = _ACTIVE
     for record in records or []:
         payload = (record or {}).get("payload") or {}
         if (
@@ -357,22 +628,31 @@ async def load_owner_configuration(log: Any = None, *, records: Any = None) -> N
 
 __all__ = [
     "POD_AI_SELECTION_RECORD_KIND",
+    "RETIRED_BYOK_PROVIDERS",
     "AiSelection",
+    "AiSelectionNotConfigured",
     "AiSelectionStoreMissing",
     "AiSelectionUnavailable",
+    "activate_saved_ai_selection",
     "active_ai_selection",
     "ai_selection_revision",
     "ai_selection_load_failed",
     "clear_ai_selection",
     "current_ai_selection",
+    "deactivate_ai_selection",
+    "delete_provider_ai_selection",
     "last_ai_selection_failure",
     "load_active_ai_selection",
     "load_owner_configuration",
     "note_ai_selection_failure",
     "owner_ai_in_force",
+    "public_saved_selections",
     "public_selection",
     "read_ai_selection",
     "record_ai_selection",
+    "retired_ai_provider",
+    "saved_ai_selection",
     "selection_from_records",
+    "selection_state_from_records",
     "set_active_ai_selection",
 ]

@@ -45,10 +45,10 @@ export const WALLET_CARD_COPY = {
     title: "Wallet Profile",
     description: "Control what people see.",
   },
-  /** Confirmation after the pass has been handed to Apple Wallet. */
+  /** The profile remains ready whether the system handoff is completed or cancelled. */
   success: {
-    title: "Pass added",
-    description: "Share your profile straight from Apple Wallet.",
+    title: "Your profile is ready",
+    description: "Share it whenever you like.",
   },
   /** Shown when pass signing is unavailable. The technical error stays server-side. */
   signingFailure: "Couldn't create your pass. Try again in a moment.",

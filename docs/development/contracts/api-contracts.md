@@ -149,6 +149,12 @@ model/deployment. The hub's Shared model catalog is not an Azure pod catalog.
   operationId, accountRetained:true, hostingMode:"unplaced"}` only for that exact
   released identity. A stale replacement, uncertain outcome or changed approval
   returns a bounded 409 and retains recovery custody.
+  Historical recovery status may include `nextEligibleAt`, a UTC recheck hint
+  derived from complete native retention observations bound to the recorded
+  resource identities. It never establishes absence, approval or completion.
+  The interface retains verified progress and defers repeat approval while that
+  wait is active. Historical operator recovery retains its separate executor
+  qualification; status and refresh do not start or replay provider work.
 - `GET /api/one/personal-agent/hosting/inspection`: Firebase-owner, read-only
   control-plane observation of the recorded service and historical receipt
   coverage. Returns `connected`, `starting`, `absent`, `ownership_unverified`,
@@ -193,10 +199,7 @@ Each benchmark row includes `symbol`, `as_of` (provider quote time, nullable),
 `delta_pct` stays null when the previous close is missing. Unknown delay stays
 null; a delay flag may also reflect a quote over ten minutes old during its
 reported regular session. Closed sessions are labeled separately. Index
-sparklines use the same response's observed intraday closes; optional
-`sparkline_points: [{t, p}]` carries matching Unix-second timestamps and prices.
-India index intraday samples are separate from its monthly sector history. Clients
-must not manufacture times when the point series is absent or mismatched. Missing history
+sparklines use the same response's observed intraday closes; missing history
 remains unavailable. Cached levels retain their original quote time and are
 labeled as cached. Server home v5, macro v2 and client market-home v5 cache
 names exclude earlier ETF snapshots. Web and native use the same response
@@ -221,34 +224,12 @@ debt/equity, or the provider company description. Unknown ratios are null.
 Debt/equity is a multiple (Yahoo's reported percentage divided by 100).
 Provider retrieval time and financial period end remain separate.
 
-The owner-scoped market-news endpoint also accepts `market=IN` with one symbol
-from the NSE mover roster. It searches the India news feed for that symbol and
-returns at most the requested page size; a provider can return fewer articles or
-no summary. India company news uses its own bounded cache key. Market home news
-has a separate cache lifecycle so a news-only failure cannot freeze an otherwise
-healthy India home response for the full aggregate TTL.
-
-### Market currency rate
-
-The India display mode converts dollar amounts at one daily rate from
-`GET /api/kai/market/fx/usd-inr/{user_id}` (Firebase auth must match the path owner).
-The payload is `{base, quote, rate, as_of, quoted_at, source, stale}`, where `as_of`
-is the quote's day. The rate is one keyless Yahoo `INR=X` chart read held in the shared
-market cache under `fx:usd_inr:v1` (six-hour fresh, 14-day stale, outside every
-US-session-gated prefix), so a rate-limited provider serves the last good rate. With no
-cached rate and the provider down the route answers `503`; the client keeps showing
-dollars and never substitutes a guess. Conversion happens at display time only and does
-not change stored or shared values.
-
 Stock detail reads `GET /api/kai/market/history/{user_id}?symbol=AAPL`
 through the existing Kai catch-all proxy and platform-aware `ApiService`.
 Firebase authentication must match the path owner before any cache/provider
 work. One uppercase symbol (at most 16 characters) and a recognized US exchange
-in the symbol master are required; unsupported listings return 422. The optional
-`market=IN` admits only the existing NSE large-cap mover roster, requests the
-corresponding `.NS` provider symbol, uses an independent India cache key, and
-returns `currency: "INR"`. The default US response uses `currency: "USD"`.
-The response contains `symbol`, `currency`, `interval: "1d"`,
+in the symbol master are required; unsupported listings return 422.
+The response contains `symbol`, `currency: "USD"`, `interval: "1d"`,
 `points: [{t, p}]` (Unix seconds and observed closes), `retrieved_at`, `stale`,
 and `unavailable`. At most 32 observations are returned from the existing
 month history fetcher. This is daily history, independent of the spot quote;
@@ -326,7 +307,7 @@ These fields are additive to the canonical decision payload and mirrored in `raw
 
 Terminal payload from `POST /api/kai/portfolio/import/stream` now includes:
 
-- `portfolio_data_v2` (canonical portfolio payload with separate statement holding entries in `holdings`. The app groups matching entries for review. Position-level analytics and quality counters use their existing aggregation.)
+- `portfolio_data_v2` (canonical app-consumed portfolio payload)
 - `raw_extract_v2` (raw single-pass LLM extraction snapshot)
 - `analytics_v2` (materialized dashboard/debate/optimize metrics)
 - `quality_report_v2` (deterministic quality report and gate output)
@@ -633,13 +614,3 @@ or outcome-unknown state. It reads the existing sealed proposal ledger and never
 contacts Google, dispatches an action or falls back to the hub. Executing or failed
 settlement remains uncertain; only durable executed settlement proves delivery.
 Unknown, foreign and non-send proposals are unavailable.
-
-An owner-cloud Calendar proposal can contain a reviewed Gmail reply to the
-selected source message. The normal Calendar confirm endpoint executes the
-exact reviewed effects under one claim. After Calendar acknowledges creation,
-the private agent records that receipt before dispatching Gmail. The result
-adds `gmail_reply.status` with `sent`, `not_sent`, or `outcome_unknown`.
-`GET /api/one/pod/actions/{gcal_id}/status` uses the same held owner app
-authority and returns the Calendar state, confirmed event ID when available,
-and Gmail state for linked proposals. Ordinary Calendar proposals have no
-linked status. The status read does not call Google or retry either effect.

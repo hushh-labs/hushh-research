@@ -505,7 +505,8 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         search = self._row(
             connection,
             """SELECT job_id,checkpoint_envelope,status,incomplete_search,connection_generation,
-                      expires_at>clock_timestamp() AS live
+                      expires_at>clock_timestamp() AS live,
+                      EXTRACT(EPOCH FROM clock_timestamp()-created_at)*1000 AS job_age_ms
                FROM drive_owner_search_jobs
                WHERE user_id=:user AND client_request_id=:request""",
             {"user": request["user_id"], "request": str(request["request_id"])},
@@ -540,6 +541,7 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             valid = False
         if not valid:
             raise checkout_refusal("search_parked")
+        logger.info("drive_request.checkout_plan_ready search_job_age_ms=%d", search["job_age_ms"])
 
     @drive_operation(job_key="request_id")
     @logs_checkout_refusals

@@ -1,4 +1,4 @@
-const PLATFORM_REASONS = ["commerce_disabled", "provider_disabled", "provider_configuration_required", "provider_credentials_required", "provider_webhooks_required", "provider_connect_webhook_configuration_required", "provider_sandbox_policy_required", "commerce_schema_required", "platform_account_unverified", "platform_account_mismatch", "commerce_retention_resolution_required"] as const;
+const PLATFORM_REASONS = ["commerce_disabled", "provider_disabled", "provider_configuration_required", "provider_credentials_required", "provider_webhooks_required", "provider_connect_webhook_configuration_required", "provider_sandbox_policy_required", "provider_residual_resolution_unqualified", "commerce_schema_required", "platform_account_unverified", "platform_account_mismatch", "commerce_retention_resolution_required"] as const;
 const SELLER_REASONS = ["seller_onboarding_required", "seller_not_eligible", "seller_country_unavailable", "seller_account_mismatch"] as const;
 type PlatformReason = typeof PLATFORM_REASONS[number];
 type SellerReason = typeof SELLER_REASONS[number];
@@ -32,17 +32,20 @@ export function parseCommerceReadiness(value: unknown): CommerceReadiness {
   if (capabilities.set_free_tariff && !free.tariff_controls_available) throw new Error("Sharing availability could not be verified.");
   if ((capabilities.set_paid_tariff || capabilities.approve_paid_request || capabilities.reserve_paid_purchase || capabilities.start_funding || capabilities.start_onboarding) &&
       (!data.enabled || platform.status !== "ready")) throw new Error("Sharing availability could not be verified.");
+  if (platform.reason_code === "provider_residual_resolution_unqualified" &&
+      (capabilities.set_paid_tariff || capabilities.reserve_paid_purchase || capabilities.start_funding)) throw new Error("Sharing availability could not be verified.");
   if (capabilities.set_paid_tariff && seller.status !== "eligible") throw new Error("Sharing availability could not be verified.");
   return data as unknown as CommerceReadiness;
 }
 
 export function commerceReadinessCopy(readiness?: CommerceReadiness): string {
   if (!readiness) return "Paid sharing availability could not be checked. Refresh before continuing.";
+  if (readiness.platform.reason_code === "provider_residual_resolution_unqualified") return "New paid requests and coin purchases are paused. Existing requests and earnings remain available.";
   switch (readiness.platform.status) {
     case "disabled": return "New paid purchases and funding are paused. Free sharing still requires your approval.";
     case "unconfigured": return "Payments are not set up for this app yet. Free sharing does not require Stripe.";
     case "unverified": return "Paid sharing is unavailable until payment setup is verified. Free sharing does not require Stripe.";
-    case "ready": return !readiness.capabilities.start_onboarding && !readiness.capabilities.start_funding ? "Paid sharing is not enabled for this account. Free sharing still requires your approval." : readiness.seller.status === "eligible" ? "Paid sharing is available. Every purchase needs a separate price confirmation." : "You can share for free. Open Payments and earnings → Set up information-access payouts before setting a paid price.";
+    case "ready": return !readiness.capabilities.start_onboarding && !readiness.capabilities.start_funding ? "Paid sharing is not enabled for this account. Free sharing still requires your approval." : readiness.seller.status === "eligible" ? "Review the price before sending a request." : "You can share for free. Open Payments and earnings → Set up information-access payouts before setting a paid price.";
   }
 }
 
@@ -53,6 +56,12 @@ const ACTION_ERRORS: Record<string, string> = {
   ...Object.fromEntries(PLATFORM_REASONS.map(code => [code, "Paid sharing is unavailable. Review Payments and earnings; free sharing does not require Stripe."])),
   ...Object.fromEntries(SELLER_REASONS.map(code => [code, "Review information-access payout setup in Payments and earnings before continuing with paid sharing."])),
   provider_sandbox_reviewer_required: "Paid sharing is limited to the approved Sandbox reviewers. Free sharing still requires your approval.",
+  provider_sandbox_funding_budget_exceeded: "This amount exceeds your remaining sandbox test allowance. Choose a shorter duration or enter a smaller top-up amount.",
+  funding_amount_invalid: "Enter a coin top-up between $0.50 and $1,000.00.",
+  seller_country_unavailable: "Payout setup is not available for that country code yet.",
+  provider_onboarding_link_expired: "Your Stripe setup link expired. Request a new link to continue.",
+  provider_operation_conflict: "A previous payment request is still settling. Refresh and try again.",
+  provider_account_mismatch: "Stripe sandbox account binding changed. Check Payments and earnings.",
   seller_onboarding_required: "Open Payments and earnings → Set up information-access payouts before charging for information.",
   seller_not_eligible: "Open Payments and earnings → Set up information-access payouts before continuing with paid sharing.",
   provider_configuration_invalid: "Payments are not available for this app yet. Free sharing does not require Stripe.",
@@ -60,7 +69,8 @@ const ACTION_ERRORS: Record<string, string> = {
   commerce_environment_unbound: "Payment setup has not been verified. Free sharing does not require Stripe.",
   commerce_environment_mismatch: "Payment setup could not be verified. Check Payments and earnings.",
   scope_commerce_schema_unavailable: "Sharing price controls are unavailable. Refresh before changing saved terms.",
-  insufficient_balance: "Open Payments and earnings → Add funds, then review the exact price again.",
+  insufficient_balance: "Add coins, then review the price again.",
+  request_price_changed: "The price changed. Ask for a new request with the current price.",
   quote_expired: "Quote expired. Request access again so the owner can approve new terms.",
   negative_net_acknowledgement_required: "Refresh and acknowledge the exact owner costs before sharing.",
 };

@@ -4,6 +4,7 @@ import { appHaptic } from "@/lib/capacitor/app-haptics";
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
 import { isSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
+import { createPointerVelocityTracker } from "@/lib/motion/closed-form-spring";
 import { renderedDrawerOffset } from "./drawer-motion";
 
 type Pull = { id: number; x: number; y: number; time: number; width: number; offset: number; engaged: boolean };
@@ -35,8 +36,12 @@ export function ProfilePaneDrag({ open, presentationKey, panelRef, semanticRef =
     let pull: Pull | null = null;
     let settling = false;
     let timer = 0;
+    const velocityTracker = createPointerVelocityTracker();
     let generation = 0;
-    const cancelSettlement = () => { generation += 1; window.clearTimeout(timer); };
+    const cancelSettlement = () => {
+      generation += 1;
+      window.clearTimeout(timer);
+    };
     let suppressClickUntil = 0;
     const blocked = () => !owner.current.open || isSessionChromeSuppressed() ||
       document.visibilityState === "hidden" || Boolean(document.querySelector("html.kb-open")) ||
@@ -56,24 +61,35 @@ export function ProfilePaneDrag({ open, presentationKey, panelRef, semanticRef =
       settling = false;
       setDragging(false);
     };
-    const restore = () => {
+    const restore = (releaseVelocityPxPerSec = 0) => {
       const engaged = pull?.engaged || settling;
+      const width = pull?.width ?? Math.max(1, panel.offsetWidth);
       pull = null;
       if (!engaged) return;
+      const startOffset = Math.max(0, Math.min(width, renderedDrawerOffset(panel)));
       cancelSettlement();
       const currentGeneration = generation;
       settling = true;
       panel.dataset.profilePull = "drag";
       const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      panel.style.transition = reduced ? "none" : "transform var(--motion-drawer-settle-duration) var(--motion-sheet-enter-ease)";
-      scrim.style.transition = reduced ? "none" : "opacity var(--motion-drawer-settle-duration) var(--motion-sheet-enter-ease)";
+      const durationMs = 185;
+      const normSlope = startOffset > 2
+        ? Math.min(1.04, Math.max(0.55, 0.18 * ((Math.abs(releaseVelocityPxPerSec) * (durationMs / 1000)) / startOffset)))
+        : 1;
+      const curve = `cubic-bezier(0.18, ${normSlope.toFixed(3)}, 0.3, 1)`;
+      panel.style.transition = reduced ? "none" : `transform ${durationMs}ms ${curve}`;
+      scrim.style.transition = reduced ? "none" : `opacity ${durationMs}ms ${curve}`;
+      panel.style.setProperty("--profile-pull-x", "0px");
       panel.style.transform = "translate3d(0px, 0, 0)";
       scrim.style.opacity = "1";
-      const duration = getComputedStyle(panel).transitionDuration.split(",").reduce((max, value) => {
-        const ms = parseFloat(value) * (value.trim().endsWith("ms") ? 1 : 1000);
-        return Number.isFinite(ms) ? Math.max(max, ms) : max;
-      }, 0);
-      timer = window.setTimeout(() => { if (generation === currentGeneration) clear(); }, reduced ? 0 : duration + 30);
+      scrim.style.setProperty("--profile-pull-opacity", "1");
+      if (reduced) {
+        clear();
+        return;
+      }
+      timer = window.setTimeout(() => {
+        if (generation === currentGeneration) clear();
+      }, 190);
     };
     reconcile.current = (nextOpen) => {
       if (nextOpen) {
@@ -111,6 +127,7 @@ export function ProfilePaneDrag({ open, presentationKey, panelRef, semanticRef =
       const offset = Math.min(panel.offsetWidth, Math.max(0, renderedDrawerOffset(panel)));
       cancelSettlement();
       settling = false;
+      velocityTracker.reset(touch.clientX, event.timeStamp);
       pull = { id: touch.identifier, x: touch.clientX, y: touch.clientY, time: event.timeStamp, width: panel.offsetWidth, offset, engaged: offset > 0 };
       if (pull.engaged) {
         panel.style.transition = "none"; scrim.style.transition = "none";
@@ -125,7 +142,7 @@ export function ProfilePaneDrag({ open, presentationKey, panelRef, semanticRef =
     const move = (event: TouchEvent) => {
       if (!pull) return;
       const touch = Array.from(event.touches).find(point => point.identifier === pull?.id);
-      if (!touch || event.touches.length !== 1 || blocked()) { restore(); return; }
+      if (!touch || event.touches.length !== 1 || blocked()) { restore(0); return; }
       const dx = touch.clientX - pull.x;
       const dy = touch.clientY - pull.y;
       if (!pull.engaged) {
@@ -140,6 +157,7 @@ export function ProfilePaneDrag({ open, presentationKey, panelRef, semanticRef =
         panel.style.willChange = "transform";
         scrim.style.willChange = "opacity";
       }
+      velocityTracker.push(touch.clientX, event.timeStamp);
       const distance = Math.min(pull.width, Math.max(0, pull.offset + dx));
       panel.style.setProperty("--profile-pull-x", `${distance}px`);
       panel.style.transform = `translate3d(${distance}px, 0, 0)`;
@@ -151,14 +169,18 @@ export function ProfilePaneDrag({ open, presentationKey, panelRef, semanticRef =
     const end = (event: TouchEvent) => {
       if (!pull) return;
       const touch = Array.from(event.changedTouches).find(point => point.identifier === pull?.id);
-      if (!pull.engaged || !touch) { restore(); return; }
+      if (!pull.engaged || !touch) { restore(0); return; }
+      velocityTracker.push(touch.clientX, event.timeStamp);
       const dx = touch.clientX - pull.x;
       const dy = touch.clientY - pull.y;
+      const instantVx = velocityTracker.velocityPxPerSec(event.timeStamp);
+      const avgVelocity = dx / Math.max(1, event.timeStamp - pull.time);
+      const effectiveVelocity = Math.max(avgVelocity, instantVx / 1000);
       const commit = !blocked() && dx > Math.abs(dy) * 1.12 &&
-        (dx >= 72 || (dx >= 16 && dx / Math.max(1, event.timeStamp - pull.time) >= 0.48));
+        (dx >= 72 || (dx >= 16 && effectiveVelocity >= 0.48));
       event.stopPropagation();
       suppressClickUntil = performance.now() + 500;
-      if (!commit) { restore(); return; }
+      if (!commit) { restore(instantVx); return; }
       pull = null;
       settling = true;
       panel.dataset.profilePull = "exit";
@@ -171,15 +193,16 @@ export function ProfilePaneDrag({ open, presentationKey, panelRef, semanticRef =
         event.preventDefault(); event.stopPropagation();
       }
     };
+    const onCancel = () => restore(0);
     const options = { passive: true } as const;
     panel.addEventListener("touchstart", start, options);
     panel.addEventListener("touchmove", move, options);
     panel.addEventListener("touchend", end, options);
-    panel.addEventListener("touchcancel", restore, options);
+    panel.addEventListener("touchcancel", onCancel, options);
     panel.addEventListener("click", click, true);
-    window.addEventListener("blur", restore);
-    document.addEventListener("visibilitychange", restore);
-    const resized = () => { if (pull && panel.offsetWidth !== pull.width) restore(); };
+    window.addEventListener("blur", onCancel);
+    document.addEventListener("visibilitychange", onCancel);
+    const resized = () => { if (pull && panel.offsetWidth !== pull.width) restore(0); };
     window.addEventListener("resize", resized);
     return () => {
       cancelSettlement();
@@ -190,10 +213,10 @@ export function ProfilePaneDrag({ open, presentationKey, panelRef, semanticRef =
       panel.removeEventListener("touchstart", start);
       panel.removeEventListener("touchmove", move);
       panel.removeEventListener("touchend", end);
-      panel.removeEventListener("touchcancel", restore);
+      panel.removeEventListener("touchcancel", onCancel);
       panel.removeEventListener("click", click, true);
-      window.removeEventListener("blur", restore);
-      document.removeEventListener("visibilitychange", restore);
+      window.removeEventListener("blur", onCancel);
+      document.removeEventListener("visibilitychange", onCancel);
       window.removeEventListener("resize", resized);
     };
   }, [presentationKey, panelRef, semanticRef, scrimRef]);

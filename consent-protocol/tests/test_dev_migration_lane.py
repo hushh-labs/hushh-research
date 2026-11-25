@@ -70,7 +70,7 @@ def test_dev_manifest_is_in_numeric_order() -> None:
     assert len(set(versions)) == len(versions), "duplicate migration number in the parked band"
     # The band itself is the contract: staying in 900+ is what keeps these files
     # from colliding with main's fast-moving migration head on every branch sync.
-    assert all(900 <= version < 1000 for version in versions)
+    assert all(version >= 900 for version in versions)
 
 
 def test_dev_manifest_declares_the_same_dev_project_as_the_gate() -> None:
@@ -227,7 +227,11 @@ def test_release_manifest_still_matches_the_repo_migration_head() -> None:
     repo_versions = sorted(
         _migration_version(path.name)
         for path in MIGRATIONS_DIR.iterdir()
-        if path.is_file() and path.name[:3].isdigit() and path.suffix == ".sql"
+        if path.is_file()
+        and "_" in path.name
+        and len(path.name.split("_", 1)[0]) >= 3
+        and path.name.split("_", 1)[0].isdigit()
+        and path.suffix == ".sql"
     )
     # The release lane is the production-safe base PLUS every environment overlay
     # (e.g. the isolated UAT-only hushh_tech foundation at 170, which is not in the
@@ -455,3 +459,146 @@ async def test_shared_dev_baseline_refuses_unresolved_history_before_io(
     assert tuple(
         entry.filename for entry in baseline.await_args.args[1]
     ) == migrate.release_migration_files("production")
+
+
+# ---------------------------------------------------------------------------
+# Four-digit migration rollover & symmetric schema contract posture
+# ---------------------------------------------------------------------------
+
+
+def _load_ops_module(module_name: str, relative_path: str):
+    import importlib.util
+
+    repo_root = DB_DIR.parents[1]
+    spec = importlib.util.spec_from_file_location(module_name, repo_root / relative_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_four_digit_migration_versions_parse_and_order_numerically(tmp_path: Path) -> None:
+    """999 -> 1000 rollover must sort numerically across migrate, guard, and manifest tools."""
+    assert migrate._migration_version("999_pre_rollover.sql") == 999
+    assert migrate._migration_version("1000_four_digit_rollover.sql") == 1000
+    assert migrate._merge_release_migration_files(
+        ("1000_four_digit_rollover.sql",),
+        ("999_pre_rollover.sql",),
+    ) == ("999_pre_rollover.sql", "1000_four_digit_rollover.sql")
+
+    for invalid in ("01_short_prefix.sql", "1000.sql", "1000_not_sql.txt", "abc_bad.sql"):
+        with pytest.raises(RuntimeError, match="Invalid release migration filename"):
+            migrate._migration_version(invalid)
+
+    migrations_dir = tmp_path / "migrations"
+    migrations_dir.mkdir()
+    (migrations_dir / "999_pre_rollover.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    (migrations_dir / "1000_four_digit_rollover.sql").write_text("SELECT 2;\n", encoding="utf-8")
+
+    guard = _load_ops_module(
+        "test_ops_db_migration_release_guard", "scripts/ops/db_migration_release_guard.py"
+    )
+    parsed, violations = guard._parse_migration_files(migrations_dir)
+    assert violations == []
+    assert [item.version for item in parsed] == [999, 1000]
+
+    manifest_gen = _load_ops_module(
+        "test_ops_generate_migration_release_manifest",
+        "scripts/ops/generate_migration_release_manifest.py",
+    )
+    records, _digest = manifest_gen._collect_migrations(migrations_dir)
+    assert [record["version"] for record in records] == [999, 1000]
+    assert [record["filename"] for record in records] == [
+        "999_pre_rollover.sql",
+        "1000_four_digit_rollover.sql",
+    ]
+
+
+def test_prod_contract_posture_detects_reverse_prod_only_drift(tmp_path: Path) -> None:
+    """Prod must not silently require tables, columns, or functions absent from integrated."""
+    posture = _load_ops_module(
+        "test_ops_report_prod_contract_posture",
+        "scripts/ops/report_prod_contract_posture.py",
+    )
+    manifest_path = tmp_path / "release_migration_manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "ordered_migrations": ["458_base.sql"],
+                "environment_overlays": {"uat": ["170_uat_overlay.sql"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+    uat_only = {table: ["id"] for table in sorted(posture.UAT_ONLY_TABLES)}
+
+    def write_contracts(
+        *,
+        prod_tables: dict,
+        integrated_tables: dict,
+        prod_fns: list[str],
+        integrated_fns: list[str],
+    ):
+        prod_path = tmp_path / "prod.json"
+        integrated_path = tmp_path / "integrated.json"
+        prod_path.write_text(
+            json.dumps(
+                {
+                    "expected_migration_version": 458,
+                    "migration_version_policy": "exact",
+                    "required_tables": prod_tables,
+                    "required_functions": prod_fns,
+                }
+            ),
+            encoding="utf-8",
+        )
+        integrated_path.write_text(
+            json.dumps(
+                {
+                    "expected_migration_version": 458,
+                    "migration_version_policy": "exact",
+                    "required_tables": integrated_tables,
+                    "required_functions": integrated_fns,
+                }
+            ),
+            encoding="utf-8",
+        )
+        return posture.build_report(prod_path, integrated_path, manifest_path=manifest_path)
+
+    clean = write_contracts(
+        prod_tables={"vault_keys": ["user_id"]},
+        integrated_tables={"vault_keys": ["user_id"], **uat_only},
+        prod_fns=["fn_shared"],
+        integrated_fns=["fn_shared"],
+    )
+    assert clean["status"] == "ok"
+
+    extra_table = write_contracts(
+        prod_tables={"vault_keys": ["user_id"], "prod_ghost_table": ["id"]},
+        integrated_tables={"vault_keys": ["user_id"], **uat_only},
+        prod_fns=["fn_shared"],
+        integrated_fns=["fn_shared"],
+    )
+    assert extra_table["status"] == "error"
+    assert extra_table["parity_gaps"]["tables_not_in_integrated_contract"] == ["prod_ghost_table"]
+
+    extra_col = write_contracts(
+        prod_tables={"vault_keys": ["user_id", "prod_only_col"]},
+        integrated_tables={"vault_keys": ["user_id"], **uat_only},
+        prod_fns=["fn_shared"],
+        integrated_fns=["fn_shared"],
+    )
+    assert extra_col["status"] == "error"
+    assert extra_col["parity_gaps"]["shared_table_prod_only_columns"] == {
+        "vault_keys": ["prod_only_col"]
+    }
+
+    extra_fn = write_contracts(
+        prod_tables={"vault_keys": ["user_id"]},
+        integrated_tables={"vault_keys": ["user_id"], **uat_only},
+        prod_fns=["fn_shared", "fn_prod_only"],
+        integrated_fns=["fn_shared"],
+    )
+    assert extra_fn["status"] == "error"
+    assert extra_fn["parity_gaps"]["functions_not_in_integrated_contract"] == ["fn_prod_only"]

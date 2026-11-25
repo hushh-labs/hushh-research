@@ -45,6 +45,9 @@ _GOOGLE_ISSUERS = frozenset({"accounts.google.com", "https://accounts.google.com
 
 # Its own scheduler identity, not Drive's. A compromised or paused Drive
 # scheduler must not be able to drive money movement on this lane.
+_DEV_SCHEDULER_PROJECT_ID = "hushh-pda-dev"
+_DEV_SCHEDULER_SERVICE_ACCOUNT = "answer-work-drain-sched@hushh-pda-dev.iam.gserviceaccount.com"
+_DEV_SCHEDULER_AUDIENCES = frozenset({"https://consent-protocol-621416509462.us-central1.run.app"})
 _UAT_SCHEDULER_PROJECT_ID = "hushh-pda-uat"
 _UAT_SCHEDULER_SERVICE_ACCOUNT = "answer-work-drain-sched@hushh-pda-uat.iam.gserviceaccount.com"
 _UAT_SCHEDULER_AUDIENCES = frozenset(
@@ -65,7 +68,7 @@ def _drain_enabled() -> bool:
     """Unavailable unless this worker deployment explicitly enables it."""
     environment = str(os.getenv("ENVIRONMENT") or "").strip().lower()
     return (
-        environment in {"production", "uat", "test", "local", "development"}
+        environment in {"production", "uat", "dev", "test", "local", "development"}
         and str(os.getenv("ANSWER_WORK_DRAIN_ENABLED") or "").strip().lower() == "true"
     )
 
@@ -77,7 +80,11 @@ def _configuration() -> tuple[str, str, str]:
         expected_project = _PRODUCTION_SCHEDULER_PROJECT_ID
         expected_service_account = _PRODUCTION_SCHEDULER_SERVICE_ACCOUNT
         expected_audiences = _PRODUCTION_SCHEDULER_AUDIENCES
-    elif environment in {"uat", "test", "local", "development"}:
+    elif environment in {"dev", "development"}:
+        expected_project = _DEV_SCHEDULER_PROJECT_ID
+        expected_service_account = _DEV_SCHEDULER_SERVICE_ACCOUNT
+        expected_audiences = _DEV_SCHEDULER_AUDIENCES
+    elif environment in {"uat", "test", "local"}:
         expected_project = _UAT_SCHEDULER_PROJECT_ID
         expected_service_account = _UAT_SCHEDULER_SERVICE_ACCOUNT
         expected_audiences = _UAT_SCHEDULER_AUDIENCES

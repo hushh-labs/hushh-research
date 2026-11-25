@@ -19,10 +19,11 @@ import {
   type TodoItem,
 } from "@/lib/services/todo-list-pkm-service";
 import { useTodoLiveTasks } from "@/lib/todos/use-todo-live-tasks";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import * as todoService from "@/lib/services/todo-list-pkm-service";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
-import type { CapabilityRead } from "@/lib/services/todo-capability-sources";
 import type { RedactedCalendarEvent } from "@/lib/calendar/use-calendar-upcoming-events";
+import type { CapabilityRead } from "@/lib/services/todo-capability-sources";
 
 function deferredWrite() {
   let resolve!: (result: Awaited<ReturnType<typeof TodoListPkmService.setStatus>>) => void;
@@ -31,6 +32,10 @@ function deferredWrite() {
 }
 
 const mocks = vi.hoisted(() => ({
+  native: false,
+  nativeFailed: false,
+  search: "",
+  workspace: null as Parameters<typeof import("@/lib/capacitor/use-native-workspace").useNativeWorkspace>[0] | null,
   user: { uid: "todo-owner", getIdToken: vi.fn() },
   unlocked: true,
   actionables: [] as FeedActionable[],
@@ -52,6 +57,12 @@ const mocks = vi.hoisted(() => ({
   ] as RedactedCalendarEvent[],
 }));
 
+vi.mock("@/lib/capacitor/native-presentation-policy", () => ({ customNativePresentationEnabled: () => mocks.native }));
+vi.mock("@/lib/capacitor/use-native-workspace", () => ({
+  useNativeWorkspace: (options: typeof mocks.workspace) => { mocks.workspace = options; return "native"; },
+  useNativeWorkspacePresentation: () => ({ owner: {}, status: { phase: mocks.nativeFailed ? "web" : "native", reason: mocks.nativeFailed ? "failure" : "active", held: false } }),
+}));
+vi.mock("next/navigation", () => ({ usePathname: () => "/one/tasks", useRouter: () => ({ push: vi.fn() }), useSearchParams: () => new URLSearchParams(mocks.search) }));
 vi.mock("@/lib/todos/use-todo-capability-sources", () => ({ useTodoCapabilitySources: () => ({ reads: mocks.reads, loading: false, error: false, refresh: mocks.retrySources }) }));
 vi.mock("@/lib/profile/gmail-connector-store", () => ({ useGmailConnectorStatus: () => ({ status: { connected: true }, loadingStatus: false, statusError: mocks.mailError }) }));
 vi.mock("@/lib/feed/use-feed-actionables", () => ({
@@ -117,8 +128,13 @@ vi.mock("@/lib/morphy-ux/morphy", () => ({
 describe("TodoListPage row actions", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    mocks.native = false;
+    mocks.nativeFailed = false;
+    mocks.search = "";
+    mocks.workspace = null;
     mocks.unlocked = true;
     mocks.user.uid = "todo-owner";
+    publishValidatedAuthSessionOwner(mocks.user.uid);
     mocks.actionables = [];
     mocks.feedError = null;
     mocks.feedLoading = false;

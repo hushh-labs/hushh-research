@@ -1660,6 +1660,90 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                         continue
                     self.assertEqual(MAINTENANCE.live_release_matches(partial), defect is None)
 
+    def test_failed_worker_candidate_defers_worker_cleanup(self):
+        worker = "consent-protocol-drive-worker"
+        active = worker + "-00002-good"
+        failed = worker + "-00003-failed"
+        run_id = 303
+        sha = "a" * 40
+        failure = {"type": "Ready", "status": "False", "reason": "HealthCheckContainerError"}
+        release = {
+            "status": "healthy",
+            "sha": sha,
+            "verification": {"drive_worker": "success", "drive_worker_gate_success": True},
+            "final": {
+                "backend_revision": "consent-protocol-00004-good",
+                "frontend_revision": "hushh-webapp-00005-good",
+            },
+        }
+        worker_state = {
+            "metadata": {"generation": 3},
+            "spec": {
+                "traffic": [
+                    {"revisionName": active, "percent": 100},
+                    {"revisionName": failed, "tag": "pending-candidate"},
+                ],
+            },
+            "status": {
+                "observedGeneration": 3,
+                "latestReadyRevisionName": active,
+                "latestCreatedRevisionName": failed,
+                "traffic": [{"revisionName": active, "percent": 100}],
+                "conditions": [failure],
+            },
+        }
+        active_revision = {
+            "metadata": {
+                "name": active,
+                "labels": {
+                    "serving.knative.dev/service": worker,
+                    "deploy-sha": sha,
+                    "github-run-id": str(run_id),
+                },
+            },
+            "status": {
+                "conditions": [
+                    {"type": kind, "status": "True"}
+                    for kind in ("Ready", "Active", "ContainerHealthy")
+                ],
+            },
+        }
+        failed_revision = {
+            "metadata": {"name": failed, "labels": {"serving.knative.dev/service": worker}},
+            "status": {"conditions": [failure, {"type": "Active", "status": "False"}]},
+        }
+
+        def state(name, _project, _region):
+            if name == worker:
+                return worker_state
+            lane = "backend" if name == "consent-protocol" else "frontend"
+            return {
+                "status": {
+                    "conditions": [{"type": "Ready", "status": "True"}],
+                    "traffic": [{"revisionName": release["final"][lane + "_revision"], "percent": 100}]
+                }
+            }
+
+        with (
+            mock.patch.object(MAINTENANCE.retention, "service_state", side_effect=state),
+            mock.patch.object(
+                MAINTENANCE.retention, "revision_state", return_value=[active_revision, failed_revision]
+            ),
+        ):
+            self.assertTrue(MAINTENANCE.live_release_matches(release, worker_release_run_id=run_id))
+            with self.assertRaises(MAINTENANCE.DriveWorkerCleanupDeferred):
+                MAINTENANCE.live_release_matches(
+                    release, worker_release_run_id=run_id, cleanup_worker=True
+                )
+            for invalid_run in (None, run_id + 1):
+                with self.assertRaisesRegex(MAINTENANCE.retention.UnsafeState, "Drive worker is not ready"):
+                    MAINTENANCE.live_release_matches(release, worker_release_run_id=invalid_run)
+            worker_state["status"]["traffic"].append(
+                {"revisionName": failed, "percent": 0, "tag": "pending-candidate"}
+            )
+            with self.assertRaisesRegex(MAINTENANCE.retention.UnsafeState, "Drive worker is not ready"):
+                MAINTENANCE.live_release_matches(release, worker_release_run_id=run_id)
+
     def test_historical_partial_backend_requires_live_revision_provenance(self):
         _previous_run, _failed_run, _previous, partial = self.partial_uat_fixture()
         partial["_maintenance_lane_provenance"] = {
@@ -2104,9 +2188,14 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             rearm = clock.split("\n  next-check:\n", 1)[1]
             self.assertIn("      name: capacity-maintenance-clock\n      deployment: false\n", rearm)
             self.assertIn("(( elapsed < CLOCK_MIN_ELAPSED_SECONDS ))", rearm)
+            self.assertIn("for read_attempt in range(3):", rearm)
+            self.assertIn('if read_attempt == 2:\n                      raise SystemExit("Clock successor inventory is incomplete; no rearm admitted")\n                  time.sleep(2)', rearm)
             for line in clock.splitlines():
                 if "sleep" in line:
-                    self.assertEqual(line.strip(), "sleep $((attempt * 10))")
+                    self.assertIn(line.strip(), (
+                        "sleep $((attempt * 10))",
+                        "time.sleep(2)",
+                    ))
 
         check_policy(source, clock_source)
         for broken, broken_clock in (
@@ -2121,6 +2210,9 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             (source, clock_source.replace("      name: capacity-maintenance-clock\n", "      name: uat\n")),
             (source, clock_source.replace("needs.check.outputs.uat_ready == 'true' || needs.check.outputs.production_ready == 'true'", "true")),
             (source, clock_source.replace("sleep $((attempt * 10))", "sleep 3600", 1)),
+            (source, clock_source.replace("time.sleep(2)", "time.sleep(3600)", 1)),
+            (source, clock_source.replace("for read_attempt in range(3):", "for read_attempt in range(1000):", 1)),
+            (source, clock_source.replace("for read_attempt in range(3):", "while True:", 1)),
         ):
             with self.assertRaises(AssertionError):
                 check_policy(broken, broken_clock)
@@ -2605,10 +2697,20 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             self.assertEqual(json.loads(state_file.read_text()), {"observed_at": 2000})
 
     def test_uat_apply_exposes_verified_source_and_latest_pending_deadline(self):
+        for defer_worker in (False, True):
+            with self.subTest(defer_worker=defer_worker):
+                self.check_uat_apply_deadline(defer_worker)
+
+    def check_uat_apply_deadline(self, defer_worker):
         with tempfile.TemporaryDirectory() as temporary:
             directory = pathlib.Path(temporary)
             output = directory / "output"
             state_dir = directory / "state"
+
+            def match(_release, *, cleanup_worker=False, **_kwargs):
+                if defer_worker and cleanup_worker:
+                    raise MAINTENANCE.DriveWorkerCleanupDeferred("worker startup failed")
+                return True
 
             def run(command, **_kwargs):
                 if command[2] == "consent-protocol":
@@ -2650,7 +2752,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                     return_value=(123, {"status": "healthy"}),
                 ),
                 mock.patch.object(
-                    MAINTENANCE, "live_release_matches", return_value=True
+                    MAINTENANCE, "live_release_matches", side_effect=match
                 ),
                 mock.patch.object(MAINTENANCE, "assert_checkpoint_publication"),
                 mock.patch.object(MAINTENANCE, "restore_state"),
@@ -2674,9 +2776,14 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                 )
                 + "\n",
                 "verified_source_run_id=123\ndrain_not_before=13660\n"
-                "cleanup_outcome=applied\n",
+                f"cleanup_outcome={'deferred' if defer_worker else 'applied'}\n",
             )
-            self.assertEqual(cloudrun.call_count, 3)
+            checkpoint = json.loads((state_dir / "completed.json").read_text())
+            self.assertEqual(checkpoint["pass_status"], "deferred" if defer_worker else "complete")
+            self.assertEqual(
+                checkpoint["pending_services"], ["consent-protocol-drive-worker"] if defer_worker else []
+            )
+            self.assertEqual(cloudrun.call_count, 2 if defer_worker else 3)
             for call in cloudrun.call_args_list:
                 self.assertIn("--carry-uat-clock", call.args[0])
 

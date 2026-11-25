@@ -43,6 +43,11 @@ function getMarkerGlyph(symbol: string, isCash: boolean): string {
   return cleaned.length > 0 ? cleaned.charAt(0) : "•";
 }
 
+/** The native symbol mark uses the same glyph and deterministic brand color. */
+export function symbolAvatarFallback(symbol: string): { glyph: string; hue: number } {
+  return { glyph: getMarkerGlyph(symbol, false), hue: hashText(symbol || "holding") % 360 };
+}
+
 function getIconStyle(key: string, isCash: boolean): CSSProperties {
   const baseHue = isCash ? 145 : hashText(key || "holding") % 360;
   const accentHue = (baseHue + 38) % 360;

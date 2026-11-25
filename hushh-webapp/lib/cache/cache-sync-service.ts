@@ -7,6 +7,7 @@ import {
   CACHE_TTL,
 } from "@/lib/services/cache-service";
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
+import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache-service";
 import { MessagesDraftService } from "@/lib/services/messages-draft-service";
 import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-status-local-service";
 import { bumpRiaInvalidationEpoch } from "@/lib/cache/ria-invalidation-epoch";
@@ -381,6 +382,10 @@ export class CacheSyncService {
     const writeThroughMetadata = options?.writeThroughMetadata !== false;
     cache.invalidate(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
     cache.invalidate(CACHE_KEYS.DOMAIN_MANIFEST(userId, domain));
+    void SecureResourceCacheService.invalidateResourcePrefix(
+      userId,
+      "answer_scope_projection:v2:",
+    ).catch(() => undefined);
 
     if (domain === "financial") {
       if (options?.portfolioData) {
@@ -413,6 +418,7 @@ export class CacheSyncService {
     } else {
       cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, domain));
     }
+    cache.invalidate(`pkm_domain_resource_${userId}_available_scopes`);
     void import("@/lib/pkm/pkm-domain-resource")
       .then(({ PkmDomainResourceService }) => {
         PkmDomainResourceService.invalidateDomain(userId, domain, {
@@ -462,12 +468,17 @@ export class CacheSyncService {
     options?: { emitEvent?: boolean; eventId?: string },
   ): void {
     const cache = CacheService.getInstance();
+    cache.invalidate(`pkm_domain_resource_${userId}_available_scopes`);
     cache.invalidate(CACHE_KEYS.DOMAIN_MANIFEST(userId, domain));
     cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, domain));
     cache.invalidate(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, domain));
     cache.invalidate(CACHE_KEYS.PKM_BLOB(userId));
     cache.invalidate(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
     cache.invalidate(CACHE_KEYS.PKM_METADATA(userId));
+    void SecureResourceCacheService.invalidateResourcePrefix(
+      userId,
+      "answer_scope_projection:v2:",
+    ).catch(() => undefined);
     void import("@/lib/pkm/pkm-domain-resource")
       .then(({ PkmDomainResourceService }) => {
         PkmDomainResourceService.invalidateDomain(userId, domain, {
@@ -532,6 +543,10 @@ export class CacheSyncService {
     ]);
     cache.invalidatePattern(`pkm_domain_resource_${userId}_${domain}_`);
     cache.invalidatePattern(`consent_export_${userId}_`);
+    void SecureResourceCacheService.invalidateResourcePrefix(
+      userId,
+      "answer_scope_projection:v2:",
+    ).catch(() => undefined);
     void import("@/lib/pkm/pkm-domain-resource")
       .then(({ PkmDomainResourceService }) => {
         PkmDomainResourceService.invalidateDomain(userId, domain, {
@@ -654,6 +669,20 @@ export class CacheSyncService {
     cache.invalidatePattern(`domain_blob_${userId}_`);
     cache.invalidatePattern(`pkm_domain_resource_${userId}_`);
     cache.invalidatePattern(`stock_context_${userId}_`);
+    void SecureResourceCacheService.invalidateResourcePrefix(
+      userId,
+      "answer_scope_projection:v2:",
+    ).catch(() => undefined);
+    void import("@/lib/pkm/pkm-domain-resource")
+      .then(({ PkmDomainResourceService }) => {
+        if (typeof PkmDomainResourceService.invalidateAllForUser === "function") {
+          PkmDomainResourceService.invalidateAllForUser(userId, {
+            includeDevice: true,
+            includeBackingCaches: true,
+          });
+        }
+      })
+      .catch(() => undefined);
     this.invalidateKaiFinancialResource(userId);
     this.onKaiMarketContextChanged(userId);
   }
@@ -1002,6 +1031,21 @@ export class CacheSyncService {
           ConnectedSystemsResourceService.purgeUser(userId),
         )
         .catch(() => undefined);
+      void import("@/lib/agent/agent-chat-history-cache")
+        .then(({ clearAgentChatHistoryCache }) =>
+          clearAgentChatHistoryCache(userId, { includeDevice: true }),
+        )
+        .catch(() => undefined);
+      void import("@/lib/files/files-cache")
+        .then(({ clearFilesCache }) =>
+          clearFilesCache(userId, { includeDevice: true }),
+        )
+        .catch(() => undefined);
+      void import("@/lib/storage/encrypted-owner-ui-cache")
+        .then(({ deleteEncryptedOwnerUiRecords }) =>
+          deleteEncryptedOwnerUiRecords(userId),
+        )
+        .catch(() => undefined);
       return;
     }
     OneLocationStateResource.discardAll();
@@ -1009,6 +1053,21 @@ export class CacheSyncService {
     clearAllLocationWorkspaceMemory();
     clearAllOneLocationControlRuntime();
     cache.clear();
+    void import("@/lib/agent/agent-chat-history-cache")
+      .then(({ clearAgentChatHistoryCache }) =>
+        clearAgentChatHistoryCache(undefined, { includeDevice: true }),
+      )
+      .catch(() => undefined);
+    void import("@/lib/files/files-cache")
+      .then(({ clearFilesCache }) =>
+        clearFilesCache(undefined, { includeDevice: true }),
+      )
+      .catch(() => undefined);
+    void import("@/lib/storage/encrypted-owner-ui-cache")
+      .then(({ deleteEncryptedOwnerUiRecords }) =>
+        deleteEncryptedOwnerUiRecords(),
+      )
+      .catch(() => undefined);
   }
 
   static onAccountDeleted(userId?: string | null): void {

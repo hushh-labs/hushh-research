@@ -273,7 +273,10 @@ def _groups(contents: list[Any]) -> list[list[Any]]:
     groups: list[list[Any]] = []
     for content in contents:
         parts = content.parts or []
-        person = content.role == "user" and any(getattr(part, "text", None) for part in parts)
+        person = content.role == "user" and any(
+            getattr(part, "text", None) and not str(part.text).startswith("[TURN RUNTIME CONTEXT")
+            for part in parts
+        )
         tool_reply = any(getattr(part, "function_response", None) for part in parts)
         if not groups or (person and not tool_reply):
             groups.append([])
@@ -282,19 +285,32 @@ def _groups(contents: list[Any]) -> list[list[Any]]:
 
 
 def fit_recent_context(
-    request: Any, budget: ContextBudget, *, summary_applied: bool, token_ratio: float = 1.0
-) -> None:
-    """Drop only complete oldest request groups; keep summary and newest turn."""
+    request: Any,
+    budget: ContextBudget,
+    *,
+    summary_applied: bool,
+    token_ratio: float = 1.0,
+    estimated_bytes: int | None = None,
+) -> int:
+    """Drop only complete oldest request groups; keep summary and newest turn.
+
+    Returns the final request byte estimate so callers avoid re-serializing
+    the entire request multiple times per model step.
+    """
+    current_bytes = (
+        estimated_bytes if estimated_bytes is not None else estimate_request_tokens(request)
+    )
+    reserve = getattr(request.config, "max_output_tokens", None) or budget.output
+    if math.ceil(current_bytes * token_ratio) + reserve <= budget.context:
+        return current_bytes
     groups = _groups(list(request.contents or []))
     protected = groups.pop(0) if summary_applied and groups else []
-    reserve = getattr(request.config, "max_output_tokens", None) or budget.output
-    while (
-        len(groups) > 1
-        and math.ceil(estimate_request_tokens(request) * token_ratio) + reserve > budget.context
-    ):
+    while len(groups) > 1 and math.ceil(current_bytes * token_ratio) + reserve > budget.context:
         groups.pop(0)
         request.contents = [*protected, *(content for group in groups for content in group)]
+        current_bytes = estimate_request_tokens(request)
     # A single oversized current turn or system/tool declaration is never clipped.
+    return current_bytes
 
 
 async def generate_summary(*, model: Any, owner: str, snapshot: dict) -> SummaryResult:
@@ -397,17 +413,22 @@ def chat_memory_before_model(callback_context: Any, llm_request: Any) -> None:
     state = callback_context.state
     ratio = _calibration_ratio(llm_request, state)
     applied = _apply_checkpoint(llm_request, session)
+    estimated_bytes = estimate_request_tokens(llm_request)
     pending = False
-    if math.ceil(estimate_request_tokens(llm_request) * ratio) + reserve >= int(
-        budget.context * 0.75
-    ):
+    if math.ceil(estimated_bytes * ratio) + reserve >= int(budget.context * 0.75):
         pending = _schedule(callback_context, summary_snapshot(session))
-    fit_recent_context(llm_request, budget, summary_applied=applied, token_ratio=ratio)
+    final_bytes = fit_recent_context(
+        llm_request,
+        budget,
+        summary_applied=applied,
+        token_ratio=ratio,
+        estimated_bytes=estimated_bytes,
+    )
     invocation_id = str(callback_context.invocation_id)
     usage = {
         "invocationId": invocation_id,
         "modelCallId": f"{invocation_id}:{uuid.uuid4().hex}",
-        "inputTokens": math.ceil(estimate_request_tokens(llm_request) * ratio),
+        "inputTokens": math.ceil(final_bytes * ratio),
         "outputReserveTokens": reserve,
         "contextBudgetTokens": budget.context,
         "tokenCountMethod": "calibrated_estimate" if ratio != 1.0 else "conservative_utf8_bytes",
@@ -418,18 +439,43 @@ def chat_memory_before_model(callback_context: Any, llm_request: Any) -> None:
     state[USAGE_KEY] = usage
     state[_REQUEST_BYTES_KEY] = {
         "model": llm_request.model,
-        "bytes": estimate_request_tokens(llm_request),
+        "bytes": final_bytes,
     }
     _record_usage(usage)
+
+
+def _usage_int(meta: Any, attr: str) -> int | None:
+    val = meta.get(attr) if isinstance(meta, dict) else getattr(meta, attr, None)
+    if isinstance(val, bool) or not isinstance(val, int) or val < 0:
+        return None
+    return val
 
 
 def chat_memory_after_model(callback_context: Any, llm_response: Any) -> None:
     if getattr(llm_response, "partial", False):
         return
-    count = getattr(getattr(llm_response, "usage_metadata", None), "prompt_token_count", None)
+    meta = getattr(llm_response, "usage_metadata", None)
+    count = _usage_int(meta, "prompt_token_count")
     usage = callback_context.state.get(USAGE_KEY)
-    if isinstance(count, int) and count >= 0 and isinstance(usage, dict):
-        actual = {**usage, "inputTokens": count, "tokenCountMethod": "provider_usage"}
+    if count is not None and isinstance(usage, dict):
+        cached = _usage_int(meta, "cached_content_token_count")
+        output = _usage_int(meta, "candidates_token_count")
+        thoughts = _usage_int(meta, "thoughts_token_count")
+        total = _usage_int(meta, "total_token_count")
+        actual: dict[str, Any] = {
+            **usage,
+            "inputTokens": count,
+            "tokenCountMethod": "provider_usage",
+        }
+        if cached is not None:
+            actual["cachedTokens"] = cached
+            actual["cacheHitPct"] = round((cached / count) * 100.0, 1) if count > 0 else 0.0
+        if output is not None:
+            actual["outputTokens"] = output
+        if thoughts is not None:
+            actual["thoughtsTokens"] = thoughts
+        if total is not None:
+            actual["totalTokens"] = total
         measured = callback_context.state.get(_REQUEST_BYTES_KEY)
         if isinstance(measured, dict) and count > 0:
             callback_context.state[_CALIBRATION_KEY] = {**measured, "tokens": count}

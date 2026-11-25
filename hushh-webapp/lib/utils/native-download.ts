@@ -1,5 +1,5 @@
 import { Capacitor } from "@capacitor/core";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 /**
  * Cross-platform file download utility

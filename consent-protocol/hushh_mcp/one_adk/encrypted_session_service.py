@@ -557,6 +557,59 @@ class EncryptedAdkSessionService(BaseSessionService):
         self._set_revision(session, int(result.data[0]["revision"]))
         return session
 
+    async def update_conversation_metadata(
+        self,
+        *,
+        app_name: str,
+        user_id: str,
+        session_id: str,
+        title: str | None = None,
+        category: str | None = None,
+        update_category: bool = False,
+    ) -> Session | None:
+        """Atomically update encrypted conversation title and/or category inside session.state."""
+        from hushh_mcp.one_adk.history_descriptors import (
+            STATE_THREAD_CATEGORY,
+            normalize_thread_category,
+        )
+
+        for _attempt in range(3):
+            session = await self.get_session(
+                app_name=app_name, user_id=user_id, session_id=session_id
+            )
+            if session is None:
+                return None
+            revision = self._revision(session)
+            if title is not None:
+                session.state["hussh:thread_title"] = title.strip()[:160]
+                session.last_update_time = time.time()
+            if update_category:
+                normalized = normalize_thread_category(category)
+                if normalized:
+                    session.state[STATE_THREAD_CATEGORY] = normalized
+                else:
+                    session.state.pop(STATE_THREAD_CATEGORY, None)
+            persistence_started_at = time.perf_counter()
+            try:
+                encoded = self._encode(session)
+                result = await self._repository.replace(
+                    **{
+                        "app": app_name,
+                        "user": user_id,
+                        "session": session_id,
+                        "revision": revision,
+                        "generated": title is None,
+                        "chat_marker": CHAT_CIPHERTEXT_LIKE,
+                        **encoded,
+                    }
+                )
+            finally:
+                self._record_phase("persistence", persistence_started_at)
+            if result.data:
+                self._set_revision(session, int(result.data[0]["revision"]))
+                return session
+        raise RuntimeError("Conversation changed while its metadata was being updated.")
+
     async def append_event(self, session: Session, event: Event) -> Event:
         if not event.partial:
             self._revision(session)

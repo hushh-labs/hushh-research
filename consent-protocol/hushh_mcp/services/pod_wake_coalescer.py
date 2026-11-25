@@ -109,7 +109,7 @@ def validate_zero_content_signal(payload: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _trigger_to_surface(trigger_kind: str) -> str:
-    if trigger_kind in {"gmail", "calendar", "drive", "contacts", "mcp"}:
+    if trigger_kind in {"gmail", "calendar", "drive", "contacts", "mcp", "scheduled_goal"}:
         return trigger_kind
     if trigger_kind == "circle_request":
         return "information_exchange_and_browser"

@@ -6,10 +6,23 @@ retained preparation step. This is not a hub provisioning or model identity.
 
 from __future__ import annotations
 
+import hashlib
 import time
 from typing import Any, Callable
 
 from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
+
+
+def _operator_actor_matches(actor: str, contract: dict[str, Any]) -> bool:
+    if not actor or not actor.startswith(("user:", "serviceAccount:")):
+        return False
+    if "operatorPrincipal" in contract:
+        return bool(actor == contract["operatorPrincipal"])
+    expected_hash = contract.get("operatorPrincipalHash")
+    if isinstance(expected_hash, str) and expected_hash.startswith("sha256:"):
+        actual_hash = "sha256:" + hashlib.sha256(actor.encode("utf-8")).hexdigest()
+        return actual_hash == expected_hash
+    return False
 
 
 class GuardedOperatorSession:
@@ -52,7 +65,7 @@ class GcpPreparationOperator:
         if step not in self._contract["steps"]:
             raise ValueError("Unknown preparation operation")
         self._step = step
-        if actor != self._contract["operatorPrincipal"] or not token:
+        if not _operator_actor_matches(actor, self._contract) or not token:
             raise ValueError("Preparation operator differs from its retained authority")
         self._reservation, self._assignment = reservation, assignment
         self._project, self._token = assignment["project"], token

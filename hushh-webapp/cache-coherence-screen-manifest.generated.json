@@ -10,19 +10,19 @@
     "cache_reference": "../docs/development/contracts/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 162,
-    "physical_page_count": 161,
-    "route_contract_count": 162,
-    "surface_map_count": 162,
+    "total_screens": 165,
+    "physical_page_count": 164,
+    "route_contract_count": 165,
+    "surface_map_count": 165,
     "class_counts": {
       "public/auth-split": 1,
-      "redirect/alias": 48,
-      "vault-backed": 67,
+      "redirect/alias": 49,
+      "vault-backed": 68,
       "hidden flow": 22,
       "auth/pre-vault": 5,
       "RIA/provider": 8,
       "realtime/SSE": 3,
-      "PKM-secure": 7,
+      "PKM-secure": 8,
       "public/static": 1
     },
     "pages_missing_route_contract": [],
@@ -75,8 +75,8 @@
         "use_stale_resource": false,
         "device_cache": false,
         "secure_cache": false,
-        "cache_sync": false,
-        "resource_wrapper": false,
+        "cache_sync": true,
+        "resource_wrapper": true,
         "direct_fetch": false,
         "api_service": true,
         "hushh_loader": true,
@@ -494,6 +494,51 @@
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/delete-account",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/design-system",
+      "page_file": "app/design-system/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/design-system",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -1655,7 +1700,7 @@
         "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fconnect%2Fsettings",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fconnect%2Fsettings",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -2053,6 +2098,55 @@
         "native_beacon": false
       },
       "findings": []
+    },
+    {
+      "route": "/one/goals",
+      "page_file": "app/one/goals/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "PKM-secure",
+      "cache_policy": "secure-resource",
+      "cache_keys": [
+        "PKM_DOMAIN_RESOURCE(one_todos)"
+      ],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.SESSION for metadata; secure resource revision controls payload freshness",
+      "warm_source": "Vault unlock plus secure resource cache",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "secure device stale render",
+        "background refresh",
+        "cold loader when locked or missing"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fgoals",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
     },
     {
       "route": "/one/kai",
@@ -3678,7 +3772,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fconnected-systems",
+      "reviewer_fixture": "/one/profile/connected-systems",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -5365,7 +5459,7 @@
         "api_service": true,
         "hushh_loader": true,
         "sse_or_streaming": false,
-        "native_beacon": true
+        "native_beacon": false
       },
       "findings": [
         "loader detected; verify warm cache path avoids blocking loader"
@@ -5946,8 +6040,8 @@
       ]
     },
     {
-      "route": "/one/todos",
-      "page_file": "app/one/todos/page.tsx",
+      "route": "/one/tasks",
+      "page_file": "app/one/tasks/page.tsx",
       "route_contract_mode": "standard",
       "screen_class": "PKM-secure",
       "cache_policy": "secure-resource",
@@ -5976,7 +6070,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fone%2Ftodos",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Ftasks",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -5986,6 +6080,46 @@
         "secure_cache": false,
         "cache_sync": false,
         "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/todos",
+      "page_file": "app/one/todos/page.tsx",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/one/todos",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
         "hushh_loader": false,
@@ -6468,7 +6602,7 @@
         "cache_sync": false,
         "resource_wrapper": false,
         "direct_fetch": false,
-        "api_service": false,
+        "api_service": true,
         "hushh_loader": true,
         "sse_or_streaming": false,
         "native_beacon": true
@@ -6730,7 +6864,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/ria/clients/${REVIEWER_UID}?tab=overview&test_profile=1",
+      "reviewer_fixture": "/login?redirect=%2Fria%2Fclients%2Fnative-audit-fixture",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -6746,9 +6880,7 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "review native route beacon coverage"
-      ]
+      "findings": []
     },
     {
       "route": "/ria/clients/[userId]/accounts/[accountId]",
@@ -6781,7 +6913,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/ria/clients/${REVIEWER_UID}/accounts/acct_demo_taxable_main?test_profile=1",
+      "reviewer_fixture": "/login?redirect=%2Fria%2Fclients%2Fnative-audit-fixture%2Faccounts%2Facct_demo_taxable_main",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -6797,9 +6929,7 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "review native route beacon coverage"
-      ]
+      "findings": []
     },
     {
       "route": "/ria/clients/[userId]/requests/[requestId]",
@@ -6832,7 +6962,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/ria/clients/${REVIEWER_UID}/requests/request_demo_kai_specialized_bundle?test_profile=1",
+      "reviewer_fixture": "/login?redirect=%2Fria%2Fclients%2Fnative-audit-fixture%2Frequests%2Frequest_demo_kai_specialized_bundle",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -6848,9 +6978,7 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "review native route beacon coverage"
-      ]
+      "findings": []
     },
     {
       "route": "/ria/onboarding",
@@ -7298,5 +7426,5 @@
       ]
     }
   ],
-  "content_sha256": "afcefa593dc87f61f463bc8b7a708434ff4ef473a42bf194320da88ac56742d4"
+  "content_sha256": "25d4598c8baab15a28a9ba32ef2fa5ff9e1cebb1b92476a35ddf361f2c274aea"
 }

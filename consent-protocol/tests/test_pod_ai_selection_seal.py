@@ -145,12 +145,34 @@ def test_a_replay_or_rollback_against_the_stored_selection_is_stale():
 
 
 def test_an_unsupported_provider_is_named_as_such():
+    for unsupported in ("anthropic", "azure_openai", "azure"):
+        _refused(
+            _sealed(plaintext={**VECTOR["plaintext"], "provider": unsupported}),
+            seal.PROVIDER_UNSUPPORTED,
+        )
     _refused(
-        _sealed(plaintext={**VECTOR["plaintext"], "provider": "anthropic"}),
+        _sealed(
+            plaintext={
+                **VECTOR["plaintext"],
+                "provider": "azure_openai",
+                "azureEndpoint": "https://legacy.openai.azure.com/",
+            }
+        ),
         seal.PROVIDER_UNSUPPORTED,
+    )
+    _refused(
+        _sealed(
+            plaintext={
+                **VECTOR["plaintext"],
+                "provider": "openai",
+                "azureEndpoint": "https://legacy.openai.azure.com/",
+            }
+        ),
+        seal.BAD_ENVELOPE,
     )
     gemini = {**VECTOR["plaintext"], "provider": "gemini", "transport": "developer_api"}
     assert _open(_sealed(plaintext=gemini)).provider == "gemini"
+    assert _open(_sealed(plaintext=VECTOR["plaintext"])).provider == "openai"
 
 
 @pytest.mark.parametrize(

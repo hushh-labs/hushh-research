@@ -1730,7 +1730,41 @@
     }
   },
   {
-    "route": "/one/todos",
+    "route": "/one/goals",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/goals/goals-workspace.tsx",
+      "includes": ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceCard"]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.goals",
+      "purpose": "Review saved goals, describe the intended outcome, and link saved tasks in the owner's unlocked vault.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Keep goal information unavailable until the owner unlocks the vault.",
+        "cancelled": "Close the editor without saving the draft.",
+        "failed": "Keep the draft and report that the save could not be confirmed.",
+        "timeout": "Ask the owner to check the saved goal before trying again.",
+        "callbackError": "Return to the verified recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "The owner confirms each save and explicitly marks goal completion. Linked task status comes from Tasks. A plan grants no background execution permission.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Never invent a control or infer execution permission from a saved goal."
+    },
+    "backVerification": {
+      "cases": [{ "href": "/one/goals", "expected": { "href": "/one", "mode": "push", "transitionMode": "full" } }],
+      "kind": "parent"
+    }
+  },
+  {
+    "route": "/one/tasks",
     "mode": "standard",
     "shellVerification": {
       "file": "components/todos/todo-list-page.tsx",
@@ -1743,8 +1777,8 @@
       ]
     },
     "voicePlaybook": {
-      "playbookId": "route.one.todos",
-      "purpose": "Review private to-do items and the safe, read-only Calendar agenda. Calendar changes remain in the Calendar agent and owner-added items remain encrypted in Agent One.",
+      "playbookId": "route.one.tasks",
+      "purpose": "Review private tasks, the read-only Calendar agenda, and the recorded outcome of approved scheduled Files runs on the owner's private Pod.",
       "screen": "app",
       "entryCue": "",
       "proactivity": "ambient",
@@ -1759,7 +1793,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Owner-added items are saved only after the owner confirms them; calendar items remain read-only projections of Calendar.",
+      "completionBoundary": "Ordinary task saves require owner confirmation. Scheduled results reflect the current Pod's last-run receipt, including uncertain outcomes. Back closes the scheduled-runs view before leaving Tasks.",
       "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1767,15 +1801,59 @@
     "backVerification": {
       "cases": [
         {
-          "href": "/one/todos",
+          "href": "/one/tasks",
           "expected": {
             "href": "/one",
             "mode": "push",
             "transitionMode": "full"
           }
+        },
+        {
+          "href": "/one/tasks?scheduled=1",
+          "expected": { "href": "/one", "mode": "push", "transitionMode": "full" }
+        },
+        {
+          "href": "/one/tasks?from=goals",
+          "expected": { "href": "/one/goals", "mode": "push", "transitionMode": "full" }
+        },
+        {
+          "href": "/one/tasks?from=unknown",
+          "expected": { "href": "/one", "mode": "push", "transitionMode": "full" }
         }
       ],
       "kind": "parent"
+    }
+  },
+  {
+    "route": "/one/todos",
+    "mode": "redirect",
+    "exemptionReason": "Existing To-do links open the canonical Tasks workspace.",
+    "voicePlaybook": {
+      "playbookId": "route.one.todos",
+      "purpose": "Open the Tasks workspace from an older To-do link.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Keep the Tasks destination behind its existing access check.",
+        "cancelled": "Retain the current screen.",
+        "failed": "Offer the canonical Tasks destination.",
+        "timeout": "Retain the canonical Tasks destination.",
+        "callbackError": "Offer the canonical Tasks destination.",
+        "routeMismatch": "Use the verified Tasks route."
+      },
+      "completionBoundary": "Both web and native clients open the same Tasks workspace.",
+      "nextRoute": "/one/tasks",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Retain the destination's access checks."
+    },
+    "backVerification": {
+      "kind": "redirect",
+      "reason": "The compatibility entry redirects to Tasks and has no standalone Back target.",
+      "cases": [{ "href": "/one/todos", "expected": null }]
     }
   },
   {
@@ -3051,6 +3129,14 @@
           "href": "/one/kai?tab=portfolio",
           "expected": {
             "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/kai?tab=portfolio&from=%2Fone%2Fsetup",
+          "expected": {
+            "href": "/one/setup",
             "mode": "push",
             "transitionMode": "full"
           }
@@ -4967,6 +5053,7 @@
   {
     "route": "/portfolio/shared",
     "mode": "hidden",
+    "persistentChrome": "none",
     "exemptionReason": "Public shared portfolio view uses chrome-free layout for external recipients.",
     "voicePlaybook": {
       "playbookId": "route.portfolio.shared",
@@ -7589,6 +7676,54 @@
       "cases": [
         {
           "href": "/research/protocol",
+          "expected": {
+            "href": "/",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
+    }
+  },
+  {
+    "route": "/design-system",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/design-system/reference-storybook.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.design.system",
+      "purpose": "Help the person inspect the reference design system showcase through its generated controls.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "nextRoute": "/design-system",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/design-system",
           "expected": {
             "href": "/",
             "mode": "push",

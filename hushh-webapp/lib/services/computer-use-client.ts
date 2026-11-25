@@ -202,11 +202,11 @@ export class ComputerUseClient {
     const body = (await readComputerUseJson(response)) as {
       available?: unknown;
       code?: unknown;
+      public_research_only?: unknown;
       owner_id?: unknown;
       pod_id?: unknown;
       incarnation?: unknown;
       environment?: unknown;
-      public_research_only?: unknown;
     };
     if (signal.aborted) throw new Error("BROWSER_REQUEST_CANCELLED");
     if (body.owner_id !== undefined || body.available === true) {

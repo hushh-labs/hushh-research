@@ -848,9 +848,9 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "account_phone_transfers",
+        "account_device_actions",
         "account_phone_recovery_continuations",
-        "account_device_actions"
+        "account_phone_transfers"
       ],
       "id": "account_phone_transfer_workflow",
       "lifecycle_status": "release_schema_qualification",
@@ -860,12 +860,12 @@
     {
       "data_class": "personal_metadata",
       "exact_tables": [
-        "actor_profiles",
         "actor_identity_cache",
+        "actor_profiles",
         "actor_verified_email_aliases",
         "runtime_persona_state",
-        "user_push_tokens",
-        "user_push_installations"
+        "user_push_installations",
+        "user_push_tokens"
       ],
       "id": "actor_identity_state",
       "lifecycle_status": "current",
@@ -898,11 +898,11 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
-        "calendar_email_followup_monitors",
         "calendar_email_followup_conversations",
+        "calendar_email_followup_monitors",
+        "calendar_email_followup_mutations",
         "calendar_email_followup_requests",
-        "calendar_email_followup_scanned_messages",
-        "calendar_email_followup_mutations"
+        "calendar_email_followup_scanned_messages"
       ],
       "id": "calendar_email_followup_operational_state",
       "lifecycle_status": "current",
@@ -923,8 +923,8 @@
     {
       "data_class": "personal_metadata",
       "exact_tables": [
-        "circle_chat_reactions",
-        "circle_chat_membership_events"
+        "circle_chat_membership_events",
+        "circle_chat_reactions"
       ],
       "id": "circle_chat_interaction_metadata",
       "lifecycle_status": "current",
@@ -935,8 +935,8 @@
       "data_class": "personal_encrypted",
       "exact_tables": [
         "circle_chat_messages",
-        "circle_chat_recipients",
-        "circle_chat_preferences"
+        "circle_chat_preferences",
+        "circle_chat_recipients"
       ],
       "id": "circle_member_chat",
       "lifecycle_status": "current",
@@ -966,10 +966,10 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "connected_system_intent_approval_challenges",
         "connected_system_intents",
         "connected_system_record_bindings",
-        "connected_system_zk_contexts",
-        "connected_system_intent_approval_challenges"
+        "connected_system_zk_contexts"
       ],
       "id": "connected_system_workflows",
       "lifecycle_status": "customer0",
@@ -991,8 +991,8 @@
       "exact_tables": [
         "consent_audit",
         "consent_audit_receipts",
-        "internal_access_events",
-        "consent_scope_templates"
+        "consent_scope_templates",
+        "internal_access_events"
       ],
       "id": "consent_authority_audit",
       "lifecycle_status": "current",
@@ -1012,8 +1012,8 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "consent_exports",
-        "consent_export_refresh_jobs"
+        "consent_export_refresh_jobs",
+        "consent_exports"
       ],
       "id": "consent_export_workflows",
       "lifecycle_status": "current",
@@ -1031,8 +1031,8 @@
     {
       "data_class": "provider_cache",
       "exact_tables": [
-        "crm_schema_mapping_cache",
-        "crm_schema_catalog_cache"
+        "crm_schema_catalog_cache",
+        "crm_schema_mapping_cache"
       ],
       "id": "crm_schema_mapping_cache",
       "lifecycle_status": "customer0",
@@ -1048,10 +1048,26 @@
       "primary_access_path": "developer app registration, token issuance, and MCP/developer API access"
     },
     {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "direct_communication_keys",
+        "direct_calls",
+        "direct_call_slots",
+        "direct_call_commands",
+        "direct_call_signals",
+        "direct_call_voip_tokens",
+        "direct_call_voip_outbox"
+      ],
+      "id": "direct_call_control",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Signed, active-device and conversation-participant commands through /api/one/messages/calls; governed direct_call_retention maintenance entrypoint. Release admission remains disabled until encrypted-history and native qualification."
+    },
+    {
       "data_class": "personal_encrypted",
       "exact_tables": [
-        "messages",
-        "direct_message_attachments"
+        "direct_message_attachments",
+        "messages"
       ],
       "id": "direct_message_encrypted_content",
       "lifecycle_status": "current",
@@ -1093,11 +1109,11 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
-        "drive_bulk_shares",
-        "drive_bulk_share_files",
-        "drive_bulk_share_recipients",
         "drive_bulk_share_effects",
+        "drive_bulk_share_files",
         "drive_bulk_share_notifications",
+        "drive_bulk_share_recipients",
+        "drive_bulk_shares",
         "drive_request_bulk_removals"
       ],
       "id": "drive_bulk_share",
@@ -1110,14 +1126,14 @@
       "exact_tables": [
         "drive_collection_sync",
         "drive_document_extractions",
-        "drive_document_pages",
-        "drive_document_facts",
         "drive_document_fact_pages",
+        "drive_document_facts",
+        "drive_document_pages",
         "drive_packet_heads",
+        "drive_packet_listings",
         "drive_packet_members",
-        "drive_packet_versions",
         "drive_packet_version_sources",
-        "drive_packet_listings"
+        "drive_packet_versions"
       ],
       "id": "drive_continuous_document_evidence",
       "lifecycle_status": "customer0",
@@ -1137,8 +1153,8 @@
     {
       "data_class": "provider_cache",
       "exact_tables": [
-        "drive_group_index_state",
-        "drive_group_index"
+        "drive_group_index",
+        "drive_group_index_state"
       ],
       "id": "drive_four_group_index",
       "lifecycle_status": "customer0",
@@ -1178,12 +1194,12 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "drive_share_file_claims",
-        "drive_share_events",
         "drive_query_events",
-        "drive_share_management_contexts",
+        "drive_rest_call_leases",
         "drive_rest_owner_admission",
-        "drive_rest_call_leases"
+        "drive_share_events",
+        "drive_share_file_claims",
+        "drive_share_management_contexts"
       ],
       "id": "drive_original_sharing_coordination",
       "lifecycle_status": "customer0",
@@ -1193,10 +1209,10 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
-        "drive_share_requests",
-        "drive_share_reviews",
+        "drive_share_live_sources",
         "drive_share_permission_operations",
-        "drive_share_live_sources"
+        "drive_share_requests",
+        "drive_share_reviews"
       ],
       "id": "drive_original_sharing_records",
       "lifecycle_status": "customer0",
@@ -1257,10 +1273,10 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "drive_request_payment_orders",
         "drive_request_payment_obligations",
-        "drive_request_payment_webhook_events",
-        "drive_request_payment_refunds"
+        "drive_request_payment_orders",
+        "drive_request_payment_refunds",
+        "drive_request_payment_webhook_events"
       ],
       "id": "drive_request_payment_authority",
       "lifecycle_status": "customer0",
@@ -1270,9 +1286,9 @@
     {
       "data_class": "reference",
       "exact_tables": [
-        "enterprise_crm_registry",
+        "crm_encrypted_fields_recipient_keys",
         "crm_operation_endpoints",
-        "crm_encrypted_fields_recipient_keys"
+        "enterprise_crm_registry"
       ],
       "id": "enterprise_crm_registry",
       "lifecycle_status": "customer0",
@@ -1322,8 +1338,8 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "feed_events",
-        "feed_event_counterparts"
+        "feed_event_counterparts",
+        "feed_events"
       ],
       "id": "feed_events",
       "lifecycle_status": "current",
@@ -1346,8 +1362,8 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
-        "finance_share_requests",
-        "finance_access_grants"
+        "finance_access_grants",
+        "finance_share_requests"
       ],
       "id": "finance_connection_sharing",
       "lifecycle_status": "release_schema_qualification",
@@ -1357,9 +1373,9 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "gmail_mailbox_action_proposals",
         "gmail_owner_send_actions",
-        "google_email_send_actions",
-        "gmail_mailbox_action_proposals"
+        "google_email_send_actions"
       ],
       "id": "gmail_owner_approved_delivery",
       "lifecycle_status": "current",
@@ -1381,12 +1397,12 @@
     {
       "data_class": "provider_cache",
       "exact_tables": [
-        "google_provider_connections",
-        "google_calendar_additional_accounts",
-        "google_service_grants",
-        "google_oauth_attempts",
+        "calendar_attendance_reviews",
         "google_calendar_action_proposals",
-        "calendar_attendance_reviews"
+        "google_calendar_additional_accounts",
+        "google_oauth_attempts",
+        "google_provider_connections",
+        "google_service_grants"
       ],
       "id": "google_integrations_provider_state",
       "lifecycle_status": "current",
@@ -1396,9 +1412,9 @@
     {
       "data_class": "audit_regulated",
       "exact_tables": [
-        "hashcoin_wallets",
         "hashcoin_ledger_entries",
-        "hashcoin_redemptions"
+        "hashcoin_redemptions",
+        "hashcoin_wallets"
       ],
       "id": "hashcoin_owner_earnings",
       "lifecycle_status": "current",
@@ -1469,11 +1485,11 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "email_auth_policy_state",
-        "email_auth_domain_decisions",
         "email_auth_budgets",
+        "email_auth_challenges",
+        "email_auth_domain_decisions",
         "email_auth_enrollments",
-        "email_auth_challenges"
+        "email_auth_policy_state"
       ],
       "id": "independent_email_auth",
       "lifecycle_status": "current",
@@ -1483,8 +1499,8 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "marketplace_recipient_keys",
-        "marketplace_delivery_envelopes"
+        "marketplace_delivery_envelopes",
+        "marketplace_recipient_keys"
       ],
       "id": "information_marketplace_delivery",
       "lifecycle_status": "current",
@@ -1549,16 +1565,16 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
-        "pkm_data",
-        "pkm_embeddings",
-        "world_model_data",
-        "world_model_index",
-        "world_model_index_v2",
-        "world_model_attributes",
-        "world_model_embeddings",
         "chat_conversations",
         "chat_messages",
-        "vault_portfolios"
+        "pkm_data",
+        "pkm_embeddings",
+        "vault_portfolios",
+        "world_model_attributes",
+        "world_model_data",
+        "world_model_embeddings",
+        "world_model_index",
+        "world_model_index_v2"
       ],
       "id": "legacy_memory_cutover",
       "lifecycle_status": "legacy_migration",
@@ -1568,8 +1584,8 @@
     {
       "data_class": "personal_metadata",
       "exact_tables": [
-        "live_memory_connector_streams",
-        "live_memory_connector_events"
+        "live_memory_connector_events",
+        "live_memory_connector_streams"
       ],
       "id": "live_memory_connector_journal",
       "lifecycle_status": "current",
@@ -1599,8 +1615,8 @@
     {
       "data_class": "personal_metadata",
       "exact_tables": [
-        "live_memory_source_streams",
-        "live_memory_source_events"
+        "live_memory_source_events",
+        "live_memory_source_streams"
       ],
       "id": "live_memory_source_journal",
       "lifecycle_status": "current",
@@ -1690,23 +1706,31 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "one_email_mailbox_state",
         "one_email_kyc_preferences",
-        "one_kyc_workflows",
-        "one_kyc_client_connectors"
+        "one_email_mailbox_state",
+        "one_kyc_workflows"
       ],
       "id": "one_email_kyc_workflow",
-      "lifecycle_status": "current",
+      "lifecycle_status": "legacy_migration",
       "owner": "backend-runtime-governance",
-      "primary_access_path": "One mailbox intake, account-scoped automatic-preparation preference, KYC workflow status, per-user public client connector metadata, consent continuation, transient approved Gmail send, and encrypted PKM writeback receipt"
+      "primary_access_path": "Retired legacy one@hushh.ai mailbox KYC workflow tables retained solely for migration replay compatibility and AccountService erasure; runtime readers and writers were removed and legacy-write scanning blocks any new INSERT or UPDATE."
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "one_kyc_client_connectors"
+      ],
+      "id": "one_kyc_client_connector_registry",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "ClientConnectorService registration, rotation, and revocation of per-owner X25519-AES256-GCM public keys consumed by Document Delivery, Scope Commerce, and Information Request recipient key resolution."
     },
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "kai_location_referrals",
         "one_location_access_requests",
         "one_location_auto_approve_preferences",
-        "one_location_visibility_preferences",
-        "one_location_visibility_exclusions",
         "one_location_circle_invite_codes",
         "one_location_circle_invites",
         "one_location_envelopes",
@@ -1715,18 +1739,19 @@
         "one_location_nearby_check_in_preferences",
         "one_location_nearby_presences",
         "one_location_network_connections",
+        "one_location_onboarding_drafts",
+        "one_location_onboarding_interactions",
+        "one_location_onboarding_receipts",
+        "one_location_pkm_finalize_authorizations",
         "one_location_public_invite_submissions",
         "one_location_public_invites",
         "one_location_recipient_keys",
         "one_location_referrals",
-        "kai_location_referrals",
-        "one_location_onboarding_interactions",
-        "one_location_onboarding_receipts",
-        "one_location_onboarding_drafts",
-        "one_location_pkm_finalize_authorizations",
-        "one_location_sms_contacts",
         "one_location_share_grants",
-        "one_location_sos_voice_preferences"
+        "one_location_sms_contacts",
+        "one_location_sos_voice_preferences",
+        "one_location_visibility_exclusions",
+        "one_location_visibility_preferences"
       ],
       "id": "one_location_agent",
       "lifecycle_status": "current",
@@ -1736,9 +1761,9 @@
     {
       "data_class": "personal_metadata",
       "exact_tables": [
-        "one_location_circles",
         "one_location_circle_member_invites",
-        "one_location_circle_memberships"
+        "one_location_circle_memberships",
+        "one_location_circles"
       ],
       "id": "one_location_named_circle_relationships",
       "lifecycle_status": "current",
@@ -1758,8 +1783,8 @@
     {
       "data_class": "personal_metadata",
       "exact_tables": [
-        "one_location_place_ratings",
-        "one_location_place_rating_aggregates"
+        "one_location_place_rating_aggregates",
+        "one_location_place_ratings"
       ],
       "id": "one_location_place_ratings",
       "lifecycle_status": "current",
@@ -1780,8 +1805,8 @@
     {
       "data_class": "personal_metadata",
       "exact_tables": [
-        "one_marketing_preferences",
-        "one_marketing_changes"
+        "one_marketing_changes",
+        "one_marketing_preferences"
       ],
       "id": "one_marketing_permission",
       "lifecycle_status": "current",
@@ -1824,9 +1849,9 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "one_profile_discovery_jobs",
         "one_profile_discovery_events",
-        "one_profile_discovery_feed_outbox"
+        "one_profile_discovery_feed_outbox",
+        "one_profile_discovery_jobs"
       ],
       "id": "one_profile_discovery_handoff",
       "lifecycle_status": "current",
@@ -1900,10 +1925,10 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "personal_agent_registry",
         "byoc_setup_jobs",
-        "pod_lifecycle_events",
-        "personal_agent_deletion_tombstones"
+        "personal_agent_deletion_tombstones",
+        "personal_agent_registry",
+        "pod_lifecycle_events"
       ],
       "id": "personal_agent_provisioning",
       "lifecycle_status": "dev_qualified_canonical_graduation_pending",
@@ -1913,8 +1938,8 @@
     {
       "data_class": "personal_metadata",
       "exact_tables": [
-        "personal_agent_registry",
-        "personal_agent_deletion_tombstones"
+        "personal_agent_deletion_tombstones",
+        "personal_agent_registry"
       ],
       "id": "personal_agent_registry",
       "lifecycle_status": "dev_qualified_canonical_graduation_pending",
@@ -1944,8 +1969,8 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "pkm_answer_payment_orders",
         "pkm_answer_payment_obligations",
+        "pkm_answer_payment_orders",
         "pkm_answer_payment_webhook_events"
       ],
       "id": "pkm_answer_payment_authority",
@@ -1956,8 +1981,8 @@
     {
       "data_class": "personal_metadata",
       "exact_tables": [
-        "pkm_answer_requests",
-        "pkm_answer_request_scopes"
+        "pkm_answer_request_scopes",
+        "pkm_answer_requests"
       ],
       "id": "pkm_answer_requests",
       "lifecycle_status": "customer0",
@@ -1967,8 +1992,8 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "pkm_answer_payment_refunds",
-        "pkm_answer_owner_payouts"
+        "pkm_answer_owner_payouts",
+        "pkm_answer_payment_refunds"
       ],
       "id": "pkm_answer_settlement",
       "lifecycle_status": "customer0",
@@ -1988,8 +2013,8 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "pkm_credit_subscriptions",
-        "pkm_credit_ledger"
+        "pkm_credit_ledger",
+        "pkm_credit_subscriptions"
       ],
       "id": "pkm_credits",
       "lifecycle_status": "current",
@@ -2010,8 +2035,8 @@
       "data_class": "personal_encrypted",
       "exact_tables": [
         "pkm_blobs",
-        "pkm_domain_revisions",
-        "pkm_domain_revision_segments"
+        "pkm_domain_revision_segments",
+        "pkm_domain_revisions"
       ],
       "id": "pkm_encrypted_memory",
       "lifecycle_status": "current",
@@ -2021,11 +2046,11 @@
     {
       "data_class": "personal_metadata",
       "exact_tables": [
+        "pkm_events",
         "pkm_index",
-        "pkm_manifests",
         "pkm_manifest_paths",
-        "pkm_scope_registry",
-        "pkm_events"
+        "pkm_manifests",
+        "pkm_scope_registry"
       ],
       "id": "pkm_metadata_and_scope",
       "lifecycle_status": "current",
@@ -2066,11 +2091,11 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "pkm_migration_state",
-        "pkm_upgrade_runs",
-        "pkm_upgrade_steps",
         "pkm_domain_commits",
-        "pkm_upgrade_claims"
+        "pkm_migration_state",
+        "pkm_upgrade_claims",
+        "pkm_upgrade_runs",
+        "pkm_upgrade_steps"
       ],
       "id": "pkm_upgrade_workflows",
       "lifecycle_status": "current",
@@ -2120,10 +2145,10 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
-        "document_delivery_packages",
         "document_delivery_artifacts",
+        "document_delivery_background_chunks",
         "document_delivery_background_files",
-        "document_delivery_background_chunks"
+        "document_delivery_packages"
       ],
       "id": "protected_document_delivery_artifacts",
       "lifecycle_status": "current",
@@ -2133,14 +2158,14 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "document_delivery_contracts",
-        "document_delivery_public_keys",
-        "document_delivery_file_receipts",
-        "document_delivery_key_challenges",
         "document_delivery_activity",
-        "document_delivery_idempotency",
+        "document_delivery_background_activity",
         "document_delivery_background_requests",
-        "document_delivery_background_activity"
+        "document_delivery_contracts",
+        "document_delivery_file_receipts",
+        "document_delivery_idempotency",
+        "document_delivery_key_challenges",
+        "document_delivery_public_keys"
       ],
       "id": "protected_document_delivery_authority",
       "lifecycle_status": "current",
@@ -2150,8 +2175,8 @@
     {
       "data_class": "audit_regulated",
       "exact_tables": [
-        "document_delivery_financial_bindings",
-        "document_delivery_cleanup"
+        "document_delivery_cleanup",
+        "document_delivery_financial_bindings"
       ],
       "id": "protected_document_delivery_retained_obligations",
       "lifecycle_status": "current",
@@ -2173,9 +2198,9 @@
       "data_class": "reference",
       "exact_tables": [
         "one_public_profile_entities",
+        "one_public_profile_findings",
         "one_public_profile_identity_anchors",
-        "one_public_profile_sources",
-        "one_public_profile_findings"
+        "one_public_profile_sources"
       ],
       "id": "public_profile_evidence_pool",
       "lifecycle_status": "current",
@@ -2205,8 +2230,8 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "pwm_research_preferences",
-        "pwm_completion_events"
+        "pwm_completion_events",
+        "pwm_research_preferences"
       ],
       "id": "pwm_research_lifecycle",
       "lifecycle_status": "current",
@@ -2255,10 +2280,10 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "stripe_connect_bank_payouts",
-        "stripe_connect_bank_payout_events",
         "stripe_connect_balance_snapshots",
         "stripe_connect_balance_transactions",
+        "stripe_connect_bank_payout_events",
+        "stripe_connect_bank_payouts",
         "stripe_connect_payout_reconciliations"
       ],
       "id": "stripe_connect_bank_payout_status",
@@ -2299,8 +2324,8 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "system_push_outbox",
-        "system_push_device_deliveries"
+        "system_push_device_deliveries",
+        "system_push_outbox"
       ],
       "id": "system_push_delivery",
       "lifecycle_status": "current",
@@ -2351,11 +2376,11 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "connection_requests",
-        "connections",
         "connection_origins",
-        "contact_sync_lookup_budgets",
-        "connection_voice_preferences"
+        "connection_requests",
+        "connection_voice_preferences",
+        "connections",
+        "contact_sync_lookup_budgets"
       ],
       "id": "two_way_connection_graph",
       "lifecycle_status": "current",
@@ -2365,8 +2390,8 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
-        "vault_keys",
-        "vault_key_wrappers"
+        "vault_key_wrappers",
+        "vault_keys"
       ],
       "id": "vault_key_material",
       "lifecycle_status": "current",
@@ -2386,12 +2411,12 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
+        "wallet_card_access_audit",
+        "wallet_card_access_grants",
         "wallet_card_registrations",
         "wallet_card_share_requests",
-        "wallet_card_access_grants",
-        "wallet_card_access_audit",
-        "wallet_profile_share_requests",
-        "wallet_profile_access_grants"
+        "wallet_profile_access_grants",
+        "wallet_profile_share_requests"
       ],
       "id": "wallet_temporary_card_access",
       "lifecycle_status": "current",
@@ -2884,6 +2909,29 @@
       }
     },
     {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/design-system/page.tsx",
+      "pathname": "/design-system",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.design.system"
+      }
+    },
+    {
       "alias": {
         "canonical_url": "/welcome?tab=developers",
         "owner": "public_knowledge_workspace",
@@ -3025,7 +3073,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-kai-analysis",
+      "native_surface_id": "native-route-kai-home",
       "page_file": "app/kai/analysis/page.tsx",
       "pathname": "/kai/analysis",
       "route_mode": "redirect",
@@ -3048,7 +3096,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-kai-portfolio",
+      "native_surface_id": "native-route-kai-home",
       "page_file": "app/kai/dashboard/page.tsx",
       "pathname": "/kai/dashboard",
       "route_mode": "redirect",
@@ -3071,7 +3119,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-kai-analysis",
+      "native_surface_id": "native-route-kai-home",
       "page_file": "app/kai/dashboard/analysis/page.tsx",
       "pathname": "/kai/dashboard/analysis",
       "route_mode": "redirect",
@@ -3233,7 +3281,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-kai-portfolio",
+      "native_surface_id": "native-route-kai-home",
       "page_file": "app/kai/portfolio/page.tsx",
       "pathname": "/kai/portfolio",
       "route_mode": "redirect",
@@ -3263,6 +3311,8 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "auth.deletion_done",
+          "auth.deletion_start_fresh",
           "auth.open_privacy",
           "auth.open_terms",
           "auth.sign_in_apple",
@@ -3610,7 +3660,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-connect-settings",
+      "native_surface_id": "native-route-profile",
       "page_file": "app/one/connect/settings/page.tsx",
       "pathname": "/one/connect/settings",
       "route_mode": "redirect",
@@ -3933,6 +3983,29 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
+        "policy": "secure-resource",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-goals",
+      "page_file": "app/one/goals/page.tsx",
+      "pathname": "/one/goals",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.goals"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
         "policy": "device-resource",
         "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
         "resource_classes": [
@@ -3995,7 +4068,11 @@
           "market.stock.quote.retry",
           "market.stocks.retry",
           "route.back",
-          "route.kai_home"
+          "route.kai_home",
+          "route.kai_portfolio_allocation",
+          "route.kai_portfolio_holdings",
+          "route.kai_portfolio_performance",
+          "route.kai_portfolio_sources"
         ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.kai"
@@ -4020,7 +4097,7 @@
         "shared_feature_export": "KaiAnalysisPageContent"
       },
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-kai-analysis",
+      "native_surface_id": "native-route-kai-home",
       "page_file": "app/one/kai/analysis/page.tsx",
       "pathname": "/one/kai/analysis",
       "route_mode": "standard",
@@ -4257,7 +4334,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-kai-portfolio",
+      "native_surface_id": "native-route-kai-home",
       "page_file": "app/one/kai/portfolio/page.tsx",
       "pathname": "/one/kai/portfolio",
       "route_mode": "redirect",
@@ -4919,7 +4996,7 @@
         "shared_feature_export": "ProfilePane"
       },
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-profile",
+      "native_surface_id": "native-route-one-home",
       "page_file": "app/one/profile/page.tsx",
       "pathname": "/one/profile",
       "route_mode": "standard",
@@ -5138,7 +5215,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-profile",
+      "native_surface_id": null,
       "page_file": "app/one/profile/connected-systems/page.tsx",
       "pathname": "/one/profile/connected-systems",
       "route_mode": "standard",
@@ -5233,7 +5310,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-profile",
+      "native_surface_id": "native-route-gmail",
       "page_file": "app/one/profile/gmail/page.tsx",
       "pathname": "/one/profile/gmail",
       "route_mode": "redirect",
@@ -5256,7 +5333,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-profile",
+      "native_surface_id": "native-route-gmail",
       "page_file": "app/one/profile/gmail/actions/page.tsx",
       "pathname": "/one/profile/gmail/actions",
       "route_mode": "redirect",
@@ -5279,7 +5356,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-profile",
+      "native_surface_id": "native-route-gmail",
       "page_file": "app/one/profile/gmail/connection/page.tsx",
       "pathname": "/one/profile/gmail/connection",
       "route_mode": "redirect",
@@ -5407,15 +5484,13 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-profile",
+      "native_surface_id": "native-route-pkm",
       "page_file": "app/one/profile/my-data/page.tsx",
       "pathname": "/one/profile/my-data",
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [
-          "route.profile_my_data"
-        ],
+        "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.my.data"
       }
@@ -5445,15 +5520,13 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-profile",
+      "native_surface_id": "native-route-pkm",
       "page_file": "app/one/profile/my-data/domain/page.tsx",
       "pathname": "/one/profile/my-data/domain",
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [
-          "route.profile_my_data"
-        ],
+        "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.my.data.domain"
       }
@@ -5779,7 +5852,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-profile",
+      "native_surface_id": "ria-profile-page",
       "page_file": "app/one/profile/regulatory/page.tsx",
       "pathname": "/one/profile/regulatory",
       "route_mode": "redirect",
@@ -6502,10 +6575,33 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-one-todos",
+      "native_surface_id": "native-route-one-tasks",
+      "page_file": "app/one/tasks/page.tsx",
+      "pathname": "/one/tasks",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.tasks"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
       "page_file": "app/one/todos/page.tsx",
       "pathname": "/one/todos",
-      "route_mode": "standard",
+      "route_mode": "redirect",
       "semantic_routes": [],
       "voice": {
         "action_ids": [],
@@ -6898,7 +6994,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-ria-home",
+      "native_surface_id": "ria-profile-page",
       "page_file": "app/ria/page.tsx",
       "pathname": "/ria",
       "route_mode": "redirect",
@@ -6975,7 +7071,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": null,
+      "native_surface_id": "native-route-ria-client-workspace",
       "page_file": "app/ria/clients/[userId]/page.tsx",
       "pathname": "/ria/clients/[userId]",
       "route_mode": "standard",
@@ -7006,7 +7102,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": null,
+      "native_surface_id": "native-route-ria-client-account-detail",
       "page_file": "app/ria/clients/[userId]/accounts/[accountId]/page.tsx",
       "pathname": "/ria/clients/[userId]/accounts/[accountId]",
       "route_mode": "standard",
@@ -7032,7 +7128,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": null,
+      "native_surface_id": "native-route-ria-client-request-detail",
       "page_file": "app/ria/clients/[userId]/requests/[requestId]/page.tsx",
       "pathname": "/ria/clients/[userId]/requests/[requestId]",
       "route_mode": "standard",
@@ -7116,7 +7212,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-profile",
+      "native_surface_id": "ria-profile-page",
       "page_file": "app/ria/profile/page.tsx",
       "pathname": "/ria/profile",
       "route_mode": "standard",
@@ -7167,7 +7263,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-profile",
+      "native_surface_id": "ria-profile-page",
       "page_file": "app/ria/settings/page.tsx",
       "pathname": "/ria/settings",
       "route_mode": "redirect",
@@ -7329,28 +7425,28 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
-    "action_gateway": "3b9295e4861cb8c82a68f4fd9d7c47a334b3af36ce8c0204ce9245133017d59e",
-    "agent_registry": "5b477e7fd9dfe3f75c5f553e0f3d2684b1ef572b1fd473a6979df011fd4717d9",
-    "cache_manifest": "669b3627c54a7f298c9b011b5e7e54681c1d1747ef4ab70728aa5de077dccea6",
-    "data_plane": "d469a73b8a7ba58d10ff2347b6d7f4cdaf191d460a0818c4d1706c8ab3e9b0cf",
+    "action_gateway": "6ee22c0dfe499186bf893099fc6207157cb382faac86fbe93aac969a3f8d8e70",
+    "agent_registry": "1aecfa7463cce1ba532e2c10885592e2974e4ce036345dec0bbf4e2cb9311af9",
+    "cache_manifest": "7346b95662ec5d232310f8cd5df9f423245441d410ab16963e6eb19baee7fc5e",
+    "data_plane": "80f3365bd25e7a5067f868967fb35c4edc9a993d6ef27a8201ce8729b8b05b77",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
-    "one_specialist_tools": "ee3a87017fc16dde5f853a4b95e828491237fefd05db4c1b751c4079538ed965",
-    "route_index": "7927fdab85613726cec74d888f3e4471accfdb4a4941d194d4cca6491f2d7191",
-    "route_layout": "e574fb00b9553e981a423670f890a9b91b8f5920aadf16b7f6b415d9810bbedc",
-    "surface_map": "8d826320dfd08cb6721728767f71bda03c255cd906411689063695cabcf9937b",
+    "one_specialist_tools": "1af4badea5099908aa16463d04147aa7a97a195b5de530ed318ef76161dbadbf",
+    "route_index": "b3adb3da01a0bf0544e373a067a31f9ee5ca1824659c1db0b3122bc685554d12",
+    "route_layout": "39b96f0db36aa90f06fc6b8eea85c72bcdf13c6a9f03ec082d9e738b78d05e90",
+    "surface_map": "f6d12911be9da082889ccc8cce4b2da2fdcf80116d4b523237f2ebffb55b0dbc",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 341,
+    "actions": 347,
     "agents": 23,
     "aliases": 4,
     "decision_required": 2,
     "in_process_specialists": 7,
     "one_specialist_tools": 6,
-    "physical_routes": 162,
+    "physical_routes": 165,
     "semantic_routes": 17,
-    "table_families": 144
+    "table_families": 146
   }
 }

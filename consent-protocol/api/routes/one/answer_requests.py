@@ -11,16 +11,32 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import date, datetime
 from typing import Annotated, Any, cast
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Response
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Body,
+    Depends,
+    Header,
+    HTTPException,
+    Request,
+    Response,
+)
 
 from api.middleware import require_firebase_auth, require_firebase_auth_read_only
 from api.models.hosted_payouts import OnboardBody
-from hushh_mcp.services.answer_composer import AnswerComposer, AnswerComposerError
+from hushh_mcp.services.answer_composer import (
+    AnswerComposer,
+    AnswerComposerError,
+    shared_answer_model,
+)
+from hushh_mcp.services.answer_composition_contract import PrivateCompositionAssertion
 from hushh_mcp.services.answer_composition_receipt import issue_composition_receipt
+from hushh_mcp.services.answer_projection_contract import (
+    valid_answer_projection,
+)
 from hushh_mcp.services.answer_scope_resolver import AnswerScopeResolver
 from hushh_mcp.services.owner_placement_guard import admit_hub_content, hub_content_firebase
 from hushh_mcp.services.person_profile_service import (
@@ -112,101 +128,6 @@ def _requests() -> PkmAnswerRequestService:
 
 def _payments() -> PkmAnswerPaymentService:
     return PkmAnswerPaymentService()
-
-
-def _scope_has_fact(scope: str, value: object) -> bool:
-    """Structural completeness only; this never invents or writes an answer."""
-
-    def substantive(item: object) -> bool:
-        if item is None:
-            return False
-        if isinstance(item, str):
-            return bool(item.strip())
-        if isinstance(item, dict):
-            return any(
-                substantive(inner) for key, inner in item.items() if not key.startswith("__")
-            )
-        if isinstance(item, list):
-            return any(substantive(inner) for inner in item)
-        return isinstance(item, (int, float, bool))
-
-    segments = scope.split(".")
-    if len(segments) < 3 or segments[0] != "attr":
-        return False
-    # Scalars/lists may already be a leaf projection. Objects must carry the
-    # approved attribute path; unrelated account context cannot fill a gap.
-    if isinstance(value, dict):
-        value = value.get(segments[1], value)
-        for segment in segments[2:]:
-            if segment == "*":
-                break
-            if not isinstance(value, dict) or segment not in value:
-                return False
-            value = value[segment]
-    return substantive(value)
-
-
-def _valid_source_freshness(
-    value: object, approved_scopes: list[str], approved_values: dict[str, Any]
-) -> bool:
-    """Bound revision/date metadata to the same exact scopes as the facts."""
-    if not isinstance(value, dict) or not set(value) <= set(approved_scopes):
-        return False
-    try:
-        for scope, freshness in value.items():
-            if not isinstance(freshness, dict) or set(freshness) != {
-                "sources",
-                "derivedOn",
-                "builtAt",
-            }:
-                return False
-            built = freshness["builtAt"]
-            if (
-                not isinstance(built, str)
-                or len(built) > 40
-                or datetime.fromisoformat(built.replace("Z", "+00:00")).tzinfo is None
-            ):
-                return False
-            derived = freshness["derivedOn"]
-            if derived is not None and (
-                not isinstance(derived, str)
-                or len(derived) != 10
-                or date.fromisoformat(derived).isoformat() != derived
-            ):
-                return False
-            sources = freshness["sources"]
-            if not isinstance(sources, list) or not 1 <= len(sources) <= 5:
-                return False
-            allowed_domains = {scope.split(".")[1], "one_memory", "account_profile"}
-            approved_value = approved_values.get(scope)
-            if scope == "attr.professional.profile.age" or (
-                scope == "attr.professional.profile.*"
-                and derived is not None
-                and isinstance(approved_value, dict)
-                and _scope_has_fact("attr.professional.profile.age", approved_value)
-            ):
-                # An approved legacy age selector derives from canonical DOB;
-                # only its source revisions travel, never the DOB value/path.
-                allowed_domains.add("identity")
-            for source in sources:
-                if not isinstance(source, dict) or set(source) != {
-                    "domain",
-                    "contentRevision",
-                    "manifestRevision",
-                    "absent",
-                }:
-                    return False
-                if source["domain"] not in allowed_domains or type(source["absent"]) is not bool:
-                    return False
-                if any(
-                    revision is not None
-                    and (type(revision) is not int or not 0 <= revision <= 2**53 - 1)
-                    for revision in (source["contentRevision"], source["manifestRevision"])
-                ):
-                    return False
-        return True
-    except (ValueError, TypeError, IndexError):
-        return False
 
 
 def _require_paid_lane_enabled() -> None:
@@ -441,6 +362,17 @@ async def retry_answer_resolution(
         raise _http(error) from None
 
 
+@router.get("/runtime")
+async def answer_processing_runtime(
+    response: Response, user_id: str = Depends(require_firebase_auth_read_only)
+) -> dict[str, Any]:
+    _require_preparation_enabled()
+    await admit_hub_content(user_id, "answer_runtime_metadata")
+    response.headers["Cache-Control"] = "private, no-store"
+    runtime, _ = shared_answer_model()
+    return {"processingRuntime": runtime}
+
+
 @router.get("/inbox")
 async def owner_inbox(
     response: Response,
@@ -486,6 +418,11 @@ async def approve_answer_request(
                 scopes=[str(scope) for scope in scopes],
                 amount_cents=body.get("amountCents"),
                 model_processing_consent=body.get("modelProcessingConsent") is True,
+                **(
+                    {"processing_runtime": body["processingRuntime"]}
+                    if "processingRuntime" in body
+                    else {}
+                ),
             )
         )
     except Exception as error:
@@ -612,27 +549,18 @@ async def compose_answer(
         raise _http(error) from None
     if work.get("modelProcessingConsented") is not True:
         raise HTTPException(status_code=409, detail="Owner model-processing consent is required.")
-    values = projection.get("values")
-    if (
-        not {"memory", "values"} <= set(projection) <= {"memory", "values", "sourceFreshness"}
-        or not isinstance(values, dict)
-        or not values
-        or set(values) != set(work["approvedScopes"])
-        or any(not _scope_has_fact(scope, value) for scope, value in values.items())
-        or not isinstance(projection.get("memory"), str)
-        or len(str(projection)) > 200_000
-        or (
-            "sourceFreshness" in projection
-            and not _valid_source_freshness(
-                projection["sourceFreshness"], work["approvedScopes"], values
-            )
-        )
-    ):
+    if not valid_answer_projection(work, projection):
         raise HTTPException(status_code=422, detail="Check the approved information.")
+    runtime, model = shared_answer_model()
+    approved_runtime = work.get("processingRuntime")
+    if (approved_runtime is not None and approved_runtime != runtime) or (
+        approved_runtime is None and runtime["provider"] != "gemini"
+    ):
+        raise HTTPException(409, detail={"code": "ANSWER_PROCESSOR_APPROVAL_REQUIRED"})
     started = time.monotonic()
     try:
         await admit_hub_content(owner_user_id, "paid_answer_writer")
-        written = await AnswerComposer().compose(
+        written = await AnswerComposer(model=model).compose(
             question=work["question"],
             projection=projection,
             period=work.get("period"),
@@ -653,10 +581,14 @@ async def compose_answer(
         # Gemini reports incomplete coverage. There is no payable answer or
         # receipt; preparation remains available for an explicit retry.
         return {"answerMode": "projection", "answer": None, "gaps": written["gaps"]}
+    await admit_hub_content(owner_user_id, "paid_answer_receipt")
+    if shared_answer_model()[0] != runtime:
+        raise HTTPException(409, detail={"code": "ANSWER_PROCESSOR_CHANGED"})
     receipt = issue_composition_receipt(
         request_id=str(request_id),
         owner_user_id=owner_user_id,
         terms_digest=work["termsDigest"],
+        processing_runtime=approved_runtime,
         answer=written["answer"],
         projection=projection,
         period=work.get("period"),
@@ -716,3 +648,61 @@ async def get_answer(
         )
     except Exception as error:
         raise _http(error) from None
+
+
+@router.post("/{request_id}/pod-composition-receipt")
+async def private_composition_receipt(
+    request_id: UUID,
+    request: Request,
+    response: Response,
+    body: PrivateCompositionAssertion,
+    authorization: str | None = Header(default=None),
+) -> dict[str, str]:
+    """Current-primary assertion only. No PKM, answer or signing key crosses this door."""
+    from api.routes.one.pod_identity_auth import verify_pod_request
+    from api.routes.one.pod_owner_feed import _resolve_owner
+    from api.utils.firebase_auth import _assert_account_not_deleted
+    from hushh_mcp.services.answer_composition_contract import private_answer_binding
+    from hushh_mcp.services.answer_composition_receipt import (
+        CompositionReceiptError,
+        issue_private_composition_receipt,
+        verify_private_authority,
+    )
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+    _require_preparation_enabled()
+    if not answer_composer_enabled():
+        raise HTTPException(503, detail="Answer writing is not enabled.")
+    response.headers["Cache-Control"] = "private, no-store"
+    verified = await verify_pod_request(request, authorization, owner_bound=True)
+    if verified is None or not verified.signed or verified.standby:
+        raise HTTPException(401, detail="Signed primary agent required.")
+    registry = PersonalAgentRegistryRepo()
+    original = await _resolve_owner(verified, registry)
+    owner = original[0]
+    await asyncio.to_thread(_assert_account_not_deleted, owner)
+    try:
+        work = await _requests().assert_answerable(owner_user_id=owner, request_id=str(request_id))
+        if (
+            work.get("modelProcessingConsented") is not True
+            or work.get("processingRuntime") != body.processingRuntime.model_dump()
+            or body.processingRuntime.mode != "private"
+        ):
+            raise PermissionError
+        binding = private_answer_binding(await registry.get(owner))
+        verify_private_authority(body.authorityToken, work=work, binding=binding)
+        if await _resolve_owner(verified, registry) != original:
+            raise PermissionError
+        await asyncio.to_thread(_assert_account_not_deleted, owner)
+        receipt = issue_private_composition_receipt(
+            work=work,
+            binding=binding,
+            processing_runtime=body.processingRuntime.model_dump(),
+            selection_revision=body.selectionRevision,
+            runtime_mode=body.runtimeMode,
+            answer_digest=body.answerDigest,
+            input_digest=body.inputDigest,
+        )
+    except (CompositionReceiptError, ValueError, PermissionError, AnswerRequestError):
+        raise HTTPException(409, detail="Private answer authority changed.") from None
+    return {"compositionReceipt": receipt}

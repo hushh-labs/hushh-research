@@ -147,6 +147,7 @@ def compute_terms_digest(
     requester_user_id: str,
     amount_cents: int,
     currency: str = "usd",
+    processing_runtime: dict | None = None,
 ) -> str:
     """Bind one payment to one question, scope set, pair of people and price.
 
@@ -164,5 +165,8 @@ def compute_terms_digest(
         "scopes": sorted({str(scope or "").strip().lower() for scope in scopes if scope}),
         "version": 1,
     }
+    if processing_runtime is not None:
+        payload["version"] = 2
+        payload["processing_runtime"] = processing_runtime
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

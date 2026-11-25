@@ -20,6 +20,24 @@ flowchart LR
 
 ## Canonical 3-environment contract
 
+### Firebase Auth isolation
+
+Use the existing single Firebase web/app configuration per environment. Dev,
+UAT and production use `hushh-pda-dev`, `hushh-pda-uat` and `hushh-pda`,
+respectively. Update the existing public SDK values and matching Admin
+credential together; retain the existing primary-project parity check. Do not
+introduce a second browser Auth configuration. Web analytics continues to use
+its separately selected measurement ID.
+
+`firebase_auth_project_id` in `BACKEND_RUNTIME_CONFIG_JSON` explicitly admits
+the isolated erasure contract. It must match the environment and the canonical
+Admin app; an old shared credential refuses instead of selecting another app.
+With the field absent, existing erasure policy is unchanged. Native Firebase
+configuration and release lanes require coordinated qualification before a live
+cutover; web configuration alone does not switch installed native apps. See the
+[deletion rollout](../identity/account-deletion-rollout.md#firebase-auth-separation)
+for UID continuity, credentials and erasure gates.
+
 ### Dev owner-cloud connectors and metadata feeds
 
 Native Google connectors use separate public-client pins:
@@ -46,6 +64,19 @@ neither consent-token nor audit keys substitute for this authority.
 These variables establish configuration, not live native OAuth, push delivery or
 private custody. Feeds carry only canonical consent metadata, public directory
 records and owner-published listings; private observations remain inside the pod.
+
+### People conversation navigation key
+
+`DIRECT_MESSAGE_ROUTE_KEY_V1` is optional, server-only base64-encoded 32-byte
+navigation key material. If unset, existing deployments retain their legacy
+derivation from `DIRECT_MESSAGE_ENCRYPTION_KEY_V1`. To retire message-key custody
+after verified E2EE history migration, preserve the exact previously derived
+navigation bytes in a separate environment-owned secret and bind this setting.
+Generating an unrelated value would invalidate existing `dm1` links. An empty
+or malformed configured value fails closed rather than restoring the old key.
+Never print, commit or expose either key to a browser or native client. Deployment
+binding and historical-link verification remain operator work; this change
+installs no secret or release flag. See [People calling](../../architecture/one/people-calling.md).
 
 ### Wallet artwork catalog
 
@@ -222,17 +253,13 @@ connector, frontend or GitHub workflow edit is needed for these settings.
 | Setting in that file | Consumers and boundary |
 | --- | --- |
 | `managed_provider_selection.uat` | Packaged UAT provider default, currently `vertex`. The existing resolver supplies text, research, audio and embedding callers across Dev, UAT, production and local; Azure descriptors remain validated on standby. |
-| `drive_text_uat` | UAT Documents genes and Drive request models use Vertex `gemini-4-hydrogen` at the global endpoint with LOW thinking, a 16,384-token output cap, and no Azure fallback. The recovery generation can resume eligible pending requests bound to earlier scoped Flash or Carbon generations. |
+| `drive_text_uat` | UAT Documents genes and Drive request models use native Vertex independently of the fleet default: `gemini-4-hydrogen` at the global endpoint, LOW thinking, 16,384 output tokens, and no Azure fallback. Existing prompts and processing stages remain unchanged. |
 | `one_chat_text_uat` | The UAT managed One chat model, its inherited Search model, and conversation titles use Vertex `gemini-4-hydrogen` at the global endpoint with LOW thinking, a 16,384-token output cap, and no Azure fallback. Explicit owner model connections follow their own bindings. |
 | `managed_azure_accounts` | UAT's managed Azure accounts by name: Entra tenant, the runtime app federated to the UAT runtime service account, resource endpoints and the readiness exam's separate probe-only app. `selection.uat` names the active account; every listed account is shape-checked before merge. |
 | `pwm_research_uat.azure` | Deployment names that every account hosts; `primary_deployment` supplies general text/research. |
 | `managed_runtime_uat.azure.one_text_root` | Azure One root deployment and generation budget for releases using the legacy fleet text binding. |
 | `managed_runtime_uat.azure` | Other Azure capability deployments: realtime, transcription, speech, embeddings and compact public search. Preserve model compatibility, the 768-dimension embedding contract and declared capability qualification. |
 | `environments.<environment>` | Vertex text, live audio and embedding model names, project and locations for that environment. |
-
-The managed One chat root can retry a timeout once with the same Vertex model
-and location before the adapter receives a model response. Both attempts share
-the 60-second first-output budget. Each attempt checks current owner authority.
 
 Personal Cloud Run backend sandboxes may explicitly set
 `HUSHH_SANDBOX_MANAGED_AI_PROVIDER=azure_openai`. This is accepted only on
@@ -274,6 +301,14 @@ checks both scopes' effective model, policy generation and runtime binding and
 grades the authored Drive planner cases. The Azure readiness job still verifies
 the independently configured PWM model. Broader capabilities remain
 separate diagnostics under the [CI policy](../releases/ci.md#managed-provider-readiness-policy).
+
+Chat stays on that one provider for the invocation: an outage does not replay
+its tools or output through another model. The existing eligible Drive transport
+fallback retains its separate contract. A new fleet provider needs an adapter
+and complete capability qualification before selection.
+Ordinary UAT release readiness uses the configured provider's core proof;
+broader capabilities remain separate diagnostics under the
+[CI policy](../releases/ci.md#managed-provider-readiness-policy).
 
 Validate the complete file without model calls or credentials:
 

@@ -8,6 +8,7 @@ owner, keeps the hub's contract, and never accepts what it should not.
 
 from __future__ import annotations
 
+import base64
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -23,7 +24,7 @@ from hushh_mcp.one_adk.specialist_focus import (
     STATE_SPECIALIST_FOCUS,
     specialist_focus_instruction,
 )
-from hushh_mcp.services import pod_message_feedback
+from hushh_mcp.services import action_gateway, pod_message_feedback
 
 
 class FakeLog:
@@ -66,6 +67,8 @@ def test_receipt_tools_have_an_explicit_authenticated_protocol_advertisement():
     assert response.status_code == 200
     assert response.json()["receiptToolVersion"] == 1
     assert response.json()["podCommandCheckpointVersion"] == 1
+    assert "route.profile" in response.json()["admittedActionIds"]
+    assert "pkm.add" in response.json()["admittedActionIds"]
 
 
 def test_queue_joins_only_the_session_owners_running_turn(registry):
@@ -127,6 +130,68 @@ def _turn(**forwarded):
 def _owner():
     authority = SimpleNamespace(local_token=lambda claims: "local-token")
     return SimpleNamespace(owner="owner-a", authority=authority, claims={})
+
+
+def _action_tool(action_id: str):
+    from ag_ui.core import Tool
+
+    encoded = base64.urlsafe_b64encode(action_id.encode()).decode().rstrip("=")
+    return Tool(
+        name=f"hussh_action_{encoded}",
+        description="",
+        parameters={"type": "object", "properties": {}, "additionalProperties": False},
+    )
+
+
+@pytest.fixture
+def isolated_action_gateway_cache():
+    action_gateway.load_action_gateway.cache_clear()
+    action_gateway._action_index.cache_clear()
+    yield
+    action_gateway._action_index.cache_clear()
+    action_gateway.load_action_gateway.cache_clear()
+
+
+async def test_private_chat_drops_generated_runtime_disabled_action(
+    monkeypatch, isolated_action_gateway_cache
+):
+    monkeypatch.setenv("ONE_CAREER_ENABLED", "")
+    assert action_gateway.get_action_gateway_action("careers.list_roles") is None
+    assert action_gateway.get_action_gateway_action("route.profile") is not None
+
+    turn = _turn()
+    enabled = _action_tool("route.profile")
+    turn.tools = [_action_tool("careers.list_roles"), enabled]
+
+    pod_agent_chat.trusted_state(turn, _owner())
+
+    assert [tool.name for tool in turn.tools] == [enabled.name]
+
+
+def test_private_chat_still_refuses_unknown_action_tool(monkeypatch, isolated_action_gateway_cache):
+    monkeypatch.setenv("ONE_CAREER_ENABLED", "")
+
+    turn = _turn()
+    turn.tools = [_action_tool("careers.not_in_the_generated_contract")]
+
+    with pytest.raises(HTTPException) as refused:
+        pod_agent_chat.trusted_state(turn, _owner())
+
+    assert refused.value.status_code == 400
+    assert refused.value.detail == {"code": "AGENT_TOOL_NOT_ADMITTED"}
+
+
+def test_private_chat_still_refuses_malformed_action_tool():
+    from ag_ui.core import Tool
+
+    turn = _turn()
+    turn.tools = [Tool(name="unknown_prefix", description="", parameters={"type": "object"})]
+
+    with pytest.raises(HTTPException) as refused:
+        pod_agent_chat.trusted_state(turn, _owner())
+
+    assert refused.value.status_code == 400
+    assert refused.value.detail == {"code": "AGENT_TOOL_NOT_ADMITTED"}
 
 
 @pytest.mark.parametrize("changed_schema", [False, True])
@@ -420,14 +485,182 @@ def test_a_rating_needs_an_existing_conversation_and_closed_enums(monkeypatch):
     assert log.records == []
 
 
-@pytest.mark.parametrize(
-    "contract, admitted", [(1, True), (True, False), ("1", False), (None, False), (2, False)]
-)
-async def test_calendar_review_contract_requires_the_exact_supported_client_version(
-    contract, admitted
-):
-    state, _ = pod_agent_chat.trusted_state(_turn(calendarReviewContract=contract), _owner())
-    assert state["temp:one_calendar_review_contract"] is admitted
+@pytest.mark.parametrize("feed_fails", [False, True])
+async def test_submission_renews_idle_writer_and_releases_work(monkeypatch, tmp_path, feed_fails):
+    from google.adk.events import Event
+    from google.genai import types
+
+    from api.routes.one.pod_consent_chat import record_request
+    from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
+    from hushh_mcp.one_adk.information_request_submission import RecordInformationRequestSubmission
+    from hushh_mcp.one_adk.pod_adk_session_repository import (
+        PodAdkSessionProjection,
+        PodAdkSessionRepository,
+    )
+    from hushh_mcp.services import (
+        pod_owner_feed_client,
+        pod_runtime_work,
+        pod_runtime_writer,
+        pod_upgrade_admission,
+    )
+    from hushh_mcp.services.pod_commit_log import LocalObjectStore
+    from hushh_mcp.services.pod_consent_read import project_consent_feed
+    from hushh_mcp.services.pod_role_log import RoleAwareCommitLog
+    from hushh_mcp.services.pod_runtime_writer import LEASE_MS, RuntimeWriter
+    from tests.helpers.chat_keys import static_chat_cipher
+
+    def forbid_db():
+        raise AssertionError("Private conversation must not use the hub database")
+
+    monkeypatch.setattr("hushh_mcp.one_adk.encrypted_session_service.get_db", forbid_db)
+    clock = [1000]
+    log = RoleAwareCommitLog(
+        LocalObjectStore(str(tmp_path / "log")), b"r" * 32, owner_id="ha1_receipt"
+    )
+    writer = RuntimeWriter("ha1_receipt", "runtime", "revision", "initial", clock=lambda: clock[0])
+    monkeypatch.setattr(pod_runtime_writer, "runtime_writer", lambda: writer)
+    monkeypatch.setattr(pod_runtime_work, "runtime_writer", lambda: writer)
+    monkeypatch.setattr(pod_upgrade_admission, "pod_incarnation", lambda: "revision")
+    admission = pod_upgrade_admission.PodUpgradeAdmission(
+        log_resolver=lambda: log, runtime_epoch="runtime"
+    )
+    monkeypatch.setattr(pod_upgrade_admission, "ADMISSION", admission)
+    await writer.ensure(log)
+    access = AsyncMock()
+
+    def sessions():
+        return EncryptedAdkSessionService(
+            static_chat_cipher(),
+            repository=PodAdkSessionRepository(
+                projection=PodAdkSessionProjection(
+                    owner_id="owner", hushh_id="ha1_receipt", log=log
+                ),
+                require_access=access,
+            ),
+        )
+
+    service = sessions()
+    identity = dict(app_name="hussh_one", user_id="owner", session_id="receipt-chat")
+    session = await service.create_session(**identity, state={})
+    person = "12345678-1234-1234-1234-123456789abc"
+    bundle = "11111111-1111-4111-8111-111111111111"
+    await service.append_event(
+        session,
+        Event(
+            id="proposal",
+            author="one",
+            invocation_id="proposal-run",
+            content=types.Content(
+                role="user",
+                parts=[
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            id="proposal-call",
+                            name="propose_information_request",
+                            response={
+                                "status": "proposal_ready",
+                                "proposalId": "fixture-proposal",
+                                "person": {
+                                    "displayName": "Alex",
+                                    "personRef": person,
+                                    "profilePath": "/people/" + person,
+                                },
+                                "fields": ["Food preferences"],
+                                "purpose": "Coffee for our meetup",
+                                "durationHours": 24,
+                                "proposed": [
+                                    {
+                                        "scope": "opaque-scope",
+                                        "label": "Food preferences",
+                                        "why": "Owner request",
+                                    }
+                                ],
+                            },
+                        )
+                    )
+                ],
+            ),
+        ),
+    )
+    active_reads = []
+
+    class Feed:
+        def read(self, kind, owner, *, params, fresh):
+            assert kind == "consent" and owner == "owner" and fresh
+            assert (
+                params["bundle_id"] == bundle and params["submission_key"] == "receipt-review-key"
+            )
+            active_reads.append(writer.active)
+            if feed_fails:
+                raise TimeoutError("Synthetic unavailable feed")
+            return project_consent_feed(
+                {
+                    "readNonce": params["read_nonce"],
+                    "bundle": {
+                        "bundleId": bundle,
+                        "personRef": person,
+                        "purpose": "Coffee for our meetup",
+                        "durationSeconds": 86400,
+                        "cancelled": False,
+                        "items": [
+                            {
+                                "requestId": "one_person_fixture",
+                                "scopeRef": "opaque-scope",
+                                "label": "Food preferences",
+                                "sensitivity": "standard",
+                                "status": "pending",
+                            }
+                        ],
+                        "progress": {"outcome": "pending", "ended_at": None},
+                    },
+                }
+            )
+
+    monkeypatch.setattr(pod_owner_feed_client, "owner_feed_client", lambda: Feed())
+    owner = SimpleNamespace(owner="owner", sessions=service, require_access=access)
+    payload = RecordInformationRequestSubmission(
+        source_activity_id="proposal-call", bundle_id=bundle, idempotency_key="receipt-review-key"
+    )
+    clock[0] += LEASE_MS
+    if feed_fails:
+        with pytest.raises(HTTPException) as failure:
+            await record_request("receipt-chat", payload, owner, "hussh_one")
+        assert failure.value.status_code == 503
+    else:
+        first = await record_request("receipt-chat", payload, owner, "hussh_one")
+        assert first["descriptor"]["content"]["phase"] == "submitted"
+        assert await record_request("receipt-chat", payload, owner, "hussh_one") == first
+        cold = await sessions().get_session(**identity)
+        assert (
+            sum(
+                (event.custom_metadata or {}).get("kind") == "information_request_submission_v1"
+                for event in cold.events
+            )
+            == 1
+        )
+    assert active_reads and all(count == 1 for count in active_reads)
+    assert writer.lease["generation"] == 2
+    assert writer.active == 0 and writer.task is None
+
+
+async def test_submission_admission_refusal_remains_closed_503(monkeypatch):
+    from api.routes.one import pod_consent_chat
+    from hushh_mcp.services import pod_upgrade_admission
+
+    admission = SimpleNamespace(
+        acquire_turn=AsyncMock(
+            side_effect=pod_upgrade_admission.PodUpgradeInProgress("Synthetic draining pod")
+        )
+    )
+    monkeypatch.setattr(pod_upgrade_admission, "ADMISSION", admission)
+    submit = AsyncMock()
+    monkeypatch.setattr(pod_consent_chat, "record_submission", submit)
+    owner = SimpleNamespace(require_access=AsyncMock())
+    with pytest.raises(HTTPException) as refused:
+        await pod_consent_chat.record_request("conversation", None, owner, "hussh_one")
+    assert refused.value.status_code == 503
+    assert refused.value.detail == {"code": "POD_CONSENT_AUTHORITY_UNAVAILABLE"}
+    submit.assert_not_awaited()
 
 
 async def test_main_chat_forwarded_prop_sets_canonical_one_title():
@@ -436,3 +669,13 @@ async def test_main_chat_forwarded_prop_sets_canonical_one_title():
 
     side_state, _ = pod_agent_chat.trusted_state(_turn(), _owner())
     assert "hussh:thread_title" not in side_state
+
+
+@pytest.mark.parametrize(
+    "contract, admitted", [(1, True), (True, False), ("1", False), (None, False), (2, False)]
+)
+async def test_calendar_review_contract_requires_the_exact_supported_client_version(
+    contract, admitted
+):
+    state, _ = pod_agent_chat.trusted_state(_turn(calendarReviewContract=contract), _owner())
+    assert state["temp:one_calendar_review_contract"] is admitted

@@ -240,7 +240,7 @@ async function migrateSealedChatSessions(params: {
   };
   const importedCount = Number(importResult.imported || 0);
   if (importedCount > 0) {
-    clearAgentChatHistoryCache(params.userId);
+    clearAgentChatHistoryCache(params.userId, { includeDevice: true });
     dispatchAgentChatHistoryInvalidated(params.userId);
   }
   return { done: true, imported: importedCount };

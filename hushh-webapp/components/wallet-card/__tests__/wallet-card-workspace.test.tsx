@@ -49,6 +49,22 @@ describe("Wallet Profile owner isolation", () => {
   });
   afterEach(cleanup);
 
+  it("shows a retryable error when a stale card cannot be adopted on first load", async () => {
+    const stale = { status: "active", displayName: "Stale profile", shareTokenVersion: 1 };
+    const current = { ...stale, displayName: "Current profile", shareTokenVersion: 2 };
+    const link = { shareToken: "test-token", shareUrl: "/c/test-token", version: 2 };
+    mocks.readShareLink.mockImplementation((_owner, card) => !card || card.shareTokenVersion === 2 ? link : null);
+    mocks.getCard.mockResolvedValueOnce({ enabled: true, exists: true, card: stale })
+      .mockResolvedValue({ enabled: true, exists: true, card: current });
+    mocks.ensureCard.mockResolvedValue({ card: stale });
+
+    render(<WalletCardWorkspace embedded />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("We couldn't load your Wallet Profile");
+    expect(screen.queryByText("Stale profile")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Current profile")).toBeVisible();
+  });
+
   it.each([
     { embedded: true, variant: "profile" as const, cardId: "agent-one-profile" },
     { embedded: false, variant: "nws" as const, cardId: "agent-one-nws" },

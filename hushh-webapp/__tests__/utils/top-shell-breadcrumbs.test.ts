@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ROUTES } from "@/lib/navigation/routes";
 
 import {
   resolveTopShellBreadcrumb,
@@ -1188,4 +1189,13 @@ describe("top shell title slot", () => {
       items: [{ label: "Memory" }],
     });
   });
+});
+
+// The retired ONE_KYC alias shares this live Mail entry URL.
+it("labels the Mail entry by its rendered purpose and preserves its authored parent", () => {
+  const crumb = resolveTopShellBreadcrumb(ROUTES.EMAIL_AGENT, new URLSearchParams());
+  expect(crumb?.items?.at(-1)?.label).toBe("Mail Agent");
+  expect(crumb?.backHref).toBe(ROUTES.ONE_HOME);
+  const profile = resolveTopShellBreadcrumb(ROUTES.EMAIL_AGENT, new URLSearchParams({ from: ROUTES.PROFILE }));
+  expect(profile?.items?.map(item => item.label)).toEqual(["Profile", "Mail Agent"]);
 });

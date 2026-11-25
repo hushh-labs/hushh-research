@@ -137,8 +137,10 @@ def isolate_runtime_env(monkeypatch: pytest.MonkeyPatch):
     # so importing this at module level (before the setdefault calls above
     # run) breaks collection in any environment without a real .env -- e.g. a
     # clean checkout with no dev secrets on disk.
+    from hushh_mcp.runtime_settings import _BACKEND_RUNTIME_ENV_MAP
     from hushh_mcp.services.google_maps_service import clear_places_cache
 
+    hydrated_environment = {key: os.environ.get(key) for key in _BACKEND_RUNTIME_ENV_MAP.values()}
     clear_runtime_settings_caches()
     clear_places_cache()
     monkeypatch.setenv("TESTING", "true")
@@ -163,6 +165,14 @@ def isolate_runtime_env(monkeypatch: pytest.MonkeyPatch):
     ):
         monkeypatch.delenv(key, raising=False)
     yield
+    # Hydration uses setdefault outside MonkeyPatch. Restore its exported keys
+    # after undoing test patches so one test cannot select another test's realm.
+    monkeypatch.undo()
+    for key, value in hydrated_environment.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
     clear_runtime_settings_caches()
     clear_places_cache()
 

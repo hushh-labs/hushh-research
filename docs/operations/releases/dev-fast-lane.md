@@ -171,7 +171,7 @@ flowchart LR
 
 ## Candidate verification and compatibility
 
-The workflow definition comes from `main`; the selected application SHA must belong
+The reusable implementation comes from `main`; the selected application SHA must belong
 to protected `dev` history and carry its own successful canonical CI result. Most
 deploy helpers run from that selected SHA. Account-deletion admission,
 activation, boundary and Scheduler tooling are preserved from the governed workflow
@@ -194,7 +194,7 @@ redirects and unhealthy responses remain blocking and retain the rollback path.
 The frontend image builds in parallel with the backend image and is pinned by
 digest before the frontend deploy
 ([CI: deploy image pipeline](./ci.md#deploy-image-pipeline)). Because this workflow
-runs from `main` while the tree comes from the selected SHA, a train SHA without
+uses the Main implementation while the tree comes from the selected SHA, a train SHA without
 `deploy/frontend-image.cloudbuild.yaml` keeps the combined serial frontend build.
 
 `build_pod_image` defaults to `false`. Enabling it builds a dev-only pod image and

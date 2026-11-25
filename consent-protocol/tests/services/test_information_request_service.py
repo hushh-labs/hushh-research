@@ -232,6 +232,29 @@ _REQUESTER_IDENTITY = {
 }
 
 
+async def test_legacy_partial_retry_keeps_original_item_scope_order(monkeypatch):
+    service = _Service()
+    scopes = [
+        dict(scopeRef=ref, scope=scope, label=ref, sensitivity="standard")
+        for ref, scope in [
+            ("z-field", "attr.identity.legal_name"),
+            ("a-field", "attr.identity.age"),
+        ]
+    ]
+    monkeypatch.setattr(
+        service._profiles, "resolve_scope_refs", lambda **kwargs: ({"user_id": "subject"}, scopes)
+    )
+    selection = {**_CREATE, "scope_refs": ["z-field", "a-field"]}
+    await service.create(**selection)
+    missing = service.items[0]["request_id"]
+    service.consent.events.pop(missing)
+    await service.create(**selection)
+    assert all(
+        service.consent.events[item["request_id"]]["scope"] == item["scope"]
+        for item in service.items
+    )
+
+
 async def _granted_service() -> tuple[_Service, str, str]:
     """A created bundle whose single item the owner has approved."""
     service = _Service()
@@ -624,7 +647,7 @@ async def test_progress_reports_each_stage_and_keeps_revoked_apart_from_expired(
     granted = (await service.get(requester_user_id="viewer", bundle_id=bundle_id))["progress"]
     assert granted["outcome"] == "granted"
     assert granted["delivered_at"] == "1970-01-01T00:00:01+00:00"
-    assert granted["seen_at"] == "1970-01-01T00:00:09+00:00"
+    assert granted["seen_at"] is None
     assert granted["decided_at"] is not None and granted["access_ends_at"] is not None
     assert granted["ended_at"] is None
 
@@ -654,6 +677,19 @@ async def test_a_request_that_ran_out_before_a_decision_is_expired_with_no_ended
     )
 
 
+@pytest.mark.asyncio
+async def test_item_cancellation_without_whole_bundle_retirement_stays_cancelled() -> None:
+    service = _Service()
+    created = await service.create(**_CREATE)
+    request_id = created["items"][0]["requestId"]
+    await service.consent.insert_event(user_id="subject", request_id=request_id, action="CANCELLED")
+    result = await service.get(requester_user_id="viewer", bundle_id=created["bundleId"])
+    assert result["cancelled"] is False
+    assert result["items"][0]["status"] == "cancelled"
+    assert result["progress"]["fields"][0]["status"] == "cancelled"
+    assert result["progress"]["outcome"] == "cancelled"
+
+
 def test_bundle_outcome_names_partial_answers() -> None:
     outcome = information_request_module.bundle_outcome_from_statuses
     assert outcome(["granted", "denied"]) == "partially_granted"
@@ -662,6 +698,11 @@ def test_bundle_outcome_names_partial_answers() -> None:
     assert outcome(["denied", "expired"]) == "denied"
     assert outcome(["revoked", "expired"]) == "revoked"
     assert outcome(["granted"], cancelled=True) == "cancelled"
+    assert outcome(["cancelled", "cancelled"]) == "cancelled"
+    assert outcome(["cancelled", "pending"]) == "pending"
+    assert outcome(["cancelled", "granted"]) == "partially_granted"
+    assert outcome(["cancelled", "denied"]) == "denied"
+    assert outcome(["cancelled", "expired"]) == "expired"
 
 
 @pytest.mark.asyncio
@@ -1090,3 +1131,66 @@ async def test_model_permission_comes_only_from_current_grant_and_ends_on_revoca
     )
     status = await service.get(requester_user_id="viewer", bundle_id=bundle_id)
     assert status["items"][0]["modelProcessingAllowed"] is False
+
+
+@pytest.mark.asyncio
+async def test_notification_opened_never_exposes_seen_at():
+    from hushh_mcp.services.information_request_service import build_request_progress
+
+    service = _Service()
+    created = await service.create(**_CREATE)
+    bundle_id = created["bundleId"]
+    request_id = created["items"][0]["requestId"]
+    if hasattr(service.consent, "audit_events"):
+        service.consent.audit_events.append(
+            {
+                "request_id": request_id,
+                "user_id": "subject",
+                "action": "NOTIFICATION_OPENED",
+                "issued_at": 9_000,
+            }
+        )
+    status = await service.get(requester_user_id="viewer", bundle_id=bundle_id)
+    assert status["progress"]["seen_at"] is None
+    now_ms = int(time.time() * 1000)
+    direct_progress = build_request_progress(
+        bundle={
+            "bundle_id": bundle_id,
+            "subject_user_id": "subject",
+            "created_at": 1_000,
+        },
+        items=[
+            {
+                "request_id": request_id,
+                "scope": "attr.identity.legal_name",
+                "label": "Legal name",
+            }
+        ],
+        ledger_rows=[
+            {
+                "request_id": request_id,
+                "user_id": "subject",
+                "scope": "attr.identity.legal_name",
+                "action": "PENDING",
+                "issued_at": 1_000,
+                "expires_at": now_ms + 3_600_000,
+            }
+        ],
+        notification_rows=[
+            {
+                "request_id": request_id,
+                "user_id": "subject",
+                "action": "NOTIFICATION_SENT",
+                "issued_at": 5_000,
+            },
+            {
+                "request_id": request_id,
+                "user_id": "subject",
+                "action": "NOTIFICATION_OPENED",
+                "issued_at": 9_000,
+            },
+        ],
+        now_ms=now_ms,
+    )
+    assert direct_progress["delivered_at"] == "1970-01-01T00:00:05+00:00"
+    assert direct_progress["seen_at"] is None

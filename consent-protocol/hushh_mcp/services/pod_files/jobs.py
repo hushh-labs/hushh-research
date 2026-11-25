@@ -60,6 +60,12 @@ async def prepare_delivery(
     expected_file_revision: int | None = None,
     expected_analysis_revision: int | None = None,
 ) -> dict[str, Any]:
+    from .model_binding import hosted_files_analysis_disabled
+
+    if hosted_files_analysis_disabled():
+        if automatic:
+            return {"state": "not_requested"}
+        raise FilesRefused("FILES_MODEL_UNAVAILABLE", 503)
     settings = await library.analysis_allowed(file_id)
     entry = await library.stat(file_id)
     if entry["kind"] != "file" or entry["state"] != "ready":
@@ -131,6 +137,10 @@ async def deliver(library: Any, job: dict[str, Any]) -> dict[str, Any]:
     """Network I/O outside the library mutation lock; CAS cannot resurrect cancellation."""
     if job.get("state") != "pending_delivery":
         return {key: job[key] for key in ("id", "state") if key in job}
+    from .model_binding import hosted_files_analysis_disabled
+
+    if hosted_files_analysis_disabled():
+        raise FilesRefused("FILES_MODEL_UNAVAILABLE", 503)
     job_id = identifier(job["id"])
     path = f"jobs/{job_id}.bin"
     require_background_delivery()

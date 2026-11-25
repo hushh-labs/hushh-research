@@ -97,19 +97,9 @@ def refuse_metered_configuration(body: Any, *, where: str = "body") -> None:
 
 def _shared_env(spec: PodSpec, location: str) -> list[dict[str, Any]]:
     """The proven pod env contract, minus everything a person's cloud must not get."""
-    from hushh_mcp.services.gcp_backend import GcpBackend  # noqa: PLC0415
-    from hushh_mcp.services.user_gcp_backend import _MANAGED_ONLY_ENV  # noqa: PLC0415
+    from hushh_mcp.services.pod_common_env import shared_non_gcp_pod_env  # noqa: PLC0415
 
-    rendered = GcpBackend(project="", region=location, image="", live=False).render_deploy_config(
-        spec
-    )
-    container = rendered["spec"]["template"]["spec"]["containers"][0]
-    stripped = _MANAGED_ONLY_ENV | _GOOGLE_MODEL_ENV
-    return [
-        {"name": entry["name"], "value": str(entry.get("value", ""))}
-        for entry in container.get("env", [])
-        if entry["name"] not in stripped and "valueFrom" not in entry
-    ]
+    return list(shared_non_gcp_pod_env(spec, location))
 
 
 def _azure_env(coords: AgentCoordinates) -> list[dict[str, Any]]:

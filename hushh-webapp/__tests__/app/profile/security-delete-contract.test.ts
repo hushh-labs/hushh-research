@@ -71,7 +71,13 @@ describe("profile security deletion contract", () => {
     expect(onboardingSource).toContain("Unlock Vault to Delete Account");
     expect(onboardingSource).toContain("skipFcmCleanup: true");
     expect(deleteFlowSource).toContain(
-      "performDeletion: () => AccountService.deleteAccount(",
+      "performDeletion: () => params.reviewedCloudPlanSha256",
+    );
+    expect(deleteFlowSource).toContain(
+      'AccountService.deleteAccount(params.vaultOwnerToken, "both", isCurrent, params.reviewedCloudPlanSha256)',
+    );
+    expect(deleteFlowSource).toContain(
+      'AccountService.deleteAccount(params.vaultOwnerToken, "both", isCurrent)',
     );
     expect(deleteFlowSource).toContain("result = await params.performDeletion();");
     expect(deleteFlowSource).toContain("confirmDeletionAfterUncertainResponse");

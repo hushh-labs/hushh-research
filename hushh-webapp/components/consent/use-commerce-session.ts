@@ -44,10 +44,75 @@ export function useCommerceSession(scope: string, active = true) {
   return { user, userId, capture };
 }
 
+const WARM_COMMERCE_TTL_MS = 60_000;
+const warmCommerceReads = new WeakMap<
+  (token: string) => Promise<unknown>,
+  Map<
+    string,
+    {
+      value: unknown;
+      vaultEpoch: number;
+      authGeneration: ReturnType<typeof snapshotAuthSessionGeneration>;
+      savedAt: number;
+    }
+  >
+>();
+
+function peekWarmCommerceRead<T>(
+  load: (token: string) => Promise<T>,
+  scope: string,
+  userId: string | null,
+): T | null {
+  if (!userId) return null;
+  const entry = warmCommerceReads.get(load as (token: string) => Promise<unknown>)?.get(`${scope}:${userId}`);
+  if (!entry) return null;
+  if (
+    !isVaultSessionEpochCurrent(entry.vaultEpoch) ||
+    (entry.authGeneration && !isValidatedAuthSessionOwnerCurrent(entry.authGeneration)) ||
+    Date.now() - entry.savedAt > WARM_COMMERCE_TTL_MS
+  ) {
+    warmCommerceReads.get(load as (token: string) => Promise<unknown>)?.delete(`${scope}:${userId}`);
+    return null;
+  }
+  return entry.value as T;
+}
+
+function storeWarmCommerceRead<T>(
+  load: (token: string) => Promise<T>,
+  scope: string,
+  userId: string | null,
+  value: T,
+): void {
+  if (!userId) return;
+  const fnKey = load as (token: string) => Promise<unknown>;
+  let bucket = warmCommerceReads.get(fnKey);
+  if (!bucket) {
+    bucket = new Map();
+    warmCommerceReads.set(fnKey, bucket);
+  }
+  bucket.set(`${scope}:${userId}`, {
+    value,
+    vaultEpoch: snapshotVaultSessionEpoch(),
+    authGeneration: snapshotAuthSessionGeneration(),
+    savedAt: Date.now(),
+  });
+}
+
 /** Financial reads stay memory-only; newest response wins and visible pending work polls at 15s. */
-export function useCommerceRead<T>(scope: string, load: (token: string) => Promise<T>, shouldPoll: (value: T) => boolean, active = true) {
+export function useCommerceRead<T>(
+  scope: string,
+  load: (token: string) => Promise<T>,
+  shouldPoll: (value: T) => boolean,
+  active = true,
+  options?: { warmSnapshot?: boolean },
+) {
+  const warmSnapshot = options?.warmSnapshot === true;
   const { user, userId, capture } = useCommerceSession(scope, active);
-  const [result, setResult] = useState<{ value: T; user: typeof user; scope: string } | null>(null);
+  const [result, setResult] = useState<{ value: T; user: typeof user; scope: string } | null>(() => {
+    if (!warmSnapshot || !user || !userId) return null;
+    const warm = peekWarmCommerceRead(load, scope, userId);
+    return warm !== null ? { value: warm, user, scope } : null;
+  });
   const data = result && result.user === user && result.scope === scope ? result.value : null;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,8 +126,12 @@ export function useCommerceRead<T>(scope: string, load: (token: string) => Promi
     try {
       const token = await user.getIdToken();
       if (!latest()) return;
-      const result = await load(token);
-      if (latest()) { setResult({ value: result, user, scope }); setError(null); }
+      const value = await load(token);
+      if (latest()) {
+        if (warmSnapshot) storeWarmCommerceRead(load, scope, userId, value);
+        setResult({ value, user, scope });
+        setError(null);
+      }
     } catch {
       if (latest()) setError("Payment status could not be checked. Refresh before continuing.");
     } finally {
@@ -70,9 +139,12 @@ export function useCommerceRead<T>(scope: string, load: (token: string) => Promi
       // financial result and must also work when authentication retires that read.
       if (sequence.current === read) setLoading(false);
     }
-  }, [user, scope, load, capture]);
+  }, [user, userId, scope, load, capture, warmSnapshot]);
   useEffect(() => {
-    setResult(null); setError(null); setLoading(false);
+    const warm = warmSnapshot && user && userId ? peekWarmCommerceRead(load, scope, userId) : null;
+    setResult(warm !== null && user ? { value: warm, user, scope } : null);
+    setError(null);
+    setLoading(false);
     void refresh();
     const onFocus = () => void refresh();
     const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
@@ -83,7 +155,7 @@ export function useCommerceRead<T>(scope: string, load: (token: string) => Promi
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [refresh, scope]);
+  }, [refresh, scope, warmSnapshot, user, userId, load]);
   usePeriodicTask(`commerce:${scope}:${userId || "signed-out"}`, 15_000, () => refresh(), {
     // A session change can retire the initial read without a result or error.
     // Retry with fresh authority rather than leaving that review permanently blank.

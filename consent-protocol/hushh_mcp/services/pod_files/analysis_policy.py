@@ -49,9 +49,14 @@ async def configure(
     return updated
 
 
-async def analysis_allowed(library: FilesLibrary, file_id: str) -> dict[str, Any]:
+async def analysis_allowed(
+    library: FilesLibrary,
+    file_id: str,
+    *,
+    require_background_analysis: bool = True,
+) -> dict[str, Any]:
     settings = await library.settings()
-    if not settings["analysis"]:
+    if require_background_analysis and not settings["analysis"]:
         raise FilesRefused("FILES_ANALYSIS_CONSENT_REQUIRED", 403)
     entry, _ = await library._read(library._path(file_id))
     current = file_id

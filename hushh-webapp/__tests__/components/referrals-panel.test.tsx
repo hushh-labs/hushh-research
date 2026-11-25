@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { act, render, renderHook, screen, waitFor, fireEvent, within } from "@testing-library/react";
 
 import { ReferralsPanel, useReferralsPanelModel } from "@/components/profile/referrals-panel";
+import { projectNativeReferrals } from "@/components/profile/use-native-referrals";
 import { ApiError } from "@/lib/services/api-client";
 import { ReferralService, type ReferralSummary } from "@/lib/services/referral-service";
 import { Capacitor } from "@capacitor/core";
@@ -107,6 +108,28 @@ afterEach(() => {
 });
 
 describe("ReferralsPanel", () => {
+  it("native progress and editor actions use the live visit and ignore retired callbacks", async () => {
+    mockSummary();
+    vi.spyOn(ReferralService, "getHandle").mockResolvedValue({ handle: null });
+    const edit = vi.fn();
+    const { result, rerender } = renderHook(({ active }) => useReferralsPanelModel(active),
+      { initialProps: { active: true } });
+    await waitFor(() => expect(result.current.state).toBe("ready"));
+    const native = projectNativeReferrals(result.current, edit);
+    await act(async () => { await native.rows.get("referral-progress-open")!({} as never); });
+    expect(result.current.showProgress).toBe(true);
+    await act(async () => { await native.rows.get("referral-handle-edit")!({} as never); });
+    expect(edit).toHaveBeenCalledTimes(1);
+    act(() => result.current.setShowProgress(false));
+    rerender({ active: false });
+    await act(async () => {
+      await native.rows.get("referral-progress-open")!({} as never);
+      await native.rows.get("referral-handle-edit")!({} as never);
+    });
+    expect(result.current.showProgress).toBe(false);
+    expect(edit).toHaveBeenCalledTimes(1);
+  });
+
   it("a retired visit cannot block or settle the next visit's handle save", async () => {
     mockSummary();
     vi.spyOn(ReferralService, "getHandle").mockResolvedValue({ handle: null });

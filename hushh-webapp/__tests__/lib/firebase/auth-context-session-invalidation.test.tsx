@@ -23,6 +23,20 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
 
   afterEach(cleanupWebAuthMocks);
 
+  it.each([404, 503])("finishes confirmed identity removal without a registration dependency (%s)", async status => {
+    const { resolveAccountLifecycleRecovery } = await import("@/lib/auth/account-lifecycle-recovery");
+    const operationId = "b99efb85-c1f2-4714-8a63-614d774a25a3";
+    const operation = { ...(await cleanupStatusResponse("complete").json()).operation,
+      identity_removed: true, owner_hash: `sha256:${createHash("sha256").update("account-owner").digest("hex")}` };
+    mocks.apiGetAccountCleanupStatus.mockResolvedValueOnce(Response.json({ operation }));
+    mocks.apiGetAccountRegistrationStatus.mockResolvedValueOnce(new Response(null, { status }));
+    const result = await resolveAccountLifecycleRecovery("cached-proof", Date.now() + 2000,
+      { outcome: "terminal", code: "account_not_found" }, "account-owner", operationId);
+    expect(result).toMatchObject({ outcome: "terminal", code: "account_deleted", confirmedCleanup: operation });
+    expect(mocks.apiGetAccountCleanupStatus).toHaveBeenCalledWith("cached-proof", operationId);
+    expect(mocks.apiGetAccountRegistrationStatus).not.toHaveBeenCalled();
+  });
+
   it("purges the exact departed owner after pending sign-out and completed cleanup", async () => {
     const ownerId = "acct_" + "d".repeat(32);
     const operationId = "b99efb85-c1f2-4714-8a63-614d774a25a3";

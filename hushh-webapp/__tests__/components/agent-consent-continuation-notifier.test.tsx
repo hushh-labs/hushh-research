@@ -101,7 +101,7 @@ describe("AgentConsentContinuationNotifier doorbell", () => {
     vi.useRealTimers();
   });
 
-  it("checks about every 2s while a request waits, with the same server call", async () => {
+  it("checks about every 30s while a request waits, with the same server call", async () => {
     mocks.getInformationRequest.mockResolvedValue(bundle("pending"));
     waitOnKushal();
     render(<AgentConsentContinuationNotifier />);
@@ -109,19 +109,19 @@ describe("AgentConsentContinuationNotifier doorbell", () => {
     expect(mocks.getInformationRequest).toHaveBeenCalledTimes(1);
     expect(mocks.getInformationRequest).toHaveBeenCalledWith({ bundleId: BUNDLE, vaultOwnerToken: "owner-token" });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(30_000);
     });
     expect(mocks.getInformationRequest).toHaveBeenCalledTimes(2);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(6_000);
+      await vi.advanceTimersByTimeAsync(90_000);
     });
-    // A flat 8s poll would have made one call here, not four.
+    // Expect checks at 0s, 30s, 60s, 90s, 120s.
     expect(mocks.getInformationRequest).toHaveBeenCalledTimes(5);
   });
 
   // Run 4 (R3): one approved request was polled 166 times in 18 minutes, two
   // to four reads at once, because each surface read it on its own.
-  async function tenSecondsWithACardReading(cardRead: () => unknown): Promise<Record<string, number>> {
+  async function ticksWithACardReading(cardRead: () => unknown): Promise<Record<string, number>> {
     // A read takes a while on a busy pool (10-38s measured); here, 500ms.
     mocks.getInformationRequest.mockImplementation(({ bundleId }: { bundleId: string }) =>
       new Promise((resolve) => setTimeout(() => resolve(bundle("pending", bundleId)), 500)));
@@ -133,7 +133,7 @@ describe("AgentConsentContinuationNotifier doorbell", () => {
     await flush();
     for (let tick = 0; tick < 5; tick += 1) {
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(2_000);
+        await vi.advanceTimersByTimeAsync(30_000);
         cardRead();
       });
     }
@@ -149,21 +149,21 @@ describe("AgentConsentContinuationNotifier doorbell", () => {
   }
 
   it("reads each waiting bundle once per tick, shared with any card reading it", async () => {
-    const counts = await tenSecondsWithACardReading(() =>
+    const counts = await ticksWithACardReading(() =>
       void readInformationRequest({ bundleId: BUNDLE, vaultOwnerToken: "owner-token" }));
-    // Six checks in ten seconds (at once, then every 2s): one read each, per bundle.
+    // Six checks across five 30s ticks (at once, then every 30s): one read each, per bundle.
     expect(counts).toEqual({ [BUNDLE]: 6, [BUNDLE_2]: 6 });
   });
 
   it("negative control: a card reading on its own doubles the reads of its bundle", async () => {
-    const counts = await tenSecondsWithACardReading(() =>
+    const counts = await ticksWithACardReading(() =>
       void mocks.getInformationRequest({ bundleId: BUNDLE, vaultOwnerToken: "owner-token" }));
     expect(counts).toEqual({ [BUNDLE]: 12, [BUNDLE_2]: 6 });
   });
 
   // Run 4 (R3): an answered request whose card was on screen stayed "waiting",
-  // so it kept the 2s cadence and a card-wide refresh event every 10s.
-  it("stops the fast checks once a request is answered, and the card may still continue it", async () => {
+  // so it kept the fallback cadence until settled.
+  it("stops the fallback checks once a request is answered, and the card may still continue it", async () => {
     mocks.getInformationRequest.mockImplementation(async ({ bundleId }: { bundleId: string }) =>
       bundle(bundleId === BUNDLE ? "granted" : "pending", bundleId));
     mocks.getAgentChatConsentOutcomes.mockResolvedValue({});
@@ -182,8 +182,8 @@ describe("AgentConsentContinuationNotifier doorbell", () => {
       .filter(([input]) => (input as { bundleId: string }).bundleId === id).length;
     // Answered on the first check: never read by the doorbell again.
     expect(reads(BUNDLE)).toBe(1);
-    // Control: the request still waiting kept its 2s cadence meanwhile.
-    expect(reads(BUNDLE_2)).toBe(31);
+    // Control: the request still waiting kept its 30s fallback cadence (0s, 30s, 60s).
+    expect(reads(BUNDLE_2)).toBe(3);
     expect(listSentInformationRequests(OWNER).map((request) => request.bundleId)).toEqual([BUNDLE_2]);
     expect(isConsentContinuationArmed(OWNER, BUNDLE)).toBe(true);
     expect(informationRequestPhase(OWNER, BUNDLE)).toBe("reading");

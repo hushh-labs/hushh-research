@@ -2,9 +2,12 @@
 
 [Architecture](README.md)
 
-**Status — 2026-10-08:** disabled record-transfer prototype. No production or
+**Status (2026-10-08; Dev cutover update 2026-11-23):** disabled record-transfer prototype. No production or
 owner-facing GCP↔Azure move is qualified. Full memory, Files and session portability
 are required before offering it. Inherits the [private-agent north star](../product/principles/private-agent-requirements.md).
+
+> [!NOTE]
+> **Dev Cutover Update (2026-11-23):** Legacy owner-facing GCP-to-Azure hosted-pod migration UI (`isHostedAzureMigrationAvailable`) is **retired on Dev cutover lanes** ([#9744](https://github.com/hushh-labs/hushh-research/issues/9744), [#5507](https://github.com/hushh-labs/hushh-research/issues/5507)). On Dev cutover lanes, **Hussh Confidential Sandbox** runs on Google Cloud (`gVisor` warm pool) alongside owner-controlled BYOC (`user_gcp`, `user_azure`) and **Local Puppy**, and lossless cutover replaces multi-cloud hosted shuffling. The low-level `pod_migration_bundle.py` / `HUSSH_POD_MIGRATION_ENABLED` dark-route invariants below remain accurate for disabled prototype boundaries.
 
 ## Visual Map
 

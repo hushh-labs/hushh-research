@@ -306,6 +306,112 @@ async def test_scheduled_model_uses_sealed_identity_across_cache_restart(
         selections.set_active_ai_selection(None)
 
 
+async def test_scheduled_model_and_one_task_prepare_allow_activating_older_saved_provider(
+    admitted_task, monkeypatch
+):
+    from hushh_mcp.services import pod_ai_selection as selections
+    from hushh_mcp.services import pod_owner_cloud
+    from hushh_mcp.services.pod_ai_selection_seal import (
+        STALE_SELECTION,
+        AiSelectionRefused,
+        OpenedSelection,
+    )
+    from hushh_mcp.services.pod_scheduled_contracts import ScheduleRefused
+    from hushh_mcp.services.pod_scheduled_model import resolve_scheduled_model
+    from hushh_mcp.services.pod_scheduled_one import ScheduledOneTask
+
+    task = admitted_task
+    monkeypatch.setattr(pod_owner_cloud, "owner_cloud_agent", lambda: True)
+    gemini_opened = OpenedSelection(
+        provider="gemini",
+        model="gemini-2.5-flash",
+        api_key="PRIVATE_GEMINI_KEY",
+        transport="developer_api",
+        vertex_project=None,
+        vertex_location=None,
+        issued_at_ms=10,
+        selection_id="00000000-0000-4000-8000-000000000010",
+    )
+    openai_opened = OpenedSelection(
+        provider="openai",
+        model="synthetic-model",
+        api_key="PRIVATE_OPENAI_KEY",
+        transport=None,
+        vertex_project=None,
+        vertex_location=None,
+        issued_at_ms=20,
+        selection_id="00000000-0000-4000-8000-000000000020",
+    )
+    try:
+        await selections.record_ai_selection(
+            task.world.log, hushh_id=OWNER, opened=gemini_opened, checked_at_ms=10
+        )
+        await selections.record_ai_selection(
+            task.world.log, hushh_id=OWNER, opened=openai_opened, checked_at_ms=20
+        )
+        await selections.activate_saved_ai_selection(
+            task.world.log, hushh_id=OWNER, provider="gemini", checked_at_ms=30
+        )
+
+        resolved = await resolve_scheduled_model(
+            task.world.log, pod_id=OWNER, check=task.lease.check
+        )
+        assert resolved.binding.provider == "gemini"
+        assert resolved.binding.selection_revision == 20
+        assert resolved.binding.selection_issued_at_ms == 10
+
+        one_task = ScheduledOneTask(task.invocation.grants, task.world.log, task.lease.check)
+        prepared = await one_task.prepare({"goal": "Rebalance Q4"})
+        assert prepared["model_binding"]["provider"] == "gemini"
+        assert prepared["model_binding"]["selection_revision"] == 20
+        assert prepared["model_binding"]["selection_issued_at_ms"] == 10
+
+        await selections.delete_provider_ai_selection(
+            task.world.log, hushh_id=OWNER, provider="openai"
+        )
+        prepared_after_delete = await one_task.prepare({"goal": "Rebalance Q4"})
+        assert prepared_after_delete["model_binding"]["provider"] == "gemini"
+
+        # Negative control: non-positive issued_at_ms is refused.
+        await task.world.log.append(
+            selections.POD_AI_SELECTION_RECORD_KIND,
+            {
+                "hushh_id": OWNER,
+                "version": 1,
+                "provider": "openai",
+                "apiKey": "PRIVATE_BOGUS_ZERO",
+                "issuedAtMs": 0,
+                "selectionId": "00000000-0000-4000-8000-000000000030",
+            },
+        )
+        with pytest.raises(ScheduleRefused, match="^SCHEDULE_MODEL_SELECTION_INVALID$"):
+            await resolve_scheduled_model(task.world.log, pod_id=OWNER, check=task.lease.check)
+
+        # Negative control: issued_at_ms > floor (non-int issuedAtMs skipped by floor) is refused.
+        await task.world.log.append(
+            selections.POD_AI_SELECTION_RECORD_KIND,
+            {
+                "hushh_id": OWNER,
+                "version": 1,
+                "provider": "openai",
+                "apiKey": "PRIVATE_BOGUS_HIGH",
+                "issuedAtMs": "999",
+                "selectionId": "00000000-0000-4000-8000-000000000040",
+            },
+        )
+        with pytest.raises(ScheduleRefused, match="^SCHEDULE_MODEL_SELECTION_INVALID$"):
+            await resolve_scheduled_model(task.world.log, pod_id=OWNER, check=task.lease.check)
+
+        # Negative control: clearing preserves floor so replaying an older envelope fails.
+        await selections.clear_ai_selection(task.world.log, hushh_id=OWNER)
+        with pytest.raises(AiSelectionRefused, match=STALE_SELECTION):
+            await selections.record_ai_selection(
+                task.world.log, hushh_id=OWNER, opened=gemini_opened, checked_at_ms=40
+            )
+    finally:
+        selections.set_active_ai_selection(None)
+
+
 @pytest.mark.parametrize("cloud", ["gcp", "azure"])
 async def test_scheduled_cloud_model_binds_provider_and_destination(
     admitted_task, monkeypatch, cloud
@@ -368,3 +474,111 @@ async def test_scheduled_cloud_model_binds_provider_and_destination(
         await resolve_scheduled_model(
             task.world.log, pod_id=OWNER, check=task.lease.check, expected=target.binding
         )
+
+
+async def test_active_scheduled_tasks_registers_one_goal_capability_and_sentinel_model_without_chat_key(
+    tmp_path, hub_key, monkeypatch
+):
+    from hushh_mcp.services import (
+        agent_chat_service,
+        pod_memory_service,
+        pod_owner_cloud,
+        pod_scheduled_runtime,
+        pod_session_authority,
+    )
+    from hushh_mcp.services.chat_key import request_has_chat_key
+    from hushh_mcp.services.pod_scheduled_model import resolve_scheduled_model
+    from hushh_mcp.services.pod_scheduled_one import ScheduledOneTask
+    from hushh_mcp.services.pod_scheduled_tasks import KIND
+
+    world = World(tmp_path)
+    authority = await world.boot()
+    subject = Subject("scheduled-goal-owner", "web")
+    await world.admit(subject, _binding(subject, scopes=["pod.act", "pkm.read", "pod.status"]))
+
+    monkeypatch.setenv("HUSSH_ID", OWNER)
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
+    monkeypatch.setenv("HUSSH_MODEL_GATEWAY_URL", "http://127.0.0.1:8082")
+    monkeypatch.setenv("HUSSH_MODEL_GATEWAY_TOKEN", "surrogate-token")
+    monkeypatch.setenv("HUSSH_SENTINEL_VERTEX_PROJECT", "hushh-pda-dev")
+    monkeypatch.setenv("HUSSH_SENTINEL_VERTEX_LOCATION", "global")
+    monkeypatch.setattr(pod_session_authority, "active_session_authority", lambda: authority)
+    monkeypatch.setattr(pod_memory_service, "_resolve_log", lambda: world.log)
+    monkeypatch.setattr(pod_owner_cloud, "hosted_ace_runtime", lambda: True)
+    monkeypatch.setattr(
+        agent_chat_service,
+        "load_one_agent_runtime_manifest",
+        lambda: SimpleNamespace(model=SimpleNamespace(provider="gemini", name="gemini-2.5-flash")),
+    )
+
+    assert request_has_chat_key(USER) is False
+
+    runtime = pod_scheduled_runtime.active_scheduled_tasks()
+    assert "agent_files.organize_file.v1" in runtime.capabilities
+    assert "agent_one.execute_task.v1" in runtime.capabilities
+    assert isinstance(runtime.capabilities["agent_one.execute_task.v1"], ScheduledOneTask)
+
+    # List endpoint exposes all registered capabilities cleanly:
+    from api.routes.one import pod_scheduled_tasks as route_module
+
+    monkeypatch.setattr(runtime.delivery, "require_ready", lambda: None)
+    monkeypatch.setattr(runtime.delivery, "offer", AsyncMock())
+    monkeypatch.setattr(
+        route_module,
+        "verified_session",
+        lambda *_args, **_kwargs: (
+            authority,
+            {"user_id": USER, "subject_id": subject.subject_id, "version": 1},
+        ),
+    )
+    listed = await route_module.list_tasks(SimpleNamespace(headers={}), authorization="Bearer ok")
+    assert listed["available"] is True
+    assert listed["templates"] == ["agent_files.organize_file.v1", "agent_one.execute_task.v1"]
+
+    # Sentinel model resolves cleanly without X-Hussh-Chat-Key:
+    resolved = await resolve_scheduled_model(world.log, pod_id=OWNER, check=authority.require_held)
+    assert resolved.binding.runtime_mode == "sentinel_vertex"
+    assert resolved.binding.provider == "gemini"
+    assert resolved.binding.destination["project"] == "hushh-pda-dev"
+
+    # Scheduling a goal via agent_one.execute_task.v1 seals it in PodCommitLog with zero plaintext on disk:
+    now = int(time.time())
+    goal_secret = "SECRET_SCHEDULED_GOAL_REBALANCE_99"
+    created = await runtime.create(
+        schedule_request(
+            capability="agent_one.execute_task.v1",
+            parameters={"goal": goal_secret},
+            first_run_at=now + 60,
+            authorization_expires_at=now + 600,
+        ),
+        grant={"subject_id": subject.subject_id, "version": 1},
+    )
+    assert created["capability"] == "agent_one.execute_task.v1"
+    replayed = await world.log.replay()
+    task_records = [r for r in replayed if r["kind"] == KIND]
+    assert len(task_records) >= 1
+    assert task_records[-1]["payload"]["state"] == "scheduled"
+    assert task_records[-1]["payload"]["terms"]["goal"] == goal_secret
+    assert (
+        task_records[-1]["payload"]["terms"]["model_binding"]["runtime_mode"] == "sentinel_vertex"
+    )
+
+    for path in tmp_path.rglob("*"):
+        if path.is_file():
+            assert goal_secret.encode("utf-8") not in path.read_bytes()
+
+
+def test_active_scheduled_tasks_refuses_non_dev_or_fenced_authority(tmp_path, hub_key, monkeypatch):
+    from hushh_mcp.services import pod_memory_service, pod_scheduled_runtime, pod_session_authority
+    from hushh_mcp.services.pod_scheduled_contracts import ScheduleRefused
+
+    monkeypatch.setattr(pod_session_authority, "active_session_authority", lambda: None)
+    monkeypatch.setattr(pod_memory_service, "_resolve_log", lambda: None)
+    with pytest.raises(ScheduleRefused, match="SCHEDULE_AUTHORITY_UNAVAILABLE"):
+        pod_scheduled_runtime.active_scheduled_tasks()
+
+    prod_authority = SimpleNamespace(environment="production")
+    monkeypatch.setattr(pod_session_authority, "active_session_authority", lambda: prod_authority)
+    monkeypatch.setattr(pod_memory_service, "_resolve_log", lambda: object())
+    with pytest.raises(ScheduleRefused, match="SCHEDULE_AUTHORITY_UNAVAILABLE"):
+        pod_scheduled_runtime.active_scheduled_tasks()

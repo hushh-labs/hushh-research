@@ -29,6 +29,14 @@ WHERE user_id = :owner
 RETURNING one_hosting_choice AS tier, one_hosting_choice_at AS chosen_at
 """
 
+_RECORD_AFTER_DETACH = """
+UPDATE vault_keys
+SET one_hosting_choice = 'shared',
+    one_hosting_choice_at = GREATEST(now(), date_trunc('second', now()) + interval '1 second')
+WHERE user_id = :owner
+RETURNING one_hosting_choice AS tier, one_hosting_choice_at AS chosen_at
+"""
+
 
 class HostingChoiceUnavailable(RuntimeError):
     """The choice could not be recorded; the person's placement is unchanged."""
@@ -56,7 +64,7 @@ class HostingChoiceRepo:
             return None
         return {"tier": SHARED_TIER, "chosen_at": rows[0]["chosen_at"]}
 
-    async def record_shared(self, user_id: str) -> dict:
+    async def record_shared(self, user_id: str, *, after_detach: bool = False) -> dict:
         """Record Shared now. The pre-vault row is created first when it does not exist."""
         service = self._vault_keys
         if service is None:
@@ -64,7 +72,8 @@ class HostingChoiceRepo:
 
             service = VaultKeysService()
         await service.get_pre_vault_state(user_id)  # ensures the row
-        response = await asyncio.to_thread(self._db().execute_raw, _RECORD, {"owner": user_id})
+        statement = _RECORD_AFTER_DETACH if after_detach else _RECORD
+        response = await asyncio.to_thread(self._db().execute_raw, statement, {"owner": user_id})
         rows = list(response.data or [])
         if not rows:
             raise HostingChoiceUnavailable("the pre-vault row was not available")

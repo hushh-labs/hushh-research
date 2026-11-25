@@ -138,21 +138,66 @@ describe("supported connector catalog", () => {
   });
   afterEach(() => { cleanup(); publishValidatedAuthSessionPrincipal(null); });
 
-  it('private placement mounts only pod connectors and does not claim management access from a connection receipt', async () => {
+  it('private placement mounts only pod connectors, uses 1-row progressive disclosure, and drills cleanly into Google and Plaid details', async () => {
     state.privatePlacement.mockResolvedValue(true);
+    state.financial = {
+      loading: false,
+      error: null,
+      data: {
+        data: {
+          connections_v1: {
+            item_1: {
+              item_id: "item_1",
+              institution_name: "First Platypus Bank",
+              status: "active",
+              last_refreshed_at: "2026-11-19T12:00:00Z",
+            },
+          },
+          derived_v1: {
+            schema: "plaid-derived-v1",
+            net_worth: { value: 115000 },
+            liquid_cash: { value: 50000 },
+            investable_assets: { value: 65000 },
+          },
+          summary: {
+            schema: "plaid-summary-v1",
+            net_worth_band: "$100k-$250k",
+          },
+        },
+      },
+    };
     const view = render(<ConnectorsPanel open surface="profile" showAccessDetails {...callbacks} />);
     expect(await screen.findByTestId('private-google-connectors')).toBeInTheDocument();
+    expect(await screen.findByTestId('private-plaid-connectors')).toBeInTheDocument();
+    expect(screen.getByTestId('private-connector-row-plaid')).toBeInTheDocument();
+    expect(screen.getByTestId('private-stripe-settings-group')).toBeInTheDocument();
+    expect(document.querySelector('img[data-connector-brand="plaid"][src="/icons/connectors/plaid.svg"]')).not.toBeNull();
+    expect(document.querySelector('img[data-connector-brand="stripe"][src="/icons/connectors/stripe.svg"]')).not.toBeNull();
     expect(screen.getByText('Use your calendar to help plan your time.')).toBeInTheDocument();
-    expect(await screen.findAllByRole('button', { name: 'Allow changes' })).toHaveLength(2);
-    expect(screen.getAllByText('Connected · reading only')).toHaveLength(2);
-    const permissions = screen.getByRole('group', { name: 'Calendar permissions' });
-    expect(within(permissions).getByText('Read events').parentElement).toHaveTextContent('Allowed');
-    expect(within(permissions).getByText('Create events').parentElement).toHaveTextContent('Not enabled');
-    expect(within(permissions).queryByText('Check availability')).not.toBeInTheDocument();
-    expect(within(permissions).queryByText('Respond to invitations')).not.toBeInTheDocument();
+    expect(await screen.findAllByText('Connected · reading only')).toHaveLength(2);
+    // Strict 1-row progressive disclosure: root list keeps action buttons and bank sub-rows inside detail views.
+    expect(screen.queryByRole('button', { name: 'Allow changes' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('private-plaid-bank-item_1')).not.toBeInTheDocument();
     expect(state.ownerPodRequest).toHaveBeenCalledTimes(4);
     expect(state.overview).not.toHaveBeenCalled();
     expect(state.calendarStartNativeConnect).not.toHaveBeenCalled();
+
+    // Drilling into Gmail exposes Allow changes, Disconnect, Check connection, and Background preparation.
+    fireEvent.click(within(screen.getByTestId('private-connector-row-gmail')).getByRole('button'));
+    const gmailDetail = await screen.findByTestId('private-connector-detail-gmail');
+    expect(within(gmailDetail).getByRole('button', { name: 'Allow changes' })).toBeEnabled();
+    expect(within(gmailDetail).getByRole('button', { name: 'Disconnect' })).toHaveAttribute('data-connector-action', 'destructive');
+    expect(within(gmailDetail).getByRole('button', { name: 'Check connection' })).toBeEnabled();
+
+    // Drilling into Plaid shows projection summary, primary Add bank, Refresh live, and connected bank Disconnect.
+    view.rerender(<ConnectorsPanel open surface="profile" activeConnector="plaid" showAccessDetails {...callbacks} />);
+    const plaidDetail = await screen.findByTestId('private-connector-detail-plaid');
+    expect(within(plaidDetail).getByTestId('private-plaid-projection-summary')).toHaveTextContent('Net worth $115,000');
+    expect(within(plaidDetail).getByRole('button', { name: 'Add bank' })).toHaveAttribute('data-connector-action', 'primary');
+    expect(within(plaidDetail).getByRole('button', { name: 'Refresh live' })).toHaveAttribute('data-connector-action', 'secondary');
+    expect(within(plaidDetail).getByText('First Platypus Bank')).toBeInTheDocument();
+    expect(within(plaidDetail).getByRole('button', { name: 'Disconnect' })).toHaveAttribute('data-connector-action', 'destructive');
+
     state.token = null;
     view.rerender(panel());
     expect(await screen.findByText('Sign in and unlock your vault to connect Google.')).toBeInTheDocument();
@@ -184,7 +229,7 @@ describe("supported connector catalog", () => {
     state.ownerPodRequest.mockImplementation(async (path: string) => new Response(JSON.stringify({
       connectorId: path.split('/')[1], status: 'connected', accessLevel: 'manage', capabilities: { read: true, manage },
     })));
-    render(<ConnectorsPanel open surface="profile" {...callbacks} />);
+    render(<ConnectorsPanel open surface="profile" activeConnector="calendar" {...callbacks} />);
     const permissions = await screen.findByRole('group', { name: 'Calendar permissions' });
     expect(within(permissions).getByText('Create events').parentElement).toHaveTextContent(manage ? 'Allowed · review required' : 'Not enabled');
     expect(state.calendarStartConnect).not.toHaveBeenCalled();
@@ -1991,6 +2036,91 @@ describe("supported connector catalog", () => {
       } finally {
         vi.unstubAllEnvs();
       }
+    });
+  });
+
+  describe("Plaid live amounts and scope projection", () => {
+    it("displays live bank balances, projected Financial Summary and Investment Portfolio scopes, and Refresh live + Add bank controls", async () => {
+      state.overview.mockResolvedValue(overview([]));
+      state.financial = {
+        loading: false,
+        error: null,
+        data: {
+          data: {
+            connections_v1: {
+              item_1: {
+                item_id: "item_1",
+                institution_name: "First Platypus Bank",
+                status: "active",
+                last_refreshed_at: "2026-11-19T12:00:00Z",
+              },
+            },
+            accounts_v1: {
+              "item_1:chk": {
+                account_id: "chk",
+                item_id: "item_1",
+                type: "depository",
+                balances: { current: 50000, available: 50000, limit: null, iso_currency_code: "USD" },
+                duplicate_of: null,
+              },
+              "item_1:inv": {
+                account_id: "inv",
+                item_id: "item_1",
+                type: "investment",
+                balances: { current: 65000, available: null, limit: null, iso_currency_code: "USD" },
+                duplicate_of: null,
+              },
+            },
+            holdings_v1: {
+              "inv:sec_aapl": {
+                item_id: "item_1",
+                account_id: "inv",
+                security_id: "sec_aapl",
+                quantity: 100,
+                institution_price: 250,
+                institution_price_as_of: null,
+                institution_value: 25000,
+                cost_basis: 18000,
+                iso_currency_code: "USD",
+              },
+            },
+            securities_v1: {
+              sec_aapl: {
+                security_id: "sec_aapl",
+                ticker: "AAPL",
+                name: "Apple Inc.",
+                type: "equity",
+                subtype: "common stock",
+                cusip: "037833100",
+                is_cash_equivalent: false,
+                close_price: 250,
+                sector: "Technology",
+                industry: "Consumer Electronics",
+              },
+            },
+            derived_v1: {
+              schema: "plaid-derived-v1",
+              net_worth: { value: 115000 },
+              liquid_cash: { value: 50000 },
+              investable_assets: { value: 65000 },
+            },
+            summary: {
+              schema: "plaid-summary-v1",
+              net_worth_band: "$100k-$250k",
+            },
+          },
+        },
+      };
+
+      render(<ConnectorsPanel open initialConnector="plaid" {...callbacks} />);
+      const region = await screen.findByRole("region", { name: "Plaid connection details" });
+      expect(within(region).getByText("First Platypus Bank")).toBeInTheDocument();
+      expect(within(region).getByText("Connected · 2 accounts · $115,000")).toBeInTheDocument();
+      const summaryBox = within(region).getByTestId("plaid-live-projection-summary");
+      expect(summaryBox).toHaveTextContent("Net worth $115,000 · Liquid cash $50,000 · Investable $65,000");
+      expect(summaryBox).toHaveTextContent("Shareable scopes: Financial Summary ($100k-$250k) · Investment Portfolio ($25,000)");
+      expect(within(region).getByRole("button", { name: "Refresh live" })).toBeEnabled();
+      expect(within(region).getByRole("button", { name: "Add bank" })).toBeEnabled();
     });
   });
 });

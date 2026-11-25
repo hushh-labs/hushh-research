@@ -24,7 +24,7 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
       autoCapitalize={type === "email" ? "none" : props.autoCapitalize}
       autoCorrect={type === "email" ? "off" : props.autoCorrect}
       spellCheck={type === "email" ? false : props.spellCheck}
-      className={cn(INPUT_CLASSNAME, className)}
+      className={cn(INPUT_CLASSNAME, (type === "date" || type === "time" || type === "datetime-local") && "appearance-none box-border", className)}
       {...props}
     />
   )

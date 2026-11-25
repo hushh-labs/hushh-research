@@ -35,12 +35,14 @@ sequenceDiagram
 > **Discovery and Payment Are Never Consent:** Searching scopes does not reveal private content. Paying for an information packet never authorizes processing or widens a scope; free and paid requests keep identical identity, expiry, and revocation gates.
 
 - Owner-private `one_memory` and `one_wiki` domains are never directly requestable (`shareable: "never"`).
+- Information Exchange ([#9736](https://github.com/hushh-labs/hushh-research/issues/9736)) executes through the unified single-owner runtime across `Hussh Confidential Sandbox`, `BYOC`, and `Local Puppy`, retiring divergent Shared versus Pod Drive/Gmail executors on cutover lanes.
 - External MCP developers use the `@hushh/mcp` package under the same core consent lifecycle.
 
 ## Implementation and operation
 
 - [MCP integration](../../../packages/hushh-mcp/README.md)
 - [Scope catalog](../identity/consent-scope-catalog.md)
+- Tracking issues: [#9736](https://github.com/hushh-labs/hushh-research/issues/9736) · [#9744](https://github.com/hushh-labs/hushh-research/issues/9744)
 
 <details>
 <summary><strong>For coding agents: MCP & export contract invariants</strong></summary>

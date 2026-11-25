@@ -209,12 +209,15 @@ def bundle_outcome_from_statuses(statuses: list[str], *, cancelled: bool = False
 
     Any field still waiting keeps the request pending. Otherwise granted wins
     (partially when anything else was declined or has ended); then revoked,
-    denied and expired, in that order.
+    denied and expired, in that order. An entirely withdrawn set is cancelled
+    even when cancellation was per-item rather than whole-bundle.
     """
     if cancelled:
         return "cancelled"
     if not statuses or "pending" in statuses:
         return "pending"
+    if all(value == "cancelled" for value in statuses):
+        return "cancelled"
     if "granted" in statuses:
         return "granted" if all(value == "granted" for value in statuses) else "partially_granted"
     if "revoked" in statuses:
@@ -234,11 +237,12 @@ def build_request_progress(
 ) -> dict[str, Any]:
     """Contract C1 ``progress``: where a person-to-person request stands.
 
-    ``delivered_at`` is the first NOTIFICATION_SENT for any field and
-    ``seen_at`` the first NOTIFICATION_OPENED. ``decided_at`` is set once no
-    field waits. ``access_ends_at`` is when current access ends; ``ended_at`` is
-    when access that WAS granted ended (revoked or run out), and stays null for
-    a request that ran out before anyone decided.
+    ``delivered_at`` is the first NOTIFICATION_SENT for any field. Read-receipt
+    tracking (``seen_at``) is intentionally never exposed so owners can review
+    requests privately without notifying requesters of views before a decision.
+    ``decided_at`` is set once no field waits. ``access_ends_at`` is when current
+    access ends; ``ended_at`` is when access that WAS granted ended (revoked or
+    run out), and stays null for a request that ran out before anyone decided.
     """
     by_request: dict[str, list[dict[str, Any]]] = {}
     for row in sorted(ledger_rows, key=lambda row: _int_or_none(row.get("issued_at")) or 0):
@@ -275,15 +279,70 @@ def build_request_progress(
     decided = [state["decided_ms"] for state in states if state["decided_ms"] is not None]
     access_ends = [state["ends_ms"] for state in states if state["ends_ms"] is not None]
     ended = [state["ended_ms"] for state in states if state["ended_ms"] is not None]
+
+    # Summarize server-authoritative coin reservation / paid status from the
+    # bundle's ledger metadata so the requester card shows clear money state.
+    total_coins = 0
+    latest_commerce_status = ""
+    any_commercial = False
+    for row in sorted(ledger_rows, key=lambda r: _int_or_none(r.get("issued_at")) or 0):
+        raw_meta = row.get("metadata")
+        if isinstance(raw_meta, str):
+            try:
+                meta = json.loads(raw_meta)
+            except ValueError:
+                meta = {}
+        elif isinstance(raw_meta, dict):
+            meta = raw_meta
+        else:
+            meta = {}
+        if meta.get("commercial_required") is True:
+            any_commercial = True
+        bundle_coins = meta.get("bundle_price_coins")
+        req_coins = meta.get("request_price_coins")
+        if (
+            isinstance(bundle_coins, int)
+            and not isinstance(bundle_coins, bool)
+            and bundle_coins > total_coins
+        ):
+            total_coins = bundle_coins
+        elif (
+            isinstance(req_coins, int)
+            and not isinstance(req_coins, bool)
+            and req_coins > total_coins
+        ):
+            total_coins = req_coins
+        c_status = str(meta.get("commerce_status") or "").strip().lower()
+        if c_status:
+            latest_commerce_status = c_status
+
+    commerce: dict[str, Any] | None = None
+    if any_commercial or total_coins > 0:
+        if outcome in {"denied", "cancelled"} or (outcome == "expired" and not decided):
+            derived_status = "refunded"
+        elif outcome in {"granted", "partially_granted"}:
+            derived_status = "active"
+        elif outcome in {"revoked", "expired"}:
+            derived_status = "ended"
+        elif latest_commerce_status == "awaiting_payment":
+            derived_status = "awaiting_payment"
+        else:
+            derived_status = "reserved"
+        commerce = {
+            "total_coins": total_coins,
+            "status": derived_status,
+        }
+
     return {
         "requested_at": _iso_any(bundle.get("created_at")),
         "delivered_at": first("NOTIFICATION_SENT"),
-        "seen_at": first("NOTIFICATION_OPENED"),
+        "seen_at": None,
         "decided_at": _iso_ms(max(decided)) if decided and outcome != "pending" else None,
         "outcome": outcome,
         "access_ends_at": _iso_ms(max(access_ends)) if access_ends else None,
         "ended_at": _iso_ms(max(ended)) if ended else None,
         "fields": fields,
+        **({"commerce": commerce} if commerce is not None else {}),
     }
 
 
@@ -340,6 +399,7 @@ def _share(
         "accessEndsAt": _iso_ms(expires_at),
         "_scope": scope,
         "_subject": subject_user_id,
+        "_token_id": str(status.get("token_id") or ""),
     }
 
 
@@ -376,16 +436,65 @@ class InformationRequestService:
         *,
         profiles: PersonProfileService | None = None,
         consent_db: ConsentDBService | None = None,
+        connection: Any = None,
     ) -> None:
         self._profiles = profiles or PersonProfileService()
         self._consent = consent_db or ConsentDBService()
+        self._connection = connection
 
-    @staticmethod
-    async def _rows(sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+    async def price_preview(
+        self,
+        *,
+        requester_user_id: str,
+        person_ref: str,
+        scope_refs: list[str],
+        duration_seconds: int,
+    ) -> dict:
+        from hushh_mcp.services.information_request_prices import information_request_prices
+        from hushh_mcp.services.scope_commerce import ScopeCommerceService
+
+        return await information_request_prices(
+            requester_user_id=requester_user_id,
+            person_ref=person_ref,
+            scope_refs=scope_refs,
+            duration_seconds=duration_seconds,
+            profiles=self._profiles,
+            commerce=ScopeCommerceService(),
+        )
+
+    async def _rows(self, sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+        if self._connection is not None:
+            from sqlalchemy import text
+            from sqlalchemy.dialects.postgresql.asyncpg import dialect
+
+            statement = text(sql).bindparams(**params).compile(dialect=dialect())
+            rows = await self._connection.fetch(
+                str(statement), *(params[key] for key in statement.positiontup)
+            )
+            return [dict(row) for row in rows]
+
         def execute() -> list[dict[str, Any]]:
             return [dict(row) for row in (get_db().execute_raw(sql, params).data or [])]
 
         return await asyncio.to_thread(execute)
+
+    async def _request_status(self, user_id: str, request_id: str) -> dict | None:
+        if self._connection is None:
+            return await self._consent.get_request_status(user_id, request_id)
+        row = await self._connection.fetchrow(
+            "SELECT * FROM consent_audit WHERE user_id=$1 AND request_id=$2 "
+            "AND action IN ('REQUESTED','CONSENT_PAID_APPROVED','CONSENT_PAID_FUNDED',"
+            "'CONSENT_GRANTED','CONSENT_DENIED','CANCELLED','REVOKED','TIMEOUT') "
+            "ORDER BY issued_at DESC,id DESC LIMIT 1",
+            user_id,
+            request_id,
+        )
+        if row is None:
+            return None
+        result = dict(row)
+        if isinstance(result.get("metadata"), str):
+            result["metadata"] = json.loads(result["metadata"])
+        return result
 
     async def _viewer(self, user_id: str) -> dict[str, Any]:
         rows = await self._rows(
@@ -426,6 +535,43 @@ class InformationRequestService:
         duration_seconds: int,
         connector_key_id: str,
         idempotency_key: str,
+        price_binding: str | None = None,
+    ) -> dict[str, Any]:
+        if price_binding is not None:
+            from hushh_mcp.services.information_request_prices import create_reviewed_request
+
+            return await create_reviewed_request(
+                self,
+                requester_user_id=requester_user_id,
+                person_ref=person_ref,
+                scope_refs=scope_refs,
+                purpose=purpose,
+                duration_seconds=duration_seconds,
+                connector_key_id=connector_key_id,
+                idempotency_key=idempotency_key,
+                price_binding=price_binding,
+            )
+        return await self._create(
+            requester_user_id=requester_user_id,
+            person_ref=person_ref,
+            scope_refs=scope_refs,
+            purpose=purpose,
+            duration_seconds=duration_seconds,
+            connector_key_id=connector_key_id,
+            idempotency_key=idempotency_key,
+        )
+
+    async def _create(
+        self,
+        *,
+        requester_user_id: str,
+        person_ref: str,
+        scope_refs: list[str],
+        purpose: str,
+        duration_seconds: int,
+        connector_key_id: str,
+        idempotency_key: str,
+        reviewed_prices: dict | None = None,
     ) -> dict[str, Any]:
         if not 1 <= len(scope_refs) <= 50 or len(set(scope_refs)) != len(scope_refs):
             raise InformationRequestError("Choose between 1 and 50 distinct fields.")
@@ -439,10 +585,14 @@ class InformationRequestService:
         if not 16 <= len(idempotency_key) <= 256:
             raise InformationRequestError("Idempotency key must be between 16 and 256 characters.")
 
-        viewer, connector = await asyncio.gather(
-            self._viewer(requester_user_id),
-            self._connector(requester_user_id, connector_key_id),
-        )
+        if self._connection is not None:
+            viewer = await self._viewer(requester_user_id)
+            connector = await self._connector(requester_user_id, connector_key_id)
+        else:
+            viewer, connector = await asyncio.gather(
+                self._viewer(requester_user_id),
+                self._connector(requester_user_id, connector_key_id),
+            )
         subject, scopes = await asyncio.to_thread(
             self._profiles.resolve_scope_refs,
             viewer_user_id=requester_user_id,
@@ -456,21 +606,22 @@ class InformationRequestService:
         ):
             raise InformationRequestError(UNREQUESTABLE_MESSAGE, status_code=403)
         subject_user_id = str(subject.get("user_id") or "")
+        if reviewed_prices is None:
+            await self._require_free_without_price_review(
+                owner_user_id=subject_user_id,
+                scopes=scopes,
+            )
         principal = requester_principal(str(viewer["public_person_ref"]))
         idem_hash = hashlib.sha256(f"{requester_user_id}|{idempotency_key}".encode()).hexdigest()
-        request_fingerprint = hashlib.sha256(
-            json.dumps(
-                {
-                    "personRef": person_ref,
-                    "scopeRefs": sorted(scope_refs),
-                    "purpose": purpose,
-                    "durationSeconds": duration_seconds,
-                    "connectorKeyId": connector_key_id,
-                },
-                separators=(",", ":"),
-                sort_keys=True,
-            ).encode()
-        ).hexdigest()
+        from hushh_mcp.services.information_request_prices import request_fingerprint as fingerprint
+
+        request_fingerprint = fingerprint(
+            person_ref=person_ref,
+            scope_refs=scope_refs,
+            purpose=purpose,
+            duration_seconds=duration_seconds,
+            connector_key_id=connector_key_id,
+        )
         bundle_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"hussh:information-request:{idem_hash}"))
         existing = await self._rows(
             """SELECT bundle_id, request_fingerprint FROM one_information_request_bundles
@@ -531,7 +682,12 @@ class InformationRequestService:
                 "The requesting device connector key is invalid. Register it again.",
                 status_code=409,
             ) from exc
-        for index, scope in enumerate(scopes, start=1):
+        ordered_scopes = (
+            sorted(scopes, key=lambda item: item["scopeRef"])
+            if reviewed_prices is not None
+            else scopes
+        )
+        for index, scope in enumerate(ordered_scopes, start=1):
             request_id = f"one_person_{uuid.uuid5(uuid.UUID(bundle_id), str(index)).hex}"
             await self._rows(
                 """INSERT INTO one_information_request_items
@@ -550,9 +706,18 @@ class InformationRequestService:
             # A retry after a process interruption may find the item row but
             # not its consent event. Reconcile against the consent authority
             # instead of treating the correlation row as completion.
-            current = await self._consent.get_request_status(subject_user_id, request_id)
+            current = await self._request_status(subject_user_id, request_id)
             if current:
                 continue
+            reviewed_amount = (
+                next(
+                    item["amountCoins"]
+                    for item in reviewed_prices["items"]
+                    if item["scopeRef"] == scope["scopeRef"]
+                )
+                if reviewed_prices is not None
+                else 0
+            )
             await self._consent.insert_event(
                 user_id=subject_user_id,
                 agent_id=principal,
@@ -567,6 +732,17 @@ class InformationRequestService:
                 poll_timeout_at=expires_at,
                 metadata={
                     "request_source": "one_person_profile",
+                    **(
+                        {
+                            "commercial_required": reviewed_amount > 0,
+                            "upfront_price_reviewed": True,
+                            "request_price_coins": reviewed_amount,
+                            "bundle_price_coins": reviewed_prices["totalCoins"],
+                            "commerce_status": "awaiting_owner" if reviewed_amount > 0 else "free",
+                        }
+                        if reviewed_prices is not None
+                        else {}
+                    ),
                     # Person requests use the same strict zero-knowledge export
                     # envelope as MCP developer requests, but the requesting
                     # person remains the distinct first-party principal.  The
@@ -577,6 +753,9 @@ class InformationRequestService:
                     or scope_handle_for_machine_scope(subject_user_id, str(scope["scope"])),
                     "scope_contract_version": 2,
                     "expiry_hours": expiry_hours,
+                    "refresh_policy": (
+                        "continuous_until_expiry" if duration_seconds > 0 else "snapshot"
+                    ),
                     "requester_actor_type": "person",
                     "requester_entity_id": str(viewer["public_person_ref"]),
                     "requester_label": str(viewer.get("display_name") or "A Hussh member"),
@@ -596,6 +775,7 @@ class InformationRequestService:
                         request_id=request_id, bundle_id=bundle_id, view="pending"
                     ),
                 },
+                **({"connection": self._connection} if self._connection is not None else {}),
             )
         return await self.get(requester_user_id=requester_user_id, bundle_id=bundle_id)
 
@@ -708,6 +888,80 @@ class InformationRequestService:
             ),
         }
 
+    async def _require_free_without_price_review(
+        self, *, owner_user_id: str, scopes: list[dict[str, Any]]
+    ) -> None:
+        """Refuse unquoted requests when the owner published a positive price."""
+        expected_pairs = {
+            (
+                str(
+                    scope.get("registry_handle")
+                    or scope_handle_for_machine_scope(owner_user_id, str(scope.get("scope") or ""))
+                ),
+                str(scope.get("scope") or ""),
+            )
+            for scope in scopes
+            if str(scope.get("scope") or "").startswith("attr.")
+        }
+        if not expected_pairs:
+            return
+        from asyncpg import UndefinedTableError
+
+        from db.connection import get_pool
+
+        conn = self._connection
+        if conn is None:
+            if type(self._consent) is not ConsentDBService:
+                return
+            pool = await get_pool()
+            if pool.__class__.__module__.startswith("db.offline"):
+                return
+            handles = sorted({pair[0] for pair in expected_pairs})
+            machine_scopes = sorted({pair[1] for pair in expected_pairs})
+            async with pool.acquire() as acquired:
+                try:
+                    rows = await acquired.fetch(
+                        """SELECT DISTINCT ON (scope_handle, machine_scope)
+                                  scope_handle, machine_scope, price_cents
+                           FROM scope_commerce_tariffs
+                           WHERE owner_user_id = $1
+                             AND scope_handle = ANY($2::text[])
+                             AND machine_scope = ANY($3::text[])
+                           ORDER BY scope_handle, machine_scope, revision DESC""",
+                        owner_user_id,
+                        handles,
+                        machine_scopes,
+                    )
+                except UndefinedTableError:
+                    return
+        else:
+            handles = sorted({pair[0] for pair in expected_pairs})
+            machine_scopes = sorted({pair[1] for pair in expected_pairs})
+            try:
+                rows = await conn.fetch(
+                    """SELECT DISTINCT ON (scope_handle, machine_scope)
+                              scope_handle, machine_scope, price_cents
+                       FROM scope_commerce_tariffs
+                       WHERE owner_user_id = $1
+                         AND scope_handle = ANY($2::text[])
+                         AND machine_scope = ANY($3::text[])
+                       ORDER BY scope_handle, machine_scope, revision DESC""",
+                    owner_user_id,
+                    handles,
+                    machine_scopes,
+                )
+            except UndefinedTableError:
+                return
+        if any(
+            (str(row["scope_handle"]), str(row["machine_scope"])) in expected_pairs
+            and int(row.get("price_cents") or 0) > 0
+            for row in rows
+        ):
+            raise InformationRequestError(
+                "Review and confirm the request price before sending.",
+                status_code=409,
+            )
+
     async def _progress_rows(
         self, bundle: dict[str, Any], items: list[dict[str, Any]]
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -725,7 +979,7 @@ class InformationRequestService:
         )
         events = await self._consent.list_internal_request_events(
             request_ids,
-            actions=["NOTIFICATION_SENT", "NOTIFICATION_OPENED"],
+            actions=["NOTIFICATION_SENT"],
             user_id=subject_user_id,
         )
         notifications = [row for row in events if str(row.get("user_id") or "") == subject_user_id]
@@ -913,13 +1167,31 @@ class InformationRequestService:
         now_ms = int(time.time() * 1000)
         granted: list[dict[str, Any]] = []
         people: dict[str, tuple[str, str]] = {}
+        statuses_by_subject: dict[str, dict[str, dict[str, Any]]] = {}
+        batch_statuses_fn = (
+            getattr(self._consent, "get_request_statuses", None)
+            if self._connection is None
+            else None
+        )
+        if callable(batch_statuses_fn) and rows:
+            req_ids_by_subject: dict[str, list[str]] = {}
+            for row in rows:
+                subj = str(row["subject_user_id"])
+                req_ids_by_subject.setdefault(subj, []).append(str(row["request_id"]))
+            for subj, req_ids in req_ids_by_subject.items():
+                statuses_by_subject[subj] = await batch_statuses_fn(subj, req_ids)
         for row in rows:
             subject_user_id = str(row["subject_user_id"])
             people.setdefault(
                 subject_user_id,
                 (str(row.get("public_person_ref") or ""), str(row.get("display_name") or "")),
             )
-            status = await self._consent.get_request_status(subject_user_id, str(row["request_id"]))
+            req_id = str(row["request_id"])
+            status = (
+                statuses_by_subject.get(subject_user_id, {}).get(req_id)
+                if subject_user_id in statuses_by_subject
+                else await self._request_status(subject_user_id, req_id)
+            )
             if not _active_grant(status, now_ms):
                 continue
             granted.append(
@@ -961,7 +1233,17 @@ class InformationRequestService:
             )
         )
         await self._attach_field_outlines(requester_user_id, granted)
+        token_ids = [
+            str(share.get("_token_id") or "") for share in granted if share.get("_token_id")
+        ]
+        revisions_fn = getattr(self._consent, "get_active_token_export_revisions", None)
+        export_revisions = (
+            await revisions_fn(token_ids) if callable(revisions_fn) and token_ids else {}
+        )
         for share in granted:
+            token_id = str(share.pop("_token_id", "") or "")
+            if token_id and token_id in export_revisions:
+                share["exportRevision"] = export_revisions[token_id]
             share.pop("_scope", None)
             share.pop("_subject", None)
         return granted
@@ -1084,7 +1366,7 @@ class InformationRequestService:
         now_ms = int(time.time() * 1000)
         pending: list[tuple[dict[str, Any], dict[str, Any]]] = []
         for item in items:
-            status = await self._consent.get_request_status(
+            status = await self._request_status(
                 str(bundle["subject_user_id"]), str(item["request_id"])
             )
             if str((status or {}).get("action") or "REQUESTED") != "REQUESTED":
@@ -1099,6 +1381,22 @@ class InformationRequestService:
             raise InformationRequestError(
                 "This information request is no longer pending.", status_code=409
             )
+        if self._connection is None and any(
+            (status.get("metadata") or {}).get("upfront_price_reviewed") is True
+            for _, status in pending
+        ):
+            from db.connection import get_pool
+            from hushh_mcp.services.scope_commerce.service import COMMERCE_GATE
+
+            pool = await get_pool()
+            if not pool.__class__.__module__.startswith("db.offline"):
+                async with pool.acquire() as conn, conn.transaction():
+                    await conn.execute("SELECT pg_advisory_xact_lock($1)", COMMERCE_GATE)
+                    return await InformationRequestService(
+                        profiles=self._profiles,
+                        consent_db=self._consent,
+                        connection=conn,
+                    ).cancel(requester_user_id=requester_user_id, bundle_id=bundle_id)
         for item, status in pending:
             await self._consent.insert_event(
                 user_id=str(bundle["subject_user_id"]),
@@ -1115,8 +1413,14 @@ class InformationRequestService:
                     # the raw principal id.
                     **requester_identity_metadata(status.get("metadata")),
                     "cancelled_by_requester": True,
+                    **(
+                        {"upfront_price_reviewed": True}
+                        if (status.get("metadata") or {}).get("upfront_price_reviewed") is True
+                        else {}
+                    ),
                     "bundle_id": bundle_id,
                 },
+                **({"connection": self._connection} if self._connection is not None else {}),
             )
         await self._rows(
             "UPDATE one_information_request_bundles SET cancelled_at = COALESCE(cancelled_at, NOW()) WHERE bundle_id = CAST(:bundle AS UUID) RETURNING bundle_id",
@@ -1164,7 +1468,7 @@ class InformationRequestService:
         exports = []
         now_ms = int(time.time() * 1000)
         for item in items:
-            status = await self._consent.get_request_status(
+            status = await self._request_status(
                 str(bundle["subject_user_id"]), str(item["request_id"])
             )
             if str((status or {}).get("action") or "") != "CONSENT_GRANTED" or not (

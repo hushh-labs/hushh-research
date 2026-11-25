@@ -1,5 +1,7 @@
 import Capacitor
 import SwiftUI
+
+private let nativeDockRestingHeight: CGFloat = 52
 import UIKit
 
 /// Geometry only. Equal-height keyboard movement still needs an ordered receipt.
@@ -74,19 +76,20 @@ struct HushhDockFence {
         emissions.removeValue(forKey: event - 256)
         return event
     }
-    mutating func confirm(_ requested: Identity, sequence: Int, applied: Int, editRevision: Int, kind: String, allowed: Bool) -> Bool {
+    mutating func confirm(_ requested: Identity, sequence: Int, applied: Int, editRevision: Int, kind: String, action: String? = nil, allowed: Bool) -> Bool {
         guard allowed, identity == requested, sequence > confirmed,
               let emission = emissions[sequence], emission.update == applied,
-              emission.edit == editRevision, emission.kind == kind,
+              emission.edit == editRevision, emission.kind == kind, action == nil || emission.action == action,
               kind != "action" || applied == update && editRevision == edit else { return false }
         confirmed = sequence
         confirmedEmission = emission
         emissions = emissions.filter { $0.key > sequence }
         return true
     }
-    mutating func consume(_ requested: Identity, sequence: Int, editRevision: Int, allowed: Bool) -> Bool {
+    mutating func consume(_ requested: Identity, sequence: Int, editRevision: Int, action: String, allowed: Bool) -> Bool {
         guard allowed, identity == requested, sequence == confirmed, sequence > consumedSequence,
-              confirmedEmission?.kind == "action", confirmedEmission?.action == "send",
+              confirmedEmission?.kind == "action",
+              confirmedAction == action, action == "send" || action == "send-now",
               confirmedEmission?.edit == editRevision, edit == editRevision else { return false }
         consumedSequence = sequence
         edited()
@@ -119,6 +122,7 @@ final class NativeDockModel: ObservableObject {
     @Published var awaitingConsumption = false
     @Published var awaitingTransition = false
     @Published var sendEnabled = false
+    @Published var sendNowEnabled = false
     @Published var micEnabled = false
     @Published var cancelEnabled = false
     @Published var recording = false
@@ -132,7 +136,8 @@ final class NativeDockModel: ObservableObject {
     @Published var accentForeground = UIColor.white
     weak var editor: DockTextView?
     var emit: ((String, String?, String?, String?, NSRange?) -> Void)?
-    var changedHeight: (() -> Void)?
+    var changedHeight: ((CGFloat?) -> Void)?
+    var canSendNow: Bool { mode == "text" && sendEnabled && sendNowEnabled }
     func action(_ name: String, attachment: String? = nil) {
         guard visible, interactionEnabled, editor?.markedTextRange == nil else { return }
         emit?("action", name, attachment, nil, nil)
@@ -205,7 +210,7 @@ final class NativeDockPlacement {
         dock.translatesAutoresizingMaskIntoConstraints = false
         leading = dock.leadingAnchor.constraint(equalTo: parent.leadingAnchor)
         width = dock.widthAnchor.constraint(equalToConstant: 1)
-        height = dock.heightAnchor.constraint(equalToConstant: 68)
+        height = dock.heightAnchor.constraint(equalToConstant: nativeDockRestingHeight)
         bottom = dock.bottomAnchor.constraint(equalTo: parent.topAnchor)
         // A short landscape viewport may compress the editor, but never push
         // it through the keyboard or above the safe header region.
@@ -253,7 +258,10 @@ struct NativeDockEditor: UIViewRepresentable {
         editor.accessibilityIdentifier = "native-dock-editor"
         editor.returnKeyType = .default
         editor.keyboardDismissMode = .interactive
-        editor.submit = { [weak model] in if model?.sendEnabled == true { model?.action("send") } }
+        editor.submit = { [weak model] in
+            guard let model, model.sendEnabled else { return }
+            model.action(model.canSendNow ? "send-now" : "send")
+        }
         model.editor = editor
         return editor
     }
@@ -292,7 +300,7 @@ struct NativeDockEditor: UIViewRepresentable {
             (textView as? DockTextView)?.refreshPlaceholder()
             model.text = textView.text
             model.emit?("edit", nil, nil, textView.text, textView.selectedRange)
-            model.changedHeight?()
+            model.changedHeight?(nil)
         }
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
             guard model.editable, model.visible, model.interactionEnabled,
@@ -374,6 +382,10 @@ struct NativeAgentDockView: View {
                                     else if Date().timeIntervalSince(began) >= 0.25 { model.action("capture-finish") }
                                 })
                     }
+                    if model.canSendNow {
+                        dockButton("bolt.fill", "Send immediately", foreground: .primary) { model.action("send-now") }
+                            .disabled(model.awaitingConsumption || model.awaitingTransition)
+                    }
                     if model.mode == "text" && !model.expanded {
                         if model.cancelEnabled {
                             dockButton("stop.fill", "Stop One", prominent: true) { model.action("cancel") }
@@ -399,19 +411,25 @@ struct NativeAgentDockView: View {
                     if model.mode == "text" && model.expanded {
                         dockButton("arrow.down.right.and.arrow.up.left", "Finish editing") { model.action("collapse") }
                     }
-                }.padding(.vertical, model.expanded ? 4 : 12).padding(.trailing, model.expanded ? 6 : 12)
+                }.padding(.vertical, 4).padding(.trailing, model.expanded ? 6 : 8)
             }
-            .glassEffect(.regular, in: .rect(cornerRadius: 24))
+            // SwiftUI can lay out a new attachment row after apply measures
+            // the old composer. Resize the UIKit hit area from the laid-out
+            // content so the visible chip and its touch target stay together.
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
+                model.changedHeight?(height)
+            }
+            .glassEffect(.regular, in: .rect(cornerRadius: 26))
             .glassEffectID("agent-dock", in: glass)
         }
         .tint(Color(uiColor: model.accent))
         .accessibilityElement(children: .contain)
     }
-    private func dockButton(_ symbol: String, _ label: String, prominent: Bool = false, action: @escaping () -> Void) -> some View {
+    private func dockButton(_ symbol: String, _ label: String, prominent: Bool = false, foreground: Color? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: glyphSize, weight: .semibold))
-                .foregroundStyle(Color(uiColor: prominent ? model.accentForeground : model.accent))
+                .foregroundStyle(foreground ?? Color(uiColor: prominent ? model.accentForeground : model.accent))
                 .frame(width: actionSize, height: actionSize)
                 // Filled actions and plain glyphs share a 44-point target.
                 // The outer dock alone owns the glass material.
@@ -619,6 +637,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             self.model.expanded = call.getBool("expanded") ?? false
             self.model.editable = call.getBool("editable") ?? false
             self.model.sendEnabled = call.getBool("sendEnabled") ?? false
+            self.model.sendNowEnabled = call.getBool("sendNowEnabled") ?? false
             self.model.micEnabled = call.getBool("micEnabled") ?? false
             self.model.cancelEnabled = call.getBool("cancelEnabled") ?? false
             self.model.recording = call.getBool("recording") ?? false
@@ -632,7 +651,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
                 return (id, label, item["editable"] as? Bool ?? false)
             }
             self.model.emit = { [weak self] kind, action, attachment, text, range in self?.emit(kind: kind, action: action, attachment: attachment, text: text, range: range) }
-            self.model.changedHeight = { [weak self] in self?.layoutDock() }
+            self.model.changedHeight = { [weak self] height in self?.layoutDock(contentHeight: height) }
             guard let parent = self.bridge?.viewController else { self.rejectApply(call, code: "NATIVE_DOCK_HOST_MISSING"); return }
             if self.hosting == nil {
                 let host = NativeDockHostingController(rootView: NativeAgentDockView(model: self.model))
@@ -673,11 +692,12 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     @MainActor
-    func layoutDock() {
+    func layoutDock(contentHeight: CGFloat? = nil) {
         guard #available(iOS 26.0, *), let parent = bridge?.viewController, let host = hosting else { return }
         let scale = parent.view.bounds.width / max(1, viewport.width)
         guard let dockHost = host as? NativeDockHostingController else { return }
-        let desired = min(340, max(68, dockHost.sizeThatFits(in: CGSize(width: frame.width * scale, height: 340)).height))
+        let height = contentHeight ?? dockHost.sizeThatFits(in: CGSize(width: frame.width * scale, height: 340)).height
+        let desired = min(340, max(nativeDockRestingHeight, height))
         if placement?.update(frame: CGRect(x: frame.minX * scale, y: frame.minY * scale,
             width: frame.width * scale, height: frame.height * scale), height: desired, editing: model.mode == "text") == true {
             parent.view.setNeedsLayout()
@@ -720,7 +740,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             // WK drawers cannot interleave with foreground UIKit controls.
             // Retain the editor/host, but conceal the foreground pilot until
             // the current React owner acknowledges fresh admission.
-            self.hosting?.view.isHidden = self.compositor == nil || !self.safe
+            self.hosting?.view.isHidden = true
             self.hosting?.view.accessibilityElementsHidden = true
             self.compositor?.setAdmission("agent-dock", admitted: false)
             call.resolve(self.ack(identity, sequence: self.fence.update, phase: "active"))
@@ -755,6 +775,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
                   let kind = call.getString("kind") else { call.resolve(["valid": false]); return }
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
             let valid = self.fence.confirm(identity, sequence: sequence, applied: applied, editRevision: editRevision, kind: kind,
+                action: call.getString("action"),
                 allowed: self.safe && self.requestedVisible && self.model.visible && self.model.interactionEnabled && self.compositor?.interactionIsolated != true && call.getString("context") == self.context &&
                     call.getInt("editorRevision") == (self.model.mode == "text" ? self.editorRevision : 0) &&
                     call.getInt("privacyGeneration") == privacy.generation)
@@ -788,8 +809,10 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
                 call.resolve(["consumed": false, "editRevision": 0]); return
             }
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
-            let consumed = self.fence.consume(identity, sequence: sequence, editRevision: edit,
-                allowed: self.safe && self.compositor?.interactionIsolated != true && self.model.visible && self.model.interactionEnabled && self.model.mode == "text" && self.model.sendEnabled &&
+            let action = call.getString("action") ?? "send" // Older callers could only consume Send.
+            let sendAllowed = action == "send-now" ? self.model.canSendNow : self.model.sendEnabled
+            let consumed = self.fence.consume(identity, sequence: sequence, editRevision: edit, action: action,
+                allowed: self.safe && self.compositor?.interactionIsolated != true && self.model.visible && self.model.interactionEnabled && self.model.mode == "text" && sendAllowed &&
                     self.model.editor?.markedTextRange == nil && call.getString("context") == self.context &&
                     call.getInt("privacyGeneration") == privacy.generation)
             if consumed {
@@ -847,7 +870,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
         var result = identityPayload(identity)
         result["updateSequence"] = sequence
         result["phase"] = phase
-        result["height"] = Double(hosting?.view.bounds.height ?? 68)
+        result["height"] = Double(hosting?.view.bounds.height ?? nativeDockRestingHeight)
         if phase == "active", let layout = currentLayout() { result["layout"] = layout }
         return result
     }

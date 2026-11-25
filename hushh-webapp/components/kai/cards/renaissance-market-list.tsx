@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
+import { NativeFinanceLayer, useNativeFinancePaneActive } from "@/components/kai/native-finance-workspace";
+import type { NativeWorkspaceSurfaceSection, NativeWorkspaceSurfaceRow } from "@/lib/capacitor/native-workspace-surface";
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { StockDetailContent, type StockHistoryLoader } from "@/components/kai/cards/stock-detail-content";
 import styles from "@/components/kai/shared/finance-workspace.module.css";
 import { StockListToolbar } from "@/components/kai/cards/stock-list-toolbar";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
+import { SymbolAvatar, symbolAvatarFallback } from "@/components/kai/shared/symbol-avatar";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { Button } from "@/components/ui/button";
 import { SettingsGroup } from "@/components/profile/settings-ui";
@@ -72,8 +74,14 @@ export function RiaPicksList({
   loadQuote,
   toolbarActions,
   news = [],
+  nativeStatus = [],
+  onHistory,
+  historyOpen = false,
   loadCompanyNews,
 }: {
+  nativeStatus?: NativeWorkspaceSurfaceRow[];
+  onHistory?: () => void;
+  historyOpen?: boolean;
   rows?: KaiHomeRenaissanceItem[];
   sources?: KaiHomePickSource[];
   activeSourceId?: string;
@@ -88,6 +96,7 @@ export function RiaPicksList({
   news?: KaiHomeNewsItem[];
   loadCompanyNews?: (symbol: string, signal: AbortSignal) => Promise<KaiHomeNewsItem[]>;
 }) {
+  const nativeActive = useNativeFinancePaneActive("analysis");
   useMarketCurrency();
   const isMobile = useIsMobile();
   void controlMode;
@@ -198,7 +207,7 @@ export function RiaPicksList({
   }, [loadCompanyFacts, visibleSymbolsKey, rows]);
   const selectedFacts = selectedRow ? factsBySymbol[selectedRow.quote_symbol || selectedRow.symbol] || selectedRow.company_facts : undefined;
 
-  return (
+  const content = (
     <div className={cn(styles.detail, "space-y-4")}>
       <StockListToolbar query={query} setQuery={setQuery} tier={tierFilter} setTier={setTierFilter}
         sector={sectorFilter} setSector={setSectorFilter} sectors={sectors}
@@ -350,6 +359,29 @@ export function RiaPicksList({
       </KaiControlSurface>
     </div>
   );
+
+  if (!nativeActive) return content;
+  const filters: NativeWorkspaceSurfaceRow[] = [];
+  if (availableSources.length > 1) filters.push({ key: "list-source", label: "List source", enabled: Boolean(onSourceChange), choices: availableSources.map(source => ({ key: source.id, label: `${source.label}${source.state === "ready" ? "" : ` · ${source.state}`}`, selected: source.id === activeSource?.id, run: () => onSourceChange?.(source.id) })) });
+  filters.push({ key: "tier", label: "Tier", choices: ["all", "ACE", "KING", "QUEEN", "JACK"].map(value => ({ key: value, label: value === "all" ? "All tiers" : value, selected: tierFilter === value, run: () => setTierFilter(value) })) });
+  if (sectors.length) filters.push({ key: "sector", label: "Sector", choices: ["all", ...sectors].map(value => ({ key: value, label: value === "all" ? "All sectors" : value, selected: sectorFilter === value, run: () => setSectorFilter(value) })) });
+  const companies: NativeWorkspaceSurfaceRow[] = currentPageRows.map((row, index) => {
+    const cap = factsBySymbol[row.quote_symbol || row.symbol]?.market_cap ?? row.company_facts?.market_cap ?? row.market_cap;
+    const change = typeof row.change_pct === "number" && Number.isFinite(row.change_pct) ? row.change_pct : undefined;
+    return { key: `company:${row.quote_symbol || row.symbol}:${index}`, label: row.symbol, finance: { kind: "security", symbol: row.quote_symbol || row.symbol, artwork: symbolAvatarFallback(row.quote_symbol || row.symbol),
+      price: formatCurrency(row.price), ...(change === undefined ? {} : { change }), metadata: [row.company_name || row.symbol, row.sector, row.tier || "CORE", typeof cap === "number" && cap > 0 ? `${formatCompactNumber(cap)} cap` : "Cap unavailable", row.degraded ? "Delayed" : null].filter(Boolean).join(" · "),
+      ...(change === undefined ? { note: "Change unavailable" } : {}) }, web: true, run: () => setSelectedRow(row) };
+  });
+  if (!companies.length) companies.push({ key: "no-stocks", label: rows.length ? "No stocks match the current filters." : `No stocks are available in ${activeSource?.label || "this list"}.` });
+  const visibleStart = filteredRows.length === 0 ? 0 : 1;
+  const visibleEnd = currentPageRows.length;
+  const sections: NativeWorkspaceSurfaceSection[] = [
+    { key: "stock-controls", rows: [...nativeStatus, ...(onHistory ? [{ key: "history", label: "History", web: true, run: onHistory }] : [])] },
+    { key: "stock-filters", layout: "toolbar", rows: filters },
+    { key: "companies", title: `${visibleStart}–${visibleEnd} of ${filteredRows.length} companies`, rows: companies },
+    ...(hasMoreRows ? [{ key: "pages", rows: [{ key: "show-more", label: "Show more", run: () => setVisibleCount((count) => count + PICKS_BATCH_SIZE) }] }] : []),
+  ];
+  return <NativeFinanceLayer pane="analysis" active contentPresentation="native" title="Stocks" sections={sections} viewKey={`${activeSourceId}:${visibleCount}:${tierFilter}:${sectorFilter}`} search={{ query, label: "Search stocks", change: setQuery }} webChild={Boolean(selectedRow) || historyOpen} fallback={content} />;
 }
 
 export const RenaissanceMarketList = RiaPicksList;

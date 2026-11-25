@@ -82,7 +82,7 @@ export function CloudAiChoice({ placement, title, disabled, requiresExplicitSele
                   type="button"
                   disabled={disabled}
                   onClick={onSelect}
-                  aria-pressed={mode === "hushh_managed_vertex"}
+                  aria-pressed={mode === "hushh_managed_vertex" && hasExplicitSelection && !otherProvider}
                 />
               )}
             </SettingsRow>

@@ -35,6 +35,7 @@ vi.mock("@/lib/firebase/auth-context", () => ({
 vi.mock("@/lib/agent/agent-pkm-memory", () => ({ clearAgentPkmContext: vi.fn() }));
 vi.mock("@/lib/agent/agent-chat-history-cache", () => ({
   clearAgentChatHistoryCache: vi.fn(),
+  hydrateAgentChatHistoryFromEncryptedCache: vi.fn().mockResolvedValue(null),
   warmAgentChatHistoryCache: vi.fn(),
 }));
 vi.mock("@/lib/cache/cache-sync-service", () => ({

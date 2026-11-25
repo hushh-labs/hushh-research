@@ -22,7 +22,6 @@ import {
   SearchIcon,
   XIcon,
 } from "@/components/icons";
-import { ProfilePaneConnectorsIcon } from "@/components/profile/profile-pane-icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
@@ -41,12 +40,13 @@ import {
 } from "@/lib/navigation/use-deep-link-return";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
-import { CONNECTOR_ARTWORK, connectorArtworkId } from "@/lib/profile/connector-artwork";
+import { ConnectorVectorGlyph } from "./connector-brand-mark";
 import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connection-status";
 import { googleCalendarPermissions, type CalendarPermission } from "@/lib/calendar/calendar-permissions";
 import { CalendarPermissionList } from "@/components/calendar/calendar-permission-list";
 import { usePkmDomainResource } from "@/lib/pkm/pkm-domain-resource";
-import { connectVaultPlaid, disconnectVaultPlaid, vaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
+import { summarizePlaidVaultProjection } from "@/lib/kai/plaid-vault/projection-summary";
+import { connectVaultPlaid, disconnectVaultPlaid, refreshVaultConnections, vaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
 import {
   createGmailOAuthPopupAttempt,
   openGmailOAuthPopup,
@@ -175,7 +175,8 @@ export type ConnectorDetailAction = { label: string; disabled: boolean; run: () 
 /** Feature facts and existing commands, not a native UI schema or service port. */
 export type ConnectorDetailPresentation =
   | { kind: "private-google" | "private-stripe"; status: string; purpose: string; message: string; notes: readonly string[];
-      busy: boolean; actions: readonly ConnectorDetailAction[]; permissions?: readonly CalendarPermission[] }
+      busy: boolean; actions: readonly ConnectorDetailAction[]; permissions?: readonly CalendarPermission[];
+      background?: { enabled: boolean | null; description: string; busy: boolean; change: (next: boolean) => void } | null }
   | { kind: "social"; network: "instagram" | "linkedin"; link: string; current: () => boolean; inputRevision: () => number; changeLink: (link: string, expectedRevision?: number) => boolean }
   | { kind: "drive"; account: string; status: string; message: string; notes: readonly string[]; connected: boolean; busy: boolean; mutationPending: () => boolean;
       actions: readonly ConnectorDetailAction[]; background: { enabled: boolean | null; description: string; busy: boolean; change: (next: boolean) => void; retry?: ConnectorDetailAction } | null;
@@ -254,45 +255,17 @@ function ConnectorActionLabel({ entry }: { entry: ConnectorListEntry }) {
   );
 }
 
-const CONNECTOR_LOGOS: Record<string, string> = Object.fromEntries(Object.entries(CONNECTOR_ARTWORK)
-  .filter(([, value]) => value.file.endsWith(".svg")).map(([id, value]) => [id, value.file.slice(0, -4)]));
-const MONOCHROME_LOGOS = new Set(Object.entries(CONNECTOR_ARTWORK).filter(([, value]) => value.monochrome).map(([id]) => id));
-
 /**
  * Profile's leading glyph: the connector's own mark, bare, in the same 28px
  * well and 22px optical size as every other Profile row icon. No tile.
  * A connector without a mark takes the registry's connections glyph.
  */
 function ProfileConnectorGlyph({ id }: { id: string }) {
-  const key = connectorArtworkId(id), artwork = key ? CONNECTOR_ARTWORK[key] : null;
-  return (
-    <span className="inline-flex size-6 shrink-0 items-center justify-center" aria-hidden="true">
-      {artwork && "crop" in artwork ? (
-        <svg viewBox={`${artwork.crop.left} ${artwork.crop.top} ${artwork.crop.width} ${artwork.crop.height}`} className="size-[22px]" aria-hidden="true">
-          <image href={`/icons/connectors/${artwork.file}`} width="1920" height="1080" />
-        </svg>
-      ) : artwork ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={`/icons/connectors/${artwork.file}`} alt="" className={`size-[22px] object-contain${artwork.monochrome ? " dark:invert" : ""}`} />
-      ) : (
-        <ProfilePaneConnectorsIcon size={22} />
-      )}
-    </span>
-  );
+  return <ConnectorVectorGlyph id={id} variant="profile" />;
 }
 
 function ConnectorGlyph({ id }: { id: string }) {
-  const logo = CONNECTOR_LOGOS[id];
-  return (
-    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-background text-foreground shadow-sm" aria-hidden="true">
-      {logo ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={`/icons/connectors/${logo}.svg`} alt="" className={`size-6 object-contain${MONOCHROME_LOGOS.has(id) ? " dark:invert" : ""}`} />
-      ) : (
-        <span className="text-sm font-semibold">{id === "instagram" ? "IG" : id === "linkedin" ? "in" : "•"}</span>
-      )}
-    </span>
-  );
+  return <ConnectorVectorGlyph id={id} variant="tile" />;
 }
 
 /**
@@ -663,6 +636,9 @@ function OwnerConnectorsPanel({
   const plaidConnections = vaultKey && vaultOwnerToken && financial.data
     ? Object.values(vaultConnections(financial.data.data))
     : [];
+  const plaidProjection = summarizePlaidVaultProjection(
+    vaultKey && vaultOwnerToken ? financial.data?.data : null,
+  );
   const refresh = useCallback(async (signal?: AbortSignal, verifyDrive = false) => {
     const token = currentToken.current;
     if (!token) {
@@ -2208,6 +2184,9 @@ function OwnerConnectorsPanel({
     {
       id: "plaid",
       name: "Plaid",
+      accountDetail: plaidConnections.length
+        ? `${plaidConnections.length} connected ${plaidConnections.length === 1 ? "bank" : "banks"}`
+        : undefined,
       connected: plaidConnections.length > 0,
       onOpen: () => showConnector("plaid"),
       pending: disconnecting.plaid ? "disconnect" : undefined,
@@ -2218,7 +2197,9 @@ function OwnerConnectorsPanel({
           ? "Checking connection…"
           : plaidConnections.some((item) => item.status === "needs_relink")
             ? "Sign-in needed"
-            : undefined,
+            : plaidConnections.length
+              ? "Connected"
+              : "Link bank & investment accounts",
     },
     ...(surface === "profile" ? ["instagram", "linkedin"].map((id): ConnectorListEntry => ({
       id,
@@ -2508,7 +2489,18 @@ function OwnerConnectorsPanel({
       if (liveUnlockOwner.current !== unlockOwner) return;
       setPlaidMessage(result.status === "connected" ? "Bank connected." :
         result.status === "blocked" ? result.reason : "");
-      if (result.status === "connected") await financial.refresh({ force: true });
+      if (result.status === "connected") {
+        await financial.refresh({ force: true });
+        const { syncPlaidPostureToPersonalWikiBestEffort } = await import(
+          "@/lib/kai/plaid-vault/wiki-posture-sync"
+        );
+        await syncPlaidPostureToPersonalWikiBestEffort({
+          userId: applicationOwnerId,
+          vaultKey,
+          vaultOwnerToken,
+          financial: financial.data?.data,
+        });
+      }
     } catch {
       if (liveUnlockOwner.current === unlockOwner) setPlaidMessage("Could not connect that bank. Try again.");
     } finally {
@@ -2519,14 +2511,80 @@ function OwnerConnectorsPanel({
     }
   }
 
+  async function refreshPlaidLive() {
+    if (!applicationOwnerId || !vaultOwnerToken || !vaultKey || plaidBusy ||
+        liveUnlockOwner.current !== unlockOwner || changesInFlight.current.has("plaid:refresh")) return;
+    changesInFlight.current.add("plaid:refresh");
+    setPlaidBusy(true);
+    setPlaidMessage("Refreshing live bank data…");
+    try {
+      const outcome = await refreshVaultConnections({
+        userId: applicationOwnerId,
+        vaultKey,
+        vaultOwnerToken,
+        financial: financial.data?.data,
+        force: true,
+      });
+      if (liveUnlockOwner.current !== unlockOwner) return;
+      await financial.refresh?.({ force: true });
+      if (outcome.refreshed > 0) {
+        const { syncPlaidPostureToPersonalWikiBestEffort } = await import(
+          "@/lib/kai/plaid-vault/wiki-posture-sync"
+        );
+        await syncPlaidPostureToPersonalWikiBestEffort({
+          userId: applicationOwnerId,
+          vaultKey,
+          vaultOwnerToken,
+          financial: financial.data?.data,
+        });
+      }
+      if (liveUnlockOwner.current !== unlockOwner) return;
+      setPlaidMessage(
+        outcome.needsRelink.length > 0
+          ? "Reconnect needed before refreshing."
+          : outcome.refreshed > 0
+            ? "Live bank snapshot updated."
+            : outcome.failed > 0
+              ? "Could not refresh live bank data. Try again."
+              : "Bank records are already up to date.",
+      );
+    } catch {
+      if (liveUnlockOwner.current === unlockOwner) setPlaidMessage("Could not refresh live bank data. Try again.");
+    } finally {
+      if (liveUnlockOwner.current === unlockOwner) {
+        changesInFlight.current.delete("plaid:refresh");
+        setPlaidBusy(false);
+      }
+    }
+  }
+
   const plaidDetail: Extract<ConnectorDetailPresentation, { kind: "plaid" }> = {
     kind: "plaid", status: financial.error ? "Could not check bank connections." : financial.loading ? "Checking bank connections…" : plaidConnections.length ? `${plaidConnections.length} connected ${plaidConnections.length === 1 ? "bank" : "banks"}` : "No banks connected",
-    message: plaidBusy && !changesInFlight.current.has("plaid:connect") ? "Disconnecting bank…" : plaidMessage,
+    message:
+      plaidBusy && changesInFlight.current.has("plaid:refresh")
+        ? "Refreshing live bank data…"
+        : plaidBusy && !changesInFlight.current.has("plaid:connect")
+          ? "Disconnecting bank…"
+          : plaidMessage,
     banks: Object.entries(vaultConnections(financial.data?.data)).map(([itemId, connection]) => ({
-      key: itemId, name: connection.institution_name || "Bank connection", status: connection.status === "needs_relink" ? "Reconnect needed" : "Connected",
+      key: itemId, name: connection.institution_name || "Bank connection",
+      status: [
+        connection.status === "needs_relink" ? "Reconnect needed" : "Connected",
+        plaidProjection.byItemId[itemId]?.summaryLabel ?? null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
       disconnect: detailAction("Disconnect", plaidBusy, () => setConfirm(`plaid:${itemId}`), true),
     })),
-    ...(!plaidConnections.length && !financial.loading && !financial.error ? { connect: detailAction("Connect a bank", plaidBusy, () => { void connectPlaidFromChat(); }) } : {}),
+    ...(!financial.loading && !financial.error
+      ? {
+          connect: detailAction(
+            plaidConnections.length > 0 ? "Add bank" : "Connect a bank",
+            plaidBusy,
+            () => { void connectPlaidFromChat(); },
+          ),
+        }
+      : {}),
   };
   const curatedDetail: Extract<ConnectorDetailPresentation, { kind: "curated" }> | null = selectedCatalog ? {
     kind: "curated", name: selectedCatalog.displayName, description: selectedCatalog.description,
@@ -3173,27 +3231,56 @@ function OwnerConnectorsPanel({
               </section>
             )}
             {activeConnector === "plaid" && (
-              <section className="space-y-3" aria-label="Plaid connection details">
+              <section className="space-y-3 rounded-2xl border border-border bg-card/40 p-4" aria-label="Plaid connection details">
+                <div className="flex items-center gap-2.5">
+                  <ConnectorVectorGlyph id="plaid" variant="profile" />
+                  <h3 className="font-semibold text-foreground">Plaid</h3>
+                </div>
                 <p className="text-sm text-muted-foreground">
                   {plaidDetail.status}
                 </p>
                 {Object.entries(vaultConnections(financial.data?.data)).map(([itemId, connection]) => (
-                  <div key={itemId} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border p-3">
+                  <div key={itemId} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border bg-background/60 p-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-normal">{connection.institution_name || "Bank connection"}</p>
-                      <p className="text-xs text-muted-foreground">{connection.status === "needs_relink" ? "Reconnect needed" : "Connected"}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {[
+                          connection.status === "needs_relink" ? "Reconnect needed" : "Connected",
+                          plaidProjection.byItemId[itemId]?.summaryLabel ?? null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
                     </div>
                     <Button className={touch} size="compact" variant="outline" disabled={plaidBusy} onClick={() => setConfirm(`plaid:${itemId}`)}>
                       Disconnect
                     </Button>
                   </div>
                 ))}
+                {plaidConnections.length > 0 && plaidProjection.hasData ? (
+                  <div
+                    data-testid="plaid-live-projection-summary"
+                    className="space-y-1 rounded-xl border border-border bg-background/60 p-3 text-xs text-muted-foreground"
+                  >
+                    <p className="font-medium text-foreground">Account summary</p>
+                    {plaidProjection.totalsLine ? <p>{plaidProjection.totalsLine}</p> : null}
+                    {plaidProjection.projectedScopesLine ? <p>{plaidProjection.projectedScopesLine}</p> : null}
+                    <p>Active ongoing shares update automatically on sync.</p>
+                  </div>
+                ) : null}
                 <p role="status" aria-live="polite" className="text-sm text-muted-foreground">{plaidDetail.message}</p>
-                {!plaidConnections.length && !financial.loading && !financial.error && (
-                  <Button className={touch} size="compact" variant="outline" disabled={plaidBusy} onClick={() => { void connectPlaidFromChat(); }}>
-                    Connect a bank
-                  </Button>
-                )}
+                <div className="flex flex-wrap gap-2">
+                  {plaidConnections.length > 0 && !financial.loading && !financial.error && (
+                    <Button className={touch} size="compact" variant="outline" disabled={plaidBusy} onClick={() => { void refreshPlaidLive(); }}>
+                      Refresh live
+                    </Button>
+                  )}
+                  {!financial.loading && !financial.error && (
+                    <Button className={touch} size="compact" variant="outline" disabled={plaidBusy} onClick={() => { void connectPlaidFromChat(); }}>
+                      {plaidConnections.length > 0 ? "Add bank" : "Connect a bank"}
+                    </Button>
+                  )}
+                </div>
               </section>
             )}
             {selectedCatalog && !["google_drive", "gmail", "calendar", "plaid", ...(inProfile ? ["instagram", "linkedin"] : [])].includes(activeConnector ?? "") && (

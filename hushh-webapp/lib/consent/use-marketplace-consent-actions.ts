@@ -25,7 +25,7 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { useVault } from "@/lib/vault/vault-context";
 import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
@@ -36,6 +36,7 @@ import {
 import { OneMarketplaceService } from "@/lib/one-marketplace/service";
 import { AuthService } from "@/lib/services/auth-service";
 import { ScopeCommerceService, commerceReadinessCopy } from "@/lib/services/scope-commerce-service";
+import { prepareAndStagePaidScopeExport } from "@/lib/consent/scope-commerce-export";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import { sealSliceForRequest } from "@/lib/one-marketplace/seal-delivery";
 import type {
@@ -191,8 +192,28 @@ export function useMarketplaceConsentActions(
                 if (!readiness.capabilities.approve_paid_request) throw new Error(commerceReadinessCopy(readiness));
                 let key = approvalKeys.current.get(requestId);
                 if (!key) { key = crypto.randomUUID(); approvalKeys.current.set(requestId, key); }
-                await ScopeCommerceService.approveInactive(vaultOwnerToken, requestId, durationHours ? durationHours * 3600 : state.duration_seconds, key);
-                return "Terms approved. Waiting for buyer payment and encrypted preparation.";
+                const approval = await ScopeCommerceService.approveInactive(vaultOwnerToken, requestId, durationHours ? durationHours * 3600 : state.duration_seconds, key);
+                requireCurrent();
+                const latest = approval.status === "approved_funded"
+                  ? await ScopeCommerceService.scopeRequest(firebaseToken, requestId)
+                  : state;
+                requireCurrent();
+                const activePurchase = latest.purchase ?? state.purchase;
+                if (activePurchase && (activePurchase.status === "reserved" || activePurchase.status === "preparing")) {
+                  await prepareAndStagePaidScopeExport({
+                    purchaseId: activePurchase.id,
+                    userId,
+                    vaultKey,
+                    vaultOwnerToken,
+                    machineScope: latest.machine_scope || state.machine_scope,
+                    activateOnStage: true,
+                  });
+                  return "Shared. Access is active now.";
+                }
+                if (activePurchase && (activePurchase.status === "staged" || activePurchase.status === "active" || activePurchase.status === "armed")) {
+                  return "Shared. Access is active now.";
+                }
+                return "Terms approved. Waiting for buyer payment before sharing.";
               }
               if (entry.metadata?.commercial_required === true) throw new Error("Refresh this paid request before continuing.");
             }

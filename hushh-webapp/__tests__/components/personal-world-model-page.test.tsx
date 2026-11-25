@@ -1,11 +1,12 @@
 import { mock, clock, research, advance } from "../fixtures/world-model-page-harness";
 import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 const attempts = vi.hoisted(() => ({ capture: vi.fn(), started: vi.fn(), settled: vi.fn() }));
 vi.mock("@/lib/observability/product-activity-client", async original => ({
   ...await original<typeof import("@/lib/observability/product-activity-client")>(),
   captureProductAttempt: attempts.capture.mockReturnValue({ started: attempts.started, settled: attempts.settled }),
 }));
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import type { PwmMemory } from "@/lib/services/world-model-decision-service";
 
 import { PersonalWorldModelPage, usePersonalWorldModelModel } from "@/components/profile/personal-world-model-page";
@@ -15,6 +16,11 @@ import { WorldModelFactSheet, type WorldModelDraftFact } from "@/components/prof
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 import { source, offered, memoryOf, claim, pending, progressOf, provisionalFact } from "../fixtures/world-model-review";
+
+afterEach(() => {
+  publishValidatedAuthSessionPrincipal(null);
+  vi.restoreAllMocks();
+});
 
 it("does not let a retained World Model detail consume another Profile page’s Back", () => {
   const close = vi.fn();
@@ -841,7 +847,9 @@ describe("Personal World Model page", () => {
       emailVerified: true,
     };
     mock.auth.phoneNumber = "+14155550123";
-    vi.mocked(AuthService.reloadPhoneVerificationUser).mockResolvedValue({
+    mock.auth.phoneNumberStatus = "verified";
+    publishValidatedAuthSessionPrincipal({ ownerId: "owner-a", firebaseUid: "owner-a", accountGeneration: 0 });
+    vi.spyOn(AuthService, "reloadPhoneVerificationUser").mockResolvedValue({
       uid: "owner-a", phoneNumber: providerPhone,
     } as NonNullable<Awaited<ReturnType<typeof AuthService.reloadPhoneVerificationUser>>>);
     research(pending);
@@ -874,11 +882,13 @@ describe("Personal World Model page", () => {
     expect(phone).toHaveTextContent("Not added");
 
     mock.auth.phoneNumber = "+14155550123";
+    mock.auth.phoneNumberStatus = "verified";
     view.rerender(<PersonalWorldModelPage embedded />);
     expect(phone).toHaveTextContent("0123");
     expect(within(phone).getByText("Verified")).toBeInTheDocument();
 
     mock.auth.phoneNumber = null;
+    mock.auth.phoneNumberStatus = "missing";
     view.rerender(<PersonalWorldModelPage embedded />);
     expect(phone).toHaveTextContent("Not added");
     expect(phone).not.toHaveTextContent("0123");

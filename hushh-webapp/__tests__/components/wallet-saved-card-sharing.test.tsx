@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ state: vi.fn(), recipients: vi.fn(), receipts: vi.fn(), revoke: vi.fn(), share: vi.fn(), encrypt: vi.fn(), observe: vi.fn(), disconnect: vi.fn() }));
 vi.mock("@/lib/services/wallet-card-access-service", () => ({ WalletCardAccessService: { state: mocks.state, revoke: mocks.revoke, recipients: mocks.recipients, share: mocks.share }, CardAccessUnavailableError: class extends Error {} }));
@@ -12,7 +12,8 @@ vi.mock("@/components/profile/settings-ui", () => ({
  SettingsGroup: ({ title, children }: any) => <section aria-label={title}>{children}</section>,
  SettingsRow: ({ title, description, icon: Icon, trailing, onClick }: any) => <div><button onClick={onClick}>{Icon ? <Icon /> : null}{title}</button>{description}{trailing}</div>,
 }));
-import { WalletSavedCardSharing } from "@/components/wallet/wallet-saved-card-sharing";
+import { WalletSavedCardSharing, useWalletSavedCardSharing } from "@/components/wallet/wallet-saved-card-sharing";
+import { nativeWalletSharingScene } from "@/components/wallet/native-wallet-sharing-scene";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { registerBackLayer, unwindBackLayer } from "@/lib/navigation/back-layers";
 const context = { userId: "owner", getIdToken: async () => "token", vaultOwnerToken: "consent", isCurrent: () => true };
@@ -80,6 +81,285 @@ it("limits recipients across searches while allowing deselection", async () => {
  expect(extra).not.toBeDisabled();
  fireEvent.click(extra);
  expect(screen.getByText(/20 of 20 connections selected/)).toBeVisible();
+});
+it("rejects a stale native recipient action after the search changes", async () => {
+ mocks.recipients.mockResolvedValueOnce({ items: [{ personRef: "old", displayName: "Old connection", trusted: false }], hasMore: false });
+ const { result } = renderHook(() => useWalletSavedCardSharing({ card, getContext, disabled: false, native: true }));
+ act(() => result.current.setOpen(true));
+ await waitFor(() => expect(result.current.recipients).toHaveLength(1));
+ const scene = nativeWalletSharingScene({ sharing: result.current, page: "share", disabled: false, handle: key => key, back: () => {} })!;
+ act(() => {
+  scene.actions.get("search")?.({ text: "New" } as never);
+  scene.actions.get("recipient-old")?.({} as never);
+ });
+ expect(result.current.selectedCount).toBe(0);
+});
+it("rejects an old native recipient after changing away and back to the same query", async () => {
+ mocks.recipients.mockResolvedValue({ items: [{ personRef: "old", displayName: "Old connection", trusted: false }], hasMore: false });
+ const { result } = renderHook(() => useWalletSavedCardSharing({ card, getContext, disabled: false, native: true }));
+ act(() => result.current.setOpen(true));
+ await waitFor(() => expect(result.current.recipients).toHaveLength(1));
+ const scene = nativeWalletSharingScene({ sharing: result.current, page: "share", disabled: false, handle: key => key, back: () => {} })!;
+ act(() => {
+  scene.actions.get("search")?.({ text: "New" } as never);
+  scene.actions.get("search")?.({ text: "" } as never);
+  scene.actions.get("recipient-old")?.({} as never);
+ });
+ expect(result.current.selectedCount).toBe(0);
+ await waitFor(() => expect(mocks.recipients).toHaveBeenCalledTimes(2));
+ await waitFor(() => expect(result.current.loading).toBe(false));
+ expect(result.current.recipients).toHaveLength(1);
+});
+it("discards a delayed recipient response after a newer query succeeds", async () => {
+ let finish!: (value: { items: { personRef: string; displayName: string; trusted: boolean }[]; hasMore: boolean }) => void;
+ mocks.recipients.mockImplementation((_context, query) => query === "old"
+  ? new Promise(resolve => { finish = resolve; })
+  : Promise.resolve({ items: [{ personRef: "new", displayName: "New connection", trusted: false }], hasMore: false }));
+ const { result } = renderHook(() => useWalletSavedCardSharing({ card, getContext, disabled: false, native: true }));
+ act(() => { result.current.setOpen(true); result.current.setQuery("old"); });
+ await waitFor(() => expect(finish).toBeTypeOf("function"));
+ act(() => result.current.setQuery("new"));
+ await waitFor(() => expect(result.current.recipients.map(person => person.personRef)).toEqual(["new"]));
+ await act(async () => finish({ items: [{ personRef: "old", displayName: "Old connection", trusted: false }], hasMore: false }));
+ expect(result.current.recipients.map(person => person.personRef)).toEqual(["new"]);
+});
+it("does not send selected recipients after the active account changes", async () => {
+ let active = context;
+ const resolveContext = () => active;
+ mocks.recipients.mockResolvedValue({ items: [{ personRef: "p0", displayName: "Test connection", trusted: false }], hasMore: false });
+ const { result } = renderHook(() => useWalletSavedCardSharing({ card, getContext: resolveContext, disabled: false, native: true }));
+ act(() => result.current.setOpen(true));
+ await waitFor(() => expect(result.current.recipients).toHaveLength(1));
+ await waitFor(() => expect(result.current.state).not.toBeNull());
+ act(() => result.current.selectRecipient(result.current.recipients[0]));
+ expect(result.current.selectedCount).toBe(1);
+ active = { ...context, userId: "another-owner" };
+ await act(async () => { await result.current.send(); });
+ expect(mocks.encrypt).not.toHaveBeenCalled();
+ expect(mocks.share).not.toHaveBeenCalled();
+});
+it("does not project prior account recipients or access after an owner change", async () => {
+ let active = context;
+ const resolveContext = () => active;
+ mocks.recipients.mockResolvedValue({ items: [{ personRef: "p0", displayName: "Test connection", trusted: false }], hasMore: false });
+ const { result, rerender } = renderHook(() => useWalletSavedCardSharing({ card, getContext: resolveContext, disabled: false, native: true }));
+ act(() => result.current.setOpen(true));
+ await waitFor(() => expect(result.current.recipients).toHaveLength(1));
+ await waitFor(() => expect(result.current.state).not.toBeNull());
+ act(() => result.current.selectRecipient(result.current.recipients[0]));
+ active = { ...context, userId: "another-owner" };
+ rerender();
+ expect(result.current.selectedCount).toBe(0);
+ expect(result.current.recipients).toHaveLength(0);
+ expect(result.current.state).toBeNull();
+ const scene = nativeWalletSharingScene({ sharing: result.current, page: "share", disabled: false, handle: key => key, back: () => {} })!;
+ expect(scene.actions.has("recipient-p0")).toBe(false);
+ expect(scene.actions.has("selected-p0")).toBe(false);
+});
+it("rejects a stale native share action after the Vault session changes", async () => {
+ mocks.recipients.mockResolvedValue({ items: [{ personRef: "p0", displayName: "Test connection", trusted: false }], hasMore: false });
+ const { result } = renderHook(() => useWalletSavedCardSharing({ card, getContext, disabled: false, native: true }));
+ act(() => result.current.setOpen(true));
+ await waitFor(() => expect(result.current.recipients).toHaveLength(1));
+ await waitFor(() => expect(result.current.state).not.toBeNull());
+ act(() => result.current.selectRecipient(result.current.recipients[0]));
+ const scene = nativeWalletSharingScene({ sharing: result.current, page: "share", disabled: false, handle: key => key, back: () => {} })!;
+ expect(scene.actions.has("share-send")).toBe(true);
+ await act(async () => {
+  advanceVaultSessionEpoch();
+  await scene.actions.get("share-send")?.({} as never);
+ });
+ expect(mocks.encrypt).not.toHaveBeenCalled();
+ expect(mocks.share).not.toHaveBeenCalled();
+});
+it("rejects a captured share action after its selected person is removed", async () => {
+ mocks.recipients.mockResolvedValue({ items: [{ personRef: "p0", displayName: "Test connection", trusted: false }], hasMore: false });
+ const { result } = renderHook(() => useWalletSavedCardSharing({ card, getContext, disabled: false, native: true }));
+ act(() => result.current.setOpen(true));
+ await waitFor(() => expect(result.current.recipients).toHaveLength(1));
+ await waitFor(() => expect(result.current.state).not.toBeNull());
+ act(() => result.current.selectRecipient(result.current.recipients[0]));
+ const oldSend = result.current.send;
+ await act(async () => { result.current.removeSelected("p0"); await oldSend(); });
+ expect(mocks.encrypt).not.toHaveBeenCalled();
+ expect(mocks.share).not.toHaveBeenCalled();
+});
+it("does not dispatch a share if selection changes while encryption is pending", async () => {
+ mocks.recipients.mockResolvedValue({ items: [{ personRef: "p0", displayName: "Test connection", trusted: false }], hasMore: false });
+ let finish!: (value: Record<string, string>) => void;
+ mocks.encrypt.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+ const { result } = renderHook(() => useWalletSavedCardSharing({ card, getContext, disabled: false, native: true }));
+ act(() => result.current.setOpen(true));
+ await waitFor(() => expect(result.current.recipients).toHaveLength(1));
+ await waitFor(() => expect(result.current.state).not.toBeNull());
+ act(() => result.current.selectRecipient(result.current.recipients[0]));
+ let sending!: Promise<void>;
+ act(() => { sending = result.current.send(); });
+ await waitFor(() => expect(finish).toBeTypeOf("function"));
+ act(() => result.current.removeSelected("p0"));
+ await act(async () => { finish({ p0: "synthetic-encrypted-card" }); await sending; });
+ expect(mocks.share).not.toHaveBeenCalled();
+ expect(result.current.busy).toBe(false);
+});
+it("rejects a captured share after its access duration changes", async () => {
+ mocks.recipients.mockResolvedValue({ items: [{ personRef: "p0", displayName: "Test connection", trusted: false }], hasMore: false });
+ const { result } = renderHook(() => useWalletSavedCardSharing({ card, getContext, disabled: false, native: true }));
+ act(() => result.current.setOpen(true));
+ await waitFor(() => expect(result.current.recipients).toHaveLength(1));
+ await waitFor(() => expect(result.current.state).not.toBeNull());
+ act(() => result.current.selectRecipient(result.current.recipients[0]));
+ const oldSend = result.current.send;
+ await act(async () => { result.current.setDuration(120); await oldSend(); });
+ expect(mocks.encrypt).not.toHaveBeenCalled();
+ expect(mocks.share).not.toHaveBeenCalled();
+});
+it("does not dispatch when the access duration changes during encryption", async () => {
+ mocks.recipients.mockResolvedValue({ items: [{ personRef: "p0", displayName: "Test connection", trusted: false }], hasMore: false });
+ let finish!: (value: Record<string, string>) => void;
+ mocks.encrypt.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+ const { result } = renderHook(() => useWalletSavedCardSharing({ card, getContext, disabled: false, native: true }));
+ act(() => result.current.setOpen(true));
+ await waitFor(() => expect(result.current.recipients).toHaveLength(1));
+ await waitFor(() => expect(result.current.state).not.toBeNull());
+ act(() => result.current.selectRecipient(result.current.recipients[0]));
+ let sending!: Promise<void>;
+ act(() => { sending = result.current.send(); });
+ await waitFor(() => expect(finish).toBeTypeOf("function"));
+ act(() => result.current.setDuration(120));
+ await act(async () => { finish({ p0: "synthetic-encrypted-card" }); await sending; });
+ expect(mocks.share).not.toHaveBeenCalled();
+ expect(result.current.busy).toBe(false);
+});
+it("accepts a dispatched share outcome without discarding a newer duration", async () => {
+ mocks.recipients.mockResolvedValue({ items: [{ personRef: "p0", displayName: "Test connection", trusted: false }], hasMore: false });
+ mocks.encrypt.mockResolvedValue({ p0: "synthetic-encrypted-card" });
+ let finish!: (value: unknown) => void;
+ mocks.share.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+ const { result } = renderHook(() => useWalletSavedCardSharing({ card, getContext, disabled: false, native: true }));
+ act(() => result.current.setOpen(true));
+ await waitFor(() => expect(result.current.recipients).toHaveLength(1));
+ await waitFor(() => expect(result.current.state).not.toBeNull());
+ act(() => result.current.selectRecipient(result.current.recipients[0]));
+ let sending!: Promise<void>;
+ act(() => { sending = result.current.send(); });
+ await waitFor(() => expect(finish).toBeTypeOf("function"));
+ act(() => result.current.setDuration(120));
+ await act(async () => { finish({ grants: [] }); await sending; });
+ expect(mocks.share).toHaveBeenCalledOnce();
+ expect(result.current.open).toBe(true);
+ expect(result.current.duration).toBe(120);
+ expect(result.current.busy).toBe(false);
+});
+it("refreshes access after a dispatched share without closing a reopened picker", async () => {
+ mocks.recipients.mockResolvedValue({ items: [{ personRef: "p0", displayName: "Test connection", trusted: false }], hasMore: false });
+ mocks.encrypt.mockResolvedValue({ p0: "synthetic-encrypted-card" });
+ let finish!: (value: unknown) => void;
+ mocks.share.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+ const { result } = renderHook(() => useWalletSavedCardSharing({ card, getContext, disabled: false, native: true }));
+ act(() => result.current.setOpen(true));
+ await waitFor(() => expect(result.current.recipients).toHaveLength(1));
+ await waitFor(() => expect(result.current.state).not.toBeNull());
+ act(() => result.current.selectRecipient(result.current.recipients[0]));
+ let sending!: Promise<void>;
+ act(() => { sending = result.current.send(); });
+ await waitFor(() => expect(finish).toBeTypeOf("function"));
+ act(() => { result.current.close(); result.current.setOpen(true); result.current.setQuery("new search"); });
+ await act(async () => { finish({ grants: [] }); await sending; });
+ await waitFor(() => expect(mocks.state).toHaveBeenCalledTimes(2));
+ expect(result.current.open).toBe(true);
+ expect(result.current.query).toBe("new search");
+ expect(mocks.share).toHaveBeenCalledOnce();
+});
+it("rejects a captured revoke action after access is refreshed", async () => {
+ mocks.state.mockResolvedValue({ eligible: true, grants: [{ ...grant("1"), status: "active" }], nextCursor: null });
+ const { result } = renderHook(() => useWalletSavedCardSharing({ card, getContext, disabled: false, native: true }));
+ await waitFor(() => expect(result.current.state?.grants).toHaveLength(1));
+ act(() => result.current.setRevokeTarget("1"));
+ const oldRevoke = result.current.revoke;
+ act(() => result.current.setRevision(value => value + 1));
+ await waitFor(() => expect(mocks.state).toHaveBeenCalledTimes(2));
+ await waitFor(() => expect(result.current.state?.grants).toHaveLength(1));
+ await act(async () => { await oldRevoke("1"); });
+ expect(mocks.revoke).not.toHaveBeenCalled();
+});
+it("withdraws revoke dispatch authority when confirmation changes during token acquisition", async () => {
+ mocks.state.mockResolvedValue({ eligible: true, grants: [{ ...grant("1"), status: "active" }, { ...grant("2"), status: "active" }], nextCursor: null });
+ let finishToken!: (token: string) => void;
+ const delayed = { ...context, getIdToken: () => new Promise<string>(resolve => { finishToken = resolve; }) };
+ const resolveContext = () => delayed;
+ const dispatched = vi.fn();
+ mocks.revoke.mockImplementationOnce(async current => {
+  await current.getIdToken();
+  if (!current.isCurrent() || !current.canDispatch()) throw new DOMException("Changed", "AbortError");
+  dispatched(); return { revoked: true };
+ });
+ const { result } = renderHook(() => useWalletSavedCardSharing({ card, getContext: resolveContext, disabled: false, native: true }));
+ await waitFor(() => expect(result.current.state?.grants).toHaveLength(2));
+ act(() => result.current.setRevokeTarget("1"));
+ let pending!: Promise<void>;
+ act(() => { pending = result.current.revoke("1"); });
+ await waitFor(() => expect(finishToken).toBeTypeOf("function"));
+ act(() => result.current.setRevokeTarget("2"));
+ await act(async () => { finishToken("synthetic-token"); await pending; });
+ expect(dispatched).not.toHaveBeenCalled();
+});
+it("rejects a captured revoke after cancellation or choosing another grant", async () => {
+ mocks.state.mockResolvedValue({ eligible: true, grants: [{ ...grant("1"), status: "active" }, { ...grant("2"), status: "active" }], nextCursor: null });
+ const { result } = renderHook(() => useWalletSavedCardSharing({ card, getContext, disabled: false, native: true }));
+ await waitFor(() => expect(result.current.state?.grants).toHaveLength(2));
+ act(() => result.current.setRevokeTarget("1"));
+ const oldRevoke = result.current.revoke;
+ await act(async () => { result.current.setRevokeTarget(null); await oldRevoke("1"); });
+ act(() => result.current.setRevokeTarget("1"));
+ const priorTarget = result.current.revoke;
+ await act(async () => { result.current.setRevokeTarget("2"); await priorTarget("1"); });
+ expect(mocks.revoke).not.toHaveBeenCalled();
+});
+it("does not let a pending history page overwrite a revoke outcome", async () => {
+ mocks.state.mockResolvedValueOnce({ eligible: true, grants: [{ ...grant("1"), status: "active" }], nextCursor: "1" });
+ let finishPage!: (value: unknown) => void, finishRevoke!: (value: unknown) => void;
+ mocks.state.mockImplementationOnce(() => new Promise(resolve => { finishPage = resolve; }));
+ mocks.revoke.mockImplementationOnce(() => new Promise(resolve => { finishRevoke = resolve; }));
+ const { result } = renderHook(() => useWalletSavedCardSharing({ card, getContext, disabled: false, native: true }));
+ await waitFor(() => expect(result.current.state?.nextCursor).toBe("1"));
+ let page!: Promise<void>;
+ act(() => { page = result.current.loadMore(); });
+ await waitFor(() => expect(finishPage).toBeTypeOf("function"));
+ act(() => result.current.setRevokeTarget("1"));
+ let revoke!: Promise<void>;
+ act(() => { revoke = result.current.revoke("1"); });
+ await waitFor(() => expect(finishRevoke).toBeTypeOf("function"));
+ await act(async () => { finishPage({ eligible: true, grants: [grant("2")], nextCursor: null }); await page; });
+ await act(async () => { finishRevoke({ revoked: true }); await revoke; });
+ expect(result.current.state?.grants.map(item => [item.id, item.status])).toEqual([["1", "revoked"]]);
+ expect(result.current.busy).toBe(false);
+});
+it("accepts a dispatched revoke outcome without closing a newer confirmation", async () => {
+ mocks.state.mockResolvedValue({ eligible: true, grants: [{ ...grant("1"), status: "active" }, { ...grant("2"), status: "active" }], nextCursor: null });
+ let finish!: (value: unknown) => void;
+ mocks.revoke.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+ const { result } = renderHook(() => useWalletSavedCardSharing({ card, getContext, disabled: false, native: true }));
+ await waitFor(() => expect(result.current.state?.grants).toHaveLength(2));
+ act(() => result.current.setRevokeTarget("1"));
+ let pending!: Promise<void>;
+ act(() => { pending = result.current.revoke("1"); });
+ await waitFor(() => expect(finish).toBeTypeOf("function"));
+ act(() => result.current.setRevokeTarget("2"));
+ await act(async () => { finish({ revoked: true }); await pending; });
+ expect(result.current.state?.grants.find(item => item.id === "1")?.status).toBe("revoked");
+ expect(result.current.revokeTarget).toBe("2");
+ expect(result.current.busy).toBe(false);
+});
+it("keeps selected people visible and removable across searches", async () => {
+ mocks.recipients.mockResolvedValueOnce({ items: [{ personRef: "p0", displayName: "Test connection", trusted: false }], hasMore: false });
+ mocks.recipients.mockResolvedValue({ items: [], hasMore: false });
+ render(<WalletSavedCardSharing card={card} getContext={getContext} disabled={false} />);
+ fireEvent.click(screen.getByRole("button", { name: "Share card" }));
+ fireEvent.click(await screen.findByRole("checkbox", { name: "Share with Test connection" }));
+ fireEvent.change(screen.getByRole("textbox", { name: "Search connections" }), { target: { value: "other" } });
+ fireEvent.click(screen.getByRole("button", { name: "Remove Test connection" }));
+ expect(screen.queryByRole("button", { name: "Remove Test connection" })).toBeNull();
+ expect(screen.getByText(/0 of 20 connections selected/)).toBeVisible();
 });
 it("shows one-person icons and sharing dates while omitting an empty sent-copy disclosure", async () => {
  render(<WalletSavedCardSharing card={card} getContext={getContext} disabled={false} />);
@@ -188,5 +468,5 @@ it("keeps compact revocation retryable after failure and closes only after confi
  mocks.revoke.mockResolvedValueOnce({ revoked: true });
  fireEvent.click(screen.getByRole("button", { name: "Revoke access", exact: true }));
  await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
- expect(mocks.revoke).toHaveBeenLastCalledWith(context, "1");
+ expect(mocks.revoke).toHaveBeenLastCalledWith(expect.objectContaining({ userId: context.userId, isCurrent: expect.any(Function) }), "1");
 });

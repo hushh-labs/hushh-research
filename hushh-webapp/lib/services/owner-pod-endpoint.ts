@@ -88,6 +88,18 @@ async function forgetOwnerPodStateUnlocked(userId: string): Promise<void> {
   await deleteOwnerPodRecords(userId);
 }
 
+/** Clear cached pod endpoint and session when switching hosting modes while keeping device keys. */
+async function clearPinnedPodEndpointUnlocked(userId: string): Promise<void> {
+  forgetDirectAdmission(userId);
+  bindingInFlight.clear();
+  const pin = await readPin(userId);
+  await writeRecord(PIN_STORE, {
+    ...pin,
+    endpoint: null,
+    session: null,
+  });
+}
+
 // -- the app key ----------------------------------------------------------------------
 
 async function ensureAppKey(userId: string): Promise<AppKeyRecord> {
@@ -735,4 +747,5 @@ export const currentPodSession = serializeOwnerPodOperation(currentPodSessionUnl
 export const currentPodConnection = serializeOwnerPodOperation(currentPodConnectionUnlocked);
 export const revokeAtPod = serializeOwnerPodOperation(revokeAtPodUnlocked);
 export const clearPendingRevocation = serializeOwnerPodOperation(clearPendingRevocationUnlocked);
+export const clearPinnedPodEndpoint = serializeOwnerPodOperation(clearPinnedPodEndpointUnlocked);
 export const forgetOwnerPodState = serializeOwnerPodOperation(forgetOwnerPodStateUnlocked);

@@ -23,6 +23,13 @@ from hushh_mcp.one_adk.external_read_boundary import (
     STATE_MAIL_EMPTY_RETRIES,
     STATE_SELECTED_DRIVE_SHARE,
 )
+from hushh_mcp.one_adk.plaid_connector_tools import (
+    PLAID_RESULT_STATUSES,
+    PLAID_TOOL_NAMES,
+    STATE_PLAID_CLIENT_READY,
+    STATE_PLAID_POSTURE,
+    STATE_PLAID_RESULT,
+)
 from hushh_mcp.one_adk.portfolio_context_contract import (
     PORTFOLIO_CONTEXT_TOOL,
     PRIVATE_PORTFOLIO_ANSWER,
@@ -60,11 +67,15 @@ _EPHEMERAL = frozenset(
         STATE_WIKI_CLIENT_READY,
         STATE_WIKI_HOT_DIGEST,
         STATE_WIKI_RESULT,
+        STATE_PLAID_CLIENT_READY,
+        STATE_PLAID_POSTURE,
+        STATE_PLAID_RESULT,
         STATE_PORTFOLIO_CONTEXT_ENABLED,
         "temp:hussh:workspace_chat_admission",
         "temp:hussh:drive_search_selection",
         "temp:hussh:mcp_approval",
         "temp:hussh:calendar_request_scope",
+        "temp:hussh:turn_started_at",
         # Agent Chat stores source text behind an in-process request secret.
         # Remove both handles before encrypting a conversation snapshot so a
         # selected Gmail request cannot affect a later turn.
@@ -205,11 +216,20 @@ def durable_external_read_projection(session: Session) -> Session:
         if (part.function_call and part.function_call.name in WIKI_TOOL_NAMES)
         or (part.function_response and part.function_response.name in WIKI_TOOL_NAMES)
     }
+    plaid_invocations = {
+        event.invocation_id
+        for event in session.events
+        if event.content
+        for part in (event.content.parts or [])
+        if (part.function_call and part.function_call.name in PLAID_TOOL_NAMES)
+        or (part.function_response and part.function_response.name in PLAID_TOOL_NAMES)
+    }
     if (
         not read_invocations
         and not receipt_invocations
         and not private_draft_invocations
         and not wiki_invocations
+        and not plaid_invocations
         and not any(key in session.state for key in _EPHEMERAL)
         and not any(
             key in event.actions.state_delta for event in session.events for key in _EPHEMERAL
@@ -278,6 +298,20 @@ def durable_external_read_projection(session: Session) -> Session:
                 part.function_response.response = {
                     "content_redacted": True,
                     "status": wiki_status,
+                }
+            if part.function_call and part.function_call.name in PLAID_TOOL_NAMES:
+                part.function_call.args = {}
+            if part.function_response and part.function_response.name in PLAID_TOOL_NAMES:
+                raw_plaid_resp = part.function_response.response
+                plaid_status = (
+                    raw_plaid_resp.get("status")
+                    if isinstance(raw_plaid_resp, dict)
+                    and raw_plaid_resp.get("status") in PLAID_RESULT_STATUSES
+                    else "ok"
+                )
+                part.function_response.response = {
+                    "content_redacted": True,
+                    "status": plaid_status,
                 }
             if event.invocation_id in private_draft_invocations and (
                 (part.function_call and part.function_call.name in _PRIVATE_DRAFT_TOOLS)

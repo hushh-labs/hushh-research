@@ -12,9 +12,12 @@ import { useWalletSecurityCode } from "./wallet-security-code";
 import { nativeWalletSharingScene } from "./native-wallet-sharing-scene";
 import { useWalletSavedCardSharing } from "./wallet-saved-card-sharing";
 import { cardNetworkLabel } from "./card-network-mark";
+import type { NativeWalletVisitor } from "@/lib/capacitor/native-wallet-workspace";
 
 export type WalletPanelProjection = {
   title: string; busy: boolean; qrData?: string; imageData?: string;
+  collectionNavigation?: boolean;
+  visitor?: NativeWalletVisitor;
   editor?: PrivateProfileEditorModel<NativeWalletProfileDraft> & { destinationId: string; onSaved: () => void; onCancel: () => void }; sections: NativeDrawerSection[];
   search?: { id: string; query: string; label: string };
   actions: ReadonlyMap<string, (choice: NativeWorkspaceChoice) => void | Promise<unknown>>;
@@ -29,14 +32,14 @@ export type NativeWalletPaymentOperations = {
 
 /** Same readers, share/revoke state machine and delete operation as the web
  * panel. This adapter only authors the complete native presentation. */
-export function NativeWalletPaymentPanel({ card, name, operations, disabled, handle, publish, onClose }: {
+export function NativeWalletPaymentPanel({ card, name, operations, disabled, active = true, handle, publish, onClose }: {
   card: WalletCardSummary; name?: string; operations: NativeWalletPaymentOperations; disabled: boolean;
-  handle: (key: string) => string; publish: (value: WalletPanelProjection) => void; onClose: () => void;
+  active?: boolean; handle: (key: string) => string; publish: (value: WalletPanelProjection) => void; onClose: () => void;
 }) {
   const [page, setPage] = useState<"details" | "share" | "access" | "remove">("details");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [copying, setCopying] = useState(false);
-  const code = useWalletSecurityCode({ active: !disabled && page === "details", onRead: () => operations.readSecurityCode(card.cardId) });
+  const code = useWalletSecurityCode({ active: active && !disabled && page === "details", onRead: () => operations.readSecurityCode(card.cardId) });
   const sharing = useWalletSavedCardSharing({ card, getContext: operations.getShareContext, disabled, compact: true, native: true });
   useLayoutEffect(() => { if (page === "share" && !sharing.open && !sharing.busy) setPage("details"); }, [page, sharing.open, sharing.busy]);
   const actions = new Map<string, (choice: NativeWorkspaceChoice) => void | Promise<unknown>>();
@@ -83,6 +86,6 @@ export function NativeWalletPaymentPanel({ card, name, operations, disabled, han
   const sharingScene = nativeWalletSharingScene({ sharing, page, disabled: disabled || copying, handle, back });
   // The parent stores only the private projection. Callback refreshes do not
   // manufacture a new presentation revision or trigger another operation.
-  useLayoutEffect(() => publish(sharingScene ?? { title, busy: disabled || copying, sections, actions, back }));
+  useLayoutEffect(() => publish(sharingScene ?? { title, busy: disabled || copying, sections, actions, back, collectionNavigation: page === "details" }));
   return null;
 }

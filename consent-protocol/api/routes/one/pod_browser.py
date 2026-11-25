@@ -271,8 +271,11 @@ async def browser_worker(
 
 @router.get("/tasks", response_model=list[BrowserTaskReceipt])
 async def list_tasks(request: Request, owner: ObserveOwner):
+    installed = getattr(request.app.state, "browser_task_runtime", None)
+    if not isinstance(installed, BrowserTaskRuntime):
+        return []
     try:
-        return await runtime(request).list_tasks(owner)
+        return await installed.list_tasks(owner)
     except BrowserRefused as exc:
         raise refusal(exc) from None
 

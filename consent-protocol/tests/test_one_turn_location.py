@@ -112,3 +112,50 @@ async def test_without_a_turn_location_the_tool_asks_for_the_missing_permission(
         assert result["status"] == "needs_location_permission"
         assert result["permission"] == expected
         assert result["message"]
+        assert "Open Location in One" not in result["message"]
+
+
+def test_history_projects_inline_turn_location_permission_card_without_redirect_copy():
+    from hushh_mcp.one_adk.history_descriptors import _safe_agent_history_metadata
+    from hushh_mcp.one_adk.history_projection import _safe_turn_location_permission_descriptor
+
+    part = SimpleNamespace(
+        function_response=SimpleNamespace(
+            id="call-loc-1",
+            name="get_my_location",
+            response={
+                "status": "needs_location_permission",
+                "permission": "not_granted",
+                "message": "Allow location access on the card below.",
+            },
+        )
+    )
+    event = SimpleNamespace(
+        id="evt-loc-1",
+        invocation_id="inv-loc-1",
+        content=SimpleNamespace(parts=[part]),
+    )
+    assert _safe_turn_location_permission_descriptor(event) == {
+        "activityType": "one.turn_location_permission.v1",
+        "content": {"permission": "not_granted"},
+    }
+    metadata = _safe_agent_history_metadata(event)
+    assert metadata is not None
+    assert metadata["structuredExperience"] == {
+        "activityType": "one.turn_location_permission.v1",
+        "content": {"permission": "not_granted"},
+    }
+
+    available_part = SimpleNamespace(
+        function_response=SimpleNamespace(
+            id="call-loc-2",
+            name="get_my_location",
+            response={"status": "available", "latitude": 37.77, "longitude": -122.42},
+        )
+    )
+    available_event = SimpleNamespace(
+        id="evt-loc-2",
+        invocation_id="inv-loc-2",
+        content=SimpleNamespace(parts=[available_part]),
+    )
+    assert _safe_turn_location_permission_descriptor(available_event) is None

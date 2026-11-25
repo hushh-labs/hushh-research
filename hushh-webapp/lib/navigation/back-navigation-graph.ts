@@ -186,8 +186,9 @@ export function profileOriginCrumbLabel(backHref: string): string {
     [ROUTES.CONSENTS]: "Consent Center",
     [ROUTES.ONE_FEED]: "Feed",
     [ROUTES.ONE_MESSAGES]: "Messages",
-    [ROUTES.ONE_TODOS]: "To-do List",
-    [ROUTES.ONE_KYC]: "KYC",
+    [ROUTES.ONE_TASKS]: "Tasks",
+    [ROUTES.ONE_GOALS]: "Goals",
+    [ROUTES.EMAIL_AGENT]: "Mail Agent",
     [KAI_MARKET_PATH]: "Finance",
     [ROUTES.CONNECT]: "Connect",
   };
@@ -237,6 +238,18 @@ function resolveCapabilitySetupBackHref(
 
 export const BACK_NAVIGATION_RULES: BackRule[] = [
   ...ONE_LEAF_WORKSPACE_BACK_RULES,
+  {
+    id: "reference-design-system",
+    resolve: (pathname) => {
+      if (pathname !== ROUTES.DESIGN_SYSTEM) return undefined;
+      return {
+        backHref: ROUTES.HOME,
+        width: "content",
+        align: "start",
+        items: [{ label: "Design System" }],
+      };
+    },
+  },
   {
     id: "legal-terms-privacy",
     resolve: (pathname) => {
@@ -739,7 +752,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
   {
     id: "one-kyc",
     resolve: (pathname, searchParams) => {
-      if (pathname !== ROUTES.ONE_KYC) return undefined;
+      if (pathname !== ROUTES.EMAIL_AGENT) return undefined;
       const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
       const fromProfile = originHref === ROUTES.PROFILE;
       return {
@@ -750,7 +763,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
           fromProfile
             ? { label: "Profile", href: ROUTES.PROFILE }
             : { label: "One", href: ROUTES.ONE_HOME },
-          { label: "KYC" },
+          { label: "Mail Agent" },
         ],
       };
     },
@@ -942,14 +955,26 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
     },
   },
   {
-    id: "one-todos",
-    resolve: (pathname) => {
-      if (pathname !== ROUTES.ONE_TODOS) return undefined;
+    id: "one-goals",
+    resolve: (pathname) => pathname === ROUTES.ONE_GOALS ? {
+      backHref: ROUTES.ONE_HOME,
+      width: "profile",
+      align: "center",
+      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Goals" }],
+    } : undefined,
+  },
+  {
+    id: "one-tasks",
+    resolve: (pathname, searchParams) => {
+      if (pathname !== ROUTES.ONE_TASKS) return undefined;
+      const fromGoals = searchParams?.get("from") === "goals";
       return {
-        backHref: ROUTES.ONE_HOME,
+        backHref: fromGoals ? ROUTES.ONE_GOALS : ROUTES.ONE_HOME,
         width: "profile",
         align: "center",
-        items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "To-do List" }],
+        items: fromGoals
+          ? [{ label: "Goals", href: ROUTES.ONE_GOALS }, { label: "Tasks" }]
+          : [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Tasks" }],
       };
     },
   },

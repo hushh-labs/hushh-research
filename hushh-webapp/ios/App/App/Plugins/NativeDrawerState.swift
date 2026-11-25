@@ -24,6 +24,52 @@ struct NativeDrawerOption: Codable, Identifiable {
     var colorHex: String? = nil
 }
 
+struct NativeMemoryText: Codable {
+    struct Run: Codable { let text: String; var bold: Bool?; var italic: Bool?; var actionId: String? }
+    var level: Int?
+    let runs: [Run]
+    var actionIds: Set<String> { Set(runs.compactMap(\.actionId)) }
+    static func closed(_ value: Any) -> Bool {
+        guard let value = value as? [String: Any], Set(value.keys).isSubset(of: ["level", "runs"]),
+              let runs = value["runs"] as? [[String: Any]] else { return false }
+        return runs.allSatisfy { Set($0.keys).isSubset(of: ["text", "bold", "italic", "actionId"]) }
+    }
+    var valid: Bool {
+        (level == nil || (1...6).contains(level!)) && (1...128).contains(runs.count) && actionIds.count <= 50 &&
+            runs.map(\.text).joined().utf16.count <= 4096 && runs.allSatisfy {
+                NativeDrawerProjection.text($0.text, 4096) && ($0.bold == nil || $0.bold == true) && ($0.italic == nil || $0.italic == true) &&
+                    ($0.actionId == nil || NativeDrawerIdentity.identifier($0.actionId!))
+            }
+    }
+}
+struct NativeWorkspaceAvatar: Codable {
+    let initials: String
+    var jpeg: String?
+    var verified: Bool?
+    var active: Bool?
+    static func closed(_ raw: Any) -> Bool {
+        guard let value = raw as? [String: Any] else { return false }
+        return Set(value.keys).isSubset(of: ["initials", "jpeg", "verified", "active"]) && !value.values.contains(where: { $0 is NSNull })
+    }
+    var valid: Bool {
+        initials.utf16.count <= 8 && (jpeg == nil || (jpeg!.utf16.count <= 40_000 &&
+            jpeg!.range(of: "^data:image/jpeg;base64,[A-Za-z0-9+/]+=*$", options: .regularExpression) != nil))
+    }
+}
+struct NativeWorkspaceInlineAction: Codable, Identifiable {
+    let id: String
+    let label: String
+    let enabled: Bool
+    let tone: String
+    var pending: Bool?
+    var symbol: String?
+    var avatar: NativeWorkspaceAvatar?
+    var placement: String?
+    var valid: Bool {
+        NativeDrawerIdentity.identifier(id) && NativeDrawerProjection.text(label, 256) &&
+            ["primary", "ghost", "danger", "success"].contains(tone) && (symbol == nil || NativeDrawerIdentity.identifier(symbol!)) && (avatar == nil || avatar!.valid) && (placement == nil || placement == "menu")
+    }
+}
 struct NativeDrawerRow: Codable, Identifiable {
     let id: String
     let label: String
@@ -31,6 +77,7 @@ struct NativeDrawerRow: Codable, Identifiable {
     let symbol: String?
     let enabled: Bool
     let destructive: Bool?
+    var prominent: Bool? = nil
     let selected: Bool?
     let pending: Bool?
     var readOnly: Bool? = nil
@@ -42,9 +89,90 @@ struct NativeDrawerRow: Codable, Identifiable {
     var trailing: String? = nil
     var progress: NativeDrawerProgress? = nil
     var options: [NativeDrawerOption]? = nil
+    var choiceStyle: String? = nil
+    var marketNews: NativeMarketNewsStory? = nil
+    var finance: NativeFinanceContent? = nil
+    var calendarEvent: NativeCalendarEvent? = nil
     var toggle: Bool? = nil
     var portrait: Bool? = nil
     var portraitData: String? = nil
+    var formattedText: NativeMemoryText? = nil
+    var avatar: NativeWorkspaceAvatar? = nil
+    var inlineActions: [NativeWorkspaceInlineAction]? = nil
+    var locationShare: NativeWorkspaceLocationShare? = nil
+    var menuOnTap: Bool? = nil
+    var sosActivation: String? = nil
+    var milestone: Int? = nil
+    var expanded: Bool? = nil
+}
+
+struct NativeMarketNewsStory: Codable {
+    struct Artwork: Codable {
+        let glyph: String; let hue: Int; var png: String?
+        var valid: Bool {
+            guard NativeDrawerProjection.text(glyph, 8), (0..<360).contains(hue) else { return false }
+            guard let png else { return true }
+            let prefix = "data:image/png;base64,"
+            guard png.utf16.count <= 40_000, png.hasPrefix(prefix), let data = Data(base64Encoded: String(png.dropFirst(prefix.count))), data.count >= 24,
+                  Array(data.prefix(8)) == [137, 80, 78, 71, 13, 10, 26, 10], Array(data[12..<16]) == Array("IHDR".utf8) else { return false }
+            let width = data[16..<20].reduce(0) { ($0 << 8) | Int($1) }, height = data[20..<24].reduce(0) { ($0 << 8) | Int($1) }
+            return (1...128).contains(width) && (1...128).contains(height)
+        }
+    }
+    let publisher: String; let publishedAt: String; var summary: String?; var sentiment: String?
+    let symbols: [String]; var artwork: Artwork?
+    static func closed(_ raw: Any) -> Bool {
+        guard let value = raw as? [String: Any], Set(value.keys).isSubset(of: ["publisher", "publishedAt", "summary", "sentiment", "symbols", "artwork"]),
+              !value.values.contains(where: { $0 is NSNull }) else { return false }
+        if let art = value["artwork"] {
+            guard let art = art as? [String: Any], Set(art.keys).isSubset(of: ["glyph", "hue", "png"]), !art.values.contains(where: { $0 is NSNull }) else { return false }
+        }
+        return true
+    }
+    var valid: Bool {
+        NativeDrawerProjection.text(publisher, 256) && NativeDrawerProjection.text(publishedAt, 128) &&
+            (summary == nil || NativeDrawerProjection.text(summary!, 4096)) && (sentiment == nil || ["positive", "risk"].contains(sentiment!)) &&
+            symbols.count <= 32 && Set(symbols).count == symbols.count && symbols.allSatisfy { NativeDrawerProjection.text($0, 64) } &&
+            symbols.isEmpty == (artwork == nil) && (artwork?.valid ?? true)
+    }
+}
+
+struct NativeCalendarEvent: Codable {
+    var day: String?; var month: String?; var weekday: String?; var dateLabel: String?; var organizer: String?; let muted: Bool
+    static func closed(_ raw: Any) -> Bool {
+        guard let value = raw as? [String: Any] else { return false }
+        return Set(value.keys).isSubset(of: ["day", "month", "weekday", "dateLabel", "organizer", "muted"]) && !value.values.contains(where: { $0 is NSNull })
+    }
+    var valid: Bool {
+        (day == nil) == (month == nil) && (day == nil || NativeDrawerProjection.text(day!, 16)) &&
+            (month == nil || NativeDrawerProjection.text(month!, 32)) && (weekday == nil || NativeDrawerProjection.text(weekday!, 16)) &&
+            (dateLabel == nil || NativeDrawerProjection.text(dateLabel!, 128)) && (organizer == nil || NativeDrawerProjection.text(organizer!, 256))
+    }
+}
+struct NativeWorkspaceLocationShare: Codable {
+    struct Audience: Codable {
+        let locationCount: Int; let smsCount: Int; let bothCount: Int
+        func valid(count: Int) -> Bool {
+            [locationCount, smsCount, bothCount].allSatisfy { $0 >= 0 && $0 <= count } && bothCount <= min(locationCount, smsCount)
+        }
+    }
+    let count: Int; let singleGrant: Bool
+    var startedAt: Double?; var endsAt: Double?; var footer: String?
+    let people: [NativeWorkspaceAvatar]; var audience: Audience?
+    static func closed(_ raw: Any) -> Bool {
+        guard let value = raw as? [String: Any], Set(value.keys).isSubset(of: ["count", "singleGrant", "startedAt", "endsAt", "footer", "people", "audience"]),
+              !value.values.contains(where: { $0 is NSNull }), let people = value["people"] as? [Any], people.allSatisfy(NativeWorkspaceAvatar.closed) else { return false }
+        if let raw = value["audience"] {
+            guard let audience = raw as? [String: Any], Set(audience.keys) == ["locationCount", "smsCount", "bothCount"], !audience.values.contains(where: { $0 is NSNull }) else { return false }
+        }
+        return true
+    }
+    var valid: Bool {
+        count >= 1 && count <= 9_007_199_254_740_991 && people.count <= min(2, count) &&
+            people.allSatisfy { $0.valid && $0.active == nil && $0.verified == nil } &&
+            [startedAt, endsAt].allSatisfy { $0 == nil || ($0!.isFinite && $0! >= 0 && $0! <= 8.64e15) } &&
+            (footer == nil || NativeDrawerProjection.text(footer!, 256)) && (audience == nil || audience!.valid(count: count))
+    }
 }
 
 struct NativeDrawerProgress: Codable {
@@ -57,6 +185,7 @@ struct NativeDrawerSection: Codable, Identifiable {
     let id: String
     let title: String?
     let rows: [NativeDrawerRow]
+    var layout: String? = nil
 }
 
 struct NativeMemorySearch: Codable {

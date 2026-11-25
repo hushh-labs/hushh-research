@@ -1,4 +1,5 @@
 import type { PersonalAgentStatus } from "@/lib/services/personal-agent-status";
+import { isPooledSandboxSwitchAvailable } from "@/lib/one/owner-cloud";
 /** Server-observed software update status. Missing evidence stays unknown. */
 export type AgentUpdateStatus = {
   available: boolean | null;
@@ -129,7 +130,9 @@ export function updateCheckMessage(
   status: PersonalAgentStatus,
 ) {
   if (status.hostingMode === "shared")
-    return "Hussh Shared updates automatically.";
+    return isPooledSandboxSwitchAvailable()
+      ? "Confidential Sandbox updates automatically."
+      : "Hussh Shared updates automatically.";
   if (status.hostingMode === "pending")
     return "Updates become available after setup finishes.";
   if ((status.hostingMode as string) === "unplaced")

@@ -42,7 +42,6 @@ export interface PlaidBalances {
 
 export interface PlaidAccount {
   account_id: string;
-  holder_category?: string | null;
   persistent_account_id?: string | null;
   name: string;
   official_name?: string | null;
@@ -164,15 +163,12 @@ export interface PlaidSnapshotItem {
 
 export interface PlaidVaultSnapshotRequest {
   access_token: string;
-  include_country_on_file?: boolean;
   transactions_cursor?: string | null;
   transactions_continuation?: boolean;
 }
 
 export interface PlaidVaultSnapshot {
   item: PlaidSnapshotItem;
-  /** On a successful first page when requested. Null means unavailable. */
-  country_on_file?: string | null;
   accounts: PlaidAccount[];
   investments: PlaidInvestmentsSnapshot | PlaidUnavailable;
   transactions: PlaidTransactionsSnapshot | PlaidUnavailable;

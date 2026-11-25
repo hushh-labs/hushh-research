@@ -222,6 +222,27 @@ def attempt_producer_job(jobs, run, attempt, workflow):
             and candidate.get("conclusion") == "skipped"
         ):
             _require(steps == [], "skipped production job contains executed steps")
+    if (
+        attempt.get("status") == "completed"
+        and attempt.get("conclusion") == "cancelled"
+        and any(
+            job.get("name") not in aliases
+            and job.get("status") == "completed"
+            and job.get("conclusion") == "cancelled"
+            for job in jobs
+        )
+        and all(
+            candidate.get("status") == "completed"
+            and candidate.get("conclusion") == "cancelled"
+            and candidate.get("steps") == []
+            and "runner_id" in candidate
+            and candidate["runner_id"] is None
+            and "runner_name" in candidate
+            and candidate["runner_name"] is None
+            for candidate in matches
+        )
+    ):
+        return None
     producers = [
         candidate
         for candidate in matches

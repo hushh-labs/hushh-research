@@ -18,7 +18,8 @@ describe("account deletion progress", () => {
     expect(accountDeletionSteps(cleanup(), null).map(({ id, status }) => [id, status]))
       .toEqual([["closed", "done"], ["erasing", "running"]]);
     // Stall copy comes only from the backend's delayed flag.
-    expect(accountDeletionSteps(cleanup({ delayed: true }), null)[1].message).toMatch(/longer than usual/);
+    expect(accountDeletionSteps(cleanup({ delayed: true }), null)[1].message).toBe("Taking longer than usual. Check back for updates.");
+    expect(accountDeletionSteps(cleanup({ state: "waiting_for_provider" }), null)[1].message).toBe("Cleanup with a connected service is pending.");
     expect(accountDeletionSteps(cleanup({ state: "action_required" }), null)[1].status).toBe("blocked");
     const signIn = accountDeletionSteps(null, waiting);
     expect(signIn.map(({ id, status }) => [id, status]))

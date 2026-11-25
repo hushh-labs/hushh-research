@@ -524,3 +524,18 @@ def test_dev_secret_sync_retains_its_own_environment_policy():
     assert '--project "${{ env.GCP_PROJECT_ID }}"' in sync["run"]
     assert "--environment dev" in sync["run"]
     assert "--environment uat" not in sync["run"]
+
+
+def test_dev_enables_consent_summary_v2_and_keeps_sandbox_edge_gateway_decoupled():
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
+    steps = workflow["jobs"]["deploy"]["steps"]
+    sync = next(
+        step for step in steps if step.get("name") == "Sync canonical hosted runtime secrets"
+    )
+    assert "--consent-center-summary-v2-enabled" in sync["run"]
+    assert "vars.CONSENT_CENTER_SUMMARY_V2_ENABLED || 'true'" in sync["run"]
+    # sandbox-edge-gateway runs the Pod release image under its own dedicated
+    # service account (hussh-sandbox-edge-dev), never the Hub backend image.
+    assert all(step.get("id") != "sync-sandbox-edge-gateway" for step in steps)

@@ -11,7 +11,7 @@ import { Button } from "@/lib/morphy-ux/button";
 import { AdaptiveDetailSurface, SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 
 /** The launcher stays compact; disclosure and consent belong to the opened flow. */
-export function PublicProfileDiscoveryEntry({ userId }: { userId?: string | null }) {
+export function usePublicProfileDiscoveryEntry(userId?: string | null) {
   const { user, userId: ownerId } = useAuth();
   const [open, setOpen] = useState(false);
   const [observation, setObservation] = useState<{ ownerId: string; job: PublicProfileDiscoveryJob | null } | null>(null);
@@ -29,8 +29,17 @@ export function PublicProfileDiscoveryEntry({ userId }: { userId?: string | null
     })();
     return () => { current = false; };
   }, [user, ownerId, userId, open]);
-  if (!user || !ownerId || observation?.ownerId !== ownerId || ["claimed", "cancelled"].includes(observation.job?.status || "")) return null;
-  const ready = observation.job?.status === "ready";
+  const visible = Boolean(user && ownerId && observation?.ownerId === ownerId && !["claimed", "cancelled"].includes(observation.job?.status || ""));
+  const ready = observation?.job?.status === "ready";
+  return { visible, ready, open, setOpen, ownerId };
+}
+
+export function PublicProfileDiscoveryEntry({ userId }: { userId?: string | null }) {
+  return <PublicProfileDiscoveryEntryBody model={usePublicProfileDiscoveryEntry(userId)} />;
+}
+export function PublicProfileDiscoveryEntryBody({ model }: { model: ReturnType<typeof usePublicProfileDiscoveryEntry> }) {
+  const { visible, ready, open, setOpen, ownerId } = model;
+  if (!visible) return null;
   return <>
     <SettingsGroup className="mb-5">
       {ready ? <SettingsRow title="Review your profile" chevron asChild><Link href={ROUTES.ONE_PROFILE_DISCOVERY} /></SettingsRow>

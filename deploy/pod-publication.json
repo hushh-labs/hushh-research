@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "release": {
+    "image": "gcr.io/hushh-pda-dev/consent-protocol-pod@sha256:9f771f108e06ad3fe51a433b6cd3753a0b4f8d5b24a00c82c511a421d01a9b64",
+    "sourceRevision": "e323f94ccc1720237458e6ef5442dfd2b97998da",
+    "runId": "44005543824",
+    "archiveSha256": "82a62448d27b7e7e44c1af2e79a80377bd40e9e3ec07b38931809e2f30955e79"
+  },
+  "descriptorSourceRevision": "e323f94ccc1720237458e6ef5442dfd2b97998da",
+  "baseline": {
+    "serviceUid": "9f27060b-49a3-4f40-b48c-4df5fc611259",
+    "revision": "consent-protocol-00411-5mn",
+    "applicationSource": "b05414b9ad341460a0a01930f8fafd559fbdffea",
+    "applicationImage": "gcr.io/hushh-pda-dev/consent-protocol@sha256:b23b9f453a0897ec43e310720052226a41ffd3162f9d0a3bd51b949ac3e8ebe4",
+    "configurationSha256": "03c302e9ae606ebef74929a03ecebb409683691bbe97ccb7c5add6fb788a3431",
+    "trafficSha256": "b721b156289737b3419be7885a9ef107674f00ab484f6bd9717d92c008738ce1"
+  },
+  "preparationBuildId": "60df677d-451c-48c0-bdb9-d66721c682b3",
+  "preparationManifestSha256": "cd7f86d1b7bda9891e30b280f18959d7717471dba31fb6d42c16fe0077246a49",
+  "preparationAttempt": 1,
+  "preparationArtifactId": 14294118756,
+  "preparationArtifactSha256": "fad67c4cc5658b890fdea399343d543493013e26c29463558e1f1b9dab954c9e",
+  "evidence": [
+    {
+      "kind": "platform",
+      "object": "pod-releases/e323f94ccc1720237458e6ef5442dfd2b97998da/44005543824/qualification-platform.json",
+      "generation": "1794888728815703",
+      "sha256": "1903046978c56e041de06b910bf6a7eda65f1f1f4485a32fcff78c78f45740bd",
+      "nativeExecutions": [
+        "projects/hushh-pda-dev/locations/us-central1/jobs/hosted-image-qual-e323f94c-r1/executions/hosted-image-qual-e323f94c-r1-hjtvp"
+      ],
+      "probeSha256": "b85e4a62128ca421d1c0c8ff703762fbedf6faf57cf2a9aae3906b463c95db8d"
+    },
+    {
+      "kind": "compatibility",
+      "object": "pod-releases/e323f94ccc1720237458e6ef5442dfd2b97998da/44005543824/qualification-compatibility-dev411.json",
+      "generation": "1794888729094672",
+      "sha256": "3c593128df6bf69437ae855b3329ccabdce9e2271a89e767743957174e4ccc1a",
+      "nativeExecutions": [
+        "projects/hushh-pda-dev/locations/us-central1/jobs/hosted-image-qual-e323f94c-r1/executions/hosted-image-qual-e323f94c-r1-hjtvp"
+      ],
+      "probeSha256": "b85e4a62128ca421d1c0c8ff703762fbedf6faf57cf2a9aae3906b463c95db8d"
+    },
+    {
+      "kind": "recovery",
+      "object": "pod-releases/e323f94ccc1720237458e6ef5442dfd2b97998da/44005543824/qualification-recovery-gcp.json",
+      "generation": "1794888729390204",
+      "sha256": "1d0f6d789edb88f4bbe2cff09a411f9a8c434f73b8f2af01bc9abef72a3c2bc2",
+      "nativeExecutions": [
+        "projects/hushh-pda-dev/locations/us-central1/jobs/q-rec-e323f94c-90b4b372-seed/executions/q-rec-e323f94c-90b4b372-seed-hfltk",
+        "projects/hushh-pda-dev/locations/us-central1/jobs/q-rec-e323f94c-90b4b372-restore/executions/q-rec-e323f94c-90b4b372-restore-9mdqz"
+      ],
+      "probeSha256": "bd529ea0e3e6e136f46f39802c8c0988ca3732ca72377b30e63a33c737e86559"
+    },
+    {
+      "kind": "recovery",
+      "object": "pod-releases/e323f94ccc1720237458e6ef5442dfd2b97998da/44005543824/qualification-recovery-azure.json",
+      "generation": "1794888729680794",
+      "sha256": "4a07563c60f442d32d353e3ce27e1f9d8d11b3a501fe72741302f36f7aca43e3",
+      "nativeExecutions": [
+        "projects/hushh-pda-dev/locations/us-central1/jobs/q-rec-e323f94c-aeb77646-seed/executions/q-rec-e323f94c-aeb77646-seed-nl49c",
+        "projects/hushh-pda-dev/locations/us-central1/jobs/q-rec-e323f94c-aeb77646-restore/executions/q-rec-e323f94c-aeb77646-restore-n6tsk"
+      ],
+      "probeSha256": "bd529ea0e3e6e136f46f39802c8c0988ca3732ca72377b30e63a33c737e86559"
+    }
+  ]
+}

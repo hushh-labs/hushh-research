@@ -201,7 +201,7 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
   );
 }
 
-function liveShareTimeSummary(status: LiveShareStatus): string | null {
+export function liveShareTimeSummary(status: LiveShareStatus): string | null {
   if (status.grantCount === 1) return null;
   if (status.count === 1) {
     return `${status.grantCount} active shares`;

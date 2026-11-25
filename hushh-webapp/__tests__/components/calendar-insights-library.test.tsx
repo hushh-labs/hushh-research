@@ -2,7 +2,12 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ insights: vi.fn(), fileAction: vi.fn(), getIdToken: vi.fn(),
-  requestFiles: vi.fn(), requestStatuses: vi.fn(), approvedDetail: vi.fn(), approvedFileAction: vi.fn() }));
+  requestFiles: vi.fn(), requestStatuses: vi.fn(), approvedDetail: vi.fn(), approvedFileAction: vi.fn(), nativeEnabled: false, nativeProjection: vi.fn() }));
+vi.mock("@/components/calendar/native-calendar-workspace", async importOriginal => {
+  const original = await importOriginal<typeof import("@/components/calendar/native-calendar-workspace")>();
+  return { ...original, useNativeCalendarEnabled: () => mocks.nativeEnabled,
+    NativeCalendarLayer: (props: Parameters<typeof original.NativeCalendarLayer>[0]) => { mocks.nativeProjection(props); return props.fallback; } };
+});
 vi.mock("@/lib/services/calendar-insights-service", () => ({
   CalendarInsightsService: { read: mocks.insights, fileAction: mocks.fileAction,
     requestFiles: mocks.requestFiles, requestStatuses: mocks.requestStatuses,
@@ -39,6 +44,7 @@ function meetingPage(meetings: ReturnType<typeof meetingRow>[], complete = true,
 describe("Calendar Insights meeting library", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    mocks.nativeEnabled = false;
     CacheService.getInstance().clear();
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-14T06:00:00Z"));
@@ -184,15 +190,29 @@ describe("Calendar Insights meeting library", () => {
     mocks.getIdToken.mockResolvedValue("firebase-owner-token");
     const notes = meetingRow("n", "Design review", ["notes"]);
     const recording = meetingRow("r", "Product demo", ["recording"]);
+    const unavailable = meetingRow("u", "Meeting awaiting files", []);
     mocks.insights.mockImplementation(async (path: string, body: { date: string; time_zone: string; kind: string; query: string }) => {
-      if (path === "meetings") return meetingPage([notes, recording].filter(row =>
+      if (path === "meetings") return meetingPage([notes, recording, unavailable].filter(row =>
         row.title.toLowerCase().includes((body.query || "").toLowerCase())), true, body.date, body.time_zone);
       if (path === "meetings/detail") return { discovery: "permission_required", complete: false, event: { title: "Design review" }, artifacts: [{ file_id: "revoked", kind: "notes", state: "permission_required" }] };
       return { complete: true, meeting_count: 0, meeting_minutes: 0, days: [], recurring: [], focus: [], overlaps: 0, back_to_back: 0 };
     });
-    render(insights());
+    const view = render(insights());
     fireEvent.click(screen.getByRole("button", { name: /Recordings & Notes/ }));
     await screen.findByRole("button", { name: /Design review/ });
+    mocks.nativeEnabled = true;
+    view.rerender(insights());
+    const projection = mocks.nativeProjection.mock.calls.at(-1)![0] as Parameters<typeof import("@/components/calendar/native-calendar-workspace").NativeCalendarLayer>[0];
+    const unavailableGroup = projection.sections.find(section => section.title === "Not available yet (1)");
+    expect(unavailableGroup).toBeDefined();
+    expect(unavailableGroup!.rows).toHaveLength(1);
+    expect(unavailableGroup!.rows[0]!.trailing).toBeUndefined();
+    const filters = projection.sections.find(section => section.key === "library-filters")!.rows[0]!;
+    expect(filters.choiceStyle).toBe("segmented");
+    act(() => { filters.choices!.find(choice => choice.key === "notes")!.run(); });
+    mocks.nativeEnabled = false;
+    view.rerender(insights());
+    expect(screen.getByRole("tab", { name: "Notes", exact: true })).toHaveAttribute("aria-selected", "true");
     expect(mocks.insights).toHaveBeenCalledWith("meetings", expect.objectContaining({ account_id: "default", date: "2026-10-14", time_zone: expect.any(String) }), "firebase-owner-token", expect.any(AbortSignal));
     fireEvent.click(screen.getByRole("tab", { name: "Notes", exact: true }));
     expect(await screen.findByRole("button", { name: /Product demo/ })).toBeInTheDocument();

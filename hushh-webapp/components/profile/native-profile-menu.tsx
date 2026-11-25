@@ -37,7 +37,7 @@ export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, na
   portrait?: string;
   scoreCard?: {
     amount: string; status: string | null;
-    primary?: NwsCardAction; onOpen: () => void;
+    primary?: NwsCardAction; secondary?: NwsCardAction; onOpen: () => void;
   };
   groups: ReturnType<typeof profileMenuGroups>; actions: ProfileMenuActions; onClose: NativeDrawerActions["close"];
   onPresented?: (destinationId: string | undefined, privacyGeneration: number) => void;

@@ -14,6 +14,7 @@ from google.adk.models.google_llm import Gemini
 from google.genai import types as genai_types
 
 from hushh_mcp.one_adk.agui_turn_timing import HEAD_ONE, TimedADKAgent
+from hushh_mcp.one_adk.tool_retry_plugin import SafeSchemaRetryToolPlugin
 
 try:
     from google.adk.agents.context_cache_config import ContextCacheConfig
@@ -34,6 +35,10 @@ def _adk_context_cache_config(root_agent: Any) -> Any | None:
     }:
         return None
     if os.getenv("PYTEST_CURRENT_TEST") and os.getenv("HUSHH_ADK_CONTEXT_CACHE_FORCE_TEST") != "1":
+        return None
+    from hushh_mcp.runtime_settings import pod_sentinel_model_enabled
+
+    if pod_sentinel_model_enabled():
         return None
     model = getattr(root_agent, "model", None)
     supports_gemini_cache = (isinstance(model, str) and model.startswith("gemini-")) or (
@@ -80,7 +85,8 @@ _authenticated_capabilities = {
         "provider": "Hussh",
     },
     "transport": {"streaming": True, "websocket": False, "httpBinary": False, "resumable": True},
-    "tools": {"supported": True, "parallelCalls": False, "clientProvided": True},
+    "tools": {"supported": True, "parallelCalls": True, "clientProvided": True},
+    "features": {"connectorSetupVersion": 2},
     "state": {"snapshots": True, "deltas": True, "memory": False, "persistentState": True},
     "multiAgent": {"supported": True, "delegation": True, "handoffs": False},
     "reasoning": {"supported": True, "streaming": True, "encrypted": False},
@@ -107,10 +113,13 @@ def build_authenticated_agui(
     plugins: list | None = None,
 ) -> TimedADKAgent:
     cache_config = _adk_context_cache_config(root_agent)
+    resolved_plugins = list(plugins or [])
+    if not any(isinstance(p, SafeSchemaRetryToolPlugin) for p in resolved_plugins):
+        resolved_plugins.append(SafeSchemaRetryToolPlugin())
     app_kwargs: dict[str, Any] = {
         "name": app_name,
         "root_agent": root_agent,
-        "plugins": plugins or [],
+        "plugins": resolved_plugins,
         "resumability_config": ResumabilityConfig(is_resumable=True),
     }
     if cache_config is not None and _APP_ACCEPTS_CONTEXT_CACHE:

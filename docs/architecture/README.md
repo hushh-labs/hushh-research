@@ -21,6 +21,7 @@ Start with [how the system works](system.md), then jump directly to the module t
 flowchart TB
   subgraph ClientLayer["Owner Devices"]
     clients["App & native clients<br/>Web · iOS · Android"]
+    replica["Encrypted Local Replica<br/>0ms - 150ms IndexedDB"]
   end
 
   subgraph ControlPlane["Hussh Control Plane"]
@@ -28,15 +29,26 @@ flowchart TB
     delivery["CI validation & explicit releases"]
   end
 
-  subgraph RuntimeLayer["Agent Runtime (Shared · Personal Sandbox · BYOC)"]
-    one["One & specialists (Kai, Browser, Files)"]
-    information["Encrypted Memory, Wiki, Files & scoped exports"]
+  Edge["Stateless TLS Edge Gateway<br/>sub-2s Self-Heal & 12h Session"]
+
+  subgraph RuntimeLayer["Unified Single-Owner Agent Runtime (3 Placements)"]
+    confidential["Hussh Confidential Sandbox<br/>Google Cloud Default, Dev Preview"]
+    byoc["Bring Your Own Cloud<br/>GCP / Azure Customer KMS"]
+    puppy["Local Puppy<br/>Owner Silicon"]
+    one["One & specialists<br/>Kai, Browser, Files, Terminal"]
+    information["One Encrypted Per-Owner Namespace<br/>PKM, Wiki, Chat, Files, Goals"]
     services["Chosen AI models & connected services"]
   end
 
+  clients --> replica
+  replica <-->|"Encrypted Sync"| information
   clients --> control
-  clients <-->|Direct admitted TLS| one
+  clients <-->|"12h Session / Admitted TLS"| Edge
+  Edge --> one
   control --> one
+  confidential --> one
+  byoc --> one
+  puppy --> one
   one <--> information
   one --> services
   delivery --> control
@@ -47,16 +59,16 @@ flowchart TB
 
 | Area | Status | Purpose |
 | --- | --- | --- |
-| [App and native clients](modules/clients.md) | `Live` | Coherent web, iOS, and Android experience with local vault unlock, navigation, and reviewed actions. |
+| [App and native clients](modules/clients.md) | `Live` | Coherent web, iOS, and Android experience with local vault unlock, `0ms - 150ms` (`<100ms` target) encrypted local read replica (`hushh-owner-ui-cache`) for Chats, Files, and Personal Wiki, and reviewed actions. |
 | [One and specialists](modules/one.md) | `Live` | Root ADK agent coordinating bounded specialists under existing consent authority. |
 | [Identity, vault and consent](modules/identity.md) | `Live` | Strict separation between identity proof, client key custody, and permission to act. |
 | [Memory and PKM](modules/memory.md) | `Live` / `Preview` | Owner-private agent memory, Personal Wiki (Dev), and encrypted PKM domain authority. |
 | [Files and documents](modules/files.md) | `Live` | Encrypted file explorer and bounded document workflows with separate processing approval. |
 | [Connected services](modules/connections.md) | `Live` / `Preview` | Scoped OAuth and MCP connections with prompt-injection quarantine for background prep. |
 | [Sharing and MCP](modules/sharing.md) | `Live` | Scoped Information Exchange and recipient-bound encrypted exports without exposing full memory. |
-| [Hosting and lifecycle](modules/hosting.md) | `Live` / `Preview` | Explicit placement across Shared, GCP/Azure BYOC, and Personal Sandbox (Dev) with governed upgrades. |
+| [Hosting and lifecycle](modules/hosting.md) | `Live` / `Preview` | Single unified runtime across Hussh Confidential Sandbox (Google Cloud default, Dev Preview), Bring Your Own Cloud (GCP/Azure), and Local Puppy; Hussh Shared retired on Dev cutover lanes. |
 | [Browser](modules/browser.md) | `Preview` | Supervised Chromium inside a qualified owner container with direct owner takeover and approvals. |
-| [Puppy](modules/puppy.md) | `Live` | Trusted local-computer model relay bound strictly to an owner's BYOC pod. |
+| [Puppy](modules/puppy.md) | `Live` | Trusted local-computer model relay bound to an owner's BYOC pod or Hussh Confidential Sandbox Edge Gateway relay. |
 | [Finance specialist](modules/finance.md) | `Live` | Kai financial analysis under One's task authority with explicit provenance and degraded states. |
 | [Delivery and operations](modules/delivery.md) | `Live` | Exact-source validation, Merge Queue admission, and separate environment releases. |
 
@@ -121,6 +133,8 @@ flowchart TB
 <summary><strong>For coding agents: architecture verification & boundary rules</strong></summary>
 
 - Always inspect the owning module page (`docs/architecture/modules/*.md`) before modifying cross-surface contracts, trust boundaries, or storage schemas.
+- **Read Plane vs Compute Plane:** Passive UI reads hydrate from the owner-scoped encrypted IndexedDB replica (`hushh-webapp/lib/storage/encrypted-owner-ui-cache.ts`, `hushh-webapp/lib/files/files-cache.ts`, `hushh-webapp/lib/agent/agent-chat-history-cache.ts`) while sandboxes pre-warm silently behind the Edge Gateway.
+- **Active tracking tracks:** [Agent Sandbox microVM pool](../roadmap/personal-agent/agent-sandbox-microvm-plan.md) · [#9744](https://github.com/hushh-labs/hushh-research/issues/9744) · [#9511](https://github.com/hushh-labs/hushh-research/issues/9511) · [#9736](https://github.com/hushh-labs/hushh-research/issues/9736) · [#9517](https://github.com/hushh-labs/hushh-research/issues/9517) · [#9370](https://github.com/hushh-labs/hushh-research/issues/9370) · [#5507](https://github.com/hushh-labs/hushh-research/issues/5507).
 - Verify Mermaid changes and links locally via `./bin/hushh docs verify`.
 
 </details>

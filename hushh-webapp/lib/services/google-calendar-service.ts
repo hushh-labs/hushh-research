@@ -74,9 +74,8 @@ export type CalendarBoardConflict = {
 };
 export type CalendarBoardDay = {
   date: string; time_zone: string; duration_minutes: 15 | 30 | 60;
-  accounts: CalendarBoardAccount[]; complete: boolean; conflicts_complete: boolean;
+  accounts: CalendarBoardAccount[]; people?: CalendarInvitationsResponse["people"]; complete: boolean; conflicts_complete: boolean;
   conflicts: CalendarBoardConflict[]; shared_free_windows: CalendarOpening[]; checked_at: string;
-  people?: Record<string, { userId: string; displayName: string | null; photoUrl: string | null }>;
 };
 export type CalendarEventRef = { account_id: string; calendar_id: string; event_id: string };
 export type CalendarConflictPreview = {
@@ -109,7 +108,7 @@ export class GoogleCalendarService {
   ): Promise<GoogleCalendarStatus> {
     if (await ownerContentIsPrivate()) {
       const value = await privateGoogleStatus('calendar');
-      return { configured: true, connected: value.status === 'connected' && value.capabilities.read, status: value.status === 'absent' ? 'disconnected' : value.status === 'connected' && !value.capabilities.read ? 'needs_reauth' : value.status, access_level: value.accessLevel, scope_csv: '', calendar_list_access: value.capabilities.calendarList === true };
+      return { configured: true, connected: value.status === 'connected' && value.capabilities.read, status: value.status === 'absent' ? 'disconnected' : value.status === 'connected' && !value.capabilities.read ? 'needs_reauth' : value.status, access_level: value.accessLevel, scope_csv: '' };
     }
     const response = await ApiService.apiFetch(
       `/api/one/calendar/status/${encodeURIComponent(userId)}`,

@@ -70,6 +70,7 @@ def test_mail_selection_provider_ids_stay_out_of_wire_state():
     [
         "hussh:calendar_event_read_offer",
         "hussh:calendar_list_read_offer",
+        "hussh:calendar_events_page",
         "hussh:calendar_invitation_read_offer",
         "hussh:calendar_opening_read_offer",
         "hussh:calendar_guest_clarification",

@@ -1,13 +1,29 @@
-.workspace { composes: scale from "../../lib/morphy-ux/ui/connect-type-scale.module.css"; }
-.circleCreateDetails { composes: scale from "../../lib/morphy-ux/ui/connect-type-scale.module.css"; }
-
 .workspace,
 .circleCreateDetails {
   --page-inline-gutter-standard: 24px;
   --app-shell-reading: 728px;
-  --foundation-title1-size: var(--connect-display-size);
-  --foundation-title1-weight: var(--connect-display-weight);
-  --foundation-title1-line: var(--connect-display-line);
+  --type-row-label-size: 14px;
+  --type-row-label-weight: 550;
+  --type-row-label-line: 21px;
+  --type-row-label-compact-size: 14px;
+  --type-row-label-compact-weight: 550;
+  --type-row-label-compact-line: 21px;
+  --type-row-description-size: 12px;
+  --type-row-description-weight: 400;
+  --type-row-description-line: 18px;
+  --type-row-description-compact-size: 12px;
+  --type-row-description-compact-line: 18px;
+  --type-section-label-size: 14px;
+  --type-section-label-weight: 600;
+  --type-section-label-line: 22px;
+  --type-form-label-size: 15px;
+  --type-form-label-weight: 550;
+  --type-form-label-line: 22px;
+  --type-input-value-size: 14px;
+  --type-input-value-line: 22px;
+  --foundation-title1-size: 28px;
+  --foundation-title1-weight: 600;
+  --foundation-title1-line: 36px;
   font-family: var(--font-app-body), system-ui, sans-serif;
 }
 .workspace {
@@ -110,42 +126,7 @@
   --type-form-label-line: 22px;
 }
 .viewTabs {
-  justify-content: flex-start;
   width: 100%;
-  gap: 26px;
-}
-.viewTabs :global([data-slot="tabs-trigger"]) {
-  min-height: 48px;
-  flex: 0 1 auto;
-  white-space: normal;
-  padding: 10px 0;
-  font-size: 15px;
-  font-weight: 550;
-  line-height: 22px;
-}
-.viewTabs :global([data-slot="tabs-trigger"]::after) {
-  bottom: 0;
-  background: var(--app-accent);
-}
-.connectionTabCount {
-  display: inline-grid;
-  place-items: center;
-  align-self: center;
-  flex-shrink: 0;
-  min-width: 18px;
-  height: 17px;
-  padding-inline: 4px;
-  border-radius: 999px;
-  background: var(--app-neutral-fill);
-  color: var(--app-secondary-label);
-  font-size: 10px;
-  line-height: 1;
-  font-weight: 400;
-  font-variant-numeric: tabular-nums;
-}
-.viewTabs :global([data-state="active"]) .connectionTabCount {
-  background: var(--app-accent-tint);
-  color: var(--app-accent);
 }
 
 .count {
@@ -169,7 +150,7 @@
   --type-compact-button-label-weight: 550;
   --type-compact-button-label-line: 21px;
   gap: 7px;
-  padding-inline: 10px;
+  padding-inline: 0;
   font-size: 13px;
   font-weight: 550;
   color: var(--app-accent);
@@ -347,16 +328,10 @@
   .circleSearch input {
     font-size: 16px;
   }
-  .viewTabs {
-    gap: 24px;
-  }
 }
 @media (max-width: 350px) {
   .workspace {
     --page-inline-gutter-standard: 16px;
-  }
-  .viewTabs {
-    gap: 16px;
   }
 }
 
@@ -485,7 +460,7 @@
   position: sticky;
   top: calc(
     var(--top-shell-mask-solid-height, 0px) +
-      var(--connect-sticky-header-height, 0px) + 48px
+      var(--connect-sticky-header-height, 0px) + var(--connect-view-tabs-height, 0px)
   );
   z-index: 11;
   min-height: 44px;
@@ -496,7 +471,7 @@
   position: sticky;
   top: calc(
     var(--top-shell-mask-solid-height, 0px) +
-      var(--connect-sticky-header-height, 0px) + 92px
+      var(--connect-sticky-header-height, 0px) + var(--connect-view-tabs-height, 0px) + var(--connect-list-toolbar-height, 0px)
   );
   z-index: 10;
   background: var(--background);
@@ -565,6 +540,18 @@
 .workspace :global([data-relationship]) {
   min-width: 88px;
 }
+.workspace :global([data-slot="connect-row-action-pill"]) {
+  min-width: 88px;
+  height: 44px;
+  border-radius: 999px;
+  padding-inline: 15px;
+  background: var(--app-card-surface-default-solid);
+  border-color: color-mix(
+    in srgb,
+    var(--app-accent) 32%,
+    var(--app-card-surface-default-solid)
+  );
+}
 .workspace
   :global(
     [data-relationship="pending_outgoing"] [data-slot="connect-row-action-pill"]
@@ -580,36 +567,22 @@
   background: var(--app-accent-ring);
 }
 @media (max-width: 620px) {
-  .workspace :global([data-relationship]) {
+  .workspace :global([data-relationship]),
+  .workspace :global([data-slot="connect-row-action-pill"]) {
     min-width: 78px;
+  }
+  .workspace :global([data-slot="connect-row-action-pill"]) {
+    padding-inline: 11px;
   }
 }
 @media (max-width: 350px) {
-  .workspace :global([data-relationship]) {
+  .workspace :global([data-relationship]),
+  .workspace :global([data-slot="connect-row-action-pill"]) {
     min-width: 72px;
   }
-}
-
-.viewTabs :global([data-slot="tabs-trigger"] > span:first-child) {
-  line-height: inherit;
-}
-.viewTabs :global([data-slot="tabs-trigger"][data-state="inactive"]) {
-  --app-label: var(--app-secondary-label);
-}
-.inviteCodeActions > div:first-child {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-}
-
-.inviteCodeActions > div > div {
-  width: auto;
-}
-
-.inviteCodeActions button {
-  width: auto;
+  .workspace :global([data-slot="connect-row-action-pill"]) {
+    padding-inline: 9px;
+  }
 }
 
 .quietAction {
@@ -623,10 +596,4 @@
     --type-compact-button-label-size: 12px;
     --type-section-label-size: 12px;
   }
-}
-
-/* Preserve 44px targets while centering compact feedback around each glyph. */
-.rowIconAction :global(.morphy-ripple-host) {
-  inset: 5px;
-  border-radius: 50%;
 }

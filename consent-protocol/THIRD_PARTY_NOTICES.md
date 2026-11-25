@@ -7,17 +7,17 @@ Regenerate it with `python3 scripts/licenses/generate_third_party_notices.py`.
 
 ## Python packages
 
-Package count: 251
+Package count: 253
 
 ### License summary
 
 - `3-Clause BSD License`: 1
 - `Apache 2.0 License`: 1
 - `Apache License 2.0`: 1
-- `Apache Software License`: 40
+- `Apache Software License`: 39
 - `Apache Software License; BSD License`: 1
 - `Apache Software License; MIT License`: 1
-- `Apache-2.0`: 34
+- `Apache-2.0`: 37
 - `Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT`: 1
 - `Apache-2.0 AND CNRI-Python`: 1
 - `Apache-2.0 AND MIT`: 1
@@ -35,8 +35,8 @@ Package count: 251
 - `ISC`: 1
 - `ISC License (ISCL)`: 1
 - `LGPL-2.1-only`: 1
-- `MIT`: 60
-- `MIT License`: 43
+- `MIT`: 61
+- `MIT License`: 42
 - `MIT License
 
 Copyright (c) 2022 OpenAI, Shantanu Jain
@@ -114,7 +114,7 @@ SOFTWARE.
 - `defusedxml` `0.7.1` — Python Software Foundation License
 - `Deprecated` `1.3.1` — MIT License
 - `distro` `1.9.0` — Apache Software License
-- `dnspython` `2.9.0` — ISC
+- `dnspython` `2.9.2` — ISC
 - `docstring_parser` `0.18.0` — MIT License
 - `et_xmlfile` `2.0.0` — MIT License
 - `eval_type_backport` `0.4.0` — MIT License
@@ -131,7 +131,7 @@ SOFTWARE.
 - `frozendict` `2.4.7` — GNU Lesser General Public License v3 (LGPLv3)
 - `frozenlist` `1.8.0` — Apache-2.0
 - `fsspec` `2026.7.0` — BSD-3-Clause
-- `google-adk` `2.9.0` — Apache Software License
+- `google-adk` `2.15.0` — Apache Software License
 - `google-api-core` `2.29.0` — Apache Software License
 - `google-api-python-client` `2.201.0` — Apache Software License
 - `google-auth` `2.58.0` — Apache Software License
@@ -142,7 +142,7 @@ SOFTWARE.
 - `google-cloud-storage` `3.10.1` — Apache Software License
 - `google-cloud-trace` `1.19.0` — Apache Software License
 - `google-crc32c` `1.8.0` — Apache-2.0
-- `google-genai` `2.23.0` — Apache-2.0
+- `google-genai` `2.34.0` — Apache-2.0
 - `google-resumable-media` `2.8.2` — Apache Software License
 - `googleapis-common-protos` `1.74.0` — Apache Software License
 - `graphviz` `0.21` — MIT
@@ -170,22 +170,22 @@ SOFTWARE.
 - `jiter` `0.14.0` — MIT
 - `jmespath` `1.1.0` — MIT License
 - `joblib` `1.6.0` — BSD-3-Clause
-- `joserfc` `1.7.3` — BSD License
+- `joserfc` `1.7.6` — BSD License
 - `jsonpatch` `1.33` — BSD License
 - `jsonpointer` `3.1.1` — BSD License
 - `jsonschema` `4.26.0` — MIT
 - `jsonschema-specifications` `2025.9.1` — MIT
 - `korean_lunar_calendar` `0.4.0` — MIT
 - `langchain` `1.3.13` — MIT License
-- `langchain-core` `1.7.3` — MIT License
+- `langchain-core` `1.8.4` — MIT License
 - `langchain-google-genai` `4.4.2` — MIT
-- `langchain-protocol` `0.0.20` — MIT License
-- `langchain-text-splitters` `1.1.3` — MIT License
+- `langchain-protocol` `0.0.22` — MIT License
+- `langchain-text-splitters` `1.2.0` — MIT License
 - `langgraph` `1.2.14` — MIT
 - `langgraph-checkpoint` `4.1.1` — MIT
 - `langgraph-prebuilt` `1.1.0` — MIT
 - `langgraph-sdk` `0.4.8` — MIT
-- `langsmith` `0.14.16` — MIT License
+- `langsmith` `0.16.2` — MIT
 - `librt` `0.9.0` — MIT
 - `limits` `5.8.0` — MIT
 - `loguru` `0.7.3` — MIT License
@@ -206,22 +206,24 @@ SOFTWARE.
 - `narwhals` `2.25.0` — MIT
 - `networkx` `3.6.1` — BSD-3-Clause
 - `numpy` `2.4.4` — BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0
-- `onnxruntime` `1.31.1` — MIT License
-- `openai` `2.54.0` — Apache Software License
+- `onnxruntime` `1.32.0` — MIT License
+- `openai` `2.32.0` — Apache Software License
 - `openpyxl` `3.1.5` — MIT License
-- `opentelemetry-api` `1.42.1` — Apache-2.0
+- `opentelemetry-api` `1.45.2` — Apache-2.0
 - `opentelemetry-exporter-gcp-trace` `1.11.0` — Apache Software License
-- `opentelemetry-exporter-otlp-proto-common` `1.42.1` — Apache-2.0
-- `opentelemetry-exporter-otlp-proto-http` `1.42.1` — Apache-2.0
-- `opentelemetry-instrumentation` `0.63b1` — Apache-2.0
-- `opentelemetry-instrumentation-asgi` `0.63b1` — Apache-2.0
-- `opentelemetry-instrumentation-fastapi` `0.63b1` — Apache-2.0
-- `opentelemetry-instrumentation-httpx` `0.63b1` — Apache-2.0
-- `opentelemetry-proto` `1.42.1` — Apache-2.0
+- `opentelemetry-exporter-http-transport` `0.66b2` — Apache-2.0
+- `opentelemetry-exporter-otlp-common` `0.66b2` — Apache-2.0
+- `opentelemetry-exporter-otlp-proto-common` `1.45.2` — Apache-2.0
+- `opentelemetry-exporter-otlp-proto-http` `1.45.2` — Apache-2.0
+- `opentelemetry-instrumentation` `0.66b2` — Apache-2.0
+- `opentelemetry-instrumentation-asgi` `0.66b2` — Apache-2.0
+- `opentelemetry-instrumentation-fastapi` `0.66b2` — Apache-2.0
+- `opentelemetry-instrumentation-httpx` `0.66b2` — Apache-2.0
+- `opentelemetry-proto` `1.45.2` — Apache-2.0
 - `opentelemetry-resourcedetector-gcp` `1.11.0a0` — Apache Software License
-- `opentelemetry-sdk` `1.42.1` — Apache-2.0
-- `opentelemetry-semantic-conventions` `0.63b1` — Apache-2.0
-- `opentelemetry-util-http` `0.63b1` — Apache-2.0
+- `opentelemetry-sdk` `1.45.2` — Apache-2.0
+- `opentelemetry-semantic-conventions` `0.66b2` — Apache-2.0
+- `opentelemetry-util-http` `0.66b2` — Apache-2.0
 - `orjson` `3.11.8` — MPL-2.0 AND (Apache-2.0 OR MIT)
 - `ormsgpack` `1.12.2` — Apache-2.0 OR MIT
 - `packaging` `26.1` — Apache-2.0 OR BSD-2-Clause
@@ -237,9 +239,9 @@ SOFTWARE.
 - `propcache` `0.4.1` — Apache Software License
 - `proto-plus` `1.27.0` — Apache Software License
 - `protobuf` `6.33.6` — 3-Clause BSD License
-- `psycopg2-binary` `2.9.11` — GNU Library or Lesser General Public License (LGPL)
+- `psycopg2-binary` `2.9.13` — GNU Library or Lesser General Public License (LGPL)
 - `py_rust_stemmers` `0.1.8` — UNKNOWN
-- `pyasn1` `0.6.4` — BSD-2-Clause
+- `pyasn1` `0.6.5` — BSD-2-Clause
 - `pyasn1_modules` `0.4.2` — BSD License
 - `pycountry` `26.2.16` — LGPL-2.1-only
 - `pycparser` `3.0` — BSD-3-Clause
@@ -260,13 +262,13 @@ SOFTWARE.
 - `python-a2a` `0.5.10` — MIT License
 - `python-dateutil` `2.9.0.post0` — Apache Software License; BSD License
 - `python-dotenv` `1.2.2` — BSD-3-Clause
-- `python-multipart` `0.0.32` — Apache-2.0
+- `python-multipart` `0.0.34` — Apache-2.0
 - `pytz` `2026.1.post1` — MIT License
 - `PyYAML` `6.0.3` — MIT License
 - `redis` `5.3.1` — MIT License
 - `referencing` `0.37.0` — MIT
 - `regex` `2026.9.3` — Apache-2.0 AND CNRI-Python
-- `requests` `2.33.1` — Apache Software License
+- `requests` `2.34.2` — Apache Software License
 - `requests-toolbelt` `1.0.0` — Apache Software License
 - `rich` `15.0.0` — MIT License
 - `rpds-py` `0.30.0` — MIT
@@ -280,7 +282,7 @@ SOFTWARE.
 - `sentence-transformers` `6.0.0` — Apache-2.0
 - `shellingham` `1.5.4` — ISC License (ISCL)
 - `six` `1.17.0` — MIT License
-- `slowapi` `0.1.9` — MIT License
+- `slowapi` `0.1.10` — MIT License
 - `sniffio` `1.3.1` — Apache Software License; MIT License
 - `soupsieve` `4.1` — MIT
 - `SQLAlchemy` `2.0.49` — MIT
@@ -316,26 +318,26 @@ SOFTWARE.
 - `tokenizers` `0.22.2` — Apache Software License
 - `toolz` `1.2.0` — BSD-3-Clause
 - `torch` `2.14.0` — Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT
-- `tornado` `6.6` — Apache Software License
+- `tornado` `6.6.1` — Apache Software License
 - `tqdm` `4.67.3` — MPL-2.0 AND MIT
 - `transformers` `5.10.1` — Apache 2.0 License
 - `truststore` `0.10.5` — MIT
 - `typer` `0.27.2` — MIT
 - `types-requests` `2.33.0.20261030` — Apache-2.0
-- `typing-inspection` `0.4.2` — MIT
-- `typing_extensions` `4.15.0` — PSF-2.0
-- `tzdata` `2026.1` — Apache-2.0
+- `typing-inspection` `0.4.5` — MIT
+- `typing_extensions` `4.16.0` — PSF-2.0
+- `tzdata` `2026.6` — Apache-2.0
 - `uritemplate` `4.2.0` — BSD 3-Clause OR Apache-2.0
 - `urllib3` `2.8.0` — MIT
 - `uuid_utils` `0.14.1` — BSD-3-Clause
 - `uvicorn` `0.44.0` — BSD-3-Clause
-- `voyageai` `0.5.0` — MIT License
-- `watchdog` `6.0.0` — Apache Software License
-- `watchfiles` `1.2.0` — MIT License
-- `webauthn` `3.0.0` — BSD-3-Clause
+- `voyageai` `0.6.0` — MIT License
+- `watchdog` `7.1.1` — Apache-2.0
+- `watchfiles` `1.3.0` — MIT License
+- `webauthn` `3.0.1` — BSD-3-Clause
 - `websockets` `15.0.1` — BSD License
 - `Werkzeug` `3.1.9` — BSD-3-Clause
-- `workos` `10.5.0` — MIT
+- `workos` `10.9.0` — MIT
 - `wrapt` `1.17.3` — BSD License
 - `xxhash` `3.6.0` — BSD License
 - `yarl` `1.25.1` — Apache-2.0
@@ -352,7 +354,7 @@ Package count: 1
 
 ### Package inventory
 
-- `moby-container-profiles` `4b8214fc4971e06172938a1f1554ccff6647ee80` — Apache-2.0; [License](browser_runtime/azure_host/LICENSE.moby); [Upstream notice](browser_runtime/azure_host/NOTICE.moby)
+- `moby-container-profiles` `4b8214fc4971e06172938a1f1554ccff6647ee80` — Apache-2.0; [License](consent-protocol/browser_runtime/azure_host/LICENSE.moby); [Upstream notice](consent-protocol/browser_runtime/azure_host/NOTICE.moby)
 
 ## Vendored Email execution resources
 
@@ -365,6 +367,6 @@ Package count: 3
 
 ### Package inventory
 
-- `theposch/gmail-mcp` `f4c8affe8c08b0fb3deb33570251ed0596e73d9d` — GPL-3.0-only; [License](hushh_mcp/services/email_oss/vendor/theposch/original/LICENSE); [Upstream notice](hushh_mcp/services/email_oss/vendor/PROVENANCE.md)
-- `langchain-ai/executive-ai-assistant` `758db7174223da7864feea7c9f8d1aba12923037` — MIT; [License](hushh_mcp/services/email_oss/vendor/eaia/original/LICENSE); [Upstream notice](hushh_mcp/services/email_oss/vendor/PROVENANCE.md)
-- `langchain-ai/agents-from-scratch` `603fc7a4ac6119004f43894395e504a1fefcc6c0` — MIT; [License](hushh_mcp/services/email_oss/vendor/agents_from_scratch/original/LICENSE); [Upstream notice](hushh_mcp/services/email_oss/vendor/PROVENANCE.md)
+- `theposch/gmail-mcp` `f4c8affe8c08b0fb3deb33570251ed0596e73d9d` — GPL-3.0-only; [License](consent-protocol/hushh_mcp/services/email_oss/vendor/theposch/original/LICENSE); [Upstream notice](consent-protocol/hushh_mcp/services/email_oss/vendor/PROVENANCE.md)
+- `langchain-ai/executive-ai-assistant` `758db7174223da7864feea7c9f8d1aba12923037` — MIT; [License](consent-protocol/hushh_mcp/services/email_oss/vendor/eaia/original/LICENSE); [Upstream notice](consent-protocol/hushh_mcp/services/email_oss/vendor/PROVENANCE.md)
+- `langchain-ai/agents-from-scratch` `603fc7a4ac6119004f43894395e504a1fefcc6c0` — MIT; [License](consent-protocol/hushh_mcp/services/email_oss/vendor/agents_from_scratch/original/LICENSE); [Upstream notice](consent-protocol/hushh_mcp/services/email_oss/vendor/PROVENANCE.md)

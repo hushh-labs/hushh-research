@@ -45,7 +45,17 @@ async def record_request(
     owner: PodChatContext,
     app_name: str,
 ) -> dict:
+    from hushh_mcp.services.pod_upgrade_admission import (
+        ADMISSION,
+        PodUpgradeAdmissionRefused,
+        pod_incarnation,
+    )
+
     await owner.require_access()
+    try:
+        permit = await ADMISSION.acquire_turn(incarnation=pod_incarnation())
+    except PodUpgradeAdmissionRefused:
+        raise HTTPException(503, detail={"code": "POD_CONSENT_AUTHORITY_UNAVAILABLE"}) from None
     try:
         return await record_submission(
             owner_id=owner.owner,
@@ -60,3 +70,5 @@ async def record_request(
         raise
     except Exception:
         raise HTTPException(503, detail={"code": "POD_CONSENT_AUTHORITY_UNAVAILABLE"}) from None
+    finally:
+        await permit.release()

@@ -98,7 +98,7 @@ UAT-focused work can use exact-source CI without a preceding Dev deployment.
 Select a merged application SHA from protected UAT history. Full CI runs on that exact commit
 with `scope=all` and the observed serving application as `uat_base_sha`; the
 Main-owned deployment records a typed `uat-exact-ci` predecessor. It verifies
-canonical workflow provenance, protected UAT source, complete current
+canonical workflow authority, reviewed invocation configuration, complete current
 attempts, service scope and the actual serving baseline under the deployment
 lock. It refreshes refs and repeats admission before runtime-secret changes and
 after image builds. A later failed required CI attempt or changed serving baseline refuses.

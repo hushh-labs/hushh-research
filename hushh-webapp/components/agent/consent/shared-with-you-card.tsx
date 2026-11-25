@@ -144,7 +144,7 @@ export function useSharedWithYouCardModel({ person, items: rawItems, active = tr
   // same items keeps every open that is in flight.
   const itemsSignature = JSON.stringify(rawItems.map((item) => [item.key, item.bundleId, item.requestId,
     item.grantRef, item.label, item.status, item.sharedAt, item.accessEndsAt, item.decryptable,
-    item.sensitivity, item.domain, item.purpose, item.fieldOutline, item.fields]));
+    item.sensitivity, item.domain, item.purpose, item.fieldOutline, item.fields, item.exportRevision ?? null]));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const items = useMemo(() => normalizeSharedItems(rawItems), [itemsSignature]);
 
@@ -159,7 +159,7 @@ export function useSharedWithYouCardModel({ person, items: rawItems, active = tr
     ? `${viewerUid}|${vaultOwnerToken}|${person.personRef}|${epoch}|${privacy?.generation ?? 0}|${visibilityGeneration}` : null;
   /** What an opened value is bound to; a result for another identity is never shown. */
   const identityOf = useCallback((item: SharedWithMeCardItem) =>
-    `${session}|${item.key}|${item.bundleId ?? ""}|${item.requestId ?? ""}|${item.grantRef ?? ""}`, [session]);
+    `${session}|${item.key}|${item.bundleId ?? ""}|${item.requestId ?? ""}|${item.grantRef ?? ""}|${item.exportRevision ?? ""}`, [session]);
 
   // Live references for opens that outlast a render.
   const inFlight = useRef(new Map<string, Promise<unknown>>());
@@ -461,14 +461,18 @@ export function useSharedWithYouCardModel({ person, items: rawItems, active = tr
 export type SharedWithYouCardModel = ReturnType<typeof useSharedWithYouCardModel>;
 
 /** Compatibility facade: original web geometry and transcript reveal owner. */
-export function SharedWithYouCard({ person, items, variant = "chat", className }: {
-  person: SharedWithYouPerson; items: SharedWithMeCardItem[]; variant?: "chat" | "profile"; className?: string;
+export function SharedWithYouCard({ person, items, variant = "chat", presentation, className }: {
+  person: SharedWithYouPerson;
+  items: SharedWithMeCardItem[];
+  variant?: "chat" | "profile" | "embedded";
+  presentation?: "inline" | "modal";
+  className?: string;
 }) {
   const { user, status, items: views, retry: onRetry } = useSharedWithYouCardModel({ person, items });
   const [unlockOpen, setUnlockOpen] = useState(false);
   const sectionRef = useRef<HTMLDivElement | null>(null);
   const revealInTranscript = useContext(AgentTranscriptRevealContext);
-  const [reveal] = useState(() => variant === "chat" ? revealInTranscript : null);
+  const [reveal] = useState(() => (variant === "chat" || variant === "embedded") ? revealInTranscript : null);
   useEffect(() => {
     const element = sectionRef.current;
     if (reveal && element?.closest('[data-message-status="streaming"]')) reveal(element);
@@ -481,6 +485,7 @@ export function SharedWithYouCard({ person, items, variant = "chat", className }
         status={status}
         items={views}
         variant={variant}
+        presentation={presentation}
         className={className}
         onRetry={onRetry}
         onUnlock={user ? () => setUnlockOpen(true) : undefined}

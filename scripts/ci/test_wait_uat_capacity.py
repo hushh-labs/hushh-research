@@ -157,6 +157,28 @@ class CapacityAdmissionTests(unittest.TestCase):
             ["--inherit-candidate-service", "consent-protocol"],
         )
 
+    def test_configured_v1_and_preserved_lanes_share_the_release_capacity_roster(self):
+        backend = types.SimpleNamespace(deploy_backend=True, deploy_frontend=False)
+        frontend = types.SimpleNamespace(deploy_backend=False, deploy_frontend=True)
+        cases = [("", "false", "false", False, True),
+                 ("true", "false", "false", True, True),
+                 ("false", "false", "false", True, True),
+                 ("", "true", "false", True, True),
+                 ("false", "false", "true", True, False)]
+        for drain, groups, preserve, v1, private in cases:
+            with self.subTest(drain=drain, groups=groups, preserve=preserve), patch.dict(
+                wait.os.environ, {"DRIVE_V1_WORK_DRAIN_UAT_ENABLED": drain,
+                                  "DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED": groups,
+                                  "PRESERVE_PAUSED_DRIVE_WORKER": preserve},
+            ):
+                args = wait.capacity_args("full", backend)
+                self.assertEqual("consent-protocol-drive-v1-worker" in args, v1)
+                self.assertEqual("consent-protocol-drive-worker" in args, private)
+                self.assertEqual(wait.capacity_args("full", frontend)[-1], "--frontend-only")
+        with patch.dict(wait.os.environ, {"DRIVE_V1_WORK_DRAIN_UAT_ENABLED": "invalid"}):
+            with self.assertRaisesRegex(wait.AdmissionError, "V1 processing mode"):
+                wait.capacity_args("full", backend)
+
     def test_over_budget_report_is_distinct_from_query_failure(self) -> None:
         blocked = {"environment": "uat", "project": "hushh-pda-uat",
                    "phase": "pre-deploy", "admitted": False,

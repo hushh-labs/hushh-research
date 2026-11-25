@@ -135,6 +135,13 @@ async def test_exact_read_only_prompt_cannot_prepare_a_booking(monkeypatch, read
     service.propose.assert_not_awaited()
     service.execute.assert_not_awaited()
     assert model._assessments == 1
+    from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
+
+    projected = durable_external_read_projection(session)
+    # ADK's temp namespace is invocation-local even before durable projection.
+    assert request_scope.STATE_REQUEST_SCOPE not in session.state
+    assert request_scope.STATE_REQUEST_SCOPE not in projected.state
+    assert request_scope.STATE_REQUEST_SCOPE not in projected.model_dump_json()
 
 
 @pytest.mark.parametrize(
@@ -308,6 +315,41 @@ def scope_context():
         session=SimpleNamespace(events=[]),
         user_content=types.Content(role="user", parts=[types.Part(text=A07)]),
     )
+
+
+async def test_door_read_keeps_explicit_zone_and_local_midnight(monkeypatch):
+    monkeypatch.setattr(request_scope, "request_scope", AsyncMock(return_value=()))
+    monkeypatch.setattr(
+        tools,
+        "_serve_via_door",
+        AsyncMock(
+            return_value={
+                "status": "ok",
+                "events": [
+                    {
+                        "start": {"dateTime": "2026-11-06T01:00:00Z"},
+                        "end": {"dateTime": "2026-11-06T02:00:00Z"},
+                    }
+                ],
+            }
+        ),
+    )
+
+    def no_hub_service():
+        raise AssertionError("A served door read must not resolve a hub Calendar")
+
+    monkeypatch.setattr(tools, "get_google_calendar_service", no_hub_service)
+    context = scope_context()
+    context.state["hussh:timezone"] = "Asia/Kolkata"
+    result = await tools.calendar_events(
+        context,
+        start_at="2026-11-05T00:00:00-05:00",
+        end_at="2026-11-07T00:00:00-05:00",
+        time_zone="America/New_York",
+    )
+    assert result["display_time_zone"] == "America/New_York"
+    assert result["events"][0]["local_start_at"] == "2026-11-05T20:00:00-05:00"
+    assert result["events"][0]["start"]["dateTime"] == "2026-11-06T01:00:00Z"
 
 
 async def test_expired_read_only_receipt_never_reassesses_into_booking(monkeypatch):

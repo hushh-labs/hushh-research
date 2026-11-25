@@ -4,8 +4,7 @@ import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import { HelperText, RowLabel, SectionTitle, TrailingValue } from "@/components/app-ui/typography";
 import { summarizeRecentReceiptRows, type RecentReceiptRow } from "@/lib/profile/gmail-receipt-presentation";
 
-/** Counts, never mixed-currency spend or inferred financial performance. */
-export function ReceiptCollectionOverview({ rows }: { rows: readonly RecentReceiptRow[] }) {
+export function receiptCollectionOverview(rows: readonly RecentReceiptRow[]) {
   const active = rows.filter(row => !row.archived);
   const summary = summarizeRecentReceiptRows(active);
   const categories = new Map<string, number>();
@@ -14,9 +13,15 @@ export function ReceiptCollectionOverview({ rows }: { rows: readonly RecentRecei
     categories.set(category, (categories.get(category) ?? 0) + 1);
   });
   const ranked = [...categories].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  return { active, summary, ranked };
+}
+
+/** Counts, never mixed-currency spend or inferred financial performance. */
+export function ReceiptCollectionOverview({ rows }: { rows: readonly RecentReceiptRow[] }) {
+  const { active, summary, ranked } = receiptCollectionOverview(rows);
   return (
     <div className="grid gap-4 md:grid-cols-2" data-no-auto-fade="true" data-testid="receipt-collection-overview">
-      <SurfaceCard className="h-64">
+      <SurfaceCard className="h-64 [&>div]:h-full [&>div]:min-h-0">
         <SurfaceCardContent className="h-full space-y-5 overflow-y-auto p-5">
           <SectionTitle as="h3">Overview</SectionTitle>
           <div>
@@ -35,7 +40,7 @@ export function ReceiptCollectionOverview({ rows }: { rows: readonly RecentRecei
           {rows.length !== active.length ? <HelperText as="p" className="text-muted-foreground">Previously saved receipts remain below; unresolved archive entries are excluded from these counts.</HelperText> : null}
         </SurfaceCardContent>
       </SurfaceCard>
-      <SurfaceCard className="h-64">
+      <SurfaceCard className="h-64 [&>div]:h-full [&>div]:min-h-0">
         <SurfaceCardContent className="h-full space-y-4 overflow-y-auto p-5">
           <SectionTitle as="h3">Categories</SectionTitle>
           <ul className="space-y-3" aria-label="Categories by saved receipt count">

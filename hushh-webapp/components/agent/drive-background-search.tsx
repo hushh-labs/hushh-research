@@ -266,7 +266,7 @@ function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, s
         onClick={() => setShowAllShares(value => !value)}>{showAllShares ? "Show fewer updates" : `Show all ${ordered.length} updates`}</button> : null}
       {page && !detached.length && !bulkError ? <HelperText role="status">{bulkLoading ? "Loading Drive sharing…" : "Nothing to review."}</HelperText> : null}
     </section>;
-    if (page) return <NativeFeaturePage open={page.open} title="Drive sharing" owner={ownerId} layer="chat-drive-review"
+    if (page) return <NativeFeaturePage pane side="left" open={page.open} title="Drive sharing" owner={ownerId} layer="chat-drive-review"
       context={JSON.stringify([snapshotVaultSessionEpoch(), selected?.shareId ?? "activity"])} onReady={page.onReady}
       onBack={() => { if (selected) { setSelectedShareId(null); void loadBulk(); } else page.onBack(); }}>
       {selected ? <div data-chat-detail-body className="profile-pane-scroll-root min-h-0 flex-1 space-y-3 overflow-y-auto px-7 pb-6 pt-7">{detail}</div> : rows}

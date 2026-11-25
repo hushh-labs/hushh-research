@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 import { shouldRetryReviewerBootstrap } from "../../../.agents/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
+import { summarizeReviewerRoutes, verifyReviewerRoute } from "../../scripts/testing/reviewer-route-outcomes.mjs";
+import { resolveReviewerAuthMode } from "../../lib/testing/reviewer-authentication-policy.mjs";
 
 const scripts = [
   "../../scripts/testing/verify-signed-in-routes.mjs",
@@ -10,6 +12,30 @@ const scripts = [
 ];
 
 describe("reviewer route bootstrap contract", () => {
+  it("does not report skipped or unobserved routes as covered", async () => {
+    let visits = 0;
+    // Route spec construction can omit override-only metadata: the authored
+    // requirement must still prevent a same-session result from being passed.
+    const skipped = await verifyReviewerRoute({}, async () => { visits++; }, { requiresColdEntry: true });
+    const passed = await verifyReviewerRoute({}, async () => { visits++; });
+    expect(visits).toBe(1);
+    const summary = summarizeReviewerRoutes(["phone", "tablet"], { sameSession: ["/one"], directEntry: ["/legacy"] }, [
+      { viewport: "phone", lane: "sameSession", route: "/one", ...passed },
+      { viewport: "tablet", lane: "sameSession", route: "/one", ...passed },
+      { viewport: "phone", lane: "directEntry", route: "/legacy", ...skipped },
+    ]);
+    expect(summary.ok).toBe(false);
+    expect(summary.sameSessionShellRoutesCovered).toEqual(["/one"]);
+    expect(summary.directEntryRoutesCovered).toEqual([]);
+    expect(summary.skippedRoutes).toHaveLength(1);
+    expect(summary.missingRoutes).toEqual([{ viewport: "tablet", lane: "directEntry", route: "/legacy" }]);
+    const complete = summarizeReviewerRoutes(["phone"], { sameSession: ["/one"], directEntry: [] }, [
+      { viewport: "phone", lane: "sameSession", route: "/one", ...passed },
+    ]);
+    expect(complete.ok).toBe(true);
+    expect(complete.sameSessionShellRoutesCovered).toEqual(["/one"]);
+    expect(summarizeReviewerRoutes(["phone"], { sameSession: [], directEntry: [] }, []).ok).toBe(false);
+  });
   it("does not repeat a terminal reviewer authentication or vault failure", () => {
     expect(shouldRetryReviewerBootstrap({ code: "REVIEWER_TERMINAL_BOOTSTRAP" })).toBe(false);
     expect(shouldRetryReviewerBootstrap({ code: "TRANSIENT_NAVIGATION_ERROR" })).toBe(true);
@@ -27,18 +53,21 @@ describe("reviewer route bootstrap contract", () => {
         expect(source).not.toContain("bodySnippet:");
         expect(source).not.toContain("bootstrapUserId:");
         expect(source).toContain("await waitForReviewerVaultAdmission(page, smokeUserId, NAVIGATION_TIMEOUT_MS)");
-        expect(source).toContain(
-          'process.env.REVIEWER_AUTH_MODE === "local_credentials"',
-        );
-        expect(source).toContain(': "custom_token";');
+        expect(source).toContain("await createReviewerSessionHarness({");
+        const harness = readFileSync(resolve(process.cwd(), "../.agents/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs"), "utf8");
+        expect(harness).toContain("resolveReviewerAuthMode(process.env.REVIEWER_AUTH_MODE)");
+        expect(resolveReviewerAuthMode()).toBe("local_credentials");
+        expect(resolveReviewerAuthMode("custom_token")).toBe("custom_token");
+        expect(() => resolveReviewerAuthMode("unknown")).toThrow("Unsupported reviewer authentication mode");
+        expect(source).toMatch(/reviewerSession\.openSession\(\s*browser,\s*REVIEWER_BOOTSTRAP_ROUTE,\s*\{\s*requireVaultUnlocked: true/);
       } else {
         expect(source).toMatch(
           /const REVIEWER_BOOTSTRAP_ROUTE_IDS = \[\s*REVIEWER_BOOTSTRAP_ROUTE,\s*"\/ria\/onboarding",?\s*\]/,
         );
+        expect(source).toContain(
+          "waitForRouteBeacon(page, REVIEWER_BOOTSTRAP_ROUTE_IDS)",
+        );
       }
-      expect(source).toContain(
-        "waitForRouteBeacon(page, REVIEWER_BOOTSTRAP_ROUTE_IDS)",
-      );
     },
   );
 

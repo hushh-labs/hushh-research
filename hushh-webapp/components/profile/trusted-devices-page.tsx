@@ -40,9 +40,7 @@ import { UNLINK_WARNING, type TrustedDevicesModel } from "./use-trusted-devices-
 
 /** Trusted devices is a recursive Profile-pane detail, not a standalone page. */
 export default function TrustedDevicesPage({
-  panePresentation = false,
-  model,
-  renderConfirmation = true,
+  panePresentation = false, model, renderConfirmation = true,
 }: {
   panePresentation?: boolean;
   model: TrustedDevicesModel;
