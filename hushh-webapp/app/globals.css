@@ -1081,16 +1081,16 @@ html.native-keyboard-inset.kb-open
   --app-scrim-color: rgb(0 0 0 / 0.24);
   --app-scrim-filter: blur(12px);
 
-  /* Route transition motion tokens: Apple HIG spring-deceleration curve with
-   * simultaneous GPU View Transitions (220-260ms) and directional CSS fallback. */
+  /* Route transition motion tokens: realtime ease-out curve with
+   * simultaneous GPU View Transitions (150-170ms) and directional CSS fallback. */
   --motion-route-exit-duration: 60ms;
-  --motion-route-enter-duration: 220ms;
-  --motion-route-tab-duration: 220ms;
-  --motion-route-push-duration: 260ms;
-  --motion-route-pop-duration: 240ms;
-  --motion-route-exit-ease: cubic-bezier(0.32, 0.72, 0, 1);
-  --motion-route-enter-ease: cubic-bezier(0.32, 0.72, 0, 1);
-  --motion-route-spring-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --motion-route-enter-duration: 160ms;
+  --motion-route-tab-duration: 150ms;
+  --motion-route-push-duration: 170ms;
+  --motion-route-pop-duration: 160ms;
+  --motion-route-exit-ease: cubic-bezier(0.23, 1, 0.32, 1);
+  --motion-route-enter-ease: cubic-bezier(0.23, 1, 0.32, 1);
+  --motion-route-spring-ease: cubic-bezier(0.23, 1, 0.32, 1);
 
   --motion-deck-scale-active: 1.14;
   --motion-deck-scale-adjacent: 0.9;
@@ -8844,14 +8844,14 @@ html.native-android [data-app-pane-material="profile"] {
   }
   to {
     opacity: 0;
-    transform: translate3d(-12px, 0, 0);
+    transform: translate3d(-8px, 0, 0);
   }
 }
 
 @keyframes app-vt-tab-forward-in {
   from {
     opacity: 0;
-    transform: translate3d(12px, 0, 0);
+    transform: translate3d(8px, 0, 0);
   }
   to {
     opacity: 1;
@@ -8866,14 +8866,14 @@ html.native-android [data-app-pane-material="profile"] {
   }
   to {
     opacity: 0;
-    transform: translate3d(12px, 0, 0);
+    transform: translate3d(8px, 0, 0);
   }
 }
 
 @keyframes app-vt-tab-back-in {
   from {
     opacity: 0;
-    transform: translate3d(-12px, 0, 0);
+    transform: translate3d(-8px, 0, 0);
   }
   to {
     opacity: 1;
@@ -8887,15 +8887,15 @@ html.native-android [data-app-pane-material="profile"] {
     transform: translate3d(0, 0, 0);
   }
   to {
-    opacity: 0.82;
-    transform: translate3d(-10px, 0, 0);
+    opacity: 0.88;
+    transform: translate3d(-6px, 0, 0);
   }
 }
 
 @keyframes app-vt-push-in {
   from {
     opacity: 0;
-    transform: translate3d(24px, 0, 0);
+    transform: translate3d(12px, 0, 0);
   }
   to {
     opacity: 1;
@@ -8910,14 +8910,14 @@ html.native-android [data-app-pane-material="profile"] {
   }
   to {
     opacity: 0;
-    transform: translate3d(24px, 0, 0);
+    transform: translate3d(12px, 0, 0);
   }
 }
 
 @keyframes app-vt-pop-in {
   from {
-    opacity: 0.85;
-    transform: translate3d(-14px, 0, 0);
+    opacity: 0.88;
+    transform: translate3d(-8px, 0, 0);
   }
   to {
     opacity: 1;
