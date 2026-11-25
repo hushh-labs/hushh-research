@@ -943,3 +943,56 @@ def test_superseded_queue_cancellation_preserves_legacy_parallel_groups():
         'github.event.merge_group.base_ref) && github.event.merge_group.base_ref || github.ref }}')
     policy = json.loads((root / "config/ci-governance.json").read_text())
     assert policy["repository"]["merge_queue_max_entries_to_build"] == 1
+
+
+def test_api_truncated_release_train_reuses_only_complete_green_matrix():
+    state, validation, receipt = receipt_fixture()
+    truncated = {**receipt, "selection_exact": False}
+    large_paths = [f"hushh-webapp/feature-{index}.tsx" for index in range(3005)]
+    full_jobs = [
+        {"name": name, "status": "completed", "conclusion": "success", "steps": []}
+        for name in sorted(queue.FULL_PR_MATRIX_JOBS)
+    ] + [
+        {"name": f"Web Unit Contracts ({shard}/3)", "status": "completed", "conclusion": "success"}
+        for shard in (1, 2, 3)
+    ]
+
+    def fake_read(jobs):
+        return lambda path: {"total_count": len(jobs), "jobs": jobs} if "/jobs?" in path else {}
+
+    with patch.object(queue, "git", return_value="\0".join(large_paths)):
+        assert queue._api_truncated_full_matrix_reusable(truncated, state, validation, read=fake_read(full_jobs))
+        # Negative control 1: any skipped or failed matrix lane refuses reuse.
+        skipped_ios = [
+            {**job, "conclusion": "skipped"} if job["name"] == "iOS Native (Xcode)" else job
+            for job in full_jobs
+        ]
+        assert not queue._api_truncated_full_matrix_reusable(truncated, state, validation, read=fake_read(skipped_ios))
+        # Negative control 2: failed unit shard refuses reuse.
+        failed_shard = [
+            {**job, "conclusion": "failure"} if job["name"] == "Web Unit Contracts (2/3)" else job
+            for job in full_jobs
+        ]
+        assert not queue._api_truncated_full_matrix_reusable(truncated, state, validation, read=fake_read(failed_shard))
+        # Negative control 3: tree mismatch refuses reuse.
+        assert not queue._api_truncated_full_matrix_reusable(
+            {**truncated, "tree": SECOND}, state, validation, read=fake_read(full_jobs)
+        )
+
+    # Negative control 4: ordinary (<3,000-file) PRs never bypass exact selection.
+    with patch.object(queue, "git", return_value="hushh-webapp/only-one.tsx\0"):
+        assert not queue._api_truncated_full_matrix_reusable(truncated, state, validation, read=fake_read(full_jobs))
+
+    # Negative control 5: auth-health path impact requires the Governance auth-health step.
+    with_auth_health = large_paths + ["deploy/observability/auth_health_job.py"]
+    with patch.object(queue, "git", return_value="\0".join(with_auth_health)):
+        assert not queue._api_truncated_full_matrix_reusable(truncated, state, validation, read=fake_read(full_jobs))
+        jobs_with_auth_step = [
+            {**job, "steps": [{"name": "Run exact auth-health contracts", "conclusion": "success"}]}
+            if job["name"] == "Governance"
+            else job
+            for job in full_jobs
+        ]
+        assert queue._api_truncated_full_matrix_reusable(
+            truncated, state, validation, read=fake_read(jobs_with_auth_step)
+        )

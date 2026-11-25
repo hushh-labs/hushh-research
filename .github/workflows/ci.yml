@@ -772,6 +772,7 @@ jobs:
       - id: resolve
         env:
           EVENT_NAME: ${{ github.event_name }}
+          PR_CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
           AUTH_HEALTH_FILTER: ${{ steps.filter.outputs.auth_health }}
           NON_AUTH_HEALTH_FILTER: ${{ steps.filter.outputs.non_auth_health }}
         run: |
@@ -781,6 +782,14 @@ jobs:
             echo "ios=${{ steps.override.outputs.ios }}" >> "$GITHUB_OUTPUT"
             echo "android=${{ steps.override.outputs.android }}" >> "$GITHUB_OUTPUT"
             echo "editor=${{ steps.override.outputs.editor }}" >> "$GITHUB_OUTPUT"
+            echo "document=true" >> "$GITHUB_OUTPUT"
+            echo "auth_health_only=false" >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT_NAME" = "pull_request" ] && [ "${PR_CHANGED_FILES:-0}" -ge 3000 ]; then
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+            echo "ios=true" >> "$GITHUB_OUTPUT"
+            echo "android=true" >> "$GITHUB_OUTPUT"
+            echo "editor=true" >> "$GITHUB_OUTPUT"
             echo "document=true" >> "$GITHUB_OUTPUT"
             echo "auth_health_only=false" >> "$GITHUB_OUTPUT"
           else
