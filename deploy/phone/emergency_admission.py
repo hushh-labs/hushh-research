@@ -107,6 +107,39 @@ def published_production_tag_shas(root: Path) -> frozenset[str]:
     return frozenset(found)
 
 
+def published_emergency_branch_shas(root: Path) -> frozenset[str]:
+    """Read commit SHAs of refs/remotes/origin/{hotfix,fix}/* without subprocesses."""
+    common = _common_git_dir(root)
+    if common is None:
+        return frozenset()
+    found: set[str] = set()
+    prefixes = ("refs/remotes/origin/hotfix/", "refs/remotes/origin/fix/")
+    packed = common / "packed-refs"
+    if packed.is_file():
+        for raw_line in packed.read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith(("#", "^")):
+                continue
+            parts = line.split(" ", 1)
+            if len(parts) == 2 and parts[1].strip().startswith(prefixes):
+                peeled = _peel_loose_object(common, parts[0].strip())
+                if peeled is not None:
+                    found.add(peeled)
+    origin_root = common / "refs" / "remotes" / "origin"
+    for folder in ("hotfix", "fix"):
+        branch_dir = origin_root / folder
+        if branch_dir.is_dir():
+            for ref_file in branch_dir.rglob("*"):
+                if ref_file.is_file():
+                    oid = ref_file.read_text(encoding="utf-8", errors="replace").strip()
+                    peeled = _peel_loose_object(common, oid)
+                    if peeled is not None:
+                        found.add(peeled)
+    return frozenset(found)
+
+
 def validate_emergency_receipt(receipt_path: Path | None, *, root: Path) -> str | None:
     """Validate an immutable manual-emergency receipt and return its application SHA."""
     if receipt_path is None:

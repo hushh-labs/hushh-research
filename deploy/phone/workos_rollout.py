@@ -24,6 +24,7 @@ from runpy import run_path
 
 from consumer_compatibility import BASELINE
 from emergency_admission import (
+    published_emergency_branch_shas,
     published_production_tag_shas,
     validate_emergency_receipt,
 )
@@ -114,7 +115,14 @@ def _capable(
         and re.fullmatch(r"[0-9a-f]{40}", sha)
         and (
             (emergency_sha is not None and sha == emergency_sha)
-            or (project == "hushh-pda" and sha in published_production_tag_shas(ROOT))
+            or (
+                project == "hushh-pda"
+                and sha
+                in (
+                    published_production_tag_shas(ROOT)
+                    | published_emergency_branch_shas(ROOT)
+                )
+            )
         )
     ):
         return _capability_from_anchor(sha)
@@ -141,7 +149,9 @@ def revision_inventory(
     project=None,
     emergency_sha: str | None = None,
 ) -> dict[str, dict]:
-    check = check or (lambda sha: _capable(sha, restoration_sha, emergency_sha, project))
+    check = check or (
+        lambda sha: _capable(sha, restoration_sha, emergency_sha, project)
+    )
     if not isinstance(rows, list) or not rows or len(rows) >= LIMIT:
         raise ValueError("workos_revision_inventory_incomplete")
     result = {}
@@ -151,7 +161,9 @@ def revision_inventory(
         labels = metadata.get("labels") or {}
         if (
             not isinstance(name, str)
-            or not re.fullmatch(rf"{re.escape(service)}-[a-z0-9-]{{1,{62 - len(service)}}}", name)
+            or not re.fullmatch(
+                rf"{re.escape(service)}-[a-z0-9-]{{1,{62 - len(service)}}}", name
+            )
             or name in result
             or labels.get("serving.knative.dev/service") != service
         ):
@@ -176,13 +188,17 @@ def revision_inventory(
         sha = _source(labels, check)
         containers = spec.get("containers") or []
         if container_name:
-            containers = [row for row in containers if row.get("name") == container_name]
+            containers = [
+                row for row in containers if row.get("name") == container_name
+            ]
         if len(containers) != 1:
             raise ValueError("workos_revision_container_unknown")
         entries = containers[0].get("env") or []
         flags = [item for item in entries if item.get("name") == flag]
         closed = (
-            len(flags) == 1 and flags[0].get("value") == "false" and "valueFrom" not in flags[0]
+            len(flags) == 1
+            and flags[0].get("value") == "false"
+            and "valueFrom" not in flags[0]
         )
         capable = check(sha)
         if capable and not closed:
@@ -200,24 +216,59 @@ def revision_inventory(
 def _audit_templates(
     event: dict, *, kind="Service", project=None
 ) -> list[tuple[dict, str | None, bool]]:
-    """Accept the observed v1 request/completion envelopes, never a guessed v2."""
+    """Accept the observed v1 request/completion envelopes and v2 template restores."""
     payload = event.get("protoPayload") or {}
+    request, response = payload.get("request") or {}, payload.get("response") or {}
+    if (
+        kind == "Service"
+        and project in TARGETS
+        and payload.get("methodName") == "google.cloud.run.v2.Services.UpdateService"
+    ):
+        svc = request.get("service")
+        tmpl = svc.get("template") if isinstance(svc, dict) else None
+        if (
+            request.get("@type")
+            != "type.googleapis.com/google.cloud.run.v2.UpdateServiceRequest"
+            or not set(request).issubset({"@type", "service", "updateMask"})
+            or not isinstance(svc, dict)
+            or not isinstance(tmpl, dict)
+            or not isinstance(tmpl.get("revision"), str)
+            or not isinstance(tmpl.get("containers"), list)
+            or bool(response)
+        ):
+            raise ValueError("workos_audit_request_shape_unknown")
+        return [
+            (
+                {
+                    "metadata": {
+                        "name": tmpl["revision"],
+                        "labels": tmpl.get("labels") or {},
+                    },
+                    "spec": {"containers": tmpl["containers"]},
+                },
+                None,
+                False,
+            )
+        ]
     methods = (
         METHODS
         if kind == "Service"
-        else {method.replace("Services", "Jobs").replace("Service", "Job") for method in METHODS}
+        else {
+            method.replace("Services", "Jobs").replace("Service", "Job")
+            for method in METHODS
+        }
     )
     if kind not in {"Service", "Job"} or payload.get("methodName") not in methods:
         raise ValueError("workos_audit_method_unknown")
     found = []
-    request, response = payload.get("request") or {}, payload.get("response") or {}
     field = kind.lower()
     service = request.get(field)
     if "parent" in request and not (
         kind == "Service"
         and project in TARGETS
         and payload.get("methodName") == "google.cloud.run.v1.Services.CreateService"
-        and request.get("@type") == "type.googleapis.com/google.cloud.run.v1.CreateServiceRequest"
+        and request.get("@type")
+        == "type.googleapis.com/google.cloud.run.v1.CreateServiceRequest"
         and request["parent"] == f"namespaces/{project}"
         and isinstance(service, dict)
         and service.get("metadata", {}).get("namespace") in (None, project)
@@ -229,7 +280,9 @@ def _audit_templates(
         or not isinstance((service.get("spec") or {}).get("template"), dict)
     ):
         raise ValueError("workos_audit_request_shape_unknown")
-    if isinstance(service, dict) and isinstance((service.get("spec") or {}).get("template"), dict):
+    if isinstance(service, dict) and isinstance(
+        (service.get("spec") or {}).get("template"), dict
+    ):
         found.append((service["spec"]["template"], None, False))
     if isinstance(response.get("spec"), dict) and isinstance(
         response["spec"].get("template"), dict
@@ -252,14 +305,20 @@ def _audit_templates(
     return found
 
 
-def _completion_closed(template: dict, flag="WORKOS_SSO_ENABLED", container_name=None) -> bool:
+def _completion_closed(
+    template: dict, flag="WORKOS_SSO_ENABLED", container_name=None
+) -> bool:
     containers = (template.get("spec") or {}).get("containers") or []
     if container_name:
         containers = [row for row in containers if row.get("name") == container_name]
     if len(containers) != 1:
         raise ValueError("workos_audit_container_unknown")
     flags = [row for row in containers[0].get("env", []) if row.get("name") == flag]
-    return len(flags) == 1 and flags[0].get("value") == "false" and "valueFrom" not in flags[0]
+    return (
+        len(flags) == 1
+        and flags[0].get("value") == "false"
+        and "valueFrom" not in flags[0]
+    )
 
 
 def _record_service_completions(
@@ -302,7 +361,9 @@ def _record_service_completions(
         skip_names=frozenset({bridge_name}) if bridge_name else frozenset(),
     )
     for event in validated:
-        for template, completed_name, completion in _audit_templates(event, project=project):
+        for template, completed_name, completion in _audit_templates(
+            event, project=project
+        ):
             if not completion:
                 continue
             metadata = template.get("metadata") or {}
@@ -339,7 +400,9 @@ def review_history(
     service_completions=(),
     emergency_sha: str | None = None,
 ) -> int:
-    check = check or (lambda sha: _capable(sha, restoration_sha, emergency_sha, project))
+    check = check or (
+        lambda sha: _capable(sha, restoration_sha, emergency_sha, project)
+    )
     if not isinstance(events, list) or len(events) >= LIMIT:
         raise ValueError("workos_audit_history_incomplete")
     if historical_observation is not None or operational_observation is not None:
@@ -375,7 +438,10 @@ def review_history(
     bridge_scope = scope(project, service, flag, closed_key, container_name)
     bridge_name, bridge_events, displaced = None, set(), []
     if bridge_scope and not require_retained:
-        if not isinstance(bridge_completions, (list, tuple)) or len(bridge_completions) >= 8:
+        if (
+            not isinstance(bridge_completions, (list, tuple))
+            or len(bridge_completions) >= 8
+        ):
             raise ValueError("workos_recorded_bridge_audit_unqualified")
         bridge_name = contract()["REVISION"]
         marker_completions = []
@@ -430,7 +496,10 @@ def review_history(
                 historical_observation, name, sha, stamp, metadata
             )
             if operational_observation is not None:
-                carried = covers(operational_observation, name, sha, stamp, metadata) or carried
+                carried = (
+                    covers(operational_observation, name, sha, stamp, metadata)
+                    or carried
+                )
             templates.append((name, sha, carried))
             if completion:
                 observation = (sha, _completion_closed(template, flag, container_name))
@@ -563,11 +632,15 @@ def qualify(
 ) -> dict:
     if project not in TARGETS:
         raise ValueError("workos_rollout_project_invalid")
-    if emergency_receipt is not None and (project != "hushh-pda" or restoration_sha is not None):
+    if emergency_receipt is not None and (
+        project != "hushh-pda" or restoration_sha is not None
+    ):
         raise ValueError("workos_emergency_scope_invalid")
     emergency_sha = validate_emergency_receipt(emergency_receipt, root=ROOT)
     if project == "hushh-pda" and restoration_sha is None:
-        authority = run_path(str(ROOT / "deploy/account-deletion/compatibility_restoration.py"))
+        authority = run_path(
+            str(ROOT / "deploy/account-deletion/compatibility_restoration.py")
+        )
         restoration_sha = authority["qualify_recorded_source"]()["sourceSha"]
     if restoration_sha is not None:
         if project != "hushh-pda":
@@ -661,7 +734,11 @@ def qualify(
                     "logging",
                     "read",
                     service_completion_filter(
-                        project, SERVICE, HISTORY_START, until, retired[index : index + 8]
+                        project,
+                        SERVICE,
+                        HISTORY_START,
+                        until,
+                        retired[index : index + 8],
                     ),
                     f"--project={project}",
                     "--limit=64",
@@ -714,7 +791,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", choices=tuple(TARGETS), required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--restoration-sha", help="Exact reviewed production recovery source only")
+    parser.add_argument(
+        "--restoration-sha", help="Exact reviewed production recovery source only"
+    )
     parser.add_argument(
         "--emergency-receipt",
         type=Path,
@@ -734,10 +813,13 @@ def main() -> int:
         # Never print subprocess output, SQL errors, credentials or cloud bodies.
         code = (
             str(exc)
-            if isinstance(exc, ValueError) and re.fullmatch(r"workos_[a-z0-9_]+", str(exc))
+            if isinstance(exc, ValueError)
+            and re.fullmatch(r"workos_[a-z0-9_]+", str(exc))
             else "unavailable"
         )
-        print(f"WorkOS closed-rollout qualification refused: {type(exc).__name__}/{code}")
+        print(
+            f"WorkOS closed-rollout qualification refused: {type(exc).__name__}/{code}"
+        )
         return 1
     print("WorkOS closed-rollout qualification passed; activation remains unqualified.")
     return 0
