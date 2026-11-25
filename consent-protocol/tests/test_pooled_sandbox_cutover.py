@@ -1317,10 +1317,10 @@ async def test_persisted_shared_hosting_choice_row_promotes_idempotently_to_ace(
 
 
 @pytest.mark.asyncio
-async def test_explicit_switch_to_shared_stays_sticky_and_can_reenter_sandbox_with_bumped_version(
+async def test_direct_cutover_reenters_sandbox_automatically_after_prior_shared_detach_with_bumped_version(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Owners switching from Confidential Sandbox to Hussh Shared stay on Shared until they opt back in."""
+    """Direct cutover retires Hussh Shared and automatically re-places detached Shared rows onto Sandbox."""
     _enable_cutover(monkeypatch)
 
     reg = _FakeRegistry()
@@ -1329,7 +1329,7 @@ async def test_explicit_switch_to_shared_stays_sticky_and_can_reenter_sandbox_wi
     fake_detach = _make_fake_detach(reg)
 
     initial = await ensure_pooled_sandbox_placement(
-        user_id="uid-sticky-shared",
+        user_id="uid-direct-cutover",
         registry=reg,
         job_repo=jobs,
         grant_service=grants,
@@ -1339,56 +1339,56 @@ async def test_explicit_switch_to_shared_stays_sticky_and_can_reenter_sandbox_wi
     initial_hushh_id = initial["hushh_id"]
     assert initial["backend_metadata"]["endpointVersion"] == 1
 
-    # Simulate owner clicking Switch to Hussh Shared (runtime_placement.switch_hosting_placement)
     detached_verdict = await fake_detach(
         row=initial,
         reason="owner switched to Hussh Shared",
         allow_stalled_states=True,
     )
     assert detached_verdict is not None
-    post_detach_choice = {"tier": "shared", "chosen_at": "2026-11-19T00:00:05Z"}
 
-    class _FakeChoiceRepo:
-        async def get(self, _uid: str) -> dict[str, Any]:
-            return post_detach_choice
-
-    # Status polls calling ensure_pooled_sandbox_placement MUST preserve Hussh Shared!
+    # Under direct cutover, status polls automatically cut the owner back onto Confidential Sandbox
+    # while incrementing endpointVersion monotonically past detachedPlacements.
     polled = await ensure_pooled_sandbox_placement(
-        user_id="uid-sticky-shared",
+        user_id="uid-direct-cutover",
         registry=reg,
         job_repo=jobs,
         grant_service=grants,
-        hosting_choice_repo=_FakeChoiceRepo(),
     )
     assert polled is not None
-    assert polled.get("deployment_target") is None
-    assert (
-        resolve_hosting_mode(
-            row=polled,
-            registry_read_ok=True,
-            setup_job=None,
-            setup_job_read_ok=True,
-            shared_choice=post_detach_choice,
-            shared_choice_read_ok=True,
-        )
-        == "shared"
-    )
+    assert polled["deployment_target"] == "ace"
+    assert polled["hushh_id"] == initial_hushh_id
+    assert polled["backend_metadata"]["endpointVersion"] == 2
 
-    # Explicit 1-click re-adoption returns the owner to Confidential Sandbox with bumped endpointVersion.
+    # Explicit BYOC transition detach remains preserved until BYOC completes or owner switches back.
+    byoc_detach = await fake_detach(
+        row=polled,
+        reason="owner switched to Bring your own cloud",
+        allow_stalled_states=True,
+    )
+    assert byoc_detach is not None
+    preserved_byoc = await ensure_pooled_sandbox_placement(
+        user_id="uid-direct-cutover",
+        registry=reg,
+        job_repo=jobs,
+        grant_service=grants,
+    )
+    assert preserved_byoc is not None
+    assert preserved_byoc.get("deployment_target") is None
+
     readopted = await adopt_pooled_sandbox_for_owner(
-        user_id="uid-sticky-shared",
+        user_id="uid-direct-cutover",
         allow_clean_slate=True,
         registry=reg,
         job_repo=jobs,
         grant_service=grants,
         migration_job_repo=_FakeMigrationJobs(),
-        identity_service=_FakeIdentityService({"uid-sticky-shared": {"phone_verified": True}}),
+        identity_service=_FakeIdentityService({"uid-direct-cutover": {"phone_verified": True}}),
         detach_fn=fake_detach,
         trigger_retirement_sweep_fn=lambda: None,
     )
     assert readopted["deploymentTarget"] == "ace"
     assert readopted["hushhId"] == initial_hushh_id
-    restored = await reg.get("uid-sticky-shared")
+    restored = await reg.get("uid-direct-cutover")
     assert restored is not None
     assert restored["deployment_target"] == "ace"
-    assert restored["backend_metadata"]["endpointVersion"] == 2
+    assert restored["backend_metadata"]["endpointVersion"] == 3

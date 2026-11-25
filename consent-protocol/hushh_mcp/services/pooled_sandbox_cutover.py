@@ -257,7 +257,6 @@ async def ensure_pooled_sandbox_placement(
         return existing_row
 
     from hushh_mcp.services.owner_hosting_choice import (  # noqa: PLC0415
-        HostingChoiceRepo,
         write_cloud_setup_marker,
     )
     from hushh_mcp.services.personal_agent_grant_service import (  # noqa: PLC0415
@@ -266,7 +265,6 @@ async def ensure_pooled_sandbox_placement(
     from hushh_mcp.services.personal_agent_hosting import (  # noqa: PLC0415
         _last_detach,
         _unassigned_placement_clear,
-        shared_choice_is_current,
     )
     from hushh_mcp.services.personal_agent_registry_repo import (  # noqa: PLC0415
         PersonalAgentRegistryRepo,
@@ -278,6 +276,7 @@ async def ensure_pooled_sandbox_placement(
         elif registry is None:
             await write_cloud_setup_marker(user_id)
 
+    del hosting_choice_repo
     repo = registry or PersonalAgentRegistryRepo()
     row = existing_row if existing_row is not None else await repo.get(user_id)
 
@@ -293,17 +292,12 @@ async def ensure_pooled_sandbox_placement(
     if not force_reenter_sandbox and isinstance(row, Mapping):
         row_dict = dict(row)
         last_detach = _last_detach(row_dict)
-        if last_detach is not None and _unassigned_placement_clear(row_dict):
-            if str(last_detach.get("reason") or "") == "owner switched to Hussh Shared":
-                return row
-            if hosting_choice_repo is not None or registry is None:
-                try:
-                    choice = await (hosting_choice_repo or HostingChoiceRepo()).get(user_id)
-                    if shared_choice_is_current(row_dict, choice):
-                        return row
-                except Exception:  # noqa: BLE001 - unreadable choice does not override detach safety
-                    if str(last_detach.get("deployment_target") or "") == "ace":
-                        return row
+        if (
+            last_detach is not None
+            and _unassigned_placement_clear(row_dict)
+            and str(last_detach.get("reason") or "") == "owner switched to Bring your own cloud"
+        ):
+            return row
     if (
         not bypass_byoc_job_fence
         and not has_hosted_ace_evidence(row)

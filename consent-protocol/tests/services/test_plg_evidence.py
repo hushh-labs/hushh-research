@@ -1325,7 +1325,8 @@ async def test_owner_snapshot_catalog_uses_its_environment_without_cross_lane_ca
     assert uat["agent_documents"] is True
     assert production["agent_documents"] is False
     assert dev["agent_files"] is True
-    assert uat["agent_files"] is False
+    assert uat["agent_files"] is True
+    assert production["agent_files"] is False
     for lane in (production, uat, dev):
         assert lane["agent_one"] is True
         assert lane["agent_career"] is False
