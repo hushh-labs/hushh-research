@@ -18,6 +18,7 @@ import {
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { ROUTES } from "@/lib/navigation/routes";
 import { resolveAppEnvironment } from "@/lib/app-env";
+import { areGoalsAvailable } from "@/lib/goals/availability";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import {
   ONE_SETUP_CAPABILITY_IDS,
@@ -416,6 +417,7 @@ export function isOneCapabilityEnabled(
     return false;
   }
   if (resolved.availability === "local-only") return isLocalCrmBuildEnabled();
+  if (resolved.id === "goals") return areGoalsAvailable();
   if (resolved.availability === "development-only")
     return resolveAppEnvironment() === "development";
   return true;
