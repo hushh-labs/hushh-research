@@ -616,7 +616,7 @@ export function CalendarAgentPage({
   const needsReauth = status?.status === "needs_reauth";
   const checkingConnection = connectionPending || loading || (Boolean(user) && !status && !statusError);
   // Unknown connection evidence is a loading state, never a disconnected state.
-  const showConnectHero = !connected;
+  const showConnectHero = !connected && !checkingConnection && Boolean(status || !statusError);
 
   const popupWaitingNotice = popupWaiting ? (
     <div className="flex flex-col items-center gap-2 pt-3 text-center">
@@ -690,8 +690,6 @@ export function CalendarAgentPage({
   const nativeRoot: CalendarNativeSection[] = [{ key: "connection", rows: [
     { key: "status", label: checkingConnection ? "Checking Calendar connection…" : statusError || connectionLabel, detail },
     ...(!status && statusError ? [{ key: "retry", label: "Try again", run: refresh }] : []),
-    ...(!checkingConnection && !statusError && !connected ? [{ key: "connect", label: needsReauth ? "Reconnect Calendar" : "Connect Calendar", enabled: !busy && Boolean(user), web: true,
-      run: () => connect("read", false, false, undefined, status?.status !== "needs_reauth" && !status?.accounts?.length) }] : []),
     ...(connected ? [{ key: "chat", label: "Try Calendar Agent with One", enabled: !busy, run: () => openCalendarChat("Summarize my calendar events and help me plan meetings") },
       { key: "disconnect", label: "Disconnect Calendar", enabled: !busy, destructive: true, run: () => setDisconnectConfirmOpen(true) }] : []),
   ] }];
@@ -699,7 +697,8 @@ export function CalendarAgentPage({
     key: "complete", label: connected ? "Finish Calendar setup" : "Skip Calendar setup", enabled: !busy && !(connected ? finishingSetup : skippingSetup),
     pending: connected ? finishingSetup : skippingSetup, run: connected ? onFinishSetup : onSkipSetup,
   }] });
-  const nativeModel = { owner: userId, onboarding: journeyVariant === "onboarding", rootOnly: !hasWorkspace, root: nativeRoot,
+  // The illustrated connection hero owns both the permission disclosure and its Google action.
+  const nativeModel = { owner: userId, onboarding: journeyVariant === "onboarding", rootOnly: !hasWorkspace && !showConnectHero, root: nativeRoot,
     webChild: popupWaiting || transitionPending, confirmation: disconnectConfirmOpen ? {
       title: "Disconnect Google Calendar?", description: "This disconnects the selected Calendar account. Your Mail connection and other Calendar accounts stay available.",
       confirm: { key: "confirm-disconnect", label: "Disconnect", destructive: true, enabled: !busy, pending: busy, run: () => disconnect(disconnectAccountId) },

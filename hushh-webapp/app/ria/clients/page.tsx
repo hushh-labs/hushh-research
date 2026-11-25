@@ -225,7 +225,8 @@ export default function RiaClientsPage() {
         routeId: "/ria/clients",
         marker: "native-route-ria-clients",
         authState: user ? "authenticated" : "pending",
-        dataState: clientsResource.loading
+        errorCode: clientsResource.error ? "ria_clients_unavailable" : null,
+        dataState: clientsResource.error ? "error" : clientsResource.loading
           ? "loading"
           : clientItems.length > 0
             ? "loaded"
@@ -258,12 +259,18 @@ export default function RiaClientsPage() {
                 title={RIA_COPY.clients.section.title}
                 description={RIA_COPY.clients.section.description}
               >
+                {clientsResource.error ? (
+                  <div role="alert" className="flex items-center justify-between gap-3 px-4 py-3">
+                    <p className="text-sm text-muted-foreground">The client list couldn’t refresh.</p>
+                    <Button variant="none" disabled={clientsResource.loading} onClick={() => void clientsResource.refresh({ force: true })}>Retry</Button>
+                  </div>
+                ) : null}
                 {clientsResource.loading ? (
                   <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
                     {RIA_COPY.clients.loading}
                   </div>
-                ) : clientItems.length === 0 ? (
+                ) : clientItems.length === 0 && clientsResource.error ? null : clientItems.length === 0 ? (
                   <div className="space-y-3 px-4 py-8 text-center">
                     <p className="text-sm text-muted-foreground">
                       {RIA_COPY.clients.empty}

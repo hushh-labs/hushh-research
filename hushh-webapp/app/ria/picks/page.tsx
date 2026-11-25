@@ -2687,9 +2687,8 @@ export default function RiaPicksPage() {
           ? "loading"
           : iamUnavailable
             ? "unavailable-valid"
-            : "loaded",
+            : picksResource.error ? "error" : "loaded",
         errorCode: picksResource.error ? "ria_picks" : null,
-        errorMessage: picksResource.error,
       }}
     >
       <RiaVerificationGate>

@@ -17,7 +17,7 @@ struct NativeWorkspaceRetirementFence {
 struct NativeWorkspaceIdentity: Codable, Equatable, Hashable {
     let documentId: String; let ownerEpoch: String; let ownerGeneration: Int; let revision: Int; let workspace: String
     var valid: Bool {
-        NativeDrawerIdentity.identifier(documentId) && NativeDrawerIdentity.identifier(ownerEpoch) && ["referrals", "wallet", "memory", "consent", "tasks", "feed", "connect", "email", "launcher", "mail", "calendar", "finance", "career", "location", "setup", "ria"].contains(workspace) &&
+        NativeDrawerIdentity.identifier(documentId) && NativeDrawerIdentity.identifier(ownerEpoch) && ["referrals", "wallet", "memory", "consent", "tasks", "goals", "feed", "connect", "email", "launcher", "mail", "calendar", "finance", "career", "location", "setup", "ria"].contains(workspace) &&
         ownerGeneration > 0 && revision > 0 && [ownerGeneration, revision].allSatisfy { $0 <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration }
     }
     var event: [String: Any] { ["documentId": documentId, "ownerEpoch": ownerEpoch, "ownerGeneration": ownerGeneration, "revision": revision, "workspace": workspace] }
@@ -309,7 +309,7 @@ struct NativeWorkspaceProjection: Decodable {
               frame.valid, ["overview", "rules", "circle-picker", "circle-create", "circle-people"].contains(page), NativeDrawerProjection.text(title, 256), sections.count <= 32,
               HushhNativeControlAppearance(appearance: appearance, accentHex: accentHex, foregroundHex: foregroundHex) != nil else { return false }
         guard workspace == "wallet" ? wallet?.valid == true && page == "overview" && circleEditor == nil && HushhNativeControlAppearance.color(canvasHex) != nil : wallet == nil else { return false }
-        guard navigation == nil || (workspace == "location" && navigation?.valid == true) else { return false }
+        guard navigation == nil || (["location", "goals"].contains(workspace) && navigation?.valid == true) else { return false }
         guard textEditor == nil || (workspace == "location" && page == "overview" && circleEditor == nil && walletProfileEditor == nil && memoryEditor == nil && taskEditor == nil && textEditor?.valid == true) else { return false }
         guard taskEditor == nil || (workspace == "tasks" && page == "overview" && circleEditor == nil && walletProfileEditor == nil && memoryEditor == nil && taskEditor?.valid == true) else { return false }
         guard circleEditor?.customTypes == nil || workspace == "connect" else { return false }
@@ -348,7 +348,7 @@ struct NativeWorkspaceProjection: Decodable {
                     guard avatarBytes <= 1_920_000 else { return false }
                 }
                 if let event = row.calendarEvent { guard workspace == "calendar", event.valid, row.options == nil, row.toggle != true, row.formattedText == nil else { return false } }
-                if row.prominent != nil { guard workspace == "location", row.readOnly != true, row.options == nil, row.toggle != true, row.inlineActions == nil, row.avatar == nil, row.formattedText == nil else { return false } }
+                if row.prominent != nil { guard workspace == "location" || workspace == "ria", row.readOnly != true, row.options == nil, row.toggle != true, row.inlineActions == nil, row.avatar == nil, row.formattedText == nil else { return false } }
                 if row.avatar != nil || row.inlineActions != nil || row.milestone != nil || row.expanded != nil {
                     guard ["feed", "connect", "location", "calendar"].contains(workspace), row.formattedText == nil, row.toggle != true,
                         row.options == nil || workspace == "calendar" && row.avatar != nil && row.inlineActions == nil && row.choiceStyle == nil else { return false }
@@ -1229,12 +1229,23 @@ private struct NativeWorkspaceCollectionRow: View {
             .animation(UIAccessibility.isReduceMotionEnabled ? nil : .snappy(duration: 0.24), value: model.state.navigation?.id)
     }
 
+    private var showsWorkspaceHeading: Bool {
+        switch model.state.workspace {
+        case "memory", "consent", "feed", "connect", "email", "mail", "calendar", "finance", "career", "location", "setup":
+            return false
+        case "goals":
+            return (model.state.navigation?.depth ?? 0) > 0
+        default:
+            return true
+        }
+    }
+
     @ViewBuilder private var workspaceChrome: some View {
         if let editor = model.textEditor {
             NativeWorkspaceTextActions(model: editor.model)
                 .padding(.horizontal, model.state.frame.gutter).padding(.bottom, 8)
         }
-        if model.state.workspace != "memory" && model.state.workspace != "consent" && model.state.workspace != "feed" && model.state.workspace != "connect" && model.state.workspace != "email" && model.state.workspace != "mail" && model.state.workspace != "calendar" && model.state.workspace != "finance" && model.state.workspace != "career" && model.state.workspace != "location" && model.state.workspace != "setup" {
+        if showsWorkspaceHeading {
             HStack {
                 if model.state.backEnabled {
                     Button { model.choice("back") } label: { Image(systemName: "chevron.left").frame(width: 44, height: 44) }

@@ -488,6 +488,7 @@ export function HusshPodsMigrationCard({
   sourceProject,
   onMigrated,
   owningRoute = ROUTES.PROFILE_HOSTING,
+  backQuery,
   embedded = false,
   subtleAction = false,
 }: {
@@ -496,6 +497,7 @@ export function HusshPodsMigrationCard({
   sourceProject?: string | null;
   onMigrated?: () => void;
   owningRoute?: Parameters<typeof useBackLayer>[0];
+  backQuery?: Parameters<typeof useBackLayer>[3];
   embedded?: boolean;
   subtleAction?: boolean;
 }) {
@@ -527,7 +529,7 @@ export function HusshPodsMigrationCard({
     return () => controller.abort();
   }, [canReadMigrationStatus, sourceMode, sourceTarget]);
 
-  useBackLayer(owningRoute, busy ? 2 : 0, () => true);
+  useBackLayer(owningRoute, busy ? 2 : 0, () => true, backQuery);
 
   const source = sourceSummary(sourceMode, sourceTarget, sourceProject);
   const warmSlots = status ? status.cellPool.totalAzureWarmSlots : null;
@@ -779,6 +781,7 @@ export function PooledSandboxSwitchCard({
   sourceCloudLabel,
   onSwitched,
   owningRoute,
+  backQuery,
   embedded = false,
 }: {
   hasAssignedCloudPod: boolean;
@@ -786,6 +789,7 @@ export function PooledSandboxSwitchCard({
   sourceCloudLabel?: string | null;
   onSwitched?: () => void;
   owningRoute: Parameters<typeof useBackLayer>[0];
+  backQuery?: Parameters<typeof useBackLayer>[3];
   embedded?: boolean;
 }) {
   const { user } = useAuth();
@@ -796,7 +800,7 @@ export function PooledSandboxSwitchCard({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const busyRef = useRef(false);
 
-  useBackLayer(owningRoute, busy ? 2 : 0, () => true);
+  useBackLayer(owningRoute, busy ? 2 : 0, () => true, backQuery);
 
   const switchSteps = [
     hasAssignedCloudPod ? "Locking prior pod" : "Preparing workspace",

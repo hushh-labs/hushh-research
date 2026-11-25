@@ -5011,6 +5011,7 @@
   {
     "route": "/portfolio/shared",
     "mode": "hidden",
+    "persistentChrome": "none",
     "exemptionReason": "Public shared portfolio view uses chrome-free layout for external recipients.",
     "voicePlaybook": {
       "playbookId": "route.portfolio.shared",

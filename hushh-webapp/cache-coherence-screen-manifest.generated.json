@@ -1700,7 +1700,7 @@
         "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fconnect%2Fsettings",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fconnect%2Fsettings",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -3772,7 +3772,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fconnected-systems",
+      "reviewer_fixture": "/one/profile/connected-systems",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -5459,7 +5459,7 @@
         "api_service": true,
         "hushh_loader": true,
         "sse_or_streaming": false,
-        "native_beacon": true
+        "native_beacon": false
       },
       "findings": [
         "loader detected; verify warm cache path avoids blocking loader"
@@ -7426,5 +7426,5 @@
       ]
     }
   ],
-  "content_sha256": "79a33a1655ed7dc5b7765a4487cf32626beb3a99777bc4b0e366af18a4ef6b01"
+  "content_sha256": "25d4598c8baab15a28a9ba32ef2fa5ff9e1cebb1b92476a35ddf361f2c274aea"
 }

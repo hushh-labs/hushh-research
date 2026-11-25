@@ -89,6 +89,7 @@ export function useNativeWorkspace<D extends WorkspaceDraft = NativeWorkspaceCir
     let withdrawal: Promise<boolean> | undefined, retirementRequests = 0;
     let handle: PluginListenerHandle | undefined, isolationHandle: PluginListenerHandle | undefined, editHandle: PluginListenerHandle | undefined, finalHandle: PluginListenerHandle | undefined;
     let observer: ResizeObserver | undefined, frame: NativeWorkspaceFrame | undefined;
+    let transitionObserver: MutationObserver | undefined;
     let applied: NativeWorkspaceProjection | undefined, desired: NativeWorkspaceProjection | undefined, fingerprint = "";
     let port: NativeWorkspacePort | undefined;
     const edits = new Map<string, { revision: number; modelRevision: number; composing: boolean; discarded: boolean; model: WorkspaceEditor<D>; draft?: D }>();
@@ -323,6 +324,7 @@ export function useNativeWorkspace<D extends WorkspaceDraft = NativeWorkspaceCir
     const revoke = async (reason: NativeWorkspaceReason = "inactive") => {
       if (lifetime.current === identity) lastRetirementReason.current = reason;
       active = false; feedback = null; if (lifetime.current === identity) publish.current = () => {}; desired = undefined; fingerprint = "";
+      transitionObserver?.disconnect();
       observer?.disconnect(); void handle?.remove(); void editHandle?.remove(); void isolationHandle?.remove();
       const retirement = retire();
       refreshNativeFeedback();
@@ -369,6 +371,20 @@ export function useNativeWorkspace<D extends WorkspaceDraft = NativeWorkspaceCir
         const seat = document.querySelector<HTMLElement>('[data-native-workspace-seat="true"]');
         if (!seat) throw new Error("NATIVE_WORKSPACE_SEAT_MISSING");
         const measure = () => {
+          if (!isCurrent()) return;
+          // The fixed seat stays still while navigation translates the page.
+          // Measure the committed layout even when the animation changes no sizes.
+          const root = document.documentElement;
+          if (root.dataset.routeTransition === "pending" || root.dataset.routeTransition === "entering" ||
+              root.dataset.viewTransitionActive === "true") {
+            if (!transitionObserver) {
+              transitionObserver = new MutationObserver(measure);
+              transitionObserver.observe(root, { attributes: true, attributeFilter: ["data-route-transition", "data-view-transition-active"] });
+            }
+            return;
+          }
+          transitionObserver?.disconnect();
+          transitionObserver = undefined;
           const seatBounds = seat.getBoundingClientRect();
           const authored = contentFrame?.current;
           const shellBounds = authored?.getBoundingClientRect() ?? seatBounds;

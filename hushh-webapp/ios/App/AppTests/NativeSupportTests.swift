@@ -1282,6 +1282,9 @@ final class NativeSupportTests: XCTestCase {
         row = ["id": "create-link", "label": "Create link", "enabled": true, "prominent": true]
         XCTAssertTrue(try projection().valid)
         XCTAssertTrue(try projection().permits("row", row: "create-link"))
+        object["workspace"] = "ria"
+        XCTAssertTrue(try projection().valid)
+        object["workspace"] = "location"
         row["readOnly"] = true
         XCTAssertFalse(try projection().valid)
         row = ["id": "active", "label": "Sharing with 2 people", "enabled": true, "readOnly": true,

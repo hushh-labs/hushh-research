@@ -136,7 +136,7 @@ final class NativeDockModel: ObservableObject {
     @Published var accentForeground = UIColor.white
     weak var editor: DockTextView?
     var emit: ((String, String?, String?, String?, NSRange?) -> Void)?
-    var changedHeight: (() -> Void)?
+    var changedHeight: ((CGFloat?) -> Void)?
     var canSendNow: Bool { mode == "text" && sendEnabled && sendNowEnabled }
     func action(_ name: String, attachment: String? = nil) {
         guard visible, interactionEnabled, editor?.markedTextRange == nil else { return }
@@ -300,7 +300,7 @@ struct NativeDockEditor: UIViewRepresentable {
             (textView as? DockTextView)?.refreshPlaceholder()
             model.text = textView.text
             model.emit?("edit", nil, nil, textView.text, textView.selectedRange)
-            model.changedHeight?()
+            model.changedHeight?(nil)
         }
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
             guard model.editable, model.visible, model.interactionEnabled,
@@ -412,6 +412,12 @@ struct NativeAgentDockView: View {
                         dockButton("arrow.down.right.and.arrow.up.left", "Finish editing") { model.action("collapse") }
                     }
                 }.padding(.vertical, 4).padding(.trailing, model.expanded ? 6 : 8)
+            }
+            // SwiftUI can lay out a new attachment row after apply measures
+            // the old composer. Resize the UIKit hit area from the laid-out
+            // content so the visible chip and its touch target stay together.
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
+                model.changedHeight?(height)
             }
             .glassEffect(.regular, in: .rect(cornerRadius: 26))
             .glassEffectID("agent-dock", in: glass)
@@ -645,7 +651,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
                 return (id, label, item["editable"] as? Bool ?? false)
             }
             self.model.emit = { [weak self] kind, action, attachment, text, range in self?.emit(kind: kind, action: action, attachment: attachment, text: text, range: range) }
-            self.model.changedHeight = { [weak self] in self?.layoutDock() }
+            self.model.changedHeight = { [weak self] height in self?.layoutDock(contentHeight: height) }
             guard let parent = self.bridge?.viewController else { self.rejectApply(call, code: "NATIVE_DOCK_HOST_MISSING"); return }
             if self.hosting == nil {
                 let host = NativeDockHostingController(rootView: NativeAgentDockView(model: self.model))
@@ -686,11 +692,12 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     @MainActor
-    func layoutDock() {
+    func layoutDock(contentHeight: CGFloat? = nil) {
         guard #available(iOS 26.0, *), let parent = bridge?.viewController, let host = hosting else { return }
         let scale = parent.view.bounds.width / max(1, viewport.width)
         guard let dockHost = host as? NativeDockHostingController else { return }
-        let desired = min(340, max(nativeDockRestingHeight, dockHost.sizeThatFits(in: CGSize(width: frame.width * scale, height: 340)).height))
+        let height = contentHeight ?? dockHost.sizeThatFits(in: CGSize(width: frame.width * scale, height: 340)).height
+        let desired = min(340, max(nativeDockRestingHeight, height))
         if placement?.update(frame: CGRect(x: frame.minX * scale, y: frame.minY * scale,
             width: frame.width * scale, height: frame.height * scale), height: desired, editing: model.mode == "text") == true {
             parent.view.setNeedsLayout()
