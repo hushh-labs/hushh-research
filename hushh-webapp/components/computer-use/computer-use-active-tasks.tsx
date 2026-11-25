@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import {
@@ -8,6 +8,7 @@ import {
   type DiscoveredBrowserTask,
 } from "@/lib/services/computer-use-client";
 import { ComputerUseTaskCard } from "./computer-use-task-card";
+import { sameComputerUseBinding, type ComputerUseSnapshot } from "@/lib/computer-use/contracts";
 
 /** Rediscover existing tasks on reconnect; no default Browser launcher or idle polling. */
 type ActiveTasksProps = {
@@ -32,6 +33,7 @@ function OwnerBrowserTasks({
   openReviewSignal = 0,
   onReviewCountChange,
 }: ActiveTasksProps) {
+  const [owner] = useState(snapshotValidatedAuthSessionOwner);
   const client = useMemo(() => new ComputerUseClient(ownerId, getVaultOwnerToken), [ownerId, getVaultOwnerToken]);
   const transport = useMemo(() => client.transport(), [client]);
   const [tasks, setTasks] = useState<{
@@ -40,6 +42,15 @@ function OwnerBrowserTasks({
   }>({ owner: ownerId, rows: [] });
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
+  const updateTaskSnapshot = useCallback((snapshot: ComputerUseSnapshot) => {
+    if (owner?.userId !== ownerId || !isValidatedAuthSessionOwnerCurrent(owner)) return;
+    setTasks(current => {
+      if (!isValidatedAuthSessionOwnerCurrent(owner) || current.owner !== ownerId) return current;
+      const index = current.rows.findIndex(task => task.current && sameComputerUseBinding(task.binding, snapshot.binding));
+      if (index < 0 || current.rows[index]?.phase === snapshot.phase) return current;
+      return { ...current, rows: current.rows.map((task, position) => position === index ? { ...task, phase: snapshot.phase } : task) };
+    });
+  }, [owner, ownerId]);
   useEffect(() => {
     const owner = snapshotValidatedAuthSessionOwner();
     if (owner?.userId !== ownerId) return;
@@ -92,6 +103,7 @@ function OwnerBrowserTasks({
             transport={transport}
             route={route}
             openReviewSignal={index === 0 ? openReviewSignal : 0}
+            onSnapshotChange={updateTaskSnapshot}
           />
         ) : (
           <section
