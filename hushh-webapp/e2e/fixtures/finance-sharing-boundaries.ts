@@ -22,7 +22,7 @@ const fundAndCashModel = mapPortfolioToDashboardViewModel({
     { symbol: "CASH", name: "US Dollar", market_value: 5440, quantity: 5440, price: 1, asset_type: "Cash" },
   ],
 });
-const context = { userId: "synthetic-owner", vaultKey: "fixture-only", vaultOwnerToken: "fixture-only", getIdToken: async () => "fixture-only", isCurrent: () => true };
+const context = { userId: "synthetic-owner", vaultKey: "a".repeat(64), vaultOwnerToken: "fixture-only", getIdToken: async () => "fixture-only", isCurrent: () => true };
 const capture = () => context;
 export function useFinanceShareContext() { return { capture, session: "synthetic-session", ready: true }; }
 export function requireFinanceSession(value: { isCurrent: () => boolean }) {
@@ -74,13 +74,4 @@ export const FinanceSharingService = {
 
 export const KaiProfileService = {
   getProfile: async () => (await readSavedFinance()).profile,
-};
-
-// Synthetic encrypted-cache port; production retains only vault-key-encrypted results.
-const savedPortfolioReviews = new Map<string, unknown>();
-export const portfolioReviewCacheGeneration = async () => 0;
-export const readSavedPortfolioReview = async ({ userId }: { userId: string }) =>
-  savedPortfolioReviews.get(userId) ?? null;
-export const savePortfolioReviewOnDevice = async ({ userId }: { userId: string }, value: unknown) => {
-  savedPortfolioReviews.set(userId, value);
 };

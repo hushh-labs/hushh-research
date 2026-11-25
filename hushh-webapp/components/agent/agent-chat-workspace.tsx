@@ -219,6 +219,7 @@ import calendarType from "@/components/calendar/calendar-presentation.module.css
 import { SelectionChip } from "@/components/agent/selection-chip";
 import { AgentFollowUpSuggestions, visibleFollowUps } from "@/components/agent/agent-follow-up-suggestions";
 import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
+import { isPuppyLiveOnBuild } from "@/lib/one/owner-cloud";
 import {
   PRIVATE_MEMORY_PREPARATION_EVENT_ID,
   connectorBrandForTool,
@@ -893,6 +894,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // on the owner's machine.
   const [agentSurface, setAgentSurface] = useState<AgentChatSurface>("one");
   const isPuppySurface = agentSurface === "puppy";
+  const puppyLiveOnBuild = isPuppyLiveOnBuild();
   const chatWake = useChatAgentWake(
     applicationOwnerId ?? null,
     isCanonicalChatRoute && isVaultUnlocked && !authLoading && !sessionVerificationRequired,
@@ -1111,7 +1113,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const inlineOneStreamEventIdsRef = useRef<Set<string>>(new Set());
   const reconcileOneStreamRef = useRef<(() => void) | null>(null);
   const historyListOwner = useRef<{ auth: NonNullable<ReturnType<typeof snapshotValidatedAuthSessionOwner>>; epoch: number } | null>(null);
-  const puppyHistory = usePuppyConversations(applicationOwnerId ?? null, isPuppySurface);
+  const puppyHistory = usePuppyConversations(
+    applicationOwnerId ?? null,
+    isPuppySurface && puppyLiveOnBuild,
+  );
   const { conversations: puppyConversations, activeId: puppyConversationId } = puppyHistory;
   const [messages, setMessages] = useState<AgentMessage[]>(() => {
     if (initialActiveSession && initialActiveSession.messages.length > 0) {
@@ -6660,8 +6665,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               serverMessageId: latestServerMessageId,
             });
             updateMessage(assistantMessageId, message => ({ ...message, thinkingSummary: undefined, isThinkingStreaming: false, receiptPrivate: {
-              ownerId: userId, vaultEpoch: snapshotVaultSessionEpoch(), conversationId: conversationIdRef.current,
-              expiresAt: Date.now() + 5 * 60 * 1000, kind,
+              ownerId: userId, kind: kind ?? message.receiptPrivate?.kind, vaultEpoch: snapshotVaultSessionEpoch(), conversationId: conversationIdRef.current,
+              expiresAt: Date.now() + 5 * 60 * 1000,
             } }));
           },
           onReceiptSetupNeeded: (state) => {
@@ -7476,8 +7481,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onReceiptPrivate: (kind) => {
             if (streamAbortController.signal.aborted) return;
             updateMessage(assistantMessageId, current => ({ ...current, receiptPrivate: {
-              ownerId: userId, vaultEpoch: snapshotVaultSessionEpoch(), conversationId: conversationIdRef.current,
-              expiresAt: Date.now() + 5 * 60 * 1000, kind,
+              ownerId: userId, kind: kind ?? current.receiptPrivate?.kind, vaultEpoch: snapshotVaultSessionEpoch(), conversationId: conversationIdRef.current,
+              expiresAt: Date.now() + 5 * 60 * 1000,
             } }));
           },
           onStreamHealth: (signal) => {
@@ -10268,16 +10273,46 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               which a `hidden` ancestor cannot reach. Nothing is shared between
               the two: no message, no history row. */}
           {puppyEverOpened ? (
-            <PuppyOneSurface
-              key={applicationOwnerId ?? "signed-out"}
-              active={isPuppySurface}
-              sharedDock={isCanonicalChatRoute}
-              composerDisabled={isHistoryDrawerOpen}
-              conversations={puppyConversations}
-              activeConversationId={puppyConversationId}
-              onCreateConversation={handleCreateNewPuppyChat}
-              className={cn(!isPuppySurface && "hidden", "lg:px-8")}
-            />
+            puppyLiveOnBuild ? (
+              <PuppyOneSurface
+                key={applicationOwnerId ?? "signed-out"}
+                active={isPuppySurface}
+                sharedDock={isCanonicalChatRoute}
+                composerDisabled={isHistoryDrawerOpen}
+                conversations={puppyConversations}
+                activeConversationId={puppyConversationId}
+                onCreateConversation={handleCreateNewPuppyChat}
+                className={cn(!isPuppySurface && "hidden", "lg:px-8")}
+              />
+            ) : null
+          ) : null}
+
+          {isPuppySurface && !puppyLiveOnBuild ? (
+            <section
+              data-testid="puppy-coming-soon-surface"
+              aria-live="polite"
+              className="mx-auto flex min-h-0 flex-1 max-w-md flex-col items-center justify-center gap-3 px-6 py-16 text-center"
+            >
+              <span className="inline-flex items-center rounded-full bg-foreground/[0.06] px-3 py-1 text-xs font-medium text-[var(--app-text-secondary)]">
+                Coming soon
+              </span>
+              <h2 className="text-xl font-semibold tracking-tight text-foreground">
+                Puppy One is coming soon
+              </h2>
+              <p className="text-sm leading-relaxed text-[var(--app-text-secondary)]">
+                Run a private companion model on your own computer, paired directly with One.
+              </p>
+              <div className="mt-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => setAgentSurface("one")}
+                  data-testid="puppy-coming-soon-back"
+                >
+                  Back to One
+                </Button>
+              </div>
+            </section>
           ) : null}
 
           {/* One's transcript region is hidden as a WHOLE, not just the

@@ -355,8 +355,8 @@ async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(
         state={STATE_USER_ID: "forged-owner"},
         forwarded_props={
             "pkmContext": "synthetic-scoped-context",
-            "portfolioContextContract": 1,
             "accountContextContract": 1,
+            "portfolioContextContract": 1,
             "calendarReviewContract": 1,
             "emailMemoryProjection": {
                 "source": "one_memory.markdown",
@@ -375,8 +375,8 @@ async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(
         == ACCOUNT_CONTEXT_PARAMETERS
     )
     assert "accountContextContract" not in data.forwarded_props
-    assert data.state[STATE_PORTFOLIO_CONTEXT_ENABLED]
     assert data.state["temp:one_calendar_review_contract"] is True
+    assert data.state[STATE_PORTFOLIO_CONTEXT_ENABLED]
     tool = next(tool for tool in data.tools if tool.name == PORTFOLIO_CONTEXT_TOOL)
     assert tool.parameters == PORTFOLIO_CONTEXT_PARAMETERS
     assert "portfolioContextContract" not in data.forwarded_props

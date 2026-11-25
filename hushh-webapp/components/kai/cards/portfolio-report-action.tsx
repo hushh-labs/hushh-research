@@ -15,9 +15,10 @@ import { FinanceShareFlow } from "@/components/kai/sharing/finance-share-flow";
 import type { FinanceSource } from "@/lib/finance-sharing/contract";
 
 import { useMarketCurrency } from "@/lib/kai/use-market-currency";
-export function PortfolioReportAction({ model, source, period, disabled, busy, onExport, sharingSource, presentation }: {
+export function PortfolioReportAction({ model, source, period, disabled, busy, onExport, sharingSource, presentation, className }: {
   model: DashboardViewModel; source: string; period: string; disabled?: boolean; busy?: boolean; onExport: () => void;
   sharingSource?: FinanceSource; presentation?: FinancePortfolioPresentation;
+  className?: string;
 }) {
   const [localOpen, setLocalOpen] = useState(false);
   const [localSharing, setLocalSharing] = useState(false);
@@ -34,7 +35,15 @@ export function PortfolioReportAction({ model, source, period, disabled, busy, o
   return <>
     <div className="flex items-center gap-2">
       {sharingSource ? <ShellActionSurface variant="icon" aria-label="Share Finance with connections" disabled={busy} onClick={() => setSharing(true)}><Share2 className="h-4 w-4" /></ShellActionSurface> : null}
-      <ShellActionSurface variant="icon" aria-label="Share portfolio PDF" data-voice-control-id="share_portfolio_pdf" disabled={disabled || busy} onClick={() => setOpen(true)}>
+      <ShellActionSurface
+        variant="icon"
+        className={className}
+        aria-label="Share portfolio PDF"
+        title="Share portfolio PDF"
+        data-voice-control-id="share_portfolio_pdf"
+        disabled={disabled || busy}
+        onClick={() => setOpen(true)}
+      >
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
       </ShellActionSurface>
     </div>

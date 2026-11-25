@@ -486,26 +486,230 @@ test("statement status keeps Cancel reachable while reading", async ({ page }) =
   await expect(page.getByTestId("action-result")).toHaveText("Cancelled");
 });
 
-test("desktop portfolio overview aligns the top cards with the second row", async ({ page }) => {
+test("desktop Portfolio aligns the balance beside the review and compact sharing", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await mount(page, 1024);
+  const fixture = page.getByTestId("portfolio-overview-fixture");
+  const overview = fixture.getByTestId("portfolio-overview");
+  await expect(overview.getByRole("button", { name: "View performance" }).getByText("$24,680.42", { exact: true })).toHaveCSS("font-size", "36px");
+  const cards = overview.getByTestId("portfolio-explore");
+  const mix = cards.getByRole("button", { name: "View allocation" });
+  const holdings = cards.getByRole("button", { name: "View holdings" });
+  const review = overview.getByTestId("portfolio-briefing");
+  await expect(cards.getByRole("button")).toHaveCount(2);
+  await expect(mix.getByText("8.1%")).toBeVisible();
+  await expect(holdings.getByText("TEST", { exact: true })).toBeVisible();
+  await expect(review.getByText(/One company accounts for most of your balance/)).toBeVisible();
+  const sharing = overview.getByTestId("portfolio-sharing-card");
+  await expect(review.getByText("Growth-oriented", { exact: true })).toBeVisible();
+  const [hero, insight, shareBox, mixBox, holdingsBox] = await Promise.all([
+    overview.getByTestId("portfolio-value-card").boundingBox(), review.boundingBox(), sharing.boundingBox(),
+    mix.locator("..").boundingBox(), holdings.locator("..").boundingBox(),
+  ]);
+  const available = (await overview.boundingBox())!;
+  expect(hero!.x).toBeCloseTo(available.x);
+  expect(insight!.x + insight!.width).toBeCloseTo(available.x + available.width);
+  expect(hero!.y).toBeCloseTo(insight!.y);
+  expect(hero!.x + hero!.width).toBeLessThan(insight!.x);
+  await expect(sharing.getByRole("heading", { name: "Sharing", exact: true })).toHaveCount(0);
+  expect(shareBox!.x).toBeCloseTo(insight!.x);
+  expect(shareBox!.width).toBeCloseTo(insight!.width);
+  expect(shareBox!.y).toBeGreaterThanOrEqual(insight!.y + insight!.height);
+  expect(hero!.y + hero!.height).toBeCloseTo(shareBox!.y + shareBox!.height);
+  expect(mixBox!.y).toBeGreaterThanOrEqual(hero!.y + hero!.height);
+  expect(mixBox!.y).toBeCloseTo(holdingsBox!.y);
+  expect(mixBox!.x).toBeCloseTo(hero!.x);
+  expect(mixBox!.width).toBeCloseTo(hero!.width);
+  expect(holdingsBox!.x).toBeCloseTo(insight!.x);
+  expect(holdingsBox!.width).toBeCloseTo(insight!.width);
+  const actions = await overview.getByRole("group", { name: "Portfolio actions" }).boundingBox();
+  expect(actions!.x + actions!.width).toBeCloseTo(holdingsBox!.x + holdingsBox!.width);
+  await page.locator("#root > main").evaluate(element => { element.style.maxWidth = "57rem"; });
+  await overview.screenshot({ path: test.info().outputPath("portfolio-overview-desktop.png") });
+});
+
+test("desktop Portfolio opens the downside fallback and rotates reported insights", async ({ page }) => {
+  await page.addInitScript(() => {
+    document.addEventListener("DOMContentLoaded", () => { document.body.dataset.portfolioReviewFallback = "true"; });
+  });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.clock.install();
   await mount(page, 1024);
   const overview = page.getByTestId("portfolio-overview");
-  const top = overview.locator(":scope > div").nth(0).locator(":scope > [data-slot=card]");
-  const insights = overview.locator(":scope > div").nth(1).locator(":scope > [data-slot=card]");
-  const boxes = await Promise.all([
-    top.nth(0).boundingBox(), top.nth(1).boundingBox(),
-    insights.nth(0).boundingBox(), insights.nth(1).boundingBox(),
+  const review = overview.getByTestId("portfolio-briefing");
+  await expect(review.getByRole("heading", { name: "Largest stock down 20%" })).toBeVisible();
+  await expect(review.getByText("−18.4%", { exact: true })).toBeVisible();
+  const assumption = review.getByText("estimate if other holdings stay flat", { exact: true });
+  await review.scrollIntoViewIfNeeded();
+  await expect(assumption).toBeInViewport({ ratio: 1 });
+  await expect(review.getByRole("button", { name: "Takeaway" })).toHaveCount(0);
+  await page.locator("#root > main").evaluate(element => { element.style.maxWidth = "57rem"; });
+  await overview.screenshot({ path: test.info().outputPath("portfolio-overview-desktop-fallback.png") });
+  const summary = overview.getByRole("region", { name: "Portfolio summary" });
+  const height = (await summary.boundingBox())!.height;
+  await review.getByRole("button", { name: "Resume review rotation" }).focus();
+  await page.keyboard.press("Enter");
+  await page.clock.runFor(3100);
+  await expect(review.getByRole("heading", { name: "Net deposits" })).toBeVisible();
+  await expect(review.getByText("$500.00", { exact: true })).toBeVisible();
+  expect((await summary.boundingBox())!.height).toBeCloseTo(height);
+  await page.keyboard.press("Enter");
+  await page.clock.runFor(3100);
+  await expect(review.getByRole("heading", { name: "Net deposits" })).toBeVisible();
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  const track = review.locator("[data-portfolio-review-track]");
+  expect(await track.evaluate(el => getComputedStyle(el).transitionProperty)).toBe("transform");
+  await review.getByRole("button", { name: "Downside", exact: true }).click();
+  await expect(review.getByText("−18.4%", { exact: true })).toBeVisible();
+  expect((await summary.boundingBox())!.height).toBeCloseTo(height);
+});
+
+test("mobile Portfolio rotates the review and opens the full allocation", async ({ page, browserName }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.clock.install();
+  await mount(page, 393);
+  const fixture = page.getByTestId("portfolio-overview-fixture");
+  const overview = fixture.getByTestId("portfolio-overview");
+  const explore = overview.getByTestId("portfolio-explore");
+  await expect(overview.getByRole("button", { name: "View performance" }).getByText("$24,680.42", { exact: true })).toHaveCSS("font-size", "30px");
+  const totals = overview.getByTestId("portfolio-value-card").getByRole("group", { name: "Portfolio balance summary" });
+  await expect(totals.getByText("Invested", { exact: true })).toBeVisible();
+  await expect(totals.getByText("Cash", { exact: true })).toBeVisible();
+  await expect(overview.getByText("Statement through Oct 31, 2026", { exact: true })).toBeVisible();
+  await expect(overview.getByRole("button", { name: "View analysis" })).toBeVisible();
+  await expect(overview.getByText("Growth-oriented", { exact: true })).toBeVisible();
+  const review = overview.getByTestId("portfolio-briefing");
+  const reviewViews = review.getByRole("group", { name: "Portfolio review views" });
+  const takeaway = reviewViews.getByRole("button", { name: "Takeaway", exact: true });
+  await expect(takeaway).toHaveAttribute("aria-pressed", "true");
+  await expect(review.getByText(/One company accounts for most of your balance/)).toHaveCSS("font-size", "14px");
+  const reviewHeight = (await review.boundingBox())!.height;
+  await reviewViews.getByRole("button", { name: "Resume review rotation" }).focus();
+  await page.keyboard.press("Enter");
+  await page.clock.runFor(3100);
+  await expect(takeaway).toHaveAttribute("aria-pressed", "true");
+  await page.clock.runFor(3000);
+  await expect(reviewViews.getByRole("button", { name: "Downside", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await review.scrollIntoViewIfNeeded();
+  await expect(review.getByText("estimate if other holdings stay flat")).toBeInViewport({ ratio: 1 });
+  expect((await review.boundingBox())!.height).toBeCloseTo(reviewHeight);
+  if (browserName === "chromium") {
+    const stage = review.locator("[data-portfolio-review-swipe]");
+    const cdp = await page.context().newCDPSession(page);
+    const swipe = async (dx: number, dy: number) => {
+      await stage.scrollIntoViewIfNeeded();
+      const box = (await stage.boundingBox())!;
+      const x = box.x + box.width / 2;
+      const y = box.y + box.height / 2;
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+      for (const fraction of [0.25, 0.5, 0.75, 1]) {
+        await cdp.send("Input.dispatchTouchEvent", {
+          type: "touchMove", touchPoints: [{ x: x + dx * fraction, y: y + dy * fraction }],
+        });
+      }
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    };
+    try {
+      await swipe(0, -70);
+      await expect(reviewViews.getByRole("button", { name: "Downside", exact: true })).toHaveAttribute("aria-pressed", "true");
+      await swipe(85, 0);
+      await expect(takeaway).toHaveAttribute("aria-pressed", "true");
+      await expect(reviewViews.getByRole("button", { name: "Resume review rotation" })).toBeVisible();
+      await page.clock.runFor(6200);
+      await expect(takeaway).toHaveAttribute("aria-pressed", "true");
+      await swipe(-85, 0);
+      await expect(reviewViews.getByRole("button", { name: "Downside", exact: true })).toHaveAttribute("aria-pressed", "true");
+    } finally {
+      await cdp.detach();
+    }
+  }
+  await reviewViews.getByRole("button", { name: "Deposits", exact: true }).click();
+  await expect(review.getByRole("heading", { name: "Net deposits", exact: true })).toBeVisible();
+  expect((await review.boundingBox())!.height).toBeCloseTo(reviewHeight);
+  await takeaway.click();
+  await expect(takeaway).toHaveAttribute("aria-pressed", "true");
+  await expect(explore.getByRole("button")).toHaveCount(2);
+  const sharing = overview.getByTestId("portfolio-sharing-card");
+  await expect(sharing).toHaveCount(1);
+  const [exploreBox, sharingBox] = await Promise.all([explore.boundingBox(), sharing.boundingBox()]);
+  expect(sharingBox!.y).toBeGreaterThan(exploreBox!.y + exploreBox!.height);
+  const actions = overview.getByRole("group", { name: "Portfolio actions" });
+  const importButton = actions.getByRole("button", { name: "Import portfolio" });
+  const manageButton = actions.getByRole("button", { name: "Manage portfolio" });
+  const [actionBox, importBox, manageBox] = await Promise.all([actions.boundingBox(), importButton.boundingBox(), manageButton.boundingBox()]);
+  expect(actionBox!.x).toBeCloseTo(sharingBox!.x);
+  expect(actionBox!.width).toBeCloseTo(sharingBox!.width);
+  expect(importBox!.width).toBeCloseTo(manageBox!.width);
+  expect(importBox!.y).toBeCloseTo(manageBox!.y);
+  await importButton.click();
+  await expect(page.getByTestId("action-result")).toHaveText("Import portfolio");
+  await manageButton.click();
+  await expect(page.getByTestId("action-result")).toHaveText("Open sources");
+  await expect(explore.getByText("1 saved holding")).toBeVisible();
+  await expect(explore.getByText("TEST", { exact: true })).toBeHidden();
+  await expect(overview.getByText("Portfolio score")).toHaveCount(0);
+  await expect(fixture.getByRole("list", { name: "Asset breakdown" })).toHaveCount(0);
+  await overview.screenshot({ path: test.info().outputPath("portfolio-overview-mobile.png") });
+  await page.setViewportSize({ width: 320, height: 850 });
+  expect(await review.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  expect(await actions.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await page.setViewportSize({ width: 393, height: 850 });
+  await explore.getByRole("button", { name: "View allocation" }).click();
+  const breakdown = fixture.getByRole("list", { name: "Asset breakdown" });
+  await expect(breakdown.getByText("$22,680.42", { exact: true })).toBeVisible();
+  await expect(breakdown.getByText("8.1% of portfolio", { exact: true })).toBeVisible();
+  expect(await breakdown.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  const equities = breakdown.getByRole("button", { name: /Equities/ });
+  await equities.click();
+  await expect(equities).toHaveAttribute("aria-pressed", "true");
+  await equities.click();
+  await expect(equities).toHaveAttribute("aria-pressed", "false");
+  await fixture.getByRole("region", { name: "Asset mix" }).screenshot({ path: test.info().outputPath("portfolio-allocation-detail-mobile.png") });
+});
+
+test("mobile Portfolio keeps a single downside slide compact and fully visible", async ({ page }) => {
+  await page.addInitScript(() => {
+    document.addEventListener("DOMContentLoaded", () => {
+      document.body.dataset.portfolioReviewFallback = "true";
+      document.body.dataset.portfolioSingleReview = "true";
+    });
+  });
+  await mount(page, 320);
+  const review = page.getByTestId("portfolio-overview").getByTestId("portfolio-briefing");
+  await review.scrollIntoViewIfNeeded();
+  const headline = review.getByRole("heading", { name: "Largest stock down 20%" });
+  const openReview = review.getByRole("button", { name: "View analysis" });
+  await expect(headline).toBeVisible();
+  const assumption = review.getByText("estimate if other holdings stay flat");
+  await expect(assumption).toBeInViewport({ ratio: 1 });
+  await expect(review.getByText("30% drop", { exact: true })).toBeInViewport({ ratio: 1 });
+  const [copy, chartStart, chartEnd] = await Promise.all([
+    assumption.boundingBox(),
+    review.getByText("0% drop", { exact: true }).boundingBox(),
+    review.getByText("30% drop", { exact: true }).boundingBox(),
   ]);
-  expect(boxes[0]!.width).toBeCloseTo(boxes[1]!.width);
-  expect(boxes[0]!.x).toBeCloseTo(boxes[2]!.x);
-  expect(boxes[1]!.x).toBeCloseTo(boxes[3]!.x);
-  const [statementHeading, reviewHeading, reviewAction] = await Promise.all([
-    overview.getByRole("heading", { name: "Statement portfolio value" }).boundingBox(),
-    overview.getByRole("heading", { name: "Portfolio review" }).boundingBox(),
-    overview.getByRole("button", { name: "View analysis" }).boundingBox(),
+  expect(chartStart!.x).toBeGreaterThan(copy!.x + copy!.width);
+  expect(chartEnd!.x).toBeGreaterThan(chartStart!.x + chartStart!.width);
+  expect(chartStart!.y).toBeCloseTo(chartEnd!.y);
+  await expect(review.getByRole("group", { name: "Portfolio review views" })).toHaveCount(0);
+  expect((await openReview.boundingBox())!.x).toBeCloseTo((await headline.boundingBox())!.x);
+  await expect(headline).toHaveCSS("font-size", "14px");
+  expect(await headline.evaluate(element => {
+    const text = document.createRange();
+    text.selectNodeContents(element);
+    return text.getClientRects().length;
+  })).toBe(1);
+  await page.setViewportSize({ width: 393, height: 852 });
+  expect((await review.boundingBox())!.height).toBeLessThan(210);
+  const [slideBox, contentBox] = await Promise.all([
+    review.locator("[data-portfolio-review-track]").boundingBox(),
+    headline.locator("../..").boundingBox(),
   ]);
-  expect(statementHeading!.y).toBeCloseTo(reviewHeading!.y);
-  expect(statementHeading!.x - boxes[0]!.x).toBeCloseTo(reviewHeading!.x - boxes[1]!.x);
-  expect(boxes[1]!.y + boxes[1]!.height - reviewAction!.y - reviewAction!.height).toBeCloseTo(16);
+  const topSpace = contentBox!.y - slideBox!.y;
+  const bottomSpace = slideBox!.y + slideBox!.height - contentBox!.y - contentBox!.height;
+  expect(topSpace).toBeGreaterThan(5);
+  expect(topSpace).toBeCloseTo(bottomSpace, 0);
+  await review.screenshot({ path: test.info().outputPath("portfolio-single-review-mobile.png") });
 });
 
 for (const width of [320, 393, 768]) {

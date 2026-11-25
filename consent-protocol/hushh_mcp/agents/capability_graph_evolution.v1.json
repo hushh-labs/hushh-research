@@ -13,8 +13,16 @@
   "deprecations": [
     {
       "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:connect.explore_network",
+      "from_revision": "6019c40d049d820e",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
       "semantic_id": "actions:people.profile.browse_network",
-      "from_revision": "f3633843012f1860",
+      "from_revision": "6019c40d049d820e",
       "from_version": 1,
       "to_version": 1,
       "active_run_policy": "reject"
@@ -22,15 +30,23 @@
     {
       "schema_version": "one.capability_deprecation.v1",
       "semantic_id": "actions:profile.network_visibility.choose",
-      "from_revision": "f3633843012f1860",
+      "from_revision": "6019c40d049d820e",
       "from_version": 1,
       "to_version": null,
       "active_run_policy": "reject"
     },
     {
       "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:route.profile_payouts",
+      "from_revision": "6019c40d049d820e",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
       "semantic_id": "actions:people.profile.browse_network",
-      "from_revision": "2c5d9153b75c8104",
+      "from_revision": "7a5a0827c34b0f5c",
       "from_version": 1,
       "to_version": 1,
       "active_run_policy": "reject"
@@ -38,7 +54,7 @@
     {
       "schema_version": "one.capability_deprecation.v1",
       "semantic_id": "actions:profile.network_visibility.choose",
-      "from_revision": "2c5d9153b75c8104",
+      "from_revision": "7a5a0827c34b0f5c",
       "from_version": 1,
       "to_version": 1,
       "active_run_policy": "reject"
@@ -2349,6 +2365,254 @@
     },
     {
       "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:kai.setup.launch_dashboard",
+      "from_revision": "685be55b649cd9fc",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:location.review_notifications",
+      "from_revision": "685be55b649cd9fc",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:setup.open_cloud",
+      "from_revision": "685be55b649cd9fc",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "3279e59cde1d20fa",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "624cb10c4072d713",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "076c05cd70ea69d7",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "f6d226a2c5ca0b34",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous",
+      "from_revision": "a03037055c8114bf",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_cancel",
+      "from_revision": "a03037055c8114bf",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_confirm",
+      "from_revision": "a03037055c8114bf",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_verify_again",
+      "from_revision": "a03037055c8114bf",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:route.profile_payouts",
+      "from_revision": "19ebeade48749115",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:route.profile_payouts",
+      "from_revision": "5f122f298e673dd4",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:route.profile_payouts",
+      "from_revision": "f3633843012f1860",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:route.profile_payouts",
+      "from_revision": "bab8cfa1aa259f7c",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous",
+      "from_revision": "3ba87d0e532e05b9",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_cancel",
+      "from_revision": "3ba87d0e532e05b9",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_check",
+      "from_revision": "3ba87d0e532e05b9",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_confirm",
+      "from_revision": "3ba87d0e532e05b9",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_verify_again",
+      "from_revision": "3ba87d0e532e05b9",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous",
+      "from_revision": "5f122f298e673dd4",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_cancel",
+      "from_revision": "5f122f298e673dd4",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_check",
+      "from_revision": "5f122f298e673dd4",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_confirm",
+      "from_revision": "5f122f298e673dd4",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_verify_again",
+      "from_revision": "5f122f298e673dd4",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:route.profile_payouts",
+      "from_revision": "975965c04f634896",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:connect.explore_network",
+      "from_revision": "dbedaff95c8093f8",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:connect.explore_network",
+      "from_revision": "39d1350c4bb2264f",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:connect.explore_network",
+      "from_revision": "f3633843012f1860",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:connect.explore_network",
+      "from_revision": "d3330cd60993d5f9",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:connect.explore_network",
+      "from_revision": "9a5c97f52fe29676",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
       "semantic_id": "actions:setup.finish_finance",
       "from_revision": "657c474596de4d84",
       "from_version": 1,
@@ -2461,54 +2725,6 @@
     },
     {
       "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:setup.finish_finance",
-      "from_revision": "14eb52dced97297e",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:kai.setup.answer_horizon",
-      "from_revision": "14eb52dced97297e",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:kai.setup.answer_drawdown",
-      "from_revision": "14eb52dced97297e",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:kai.setup.answer_volatility",
-      "from_revision": "14eb52dced97297e",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:kai.setup.launch_dashboard",
-      "from_revision": "14eb52dced97297e",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "workflows:workflow.setup.finance",
-      "from_revision": "14eb52dced97297e",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
       "semantic_id": "actions:phone_mandate.send_real_sms",
       "from_revision": "8b2c2ce0335c1211",
       "from_version": 1,
@@ -2591,94 +2807,6 @@
       "schema_version": "one.capability_deprecation.v1",
       "semantic_id": "actions:phone_mandate.change_number",
       "from_revision": "8b2c2ce0335c1211",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.send_real_sms",
-      "from_revision": "41ce76d431046107",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.transfer_review",
-      "from_revision": "41ce76d431046107",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.transfer_confirm",
-      "from_revision": "41ce76d431046107",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous",
-      "from_revision": "41ce76d431046107",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_confirm",
-      "from_revision": "41ce76d431046107",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_cancel",
-      "from_revision": "41ce76d431046107",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_verify_again",
-      "from_revision": "41ce76d431046107",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.review_previous_devices",
-      "from_revision": "41ce76d431046107",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.transfer_cancel",
-      "from_revision": "41ce76d431046107",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.recover",
-      "from_revision": "41ce76d431046107",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.change_number",
-      "from_revision": "41ce76d431046107",
       "from_version": 1,
       "to_version": 1,
       "active_run_policy": "reject"
@@ -2705,790 +2833,6 @@
       "from_revision": "22cf4ef00a31d756",
       "from_version": 1,
       "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.recover",
-      "from_revision": "3adc9c7720dda6e7",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "workflows:workflow.setup.connections",
-      "from_revision": "458153bdfb331613",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "workflows:workflow.setup.connections",
-      "from_revision": "14eb52dced97297e",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "workflows:workflow.setup.connections",
-      "from_revision": "bab8cfa1aa259f7c",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "workflows:workflow.setup.connections",
-      "from_revision": "eb1373a534d44b22",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "workflows:workflow.setup.connections",
-      "from_revision": "076c05cd70ea69d7",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "workflows:workflow.setup.connections",
-      "from_revision": "f6d226a2c5ca0b34",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "workflows:workflow.setup.connections",
-      "from_revision": "366da54ed07dd315",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.review_previous_deletion",
-      "from_revision": "8ec20520da73103b",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.review_previous_deletion",
-      "from_revision": "f3633843012f1860",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.review_previous_deletion",
-      "from_revision": "2f9a5e01d9f2ee5b",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:route.profile_payouts",
-      "from_revision": "19ebeade48749115",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:route.profile_payouts",
-      "from_revision": "5f122f298e673dd4",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:route.profile_payouts",
-      "from_revision": "f3633843012f1860",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:route.profile_payouts",
-      "from_revision": "bab8cfa1aa259f7c",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:route.profile_payouts",
-      "from_revision": "975965c04f634896",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.change_number",
-      "from_revision": "19ebeade48749115",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_cancel",
-      "from_revision": "19ebeade48749115",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_confirm",
-      "from_revision": "19ebeade48749115",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_verify_again",
-      "from_revision": "19ebeade48749115",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_check",
-      "from_revision": "19ebeade48749115",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.review_previous_deletion",
-      "from_revision": "19ebeade48749115",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.change_number",
-      "from_revision": "975965c04f634896",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_cancel",
-      "from_revision": "975965c04f634896",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_confirm",
-      "from_revision": "975965c04f634896",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_verify_again",
-      "from_revision": "975965c04f634896",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_check",
-      "from_revision": "975965c04f634896",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.review_previous_deletion",
-      "from_revision": "975965c04f634896",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.change_number",
-      "from_revision": "f3633843012f1860",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.change_number",
-      "from_revision": "2eac94ce000d7868",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_cancel",
-      "from_revision": "2eac94ce000d7868",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_check",
-      "from_revision": "2eac94ce000d7868",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_confirm",
-      "from_revision": "2eac94ce000d7868",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_verify_again",
-      "from_revision": "2eac94ce000d7868",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.review_previous_deletion",
-      "from_revision": "2eac94ce000d7868",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.change_number",
-      "from_revision": "c32cf5e00a63cfc1",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_cancel",
-      "from_revision": "c32cf5e00a63cfc1",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_check",
-      "from_revision": "c32cf5e00a63cfc1",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_confirm",
-      "from_revision": "c32cf5e00a63cfc1",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_verify_again",
-      "from_revision": "c32cf5e00a63cfc1",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.review_previous_deletion",
-      "from_revision": "c32cf5e00a63cfc1",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.change_number",
-      "from_revision": "397e42888f424c55",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_cancel",
-      "from_revision": "397e42888f424c55",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_check",
-      "from_revision": "397e42888f424c55",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_confirm",
-      "from_revision": "397e42888f424c55",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_verify_again",
-      "from_revision": "397e42888f424c55",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.review_previous_deletion",
-      "from_revision": "397e42888f424c55",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:connect.explore_network",
-      "from_revision": "39d1350c4bb2264f",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:connect.explore_network",
-      "from_revision": "f3633843012f1860",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:connect.explore_network",
-      "from_revision": "d3330cd60993d5f9",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:connect.explore_network",
-      "from_revision": "9a5c97f52fe29676",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:analysis.confirm_preview",
-      "from_revision": "733d656de0b7c38a",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:analysis.confirm_preview",
-      "from_revision": "f3633843012f1860",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:analysis.confirm_preview",
-      "from_revision": "bab8cfa1aa259f7c",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:analysis.confirm_preview",
-      "from_revision": "a4adf08da1a10229",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:analysis.confirm_preview",
-      "from_revision": "be22fe6e0fa3f322",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:analysis.confirm_preview",
-      "from_revision": "cb10ee16c62231b2",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:analysis.confirm_preview",
-      "from_revision": "a165740521c96115",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:analysis.confirm_preview",
-      "from_revision": "83966cd4fefe54f6",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:analysis.confirm_preview",
-      "from_revision": "9c1f8b9bcf9e2d4b",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:analysis.confirm_preview",
-      "from_revision": "54398a17799f1d6f",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:profile.network_visibility.choose",
-      "from_revision": "a0436d5f1b01fd9f",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:profile.update_display_name",
-      "from_revision": "bbde6ef01e842a0e",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:profile.update_display_name",
-      "from_revision": "f3633843012f1860",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:profile.update_display_name",
-      "from_revision": "bab8cfa1aa259f7c",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:profile.update_display_name",
-      "from_revision": "a4adf08da1a10229",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:profile.update_display_name",
-      "from_revision": "be22fe6e0fa3f322",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:profile.update_display_name",
-      "from_revision": "cb10ee16c62231b2",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:profile.update_display_name",
-      "from_revision": "a165740521c96115",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:profile.update_display_name",
-      "from_revision": "83966cd4fefe54f6",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:profile.update_display_name",
-      "from_revision": "9c1f8b9bcf9e2d4b",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:profile.update_display_name",
-      "from_revision": "33c82ddd26652153",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:connect.explore_network",
-      "from_revision": "6019c40d049d820e",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:people.profile.browse_network",
-      "from_revision": "6019c40d049d820e",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:profile.network_visibility.choose",
-      "from_revision": "6019c40d049d820e",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:route.profile_payouts",
-      "from_revision": "6019c40d049d820e",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:people.profile.browse_network",
-      "from_revision": "7a5a0827c34b0f5c",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:profile.network_visibility.choose",
-      "from_revision": "7a5a0827c34b0f5c",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:kai.setup.launch_dashboard",
-      "from_revision": "685be55b649cd9fc",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:location.review_notifications",
-      "from_revision": "685be55b649cd9fc",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:setup.open_cloud",
-      "from_revision": "685be55b649cd9fc",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "workflows:workflow.setup.connections",
-      "from_revision": "3279e59cde1d20fa",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "workflows:workflow.setup.connections",
-      "from_revision": "624cb10c4072d713",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous",
-      "from_revision": "a03037055c8114bf",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_cancel",
-      "from_revision": "a03037055c8114bf",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_confirm",
-      "from_revision": "a03037055c8114bf",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_verify_again",
-      "from_revision": "a03037055c8114bf",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous",
-      "from_revision": "3ba87d0e532e05b9",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_cancel",
-      "from_revision": "3ba87d0e532e05b9",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_check",
-      "from_revision": "3ba87d0e532e05b9",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_confirm",
-      "from_revision": "3ba87d0e532e05b9",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_verify_again",
-      "from_revision": "3ba87d0e532e05b9",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous",
-      "from_revision": "5f122f298e673dd4",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_cancel",
-      "from_revision": "5f122f298e673dd4",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_check",
-      "from_revision": "5f122f298e673dd4",
-      "from_version": 1,
-      "to_version": null,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_confirm",
-      "from_revision": "5f122f298e673dd4",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:phone_mandate.delete_previous_verify_again",
-      "from_revision": "5f122f298e673dd4",
-      "from_version": 1,
-      "to_version": 1,
-      "active_run_policy": "reject"
-    },
-    {
-      "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:connect.explore_network",
-      "from_revision": "dbedaff95c8093f8",
-      "from_version": 1,
-      "to_version": 1,
       "active_run_policy": "reject"
     },
     {
@@ -3789,6 +3133,582 @@
     },
     {
       "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:people.profile.browse_network",
+      "from_revision": "f3633843012f1860",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:profile.network_visibility.choose",
+      "from_revision": "f3633843012f1860",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:people.profile.browse_network",
+      "from_revision": "2c5d9153b75c8104",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:profile.network_visibility.choose",
+      "from_revision": "2c5d9153b75c8104",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:setup.finish_finance",
+      "from_revision": "14eb52dced97297e",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:kai.setup.answer_horizon",
+      "from_revision": "14eb52dced97297e",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:kai.setup.answer_drawdown",
+      "from_revision": "14eb52dced97297e",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:kai.setup.answer_volatility",
+      "from_revision": "14eb52dced97297e",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:kai.setup.launch_dashboard",
+      "from_revision": "14eb52dced97297e",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.finance",
+      "from_revision": "14eb52dced97297e",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.send_real_sms",
+      "from_revision": "41ce76d431046107",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.transfer_review",
+      "from_revision": "41ce76d431046107",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.transfer_confirm",
+      "from_revision": "41ce76d431046107",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous",
+      "from_revision": "41ce76d431046107",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_confirm",
+      "from_revision": "41ce76d431046107",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_cancel",
+      "from_revision": "41ce76d431046107",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_verify_again",
+      "from_revision": "41ce76d431046107",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.review_previous_devices",
+      "from_revision": "41ce76d431046107",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.transfer_cancel",
+      "from_revision": "41ce76d431046107",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.recover",
+      "from_revision": "41ce76d431046107",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.change_number",
+      "from_revision": "41ce76d431046107",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.recover",
+      "from_revision": "3adc9c7720dda6e7",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "458153bdfb331613",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "14eb52dced97297e",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "bab8cfa1aa259f7c",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "eb1373a534d44b22",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "366da54ed07dd315",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.review_previous_deletion",
+      "from_revision": "8ec20520da73103b",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.review_previous_deletion",
+      "from_revision": "f3633843012f1860",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.review_previous_deletion",
+      "from_revision": "2f9a5e01d9f2ee5b",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.change_number",
+      "from_revision": "19ebeade48749115",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_cancel",
+      "from_revision": "19ebeade48749115",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_confirm",
+      "from_revision": "19ebeade48749115",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_verify_again",
+      "from_revision": "19ebeade48749115",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_check",
+      "from_revision": "19ebeade48749115",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.review_previous_deletion",
+      "from_revision": "19ebeade48749115",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.change_number",
+      "from_revision": "975965c04f634896",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_cancel",
+      "from_revision": "975965c04f634896",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_confirm",
+      "from_revision": "975965c04f634896",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_verify_again",
+      "from_revision": "975965c04f634896",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_check",
+      "from_revision": "975965c04f634896",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.review_previous_deletion",
+      "from_revision": "975965c04f634896",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.change_number",
+      "from_revision": "f3633843012f1860",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.change_number",
+      "from_revision": "2eac94ce000d7868",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_cancel",
+      "from_revision": "2eac94ce000d7868",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_check",
+      "from_revision": "2eac94ce000d7868",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_confirm",
+      "from_revision": "2eac94ce000d7868",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_verify_again",
+      "from_revision": "2eac94ce000d7868",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.review_previous_deletion",
+      "from_revision": "2eac94ce000d7868",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.change_number",
+      "from_revision": "c32cf5e00a63cfc1",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_cancel",
+      "from_revision": "c32cf5e00a63cfc1",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_check",
+      "from_revision": "c32cf5e00a63cfc1",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_confirm",
+      "from_revision": "c32cf5e00a63cfc1",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_verify_again",
+      "from_revision": "c32cf5e00a63cfc1",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.review_previous_deletion",
+      "from_revision": "c32cf5e00a63cfc1",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.change_number",
+      "from_revision": "397e42888f424c55",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_cancel",
+      "from_revision": "397e42888f424c55",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_check",
+      "from_revision": "397e42888f424c55",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_confirm",
+      "from_revision": "397e42888f424c55",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.delete_previous_verify_again",
+      "from_revision": "397e42888f424c55",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.review_previous_deletion",
+      "from_revision": "397e42888f424c55",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:analysis.confirm_preview",
+      "from_revision": "733d656de0b7c38a",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:analysis.confirm_preview",
+      "from_revision": "f3633843012f1860",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:analysis.confirm_preview",
+      "from_revision": "bab8cfa1aa259f7c",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:analysis.confirm_preview",
+      "from_revision": "a4adf08da1a10229",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:analysis.confirm_preview",
+      "from_revision": "be22fe6e0fa3f322",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:analysis.confirm_preview",
+      "from_revision": "cb10ee16c62231b2",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:analysis.confirm_preview",
+      "from_revision": "a165740521c96115",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:analysis.confirm_preview",
+      "from_revision": "83966cd4fefe54f6",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:analysis.confirm_preview",
+      "from_revision": "9c1f8b9bcf9e2d4b",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:analysis.confirm_preview",
+      "from_revision": "54398a17799f1d6f",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:profile.network_visibility.choose",
+      "from_revision": "a0436d5f1b01fd9f",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
       "semantic_id": "actions:analysis.confirm_preview",
       "from_revision": "6019c40d049d820e",
       "from_version": 1,
@@ -3957,40 +3877,96 @@
     },
     {
       "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:route.profile_my_data",
-      "from_revision": "21f4bb4e65c84a2b",
+      "semantic_id": "actions:profile.update_display_name",
+      "from_revision": "9a963197f59b07a1",
       "from_version": 1,
       "to_version": 1,
       "active_run_policy": "reject"
     },
     {
       "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:todos.complete",
-      "from_revision": "21f4bb4e65c84a2b",
+      "semantic_id": "actions:profile.update_display_name",
+      "from_revision": "ac971edb713a113d",
       "from_version": 1,
       "to_version": 1,
       "active_run_policy": "reject"
     },
     {
       "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:todos.detail",
-      "from_revision": "21f4bb4e65c84a2b",
+      "semantic_id": "actions:profile.update_display_name",
+      "from_revision": "8065981a6233598e",
       "from_version": 1,
       "to_version": 1,
       "active_run_policy": "reject"
     },
     {
       "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:todos.remove",
-      "from_revision": "21f4bb4e65c84a2b",
+      "semantic_id": "actions:profile.update_display_name",
+      "from_revision": "a4adf08da1a10229",
       "from_version": 1,
       "to_version": 1,
       "active_run_policy": "reject"
     },
     {
       "schema_version": "one.capability_deprecation.v1",
-      "semantic_id": "actions:todos.sources",
-      "from_revision": "21f4bb4e65c84a2b",
+      "semantic_id": "actions:profile.update_display_name",
+      "from_revision": "be22fe6e0fa3f322",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:profile.update_display_name",
+      "from_revision": "cb10ee16c62231b2",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:profile.update_display_name",
+      "from_revision": "a165740521c96115",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:profile.update_display_name",
+      "from_revision": "83966cd4fefe54f6",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:profile.update_display_name",
+      "from_revision": "9c1f8b9bcf9e2d4b",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:profile.update_display_name",
+      "from_revision": "14c2cf10e251484d",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:profile.update_display_name",
+      "from_revision": "f3633843012f1860",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:profile.update_display_name",
+      "from_revision": "bab8cfa1aa259f7c",
       "from_version": 1,
       "to_version": 1,
       "active_run_policy": "reject"

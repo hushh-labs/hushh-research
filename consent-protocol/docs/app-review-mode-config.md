@@ -135,17 +135,17 @@ Production has no runtime use for either, and `config/deploy-env-coverage.json` 
 `scripts/ops/sync_backend_runtime_secrets.py` re-writes an existing `REVIEWER_UID` to itself on
 every production deploy (its legacy-fallback loop); that is expected and binds nothing.
 
-**Never reuse the production reviewer as a UAT or dev `REVIEWER_UID`.** UAT and production share
-the Firebase authority `hushh-pda`. A UID configured on UAT can be signed into from UAT by anyone
-holding its passphrase, and the only thing keeping that session off production is the lane claim
-described below.
+**Never reuse the production reviewer as a UAT or dev `REVIEWER_UID`.** Production, UAT, and
+Hosted Dev now operate on dedicated, isolated Firebase Auth projects (`hushh-pda`, `hushh-pda-uat`,
+and `hushh-pda-dev`) with separate databases. Keeping reviewer identities isolated prevents cross-lane
+credential leakage.
 
-## Lane containment: one Firebase authority (2026-09-29)
+## Lane containment: isolated Firebase authorities and token minting
 
-**The lanes share one Firebase authority.** The UAT and production backends both hold
-`FIREBASE_ADMIN_CREDENTIALS_JSON` for project `hushh-pda`, so a Firebase ID token issued on
-either lane is cryptographically valid on both. Until this change a review session minted on UAT
-could be exchanged for an ID token and presented to the production API as the reviewer.
+**Each environment operates with its own isolated Firebase authority.** Production uses
+`hushh-pda`, UAT uses `hushh-pda-uat`, and Hosted Dev uses `hushh-pda-dev`. Prior to project separation
+(2026-09-29), lanes shared one authority (`hushh-pda`), which required explicit token-mint marking to prevent
+cross-lane token replay. Today, isolated projects ensure cryptographic boundary separation across all environments.
 
 What contains it now:
 

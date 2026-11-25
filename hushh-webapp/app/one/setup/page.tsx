@@ -9,7 +9,7 @@ import { ByocCloudSetupPage } from "@/components/connections/byoc-cloud-setup-pa
 import { OneSetupHub } from "@/components/onboarding/setup/one-setup-hub";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { ROUTES } from "@/lib/navigation/routes";
-import { isPooledSandboxSwitchAvailable } from "@/lib/one/owner-cloud";
+import { isByocSelectableOnBuild, isPooledSandboxSwitchAvailable } from "@/lib/one/owner-cloud";
 
 export default function OneSetupPage() {
   const router = useRouter();
@@ -42,7 +42,7 @@ export default function OneSetupPage() {
   // Keep setup failures within the route instead of crashing the shell.
   return (
     <RouteErrorBoundary fallbackRoute={ROUTES.ONE_HOME}>
-      {isPooledSandboxSwitchAvailable() ? (
+      {isPooledSandboxSwitchAvailable() && isByocSelectableOnBuild() ? (
         <Suspense fallback={null}>
           <ByocCloudSetupPage owningRoute={ROUTES.ONE_SETUP} />
         </Suspense>

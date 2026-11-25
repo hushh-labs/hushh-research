@@ -132,14 +132,16 @@ def fixture_transport(owner: str, phone: str) -> bool:
     )
 
     if _production_runtime() or not (
-        fixtures._is_uat_environment() or fixtures._isolated_phone_fixture_enabled()
+        fixtures._is_uat_environment()
+        or fixtures._isolated_phone_fixture_enabled()
+        or fixtures._is_dev_environment()
     ):
         return False
     reviewer = configured_dev_reviewer_phone_transport()
     if reviewer is not None and reviewer.admits(owner, phone):
         return False
-    return bool(fixtures._configured_uat_phone_test_code()) and (
-        phone in fixtures._configured_uat_phone_test_numbers()
+    return bool(fixtures._configured_phone_test_code()) and (
+        phone in fixtures._configured_phone_test_numbers()
     )
 
 

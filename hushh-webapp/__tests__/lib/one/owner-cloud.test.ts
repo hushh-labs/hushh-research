@@ -5,11 +5,13 @@ import {
   hostedPodDisplayLabel,
   hostedPodProvider,
   isAzureHomeSelectable,
+  isByocSelectableOnBuild,
   isHostedAzureMigrationAvailable,
   isHostedPodTierUnderMaintenance,
   isOwnerCloudTarget,
   isPooledSandboxSwitchAvailable,
   isPrivatePodBinding,
+  isPuppyLiveOnBuild,
   ownerCloudProvider,
 } from "@/lib/one/owner-cloud";
 
@@ -27,11 +29,13 @@ describe("the owner-cloud question", () => {
     expect(isPrivatePodBinding({ deployment_target: "gcp", environment: "dev", hosting_mode: "hussh_hosted" })).toBe(true);
     expect(isPrivatePodBinding({ deployment_target: "azure", environment: "dev", hosting_mode: "hussh_hosted" })).toBe(true);
     expect(isPrivatePodBinding({ deployment_target: "ace", environment: "dev" })).toBe(true);
+    expect(isPrivatePodBinding({ deployment_target: "ace", environment: "uat" })).toBe(true);
     for (const binding of [
       { deployment_target: "gcp", environment: "dev" },
       { deployment_target: "azure", environment: "dev" },
-      { deployment_target: "ace", environment: "uat" },
+      { deployment_target: "ace", environment: "production" },
       { deployment_target: "ace", environment: "dev", hosting_mode: "hussh_hosted" },
+      { deployment_target: "ace", environment: "uat", hosting_mode: "hussh_hosted" },
       { deployment_target: "gcp", environment: "uat", hosting_mode: "hussh_hosted" },
       { deployment_target: "azure", environment: "uat", hosting_mode: "hussh_hosted" },
       { deployment_target: "user_gcp", environment: "dev", hosting_mode: "hussh_hosted" },
@@ -96,13 +100,27 @@ describe("the owner-cloud question", () => {
     expect(isHostedPodTierUnderMaintenance()).toBe(false);
   });
 
-  it("enables Personal Sandbox switching only on the hosted dev build", () => {
-    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
-    expect(isPooledSandboxSwitchAvailable()).toBe(true);
+  it("enables Personal Sandbox switching on hosted dev and uat builds", () => {
+    for (const env of ["dev", "uat"]) {
+      vi.stubEnv("NEXT_PUBLIC_APP_ENV", env);
+      expect(isPooledSandboxSwitchAvailable()).toBe(true);
+    }
 
-    for (const env of ["uat", "production", "development", "staging", "", "dev-uat"]) {
+    for (const env of ["production", "development", "staging", "", "dev-uat"]) {
       vi.stubEnv("NEXT_PUBLIC_APP_ENV", env);
       expect(isPooledSandboxSwitchAvailable()).toBe(false);
+    }
+  });
+
+  it("keeps BYOC and Puppy One live in dev while marking them coming soon on UAT and production", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    expect(isByocSelectableOnBuild()).toBe(true);
+    expect(isPuppyLiveOnBuild()).toBe(true);
+
+    for (const env of ["uat", "production"]) {
+      vi.stubEnv("NEXT_PUBLIC_APP_ENV", env);
+      expect(isByocSelectableOnBuild()).toBe(false);
+      expect(isPuppyLiveOnBuild()).toBe(false);
     }
   });
 

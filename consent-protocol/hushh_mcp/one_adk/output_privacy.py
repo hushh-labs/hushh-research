@@ -306,8 +306,8 @@ def _replay_placeholder(part: Any, role: Any, answered: set[str]) -> bool:
         return bool(call.id) and call.id not in answered
     return role == "model" and getattr(part, "text", None) in (
         PRIVATE_RECEIPT_ANSWER,
-        PRIVATE_PORTFOLIO_ANSWER,
         PRIVATE_ACCOUNT_ANSWER,
+        PRIVATE_PORTFOLIO_ANSWER,
     )
 
 

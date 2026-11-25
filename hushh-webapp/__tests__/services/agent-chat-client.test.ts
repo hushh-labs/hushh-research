@@ -1392,14 +1392,14 @@ describe("AG-UI Agent One client", () => {
   it.each([
     { operation: "receipt_spending", remapped: false },
     { operation: "receipt_spending", remapped: true },
-    { operation: "read_portfolio_context", remapped: true },
     { operation: "read_account_context", remapped: true },
+    { operation: "read_portfolio_context", remapped: true },
   ])("uses streamed $operation despite redacted snapshots (remapped=$remapped)", async ({ operation, remapped }) => {
     publishValidatedAuthSessionOwner("user-1");
     mockTransport.nativeMode = true;
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const portfolio = operation === "read_portfolio_context";
     const account = operation === "read_account_context";
+    const portfolio = operation === "read_portfolio_context";
     const query = account ? { section: "identity" } : portfolio ? { section: "holdings", source: "last_card" } :
       { from_date: "2026-10-01", to_date: "2026-11-01", timezone, group_by: "merchant", limit: 10 };
     const result = account ? { status: "ok", identity: { display_name: "SYNTHETIC_PRIVATE_NAME" } } : portfolio ? { status: "ok", holdings: { positions: [{ name: "SYNTHETIC_PRIVATE_HOLDING", market_value: 7 }] } } :
@@ -1435,6 +1435,7 @@ describe("AG-UI Agent One client", () => {
         expect(receiptTools.run.mock.calls).toEqual([[expect.objectContaining({ userId: "user-1" }), "receipt_spending", query]]);
       }
       expect(mockTransport.runAgent).toHaveBeenCalledTimes(2);
+      if (account) expect(mockTransport.runAgent.mock.calls[1][0].forwardedProps.accountContextContract).toBe(1);
       expect(mockTransport.runAgent.mock.calls[0][0].forwardedProps).not.toHaveProperty("receiptToolResults");
       expect(mockTransport.runAgent.mock.calls[1][0].forwardedProps.receiptToolResults).toEqual([{ toolCallId: "streamed-call", toolName: operation, request: query, result }]);
       // Only the receipt replies continue; a replayed question started a second run (UAT 2026-10-29).

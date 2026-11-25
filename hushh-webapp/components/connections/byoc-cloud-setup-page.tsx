@@ -61,6 +61,7 @@ import {
 import {
   hostedPodProvider,
   isAzureHomeSelectable,
+  isByocSelectableOnBuild,
   isHostedAzureMigrationAvailable,
   isHostedPodTierUnderMaintenance,
   isOwnerCloudTarget,
@@ -1190,8 +1191,21 @@ function OwnerCloudSetupPage({
               Keep the current setup. We will show the available choice after its status is confirmed.
             </p>
           </div>
+        ) : !isByocSelectableOnBuild() && hostingMode !== "byoc" && (choice === "own" || hostingMode !== "hussh_pods") ? (
+          <div className="space-y-4" data-testid="byoc-coming-soon-card">
+            {hostingMode === "hussh_pods" ? (
+              <HusshPodsActiveCard deploymentTarget={agentTarget} />
+            ) : null}
+            <div className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4">
+              <p className="text-sm font-semibold">Bring your own cloud is coming soon</p>
+              <p className="text-sm text-[var(--app-text-secondary)]">
+                Run Agent One inside your own Google Cloud or Microsoft Azure project with owner-controlled keys and updates.
+              </p>
+            </div>
+            {openHomeFallback}
+          </div>
         ) : hostingMode === "hussh_pods" ? (
-          hostedUnderMaintenance ? (
+          hostedUnderMaintenance && agentTarget !== "ace" ? (
             <HusshPodsPausedCard deploymentTarget={agentTarget} />
           ) : pooledSwitchAvailable ? (
             <div className="space-y-4" data-testid="cloud-tier-choice">

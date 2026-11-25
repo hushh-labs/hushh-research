@@ -473,7 +473,6 @@ describe("DisplayNameEditor", () => {
     ).toBeDisabled();
     expect(screen.getByRole("textbox", { name: "Display name" })).toHaveValue("");
   });
-});
 
 
 it("keeps a chat proposal separate from the stored name until the existing Save", async () => {
@@ -495,4 +494,6 @@ it("retires a mounted chat proposal across sign-out and same-owner relogin", asy
   expect(screen.getByRole("textbox", { name: "Display name" })).toHaveValue(testUser.displayName);
   expect(AccountIdentityService.updateDisplayName).not.toHaveBeenCalled();
   act(() => publishValidatedAuthSessionOwner(null));
+});
+
 });

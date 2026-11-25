@@ -48,7 +48,7 @@ export function redactReceiptAnswer<T extends ReceiptTurnMessage>(message: T): T
   const account = message.receiptPrivate?.kind === "account";
   const completedText = account ? "A private account answer was shown for that turn. Ask again to read your account." : portfolio ? PORTFOLIO_ANSWER_REDACTED_TEXT : RECEIPT_ANSWER_REDACTED_TEXT;
   const unfinishedText = account ? "The account read ended before it finished. Ask again." : portfolio ? PORTFOLIO_ANSWER_UNFINISHED_TEXT : RECEIPT_ANSWER_UNFINISHED_TEXT;
-  const text = message.status === "error" ? message.errorNotice ?? (portfolio ? unfinishedText : message.text)
+  const text = message.status === "error" ? message.errorNotice ?? (account || portfolio ? unfinishedText : message.text)
     : message.status === "done" && STOPPED_TEXTS.has(message.text) ? message.text
       : message.status === "done" && !unavailable ? completedText : unfinishedText;
   return {

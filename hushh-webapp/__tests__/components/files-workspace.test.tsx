@@ -40,11 +40,7 @@ describe("Files form submission", () => {
   });
   it("opens the replacement owner's library without using its Firebase UID as storage ownership", async () => {
     session.ownerId = "acct_" + "a".repeat(32);
-    publishValidatedAuthSessionPrincipal({
-      firebaseUid: "synthetic-owner",
-      ownerId: session.ownerId,
-      accountGeneration: 1,
-    });
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "synthetic-owner", ownerId: session.ownerId, accountGeneration: 1 });
     render(<FilesWorkspace />);
     await waitFor(() => expect(files.list).toHaveBeenCalled());
     await waitFor(() =>
