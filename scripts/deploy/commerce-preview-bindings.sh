@@ -21,8 +21,9 @@ commerce_secret_name() {
 # BEGIN BACKEND PROCESS BOUNDS
 configure_backend_process_bounds() {
   worker_count="2"
-  # Dev's connection budget and the isolated OAuth rehearsal need one worker.
-  if [[ "${_DEPLOY_ENV}" == "dev" || -n "${commerce_preview_prefix:-}" ]]; then
+  # Dev, Production, and the isolated OAuth rehearsal run one async Uvicorn
+  # worker per container so Cloud Run scales instances without duplicating DB pools.
+  if [[ "${_DEPLOY_ENV}" == "dev" || "${_DEPLOY_ENV}" == "production" || -n "${commerce_preview_prefix:-}" ]]; then
     worker_count="1"
   fi
   if [[ -n "${commerce_preview_prefix:-}" ]]; then

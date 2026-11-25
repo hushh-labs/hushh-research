@@ -161,7 +161,7 @@ async def test_uat_directory_uses_shared_sign_in_with_uat_catalog_and_cursor(uat
     assert result["environment"] == "uat" and result["customerReporting"] is False
     assert result["deliveryAuthorized"] is False and result["rows"] == []
     available = {agent["id"]: agent["available"] for agent in result["catalog"]["agents"]}
-    assert available["agent_documents"] is True and available["agent_files"] is False
+    assert available["agent_documents"] is True and available["agent_files"] is True
     following = request.model_copy(update={"cursor": result["nextCursor"]})
     assert audience._cursor(following, KEY, NOW, "hushh-pda-uat")[0] == "next-identity-page"
     with pytest.raises(audience.AudienceCursorError):
