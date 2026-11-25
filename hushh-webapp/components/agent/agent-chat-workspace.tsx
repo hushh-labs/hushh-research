@@ -314,7 +314,9 @@ import { calendarInvitationInstruction, type CalendarInvitationHandoff } from "@
 import { calendarAccountStatus, calendarDirectiveAccountId } from "@/lib/calendar/calendar-account-status";
 import { readFileScheduleProposal, type FileScheduleProposal } from "@/lib/agent/file-schedule-proposal";
 import { ChatGoalPlanCard } from "@/components/goals/chat-goal-plan-card";
+import { areGoalsAvailable } from "@/lib/goals/availability";
 import type { GoalPlanInput } from "@/lib/services/goals-pkm-service";
+import { areScheduledTasksAvailable } from "@/lib/services/pod-scheduled-tasks";
 import { ChatFileScheduleCard } from "@/components/scheduled-tasks/chat-file-schedule-card";
 import { calendarSlotInstruction, calendarSlotProposalError, calendarSlotStarts, type CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import { isCalendarDaySearchRequest } from "@/lib/calendar/calendar-day-search-request";
@@ -11147,14 +11149,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 />
               ) : null}
 
-              {goalPlanReview && planningCredentials && isCanonicalChatRoute && !isPuppySurface &&
+              {areGoalsAvailable() && goalPlanReview && planningCredentials && isCanonicalChatRoute && !isPuppySurface &&
                 goalPlanReview.ownerId === planningCredentials.userId && goalPlanReview.epoch === vaultSessionEpoch &&
                 messages.some(message => message.role === "assistant" && message.id === goalPlanReview.assistantId) ? (
                   <ChatGoalPlanCard key={goalPlanReview.assistantId} proposal={goalPlanReview.proposal}
                     credentials={planningCredentials} onDismiss={() => setGoalPlanReview(null)} />
                 ) : null}
 
-              {fileScheduleReview && planningCredentials && isCanonicalChatRoute && !isPuppySurface &&
+              {areScheduledTasksAvailable() && fileScheduleReview && planningCredentials && isCanonicalChatRoute && !isPuppySurface &&
                 fileScheduleReview.ownerId === planningCredentials.userId && fileScheduleReview.epoch === vaultSessionEpoch &&
                 messages.some(message => message.id === fileScheduleReview.assistantId) ? (
                   <ChatFileScheduleCard key={fileScheduleReview.assistantId} proposal={fileScheduleReview.proposal}

@@ -2,6 +2,7 @@ import type { ComponentProps } from "react";
 import type { NativeWorkspaceRoute } from "@/lib/capacitor/native-workspace-surface";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import GoalsPage from "@/app/one/goals/page";
 import { GoalsWorkspace } from "@/components/goals/goals-workspace";
 import { ChatGoalPlanCard } from "@/components/goals/chat-goal-plan-card";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
@@ -21,7 +22,10 @@ const mocks = vi.hoisted(() => ({
   setStatus: vi.fn(),
 }));
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
+vi.mock("next/navigation", async (original) => ({
+  ...await original<typeof import("next/navigation")>(),
+  useRouter: () => ({ push: mocks.push }),
+}));
 vi.mock("@/lib/capacitor/native-presentation-policy", async (original) => ({
   ...await original<typeof import("@/lib/capacitor/native-presentation-policy")>(),
   customNativePresentationEnabled: () => mocks.native,
@@ -51,6 +55,15 @@ const goal = {
   status: "active", taskIds: [task.id], revision: 1, createdAt: task.createdAt,
   updatedAt: task.updatedAt, completedAt: null, deletedAt: null,
 };
+
+it("rejects direct Goals links on UAT", () => {
+  vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+  try {
+    expect(() => GoalsPage()).toThrow("NEXT_HTTP_ERROR_FALLBACK;404");
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
 
 describe("Goals workspace", () => {
   beforeEach(() => {
