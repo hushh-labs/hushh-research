@@ -41,10 +41,10 @@ describe("PhoneVerificationFlow phone input normalization", () => {
   });
 
   it("rejects an Indian trunk prefix before the provider request", () => {
-    expect(getPhoneNumberValidationError("+9108004482372", "IN")).toBe(
+    expect(getPhoneNumberValidationError("+9109876543210", "IN")).toBe(
       "Enter no more than 10 digits for India.",
     );
-    expect(getPhoneNumberValidationError("+918004482372", "IN")).toBeNull();
+    expect(getPhoneNumberValidationError("+919876543210", "IN")).toBeNull();
   });
 
   it("uses country-specific mobile lengths", () => {
@@ -105,7 +105,7 @@ describe("PhoneVerificationFlow phone input normalization", () => {
   });
 
   it("masks the OTP destination without exposing the country code", () => {
-    expect(maskPhoneNumberForOtp("+918004482372")).toBe("••••••2372");
+    expect(maskPhoneNumberForOtp("+919876543210")).toBe("••••••3210");
     expect(maskPhoneNumberForOtp("+16505550101")).toBe("••••••0101");
   });
 

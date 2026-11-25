@@ -109,9 +109,6 @@ from hushh_mcp.services.phone_test_transport import (
     _configured_phone_test_numbers as _configured_phone_test_numbers,
 )
 from hushh_mcp.services.phone_test_transport import (
-    _dev_phone_code_is_optional as _dev_phone_code_is_optional,
-)
-from hushh_mcp.services.phone_test_transport import (
     _normalize_phone_number,
     _require_phone_verification_owner,
     create_phone_test_challenge,
