@@ -3,6 +3,7 @@ import { detectCadence, merchantKey, merchantSeries } from "./receipt-cadence";
 import { formatMinor, toMinor } from "./receipt-money";
 import { type PriceRise, evaluatePriceRise, priceRiseSentence } from "./receipt-price-rise";
 import { receiptMoneyKind } from "./receipt-month-summary";
+import type { NoticeFinding, NoticeKind } from "./receipt-notice";
 
 export type InsightKind = "duplicate_charge" | "missing_refund" | "price_rise" | "overlapping_plans";
 
@@ -20,7 +21,10 @@ export interface InsightPlan {
 
 export interface ReceiptInsight {
   id: string;
-  kind: InsightKind;
+  kind: InsightKind | NoticeKind;
+  /** "notice" is a finding One's backend check made from the mailbox; the rest are read from saved receipts. */
+  origin?: "notice" | "receipts";
+  notice?: NoticeFinding;
   title: string;
   /** One short sentence that says why this was raised. */
   reason: string;

@@ -12,6 +12,7 @@ import { SecureDurableResourceService, type DurableVersion } from "@/lib/service
 import { type Cadence, isoDate, nextCycle, rollForward } from "./receipt-cadence";
 import { receiptStoreGuard, type ReceiptStoreSession } from "./receipt-store";
 import { receiptAccountBinding } from "./receipt-snapshot";
+import { type NoticeCheck, type NoticeState, emptyNotice, parseNoticeState } from "./receipt-notice";
 
 export const TRACKING_PREFIX = "mail_receipt_tracking.v1:";
 const MAX = { bills: 60, events: 200, reviews: 60, dismissed: 200, hidden: 200, skipped: 24, evidence: 12, history: 24, bytes: 256 * 1024 };
@@ -71,14 +72,16 @@ export interface ReceiptTrackingDoc {
   bills: TrackedBill[];
   events: TrackingEvent[];
   reviews: PlanReview[];
-  /** Insights the owner looked at and marked as not an issue. */
-  dismissed: Array<{ id: string; title: string; at: string }>;
+  /** Insights the owner looked at and answered: kept the plan, or marked it not an issue. */
+  dismissed: Array<{ id: string; title: string; at: string; choice?: "keep" | "not_an_issue" }>;
   /** Detected patterns the owner said are not recurring bills. */
   hiddenPatterns: string[];
+  /** What One's last mailbox check noticed for this mailbox. */
+  notice: NoticeState;
 }
 
 export function emptyTrackingDoc(accountBinding: string): ReceiptTrackingDoc {
-  return { schema: "mail_receipt_tracking.v1", account_binding: accountBinding, bills: [], events: [], reviews: [], dismissed: [], hiddenPatterns: [] };
+  return { schema: "mail_receipt_tracking.v1", account_binding: accountBinding, bills: [], events: [], reviews: [], dismissed: [], hiddenPatterns: [], notice: emptyNotice() };
 }
 
 // ---- validation -------------------------------------------------------------
@@ -129,8 +132,11 @@ export function validateTrackingDoc(value: unknown): ReceiptTrackingDoc {
   });
   return {
     schema: "mail_receipt_tracking.v1", account_binding: str(value.account_binding, 64), bills, events, reviews,
-    dismissed: arr(value.dismissed, MAX.dismissed).map((d) => isObj(d) ? { id: str(d.id, 200), title: str(d.title, 120), at: str(d.at, 40) } : bad()),
+    dismissed: arr(value.dismissed, MAX.dismissed).map((d) => isObj(d)
+      ? { id: str(d.id, 200), title: str(d.title, 120), at: str(d.at, 40), ...(d.choice === undefined ? {} : { choice: oneOf(d.choice, ["keep", "not_an_issue"] as const) }) }
+      : bad()),
     hiddenPatterns: arr(value.hiddenPatterns, MAX.hidden).map((p) => str(p, 200)),
+    notice: parseNoticeState(value.notice),
   };
 }
 
@@ -207,10 +213,34 @@ export function hidePattern(doc: ReceiptTrackingDoc, patternKey: string, name: s
   return withEvent({ ...doc, hiddenPatterns: [...doc.hiddenPatterns, patternKey].slice(-MAX.hidden) }, "pattern_hidden", null, { name }, ctx);
 }
 
-export function recordInsightReviewed(doc: ReceiptTrackingDoc, id: string, title: string, ctx: Ctx): ReceiptTrackingDoc {
+export function recordInsightReviewed(doc: ReceiptTrackingDoc, id: string, title: string, ctx: Ctx, choice: "keep" | "not_an_issue" = "not_an_issue"): ReceiptTrackingDoc {
   if (doc.dismissed.some((item) => item.id === id)) return doc;
-  const next = { ...doc, dismissed: [...doc.dismissed, { id, title: title.slice(0, 120), at: ctx.now.toISOString() }].slice(-MAX.dismissed) };
-  return withEvent(next, "insight_reviewed", null, { title: title.slice(0, 120) }, ctx);
+  const next = { ...doc, dismissed: [...doc.dismissed, { id, title: title.slice(0, 120), at: ctx.now.toISOString(), choice }].slice(-MAX.dismissed) };
+  return withEvent(next, "insight_reviewed", null, { title: title.slice(0, 120), choice }, ctx);
+}
+
+/**
+ * Take one finished check. The new findings replace the old ones, so a finding the newer mail no longer
+ * supports simply goes away, and one the provider's mail settled is kept in a short resolved list.
+ */
+export function applyNoticeCheck(doc: ReceiptTrackingDoc, check: NoticeCheck, digest: string, ctx: Ctx): ReceiptTrackingDoc {
+  const settled = check.resolved
+    .map((item) => {
+      const prior = doc.notice.findings.find((finding) => finding.id === item.priorId);
+      return prior ? { priorId: prior.id, headline: prior.headline, evidence: item.evidence, at: ctx.now.toISOString() } : null;
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null);
+  const resolved = [...settled, ...doc.notice.resolved.filter((old) => !settled.some((item) => item.priorId === old.priorId))].slice(0, 20);
+  const notice: NoticeState = {
+    findings: check.findings.slice(0, 8),
+    resolved,
+    cancellations: check.cancellations.slice(0, 16),
+    checkedAt: ctx.now.toISOString(),
+    digest,
+    model: check.model,
+    coverage: check.coverage,
+  };
+  return { ...doc, notice };
 }
 
 export function savePlanReview(doc: ReceiptTrackingDoc, review: Pick<PlanReview, "insightId" | "reason" | "plans" | "choices">, ctx: Ctx): ReceiptTrackingDoc {

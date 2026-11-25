@@ -22,6 +22,7 @@ import GmailInformationRequestsSection from "@/components/gmail/gmail-informatio
 import { ReceiptHistory } from "@/components/gmail/receipt-history";
 import { ReceiptSyncToolbar, receiptSyncStatus } from "@/components/gmail/receipt-sync-toolbar";
 import { GmailRecentReceipts } from "@/components/gmail/gmail-recent-receipts";
+import { ReceiptNoticeProvider } from "@/components/gmail/receipts/receipt-notice-context";
 import { ReceiptTrackingProvider } from "@/components/gmail/receipts/receipt-tracking-context";
 import { ReceiptsHeader, type ReceiptsView } from "@/components/gmail/receipts/receipts-chrome";
 import { ReceiptsActivitySheet } from "@/components/gmail/receipts/receipts-activity";
@@ -507,6 +508,11 @@ export default function GmailReceiptsPage({
           .length !== 1));
     return [...freshRows, ...savedRows];
   }, [currentSavedSnapshot, hasSealedReceiptAccess, visibleReceipts, receiptAccountKey, receiptSourceAliases]);
+  // Each saved receipt's sealed routing key, so One's mailbox check reads the same emails the list shows.
+  const noticeLocators = useMemo(() => ({
+    ...receiptSourceAliases,
+    ...Object.fromEntries((currentSavedSnapshot?.rows ?? []).flatMap(row => row.events.flatMap(event => event.locator ? [[event.ref, event.locator] as const] : []))),
+  }), [currentSavedSnapshot, receiptSourceAliases]);
   const [openReceiptRequest, setOpenReceiptRequest] = useState<{ key: string; nonce: number } | null>(null);
   const receiptRowsForRecurring = useMemo(
     () => visibleSavedRows ?? buildRecentReceiptRows(visibleReceipts, gmail.status?.google_sub || gmail.status?.google_email || null),
@@ -1832,6 +1838,15 @@ export default function GmailReceiptsPage({
       accountKey={receiptAccountKey}
       enabled={Boolean(isConnected && hasSealedReceiptAccess && receiptsWorkspaceActive)}
     >
+    <ReceiptNoticeProvider
+      userId={userId}
+      vaultOwnerToken={vaultOwnerToken ?? null}
+      accountKey={receiptAccountKey}
+      getIdToken={user?.getIdToken ? idTokenProvider : null}
+      rows={receiptRowsForRecurring}
+      locators={noticeLocators}
+      enabled={Boolean(isConnected && hasSealedReceiptAccess && receiptsWorkspaceActive && !loadingReceipts && !receiptResource.refreshing && !receiptRestorePending)}
+    >
     <div className="space-y-4">
       <div hidden={nativeHistory} className="space-y-4">
       {journeyVariant === "workspace" && !isConnected ? mailStatusPanel : null}
@@ -1993,6 +2008,7 @@ export default function GmailReceiptsPage({
       syncLine={receiptSyncStatus({ snapshot: currentSavedSnapshot, refreshing: loadingReceipts || receiptResource.refreshing, progress: receiptResource.progress,
         restoring: receiptRestorePending, error: receiptResource.error ?? receiptListError, disabled: !receiptSyncAvailable })}
     />
+    </ReceiptNoticeProvider>
     </ReceiptTrackingProvider>
   );
 
