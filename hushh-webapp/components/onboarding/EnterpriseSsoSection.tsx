@@ -115,13 +115,16 @@ export function EnterpriseSsoSection({
         const settlementId = beginPostAuthSettlement(authResult.user);
         try {
           const idToken = authResult.idToken || (await authResult.user.getIdToken());
-          await Promise.race([
+          void Promise.race([
             import("@/lib/observability/identity").then(({ setObservabilityUserId }) =>
               setObservabilityUserId(authResult.user.uid)
             ),
             new Promise((resolve) => setTimeout(resolve, 150)),
-          ]).catch(() => undefined);
-          trackEvent("auth_succeeded", { action: "enterprise_sso", result: "success" });
+          ])
+            .catch(() => undefined)
+            .finally(() => {
+              trackEvent("auth_succeeded", { action: "enterprise_sso", result: "success" });
+            });
           void ApiService.notifyFirstWelcome({ idToken });
           // The sign-in screen states "By continuing you agree"; record it.
           void LegalAcceptanceService.recordSignInAcceptance(authResult.user);
