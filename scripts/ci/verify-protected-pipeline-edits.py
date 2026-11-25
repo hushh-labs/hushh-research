@@ -124,6 +124,38 @@ class GuardResolutionError(RuntimeError):
     """
 
 
+def _git_diff_pr_files(base_sha: str, head_sha: str) -> list[str]:
+    """Fail-closed git fallback when GitHub's 3,000-file REST API ceiling is hit."""
+    for label, sha in (("base", base_sha), ("head", head_sha)):
+        if len(sha) != 40 or any(ch not in "0123456789abcdefABCDEF" for ch in sha):
+            raise GuardResolutionError(f"Invalid PR {label} SHA for git changed-file fallback")
+        verify = subprocess.run(
+            ["git", "rev-parse", "--verify", f"{sha}^{{commit}}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if verify.returncode != 0:
+            raise GuardResolutionError(
+                f"Cannot verify PR {label} commit '{sha}' locally for changed-file fallback"
+            )
+    diff = subprocess.run(
+        ["git", "diff", "--name-only", "-z", "--no-renames", f"{base_sha}...{head_sha}"],
+        capture_output=True,
+        check=False,
+    )
+    if diff.returncode != 0:
+        raise GuardResolutionError("Local git diff failed during changed-file fallback")
+    files = [
+        entry.decode("utf-8", errors="strict").strip()
+        for entry in diff.stdout.split(b"\x00")
+        if entry
+    ]
+    if not files:
+        raise GuardResolutionError("Local git diff resolved zero changed files during fallback")
+    return files
+
+
 def _files_from_event(args: argparse.Namespace) -> list[str]:
     if args.files:
         return _normalize_csv(args.files)
@@ -162,7 +194,14 @@ def _files_from_event(args: argparse.Namespace) -> list[str]:
             "the governance job and ensure the repo/PR context is present."
         )
     assert pr_number is not None  # narrowed by the `missing` guard above
-    return _fetch_pr_files(repo=str(repo), pr_number=int(pr_number), token=str(token))
+    try:
+        return _fetch_pr_files(repo=str(repo), pr_number=int(pr_number), token=str(token))
+    except GuardResolutionError as exc:
+        if "exceeded its bound" not in str(exc):
+            raise
+        base_sha = str((pull_request.get("base") or {}).get("sha") or "").strip()
+        head_sha = str((pull_request.get("head") or {}).get("sha") or "").strip()
+        return _git_diff_pr_files(base_sha, head_sha)
 
 
 class PolicyError(RuntimeError):
