@@ -1190,6 +1190,13 @@ function OwnerVaultFlow({
         if (!(await finalizeUnlock(decryptedKey, attempt))) {
           throw new Error("We could not complete Vault access. Please try again.");
         }
+        const telemetryMethod =
+          generatedMode === "generated_default_native_biometric"
+            ? "native_biometric"
+            : generatedMode === "generated_default_native_passkey_prf"
+              ? "native_passkey"
+              : "passkey_prf";
+        trackEvent("vault_unlock_result", { method: telemetryMethod, result: "success" });
         // This device has now unlocked with the quick method: from the next
         // launch on the gate may start it by itself.
         void VaultQuickUnlockTrustLocalService.mark(ownerId, generatedMode);
@@ -1214,6 +1221,17 @@ function OwnerVaultFlow({
           return;
         }
         console.error("Generated vault unlock failed:", err);
+        const telemetryMethod =
+          generatedMode === "generated_default_native_biometric"
+            ? "native_biometric"
+            : generatedMode === "generated_default_native_passkey_prf"
+              ? "native_passkey"
+              : "passkey_prf";
+        trackEvent("vault_unlock_result", {
+          method: telemetryMethod,
+          result: "error",
+          error_class: err?.name ?? "unknown",
+        });
         // Google Password Manager and the platform authenticator can fail
         // after opening their UI. Keep that outcome session-scoped too: a
         // focus-driven remount must not immediately reopen the same ceremony.

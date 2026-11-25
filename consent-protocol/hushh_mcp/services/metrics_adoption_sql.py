@@ -1,8 +1,9 @@
 """Fixed retained-activity SQL shared by collection and independent reporting."""
 
 # Overinclusive candidates are safe: proof/eligibility is applied before counts.
-# LIMIT 51 is an overflow sentinel, never a truncated global measurement. Fifty
-# is the existing lifecycle/identity contract, not a new production capacity.
+# LIMIT 5001 is an overflow sentinel, never a truncated global measurement.
+# Individual identity/lifecycle reads remain paged in 50-owner batches.
+MAX_ADOPTION_CANDIDATES = 5000
 CANDIDATES_SQL = """
 WITH candidates AS (
  SELECT user_id FROM agent_chat_messages WHERE completed_at >= $1 AND completed_at <= $2
@@ -13,7 +14,7 @@ WITH candidates AS (
  UNION SELECT user_id FROM connected_system_audit_events WHERE created_at >= $1 AND created_at <= $2
  UNION SELECT user_id FROM drive_share_permission_operations WHERE settled_at >= $1 AND settled_at <= $2
 )
-SELECT user_id FROM candidates ORDER BY user_id LIMIT 51
+SELECT user_id FROM candidates ORDER BY user_id LIMIT 5001
 """
 MEANINGFUL_REPLIES_SQL = """
 SELECT DISTINCT a.user_id FROM agent_chat_messages a
