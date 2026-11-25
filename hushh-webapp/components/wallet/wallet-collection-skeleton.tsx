@@ -3,6 +3,13 @@ import styles from "./wallet-card-browser.module.css";
 
 /** Presentation only: no guessed card details or cached access authority. */
 export function WalletCollectionSkeleton({ owned = false }: { owned?: boolean }) {
+  if (owned) return <div role="status" aria-label="Opening your wallet" data-testid="wallet-collection-skeleton" className={styles.browser}>
+    <span className="sr-only">Opening your wallet…</span>
+    <div className="mx-auto w-full max-w-[420px] space-y-4" aria-hidden="true">
+      <Skeleton className="aspect-[85.6/53.98] w-full rounded-2xl" />
+      <Skeleton className="mx-auto h-11 w-32 rounded-full" />
+    </div>
+  </div>;
   return <div role="status" aria-label={owned ? "Opening your wallet" : "Loading shared cards"} data-testid="wallet-collection-skeleton">
     <span className="sr-only">{owned ? "Opening your wallet…" : "Loading shared cards…"}</span>
     {owned ? <Skeleton className="mb-4 h-11 w-full max-w-[360px] rounded-full" /> : null}

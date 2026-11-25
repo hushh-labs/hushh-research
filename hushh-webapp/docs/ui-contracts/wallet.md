@@ -1,18 +1,28 @@
 # Wallet UI contract
 
-Current presentation (26 October 2026): two collections, **My cards** and
-**Shared with me**. Add opens an adaptive sheet; selecting a card opens its
-details with Share and Manage access. The existing service, consent, encrypted
-storage, recipient verification and reveal contracts remain authoritative.
+Current web presentation (25 November 2026): **Cards**, **Add** and **Sharing**
+tabs, restored from the presentation immediately before PR #8470
+(`c0bf05df4f173052d678955c97970bcb8a044ba8`). Cards uses the existing scroll-reveal
+deck and inline selected-card details; Add hosts the existing form in its own tab;
+Sharing composes Wallet-wide permissions and both sharing histories. Active
+received shares keep the existing protected View card action in history details;
+changing the presentation does not bypass recipient verification or revocation.
 
-The older measurements below describe the preceding Connect-alignment change
-based on `dcc4f611e39c80a0001df0ada3f47e85b445421e`; they are historical evidence,
-not verification of this collection layout.
+This is a presentation restoration on current UAT, not a service rollback. The
+current owner/session/vault fences, encrypted persistence, pending save/retry,
+removal recovery, recipient verification and revocation remain authoritative.
+Native Wallet keeps its current owned scenes, adaptive form and retirement
+contracts. No backend API/schema or persistence path changes are introduced.
+
+The collection/grid and adaptive web sheet descriptions and measurements below
+record the preceding October presentation. They are historical where they differ
+from the restored web layout; they do not verify this restoration. In particular,
+web Add is now a tab and selected web cards no longer open a detail sheet.
 
 ## Save feedback and completion
 
-A valid submission closes Add immediately and displays an unsaved pending tile
-in My cards while the existing `WalletService.addCard` pipeline runs. Network
+A valid submission returns to Cards immediately and displays an unsaved pending status
+above the deck while the existing `WalletService.addCard` pipeline runs. Network
 validation, stable registration/draft identity, encryption, atomic PKM writes,
 confirmation receipts and Secrets filing remain in their existing services.
 The tile does not increase the saved-card count and cannot reveal, share or

@@ -341,7 +341,8 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
       bodyClassName="space-y-5"
       footer={detail && direction === "outgoing" && detail.status === "active" ? <Button ref={revokeButton} size="compact" variant="destructive" className={presentationStyles.modalAction} aria-label={`Revoke ${detail.displayLabel} shared with ${detail.recipientName}`} disabled={Boolean(busy)} onClick={() => beginRevoke(detail)}>Revoke access</Button> : undefined}>
       {detail ? <>
-        {presentation === "cards" ? <><SharedCardPreview item={detail} /><div className={styles.receivedDetailCaption}><span>From {detail.senderName}</span><span className={styles.accessStatus} data-ended={detail.status !== "active"}>{accessLabel(detail, current!.page.serverNow)}</span></div>
+        {presentation === "cards" ? <><SharedCardPreview item={detail} /><div className={styles.receivedDetailCaption}><span>From {detail.senderName}</span><span className={styles.accessStatus} data-ended={detail.status !== "active"}>{accessLabel(detail, current!.page.serverNow)}</span></div></> : null}
+        {direction === "received" ? <>
           {detail.status === "active" ? <>{Capacitor.isNativePlatform() ? <p className="text-sm text-muted-foreground">Open this card in your browser to view its details.</p> : <Button className="w-full" onClick={() => setViewer(previous => ({ ownerId, grantId: detail.id, request: (previous?.request ?? 0) + 1 }))}>View card</Button>}</> : <p role="status" className="py-3 text-sm text-muted-foreground">{detail.status === "revoked" ? "The owner stopped sharing this card." : "This share has expired. Ask the sender for a new share."}</p>}
         </> : null}
         <SettingsGroup title="Share details">
