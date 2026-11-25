@@ -292,7 +292,7 @@ DIAGNOSTIC_IDS = frozenset(check.check_id for check in CHECKS if check.diagnosti
 
 KNOWN_ROOTS = frozenset(
     {
-        ".agents", ".github", "archive", "artifacts", "bin", "clawhub", "config",
+        ".agents", ".github", "LICENSES", "archive", "artifacts", "bin", "clawhub", "config",
         "consent-protocol", "contracts", "data", "deploy", "docs", "hushh-webapp",
         "ios", "android", "packages", "scripts", "skillsagentic", "tests",
     }
