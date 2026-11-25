@@ -41,6 +41,7 @@ export function ComputerUseTaskCard({
   openReviewSignal = 0,
   onDownloadSaved,
   onTerminalSnapshot,
+  onSnapshotChange,
 }: {
   binding: ComputerUseBinding;
   transport: ComputerUseTransport;
@@ -53,6 +54,7 @@ export function ComputerUseTaskCard({
     sha256: string;
   }) => void;
   onTerminalSnapshot?: (snapshot: ComputerUseSnapshot) => void;
+  onSnapshotChange?: (snapshot: ComputerUseSnapshot) => void;
 }) {
   const { ownerId, podId, incarnation, taskId, environment } = binding;
   const controller = useMemo(() => new ComputerUseTaskController({ ownerId, podId, incarnation, taskId, environment }, transport),
@@ -95,6 +97,9 @@ export function ComputerUseTaskCard({
   }, [controller]);
 
   const snapshot = state.snapshot;
+  useEffect(() => {
+    if (state.verified && snapshot) onSnapshotChange?.(snapshot);
+  }, [onSnapshotChange, snapshot, state.verified]);
   useEffect(() => {
     if (
       !state.verified || !isComputerUseActivelyStreaming(snapshot) || !snapshot?.approvedOrigins?.length
