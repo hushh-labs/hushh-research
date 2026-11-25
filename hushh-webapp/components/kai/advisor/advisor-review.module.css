@@ -331,11 +331,6 @@
   border: 1px solid color-mix(in srgb, var(--app-accent) 14%, var(--card));
   background: color-mix(in srgb, var(--app-accent) 4%, var(--card));
 }
-.refinePersona {
-  color: var(--app-accent);
-  text-decoration: none;
-}
-
 .meetingConfirmed {
   color: #28784a;
   background: color-mix(in srgb, #28784a 10%, var(--card));

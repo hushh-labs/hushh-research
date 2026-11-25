@@ -316,7 +316,7 @@ it("opens a single 13-question assessment directly and updates the saved badge",
   );
   expect(onSaved).toHaveBeenCalledOnce();
   fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
-  expect(within(screen.getByRole("button", { name: "Refine persona" }).parentElement!).getByText("Growth-oriented")).toBeVisible();
+  expect(screen.getByText("Growth-oriented")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Refine persona" }));
   expect(within(screen.getByRole("group")).getAllByRole("button")[2]).toHaveAttribute("aria-pressed", "true");
   fireEvent.click(within(screen.getByRole("group")).getAllByRole("button")[2]);

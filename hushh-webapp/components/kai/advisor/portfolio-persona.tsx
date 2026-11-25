@@ -2,6 +2,8 @@
 
 import { useRef, useState } from "react";
 import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { ChevronRight } from "@/components/icons";
 import { DetailedPersonaForm } from "@/components/kai/onboarding/detailed-persona-form";
 import { FinancePersonaBadge } from "@/components/kai/onboarding/finance-persona-form";
 import { portfolioPlanningSignals } from "@/lib/kai/investing-persona";
@@ -33,9 +35,10 @@ export function PortfolioPersona({
         <h3 className="ui-text-section-label">Investing persona</h3>
         <FinancePersonaBadge preferences={preferences} />
       </div>
-      <button ref={trigger} type="button" className={`${styles.quietAction} ${styles.refinePersona}`} onClick={() => setOpen(true)}>
+      <ShellActionSurface ref={trigger} variant="pill" className="min-h-11 ui-text-compact-button-label" onClick={() => setOpen(true)}>
         {action}
-      </button>
+        <ChevronRight className="size-4" aria-hidden="true" />
+      </ShellActionSurface>
       <AdaptiveDetailSurface
         open={open}
         onOpenChange={(next) => { if (!saving) setOpen(next); }}

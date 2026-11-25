@@ -3,6 +3,35 @@ import { expect, test, type Page } from "@playwright/test";
 export function registerAdvisorReviewChecks(
   mount: (page: Page, width: number) => Promise<void>,
 ) {
+  test("Finance persona has a visible action and matching assessment buttons", async ({ page }) => {
+    await mount(page, 320);
+    await page.evaluate(() => { document.body.dataset.portfolioPersonaIncomplete = "true"; });
+    await page.getByRole("button", { name: "Toggle sample analysis" }).click();
+    const trigger = page.getByRole("button", { name: "Complete persona", exact: true });
+    await expect(trigger).toBeVisible();
+    expect(await trigger.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+    await trigger.click();
+    const dialog = page.getByRole("dialog", { name: "Complete persona" });
+    const back = dialog.getByRole("button", { name: "Back", exact: true });
+    const next = dialog.getByRole("button", { name: "Continue", exact: true });
+    const expectMatchingSize = async (forward: typeof next) => {
+      const { backBox, forwardBox } = await back.evaluate(
+        (backButton, forwardButton) => ({
+          backBox: backButton.getBoundingClientRect().toJSON(),
+          forwardBox: forwardButton.getBoundingClientRect().toJSON(),
+        }),
+        await forward.elementHandle(),
+      );
+      expect(backBox.width).toBeCloseTo(forwardBox.width, 0);
+      expect(backBox.height).toBeGreaterThanOrEqual(44);
+      expect(backBox.height).toEqual(forwardBox.height);
+      expect(backBox.y).toBeCloseTo(forwardBox.y, 0);
+    };
+    await expectMatchingSize(next);
+    for (let question = 1; question < 13; question++) await next.click();
+    await expectMatchingSize(dialog.getByRole("button", { name: "Save assessment" }));
+  });
+
   for (const width of [393, 1440]) {
     test(`Advisor recommendations require opt-in and preserve introduction approval at ${width}px`, async ({
       page,
