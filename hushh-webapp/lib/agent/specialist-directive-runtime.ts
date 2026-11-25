@@ -3,6 +3,7 @@ import { OneLocationService } from "@/lib/one-location/service";
 import { encryptLocationForRecipient } from "@/lib/one-location/encryption";
 import {
   isSosShareReadyRecipient,
+  createSosSendIntent,
   runSosPanic,
   selectSmsRecipients,
   selectSosConnectedRecipients,
@@ -172,6 +173,7 @@ export async function runLocationDirective(
     }
 
     if (type === "sos_panic") {
+      const sendIntent = createSosSendIntent();
       const state = await OneLocationService.getState(vaultOwnerToken);
       const connected = selectSosConnectedRecipients(
         state.recipients ?? [],
@@ -194,6 +196,7 @@ export async function runLocationDirective(
       const point = await OneLocationService.captureCurrentPosition();
       await runSosPanic({
         vaultOwnerToken,
+        sendIntent,
         recipients: ready,
         point,
         publish: async (grant, recipient, pt) => {
@@ -206,6 +209,7 @@ export async function runLocationDirective(
             vaultOwnerToken,
             grantId: grant.id,
             envelope,
+            isEffectCurrent: sendIntent.isCurrent,
           });
         },
       });

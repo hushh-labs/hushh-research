@@ -40,6 +40,26 @@ export class SosPanicError extends Error {
   }
 }
 
+// Match the existing private-share confirmation ceiling. Network timeouts and
+// bounded retry counts do not bound wall time while a native WebView sleeps.
+export const SOS_SEND_INTENT_MAX_AGE_MS = 10 * 60 * 1_000;
+export const SOS_SEND_EXPIRED_MESSAGE = "Alert request expired. Send a new alert if you still need help.";
+export type SosSendIntent = Readonly<{ isCurrent: () => boolean }>;
+
+/** Capture at confirmation, before recipient/location preparation begins. */
+export function createSosSendIntent(): SosSendIntent {
+  const wallStartedAt = Date.now();
+  const startedAt = performance.now();
+  return {
+    isCurrent: () => {
+      const wallAge = Date.now() - wallStartedAt;
+      const age = performance.now() - startedAt;
+      return Number.isFinite(wallAge) && wallAge >= 0 && wallAge <= SOS_SEND_INTENT_MAX_AGE_MS &&
+        Number.isFinite(age) && age >= 0 && age <= SOS_SEND_INTENT_MAX_AGE_MS;
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // 2. Share-readiness guard (type predicate)
 // ---------------------------------------------------------------------------
@@ -159,6 +179,8 @@ export interface RunSosPanicParams {
   /** Optional short message shown in the recipient notification. */
   note?: string | null;
   isStale?: () => boolean;
+  /** The original confirmation, including time spent preparing the roster/fix. */
+  sendIntent?: SosSendIntent;
   /**
    * Caller-supplied publish function so the core stays decoupled from the
    * encrypt+store implementation (and is therefore easy to unit-test).
@@ -217,6 +239,11 @@ export async function runSosPanic(
   params: RunSosPanicParams,
 ): Promise<SosPanicResult> {
   const { vaultOwnerToken, recipients, point, publish, note } = params;
+  const sendIntent = params.sendIntent ?? createSosSendIntent();
+  const isEffectCurrent = () => !params.isStale?.() && sendIntent.isCurrent();
+  const assertSendIntent = () => {
+    if (!sendIntent.isCurrent()) throw new Error(SOS_SEND_EXPIRED_MESSAGE);
+  };
   const normalizedNote = note?.trim() || null;
 
   if (
@@ -248,6 +275,7 @@ export async function runSosPanic(
   let nextRecipient = 0;
   const deliver = async (recipient: SosShareReadyRecipient, index: number) => {
     try {
+      assertSendIntent();
       const grant = await OneLocationService.createGrant({
         vaultOwnerToken,
         recipientUserId: recipient.userId,
@@ -255,6 +283,7 @@ export async function runSosPanic(
         durationHours: 8,
         reason: normalizedNote || "sos_panic",
         shareKind: "sos",
+        isEffectCurrent,
       });
       // Record the grant id BEFORE publish so it is never orphaned even if
       // publish throws for this or a later recipient, and persist it at once
@@ -264,6 +293,9 @@ export async function runSosPanic(
       // switched accounts while creation was in flight.
       if (params.isStale?.()) throw new Error("The signed-in account changed.");
       saveSosIncident(incidentSoFar());
+      // A grant accepted before suspension must remain stoppable even when
+      // the old confirmation can no longer authorize its first publication.
+      assertSendIntent();
       const alerted = await publish(grant, recipient, point);
       delivery[index] = {
         userId: recipient.userId,
@@ -271,7 +303,7 @@ export async function runSosPanic(
         alerted: typeof alerted === "boolean" ? alerted : null,
       };
     } catch (error) {
-      firstError ??= error;
+      firstError ??= sendIntent.isCurrent() ? error : new Error(SOS_SEND_EXPIRED_MESSAGE);
       delivery[index] = {
         userId: recipient.userId,
         displayName: recipient.displayName,
@@ -287,6 +319,8 @@ export async function runSosPanic(
       if (recipient) await deliver(recipient, index);
     }
   }));
+  // Completion of an already-dispatched publication can arrive after expiry.
+  // Retain its known delivery result; expiry only refuses further mutations.
   if (firstError !== undefined || params.isStale?.()) {
     throw new SosPanicError(
       firstError instanceof Error ? firstError.message : "Could not send SMS alert.",

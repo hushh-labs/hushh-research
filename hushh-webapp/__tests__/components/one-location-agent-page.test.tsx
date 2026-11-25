@@ -33,6 +33,7 @@ import { INTERNAL_APP_NAVIGATION_REQUEST_EVENT } from "@/lib/utils/browser-navig
 import { ContactInvitationSessionProvider } from "@/components/connections/contact-invitation-session-provider";
 import { dispatchConnectionGraphChanged } from "@/lib/connections/connection-graph-events";
 import { ApiError } from "@/lib/services/api-client";
+import { SOS_SEND_INTENT_MAX_AGE_MS, SOS_SEND_EXPIRED_MESSAGE } from "@/lib/one-location/sos-trigger";
 
 // These cases prove state, consent and cancellation, not animation frames.
 // Real GSAP mutation tweens make JSDOM's semantic queries race a decorative
@@ -4849,6 +4850,65 @@ describe("OneLocationAgentPage", () => {
       "/one/location?from=%2Fone%2Fprofile&action=settings",
       { scroll: false },
     );
+  });
+
+  it("rejects a confirmed SOS whose roster preparation resumes after its send window", async () => {
+    mockGetSmsContacts.mockResolvedValue(["user_b"]);
+    mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    fireEvent.click(screen.getByRole("button", { name: "Save My Soul emergency alert" }));
+    const hold = await screen.findByRole("button", { name: /^Press and hold for two seconds/ });
+    await waitFor(() => expect(hold).toBeEnabled());
+    const callsBeforeSend = mockGetSmsRecipientRoster.mock.calls.length;
+    let finishRoster!: (value: { smsContactUserIds: string[]; recipients: ReturnType<typeof locationState>["recipients"] }) => void;
+    mockGetSmsRecipientRoster.mockReturnValueOnce(new Promise((resolve) => { finishRoster = resolve; }));
+    mockCreateGrant.mockClear();
+    mockStoreEnvelope.mockClear();
+    mockSendSosEmails.mockClear();
+    fireEvent.keyDown(hold, { key: " ", code: "Space" });
+    await waitFor(() => expect(mockGetSmsRecipientRoster.mock.calls.length).toBeGreaterThan(callsBeforeSend), { timeout: 4000 });
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + SOS_SEND_INTENT_MAX_AGE_MS + 1);
+    try {
+      await act(async () => finishRoster({ smsContactUserIds: ["user_b"],
+        recipients: locationState().recipients.filter((recipient) => recipient.userId === "user_b") }));
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith(SOS_SEND_EXPIRED_MESSAGE));
+      expect(mockCreateGrant).not.toHaveBeenCalled();
+      expect(mockStoreEnvelope).not.toHaveBeenCalled();
+      expect(mockSendSosEmails).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: /^Press and hold for two seconds/ })).toBeEnabled();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("retains confirmed primary delivery after a suspended callback and skips the expired email", async () => {
+    mockGetSmsContacts.mockResolvedValue(["user_b"]);
+    const base = locationState();
+    const grant = { ...base.ownerGrants[0]!, id: "late_publication", shareKind: "sos",
+      expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString() };
+    let active = false;
+    mockGetState.mockImplementation(async () => ({ ...base, ownerGrants: active ? [grant] : [] }));
+    mockCreateGrant.mockImplementation(async () => { active = true; return grant; });
+    let finishPublication!: (value: { recipientAlerted: boolean }) => void;
+    mockStoreEnvelope.mockReturnValueOnce(new Promise((resolve) => { finishPublication = resolve; }));
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    fireEvent.click(screen.getByRole("button", { name: "Save My Soul emergency alert" }));
+    const hold = await screen.findByRole("button", { name: /^Press and hold for two seconds/ });
+    await waitFor(() => expect(hold).toBeEnabled());
+    fireEvent.keyDown(hold, { key: " ", code: "Space" });
+    await waitFor(() => expect(mockStoreEnvelope).toHaveBeenCalled(), { timeout: 4000 });
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + SOS_SEND_INTENT_MAX_AGE_MS + 1);
+    try {
+      await act(async () => finishPublication({ recipientAlerted: true }));
+      await waitFor(() => expect(toast.success).toHaveBeenCalledWith("SMS alert sent.", expect.anything()));
+      expect(mockSendSosEmails).not.toHaveBeenCalled();
+      expect(toast.error).not.toHaveBeenCalledWith(SOS_SEND_EXPIRED_MESSAGE);
+      expect(screen.getByRole("button", { name: "Stop SMS alert" })).toBeEnabled();
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it.each(["full", "partial", "unknown", "email", "none"] as const)("shows a plain SMS outcome for %s delivery", async (outcome) => {

@@ -334,12 +334,14 @@ import {
   type SosIncident,
 } from "@/lib/one-location/sos-incident";
 import {
+  createSosSendIntent,
   isSosShareReadyRecipient,
   runSosPanic,
   selectSmsRecipients,
   selectShareReadyRecipients,
   sosRecipientReadinessMessage,
   SosPanicError,
+  SOS_SEND_EXPIRED_MESSAGE,
 } from "@/lib/one-location/sos-trigger";
 import {
   emergencyInfoForCountryCode,
@@ -5053,7 +5055,9 @@ export function OneLocationAgentPageContent({
       recipient: OneLocationRecipient,
       pointOverride?: PlainLocationPoint,
       isStale?: () => boolean,
+      isEffectCurrent?: () => boolean,
     ) => {
+      const canPublish = () => !isStale?.() && (isEffectCurrent?.() ?? true);
       if (!vaultOwnerToken) throw new Error("Vault owner token required.");
       if (!recipient.publicKeyJwk || !recipient.keyId) {
         throw new Error(
@@ -5062,7 +5066,7 @@ export function OneLocationAgentPageContent({
       }
       const point =
         pointOverride ?? (await OneLocationService.captureCurrentPosition());
-      if (isStale?.()) {
+      if (!canPublish()) {
         throw Object.assign(new Error("Location sharing was cancelled."), {
           name: "AbortError",
         });
@@ -5100,7 +5104,7 @@ export function OneLocationAgentPageContent({
       // Returned so Save My Soul can tell the sender which contacts the alert
       // actually reached. null for every other share kind, which does not
       // notify from this route.
-      if (isStale?.()) {
+      if (!canPublish()) {
         throw Object.assign(new Error("Location sharing was cancelled."), {
           name: "AbortError",
         });
@@ -5109,6 +5113,7 @@ export function OneLocationAgentPageContent({
         vaultOwnerToken,
         grantId: grant.id,
         envelope,
+        ...(isEffectCurrent ? { isEffectCurrent: canPublish } : {}),
       });
       return stored.recipientAlerted;
     },
@@ -5122,11 +5127,12 @@ export function OneLocationAgentPageContent({
       trigger: OneLocationForegroundTrigger,
       pointOverride?: PlainLocationPoint,
       isStale?: () => boolean,
+      isEffectCurrent?: () => boolean,
     ) =>
       runOneLocationForegroundAttempt({
         operation: "publish",
         trigger,
-        task: () => publishEnvelope(grant, recipient, pointOverride, isStale),
+        task: () => publishEnvelope(grant, recipient, pointOverride, isStale, isEffectCurrent),
         isStale,
       }),
     [publishEnvelope],
@@ -5981,6 +5987,7 @@ export function OneLocationAgentPageContent({
         LocationBus.getAccountGeneration() !== sessionGeneration;
       const operation = sosOperations.current.begin(owner);
       if (!operation) return;
+      const sendIntent = createSosSendIntent();
       const dispatchStartedAt = performance.now();
       const dispatchElapsed = () => performance.now() - dispatchStartedAt;
       setSosDispatch({ owner, status: "sending" });
@@ -5995,6 +6002,7 @@ export function OneLocationAgentPageContent({
         ]);
         const { point, failure, lastKnown } = location;
         if (isStale()) return;
+        if (!sendIntent.isCurrent()) throw new Error(SOS_SEND_EXPIRED_MESSAGE);
         totalSelected = roster.smsContactUserIds.length;
         setSmsSystemCircleMemberIds(roster.smsContactUserIds);
         setSmsRosterRecipients(roster.recipients);
@@ -6029,8 +6037,10 @@ export function OneLocationAgentPageContent({
           point,
           note,
           isStale,
+          sendIntent,
           publish: (grant, recipient, pt) =>
-            publishEnvelopeWithRetry(grant, recipient, "manual", pt, isStale),
+            publishEnvelopeWithRetry(grant, recipient, "manual", pt,
+              isStale, sendIntent.isCurrent),
         }).catch((error: unknown) => {
           // The common executor retains its error contract for voice/legacy
           // callers. This screen can show the full per-contact partial result
@@ -6072,7 +6082,9 @@ export function OneLocationAgentPageContent({
         }
 
         // Await the independent email outcome for telemetry; Stop stays available.
-        const mail = await OneLocationService.sendSosEmails({
+        // Expiry prevents a late fallback; it cannot erase a primary delivery
+        // that was already accepted before this callback resumed.
+        const mail = sendIntent.isCurrent() ? await OneLocationService.sendSosEmails({
           vaultOwnerToken,
           grantIds: incident.grantIds,
           latitude: point.latitude,
@@ -6082,7 +6094,9 @@ export function OneLocationAgentPageContent({
           capturedAt: point.capturedAt,
           note,
           emergencyNumber: sosEmergency?.number ?? null,
-        });
+          isEffectCurrent: () => !isStale() && sendIntent.isCurrent() &&
+            sosIncidentRef.current?.startedAt === incident.startedAt,
+        }) : { emailed: 0, attempted: 0, configured: false, withoutEmail: [] };
         if (isStale()) return;
 
         // Telemetry includes publication and email outcomes.
