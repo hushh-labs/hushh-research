@@ -109,6 +109,9 @@ export function InsightCard({
   caption?: string | null;
   onTryAgain?: (() => void) | null;
 }) {
+  const [source, setSource] = useState<NoticeEvidence | null>(null);
+  // One email says it all for these: the provider's own notice, promise or announcement. Others list theirs in the sheet.
+  const linked = insight?.notice?.evidence.find((item) => ["provider_notice", "refund_promise", "announcement"].includes(item.role)) ?? null;
   if (!insight && !waitingNote) return null;
   return (
     <section aria-label="One noticed" className="rounded-[20px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-4 shadow-[var(--shadow-xs)] sm:p-5" data-testid="insight-card">
@@ -126,6 +129,15 @@ export function InsightCard({
         <div className={cn("min-w-0", insight && "cursor-pointer")} onClick={insight ? () => onReview(insight) : undefined} data-testid="insight-card-body">
           <h3 className={cn(styles.cardTitle, "text-foreground")}>{insight?.title ?? waitingNote?.title}</h3>
           <p className="mt-1 text-[14px] leading-[21px] text-muted-foreground">{insight?.reason ?? waitingNote?.detail}</p>
+          {linked ? (
+            <button
+              type="button"
+              onClick={(event) => { event.stopPropagation(); setSource(linked); }}
+              className="-mb-1 mt-0.5 inline-flex min-h-11 items-center text-[14px] font-medium text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+            >
+              View email
+            </button>
+          ) : null}
           {caption ? (
             <p className="mt-1.5 text-[12px] leading-[18px] text-muted-foreground" data-testid="insight-caption" role="status">
               {caption}
@@ -139,6 +151,7 @@ export function InsightCard({
           </button>
         ) : null}
       </div>
+      <NoticeSourceSheet target={source} onClose={() => setSource(null)} />
     </section>
   );
 }

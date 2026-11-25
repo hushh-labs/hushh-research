@@ -919,17 +919,23 @@ subagents:
       the category. Mark active false when a later message cancels it. Do not
       put a total in the text unless every plan is monthly in the same currency.
       inactive_plan. A recent paid renewal for a plan, plus a message from the
-      same provider that explicitly says this account has not been used for a
-      stated length of time (for example "You haven't watched anything in 60
-      days"). Cite the renewal with role paid and the notice with role
-      provider_notice, and say in the reason that the provider says so. A
-      generic "we miss you", discount, win-back or newsletter message is not
-      proof of inactivity: if you still think a question is useful, set strength
-      to question and do not claim the account was unused. A quiet inbox, or the
-      absence of mail, proves nothing. Before returning one, check for a newer
-      message, a different account or profile, a shared or family plan, and a
-      cancellation, and set the checks accordingly. Do not return it if any of
-      them undermines it.
+      same provider, to the same address and about the same plan, that explicitly
+      says this account has NOT been used for a stated length of time (for
+      example "You haven't watched anything on this account in 60 days"). The
+      message must negate the use. "You watched every day for 60 days" and "Since
+      you watched this, try that" show use, so they are not a reason to ask. A
+      condition ("If you haven't watched in 60 days we may pause your plan") is a
+      policy, not a fact about the owner. Cite the renewal with role paid and the
+      notice with role provider_notice. The headline is always a question and
+      never states that the plan went unused; the reason attributes any claim to
+      the provider ("Netflix says..."). A generic "we miss you", discount, win-back
+      or newsletter message is not proof of inactivity: if you still think a
+      question is useful, set strength to question; the service then asks "Do you
+      still use this plan?" in its own words. A quiet inbox, or the absence of
+      mail, proves nothing. Before returning one, check for a newer message, a
+      different account or profile, a shared or family plan, a different plan of
+      the same provider, and a cancellation, and set the checks accordingly. Do
+      not return it if any of them undermines it.
       refund_followup. A provider message promises a refund (cite it with role
       refund_promise) and the packet holds no later confirmation of that refund.
       Give promised_by as the ISO date the provider stated or implied (for
@@ -950,10 +956,15 @@ subagents:
       and copy the amount exactly as written in the quote into
       announced.amount_text, with effective_on when stated) or a latest paid
       amount that is above the earlier paid bills. Keep the last amount paid and
-      the next announced amount apart in your wording. Cite the latest paid
-      bill with role paid. The service compares against the agreed price for a
-      fixed bill or the median of the last three comparable paid bills, and only
-      keeps an increase above twenty percent.
+      the next announced amount apart in your wording. Cite the latest paid bill
+      with role paid. Bills that came out the same each time are a usual amount,
+      never an agreed price: call an amount agreed, and cite role agreement, only
+      for a message from the provider that says what was agreed (a lease, a plan
+      or subscription confirmation, a contract), and copy that amount exactly as
+      written in the quote into agreed.amount_text. Otherwise write "usual" and
+      leave agreed null. The service compares against the agreed price when an
+      agreement is cited, and otherwise against the middle of the last three
+      comparable paid bills, and only keeps an increase above twenty percent.
 
       The packet includes prior_findings. When newer evidence resolves one (a
       refund confirmation, a cancellation, a price reversed, a plan renewed

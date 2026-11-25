@@ -47,7 +47,13 @@ CHECKS = {
 
 
 def gmail(
-    mid: str, on: str, sender: str, subject: str, body: str, thread: str | None = None
+    mid: str,
+    on: str,
+    sender: str,
+    subject: str,
+    body: str,
+    thread: str | None = None,
+    to: str | None = None,
 ) -> dict[str, Any]:
     stamp = int(datetime.fromisoformat(on).replace(tzinfo=timezone.utc).timestamp() * 1000)
     data = base64.urlsafe_b64encode(body.encode()).decode()
@@ -62,6 +68,7 @@ def gmail(
             "headers": [
                 {"name": "From", "value": sender},
                 {"name": "Subject", "value": subject},
+                *([{"name": "To", "value": to}] if to else []),
             ],
             "body": {"data": data},
         },
@@ -215,30 +222,167 @@ def test_explicit_inactivity_notice_makes_a_clear_finding_with_attribution():
     assert result.attribution["statement"].startswith("you haven't watched")
 
 
-def test_a_generic_we_miss_you_promotion_cannot_establish_inactivity():
+CLAIM = "you haven't watched anything on this account in 60 days"
+
+
+def test_a_generic_we_miss_you_promotion_only_asks_and_the_words_are_ours():
     _, packet = inactivity_setup(
         "We miss you! Come back and enjoy 30% off your next month.", subject="We miss you"
     )
-    quote = "We miss you! Come back and enjoy"
-    with pytest.raises(Reject, match="unsupported_number|claims_inactivity"):
-        check(inactive(packet, quote), packet)
-    # As a plain question that claims nothing, it is allowed but never "clear".
-    soft = inactive(
-        packet, quote, strength="question", reason="Netflix sent a come-back note on 10 Nov."
-    )
-    assert check(soft, packet).strength == "question"
-
-
-def test_a_question_may_not_smuggle_in_an_inactivity_claim():
-    _, packet = inactivity_setup("We miss you! Come back and enjoy shows.", subject="We miss you")
-    claim = inactive(
+    # Even a model that overclaims in both the headline and the reason cannot get that wording out.
+    overclaim = inactive(
         packet,
-        "We miss you! Come back",
-        strength="question",
-        reason="Netflix says you haven't watched lately.",
+        "We miss you! Come back and enjoy",
+        reason="Netflix says this account hasn't watched anything in 60 days.",
     )
-    with pytest.raises(Reject, match="claims_inactivity_without_proof"):
-        check(claim, packet)
+    result = check(overclaim, packet)
+    assert result.strength == "question"
+    assert result.headline == "Do you still use this plan?"
+    assert "haven't" not in result.reason and "60" not in result.reason
+    assert result.reason == (
+        "Netflix charged ₹499 on 2 Nov. Their 10 Nov email doesn't say you stopped using it."
+    )
+    assert {e.role for e in result.evidence} == {
+        "paid",
+        "provider_notice",
+    }  # the email stays linked
+    assert result.facts["notice_kind"] == "generic" and result.facts["stated"] is None
+
+
+def test_a_headline_may_never_state_that_the_plan_went_unused():
+    _, packet = inactivity_setup(f"Hi, {CLAIM}.")
+    for headline in ("You haven't used this plan.", "You haven't used this plan?", "Plan unused"):
+        raw = inactive(packet, CLAIM)
+        raw["headline"] = headline
+        with pytest.raises(Reject, match="headline_states_inactivity"):
+            check(raw, packet)
+
+
+def test_a_definite_claim_is_attributed_to_the_provider_not_stated_as_fact():
+    _, packet = inactivity_setup(f"Hi, {CLAIM}.")
+    raw = inactive(packet, CLAIM, reason="This account hasn't watched anything in 60 days.")
+    with pytest.raises(Reject, match="unattributed_claim"):
+        check(raw, packet)
+    attributed = inactive(packet, CLAIM, reason="Their email says you haven't watched in 60 days.")
+    assert check(attributed, packet).strength == "clear"
+
+
+def test_you_watched_every_day_for_60_days_never_becomes_inactivity():
+    _, packet = inactivity_setup("Great news. You watched every day for 60 days. Keep it up.")
+    for headline, reason in (
+        ("You haven't used this plan.", "You haven't used this plan in 60 days."),
+        ("Still using this ₹499 plan?", "Netflix says this account hasn't watched in 60 days."),
+    ):
+        raw = inactive(packet, "You watched every day for 60 days", reason=reason)
+        raw["headline"] = headline
+        with pytest.raises(Reject, match="notice_shows_activity"):
+            check(raw, packet)
+
+
+def test_a_condition_or_a_recommendation_is_not_a_statement_about_the_owner():
+    _, policy = inactivity_setup(f"If {CLAIM}, we may pause your plan.", subject="Plan policy")
+    with pytest.raises(Reject, match="notice_is_conditional"):
+        check(inactive(policy, CLAIM), policy)
+    _, recommended = inactivity_setup("Because you watched Dark last week, try Ozark.")
+    with pytest.raises(Reject, match="notice_shows_activity"):
+        check(inactive(recommended, "Because you watched Dark last week"), recommended)
+
+
+def test_a_claim_about_users_in_general_is_not_a_claim_about_this_account():
+    _, packet = inactivity_setup("Members who haven't watched anything in 60 days often return.")
+    result = check(inactive(packet, "haven't watched anything in 60 days"), packet)
+    assert result.strength == "question" and result.headline == "Do you still use this plan?"
+
+
+def test_only_the_same_account_profile_and_plan_can_support_a_definite_claim():
+    def setup(receipt_to, notice_to, receipt_extra="", notice_extra=""):
+        paid = [
+            gmail(
+                "n1",
+                "2026-09-02",
+                NETFLIX,
+                "Your payment receipt",
+                "Hi Asha. Thank you for your payment. Total ₹499.00 paid. " + receipt_extra,
+                to=receipt_to,
+            ),
+            gmail(
+                "n2",
+                "2026-10-02",
+                NETFLIX,
+                "Your payment receipt",
+                "Hi Asha. Thank you for your payment. Total ₹499.00 paid. " + receipt_extra,
+                to=receipt_to,
+            ),
+            gmail(
+                "n3",
+                "2026-11-02",
+                NETFLIX,
+                "Your payment receipt",
+                "Hi Asha. Thank you for your payment. Total ₹499.00 paid. " + receipt_extra,
+                to=receipt_to,
+            ),
+        ]
+        notice = gmail(
+            "n4",
+            "2026-11-10",
+            NETFLIX,
+            "We haven't seen you",
+            f"Hi {notice_extra or 'Asha'}. {CLAIM}.",
+            to=notice_to,
+        )
+        return packet_of(*paid, notice)
+
+    same = setup("asha@example.test", "asha@example.test")
+    assert check(inactive(same, CLAIM), same).strength == "clear"
+    other_address = setup("asha@example.test", "kid@example.test")
+    with pytest.raises(Reject, match="different_account"):
+        check(inactive(other_address, CLAIM), other_address)
+    other_profile = setup("asha@example.test", "asha@example.test", notice_extra="Rohan")
+    with pytest.raises(Reject, match="different_profile"):
+        check(inactive(other_profile, CLAIM), other_profile)
+    other_plan = packet_of(
+        *[
+            m
+            for m in [
+                gmail(
+                    "n1",
+                    "2026-09-02",
+                    NETFLIX,
+                    "Your payment receipt",
+                    "Thank you for your payment. Total ₹499.00 paid. Premium plan.",
+                ),
+                gmail(
+                    "n2",
+                    "2026-10-02",
+                    NETFLIX,
+                    "Your payment receipt",
+                    "Thank you for your payment. Total ₹499.00 paid. Premium plan.",
+                ),
+                gmail(
+                    "n3",
+                    "2026-11-02",
+                    NETFLIX,
+                    "Your payment receipt",
+                    "Thank you for your payment. Total ₹499.00 paid. Premium plan.",
+                ),
+                gmail(
+                    "n4",
+                    "2026-11-10",
+                    NETFLIX,
+                    "We haven't seen you",
+                    f"Your Mobile plan: {CLAIM}.",
+                ),
+            ]
+        ]
+    )
+    with pytest.raises(Reject, match="different_plan"):
+        check(inactive(other_plan, CLAIM), other_plan)
+    family = packet_of(
+        *netflix_history(),
+        gmail("n4", "2026-11-10", NETFLIX, "We haven't seen you", f"Your family plan: {CLAIM}."),
+    )
+    shared = check(inactive(family, CLAIM), family)
+    assert shared.strength == "question" and shared.headline == "Do you still use this plan?"
 
 
 def test_a_cancelled_or_lapsed_or_stale_plan_is_not_questioned():
@@ -516,7 +660,7 @@ def rise(
     )
 
 
-def test_a_fixed_bill_announced_above_twenty_percent_is_raised_against_the_agreed_price():
+def test_equal_bills_make_a_usual_amount_not_an_agreed_price():
     notice = gmail(
         "an",
         "2026-11-18",
@@ -525,15 +669,160 @@ def test_a_fixed_bill_announced_above_twenty_percent_is_raised_against_the_agree
         "From 1 December your plan will cost ₹600.00 a month.",
     )
     packet = packet_of(*bills("499.00", "499.00", "499.00", "499.00"), notice)
-    result = check(
-        rise(
-            packet, announced={"quote": "your plan will cost ₹600.00 a month", "amount": "₹600.00"}
+    announced = {"quote": "your plan will cost ₹600.00 a month", "amount": "₹600.00"}
+    result = check(rise(packet, announced=announced), packet)
+    assert (
+        result.facts["base_kind"] == "median_of_last_three" and result.facts["base_minor"] == 49900
+    )
+    assert result.facts["last_paid_minor"] == 49900 and result.facts["new_minor"] == 60000
+    assert result.facts["new_is_announced"] is True and result.facts["percent"] == "20.2"
+    claimed = rise(
+        packet, announced=announced, reason="Jio announced ₹600.00, above the agreed ₹499.00."
+    )
+    with pytest.raises(Reject, match="calls_usual_bill_agreed"):
+        check(claimed, packet)
+
+
+RENT = "Maple Homes <rent@maplehomes.example>"
+
+
+def rent_bills(*amounts: str):
+    last = len(amounts) - 1
+    return [
+        receipt(f"r{i}", f"2026-{10 - (last - i):02d}-01", RENT, amount, subject="Rent receipt")
+        for i, amount in enumerate(amounts)
+    ]
+
+
+def rent_rise(
+    packet: Packet, *, latest: str, reason: str, agreement: tuple[str, str] | None = None
+):
+    evidence = [ev(packet, latest, "paid", "Thank you for your payment")]
+    extra: dict[str, Any] = {}
+    if agreement:
+        evidence.append(ev(packet, "ag", "agreement", agreement[0]))
+        extra["agreed"] = {"amount_text": agreement[1]}
+    return finding("price_rise", "Your rent went up", reason, evidence, **extra)
+
+
+def test_three_rent_receipts_then_a_higher_one_is_higher_than_your_usual_rent_not_the_agreed_rent():
+    packet = packet_of(*rent_bills("4,000.00", "4,000.00", "4,000.00", "5,000.00"))
+    usual = check(
+        rent_rise(packet, latest="r3", reason="₹5,000 is 25% higher than your usual rent."), packet
+    )
+    assert (
+        usual.facts["base_kind"] == "median_of_last_three" and usual.facts["base_minor"] == 400000
+    )
+    assert usual.facts["percent"] == "25.0" and usual.facts["last_paid_minor"] == 400000
+    for wording in (
+        "₹5,000 is 25% higher than your agreed rent.",
+        "₹5,000 breaks your fixed rent of ₹4,000, up 25%.",
+    ):
+        with pytest.raises(Reject, match="calls_usual_bill_agreed"):
+            check(rent_rise(packet, latest="r3", reason=wording), packet)
+
+
+def test_an_agreed_rent_needs_an_agreement_that_says_so():
+    lease = gmail(
+        "ag",
+        "2026-05-20",
+        RENT,
+        "Your lease",
+        "Your rent is fixed at ₹4,000 per month as agreed in the lease.",
+    )
+    packet = packet_of(lease, *rent_bills("4,000.00", "4,000.00", "4,000.00", "5,000.00"))
+    quote = "Your rent is fixed at ₹4,000 per month as agreed in the lease"
+    agreed = check(
+        rent_rise(
+            packet,
+            latest="r3",
+            reason="₹5,000 is 25% above your agreed rent of ₹4,000.",
+            agreement=(quote, "₹4,000"),
         ),
         packet,
     )
-    assert result.facts["base_kind"] == "agreed" and result.facts["base_minor"] == 49900
-    assert result.facts["last_paid_minor"] == 49900 and result.facts["new_minor"] == 60000
-    assert result.facts["new_is_announced"] is True and result.facts["percent"] == "20.2"
+    assert agreed.facts["base_kind"] == "agreed" and agreed.facts["base_minor"] == 400000
+    assert agreed.facts["percent"] == "25.0"
+    assert {e.role for e in agreed.evidence} == {"paid", "agreement"}
+    # An email that merely lists a price is not an agreement.
+    promo = gmail("ag", "2026-05-20", RENT, "Offers", "Flats from ₹4,000 per month near you.")
+    ad = packet_of(promo, *rent_bills("4,000.00", "4,000.00", "4,000.00", "5,000.00"))
+    with pytest.raises(Reject, match="agreement_not_stated"):
+        check(
+            rent_rise(
+                ad,
+                latest="r3",
+                reason="₹5,000 is 25% above your agreed rent of ₹4,000.",
+                agreement=("Flats from ₹4,000 per month near you", "₹4,000"),
+            ),
+            ad,
+        )
+    # An amount that is not in the agreement's own words cannot be called agreed.
+    with pytest.raises(Reject, match="agreed_price_not_in_quote"):
+        check(
+            rent_rise(
+                packet,
+                latest="r3",
+                reason="₹5,000 is 25% above your agreed rent of ₹4,000.",
+                agreement=(quote, "₹3,000"),
+            ),
+            packet,
+        )
+    # An agreement that arrived after the bill cannot have agreed it.
+    late = gmail(
+        "ag",
+        "2026-10-20",
+        RENT,
+        "Your lease",
+        "Your rent is fixed at ₹4,000 per month as agreed in the lease.",
+    )
+    after = packet_of(late, *rent_bills("4,000.00", "4,000.00", "4,000.00", "5,000.00"))
+    with pytest.raises(Reject, match="agreement_after_the_bill"):
+        check(
+            rent_rise(
+                after,
+                latest="r3",
+                reason="₹5,000 is 25% above your agreed rent of ₹4,000.",
+                agreement=(quote, "₹4,000"),
+            ),
+            after,
+        )
+
+
+def test_4800_against_4000_is_exactly_twenty_percent_and_is_not_a_rise():
+    exact = packet_of(*rent_bills("4,000.00", "4,000.00", "4,000.00", "4,800.00"))
+    with pytest.raises(Reject, match="not_above_twenty_percent"):
+        check(
+            rent_rise(exact, latest="r3", reason="₹4,800 is 20% higher than your usual rent."),
+            exact,
+        )
+    over = packet_of(*rent_bills("4,000.00", "4,000.00", "4,000.00", "4,801.00"))
+    flagged = check(
+        rent_rise(over, latest="r3", reason="₹4,801 is 20.0% higher than your usual rent."), over
+    )
+    assert flagged.facts["new_minor"] == 480100 and flagged.facts["percent"] == "20.0"
+    # An agreed price follows the same exact rule.
+    lease = gmail(
+        "ag",
+        "2026-05-20",
+        RENT,
+        "Your lease",
+        "Your rent is fixed at ₹4,000 per month as agreed in the lease.",
+    )
+    agreed_exact = packet_of(lease, *rent_bills("4,000.00", "4,800.00"))
+    with pytest.raises(Reject, match="not_above_twenty_percent"):
+        check(
+            rent_rise(
+                agreed_exact,
+                latest="r1",
+                reason="₹4,800 is 20% above your agreed rent.",
+                agreement=(
+                    "Your rent is fixed at ₹4,000 per month as agreed in the lease",
+                    "₹4,000",
+                ),
+            ),
+            agreed_exact,
+        )
 
 
 def test_exactly_twenty_percent_is_not_a_rise():

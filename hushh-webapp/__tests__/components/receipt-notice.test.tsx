@@ -189,6 +189,22 @@ describe("the card on Receipts", () => {
     expect(open).toHaveBeenCalledWith(expect.objectContaining({ accountKey: "acct", openKey: sealed("note") }));
   });
 
+  it("links the provider's own email from the card, and leaves the decision to the owner", async () => {
+    await seed([finding()]);
+    const open = vi.spyOn(GmailReceiptsService, "openNoticeSource").mockResolvedValue({
+      subject: "We haven't seen you", fromName: "Netflix", fromDomain: "mailer.netflix.com", receivedAt: "2026-11-10T08:00:00+00:00",
+      excerpt: "Hi. Hi, you haven't watched anything on this account in 60 days.", truncated: false,
+    });
+    mount();
+    const card = await screen.findByTestId("insight-card");
+    fireEvent.click(within(card).getByRole("button", { name: "View email" }));
+    expect(await screen.findByTestId("notice-source-excerpt")).toHaveTextContent("you haven't watched anything on this account in 60 days");
+    expect(open).toHaveBeenCalledWith(expect.objectContaining({ openKey: sealed("note") }));
+    // Nothing was decided by looking: the finding is still there, and so is the primary action.
+    expect(screen.getByTestId("insight-card")).toHaveTextContent("Still using this ₹499 plan?");
+    expect((await loadTracking(session, "acct")).doc.dismissed).toEqual([]);
+  });
+
   it("keeps a failed email open recoverable and leaves the receipts alone", async () => {
     await seed([finding()]);
     vi.spyOn(GmailReceiptsService, "openNoticeSource").mockRejectedValueOnce(new Error("offline")).mockResolvedValue({ subject: "S", fromName: null, fromDomain: null, receivedAt: null, excerpt: "you haven't watched anything on this account in 60 days", truncated: false });

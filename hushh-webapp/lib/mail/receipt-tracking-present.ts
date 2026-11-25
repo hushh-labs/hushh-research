@@ -38,10 +38,10 @@ export function eventText(event: TrackingEvent): string {
 export const RECURRING_EVENT_KINDS = new Set<TrackingEvent["kind"]>(["bill_added", "date_changed", "occurrence_skipped", "tracking_stopped", "tracking_resumed", "pattern_hidden"]);
 
 /** The numbers behind a price-rise finding, as label and value rows. */
-export function riseFacts(rise: { latestMinor: number; baselineMinor: number; percent: string; basis: "agreed_price" | "median_last_three"; currency: string }): Array<{ label: string; value: string }> {
+export function riseFacts(rise: { latestMinor: number; baselineMinor: number; percent: string; basis: "median_last_three"; currency: string }): Array<{ label: string; value: string }> {
   return [
     { label: "This bill", value: formatMinor(rise.latestMinor, rise.currency) },
-    { label: rise.basis === "agreed_price" ? "Agreed price" : "Usual (middle of the last 3 paid)", value: formatMinor(rise.baselineMinor, rise.currency) },
+    { label: "Usual (middle of the last 3 paid)", value: formatMinor(rise.baselineMinor, rise.currency) },
     { label: "Change", value: `+${rise.percent}%` },
   ];
 }

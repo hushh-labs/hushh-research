@@ -13,6 +13,7 @@ import re
 import statistics
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from email.utils import getaddresses
 from typing import Any
 
 from hushh_mcp.services.gmail_receipt_amounts import NUMBER, receipt_currency
@@ -51,6 +52,59 @@ _TXN_REF = re.compile(
     r"((?!(?:id|no|number|confirmation|confirmed|received|successful|method)\b)"
     r"(?=[A-Z0-9._/-]*\d)[A-Z0-9][A-Z0-9._/-]{3,79})\b",
     re.I,
+)
+_GREETING = re.compile(r"\s*(?:hi|hello|dear|hey)[, ]+([a-z][a-z'-]{1,20})", re.I)
+_PLAN_NAME = re.compile(
+    r"\b([a-z0-9+]+(?: [a-z0-9+]+){0,2}) (?:plan|membership|subscription|tier)\b"
+)
+_PLAN_NOISE = frozenset(
+    {
+        "your",
+        "this",
+        "the",
+        "a",
+        "an",
+        "our",
+        "new",
+        "monthly",
+        "annual",
+        "yearly",
+        "paid",
+        "free",
+        "current",
+        "active",
+        "of",
+        "to",
+        "for",
+        "and",
+        "on",
+        "in",
+        "my",
+        "its",
+        "that",
+        "these",
+        "those",
+        "same",
+        "one",
+        "any",
+        "each",
+        "every",
+        "cancel",
+        "manage",
+        "change",
+        "update",
+        "renew",
+        "renewal",
+        "with",
+        "from",
+        "is",
+        "are",
+        "was",
+        "will",
+        "be",
+        "has",
+        "have",
+    }
 )
 _SUBJECT_REFUND = re.compile(r"\brefund", re.I)
 _SUBJECT_CANCEL = re.compile(
@@ -166,6 +220,11 @@ class NoticeMessage:
     is_refund_subject: bool
     is_cancel_subject: bool
     is_receipt: bool
+    # Who the mail was addressed to, how it greeted them, and which plan it names: what lets code tell
+    # "this account and this plan" from another profile or another plan of the same provider.
+    recipients: frozenset[str] = frozenset()
+    greeting: str | None = None
+    plan_tokens: frozenset[str] = frozenset()
 
     @property
     def haystack(self) -> str:
@@ -184,6 +243,29 @@ def _refs(pattern: re.Pattern[str], text: str) -> tuple[str, ...]:
         if len(seen) >= 6:
             break
     return tuple(seen)
+
+
+def _recipients(headers: dict[str, str]) -> frozenset[str]:
+    found = {
+        address.lower()
+        for _name, address in getaddresses([headers.get("to", ""), headers.get("delivered-to", "")])
+        if address and "@" in address
+    }
+    return frozenset(found)
+
+
+def _plan_tokens(haystack: str) -> frozenset[str]:
+    tokens: set[str] = set()
+    for match in _PLAN_NAME.finditer(haystack):
+        tokens.update(
+            word for word in match.group(1).split() if word not in _PLAN_NOISE and len(word) > 1
+        )
+    return frozenset(tokens)
+
+
+def _greeting(body: str) -> str | None:
+    match = _GREETING.match(body)
+    return match.group(1).lower() if match else None
 
 
 def build_notice_message(
@@ -243,6 +325,9 @@ def build_notice_message(
         is_refund_subject=is_refund,
         is_cancel_subject=is_cancel,
         is_receipt=is_receipt,
+        recipients=_recipients(evidence.get("headers") or {}),
+        greeting=_greeting(body),
+        plan_tokens=_plan_tokens(norm(whole)),
     )
 
 

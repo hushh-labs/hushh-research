@@ -190,6 +190,57 @@ async def test_the_model_reads_related_provider_mail_and_a_validated_finding_com
     )
 
 
+async def test_a_generic_promotion_reaches_the_card_only_as_a_question_with_its_email_linked():
+    promo = gmail_message(
+        "n4",
+        "2026-11-10",
+        NETFLIX,
+        "We miss you",
+        "We miss you! Come back and enjoy 30 percent off.",
+    )
+    session = FakeSession("a@x.test", [*netflix_history(), promo])
+
+    async def scripted(prompt: str, user_id: str, consent_token: str) -> dict[str, Any]:
+        payload = json.loads(prompt.split("\n", 1)[1])
+        messages = payload["providers"][0]["messages"]
+        paid = max((m for m in messages if m["paid"]), key=lambda m: m["on"])
+        note = next(m for m in messages if "miss you" in m["subject"])
+        return {
+            "findings": [
+                {
+                    "kind": "inactive_plan",
+                    "headline": "Still using this ₹499 plan?",
+                    "reason": "Netflix says this account hasn't watched anything in 60 days.",
+                    "strength": "clear",
+                    "evidence": [
+                        {"message_id": paid["id"], "role": "paid", "quote": "Total ₹499.00 paid"},
+                        {
+                            "message_id": note["id"],
+                            "role": "provider_notice",
+                            "quote": "We miss you! Come back",
+                        },
+                    ],
+                    "plans": [],
+                    "promised_by": None,
+                    "announced": None,
+                    "agreed": None,
+                    "checks": CHECKS,
+                }
+            ],
+            "resolved": [],
+            "none_reason": "",
+        }
+
+    service = GmailReceiptNoticeService(live=FakeLive(session), runner=scripted, clock=lambda: NOW)  # type: ignore[arg-type]
+    result = await run(service, session, ["n1", "n2", "n3"])
+    [found] = result["findings"]
+    assert found["strength"] == "question" and found["headline"] == "Do you still use this plan?"
+    assert "haven't" not in found["reason"] and "60 days" not in found["reason"]
+    note_evidence = next(e for e in found["evidence"] if e["role"] == "provider_notice")
+    assert note_evidence["quote"] == "We miss you! Come back"
+    assert note_evidence["open_key"].startswith("loc:a@x.test:")  # the supporting email opens
+
+
 async def test_the_same_evidence_gives_the_same_finding_id_so_a_kept_choice_sticks():
     first_session = FakeSession("a@x.test", [*netflix_history(), NOTICE])
     first = await run(service_for(first_session, Runner()), first_session, ["n1", "n2", "n3"])

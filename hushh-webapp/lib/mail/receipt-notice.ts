@@ -17,7 +17,7 @@ import { receiptMoneyKind } from "./receipt-month-summary";
 
 export const NOTICE_KINDS = ["plan_review", "inactive_plan", "refund_followup", "possible_duplicate", "price_rise"] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
-export const EVIDENCE_ROLES = ["paid", "provider_notice", "announcement", "refund_promise", "refund_confirmation", "cancellation", "charge"] as const;
+export const EVIDENCE_ROLES = ["paid", "provider_notice", "announcement", "refund_promise", "refund_confirmation", "cancellation", "charge", "agreement"] as const;
 export type EvidenceRole = (typeof EVIDENCE_ROLES)[number];
 export type FactValue = string | number | boolean | null;
 
@@ -301,6 +301,7 @@ export const ROLE_LABEL: Record<EvidenceRole, string> = {
   refund_confirmation: "Refund confirmation",
   cancellation: "Cancellation",
   charge: "Charge",
+  agreement: "Agreement",
 };
 
 /** A saved finding in the shape the card and the list already use. */

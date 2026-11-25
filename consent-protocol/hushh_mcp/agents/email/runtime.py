@@ -319,6 +319,7 @@ EMAIL_RECEIPT_NOTICE_SCHEMA: dict[str, Any] = {
                                         "refund_confirmation",
                                         "cancellation",
                                         "charge",
+                                        "agreement",
                                     ],
                                 },
                                 "quote": _S,
@@ -353,6 +354,12 @@ EMAIL_RECEIPT_NOTICE_SCHEMA: dict[str, Any] = {
                         "properties": {"amount_text": _S, "effective_on": _NS},
                         "required": ["amount_text", "effective_on"],
                     },
+                    "agreed": {
+                        "type": "OBJECT",
+                        "nullable": True,
+                        "properties": {"amount_text": _S},
+                        "required": ["amount_text"],
+                    },
                     "checks": {
                         "type": "OBJECT",
                         "properties": {
@@ -378,6 +385,7 @@ EMAIL_RECEIPT_NOTICE_SCHEMA: dict[str, Any] = {
                     "plans",
                     "promised_by",
                     "announced",
+                    "agreed",
                     "checks",
                 ],
             },

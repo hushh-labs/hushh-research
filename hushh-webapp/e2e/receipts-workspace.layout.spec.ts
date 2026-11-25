@@ -321,11 +321,18 @@ for (const width of [393, 1440]) {
   });
 }
 
-test("Keep it is remembered across a reload, and the same evidence never asks a model again", async ({ page }) => {
+test("Keep it is remembered across a reload, and the same evidence never asks a model again", async ({ page }, testInfo) => {
   const calls: Array<Record<string, unknown>> = [];
   await stubNotice(page, () => noticeAnswer({ findings: [noticeAnswer().findings[1]] }), calls);
   await openReceipts(page, 393, { notice: true });
   const card = page.getByTestId("insight-card");
+  await expect(card).toContainText("Still using this ₹399 plan?");
+  await page.screenshot({ path: testInfo.outputPath("notice-card-with-email-393.png"), animations: "disabled" });
+  // The card links the provider's own email, and opening it decides nothing.
+  await card.getByRole("button", { name: "View email" }).click();
+  await expect(page.getByTestId("notice-source-excerpt")).toContainText("We'd love to have you back.");
+  await expect(page.getByTestId("notice-quote-mark")).toHaveText("you haven't watched anything on this account in 60 days");
+  await page.keyboard.press("Escape");
   await expect(card).toContainText("Still using this ₹399 plan?");
   await card.getByRole("button", { name: "Review plan" }).click();
   await page.getByRole("button", { name: "Keep it" }).click();

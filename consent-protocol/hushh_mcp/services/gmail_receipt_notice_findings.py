@@ -34,6 +34,7 @@ ROLES = (
     "refund_confirmation",
     "cancellation",
     "charge",
+    "agreement",
 )
 ACTIONS = {
     "plan_review": ("review_plans", "Review plans"),
@@ -98,6 +99,43 @@ _WORD_NUMBERS = {
     "nine": 9,
     "ten": 10,
 }
+
+
+# What counts as the provider saying, about this account, that it was not used for a stated time. A duration and
+# a verb are not enough ("You watched every day for 60 days" has both): the sentence must negate the use.
+_DUR = (
+    r"(?:\d{1,3}|one|two|three|four|five|six|seven|eight|nine|ten)\s*[- ]?\s*(?:day|week|month)s?"
+)
+_USED_PAST = (
+    r"(?:watched|used|streamed|listened(?: to)?|played|logged in|signed in|opened|visited|ordered)"
+)
+_NEGATED_USE = re.compile(
+    r"\b(?:haven.t|hasn.t|have not|has not|did not|didn.t|never|no longer)\s+(?:\w+\s+){0,3}?"
+    r"(?:watched|used|listened(?: to)?|streamed|played|logged in|signed in|opened|visited|ordered|"
+    r"been (?:used|active|opened|watched|played))\b"
+)
+_NO_ACTIVITY = re.compile(
+    r"\b(?:no|zero)\s+(?:\w+\s+){0,2}?(?:activity|usage|logins?|viewing|streams?|plays?|sessions?)\b"
+)
+_INACTIVE_WORD = re.compile(r"\b(?:inactive|not been active|been inactive)\b")
+_SINCE_LAST = re.compile(rf"\b{_DUR}\s+since\s+(?:you|your\s+(?:\w+\s+){{0,2}}?)last\b")
+_LAST_USED_AGO = re.compile(
+    r"\blast\s+(?:watched|used|logged in|active|streamed|played|opened)\b.*\bago\b"
+)
+_ACTIVE_USE = re.compile(rf"\byou(?:'ve| have)?\s+(?:\w+\s+){{0,2}}?{_USED_PAST}\b")
+_ABOUT_YOU = re.compile(r"\b(?:you|your|this account)\b")
+_CONDITIONAL = re.compile(r"\b(?:if|unless|whenever|should|in case|once|when)\b")
+_SHARED = re.compile(r"\b(?:family|household|shared|profiles?|members?|other users?|everyone on)\b")
+_ATTRIBUTED = re.compile(
+    r"\b(?:provider|says|said|emailed|wrote|told|notice|email|message|reports?)\b", re.I
+)
+_AGREEMENT_PHRASE = re.compile(
+    r"\b(?:agreed|agreement|lease|contract|you(?:'ve| have) subscribed|subscription (?:confirmation|price)|"
+    r"plan price|your (?:plan|rent|subscription|membership|premium) (?:is|costs|will cost|price)|"
+    r"fixed (?:at|price|rate|rent)|locked)\b"
+)
+_AGREED_WORD = re.compile(r"\b(?:agreed|agreement|contracted?|fixed (?:price|rent|rate))\b", re.I)
+_CURRENCY_SYMBOL = {"INR": "₹", "EUR": "€", "GBP": "£", "USD": "$", "$": "$"}
 
 
 class Reject(Exception):
@@ -244,15 +282,63 @@ def _rise_over(new: int, base: int) -> bool:
     return new * 100 > base * (100 + RISE_PERCENT)
 
 
-def _baseline(earlier: list[Money]) -> tuple[int, str] | None:
-    """Fixed bill: the agreed price. Variable bill: median of the last three paid."""
+def _usual_bill(earlier: list[Money]) -> int | None:
+    """The middle of the last three comparable paid bills. Equal bills make a usual amount, not an agreement."""
 
     if len(earlier) < 3:
         return None
-    if len({item.minor for item in earlier}) == 1:
-        return earlier[-1].minor, "agreed"
-    last_three = [item.minor for item in earlier[-3:]]
-    return int(statistics.median(last_three)), "median_of_last_three"
+    return int(statistics.median([item.minor for item in earlier[-3:]]))
+
+
+def _money_text(money: Money) -> str:
+    symbol = _CURRENCY_SYMBOL.get(money.currency, "")
+    whole, cents = divmod(money.minor, 100)
+    digits = str(whole)
+    if money.currency == "INR" and len(digits) > 3:
+        head, tail = digits[:-3], digits[-3:]
+        groups: list[str] = []
+        while head:
+            groups.insert(0, head[-2:])
+            head = head[:-2]
+        digits = ",".join([*groups, tail])
+    else:
+        digits = f"{whole:,}"
+    amount = digits if cents == 0 else f"{digits}.{cents:02d}"
+    return f"{symbol}{amount}" if symbol else f"{amount} {money.currency}"
+
+
+def _day_text(moment: datetime) -> str:
+    return f"{moment.day} {moment.strftime('%b')}"
+
+
+def _sentence(haystack: str, quote: str) -> str:
+    """The whole sentence of a message that a quote sits in, so a quote cannot shed its "if"."""
+
+    at = haystack.find(quote)
+    if at < 0:
+        return quote
+    start = max(haystack.rfind(mark, 0, at) for mark in ".!?") + 1
+    ends = [i for i in (haystack.find(mark, at + len(quote)) for mark in ".!?") if i >= 0]
+    return haystack[start : (min(ends) + 1 if ends else len(haystack))].strip()
+
+
+def _inactivity_claim(text: str) -> re.Match[str] | None:
+    """The match where text says this account was not used for a stated length of time, or None."""
+
+    if not _DURATION.search(text):
+        return None
+    found = [
+        match
+        for match in (
+            _NEGATED_USE.search(text),
+            _NO_ACTIVITY.search(text),
+            _INACTIVE_WORD.search(text),
+            _SINCE_LAST.search(text),
+            _LAST_USED_AGO.search(text),
+        )
+        if match
+    ]
+    return min(found, key=lambda match: match.start()) if found else None
 
 
 # -- one validator per kind -------------------------------------------------
@@ -278,10 +364,32 @@ def _inactive(raw, refs, packet, now, strength):
         raise Reject("notice_not_current")
     if _cancelled_after(provider, paid.at):
         raise Reject("already_cancelled")
-    stated = _DURATION.search(notice_ref.quote)
-    explicit = bool(stated and _USAGE.search(notice_ref.quote))
-    strength = "clear" if (strength == "clear" and explicit) else "question"
+    # The same account and the same plan: another address, another profile or another plan of the same
+    # provider can say anything about its own use; it says nothing about this one.
+    if paid.recipients and notice.recipients and not paid.recipients & notice.recipients:
+        raise Reject("different_account")
+    if paid.greeting and notice.greeting and paid.greeting != notice.greeting:
+        raise Reject("different_profile")
+    if paid.plan_tokens and notice.plan_tokens and not paid.plan_tokens & notice.plan_tokens:
+        raise Reject("different_plan")
+    quote = norm(notice_ref.quote)
+    sentence = _sentence(notice.haystack, quote)
+    claim = _inactivity_claim(quote)
+    if claim is None and _ACTIVE_USE.search(sentence) and not _NEGATED_USE.search(sentence):
+        # "You watched every day for 60 days" is the opposite of inactivity: nothing to ask about.
+        raise Reject("notice_shows_activity")
+    sentence_claim = _inactivity_claim(sentence)
+    if claim is not None and sentence_claim is not None:
+        if _CONDITIONAL.search(sentence[: sentence_claim.start()]):
+            # "If you haven't watched in 60 days we may pause your plan" is a policy, not a fact about the owner.
+            raise Reject("notice_is_conditional")
+    explicit = (
+        claim is not None and sentence_claim is not None and bool(_ABOUT_YOU.search(sentence))
+    )
+    shared = bool(_SHARED.search(sentence) or _SHARED.search(paid.haystack))
+    definite = strength == "clear" and explicit and not shared
     days_stated: int | None = None
+    stated = _DURATION.search(quote) if explicit else None
     if stated:
         count = _WORD_NUMBERS.get(stated.group(1).lower()) or int(stated.group(1))
         days_stated = count * {"day": 1, "week": 7, "month": 30}[stated.group(2).lower()]
@@ -290,8 +398,9 @@ def _inactive(raw, refs, packet, now, strength):
         "currency": paid.paid.currency,
         "last_paid_on": paid.at.date().isoformat(),
         "notice_on": notice.at.date().isoformat(),
-        "stated": stated.group(0) if explicit else None,
+        "stated": stated.group(0) if stated else None,
         "period": _period(provider, paid),
+        "notice_kind": "explicit" if explicit else "generic",
     }
     allowed = _money_numbers([paid.paid]) | _day_numbers(paid, notice)
     if stated:
@@ -304,7 +413,20 @@ def _inactive(raw, refs, packet, now, strength):
         "on": notice.at.date().isoformat(),
         "statement": notice_ref.quote,
     }
-    return strength, facts, allowed, [paid, notice], attribution
+    # With anything short of an explicit statement for this account and plan, One only asks, in its own words:
+    # nothing the model wrote can claim more than the email says.
+    asked = (
+        "Do you still use this plan?",
+        f"{provider.display} charged {_money_text(paid.paid)} on {_day_text(paid.at)}. "
+        f"Their {_day_text(notice.at)} email doesn't say you stopped using it.",
+    )
+    return (
+        "clear" if definite else "question",
+        facts,
+        allowed,
+        [paid, notice],
+        {"attribution": attribution, "asked": asked},
+    )
 
 
 def _refund(raw, refs, packet, now, strength):
@@ -411,6 +533,7 @@ def _price_rise(raw, refs, packet, now, strength):
         earlier = [m for m in history if m.at <= announcement.message.at]
         new_minor = announced.minor
         key_messages = [announcement.message, *earlier[-1:]]
+        compared_on = announcement.message.at
     else:
         latest = latest_ref.message
         if (now - latest.at).days > 60:
@@ -418,17 +541,48 @@ def _price_rise(raw, refs, packet, now, strength):
         earlier = [m for m in history if m.at < latest.at]
         new_minor = latest.paid.minor
         key_messages = [latest]
-    base = _baseline([m.paid for m in earlier])
-    if base is None:
-        raise Reject("needs_three_earlier_bills")
-    base_minor, base_kind = base
+        compared_on = latest.at
+
+    # An agreed price needs an agreement: a message from the provider that says what was agreed, before the
+    # bill in question. Bills that merely came out the same each time make a usual amount, never an agreement.
+    agreement = max(
+        (ref for ref in _by_role(refs, "agreement") if ref.message.at <= compared_on),
+        key=lambda ref: ref.message.at,
+        default=None,
+    )
+    agreed: Money | None = None
+    if _by_role(refs, "agreement") and agreement is None:
+        raise Reject("agreement_after_the_bill")
+    if agreement is not None:
+        if not _AGREEMENT_PHRASE.search(norm(agreement.quote)):
+            raise Reject("agreement_not_stated")
+        given = find_amounts(str(((raw.get("agreed") or {}).get("amount_text")) or ""))
+        quoted = [amount for amount, _ in find_amounts(agreement.quote)]
+        agreed = next(
+            (amount for amount, _ in given if amount in quoted and amount.currency == currency),
+            None,
+        )
+        if agreed is None:
+            raise Reject("agreed_price_not_in_quote")
+        base_minor, base_kind = agreed.minor, "agreed"
+        key_messages = [*key_messages, agreement.message]
+    else:
+        usual = _usual_bill([m.paid for m in earlier])
+        if usual is None:
+            raise Reject("needs_three_earlier_bills")
+        base_minor, base_kind = usual, "median_of_last_three"
+    if base_kind != "agreed" and (
+        _AGREED_WORD.search(str(raw.get("headline") or ""))
+        or _AGREED_WORD.search(str(raw.get("reason") or ""))
+    ):
+        raise Reject("calls_usual_bill_agreed")
     if not _rise_over(new_minor, base_minor):
         raise Reject("not_above_twenty_percent")
-    last_paid = earlier[-1].paid
+    last_paid = earlier[-1].paid if earlier else agreed
     percent = _percent_x10(new_minor, base_minor)
     facts = {
         "currency": currency,
-        "last_paid_minor": last_paid.minor if announcement else earlier[-1].paid.minor,
+        "last_paid_minor": last_paid.minor,
         "new_minor": new_minor,
         "new_is_announced": announcement is not None,
         "base_minor": base_minor,
@@ -528,21 +682,40 @@ def validate_finding(raw: dict[str, Any], packet: Packet, now: datetime) -> Find
     strength, facts, allowed, key_messages, extra = _VALIDATORS[kind](
         raw, refs, packet, now, strength
     )
-    cited_messages = [ref.message for ref in refs]
-    cited_numbers: set[Decimal] = set(allowed)
-    for ref in refs:
-        cited_numbers.update(
-            v for v in (_decimal(t) for t in _NUMBER.findall(ref.quote)) if v is not None
-        )
-    cited_numbers |= _day_numbers(*cited_messages)
-    _check_numbers(f"{headline} {reason}", cited_numbers)
-    if strength == "question" and (_INACTIVITY_CLAIM.search(reason) and kind == "inactive_plan"):
-        raise Reject("claims_inactivity_without_proof")
+    provider = None if kind == "plan_review" else packet.provider_of(key_messages[0].eid)
+    texts_are_ours = False
+    if kind == "inactive_plan" and isinstance(extra, dict):
+        # The headline only ever asks, and never states that the plan went unused.
+        if not headline.endswith("?") or _INACTIVITY_CLAIM.search(headline):
+            raise Reject("headline_states_inactivity")
+        if strength == "clear":
+            # A definite claim is the provider's, and the words say so.
+            if _INACTIVITY_CLAIM.search(reason) and not (
+                _ATTRIBUTED.search(reason)
+                or (provider and provider.display.lower() in reason.lower())
+            ):
+                raise Reject("unattributed_claim")
+        else:
+            headline, reason = extra["asked"]
+            texts_are_ours = True
+            for text in (headline, reason):
+                if _URL.search(text) or _INSTRUCTION.search(text):
+                    raise Reject("instruction_or_link")
+    if not texts_are_ours:
+        cited_messages = [ref.message for ref in refs]
+        cited_numbers: set[Decimal] = set(allowed)
+        for ref in refs:
+            cited_numbers.update(
+                v for v in (_decimal(t) for t in _NUMBER.findall(ref.quote)) if v is not None
+            )
+        cited_numbers |= _day_numbers(*cited_messages)
+        _check_numbers(f"{headline} {reason}", cited_numbers)
     if strength == "question" and kind == "possible_duplicate" and _DOUBLE_CLAIM.search(reason):
         raise Reject("claims_double_charge_without_proof")
     plans: list[dict[str, Any]] = extra if kind == "plan_review" and isinstance(extra, list) else []
-    attribution = extra if kind == "inactive_plan" and isinstance(extra, dict) else None
-    provider = None if kind == "plan_review" else packet.provider_of(key_messages[0].eid)
+    attribution = (
+        extra["attribution"] if kind == "inactive_plan" and isinstance(extra, dict) else None
+    )
     return Finding(
         kind=str(kind),
         provider=provider,
