@@ -975,7 +975,8 @@ function ProfilePageContent({
   const [nativeWorldModelAvailable, setNativeWorldModelAvailable] = useState(false);
   const { agentSettingsActive, agentSettings, nativeAgentSettings, nativeConnectors, nativeConnectorsActive,
     setNativeConnectorsAvailable, nativePayoutActive, nativePayout, setNativePaymentsAvailable, setNativePaymentsFailed } = useNativeProfileFeatures({
-    panel: activePanel, native: presentation === "native-page", open: nativeMenuOpen, secure: vaultAccess.canMutateSecureData, owner: nativeDetailOwner, userId: applicationOwnerId || null, connectors: retainedConnectors });
+    panel: activePanel, native: presentation === "native-page", open: nativeMenuOpen, secure: vaultAccess.canMutateSecureData, owner: nativeDetailOwner, userId: applicationOwnerId || null, connectors: retainedConnectors,
+    onOpenOwnCloud: () => updateProfileView({ panel: "hosting", detail: "hosting-own-cloud" }, "push") });
   useBackLayer(pathname, nativeConnectorsActive && nativeConnectors.nested ? 3 : 0, nativeConnectors.back, { profile_pane: "1" });
   const nativeWorldModelActive = presentation === "native-page" && nativeMenuOpen && nativeWorldModelAvailable &&
     activePanel === "world-model" && vaultAccess.canMutateSecureData;
@@ -4285,7 +4286,9 @@ function ProfilePageContent({
         description: "Run Agent One in your own Google Cloud or Microsoft Azure project.",
         content: (
           <Suspense fallback={null}>
-            <ByocCloudSetupPage embedded initialIntent="own" />
+            <ByocCloudSetupPage embedded initialIntent="own" owningRoute={pathname}
+              backQuery={isPanePresentation ? { profile_pane: "1" } : undefined}
+              onFinish={() => popProfileStack()} />
           </Suspense>
         ),
       });
@@ -4891,9 +4894,9 @@ function ProfilePageContent({
           ? undefined
           : {
               routeId: profileNativeRouteId,
-              marker: "native-route-profile",
+              marker: activePanel === "world-model" ? "native-route-profile-world-model" : "native-route-profile",
               authState: user ? "authenticated" : "pending",
-              dataState: authLoading ? "loading" : "loaded",
+              dataState: authLoading ? "loading" : activePanel === "world-model" ? worldModel.nativeDataState : "loaded",
             }
       }
     >
@@ -5155,7 +5158,7 @@ function ProfilePageContent({
     referrals={{ active: nativeReferralActive, pages: nativeReferrals.pages, rows: nativeReferrals.rows, editor: nativeReferrals.editor, formScene: nativeReferrals.formScene,
       root: () => updateProfileView({ panel: null, detail: null }, "replace") }}
     workspace={activePanel === "hosting" || activePanel === "software-updates" ? { kind: activePanel,
-      active: agentSettingsActive && !showVaultUnlock, pages: nativeAgentSettings.pages, rows: nativeAgentSettings.rows,
+      active: agentSettingsActive && !showVaultUnlock && activeDetail !== "hosting-own-cloud", pages: nativeAgentSettings.pages, rows: nativeAgentSettings.rows,
       back: () => { if (nativeAgentSettings.navigationBlocked()) return false; if (!nativeAgentSettings.back()) popProfileStack(); return true; },
       ancestor: () => { if (nativeAgentSettings.root()) return true; return false; },
       root: () => { if (!nativeAgentSettings.root()) return false; updateProfileView({ panel: null, detail: null }, "replace"); return true; }

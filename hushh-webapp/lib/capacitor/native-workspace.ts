@@ -10,7 +10,7 @@ import type { NativeDrawerRow, NativeDrawerSection, NativeDrawerOption, NativeWo
  * additive to NativeDrawers v1, not another router or a Profile-modal lease. */
 export type NativeWorkspaceIdentity = {
   documentId: string; ownerEpoch: string; ownerGeneration: number; revision: number;
-  workspace: "referrals" | "wallet" | "memory" | "consent" | "tasks" | "feed" | "connect" | "email" | "launcher" | "mail" | "calendar" | "finance" | "career" | "location" | "setup" | "ria";
+  workspace: "referrals" | "wallet" | "memory" | "consent" | "tasks" | "goals" | "feed" | "connect" | "email" | "launcher" | "mail" | "calendar" | "finance" | "career" | "location" | "setup" | "ria";
 };
 export type NativeWorkspaceFrame = {
   x: number; y: number; width: number; height: number;
@@ -130,7 +130,7 @@ export function validNativeMarketNewsStory(label: unknown, candidate: unknown): 
 export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean {
   if (!value || !closed(value, ["documentId", "ownerEpoch", "ownerGeneration", "revision", "workspace", "appearance", "accentHex", "foregroundHex", "canvasHex",
     "updateSequence", "privacyGeneration", "isolationGeneration", "frame", "page", "title", "enabled", "backEnabled", "sections", "navigation", "tabs", "secondaryTabs", "search", "circleEditor", "wallet", "walletProfileEditor", "memoryEditor", "textEditor", "taskEditor", "feedback", "launcher", "calendarDate", "calendarWeek"]) ||
-    !id(value.documentId) || !id(value.ownerEpoch) || !seq(value.ownerGeneration) || !seq(value.revision) || !["referrals", "wallet", "memory", "consent", "tasks", "feed", "connect", "email", "launcher", "mail", "calendar", "finance", "career", "location", "setup", "ria"].includes(value.workspace) ||
+    !id(value.documentId) || !id(value.ownerEpoch) || !seq(value.ownerGeneration) || !seq(value.revision) || !["referrals", "wallet", "memory", "consent", "tasks", "goals", "feed", "connect", "email", "launcher", "mail", "calendar", "finance", "career", "location", "setup", "ria"].includes(value.workspace) ||
     !seq(value.updateSequence) || !Number.isSafeInteger(value.privacyGeneration) || value.privacyGeneration < 0 || !Number.isSafeInteger(value.isolationGeneration) || value.isolationGeneration < 0 ||
     !["light", "dark"].includes(value.appearance) || ![value.accentHex, value.foregroundHex].every(v => /^#(?:[\da-f]{3}|[\da-f]{6}|[\da-f]{8})$/i.test(v)) ||
     value.canvasHex !== undefined && !/^#(?:[\da-f]{3}|[\da-f]{6}|[\da-f]{8})$/i.test(value.canvasHex) ||
@@ -145,7 +145,7 @@ export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean 
       !((f.actionToken === null && f.actionLabel === null) ||
         (f.actionToken === "open-conversation" || f.actionToken === "open-information-request" || f.actionToken === "undo-feed-removal") && text(f.actionLabel, 48))) return false;
   }
-  if (value.navigation !== undefined && (value.workspace !== "location" || !value.navigation || !closed(value.navigation, ["id", "depth"]) || !id(value.navigation.id) || !Number.isInteger(value.navigation.depth) || value.navigation.depth < 0 || value.navigation.depth > 8)) return false;
+  if (value.navigation !== undefined && (!["location", "goals"].includes(value.workspace) || !value.navigation || !closed(value.navigation, ["id", "depth"]) || !id(value.navigation.id) || !Number.isInteger(value.navigation.depth) || value.navigation.depth < 0 || value.navigation.depth > 8)) return false;
   const frame = value.frame;
   if (!frame || !closed(frame, ["x", "y", "width", "height", "viewportWidth", "viewportHeight", "layoutRevision", "contentInset", "bottomContentInset"]) ||
     !seq(frame.layoutRevision) || !Object.values(frame).every(Number.isFinite) || frame.x < 0 || frame.y < 0 || frame.width <= 0 || frame.height <= 0 ||
@@ -207,7 +207,7 @@ export function validNativeWorkspace(value: NativeWorkspaceProjection): boolean 
             event.month !== undefined && !text(event.month, 32) || event.weekday !== undefined && !text(event.weekday, 16) ||
             event.dateLabel !== undefined && !text(event.dateLabel, 128) || event.organizer !== undefined && !text(event.organizer, 256) || row.options || row.toggle || row.formattedText) return false;
       }
-      if (row.prominent !== undefined && (value.workspace !== "location" || typeof row.prominent !== "boolean" || row.readOnly || row.options || row.toggle || row.inlineActions || row.avatar || row.formattedText)) return false;
+      if (row.prominent !== undefined && ((value.workspace !== "location" && value.workspace !== "ria") || typeof row.prominent !== "boolean" || row.readOnly || row.options || row.toggle || row.inlineActions || row.avatar || row.formattedText)) return false;
       if (row.toggle !== undefined && typeof row.toggle !== "boolean") return false;
       if (row.avatar !== undefined || row.inlineActions !== undefined || row.milestone !== undefined || row.expanded !== undefined) {
         if (!["feed", "connect", "location", "calendar"].includes(value.workspace) || row.formattedText || row.toggle ||

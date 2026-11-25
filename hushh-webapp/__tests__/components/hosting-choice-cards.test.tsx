@@ -1,3 +1,4 @@
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 /**
  * The cloud step's hosting choice is a radio group whose arrows only move the
  * selection. A tap or an arrow key must never commit a placement on its own:
@@ -64,10 +65,10 @@ vi.mock("@/components/app-ui/page-sections", () => ({
   PageHeader: ({ title }: { title: string }) => <h1>{title}</h1>,
 }));
 
-async function renderSharedDefault() {
+async function renderSharedDefault(owningRoute?: "/one/setup" | "/one/setup/cloud") {
   vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({ featureEnabled: true, hostingMode: "shared" } as never);
   vi.mocked(ApiService.getByocSetupStatus).mockResolvedValue({ status: "none" } as never);
-  render(<ByocCloudSetupPage />);
+  render(<ByocCloudSetupPage owningRoute={owningRoute} />);
   return screen.findByRole("radiogroup", { name: "Where your agent runs" });
 }
 
@@ -133,6 +134,21 @@ describe("Hosting choice cards on the cloud step", () => {
     expect(ApiService.selectSharedHosting).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("cloud-tier-shared-continue")).toHaveTextContent("Hussh Shared selected");
     expect(screen.getByTestId("cloud-tier-shared-continue")).toBeDisabled();
+  });
+
+  it.each(["/one/setup", "/one/setup/cloud"] as const)("keeps %s active during a pending hosting selection", async (route) => {
+    let settle!: () => void;
+    vi.mocked(ApiService.selectSharedHosting).mockImplementation(() => new Promise(resolve => {
+      settle = () => resolve({ featureEnabled: true, hostingMode: "shared" } as never);
+    }));
+    await renderSharedDefault(route);
+    fireEvent.click(screen.getByTestId("cloud-tier-shared-continue"));
+    expect(unwindBackLayer(route)).toBe(true);
+    expect(unwindBackLayer(`${route}/index.html`)).toBe(true);
+    const otherRoute = route === "/one/setup" ? "/one/setup/cloud" : "/one/setup";
+    expect(unwindBackLayer(otherRoute)).toBe(false);
+    await act(async () => { settle(); });
+    expect(unwindBackLayer(route)).toBe(false);
   });
 
   it("names Azure only on a build where it can be chosen", async () => {

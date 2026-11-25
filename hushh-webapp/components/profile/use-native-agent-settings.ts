@@ -21,7 +21,7 @@ import { HOSTING_RECLAIMED_SENTENCE, HOSTING_UNCONFIRMED_SENTENCE, REBUILDING_SE
 /** Presentation only. All network reads, approvals and retries belong to the
  * shared controller used by the established web panel. Offers/approval keys
  * stay in that controller; native receives authored labels and opaque handles. */
-export function useNativeAgentSettings(model: AgentSettingsController, active: boolean, owner: string) {
+export function useNativeAgentSettings(model: AgentSettingsController, active: boolean, owner: string, onOpenOwnCloud: () => void) {
   const visit = useMemo(() => ({ active, owner, kind: model.kind }), [active, owner, model.kind]);
   const [nested, setNested] = useState<{ visit: typeof visit; page: "notes" | "verification" | "browser-policy" } | null>(null);
   const local = nested?.visit === visit ? nested.page : null;
@@ -74,7 +74,7 @@ export function useNativeAgentSettings(model: AgentSettingsController, active: b
     const podsLabel = pooledSwitchAvailable ? "Hussh Confidential Sandbox" : "Hussh Pods";
     sections.push({ id: "hosting-choices-section", title: "Hosting choices", rows: [
       ...(!pooledSwitchAvailable ? [{ ...action("hosting-shared", "Hussh Shared", mode === "hussh_pods" ? model.switchToSharedHosting : model.chooseHosting, !canSwitchShared || busy), detail: mode === "byoc" ? "To switch, review and remove your current cloud below. Your Hussh account stays." : "Hussh runs and updates the shared service automatically.", ...(mode === "shared" ? { trailing: "Current" } : mode === "hussh_pods" ? { trailing: "Switch" } : {}) }] : []),
-      { ...(canChoose ? action("hosting-own-cloud", "Bring your own cloud", mode === "hussh_pods" || mode === "shared" ? model.switchToOwnCloud : model.chooseHosting, busy) : read("hosting-own-cloud", "Bring your own cloud")), detail: status && !status.featureEnabled ? "New cloud setup is temporarily unavailable. Your existing setup is unchanged." : "Agent One and device relay. You approve updates.", ...(mode === "byoc" ? { trailing: "Current" } : status && !status.featureEnabled ? { trailing: "Unavailable" } : mode === "pending" ? { trailing: "Continue" } : ["shared", "hussh_pods"].includes(mode) ? { trailing: "Switch" } : {}) },
+      { ...(canChoose ? action("hosting-own-cloud", "Bring your own cloud", onOpenOwnCloud, busy) : read("hosting-own-cloud", "Bring your own cloud")), detail: status && !status.featureEnabled ? "New cloud setup is temporarily unavailable. Your existing setup is unchanged." : "Agent One and device relay. You approve updates.", ...(mode === "byoc" ? { trailing: "Current" } : status && !status.featureEnabled ? { trailing: "Unavailable" } : mode === "pending" ? { trailing: "Continue" } : ["shared", "hussh_pods"].includes(mode) ? { trailing: "Continue" } : {}) },
       {
         ...(canChooseHosted ? action("hosting-pods", podsLabel, canSwitchSandbox ? () => model.switchToPersonalSandbox() : model.chooseHosting, busy) : read("hosting-pods", podsLabel, isPersonalSandboxActive || pooledSwitchAvailable ? "Isolated Confidential Sandbox on Google Cloud." : mode === "hussh_pods" ? (activeHostedProvider ? `Dedicated pod on ${HOSTED_POD_PROVIDER_LABELS[activeHostedProvider]}. You approve updates.` : "Your dedicated Hussh-hosted pod. You approve updates.") : hostedUnderMaintenance ? "Dedicated hosting is unavailable for new setups." : "Dedicated pod on Google Cloud.")),
         detail: isPersonalSandboxActive || pooledSwitchAvailable

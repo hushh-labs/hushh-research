@@ -231,9 +231,14 @@ describe("private route-body presentation boundary", () => {
           sections={[{ key: "items", rows: [{ key: "open", label: "Open detail", run: open }] }]} fallback={<button>Web {value}</button>} />)}
       </NativeFinanceRoute>;
     }
+    document.documentElement.dataset.routeTransition = "entering";
+    drawerBridge.applyWorkspace.mockClear();
     const view = render(<Finance pane="market" />);
     const latest = () => drawerBridge.applyWorkspace.mock.calls.at(-1)?.[0];
     try {
+      await act(async () => { await Promise.resolve(); });
+      expect(drawerBridge.applyWorkspace).not.toHaveBeenCalled();
+      await act(async () => { document.documentElement.dataset.routeTransition = "idle"; });
       await waitFor(() => expect(latest()?.title).toBe("market"));
       const first = latest()!;
       view.rerender(<Finance pane="analysis" />);
@@ -248,7 +253,7 @@ describe("private route-body presentation boundary", () => {
       emit(first, 1); await act(async () => { await Promise.resolve(); });
       expect(open).not.toHaveBeenCalled();
       emit(latest()!, 2); await waitFor(() => expect(open).toHaveBeenCalledOnce());
-    } finally { view.unmount(); seat.remove(); profile.pathname = "/"; vi.stubGlobal("ResizeObserver", originalObserver); await nativeWorkspaceRetirementBarrier(); }
+    } finally { delete document.documentElement.dataset.routeTransition; view.unmount(); seat.remove(); profile.pathname = "/"; vi.stubGlobal("ResizeObserver", originalObserver); await nativeWorkspaceRetirementBarrier(); }
   });
 
   it.each([false, true])("reconciles a retiring Location text visit without overwriting its reopened successor (confirmation: %s)", async confirmation => {
@@ -832,6 +837,7 @@ describe("private route-body presentation boundary", () => {
       expect(validNativeWorkspace(withShare(patch) as never)).toBe(false);
     const primaryLocation = { ...location, sections: [{ id: "link", rows: [{ id: "create-link", label: "Create link", enabled: true, prominent: true }] }] };
     expect(validNativeWorkspace(primaryLocation)).toBe(true);
+    expect(validNativeWorkspace({ ...primaryLocation, workspace: "ria" })).toBe(true);
     expect(validNativeWorkspace({ ...primaryLocation, workspace: "calendar" })).toBe(false);
     expect(validNativeWorkspace({ ...primaryLocation, sections: [{ id: "link", rows: [{ ...primaryLocation.sections[0]!.rows[0]!, readOnly: true }] }] })).toBe(false);
     expect(validNativeWorkspace({ ...location, workspace: "feed" })).toBe(false);

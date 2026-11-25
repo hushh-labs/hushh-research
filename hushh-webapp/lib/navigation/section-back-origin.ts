@@ -25,7 +25,7 @@
 
 import { resolveAgentSectionForPath } from "@/lib/navigation/agent-sections";
 import { isCommonBottomNavRoute } from "@/lib/navigation/app-bottom-nav";
-import { ROUTES } from "@/lib/navigation/routes";
+import { normalizeStaticExportPathname, ROUTES } from "@/lib/navigation/routes";
 
 type DestinationEntry = {
   destinationId: string;
@@ -67,6 +67,35 @@ const STANDALONE_ROOTS: readonly string[] = [
   ROUTES.LEGACY_CONSENTS,
 ];
 
+// These cross-destination bookmarks immediately replace themselves. Recording a bookmark
+// as the screen a person came from makes Back reopen the current destination.
+const REDIRECTS_WITHOUT_CONTENT: ReadonlySet<string> = new Set([
+  ROUTES.PROFILE_GMAIL,
+  ROUTES.PROFILE_GMAIL_CONNECTION,
+  ROUTES.PROFILE_GMAIL_ACTIONS,
+  ROUTES.PROFILE_RECEIPTS,
+  ROUTES.PROFILE_MY_DATA,
+  ROUTES.PROFILE_MY_DATA_DOMAIN,
+  ROUTES.PROFILE_PKM,
+  ROUTES.PROFILE_REFERRALS,
+  ROUTES.PROFILE_INTEGRATIONS,
+  ROUTES.PROFILE_REGULATORY,
+  ROUTES.LEGACY_GMAIL,
+  ROUTES.LEGACY_PKM,
+  ROUTES.LEGACY_CONSENTS,
+  ROUTES.ONE_TODOS,
+  ROUTES.MARKETPLACE_CONNECTIONS,
+  ROUTES.RIA_REQUESTS,
+  ROUTES.LEGACY_KAI_HOME,
+  ROUTES.LEGACY_KAI_ANALYSIS,
+  ROUTES.LEGACY_KAI_PORTFOLIO,
+  ROUTES.LEGACY_KAI_OPTIMIZE_COMPAT,
+  "/kai/dashboard",
+  "/kai/dashboard/analysis",
+  "/kai/investments",
+  "/kai/funding-trade",
+]);
+
 let entries: DestinationEntry[] = [];
 let currentDestinationId: string | null = null;
 let currentHref: string | null = null;
@@ -74,7 +103,7 @@ let currentHref: string | null = null;
 function pathOf(href: string | null | undefined): string | null {
   const clean = String(href || "").trim();
   if (!clean.startsWith("/") || clean.startsWith("//")) return null;
-  return clean.split(/[?#]/)[0]?.replace(/\/$/, "") || "/";
+  return normalizeStaticExportPathname(clean.split(/[?#]/)[0] || "/");
 }
 
 function bottomNavRootFor(path: string): string | null {
@@ -127,7 +156,7 @@ export function isDestinationRoot(href: string): boolean {
  */
 export function recordDestinationEntry(href: string): void {
   const path = pathOf(href);
-  if (!path) return;
+  if (!path || REDIRECTS_WITHOUT_CONTENT.has(path)) return;
   const destinationId = resolveDestinationId(path);
   const arrivedHref = String(href).trim();
 

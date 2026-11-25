@@ -1480,7 +1480,7 @@
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fkai",
         "expectedMarker": "native-route-kai-home",
-        "expectedRoute": "/one/kai",
+        "expectedRoute": "/one/kai?tab=market",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -1540,8 +1540,8 @@
         "route": "/kai/analysis",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fkai%2Fanalysis%3Fticker%3DAAPL",
-        "expectedMarker": "native-route-kai-analysis",
-        "expectedRoute": "/one/kai/analysis",
+        "expectedMarker": "native-route-kai-home",
+        "expectedRoute": "/one/kai?tab=analysis",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -1602,8 +1602,8 @@
         "classification": "native-required-functional",
         "legacyAlias": true,
         "initialRoute": "/login?redirect=%2Fkai%2Fdashboard",
-        "expectedMarker": "native-route-kai-portfolio",
-        "expectedRoute": "/one/kai/portfolio",
+        "expectedMarker": "native-route-kai-home",
+        "expectedRoute": "/one/kai?tab=portfolio",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -1665,8 +1665,8 @@
         "classification": "native-required-functional",
         "legacyAlias": true,
         "initialRoute": "/login?redirect=%2Fkai%2Fdashboard%2Fanalysis%3Fticker%3DAAPL",
-        "expectedMarker": "native-route-kai-analysis",
-        "expectedRoute": "/one/kai/analysis",
+        "expectedMarker": "native-route-kai-home",
+        "expectedRoute": "/one/kai?tab=analysis",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -2061,8 +2061,8 @@
         "route": "/kai/portfolio",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fkai%2Fportfolio",
-        "expectedMarker": "native-route-kai-portfolio",
-        "expectedRoute": "/one/kai/portfolio",
+        "expectedMarker": "native-route-kai-home",
+        "expectedRoute": "/one/kai?tab=portfolio",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -2934,9 +2934,9 @@
       "native": {
         "route": "/one/connect/settings",
         "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fconnect%2Fsettings",
-        "expectedMarker": "native-route-connect-settings",
-        "expectedRoute": "/one/connect/settings",
+        "initialRoute": "/login?redirect=%2Fone%2Fconnect%2Fsettings",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/preferences/gemini",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -3696,8 +3696,8 @@
         "route": "/one/kai/analysis",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fkai%2Fanalysis%3Fticker%3DAAPL",
-        "expectedMarker": "native-route-kai-analysis",
-        "expectedRoute": "/one/kai/analysis?ticker=AAPL",
+        "expectedMarker": "native-route-kai-home",
+        "expectedRoute": "/one/kai?tab=analysis&ticker=AAPL",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -4250,8 +4250,8 @@
         "route": "/one/kai/portfolio",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fkai%2Fportfolio",
-        "expectedMarker": "native-route-kai-portfolio",
-        "expectedRoute": "/one/kai/portfolio",
+        "expectedMarker": "native-route-kai-home",
+        "expectedRoute": "/one/kai?tab=portfolio",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -5646,8 +5646,8 @@
         "route": "/one/profile",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fprofile",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile",
+        "expectedMarker": "native-route-one-home",
+        "expectedRoute": "/one?profile_pane=1",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -6027,15 +6027,8 @@
       },
       "native": {
         "route": "/one/profile/connected-systems",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fconnected-systems",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/connected-systems",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
+        "classification": "excluded-web-only",
+        "reason": "Local CRM is restricted to localhost web. The route explicitly returns not found in Capacitor builds."
       },
       "shell": {
         "app_page_shell": false,
@@ -6256,12 +6249,14 @@
         "route": "/one/profile/gmail",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fgmail",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/gmail",
+        "expectedMarker": "native-route-gmail",
+        "expectedRoute": "/one/gmail",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
-          "loaded"
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
         ]
       },
       "shell": {
@@ -6316,12 +6311,14 @@
         "route": "/one/profile/gmail/actions",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fgmail%2Factions",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/gmail/actions",
+        "expectedMarker": "native-route-gmail",
+        "expectedRoute": "/one/gmail",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
-          "loaded"
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
         ]
       },
       "shell": {
@@ -6376,12 +6373,14 @@
         "route": "/one/profile/gmail/connection",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fgmail%2Fconnection",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/gmail/connection",
+        "expectedMarker": "native-route-gmail",
+        "expectedRoute": "/one/gmail",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
-          "loaded"
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
         ]
       },
       "shell": {
@@ -6679,12 +6678,14 @@
         "route": "/one/profile/my-data",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fmy-data",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/my-data",
+        "expectedMarker": "native-route-pkm",
+        "expectedRoute": "/one/pkm",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
-          "loaded"
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
         ]
       },
       "shell": {
@@ -6760,12 +6761,14 @@
         "route": "/one/profile/my-data/domain",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fmy-data%2Fdomain%3Fkey%3Dfinance",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/my-data/domain?key=finance",
+        "expectedMarker": "native-route-pkm",
+        "expectedRoute": "/one/pkm",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
-          "loaded"
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
         ]
       },
       "shell": {
@@ -7608,8 +7611,8 @@
         "route": "/one/profile/regulatory",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fregulatory",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/regulatory",
+        "expectedMarker": "ria-profile-page",
+        "expectedRoute": "/ria/profile",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -8135,7 +8138,7 @@
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fsupport%2Fcompose%3Fkind%3Dsupport_request",
         "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/support/compose?kind=support_request",
+        "expectedRoute": "/one/profile/support?kind=support_request",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -8201,7 +8204,7 @@
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fsupport%2Frouting",
         "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/support/routing",
+        "expectedRoute": "/one/profile/support",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -8271,7 +8274,6 @@
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
-          "loading",
           "loaded",
           "empty-valid",
           "unavailable-valid"
@@ -11024,8 +11026,8 @@
         "route": "/ria/profile",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fria%2Fprofile",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/regulatory",
+        "expectedMarker": "ria-profile-page",
+        "expectedRoute": "/ria/profile",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -11088,7 +11090,7 @@
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fria%2Frequests",
         "expectedMarker": "native-route-consents",
-        "expectedRoute": "/one/consent",
+        "expectedRoute": "/one/consent?tab=pending&actor=ria&view=outgoing",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -11149,8 +11151,8 @@
         "route": "/ria/settings",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fria%2Fsettings",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile",
+        "expectedMarker": "ria-profile-page",
+        "expectedRoute": "/ria/profile",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -11464,5 +11466,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "574aea31cdf76b454682b4e1c1b192f26cfef822988275396a622f1f7566e1ec"
+  "content_sha256": "124c1ab1db92341469aa0d09847d482fafb88be07d34fb57f73635868a03cadc"
 }

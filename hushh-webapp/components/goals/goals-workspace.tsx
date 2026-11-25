@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
+import { NativeWorkspaceRoute, type NativeWorkspaceSurfaceSection } from "@/lib/capacitor/native-workspace-surface";
 import { AppPageContentRegion, AppPageHeaderRegion, AppPageShell } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SurfaceCard } from "@/components/app-ui/surfaces";
@@ -23,14 +26,15 @@ type Draft = { id: string; goal: Goal | null; initial: GoalPlanInput };
 const EMPTY_PLAN: GoalPlanInput = { title: "", outcome: "", category: null, taskIds: [] };
 const STATUS_LABEL = { active: "Active", completed: "Completed", archived: "Archived" } as const;
 
-function GoalsShell({ title = "Goals", actions, dataState, children }: {
+function GoalsShell({ title = "Goals", actions, dataState, children, frame }: {
+  frame?: React.RefObject<HTMLDivElement | null>;
   title?: string;
   actions?: React.ReactNode;
   dataState: "loading" | "loaded" | "empty-valid" | "unavailable-valid";
   children: React.ReactNode;
 }) {
   return (
-    <AppPageShell width="reading" fitContent nativeTest={{
+    <AppPageShell ref={frame} width="reading" fitContent nativeTest={{
       routeId: ROUTES.ONE_GOALS, marker: "native-route-one-goals", authState: "authenticated", dataState,
     }}>
       <AppPageHeaderRegion>
@@ -56,6 +60,8 @@ export function GoalsWorkspace() {
 }
 
 function OwnerGoalsWorkspace({ credentials }: { credentials: TodoWriteParams }) {
+  const router = useRouter();
+  const frame = useRef<HTMLDivElement>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -167,13 +173,17 @@ function OwnerGoalsWorkspace({ credentials }: { credentials: TodoWriteParams }) 
     }, () => undefined);
   }
 
+  const tasksHref = `${ROUTES.ONE_TASKS}?from=goals`;
+  const selectGoal = (goal: Goal) => { setError(null); setSelectedId(goal.id); };
+  const statusLabel = (goal: Goal) => goal.status === "deleted" ? "Unavailable" : STATUS_LABEL[goal.status];
+  const changeStatusLabel = selected?.status === "active" ? "Mark goal complete" : "Reopen goal";
   const title = draft ? (draft.goal ? "Edit goal" : "New goal") : selected ? selected.title : "Goals";
-  return (
-    <GoalsShell title={title}
+  const content = (
+    <GoalsShell frame={frame} title={title}
       dataState={loadError ? "unavailable-valid" : !workspace ? "loading" : goals.length ? "loaded" : "empty-valid"}
       actions={!draft && !selectedId ? (
         <>
-          <Link href={`${ROUTES.ONE_TASKS}?from=goals`} className="inline-flex min-h-11 items-center px-3 text-sm font-medium text-primary hover:underline">Tasks</Link>
+          <Link href={tasksHref} className="inline-flex min-h-11 items-center px-3 text-sm font-medium text-primary hover:underline">Tasks</Link>
           <Button disabled={!workspace || loadError} onClick={() => openEditor(null)}>New goal</Button>
         </>
       ) : null}>
@@ -192,7 +202,7 @@ function OwnerGoalsWorkspace({ credentials }: { credentials: TodoWriteParams }) 
       ) : selected ? (
         <SurfaceCard className="space-y-4 p-4 sm:p-5">
           <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
-            <span>{selected.status === "deleted" ? "Unavailable" : STATUS_LABEL[selected.status]}</span>
+            <span>{statusLabel(selected)}</span>
             {selected.category ? <span>· {selected.category}</span> : null}
           </div>
           <p className="whitespace-pre-wrap break-words">{selected.outcome}</p>
@@ -204,7 +214,7 @@ function OwnerGoalsWorkspace({ credentials }: { credentials: TodoWriteParams }) 
                 {tasksById.get(id)?.status === "done" ? <span className="text-muted-foreground">Done</span> : null}
               </li>
             ))}</ul> : <HelperText>No tasks linked yet.</HelperText>}
-            <Link href={`${ROUTES.ONE_TASKS}?from=goals`} className="inline-flex min-h-11 items-center text-sm text-primary underline-offset-4 hover:underline">
+            <Link href={tasksHref} className="inline-flex min-h-11 items-center text-sm text-primary underline-offset-4 hover:underline">
               Open Tasks
             </Link>
           </div>
@@ -213,7 +223,7 @@ function OwnerGoalsWorkspace({ credentials }: { credentials: TodoWriteParams }) 
             <Button variant="none" disabled={saving || loadError} onClick={() => openEditor(selected)}>Edit goal</Button>
             <Button variant="none" disabled={saving || loadError}
               onClick={() => setStatus(selected, selected.status === "active" ? "completed" : "active")}>
-              {selected.status === "active" ? "Mark goal complete" : "Reopen goal"}
+              {changeStatusLabel}
             </Button>
           </div>
         </SurfaceCard>
@@ -225,12 +235,12 @@ function OwnerGoalsWorkspace({ credentials }: { credentials: TodoWriteParams }) 
       ) : goals.length ? (
         <ul className="space-y-2">{goals.map(goal => (
           <li key={goal.id}>
-            <button type="button" onClick={() => { setError(null); setSelectedId(goal.id); }}
+            <button type="button" onClick={() => selectGoal(goal)}
               className="w-full rounded-xl text-left outline-offset-2 focus-visible:outline-2">
               <SurfaceCard className="space-y-1 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <span className="min-w-0 break-all font-medium">{goal.title}</span>
-                  <span className="text-sm text-muted-foreground">{goal.status === "deleted" ? "Unavailable" : STATUS_LABEL[goal.status]}</span>
+                  <span className="text-sm text-muted-foreground">{statusLabel(goal)}</span>
                 </div>
                 <p className="line-clamp-2 text-sm text-muted-foreground">{goal.outcome}</p>
               </SurfaceCard>
@@ -245,4 +255,40 @@ function OwnerGoalsWorkspace({ credentials }: { credentials: TodoWriteParams }) 
       ) : null}
     </GoalsShell>
   );
+  if (!customNativePresentationEnabled()) return content;
+
+  // The shared bridge admits at most 200 rows. Preserve the complete React
+  // list or detail when the current view would exceed that limit.
+  const rich = Boolean(draft || !workspace || loadError || (selected
+    ? selected.taskIds.length + 5 > 200
+    : goals.length + 2 > 200));
+  const sections: NativeWorkspaceSurfaceSection[] = [];
+  if (!rich && selected) {
+    sections.push({ key: "outcome", rows: [{ key: "outcome", label: selected.outcome,
+      detail: [statusLabel(selected), selected.category].filter(Boolean).join(" · ") }] });
+    sections.push({ key: "linked", title: "Linked tasks", rows: selected.taskIds.length
+      ? selected.taskIds.map(id => ({ key: `task:${id}`, label: tasksById.get(id)?.title ?? "Unavailable task",
+          trailing: tasksById.get(id)?.status === "done" ? "Done" : undefined }))
+      : [{ key: "none-linked", label: "No tasks linked yet." }] });
+    if (error) sections.push({ key: "error", rows: [{ key: "save-error", label: error }] });
+    sections.push({ key: "actions", rows: [
+      { key: "tasks", label: "Open Tasks", run: () => router.push(tasksHref) },
+      { key: "edit", label: "Edit goal", enabled: !saving, web: true, run: () => openEditor(selected) },
+      { key: "status", label: changeStatusLabel, enabled: !saving,
+        run: () => setStatus(selected, selected.status === "active" ? "completed" : "active") },
+    ] });
+  } else if (!rich && selectedId) {
+    sections.push({ key: "unavailable", rows: [{ key: "notice", label: "This goal is unavailable." },
+      { key: "return", label: "All goals", run: () => setSelectedId(null) }] });
+  } else if (!rich) {
+    sections.push({ key: "actions", rows: [
+      { key: "tasks", label: "Tasks", run: () => router.push(tasksHref) },
+      { key: "new", label: "New goal", web: true, run: () => openEditor(null) },
+    ] }, { key: "goals", rows: goals.length ? goals.map(goal => ({
+      key: `goal:${goal.id}`, label: goal.title, detail: goal.outcome, trailing: statusLabel(goal), run: () => selectGoal(goal),
+    })) : [{ key: "empty", label: "No goals yet", detail: "Describe an outcome you want to reach, then link the tasks that help you get there." }] });
+  }
+  return <NativeWorkspaceRoute owner={credentials.userId} workspace="goals" path={ROUTES.ONE_GOALS} active
+    frame={frame} title={title} sections={sections} contentKey={selectedId ?? "collection"} depth={selectedId ? 1 : 0}
+    contentPresentation={rich ? "rich" : "native"} webChild={Boolean(draft)}>{content}</NativeWorkspaceRoute>;
 }

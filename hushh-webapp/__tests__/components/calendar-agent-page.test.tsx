@@ -4,6 +4,7 @@ import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import * as calendarPresentation from "@/components/calendar/native-calendar-workspace";
 import { CalendarAgentPage } from "@/components/calendar/calendar-agent-page";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import nativeRoutes from "@/native-route-inventory.json";
@@ -282,6 +283,7 @@ describe("CalendarAgentPage", () => {
   });
 
   it.each([["workspace", false], ["onboarding", false], ["workspace", true], ["onboarding", true]] as const)("shows disconnected %s with correct native audit (native=%s)", async (journeyVariant, native) => {
+    const routePresentation = vi.spyOn(calendarPresentation, "NativeCalendarRoute");
     mocks.native = native;
     mocks.status.mockResolvedValue({ configured: true, connected: false, status: "disconnected", scope_csv: "" });
     render(<CalendarAgentPage journeyVariant={journeyVariant} />);
@@ -289,7 +291,6 @@ describe("CalendarAgentPage", () => {
     expect(screen.getByTestId("calendar-connect-hero")).toBeTruthy();
     expect(screen.queryByRole("checkbox")).toBeNull();
     expect(screen.queryByText(/Optional\. Setup asks/)).toBeNull();
-    expect(screen.queryByText("What you allow on Google")).toBeNull();
     expect(screen.queryByRole("button", { name: "Disconnect Calendar" })).toBeNull();
     expect(connect.getAttribute("data-voice-control-id")).toBe("open_calendar_connector");
     expect(connect.getAttribute("data-voice-action-id")).toBe(journeyVariant === "onboarding" ? "setup.connect_calendar" : null);
@@ -299,6 +300,17 @@ describe("CalendarAgentPage", () => {
       expect(screen.queryByText(/Summarize my calendar for this week/)).toBeNull();
     }
     if (native) {
+      expect(routePresentation.mock.lastCall?.[0].model.rootOnly).toBe(false);
+      const disclosure = screen.getByTestId("calendar-setup-permissions");
+      for (const product of ["Calendar", "Google Meet", "Google Drive", "Gmail"]) {
+        expect(disclosure).toHaveTextContent(product);
+      }
+      expect(mocks.startNativeConnect).not.toHaveBeenCalled();
+      mocks.startNativeConnect.mockRejectedValueOnce(new Error("Stop at provider boundary"));
+      fireEvent.click(connect);
+      await waitFor(() => expect(mocks.startNativeConnect).toHaveBeenCalledExactlyOnceWith({
+        idToken: "firebase-token", accessLevel: "manage", includeCalendarList: true, includeMeetingFiles: true,
+      }));
       const route = journeyVariant === "onboarding" ? "/one/setup/calendar" : "/one/calendar";
       const entry = nativeRoutes.routes.find(candidate => candidate.route === route);
       expect(entry?.classification).toBe("native-required-functional");

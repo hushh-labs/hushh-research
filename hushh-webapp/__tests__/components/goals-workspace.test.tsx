@@ -1,3 +1,5 @@
+import type { ComponentProps } from "react";
+import type { NativeWorkspaceRoute } from "@/lib/capacitor/native-workspace-surface";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GoalsWorkspace } from "@/components/goals/goals-workspace";
@@ -8,13 +10,28 @@ import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import type { TodoItem } from "@/lib/todos/todo-list-model";
 
 const mocks = vi.hoisted(() => ({
+  native: false,
+  push: vi.fn(),
+  projection: vi.fn<(props: ComponentProps<typeof NativeWorkspaceRoute>) => void>(),
   owner: "owner-a",
   unlocked: true,
   loadWorkspace: vi.fn(),
   create: vi.fn(),
   savePlan: vi.fn(),
+  setStatus: vi.fn(),
 }));
 
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
+vi.mock("@/lib/capacitor/native-presentation-policy", async (original) => ({
+  ...await original<typeof import("@/lib/capacitor/native-presentation-policy")>(),
+  customNativePresentationEnabled: () => mocks.native,
+}));
+vi.mock("@/lib/capacitor/native-workspace-surface", () => ({
+  NativeWorkspaceRoute: (props: ComponentProps<typeof NativeWorkspaceRoute>) => {
+    mocks.projection(props);
+    return props.children;
+  },
+}));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ userId: mocks.owner }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({
   isVaultUnlocked: mocks.unlocked, vaultKey: "test-key", vaultOwnerToken: "test-token",
@@ -41,7 +58,41 @@ describe("Goals workspace", () => {
     mocks.owner = "owner-a";
     publishValidatedAuthSessionOwner(mocks.owner);
     mocks.unlocked = true;
+    mocks.native = false;
     mocks.loadWorkspace.mockResolvedValue({ goals: [], tasks: [task] });
+  });
+
+  it("binds native collection and detail to the same editor and authored return path", async () => {
+    mocks.native = true;
+    mocks.loadWorkspace.mockResolvedValue({ goals: [goal], tasks: [task] });
+    const view = render(<GoalsWorkspace />);
+    await screen.findByRole("button", { name: /Plan launch/ });
+    const current = () => mocks.projection.mock.lastCall![0];
+    const row = (key: string) => current().sections.flatMap(section => section.rows).find(item => item.key === key)!;
+    act(() => { row("goal:goal-a").run!(); });
+    expect(current().contentKey).toBe(goal.id);
+    expect(row("task:task-a")).toMatchObject({ label: task.title, trailing: "Done" });
+    act(() => { row("tasks").run!(); });
+    expect(mocks.push).toHaveBeenCalledWith("/one/tasks?from=goals");
+    expect(row("edit").web).toBe(true);
+    act(() => { row("edit").run!(); });
+    expect(current().webChild).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(current().webChild).toBe(false);
+    expect(current().contentKey).toBe(goal.id);
+    expect(mocks.savePlan).not.toHaveBeenCalled();
+    mocks.setStatus.mockResolvedValueOnce({ success: true });
+    await act(async () => { row("status").run!(); });
+    expect(mocks.setStatus).toHaveBeenCalledOnce();
+    expect(mocks.setStatus).toHaveBeenCalledWith(expect.objectContaining({
+      userId: mocks.owner, goalId: goal.id, expectedRevision: goal.revision,
+      status: "completed", confirmedByUser: true,
+    }));
+    act(() => { unwindBackLayer("/one/goals"); });
+    expect(current().contentKey).toBe("collection");
+    mocks.unlocked = false;
+    view.rerender(<GoalsWorkspace />);
+    expect(screen.queryByText(goal.title)).toBeNull();
   });
 
   it("retains a failed draft and reuses its identity when the owner retries", async () => {

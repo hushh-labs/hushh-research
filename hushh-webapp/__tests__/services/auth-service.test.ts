@@ -1236,6 +1236,24 @@ describe("AuthService native Google provider parity", () => {
     });
   });
 
+  it("recognizes the iOS Google SDK cancellation and preserves provider failures", async () => {
+    const { toast } = await import("sonner");
+    mockCapacitor.getPlatform.mockReturnValue("ios");
+    mockFirebaseAuthentication.signInWithGoogle.mockRejectedValueOnce(
+      new Error("The user canceled the sign-in flow."),
+    );
+
+    await expect(AuthService.signInWithGoogle()).rejects.toMatchObject({ code: "auth/user-cancelled" });
+    expect(toast.dismiss).toHaveBeenCalledWith("toast-id");
+    expect(toast.error).not.toHaveBeenCalled();
+
+    const failure = new Error("Network connection lost");
+    mockFirebaseAuthentication.signInWithGoogle.mockRejectedValueOnce(failure);
+    await expect(AuthService.signInWithGoogle()).rejects.toBe(failure);
+    expect(toast.error).toHaveBeenCalled();
+    expect(mockSignInWithPopup).not.toHaveBeenCalled();
+  });
+
   it("dismisses the Android loading toast silently when the user cancels", async () => {
     const { toast } = await import("sonner");
     mockCapacitor.getPlatform.mockReturnValue("android");
