@@ -245,9 +245,11 @@ async def ensure_pooled_sandbox_placement(
     registry: Any = None,
     job_repo: Any = None,
     grant_service: Any = None,
+    hosting_choice_repo: Any = None,
     cloud_marker_writer: Any = None,
     bypass_byoc_job_fence: bool = False,
     allow_non_ace_hosted_cutover: bool = False,
+    force_reenter_sandbox: bool = False,
     extra_source_retirements: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Idempotently place or cut over an unplaced/shared user onto Pooled Personal Sandboxes."""
@@ -255,10 +257,16 @@ async def ensure_pooled_sandbox_placement(
         return existing_row
 
     from hushh_mcp.services.owner_hosting_choice import (  # noqa: PLC0415
+        HostingChoiceRepo,
         write_cloud_setup_marker,
     )
     from hushh_mcp.services.personal_agent_grant_service import (  # noqa: PLC0415
         PersonalAgentGrantService,
+    )
+    from hushh_mcp.services.personal_agent_hosting import (  # noqa: PLC0415
+        _last_detach,
+        _unassigned_placement_clear,
+        shared_choice_is_current,
     )
     from hushh_mcp.services.personal_agent_registry_repo import (  # noqa: PLC0415
         PersonalAgentRegistryRepo,
@@ -282,6 +290,20 @@ async def ensure_pooled_sandbox_placement(
         if has_hosted_ace_evidence(row) and str((row or {}).get("status") or "") == "provisioned":
             await _ensure_cloud_marker()
         return row
+    if not force_reenter_sandbox and isinstance(row, Mapping):
+        row_dict = dict(row)
+        last_detach = _last_detach(row_dict)
+        if last_detach is not None and _unassigned_placement_clear(row_dict):
+            if str(last_detach.get("reason") or "") == "owner switched to Hussh Shared":
+                return row
+            if hosting_choice_repo is not None or registry is None:
+                try:
+                    choice = await (hosting_choice_repo or HostingChoiceRepo()).get(user_id)
+                    if shared_choice_is_current(row_dict, choice):
+                        return row
+                except Exception:  # noqa: BLE001 - unreadable choice does not override detach safety
+                    if str(last_detach.get("deployment_target") or "") == "ace":
+                        return row
     if (
         not bypass_byoc_job_fence
         and not has_hosted_ace_evidence(row)
@@ -346,8 +368,24 @@ async def ensure_pooled_sandbox_placement(
         prev_meta["endpoint"] = preserved_endpoint
     raw_ver = prev_meta.get("endpointVersion")
     prev_ep_ver = preserved_endpoint["version"] if preserved_endpoint is not None else 0
+    detached_ep_ver = 0
+    detached_list = raw_prev_meta.get("detachedPlacements")
+    if isinstance(detached_list, list):
+        for item in detached_list:
+            if not isinstance(item, Mapping):
+                continue
+            item_meta = item.get("backend_metadata")
+            if not isinstance(item_meta, Mapping):
+                continue
+            cand_ver = item_meta.get("endpointVersion")
+            if type(cand_ver) is int and cand_ver >= 1:
+                detached_ep_ver = max(detached_ep_ver, cand_ver)
+            cand_ep = item_meta.get("endpoint")
+            if isinstance(cand_ep, Mapping) and type(cand_ep.get("version")) is int:
+                detached_ep_ver = max(detached_ep_ver, cand_ep["version"])
+    prior_floor = max(prev_ep_ver, detached_ep_ver)
     base_ver = raw_ver if isinstance(raw_ver, int) and raw_ver >= 1 else 1
-    endpoint_version = max(base_ver, prev_ep_ver + 1 if prev_ep_ver >= 1 else 1)
+    endpoint_version = max(base_ver, prior_floor + 1 if prior_floor >= 1 else 1)
     service_uid = f"ace-pool-{hushh_id}"
     lane = deploy_lane()
     owner_hash = "sha256:" + hashlib.sha256(user_id.encode("utf-8")).hexdigest()
@@ -974,6 +1012,7 @@ async def adopt_pooled_sandbox_for_owner(
         grant_service=grant_service,
         bypass_byoc_job_fence=True,
         allow_non_ace_hosted_cutover=True,
+        force_reenter_sandbox=True,
         extra_source_retirements=prior_retirements or None,
     )
     if not isinstance(updated, Mapping) or str(updated.get("deployment_target") or "") != "ace":

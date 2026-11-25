@@ -38,7 +38,8 @@ import { PerformanceStrip } from "@/components/kai/performance/performance-strip
 import { ReviewEntriesSheet } from "@/components/kai/holdings/review-entries-sheet";
 import { PortfolioDetailPlaceholder } from "@/components/kai/performance/performance-placeholder";
 import { sinceBought } from "@/lib/kai/portfolio-performance";
-import { overviewFacts } from "@/components/kai/views/portfolio-display-facts";
+import { formatStatementBalanceDate, overviewFacts, portfolioImportLabel } from "@/components/kai/views/portfolio-display-facts";
+import { PortfolioPlaidSyncDate } from "@/components/kai/cards/portfolio-value-card";
 import { allocationColor } from "@/lib/kai/allocation-colors";
 import { nativeColorTokenHex, useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { symbolAvatarFallback } from "@/components/kai/shared/symbol-avatar";
@@ -48,7 +49,8 @@ import { portfolioBriefingFacts, SavedPortfolioBriefing } from "@/components/kai
 import { AdvisorReviewHub } from "@/components/kai/advisor/advisor-review-hub";
 import { formatCurrency } from "@/lib/kai/market-value-format";
 import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
-import { PortfolioAllocationBar } from "@/components/kai/charts/portfolio-allocation-bar";
+import { AllocationSection } from "@/components/kai/charts/allocation-section";
+import { PortfolioAllocationBreakdown } from "@/components/kai/charts/portfolio-allocation-breakdown";
 import { SectorAllocationChart } from "@/components/kai/charts/sector-allocation-chart";
 import { HoldingDetailsDrawer } from "@/components/kai/holdings/holding-details-drawer";
 import { finiteNumber, toHoldingViewModel } from "@/components/kai/holdings/holding-view-model";
@@ -970,15 +972,6 @@ export function DashboardMasterView({
     return covered / equityPositions.length;
   }, [model.canonicalModel.positions, tickerSectorLookup]);
 
-  const nonEquityCoveragePct = useMemo(() => {
-    const nonEquityPositions = model.canonicalModel.positions.filter(
-      (position) =>
-        position.isCashEquivalent || position.assetBucket !== "equity",
-    );
-    if (nonEquityPositions.length === 0) return 1;
-    return 1;
-  }, [model.canonicalModel.positions]);
-
   const hasEquitySectorAllocation = equitySectorChartHoldings.length > 0;
   const hasNonEquityAllocation = nonEquityAllocationChartHoldings.length > 0;
 
@@ -1705,7 +1698,9 @@ export function DashboardMasterView({
     ];
 
     const visibleModules = displayedPortfolio
-      ? ["Performance", "Allocation", "Current holdings", "Portfolio detail"]
+      ? section === "overview"
+        ? ["Portfolio value", "Portfolio review", "Sharing", "Portfolio mix", "Holdings"]
+        : ["Performance", "Allocation", "Current holdings", "Portfolio detail"]
       : ["Portfolio setup"];
 
     return {
@@ -1797,7 +1792,7 @@ export function DashboardMasterView({
     plaidStatus?.aggregate?.item_count,
     sourceDisplayLabel,
     statementSnapshots.length,
-    selectedAllocationName, onReupload,
+    selectedAllocationName, onReupload, section,
   ]);
   usePublishVoiceSurfaceMetadata(dashboardVoiceSurfaceMetadata);
 
@@ -1907,7 +1902,7 @@ export function DashboardMasterView({
           workspace="portfolio"
           title="Portfolio"
           description="Preparing your portfolio sources."
-          actions={<FinanceSharingHistoryAction open={presentationView === "history"} onOpenChange={value => setPresentationView(value ? "history" : null)} />}
+          actions={section === "overview" ? <FinanceSharingHistoryAction open={presentationView === "history"} onOpenChange={value => setPresentationView(value ? "history" : null)} /> : undefined}
         />
         <AppPageContentRegion>
           <SurfaceCard className="w-full">
@@ -1933,58 +1928,60 @@ export function DashboardMasterView({
   }
 
   if (!displayedPortfolio) {
+    const sourceOptions = (
+      <SettingsGroup
+        embedded
+        separatorInset
+        testId="portfolio-source-options"
+      >
+        <SettingsRow
+          icon={Building2}
+          iconTone="blue"
+          title={
+            plaidConfigured === false
+              ? "Bank connection unavailable"
+              : isLinkingPlaid
+                ? "Opening Plaid connection"
+                : "Bank account (via Plaid)"
+          }
+          description={
+            plaidConfigured === false
+              ? "Use a statement instead"
+              : "Read-only account sync"
+          }
+          onClick={() =>
+            void openPlaidLinkFlow()
+          }
+          disabled={plaidConfigured === false || isLinkingPlaid}
+          chevron={!isLinkingPlaid && plaidConfigured !== false}
+          trailing={
+            isLinkingPlaid ? (
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            ) : undefined
+          }
+          testId="portfolio-source-connect-plaid"
+        />
+        <SettingsRow
+          icon={FileUp}
+          iconTone="accent"
+          title="Upload a statement"
+          description="PDF or CSV from your brokerage"
+          onClick={onReupload}
+          chevron
+          testId="portfolio-source-upload-statement"
+        />
+      </SettingsGroup>
+    );
     return (
       <div className={cn(financeStyles.detail, "w-full min-w-0 max-w-full")}>
         <KaiWorkspaceHeader
           workspace="portfolio"
           title="Portfolio"
           description="Choose how you want to begin."
-          actions={<FinanceSharingHistoryAction open={presentationView === "history"} onOpenChange={value => setPresentationView(value ? "history" : null)} />}
         />
         <AppPageContentRegion className="space-y-3">
-          <SettingsGroup
-            embedded
-            separatorInset
-            testId="portfolio-source-options"
-          >
-            <SettingsRow
-              icon={Building2}
-              iconTone="blue"
-              title={
-                plaidConfigured === false
-                  ? "Bank connection unavailable"
-                  : isLinkingPlaid
-                    ? "Opening Plaid connection"
-                    : "Bank account (via Plaid)"
-              }
-              description={
-                plaidConfigured === false
-                  ? "Use a statement instead"
-                  : "Read-only account sync"
-              }
-              onClick={() =>
-                void openPlaidLinkFlow()
-              }
-              disabled={plaidConfigured === false || isLinkingPlaid}
-              chevron={!isLinkingPlaid && plaidConfigured !== false}
-              trailing={
-                isLinkingPlaid ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                ) : undefined
-              }
-              testId="portfolio-source-connect-plaid"
-            />
-            <SettingsRow
-              icon={FileUp}
-              iconTone="accent"
-              title="Upload a statement"
-              description="PDF or CSV from your brokerage"
-              onClick={onReupload}
-              chevron
-              testId="portfolio-source-upload-statement"
-            />
-          </SettingsGroup>
-          <FinancePortfolioSharing />
+          {sourceOptions}
+          {section === "overview" ? <FinancePortfolioSharing presentation={presentation} /> : null}
           {deletePortfolioDialog}
           {deleteStatementSnapshotDialog}
         </AppPageContentRegion>
@@ -1993,6 +1990,10 @@ export function DashboardMasterView({
   }
 
   if (section === "overview") {
+    const statement = statementSnapshots.find(snapshot => snapshot.id === activeStatementSnapshotId);
+    const balanceDate = activeSource === "plaid"
+      ? <PortfolioPlaidSyncDate syncedAt={freshness?.lastSyncedAt ?? null} />
+      : formatStatementBalanceDate(statement, displayedPortfolio.account_info?.statement_period_end);
     return (
       <div className={cn(financeStyles.detail, "w-full min-w-0 max-w-full")}>
         <KaiWorkspaceHeader
@@ -2000,17 +2001,22 @@ export function DashboardMasterView({
           title="Portfolio"
         />
         <AppPageContentRegion className="min-w-0 max-w-full space-y-4">
-          <PortfolioOverview model={model} portfolio={workingPortfolioData} source={sourceDisplayLabel} onImport={onReupload}
-            valuationKind={activeSource === "statement" ? "statement" : "linked"} loadHistory={loadHoldingHistory}
+          <PortfolioOverview
+            model={model}
+            portfolio={workingPortfolioData}
+            source={sourceDisplayLabel}
+            importLabel={portfolioImportLabel(activeSource, statementSnapshots, activeStatementSnapshotId)}
+            onImport={onReupload}
             briefing={<SavedPortfolioBriefing
               source={{ kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }}
               onOpen={() => router.push(buildKaiPortfolioSectionRoute("analysis"))}
             />}
             sharing={<FinancePortfolioSharing presentation={presentation} model={model} source={{ kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }} />}
-            period={model.hero.statementPeriod || (freshness?.lastSyncedAt ? `Updated ${new Date(freshness.lastSyncedAt).toLocaleString()}` : "Current portfolio snapshot")}
+            period={balanceDate}
             onOpenSection={section => router.push(buildKaiPortfolioSectionRoute(section))}
-            action={<PortfolioReportAction presentation={presentation} model={model} source={sourceDisplayLabel} period={model.hero.statementPeriod || "Current portfolio snapshot"}
-              disabled={!hasShareablePortfolioData} busy={isSharingPortfolioPdf} onExport={() => void handleSharePortfolioPdf()} />} />
+            action={<PortfolioReportAction presentation={presentation} className={financeStyles.portfolioHeroReportAction} model={model} source={sourceDisplayLabel} period={model.hero.statementPeriod || "Current portfolio snapshot"}
+              disabled={!hasShareablePortfolioData} busy={isSharingPortfolioPdf} onExport={() => void handleSharePortfolioPdf()} />}
+          />
 
           {deletePortfolioDialog}
           {deleteStatementSnapshotDialog}
@@ -2032,18 +2038,7 @@ export function DashboardMasterView({
       <KaiWorkspaceHeader
         workspace="portfolio"
         title={detailTitle}
-        description={
-          section === "holdings"
-            ? "Positions in your active portfolio."
-            : section === "allocation"
-              ? "How your portfolio value is distributed."
-              : section === "performance"
-                ? (model.quality.historyReady ? "Value and change from dated portfolio balances." : undefined)
-                : section === "analysis"
-                  ? "An overview of your saved portfolio."
-                  : "Where your holdings come from."
-        }
-        actions={<PortfolioReportAction presentation={presentation} model={model} source={sourceDisplayLabel} period={model.hero.statementPeriod || "Current portfolio snapshot"} sharingSource={{ kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }}
+        actions={<PortfolioReportAction presentation={presentation} model={model} source={sourceDisplayLabel} period={model.hero.statementPeriod || "Current portfolio snapshot"} sharingSource={section === "sources" ? undefined : { kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }}
           disabled={!hasShareablePortfolioData} busy={isSharingPortfolioPdf} onExport={() => void handleSharePortfolioPdf()} />}
         actionsInlineMobile
       />
@@ -2124,35 +2119,31 @@ export function DashboardMasterView({
         <div className="space-y-5">
           {section === "allocation" ? (
             <SurfaceCard className="gap-0">
-              {model.quality.allocationReady ? (
-                <PortfolioAllocationBar
-                  embedded
+              <AllocationSection title="Asset mix" embedded>
+                <PortfolioAllocationBreakdown
                   data={model.allocation}
                   totalValue={model.hero.totalValue}
                   selectedName={selectedAllocationName}
                   onSelectionChange={setSelectedAllocationName}
                 />
+              </AllocationSection>
+              {hasEquitySectorAllocation ? (
+                <SectorAllocationChart
+                  embedded
+                  className="min-w-0"
+                  holdings={equitySectorChartHoldings}
+                  title="Equity sectors"
+                  subtitle={equitySectorCoveragePct < 1 ? "Some equity holdings have no sector listed." : undefined}
+                />
               ) : null}
-
-                {hasEquitySectorAllocation ? (
-                  <SectorAllocationChart
-                    embedded
-                    className="min-w-0"
-                    holdings={equitySectorChartHoldings}
-                    title="Equity Sector Allocation"
-                    subtitle={`${(equitySectorCoveragePct * 100).toFixed(0)}% of equity holdings have mapped sector labels.`}
-                  />
-                ) : null}
-
-                {hasNonEquityAllocation ? (
-                  <SectorAllocationChart
-                    embedded
-                    className="min-w-0"
-                    holdings={nonEquityAllocationChartHoldings}
-                    title="Non-Equity Allocation"
-                    subtitle={`${(nonEquityCoveragePct * 100).toFixed(0)}% of non-equity holdings are mapped to canonical allocation buckets.`}
-                  />
-                ) : null}
+              {hasNonEquityAllocation ? (
+                <SectorAllocationChart
+                  embedded
+                  className="min-w-0"
+                  holdings={nonEquityAllocationChartHoldings}
+                  title="Other assets"
+                />
+              ) : null}
             </SurfaceCard>
           ) : null}
 

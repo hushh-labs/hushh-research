@@ -395,6 +395,27 @@ function sessionFromResponse(body: Record<string, unknown>, subjectId: string): 
   };
 }
 
+function isStaleTrustedDeviceBindingError(error: unknown): boolean {
+  if (!(error instanceof OwnerPodError)) return false;
+  return (
+    error.message === "BINDING_UNAVAILABLE:TRUSTED_DEVICE_NOT_ACTIVE" ||
+    error.message === "BINDING_UNAVAILABLE:TRUSTED_DEVICE_NOT_FOUND" ||
+    error.message === "POD_CHALLENGE_REFUSED:unknown_subject" ||
+    error.message === "POD_CHALLENGE_REFUSED:subject_revoked"
+  );
+}
+
+async function resetStaleBrowserEnrollmentUnlocked(
+  userId: string,
+  record: AppKeyRecord,
+): Promise<void> {
+  forgetDirectAdmission(userId);
+  bindingInFlight.clear();
+  await writeRecord(KEY_STORE, { ...record, subjectId: null });
+  const pin = await readPin(userId);
+  await writeRecord(PIN_STORE, { ...pin, session: null });
+}
+
 /**
  * Open a pod session: binding from the hub, challenge and proof at the pod.
  * The role is whatever the signed binding says; the app never asks for one.
@@ -404,10 +425,28 @@ async function admitEndpoint(
   transport: OwnerPodTransport,
   endpoint: PinnedEndpoint,
   refreshGrant = false,
+  allowDeviceReEnroll = true,
 ): Promise<PodSessionRecord> {
   const record = await ensureAppKey(userId);
+  const hadCachedSubject = Boolean(record.subjectId);
   const subjectId = record.subjectId ?? (await ensureAppEnrollmentUnlocked(userId, transport));
-  const { binding, signature } = await fetchBinding(subjectId, transport, endpoint, refreshGrant);
+  let bindingResult: { binding: Record<string, unknown>; signature: string };
+  try {
+    bindingResult = await fetchBinding(subjectId, transport, endpoint, refreshGrant);
+  } catch (error) {
+    if (
+      hadCachedSubject &&
+      allowDeviceReEnroll &&
+      !shouldSkipReviewerBackgroundWritesForAutomation() &&
+      isStaleTrustedDeviceBindingError(error)
+    ) {
+      await resetStaleBrowserEnrollmentUnlocked(userId, record);
+      await ensureAppEnrollmentUnlocked(userId, transport);
+      return admitEndpoint(userId, transport, endpoint, refreshGrant, false);
+    }
+    throw error;
+  }
+  const { binding, signature } = bindingResult;
   if (String(binding.pod_key_id ?? "") !== endpoint.podKeyId) {
     throw new OwnerPodError("BINDING_POD_KEY_MISMATCH");
   }
@@ -442,7 +481,20 @@ async function admitEndpoint(
   });
   if (!challengeResponse.ok) {
     const code = detailCode(await readJson(challengeResponse));
-    throw new OwnerPodError(code ? `POD_CHALLENGE_REFUSED:${code}` : `POD_CHALLENGE_REFUSED:${challengeResponse.status}`);
+    const challengeErr = new OwnerPodError(
+      code ? `POD_CHALLENGE_REFUSED:${code}` : `POD_CHALLENGE_REFUSED:${challengeResponse.status}`,
+    );
+    if (
+      hadCachedSubject &&
+      allowDeviceReEnroll &&
+      !shouldSkipReviewerBackgroundWritesForAutomation() &&
+      isStaleTrustedDeviceBindingError(challengeErr)
+    ) {
+      await resetStaleBrowserEnrollmentUnlocked(userId, record);
+      await ensureAppEnrollmentUnlocked(userId, transport);
+      return admitEndpoint(userId, transport, endpoint, refreshGrant, false);
+    }
+    throw challengeErr;
   }
   const challenge = await readJson(challengeResponse);
   const signingPayload = String(challenge.signingPayload ?? "");

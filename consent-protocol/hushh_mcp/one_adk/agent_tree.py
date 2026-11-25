@@ -984,8 +984,6 @@ def _compose_one_instruction_parts(
             "call show_stock_preview with its ticker and say it is ready for review "
             "(the person confirms in the card before debate starts)."
         )
-        if state_getter(STATE_ACCOUNT_CONTEXT_ENABLED):
-            identity_instruction += ACCOUNT_INSTRUCTION
         if state_getter(STATE_PORTFOLIO_CONTEXT_ENABLED):
             identity_instruction += (
                 " For facts about saved holdings, allocation, or performance, call "
@@ -1238,6 +1236,8 @@ def _compose_one_instruction_parts(
     # The owner's Settings choices: a trusted style channel, separate from the
     # recalled-memory packet above, rendered only from server templates.
     style_instruction = owner_style_instruction(state_getter) + focus_instruction(state_getter)
+    if callable(state_getter) and state_getter(STATE_ACCOUNT_CONTEXT_ENABLED):
+        style_instruction += ACCOUNT_INSTRUCTION
     voice_context = state_getter(STATE_VOICE_CONTEXT) if callable(state_getter) else None
     if not isinstance(voice_context, dict):
         dynamic_tail = (
@@ -2996,12 +2996,12 @@ def _one_roster_tools(
 
         tools.append(AGUIToolset(tool_filter=sorted(RECEIPT_TOOL_NAMES)))
         tools.append(AGUIToolset(tool_filter=sorted(PLAID_TOOL_NAMES)))
+        tools.append(AGUIToolset(tool_filter=[ACCOUNT_CONTEXT_TOOL]))
         if not pod_files_wiki_enabled():
             tools.append(AGUIToolset(tool_filter=sorted(WIKI_TOOL_NAMES)))
         # The typed hub advertises this separate contract only to compatible,
         # owner-authorized browsers. Offline receipt evaluations omit it.
         tools.append(AGUIToolset(tool_filter=[PORTFOLIO_CONTEXT_TOOL]))
-        tools.append(AGUIToolset(tool_filter=[ACCOUNT_CONTEXT_TOOL]))
     return tools
 
 

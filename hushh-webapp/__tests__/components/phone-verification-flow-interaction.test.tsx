@@ -383,14 +383,14 @@ describe("PhoneVerificationFlow country selector", () => {
     await selectIndiaOnce();
 
     fireEvent.change(screen.getByRole("textbox", { name: "Phone number" }), {
-      target: { value: "8004482372" },
+      target: { value: "9876543210" },
     });
     fireEvent.click(
       screen.getByRole("button", { name: "Send verification code" }),
     );
 
     await waitFor(() => {
-      expect(startVerification).toHaveBeenCalledWith("+918004482372", {
+      expect(startVerification).toHaveBeenCalledWith("+919876543210", {
         resendCode: false,
       });
     });
@@ -405,8 +405,8 @@ describe("PhoneVerificationFlow country selector", () => {
     }) as HTMLInputElement;
     expect(phoneInput.maxLength).toBe(10);
 
-    fireEvent.change(phoneInput, { target: { value: "0800448237" } });
-    expect(phoneInput.value).toBe("0800448237");
+    fireEvent.change(phoneInput, { target: { value: "0987654321" } });
+    expect(phoneInput.value).toBe("0987654321");
     fireEvent.click(
       screen.getByRole("button", { name: "Send verification code" }),
     );
@@ -426,13 +426,13 @@ describe("PhoneVerificationFlow country selector", () => {
     const phoneInput = screen.getByRole("textbox", {
       name: "Phone number",
     }) as HTMLInputElement;
-    fireEvent.change(phoneInput, { target: { value: "8004482372" } });
+    fireEvent.change(phoneInput, { target: { value: "9876543210" } });
     phoneInput.setSelectionRange(0, phoneInput.value.length);
     fireEvent.paste(phoneInput, {
-      clipboardData: { getData: () => "800448237299" },
+      clipboardData: { getData: () => "987654321099" },
     });
 
-    expect(phoneInput.value).toBe("8004482372");
+    expect(phoneInput.value).toBe("9876543210");
     expect(phoneInput.maxLength).toBe(10);
     expect(screen.getByRole("alert").textContent).toBe(
       "Enter no more than 10 digits for India.",
@@ -475,13 +475,13 @@ describe("PhoneVerificationFlow country selector", () => {
 
     await selectIndiaOnce();
     fireEvent.change(screen.getByRole("textbox", { name: "Phone number" }), {
-      target: { value: "8004482372" },
+      target: { value: "9876543210" },
     });
     fireEvent.click(
       screen.getByRole("button", { name: "Send verification code" }),
     );
 
-    expect(await screen.findByText("••••••2372")).toBeTruthy();
+    expect(await screen.findByText("••••••3210")).toBeTruthy();
     expect(screen.queryByText(/\+91/)).toBeNull();
     expect(screen.getByRole("textbox", { name: "One-time code" })).toBeTruthy();
   });

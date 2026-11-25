@@ -51,12 +51,12 @@ Non-owned surfaces:
 ## Workflow
 
 1. Fetch fresh `origin/main`, `origin/uat`, and `origin/dev` and run `./bin/hushh agents release-parity --require-clean-upstream --live-cloud --text`.
-2. If upstream `uat` or `main` has commits missing from `dev`, or any migration sequence collision exists, stop upward promotion and back-sync upstream into an isolated `dev` task worktree first.
-3. Resolve every merge conflict, contract regeneration, and duplicate migration sequence on `dev` (re-sequencing uncommitted/Dev-only colliding migrations above the shared watermark without altering accepted UAT/Main SQL).
-4. Prove `dev` green through CI and land the back-sync PR into `dev` under `admin-release-sop.md`.
-5. Re-run `./bin/hushh agents release-parity --require-clean-upstream --text` and confirm `status=ready` (zero upstream delta, zero schema collisions).
-6. Promote converged `dev` into `uat` via true merge (never cherry-pick), verifying runtime capability parity (such as UAT Confidential Sandbox Edge Gateway and warm pool posture) and recording the Calendar Release Train (`YYYY.MM.N`).
-7. Hand off merge approval and UAT deployment dispatch to `repo-operations` and `uat-scoped-deploy`, then re-run `./bin/hushh agents release-parity --live-cloud --text` to verify live cloud provenance and zero unsafe Dev-simulation leakage.
+2. Inspect the 5-dimension report: code ancestry, symmetric two-parent merge fidelity, database schema watermarks, live cloud capability closure plus branch-versus-serving SHA drift, and the per-feature/per-author Candidate Release Train Manifest.
+3. If upstream `uat` or `main` has commits missing from `dev`, or any migration sequence collision exists, stop upward promotion and back-sync upstream into an isolated `dev` task worktree first.
+4. Resolve every merge conflict symmetrically on `dev` (never use `-s ours` or `-X ours` against `uat` or `main`, which `compute_merge_fidelity` blocks automatically), regenerate contracts, and re-sequence any colliding Dev-only migrations above the shared watermark without altering accepted UAT/Main SQL.
+5. Prove `dev` green through CI, land the back-sync PR into `dev` under `admin-release-sop.md`, and deploy `dev` so live Dev serves the exact candidate commit.
+6. Re-run `./bin/hushh agents release-parity --require-clean-upstream --text`, verify `status=ready` (zero upstream delta, zero asymmetric merge violations, zero schema collisions), and review the Candidate Release Train Manifest to confirm every Dev-only experimental surface (such as BYOC or Puppy One) is cleanly build-gated outside Dev.
+7. Promote converged `dev` into `uat` in a single unified Release Train wave (`train/YYYY.MM.N`) via true merge (never cherry-pick), qualify exact UAT source (`scope=all`, `uat_base_sha=<SERVING_UAT_SHA>`), deploy via `uat-scoped-deploy`, back-sync the tagged `uat` ref downstream to `dev`, and run `./bin/hushh agents release-parity --live-cloud --require-clean-upstream --require-serving-parity --text` to prove zero branch-to-cloud drift.
 
 ## Handoff Rules
 

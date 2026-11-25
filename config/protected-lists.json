@@ -15,16 +15,16 @@
     {
       "name": "HUSHH_UAT_PHONE_TEST_NUMBERS",
       "project": "hushh-pda-uat",
-      "min_entries": 25,
-      "max_shrink": 5,
-      "purpose": "UAT fixed-OTP phone allowlist. Wiped 59 -> 1 on 2026-09-03; restored as version 10."
+      "min_entries": 10,
+      "max_shrink": 2,
+      "purpose": "UAT fixed-OTP phone allowlist. Standardized on shared 10-number 555-01xx pool."
     },
     {
       "name": "HUSHH_PROD_PHONE_TEST_NUMBERS",
       "project": "hushh-pda",
-      "min_entries": 20,
-      "max_shrink": 5,
-      "purpose": "Production fixed-OTP phone allowlist. Same shape, same exposure, in production."
+      "min_entries": 10,
+      "max_shrink": 2,
+      "purpose": "Production fixed-OTP phone allowlist. Standardized on shared 10-number 555-01xx pool."
     },
     {
       "name": "RIA_CLAIM_TEST_NUMBERS",

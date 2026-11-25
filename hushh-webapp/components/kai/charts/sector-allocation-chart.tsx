@@ -90,7 +90,7 @@ export function SectorAllocationChart({ holdings, className, responsive = true, 
         </Collapsible>;
       })}
     </div>
-    <p className={styles.allocationMeta}>Percentages use {formatCurrency(total)} in this group.</p>
+    <p className={styles.allocationMeta}>Percentages of the {formatCurrency(total)} shown</p>
   </AllocationSection>;
 }
 

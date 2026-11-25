@@ -1,4 +1,3 @@
-import { ACCOUNT_CONTEXT_TOOL, ACCOUNT_CONTEXT_CONTRACT, parseAccountContextRequest, readAccountContext, type AccountContextRequest } from "./account-chat-context";
 import { parseConsentAccess, type AgentChatConsentAccess } from "@/lib/agent/chat-consent-access";
 export { parseConsentAccess, type AgentChatConsentAccess } from "@/lib/agent/chat-consent-access";
 import { loadAgentTurnFinancialProjection } from "@/lib/kai/plaid-vault/agent-turn-nws";
@@ -10,6 +9,7 @@ import {
   type PlaidConnectorEnvelope,
   type PlaidToolName,
 } from "@/lib/kai/plaid-vault/plaid-chat-client-tools";
+import { ACCOUNT_CONTEXT_TOOL, ACCOUNT_CONTEXT_CONTRACT, parseAccountContextRequest, readAccountContext, type AccountContextRequest } from "./account-chat-context";
 import { browserTimeZone, chatTurnTimeZone } from "@/lib/agent/chat-turn-time-zone";
 import { browserTaskProgress, privateToolProgressArgs } from "@/lib/computer-use/chat-progress";
 import { queuedInputPorts } from "@/lib/agent/queued-input-ports";
@@ -637,6 +637,7 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Asking the finance specialist.",
     activity: "Checking your finances",
   },
+  [ACCOUNT_CONTEXT_TOOL]: { label: "Account", activity: "Reading your account", message: "Reading your account for this answer." },
   show_market_gainers: {
     label: "Top gainers",
     message: "Opening the market gainers card.",
@@ -647,7 +648,6 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Opening the portfolio card.",
     activity: "Opening portfolio",
   },
-  [ACCOUNT_CONTEXT_TOOL]: { label: "Account", activity: "Reading your account", message: "Reading your account for this answer." },
   [PORTFOLIO_CONTEXT_TOOL]: {
     label: "Portfolio",
     message: "Reading saved portfolio details.",
@@ -2386,13 +2386,6 @@ async function streamAgentChatAttempt(input: {
         handlers.onToolResult?.(payload);
         return;
       }
-      if (WIKI_TOOL_NAMES.includes(toolName as WikiToolName)) {
-        const payload = toolPayload(event.toolCallId, toolName);
-        payload.raw = { protocol: "ag-ui", toolName };
-        payload.message = "Personal note checked for this turn.";
-        handlers.onToolResult?.(payload);
-        return;
-      }
       if (PLAID_TOOL_NAMES.includes(toolName as PlaidToolName)) {
         const payload = toolPayload(event.toolCallId, toolName);
         payload.raw = { protocol: "ag-ui", toolName };
@@ -2940,10 +2933,10 @@ async function streamAgentChatAttempt(input: {
         ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}),
         // The mail draft envelope version this client reads. The server reads it per request, so resumed runs send it too.
         emailDraftContract: 2, emailAgentContract: 1, calendarReviewContract: 1, emailReadReceiptContract: 2,
-        ...(accountContextEnabled ? { accountContextContract: ACCOUNT_CONTEXT_CONTRACT } : {}),
         ...(portfolioContextEnabled ? { portfolioContextContract: PORTFOLIO_CONTEXT_CONTRACT } : {}),
         ...(sharedWikiSession ? { wikiClientReady: true } : {}),
         ...(turnWiki.wikiHotDigest ? { wikiHotDigest: turnWiki.wikiHotDigest } : {}),
+        ...(accountContextEnabled ? { accountContextContract: ACCOUNT_CONTEXT_CONTRACT } : {}),
         screenContext: input.screenContext,
         ...(input.consentContinuation ? { consentContinuation: input.consentContinuation } : {}),
         ...(input.financeShare ? { financeShare: input.financeShare } : {}),
@@ -2967,8 +2960,8 @@ async function streamAgentChatAttempt(input: {
     if (receiptCalls.size && !failure && !detached && !input.signal?.aborted) {
       const receiptToolResults = await settleReceiptCalls(receiptCalls.values(), input.signal, () => handlers.onStreamHealth?.({ kind: "activity" }));
       receiptCalls.clear();
-      const portfolioRead = receiptToolResults.some(item => item.toolName === PORTFOLIO_CONTEXT_TOOL);
       const accountRead = receiptToolResults.some(item => item.toolName === ACCOUNT_CONTEXT_TOOL);
+      const portfolioRead = receiptToolResults.some(item => item.toolName === PORTFOLIO_CONTEXT_TOOL);
       const privateReadLabel = accountRead ? "Account read" : portfolioRead ? "Portfolio read" : "Receipt analysis";
       if (mcpReviews.size) throw new Error(`${privateReadLabel} must complete in its own authorized turn. Ask again.`);
       if (!receiptSessionCurrent()) throw new Error(`${privateReadLabel} authority changed. Unlock and ask again.`);
@@ -2977,8 +2970,8 @@ async function streamAgentChatAttempt(input: {
         content: JSON.stringify({ schema: "receipt_result.v1", operation: item.toolName, ephemeral_result: true }) })));
       await runUntilTerminal({ tools, context: [], forwardedProps: {
         timezone, screenContext: input.screenContext, communicationPreferences, receiptToolResults, emailDraftContract: 2, emailAgentContract: 1, calendarReviewContract: 1, emailReadReceiptContract: 2,
-        ...(accountRead ? { accountContextContract: ACCOUNT_CONTEXT_CONTRACT } : {}),
         ...(portfolioRead ? { portfolioContextContract: PORTFOLIO_CONTEXT_CONTRACT } : {}),
+        ...(accountRead ? { accountContextContract: ACCOUNT_CONTEXT_CONTRACT } : {}),
       } });
       if (!receiptSessionCurrent()) throw new Error(`${privateReadLabel} authority changed. Ask again.`);
     }
