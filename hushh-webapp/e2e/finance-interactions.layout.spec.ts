@@ -54,7 +54,7 @@ test.beforeAll(async () => {
     resolve: {
       alias: [
         ...["@/lib/advisor-review/service", "@/lib/advisor-review/snapshot", "@/lib/services/google-calendar-service", "@/lib/services/kai-profile-service", "@/lib/services/kai-profile-sync-service"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/advisor-review-boundaries.ts") })),
-        ...["@/lib/finance-sharing/use-finance-share-context", "@/lib/finance-sharing/saved-source", "@/lib/services/finance-sharing-service"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/finance-sharing-boundaries.ts") })),
+        ...["@/lib/finance-sharing/use-finance-share-context", "@/lib/finance-sharing/saved-source", "@/lib/services/finance-sharing-service", "@/lib/finance-sharing/portfolio-review-cache"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/finance-sharing-boundaries.ts") })),
         { find: /^@\/lib\/kai\/ticker-universe-cache$/, replacement: path.join(root, "e2e/fixtures/finance-market-boundaries.ts") },
         { find: /^@\/lib\/kai\/kai-market-home-resource$/, replacement: path.join(root, "e2e/fixtures/finance-market-boundaries.ts") },
         ...["@/hooks/use-auth", "@/lib/firebase/auth-context", "@/lib/vault/vault-context"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/finance-market-boundaries.ts") })),
@@ -327,6 +327,21 @@ async function mount(page: Page, width = 393, onboarding = false, advisorOnly = 
   await awaitProductFont(page);
 
 }
+
+test("Finance sector pagination uses compact controls and reaches both pages", async ({ page }) => {
+  await mount(page);
+  const allocation = page.getByRole("region", { name: "Sector Allocation", exact: true });
+  await allocation.getByRole("button", { name: /Healthcare/ }).click();
+  const prev = allocation.getByRole("button", { name: "Prev", exact: true });
+  const next = allocation.getByRole("button", { name: "Next", exact: true });
+  await expect(prev).toBeDisabled();
+  expect((await next.boundingBox())!.height).toBeLessThanOrEqual(36);
+  await next.click();
+  await expect(allocation.getByText("Showing 5–6 of 6")).toBeVisible();
+  await expect(next).toBeDisabled();
+  await prev.click();
+  await expect(allocation.getByText("Showing 1–4 of 6")).toBeVisible();
+});
 
 test("finance swipe keeps a gap during drag and full-width settled cards", async ({ page }) => {
   await mount(page, 393);

@@ -82,8 +82,8 @@ export function SectorAllocationChart({ holdings, className, responsive = true, 
             {pageCount > 1 ? <div className={styles.allocationPager}>
               <span>Showing {start + 1}–{Math.min(start + pageSize, sector.holdings.length)} of {sector.holdings.length}</span>
               <div className="flex gap-2">
-                <Button type="button" variant="outline" className="min-h-11 px-3 text-xs" disabled={page === 0} onClick={() => setPages(previous => ({ ...previous, [sector.name]: page - 1 }))}>Prev</Button>
-                <Button type="button" variant="outline" className="min-h-11 px-3 text-xs" disabled={page === pageCount - 1} onClick={() => setPages(previous => ({ ...previous, [sector.name]: page + 1 }))}>Next</Button>
+                <Button type="button" variant="outline" size="compact" disabled={page === 0} onClick={() => setPages(previous => ({ ...previous, [sector.name]: page - 1 }))}>Prev</Button>
+                <Button type="button" variant="outline" size="compact" disabled={page === pageCount - 1} onClick={() => setPages(previous => ({ ...previous, [sector.name]: page + 1 }))}>Next</Button>
               </div>
             </div> : null}
           </div></CollapsibleContent>

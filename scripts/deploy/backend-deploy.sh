@@ -965,15 +965,45 @@ if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
 fi
 # BEGIN UAT ACE SANDBOX PARITY
 # Enable UAT Confidential Sandbox (ACE) runtime parity on shared UAT when the
-# Edge Gateway and both custody/identity Secret Manager keys exist in
-# hushh-pda-uat. Production, commerce preview, and bootstrap projects stay
-# byte-identical by construction, and HUSHH_DEV_SIMULATION_ENABLED stays unset.
+# Edge Gateway and custody/identity Secret Manager keys exist in hushh-pda-uat.
+# BYOC live provisioning (HUSSH_USER_GCP_LIVE / HUSSH_USER_GCP_SUBSTRATE_APPLY /
+# HUSSH_CONSENT_PLANE_SA / HUSSH_POD_INGRESS) stays OFF on UAT to match Production
+# while BYOC stabilizes in Dev. Production, commerce preview, and bootstrap
+# projects stay byte-identical by construction, and HUSHH_DEV_SIMULATION_ENABLED
+# stays unset.
 if [[ "${_DEPLOY_ENV}" == "uat" && "${PROJECT_ID}" == "hushh-pda-uat" && -z "${commerce_preview_prefix:-}" ]]; then
-  _uat_ace_edge_url="$(gcloud run services describe "sandbox-edge-gateway" \
-    --project="$PROJECT_ID" --region="${_REGION}" --format='value(status.url)' 2>/dev/null || true)"
+  _uat_ace_edge_json="$(gcloud run services describe "sandbox-edge-gateway" \
+    --project="$PROJECT_ID" --region="${_REGION}" --format=json 2>/dev/null || true)"
+  _uat_ace_edge_url="$(printf '%s' "${_uat_ace_edge_json}" | python3 -c 'import json,sys
+try:
+    doc = json.load(sys.stdin)
+    print((doc.get("status") or {}).get("url") or "")
+except Exception:
+    print("")
+')"
   if [[ -n "${_uat_ace_edge_url}" ]] \
     && gcloud secrets describe "hussh-custody-broker-seal-key" --project="$PROJECT_ID" >/dev/null 2>&1 \
     && gcloud secrets describe "sandbox-edge-identity-master-key" --project="$PROJECT_ID" >/dev/null 2>&1; then
+    for _required_uat_ed25519 in \
+      CONSENT_ED25519_PRIVATE_KEY \
+      CONSENT_ED25519_PUBLIC_KEYS \
+      OWNER_FEED_ED25519_PRIVATE_KEY \
+      OWNER_FEED_ED25519_PUBLIC_KEYS; do
+      if ! gcloud secrets describe "${_required_uat_ed25519}" --project="$PROJECT_ID" >/dev/null 2>&1; then
+        echo "UAT ACE capability closure failed: missing required Secret Manager secret ${_required_uat_ed25519} in ${PROJECT_ID}." >&2
+        exit 1
+      fi
+    done
+    if ! printf '%s' "${_uat_ace_edge_json}" | python3 -c 'import json,sys
+doc = json.load(sys.stdin)
+containers = (((doc.get("spec") or {}).get("template") or {}).get("spec") or {}).get("containers") or [{}]
+names = {str(item.get("name") or "") for item in (containers[0].get("env") or [])}
+required = {"CONSENT_ED25519_PUBLIC_KEYS", "OWNER_FEED_ED25519_PUBLIC_KEYS"}
+sys.exit(0 if required.issubset(names) else 1)
+'; then
+      echo "UAT ACE capability closure failed: sandbox-edge-gateway is missing CONSENT_ED25519_PUBLIC_KEYS or OWNER_FEED_ED25519_PUBLIC_KEYS." >&2
+      exit 1
+    fi
     hub_url="$(gcloud run services describe "${_BACKEND_SERVICE}" \
       --region="${_REGION}" --format='value(status.url)' 2>/dev/null || true)"
     append_optional_env "HUSSH_HUB_BASE_URL" "${hub_url}"
@@ -985,12 +1015,8 @@ if [[ "${_DEPLOY_ENV}" == "uat" && "${PROJECT_ID}" == "hushh-pda-uat" && -z "${c
     personal_agent_autoprovision="true"
     gcp_backend_live="true"
     if [[ -n "${_RUNTIME_SERVICE_ACCOUNT:-}" ]]; then
-      consent_plane_sa="${_RUNTIME_SERVICE_ACCOUNT}"
       pod_invoker_member="serviceAccount:${_RUNTIME_SERVICE_ACCOUNT}"
     fi
-    user_gcp_live="true"
-    user_gcp_substrate_apply="true"
-    pod_ingress="all"
     personal_agent_reconcile="true"
     personal_agent_reachability="true"
     hosted_pod_tier="true"
@@ -1011,20 +1037,14 @@ if [[ "${_DEPLOY_ENV}" == "uat" && "${PROJECT_ID}" == "hushh-pda-uat" && -z "${c
     source_pod_retirement_sweep_enabled="true"
     dev_custody_broker_seal_key_secret="hussh-custody-broker-seal-key"
     dev_sandbox_identity_master_key_secret="sandbox-edge-identity-master-key"
-    if gcloud secrets describe CONSENT_ED25519_PRIVATE_KEY --project="$PROJECT_ID" >/dev/null 2>&1 \
-      && gcloud secrets describe CONSENT_ED25519_PUBLIC_KEYS --project="$PROJECT_ID" >/dev/null 2>&1; then
-      consent_signing_alg="ed25519"
-      consent_ed25519_kid="hushh-consent-uat-1"
-      dev_consent_ed25519_private_secret="CONSENT_ED25519_PRIVATE_KEY"
-      dev_consent_ed25519_public_keys_secret="CONSENT_ED25519_PUBLIC_KEYS"
-    fi
-    if gcloud secrets describe OWNER_FEED_ED25519_PRIVATE_KEY --project="$PROJECT_ID" >/dev/null 2>&1 \
-      && gcloud secrets describe OWNER_FEED_ED25519_PUBLIC_KEYS --project="$PROJECT_ID" >/dev/null 2>&1; then
-      owner_feed_signing_alg="ed25519"
-      owner_feed_ed25519_kid="hushh-owner-feed-uat-1"
-      dev_owner_feed_private_secret="OWNER_FEED_ED25519_PRIVATE_KEY"
-      dev_owner_feed_public_keys_secret="OWNER_FEED_ED25519_PUBLIC_KEYS"
-    fi
+    consent_signing_alg="ed25519"
+    consent_ed25519_kid="hushh-consent-uat-1"
+    dev_consent_ed25519_private_secret="CONSENT_ED25519_PRIVATE_KEY"
+    dev_consent_ed25519_public_keys_secret="CONSENT_ED25519_PUBLIC_KEYS"
+    owner_feed_signing_alg="ed25519"
+    owner_feed_ed25519_kid="hushh-owner-feed-uat-1"
+    dev_owner_feed_private_secret="OWNER_FEED_ED25519_PRIVATE_KEY"
+    dev_owner_feed_public_keys_secret="OWNER_FEED_ED25519_PUBLIC_KEYS"
   else
     echo "UAT ACE sandbox parity: edge gateway or custody secrets absent; skipping ACE bindings." >&2
   fi
@@ -1105,6 +1125,61 @@ fi
 # without durability rather than failing the deploy. Read that line in the build log
 # before concluding durability is on.
 append_optional_secret "${dev_pod_key_master_secret}" "HUSSH_POD_KEY_MASTER"
+
+# BEGIN CAPABILITY DEPENDENCY CLOSURE GATE
+# Fail closed in <1s before creating or promoting a backend revision when any
+# enabled runtime capability lacks its asymmetric signing, custody, or safety
+# boundaries, or when Dev-only flags leak into UAT or Production.
+if [[ "${_DEPLOY_ENV}" == "uat" || "${_DEPLOY_ENV}" == "production" || "${_DEPLOY_ENV}" == "prod" ]]; then
+  if [[ -n "${dev_simulation_enabled:-}" && "${dev_simulation_enabled}" != "false" && "${dev_simulation_enabled}" != "0" ]]; then
+    echo "Capability closure failed: HUSHH_DEV_SIMULATION_ENABLED is forbidden on ${_DEPLOY_ENV}." >&2
+    exit 1
+  fi
+  if [[ -n "${user_gcp_live:-}" || -n "${user_gcp_substrate_apply:-}" || -n "${consent_plane_sa:-}" || -n "${pod_ingress:-}" ]]; then
+    echo "Capability closure failed: BYOC live provisioning flags must stay unset on ${_DEPLOY_ENV}." >&2
+    exit 1
+  fi
+fi
+if [[ "${agent_sandbox_cutover_enabled:-}" == "1" || "${agent_sandbox_cutover_enabled:-}" == "true" ]]; then
+  for _closure_pair in \
+    "HUSSH_SANDBOX_EDGE_PUBLIC_URL:${sandbox_edge_public_url:-}" \
+    "PERSONAL_AGENT_ENABLED:${personal_agent_enabled:-}" \
+    "HUSSH_TRUSTED_DEVICE_ENABLED:${trusted_device_enabled:-}" \
+    "HUSSH_CUSTODY_BROKER_SEAL_KEY:${dev_custody_broker_seal_key_secret:-}" \
+    "HUSSH_SANDBOX_IDENTITY_MASTER_KEY:${dev_sandbox_identity_master_key_secret:-}" \
+    "CONSENT_TOKEN_SIGNING_ALG:${consent_signing_alg:-}" \
+    "CONSENT_ED25519_KID:${consent_ed25519_kid:-}" \
+    "CONSENT_ED25519_PRIVATE_KEY:${dev_consent_ed25519_private_secret:-}" \
+    "CONSENT_ED25519_PUBLIC_KEYS:${dev_consent_ed25519_public_keys_secret:-}" \
+    "OWNER_FEED_SIGNING_ALG:${owner_feed_signing_alg:-}" \
+    "OWNER_FEED_ED25519_KID:${owner_feed_ed25519_kid:-}" \
+    "OWNER_FEED_ED25519_PRIVATE_KEY:${dev_owner_feed_private_secret:-}" \
+    "OWNER_FEED_ED25519_PUBLIC_KEYS:${dev_owner_feed_public_keys_secret:-}"; do
+    _closure_name="${_closure_pair%%:*}"
+    _closure_val="${_closure_pair#*:}"
+    if [[ -z "${_closure_val}" ]]; then
+      echo "Capability closure failed: Confidential Sandbox cutover requires ${_closure_name} on ${_DEPLOY_ENV}." >&2
+      exit 1
+    fi
+  done
+  if [[ "${_DEPLOY_ENV}" != "dev" ]]; then
+    _has_hub_identity_auth="false"
+    for _ev in "${env_vars[@]}"; do
+      if [[ "${_ev}" == "POD_HUB_IDENTITY_AUTH_ENABLED=true" ]]; then
+        _has_hub_identity_auth="true"
+        break
+      fi
+    done
+    if [[ "${_has_hub_identity_auth}" != "true" ]]; then
+      echo "Capability closure failed: non-dev Confidential Sandbox cutover requires POD_HUB_IDENTITY_AUTH_ENABLED=true." >&2
+      exit 1
+    fi
+  fi
+elif [[ -n "${sandbox_edge_public_url:-}" ]]; then
+  echo "Capability closure failed: HUSSH_SANDBOX_EDGE_PUBLIC_URL is set without HUSSH_AGENT_SANDBOX_CUTOVER_ENABLED." >&2
+  exit 1
+fi
+# END CAPABILITY DEPENDENCY CLOSURE GATE
 
 # Join with '|' (not ',') so env VALUES may themselves contain commas.
 # Paired with gcloud's alternate-delimiter syntax on --set-env-vars below.

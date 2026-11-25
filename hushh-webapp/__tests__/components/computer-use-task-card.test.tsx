@@ -306,8 +306,8 @@ describe("private browser control", () => {
     expect(unwindBackLayer("/")).toBe(false);
   });
 
-  it("refuses every production schedule operation before admission or transport", async () => {
-    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
+  it.each(["production", "uat", "staging"])("refuses %s scheduling before admission or transport", async (environment) => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", environment);
     const client = new PodScheduledTasksClient("owner");
     const task = { id: "schedule_" + "a".repeat(32), revision: 1 } as Parameters<typeof client.control>[0];
     for (const result of [client.status(), client.control(task, "pause"),
@@ -319,7 +319,7 @@ describe("private browser control", () => {
     expect(api.ownerPodRequest).not.toHaveBeenCalled();
   });
 
-  it.each(["dev", "development", "uat", "staging"])("preserves %s scheduling in optimized builds", async (environment) => {
+  it.each(["dev", "development"])("preserves %s scheduling in optimized builds", async (environment) => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", environment);
     api.getComputerUseAdmission.mockResolvedValue({ ownerId: "owner", podId: "pod" });

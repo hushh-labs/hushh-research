@@ -16,12 +16,9 @@ import {
 
 import { ReceiptScrollContinuity } from "./receipt-scroll-continuity";
 import { ReceiptCollectionOverview, receiptCollectionOverview } from "./receipt-collection-overview";
-import { SectionHeader } from "@/components/app-ui/page-sections";
 import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
 import { MailActionButton as Button } from "./mail-action-button";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import {
   Receipt,
   ShoppingBag,
@@ -32,8 +29,17 @@ import {
   FileText,
   Cloud,
 } from "@/components/icons";
-import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
+import { SectionHeader } from "@/components/app-ui/page-sections";
 import { surfaceDataTableShellClassName } from "@/lib/morphy-ux/surfaces";
+import {
+  DEFAULT_FILTERS, TYPE_FILTERS, filterReceiptRows, loadFilterSelection, saveFilterSelection, type ReceiptFilterSelection,
+} from "@/lib/mail/receipt-filters";
+import { buildReceiptInsights, type ReceiptInsight } from "@/lib/mail/receipt-insights";
+import { summarizeMonth } from "@/lib/mail/receipt-month-summary";
+import { InsightCard, InsightReviewSheet, InsightsSheet, useCancellationConfirmation, useVisibleInsights } from "./receipts/receipt-insights-ui";
+import { MonthHeader, ReceiptControls, ReceiptRowButton } from "./receipts/receipt-list-ui";
+import { useReceiptTracking } from "./receipts/receipt-tracking-context";
+import { pendingCancellations } from "@/lib/mail/receipt-tracking";
 import {
   buildReceiptLogoUrl,
   buildRecentReceiptRows,
@@ -205,94 +211,6 @@ function ReceiptMerchantVisit({ homepageUrl }: { homepageUrl: string }) {
   );
 }
 
-type ReceiptFilter =
-  | "all"
-  | "paid"
-  | "due"
-  | "overdue"
-  | "upcoming"
-  | "cancelled";
-
-const RECEIPT_FILTER_OPTIONS: Array<{
-  label: string;
-  value: ReceiptFilter;
-}> = [
-  { label: "All", value: "all" },
-  { label: "Paid", value: "paid" },
-  { label: "Due", value: "due" },
-  { label: "Overdue", value: "overdue" },
-  { label: "Upcoming", value: "upcoming" },
-  { label: "Cancelled", value: "cancelled" },
-];
-
-const RECEIPT_STATUS_TONE_CLASSES = {
-  success:
-    "border-[color:var(--app-success-border)] bg-[color:var(--app-success-tint)] text-[color:var(--app-success-deep)] dark:text-[color:var(--app-success-bright)]",
-  warning:
-    "border-[color:var(--app-warning-border)] bg-[color:var(--app-warning-tint)] text-[color:var(--app-warning-deep)] dark:text-[color:var(--app-warning-bright)]",
-  destructive:
-    "border-[color:var(--app-destructive-border)] bg-[color:var(--app-destructive-tint)] text-[color:var(--app-destructive-deep)] dark:text-[color:var(--app-destructive-bright)]",
-  upcoming:
-    "border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]",
-  neutral: "border-border/70 bg-muted/70 text-muted-foreground",
-} as const;
-
-const RECEIPT_STATUS_DOT_CLASSES = {
-  success: "bg-[color:var(--app-success)]",
-  warning: "bg-[color:var(--app-warning)]",
-  destructive: "bg-[color:var(--app-destructive)]",
-  upcoming: "bg-[color:var(--app-accent)]",
-  neutral: "bg-muted-foreground",
-} as const;
-
-type ReceiptStatusTone = keyof typeof RECEIPT_STATUS_TONE_CLASSES;
-
-function receiptStatusTone(row: RecentReceiptRow): ReceiptStatusTone {
-  switch (row.status) {
-    case "paid":
-    case "delivered":
-      return "success";
-    case "overdue":
-    case "payment_failed":
-    case "suspended":
-    case "cancelled":
-      return "destructive";
-    case "trial":
-    case "renewal_due":
-      return "upcoming";
-    case "refunded":
-      return "neutral";
-    default:
-      return "neutral";
-  }
-}
-
-function ReceiptStatusBadge({ row }: { row: RecentReceiptRow }) {
-  const label = receiptStatusLabel(row.status);
-  if (!label) return null;
-  const tone = receiptStatusTone(row);
-
-  return (
-    <Badge
-      className={cn(
-        "h-5 gap-1 px-1.5 py-0 text-[11px] font-semibold",
-        RECEIPT_STATUS_TONE_CLASSES[tone],
-      )}
-      data-receipt-status={row.status || undefined}
-      variant="outline"
-    >
-      <span
-        aria-hidden="true"
-        className={cn(
-          "size-1.5 rounded-full",
-          RECEIPT_STATUS_DOT_CLASSES[tone],
-        )}
-      />
-      {label}
-    </Badge>
-  );
-}
-
 function receiptTimestamp(row: RecentReceiptRow): number {
   const timestamp = row.receiptDate ? new Date(row.receiptDate).getTime() : NaN;
   return Number.isNaN(timestamp) ? Number.NEGATIVE_INFINITY : timestamp;
@@ -312,28 +230,6 @@ function receiptSecondaryLabel(row: RecentReceiptRow): string | null {
   const category = row.displayKind === "merchant" ? row.secondaryDetail : null;
   const date = formatReceiptRowDate(row.receiptDate);
   return [category, date].filter(Boolean).join(" · ") || null;
-}
-
-function matchesReceiptFilter(
-  row: RecentReceiptRow,
-  filter: ReceiptFilter,
-): boolean {
-  switch (filter) {
-    case "all":
-      return true;
-    case "paid":
-      return row.status === "paid";
-    case "due":
-      // The current backend contract has no general payment-due lifecycle.
-      // Do not reinterpret renewal_due, attention, or a missing amount as Due.
-      return false;
-    case "overdue":
-      return row.status === "overdue";
-    case "upcoming":
-      return row.status === "renewal_due" || row.status === "trial";
-    case "cancelled":
-      return row.status === "cancelled" || row.status === "refunded";
-  }
 }
 
 type ReceiptMonthGroup = {
@@ -359,8 +255,7 @@ function groupReceiptRowsByMonth(
           year: "numeric",
         })
           .format(validDate)
-          .toUpperCase()
-      : "DATE UNAVAILABLE";
+      : "Date unavailable";
     const existing = groups.get(key);
     if (existing) {
       existing.rows.push(row);
@@ -370,56 +265,6 @@ function groupReceiptRowsByMonth(
   }
 
   return [...groups.values()];
-}
-
-function ReceiptListRow({
-  row,
-  onSelect,
-}: {
-  row: RecentReceiptRow;
-  onSelect: (row: RecentReceiptRow, trigger: HTMLButtonElement) => void;
-}) {
-  const amount = formatReceiptAmount(row.currency, row.amount);
-  const secondary = row.archived ? "Previously saved · reconciliation needed" : row.sourceUnavailable ? "Source unavailable · " + receiptSecondaryLabel(row) : receiptSecondaryLabel(row);
-
-  return (
-    <li className="border-b border-border/60 last:border-b-0">
-      <button
-        className="grid min-h-[58px] w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-3 bg-[color:var(--app-card-surface-default-solid)] px-[max(10px,calc(var(--data-table-cell-px)-2px))] py-2.5 text-left transition-[background-color] duration-150 ease-out hover:bg-foreground/[0.045] active:bg-foreground/[0.065] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]"
-        data-receipt-row-id={row.id}
-        data-testid="receipt-row"
-        onClick={(event) => onSelect(row, event.currentTarget)}
-        type="button"
-      >
-        <span className="flex min-w-0 items-center gap-2.5">
-          <ReceiptMerchantLogo
-            merchantName={row.merchantName}
-            logoDomain={row.logoDomain}
-            category={row.category}
-          />
-          <span className="min-w-0 flex-1">
-            <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-              <span className="min-w-0 truncate ui-text-row-label text-foreground">
-                {row.merchantName}
-              </span>
-              <ReceiptStatusBadge row={row} />
-            </span>
-            {secondary ? (
-              <span className="ui-text-row-description mt-0.5 block truncate text-muted-foreground">
-                {secondary}
-              </span>
-            ) : null}
-          </span>
-        </span>
-        <span
-          className="block shrink-0 whitespace-nowrap ui-text-trailing-value text-right tabular-nums text-foreground"
-          title={amount === "—" ? "Amount not found" : undefined}
-        >
-          {amount}
-        </span>
-      </button>
-    </li>
-  );
 }
 
 function receiptTimelineLabel(event: ReceiptTimelineEvent): string {
@@ -443,14 +288,21 @@ export function GmailRecentReceipts({
   loadReceiptDetail,
   onReceiptDetailLoaded,
   title = "Recent receipts",
-  showOverview = true,
+  showOverview = false,
   nativePresentation = true,
+  openRequest = null,
+  showInsights = true,
 }: {
   accountKey: string | null | undefined;
+  /** Renders a section heading; the current receipts view shows its own header instead. */
   headingId?: string;
   title?: string;
   showOverview?: boolean;
   nativePresentation?: boolean;
+  /** Opens one receipt's detail, for example from a recurring bill's evidence. */
+  openRequest?: { key: string; nonce: number } | null;
+  /** Earlier saved history belongs to another Mail account, so it never raises current insights. */
+  showInsights?: boolean;
   receipts: readonly ReceiptListItem[];
   savedRows?: readonly RecentReceiptRow[];
   sourceKeyAliases?: Readonly<Record<string, string>>;
@@ -491,32 +343,59 @@ export function GmailRecentReceipts({
   const [detailError, setDetailError] = useState<string | null>(null);
   const [liveUnavailable, setLiveUnavailable] = useState<string | null>(null);
   const [detailAttempt, setDetailAttempt] = useState(0);
+  const tracking = useReceiptTracking();
   const [search, setSearch] = useState("");
-  const [activeFilter, setActiveFilter] = useState<ReceiptFilter>("all");
+  const [selection, setSelection] = useState<ReceiptFilterSelection>(DEFAULT_FILTERS);
+  useEffect(() => setSelection(loadFilterSelection()), []);
   const [pageNavigation, setPageNavigation] = useState({ page: 1, revision: 0 });
   const displayPage = pageNavigation.page;
   const setDisplayPage = (page: number) => setPageNavigation(previous => ({ page, revision: previous.revision + 1 }));
-  const rows = useMemo(
+  const mailRows = useMemo(
     () => savedRows ?? buildRecentReceiptRows(receipts, accountKey),
     [accountKey, receipts, savedRows],
   );
+  const rows = mailRows;
   const selectedRow = useMemo(
     () => rows.find((row) => row.id === selectedRowId || Boolean(selectedReceiptKey && row.sourceReceiptKeys.includes(sourceKeyAliases?.[selectedReceiptKey] ?? selectedReceiptKey))) || null,
     [rows, selectedRowId, selectedReceiptKey, sourceKeyAliases],
   );
-  const filteredRows = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return rows
-      .filter(
-        (row) =>
-          matchesReceiptFilter(row, activeFilter) &&
-          (!query || row.searchText.toLowerCase().includes(query)),
-      )
-      .sort((left, right) => receiptTimestamp(right) - receiptTimestamp(left));
-  }, [activeFilter, rows, search]);
+  const filteredRows = useMemo(
+    () => filterReceiptRows(rows, selection, search).sort((left, right) => receiptTimestamp(right) - receiptTimestamp(left)),
+    [rows, search, selection],
+  );
+  const changeSelection = (next: ReceiptFilterSelection) => {
+    setSelection(next);
+    saveFilterSelection(next);
+    setDisplayPage(1);
+  };
+  const found = useMemo(() => buildReceiptInsights(mailRows), [mailRows]);
+  const insights = useVisibleInsights(found);
+  useCancellationConfirmation(mailRows);
+  const waiting = tracking?.doc ? pendingCancellations(tracking.doc) : [];
+  const [insightsOpen, setInsightsOpen] = useState(false);
+  const [reviewing, setReviewing] = useState<ReceiptInsight | null>(null);
+  const monthSummaries = useMemo(() => {
+    const byMonth = new Map<string, RecentReceiptRow[]>();
+    for (const row of filteredRows) {
+      const at = row.receiptDate ? new Date(row.receiptDate) : null;
+      const key = at && !Number.isNaN(at.getTime()) ? `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}` : "date-unavailable";
+      byMonth.set(key, [...(byMonth.get(key) ?? []), row]);
+    }
+    return new Map([...byMonth].map(([key, monthRows]) => [key, summarizeMonth(monthRows)]));
+  }, [filteredRows]);
+  const openReceipt = useCallback((receiptKey: string) => {
+    const row = rows.find((item) => item.sourceReceiptKeys.includes(sourceKeyAliases?.[receiptKey] ?? receiptKey));
+    if (!row) return;
+    selectedRowTriggerRef.current = null;
+    setInsightsOpen(false);
+    setReviewing(null);
+    setSelectedRowId(row.id);
+    setSelectedReceiptKey(sourceKeyAliases?.[receiptKey] ?? receiptKey);
+  }, [rows, sourceKeyAliases]);
+  useEffect(() => { if (openRequest) openReceipt(openRequest.key); }, [openRequest]); // eslint-disable-line react-hooks/exhaustive-deps
   const pageCount = Math.max(1, Math.ceil(filteredRows.length / 10));
   const requestedPage = Math.min(displayPage, pageCount);
-  const scope = `${search}\u0000${activeFilter}\u0000${requestedPage}\u0000${pageNavigation.revision}`;
+  const scope = `${search}\u0000${selection.date}:${selection.type}\u0000${requestedPage}\u0000${pageNavigation.revision}`;
   const [windowState, setWindowState] = useState({ rows: filteredRows, scope, first: filteredRows[0]?.id, start: 0 });
   let start = windowState.start;
   if (windowState.rows !== filteredRows || windowState.scope !== scope) {
@@ -647,32 +526,26 @@ export function GmailRecentReceipts({
   const fallback = (
     <ReceiptScrollContinuity scope={scope}>
       {showOverview ? <ReceiptCollectionOverview rows={rows} /> : null}
-      <SectionHeader id={headingId} title={title} />
-      <Input
-        type="search"
-        aria-label="Search table"
-        placeholder="Search receipts"
-        value={search}
-        onChange={(event) => {
-          setSearch(event.target.value);
-          setDisplayPage(1);
-        }}
-      />
-      <SegmentedTabs
-        ariaLabel="Receipt status filters"
-        className="pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        onValueChange={(value) => {
-          setActiveFilter(value as ReceiptFilter);
-          setDisplayPage(1);
-        }}
-        options={RECEIPT_FILTER_OPTIONS}
-        value={activeFilter}
-        variant="filter"
-      />
+      {headingId ? <SectionHeader id={headingId} title={title} /> : null}
+      {showInsights && (insights[0] || waiting.length) ? (
+        <InsightCard
+          insight={insights[0] ?? null}
+          total={insights.length}
+          onSeeAll={() => setInsightsOpen(true)}
+          onReview={setReviewing}
+          waitingNote={!insights.length && waiting.length ? {
+            title: `${waiting.length} cancellation${waiting.length === 1 ? "" : "s"} waiting for the provider`,
+            detail: "Savings count only after each provider confirms the change.",
+          } : null}
+        />
+      ) : null}
+      <ReceiptControls search={search} onSearch={(value) => { setSearch(value); setDisplayPage(1); }} selection={selection} onSelection={changeSelection} />
       <div
-        aria-label={`${RECEIPT_FILTER_OPTIONS.find((option) => option.value === activeFilter)?.label || "All"} receipts`}
-        className="space-y-5"
+        aria-label={`${TYPE_FILTERS.find((option) => option.value === selection.type)?.label || "All types"} receipts`}
+        className="space-y-4"
         role="tabpanel"
+        id="receipts-panel-all"
+        aria-labelledby="receipts-view-all"
       >
         {visibleGroups.length ? (
           visibleGroups.map((group, groupIndex) => {
@@ -680,24 +553,14 @@ export function GmailRecentReceipts({
             return (
               <section
                 aria-labelledby={headingId}
-                className="space-y-2"
+                className="overflow-hidden rounded-[20px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--shadow-xs)]"
                 data-testid="receipt-month-group"
                 key={group.key}
               >
-                <h3
-                  className="receipt-month-heading px-1 text-muted-foreground"
-                  id={headingId}
-                >
-                  {group.label}
-                </h3>
-                <ul
-                  className={cn(
-                    surfaceDataTableShellClassName,
-                    "w-full min-w-0 max-w-full overflow-hidden",
-                  )}
-                >
+                <MonthHeader headingId={headingId} label={group.label} summary={monthSummaries.get(group.key) ?? summarizeMonth(group.rows)} />
+                <ul className="w-full min-w-0 max-w-full border-t border-border/60">
                   {group.rows.map((row) => (
-                    <ReceiptListRow
+                    <ReceiptRowButton
                       key={row.id}
                       onSelect={(selected, trigger) => {
                         selectedRowTriggerRef.current = trigger;
@@ -928,6 +791,13 @@ export function GmailRecentReceipts({
           </div>
         ) : null}
       </AdaptiveDetailSurface>
+      <InsightsSheet
+        open={insightsOpen}
+        onOpenChange={setInsightsOpen}
+        insights={insights}
+        onReview={(insight) => { setInsightsOpen(false); setReviewing(insight); }}
+      />
+      <InsightReviewSheet insight={reviewing} onClose={() => setReviewing(null)} rows={mailRows} onOpenReceipt={openReceipt} />
     </ReceiptScrollContinuity>
   );
   if (!nativeActive) return fallback;
@@ -946,9 +816,9 @@ export function GmailRecentReceipts({
         key: "category:" + category, label: category, detail: String(count) + " · " + String(Math.round(count / overview.active.length * 100)) + "%",
       })) : [{ key: "categories-empty", label: "Categories appear as receipts arrive." }] },
     ] : []),
-    { key: "receipt-filters", title: "Receipt status filters", rows: RECEIPT_FILTER_OPTIONS.map(option => ({
-      key: "filter:" + option.value, label: option.label, selected: activeFilter === option.value,
-      run: () => { setActiveFilter(option.value); setDisplayPage(1); },
+    { key: "receipt-filters", title: "Receipt types", rows: TYPE_FILTERS.map(option => ({
+      key: "filter:" + option.value, label: option.label, selected: selection.type === option.value,
+      run: () => changeSelection({ ...selection, type: option.value }),
     })) },
     ...visibleGroups.map(group => ({ key: "month:" + group.key, title: group.label, rows: group.rows.map(row => ({
       key: "receipt:" + row.id, label: row.merchantName,

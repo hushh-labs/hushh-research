@@ -13,6 +13,7 @@ export const useVault = () => vault;
 export const useEffectiveAvatarUrl = () => null;
 export const usePersonaState = () => ({ activePersona: 'investor', riaCapability: 'disabled', riaEntryRoute: '/ria', switchPersona() {} });
 export const useNativePresentationRegions = () => {};
+export const subscribeNativeShellInset = () => () => {};
 export const VaultService = { peekVaultPresence: () => true, checkVault: async () => true };
 export const DELETE_ACCOUNT_DIALOG_DESCRIPTION = 'Delete your account';
 export const DELETE_ACCOUNT_DIALOG_TITLE = 'Delete account';
@@ -55,6 +56,7 @@ export const GmailInformationRequestsService = {
 };
 export const ApiService = new Proxy({}, { get: (_target, name) => name === 'getPersonalAgentStatus'
  ? async () => ({ hostingMode: 'shared' })
+
  : async () => { throw new Error('Unhandled fixture network request'); } });
 export const HushhPersonalKnowledgeModel = {};
 export const HushhVault = {};

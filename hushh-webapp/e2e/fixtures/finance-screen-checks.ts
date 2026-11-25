@@ -226,7 +226,11 @@ export function registerHoldingEntryChecks(mount: (page: Page, width?: number) =
       await expect(entries).toBeVisible();
       await expect(entries.getByText("Vanguard Total Stock Market ETF · VTI")).toBeVisible();
       await expect(entries.getByRole("button", { name: "Edit entry 1" })).toBeVisible();
-      await entries.getByRole("button", { name: "Done" }).click();
+      const done = entries.getByRole("button", { name: "Done" });
+      const doneBox = (await done.boundingBox())!;
+      const entriesBox = (await entries.boundingBox())!;
+      expect(doneBox.x + doneBox.width / 2).toBeGreaterThan(entriesBox.x + entriesBox.width / 2);
+      await done.click();
       await expect(entries).not.toBeVisible();
     });
   }
@@ -251,6 +255,13 @@ export function registerHoldingEntryChecks(mount: (page: Page, width?: number) =
         const editor = page.getByRole("dialog", { name: "Edit Holding", exact: true });
         await expect(editor).toBeVisible();
         await expect(page.getByRole("dialog")).toHaveCount(1);
+        const cancel = editor.getByRole("button", { name: "Cancel", exact: true });
+        const save = editor.getByRole("button", { name: "Save Changes", exact: true });
+        const cancelSize = (await cancel.boundingBox())!;
+        const saveSize = (await save.boundingBox())!;
+        expect(saveSize.height).toEqual(cancelSize.height);
+        expect(saveSize.width).toBeCloseTo(cancelSize.width, 0);
+        expect(await save.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
         const quantity = editor.getByLabel(/^quantity/i);
         await quantity.fill("0");
         await editor.getByRole("button", { name: /save/i }).click();

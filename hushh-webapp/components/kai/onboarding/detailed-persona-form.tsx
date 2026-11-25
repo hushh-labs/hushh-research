@@ -124,7 +124,7 @@ export function DetailedPersonaForm({
       <footer className={`${styles.actions} ${styles.assessmentActions}`}>
         <ShellActionSurface
           variant="pill"
-          className="ui-text-compact-button-label"
+          className={`${styles.assessmentAction} ui-text-compact-button-label`}
           disabled={busy}
           onClick={() => step > 0 ? setStep(step - 1) : onDone()}
         >
@@ -133,7 +133,7 @@ export function DetailedPersonaForm({
         <ShellActionSurface
           type="submit"
           variant="pill"
-          className={`${styles.primary} ui-text-compact-button-label`}
+          className={`${styles.assessmentAction} ${styles.primary} ui-text-compact-button-label`}
           rippleEffect="fill"
           disabled={busy}
         >

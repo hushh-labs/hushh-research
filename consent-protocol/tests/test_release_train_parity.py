@@ -147,3 +147,190 @@ def test_live_cloud_flags_fail_closed_if_dev_simulation_leaks_to_uat(tmp_path: P
     assert any(
         "HUSHH_DEV_SIMULATION_ENABLED must never be active on uat" in b for b in report["blockers"]
     )
+
+
+def test_live_cloud_closure_verifies_ed25519_verification_keys_and_prod_shared(
+    tmp_path: Path,
+) -> None:
+    mod = _load_module()
+    repo = _init_three_lane_repo(tmp_path)
+
+    def _complete_sandbox_env(lane: str) -> list[dict[str, Any]]:
+        env: list[dict[str, Any]] = [
+            {"name": "HUSSH_AGENT_SANDBOX_CUTOVER_ENABLED", "value": "1"},
+            {
+                "name": "HUSSH_SANDBOX_EDGE_PUBLIC_URL",
+                "value": f"https://edge-{lane}.example.run.app",
+            },
+            {"name": "PERSONAL_AGENT_ENABLED", "value": "true"},
+            {"name": "HUSSH_TRUSTED_DEVICE_ENABLED", "value": "true"},
+            {"name": "CONSENT_TOKEN_SIGNING_ALG", "value": "ed25519"},
+            {"name": "CONSENT_ED25519_KID", "value": f"hushh-consent-{lane}-1"},
+            {"name": "CONSENT_ED25519_PRIVATE_KEY", "valueFrom": {"secretKeyRef": {"name": "s"}}},
+            {"name": "CONSENT_ED25519_PUBLIC_KEYS", "valueFrom": {"secretKeyRef": {"name": "s"}}},
+            {"name": "OWNER_FEED_SIGNING_ALG", "value": "ed25519"},
+            {"name": "OWNER_FEED_ED25519_KID", "value": f"hushh-owner-feed-{lane}-1"},
+            {
+                "name": "OWNER_FEED_ED25519_PRIVATE_KEY",
+                "valueFrom": {"secretKeyRef": {"name": "s"}},
+            },
+            {
+                "name": "OWNER_FEED_ED25519_PUBLIC_KEYS",
+                "valueFrom": {"secretKeyRef": {"name": "s"}},
+            },
+            {"name": "HUSSH_CUSTODY_BROKER_SEAL_KEY", "valueFrom": {"secretKeyRef": {"name": "s"}}},
+            {
+                "name": "HUSSH_SANDBOX_IDENTITY_MASTER_KEY",
+                "valueFrom": {"secretKeyRef": {"name": "s"}},
+            },
+        ]
+        if lane == "uat":
+            env.append({"name": "POD_HUB_IDENTITY_AUTH_ENABLED", "value": "true"})
+        return env
+
+    def _healthy_fetcher(project: str, _region: str, service: str) -> dict[str, Any] | None:
+        lane = {"hushh-pda-dev": "dev", "hushh-pda-uat": "uat", "hushh-pda": "production"}[project]
+        if service == "sandbox-edge-gateway":
+            if lane == "production":
+                return None
+            return {
+                "status": {
+                    "latestReadyRevisionName": f"edge-{lane}-001",
+                    "url": f"https://edge-{lane}.example.run.app",
+                },
+                "spec": {
+                    "template": {
+                        "spec": {
+                            "containers": [
+                                {
+                                    "env": [
+                                        {"name": "CONSENT_ED25519_PUBLIC_KEYS"},
+                                        {"name": "OWNER_FEED_ED25519_PUBLIC_KEYS"},
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                },
+            }
+        env = _complete_sandbox_env(lane) if lane in ("dev", "uat") else []
+        return {
+            "status": {
+                "latestReadyRevisionName": f"{service}-{lane}-rev",
+                "url": f"https://{service}-{lane}.example.run.app",
+            },
+            "spec": {
+                "template": {"metadata": {"labels": {}}, "spec": {"containers": [{"env": env}]}}
+            },
+        }
+
+    def _healthy_prober(url: str) -> tuple[int, dict[str, Any]]:
+        if url.endswith("/verification-keys"):
+            lane = "uat" if "-uat." in url else "dev"
+            return 200, {"keys": {f"hushh-consent-{lane}-1": "pubkey"}}
+        return 200, {"status": "ok"}
+
+    ok_report = mod.build_parity_report(
+        repo,
+        dev_ref="dev",
+        uat_ref="uat",
+        main_ref="main",
+        include_live_cloud=True,
+        live_cloud_fetcher=_healthy_fetcher,
+        live_http_prober=_healthy_prober,
+    )
+    assert ok_report["status"] == "ready", ok_report["blockers"]
+
+    def _broken_vk_prober(url: str) -> tuple[int, dict[str, Any]]:
+        if "consent-protocol-uat" in url and url.endswith("/verification-keys"):
+            return 503, {}
+        return _healthy_prober(url)
+
+    broken_report = mod.build_parity_report(
+        repo,
+        dev_ref="dev",
+        uat_ref="uat",
+        main_ref="main",
+        include_live_cloud=True,
+        live_cloud_fetcher=_healthy_fetcher,
+        live_http_prober=_broken_vk_prober,
+    )
+    assert broken_report["status"] == "blocked"
+    assert any("verification-keys endpoint returned 503" in b for b in broken_report["blockers"])
+
+
+def test_blocks_on_asymmetric_ours_backsync_merge(tmp_path: Path) -> None:
+    mod = _load_module()
+    repo = _init_three_lane_repo(tmp_path)
+
+    _git(repo, "checkout", "uat")
+    svc_dir = repo / "consent-protocol" / "hushh_mcp" / "services"
+    svc_dir.mkdir(parents=True, exist_ok=True)
+    (svc_dir / "uat_only_fix.py").write_text("UAT_SAFEGUARD = True\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "fix(connect): uat deleted account safeguard")
+
+    _git(repo, "checkout", "dev")
+    svc_dir.mkdir(parents=True, exist_ok=True)
+    (svc_dir / "dev_feature.py").write_text("DEV_FEATURE = True\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "feat(one): dev sandbox feature")
+
+    # Simulate a dangerous 'take ours' merge that records uat as merged while dropping uat_only_fix.py!
+    _git(repo, "merge", "-s", "ours", "uat", "-m", "chore(dev): bad ours merge of uat")
+
+    report = mod.build_parity_report(
+        repo,
+        dev_ref="dev",
+        uat_ref="uat",
+        main_ref="main",
+        require_clean_upstream=True,
+    )
+    assert report["code_parity"]["uat_ahead_of_dev"]["count"] == 0
+    assert report["merge_fidelity"]["violation_count"] == 1
+    assert report["status"] == "blocked"
+    assert any("Asymmetric merge fidelity violation" in b for b in report["blockers"])
+
+
+def test_release_manifest_and_serving_parity_enforcement(tmp_path: Path) -> None:
+    mod = _load_module()
+    repo = _init_three_lane_repo(tmp_path)
+    uat_sha = _git(repo, "rev-parse", "uat")
+
+    _git(repo, "checkout", "dev")
+    kai_dir = repo / "hushh-webapp" / "components" / "kai"
+    kai_dir.mkdir(parents=True, exist_ok=True)
+    (kai_dir / "portfolio.tsx").write_text("export const ok = true;\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "feat(finance): portfolio redesign")
+
+    def _stale_dev_fetcher(project: str, _region: str, service: str) -> dict[str, Any] | None:
+        if service == "sandbox-edge-gateway":
+            return None
+        return {
+            "status": {
+                "latestReadyRevisionName": f"{service}-001",
+                "url": f"https://{service}.example.run.app",
+            },
+            "spec": {
+                "template": {
+                    "metadata": {"labels": {"deploy-sha": uat_sha}},
+                    "spec": {"containers": [{"env": []}]},
+                }
+            },
+        }
+
+    report = mod.build_parity_report(
+        repo,
+        dev_ref="dev",
+        uat_ref="uat",
+        main_ref="main",
+        include_live_cloud=True,
+        require_serving_parity=True,
+        live_cloud_fetcher=_stale_dev_fetcher,
+        live_http_prober=lambda _url: (200, {"status": "ok"}),
+    )
+    assert "finance" in report["release_manifest"]["features"]
+    assert report["live_cloud"]["lanes"]["dev"]["branch_ahead_of_serving"] == 1
+    assert report["status"] == "blocked"
+    assert any("Serving parity on dev" in b for b in report["blockers"])

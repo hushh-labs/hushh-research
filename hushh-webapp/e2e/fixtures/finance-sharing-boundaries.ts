@@ -31,8 +31,9 @@ export function requireFinanceSession(value: { isCurrent: () => boolean }) {
 export async function readSavedFinance() {
   const updated = document.body.dataset.portfolioReviewChanged === "true";
   const model = document.body.dataset.portfolioReviewFundAndCash === "true" ? fundAndCashModel : analysisModel;
+  const lossCapacity = document.body.dataset.portfolioPersonaIncomplete === "true" ? null : "flexible";
   return { model: updated ? { ...model, hero: { ...model.hero, totalValue: 12000 } } : model,
-    profile: { preferences: { investment_horizon: "long_term", drawdown_response: "buy_more", volatility_preference: "large", loss_capacity: "flexible" } }, source: { kind: "statement" as const, snapshotId: null }, sourceFence: "a".repeat(64) }; }
+    profile: { preferences: { investment_horizon: "long_term", drawdown_response: "buy_more", volatility_preference: "large", loss_capacity: lossCapacity } }, source: { kind: "statement" as const, snapshotId: null }, sourceFence: "a".repeat(64) }; }
 export function pendingFinanceShare() { return null; }
 const people = [{ userId: "synthetic-recipient", displayName: "Sample connection", isFinanceAdvisor: true, publicPersonRef: "11111111-1111-4111-8111-111111111111", keyId: "synthetic-key", publicKeyJwk: { kty: "EC" } }];
 people.push(...Array.from({ length: 24 }, (_, index) => ({ ...people[0]!, userId: `synthetic-${index}`, displayName: `Other connection ${index + 1}`, isFinanceAdvisor: false, publicPersonRef: `11111111-1111-4111-8111-${String(index + 2).padStart(12, "0")}` })));

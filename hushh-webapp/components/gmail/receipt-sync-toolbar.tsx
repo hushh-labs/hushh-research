@@ -23,9 +23,9 @@ export function receiptSyncStatus({ snapshot, refreshing, restoring, progress, e
       : "Ready to check for receipts.");
 }
 
-export function ReceiptSyncToolbar({ snapshot, refreshing, error, disabled, onRefresh, onRestore, progress = null, migration = false, active = true, restoring = false, detailsOpen: controlledDetailsOpen, onDetailsOpenChange }: {
+export function ReceiptSyncToolbar({ snapshot, refreshing, error, disabled, onRefresh, onRestore, progress = null, migration = false, active = true, restoring = false, compact = false, detailsOpen: controlledDetailsOpen, onDetailsOpenChange }: {
   snapshot: ReceiptSnapshot | null; refreshing: boolean; error: string | null; disabled: boolean; onRefresh?: () => void; onRestore?: () => void;
-  progress?: ReceiptProgress | null; migration?: boolean; active?: boolean; restoring?: boolean; detailsOpen?: boolean; onDetailsOpenChange?: (open: boolean) => void;
+  progress?: ReceiptProgress | null; migration?: boolean; active?: boolean; restoring?: boolean; compact?: boolean; detailsOpen?: boolean; onDetailsOpenChange?: (open: boolean) => void;
 }) {
   const pathname = usePathname();
   const [localDetailsOpen, setLocalDetailsOpen] = useState(false);
@@ -39,10 +39,15 @@ export function ReceiptSyncToolbar({ snapshot, refreshing, error, disabled, onRe
   const status = receiptSyncStatus({ snapshot, refreshing, restoring, progress, error, disabled });
   const retry = onRestore ?? onRefresh;
   return <Dialog open={active && detailsOpen} onOpenChange={open => { openingSettings.current = false; setDetailsOpen(open); }}>
-  <div className="flex min-h-20 items-center justify-between gap-3" data-no-auto-fade="true" data-testid="receipt-sync-toolbar" aria-busy={refreshing || restoring}>
+  <div className={compact ? "flex min-h-11 items-center justify-between gap-3" : "flex min-h-20 items-center justify-between gap-3"} data-no-auto-fade="true" data-testid="receipt-sync-toolbar" aria-busy={refreshing || restoring}>
     <div className="min-w-0 flex-1" role="status" aria-live="polite">
-      <SectionTitle as="p">{snapshot ? "Saved receipts" : "Your receipts"}</SectionTitle>
-      <HelperText as="p" className="block min-h-10 text-muted-foreground">{status}</HelperText>
+      {compact ? <div className="flex flex-wrap items-baseline gap-x-2">
+        <SectionTitle as="p">{snapshot ? "Saved receipts" : "Your receipts"}</SectionTitle>
+        <HelperText as="p" className="block text-muted-foreground">{status}</HelperText>
+      </div> : <>
+        <SectionTitle as="p">{snapshot ? "Saved receipts" : "Your receipts"}</SectionTitle>
+        <HelperText as="p" className="block min-h-10 text-muted-foreground">{status}</HelperText>
+      </>}
     </div>
     <div className="flex shrink-0 flex-col items-end gap-1">
       {retry ? <MailActionButton disabled={refreshing || restoring} onClick={retry} aria-busy={refreshing || restoring}

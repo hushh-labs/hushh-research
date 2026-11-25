@@ -37,7 +37,7 @@ describe("Files settings and local navigation", () => {
   it.each([
     ["development", false, false],
     ["development", true, true],
-    ["uat", true, true],
+    ["uat", true, false],
     ["production", true, false],
   ])("bounds scheduling by app environment and executor (%s, %s)", async (environment, backgroundAvailable, available) => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", environment);
