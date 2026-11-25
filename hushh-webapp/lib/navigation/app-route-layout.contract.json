@@ -2261,7 +2261,7 @@
         }
       ],
       "kind": "parent",
-      "reason": "Card request query opens an authenticated Dialog overlay. Back dismisses that review first. Add is a sheet over the two local collections, My cards and Shared with me. Back and Cancel use the same draft reset and restore the previous selected masked card. Card details, Manage access, Wallet-wide access and sharing history unwind their local layers before the authored Wallet parent. A pending save consumes Back. Verified in wallet-workspace.layout.spec.ts and wallet-workspace.test.tsx."
+      "reason": "Card request review dismisses first. Web uses Cards, Add and Sharing tabs, with card details inline in Cards. Back unwinds nested sharing/reveal, selected card, then tab history before the authored Wallet parent. Add cancellation resets the draft. Native Wallet retains its owned sheets and two collections. Pending saves remain workspace-owned and never reveal or share an unconfirmed card. Runtime verification of the restored web layout is pending owner review."
     }
   },
   {

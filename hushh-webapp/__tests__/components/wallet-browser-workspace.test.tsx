@@ -208,20 +208,20 @@ describe("Wallet video browser workspace", () => {
     serviceMock.addCard.mockResolvedValueOnce({ cardId: summary.cardId, summary, cardholderName: "Synthetic owner" });
     let finish!: (cards: unknown[]) => void;
     serviceMock.listCardSummaries.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-    fireEvent.click(screen.getByTestId("one-wallet-add"));
+    fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
     fireEvent.change(screen.getByLabelText("Card number", { exact: true }), { target: { value: "4242424242424242" } });
     fireEvent.change(screen.getByLabelText("Name on card", { exact: true }), { target: { value: "Synthetic owner" } });
     fireEvent.change(screen.getByLabelText("Expiry (MM/YY)", { exact: true }), { target: { value: "12/30" } });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Save card", exact: true })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: "Save card", exact: true }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add to Wallet", exact: true })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Add to Wallet", exact: true }));
     await waitFor(() => expect(finish).toBeTypeOf("function"));
-    await waitFor(() => expect(screen.getByRole("tab", { name: "My cards", hidden: true, exact: true })).toHaveAttribute("aria-selected", "true"));
-    fireEvent.click(screen.getByTestId("one-wallet-add"));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Cards", hidden: true, exact: true })).toHaveAttribute("aria-selected", "true"));
+    fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
     fireEvent.change(screen.getByLabelText("Name on card", { exact: true }), { target: { value: "New draft" } });
     await act(async () => finish(makeCards(3)));
     expect(screen.getByLabelText("Name on card", { exact: true })).toHaveValue("NEW DRAFT");
     expect(screen.queryByText("Your cards could not be loaded. Please try again.")).toBeNull();
-    fireEvent.click(screen.getByRole("tab", { name: "My cards", hidden: true, exact: true }));
+    fireEvent.click(screen.getByRole("tab", { name: "Cards", hidden: true, exact: true }));
     serviceMock.listCardSummaries.mockResolvedValue(makeCards(3));
     act(() => { vaultMock.token = "renewed_after_recovery"; advanceVaultSessionEpoch(); view.rerender(<WalletWorkspace />); });
     await waitFor(() => expect(serviceMock.listCardSummaries.mock.calls.some(([context]) => context.vaultOwnerToken === "renewed_after_recovery")).toBe(true));
@@ -291,9 +291,9 @@ describe("Wallet video browser workspace", () => {
     const view = await open();
     const context = historyProbe.getContext?.("");
     expect(context?.isCurrent()).toBe(true);
-    fireEvent.click(screen.getByTestId("one-wallet-add"));
+    fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
     expect(context?.isCurrent()).toBe(true);
-    fireEvent.click(screen.getByRole("tab", { name: "Shared with me", hidden: true }));
+    fireEvent.click(screen.getByRole("tab", { name: "Sharing", hidden: true }));
     expect(context?.isCurrent()).toBe(true);
     act(() => advanceVaultSessionEpoch());
     expect(context?.isCurrent()).toBe(false);
@@ -377,7 +377,7 @@ describe("Wallet video browser workspace", () => {
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Revoke access", exact: true }));
     if (boundary === "owner roundtrip") { authMock.user = { uid: "user_2" }; view.rerender(<WalletWorkspace />); authMock.user = owner; view.rerender(<WalletWorkspace />); }
     if (boundary === "lock") { vaultMock.locked = true; view.rerender(<WalletWorkspace />); vaultMock.locked = false; view.rerender(<WalletWorkspace />); }
-    if (boundary === "tab") fireEvent.click(screen.getByTestId("one-wallet-add"));
+    if (boundary === "tab") fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true, hidden: true }));
     if (boundary === "overview") {
       act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
       expect(screen.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "all");
@@ -439,7 +439,7 @@ describe("Wallet video browser workspace", () => {
     await waitFor(() => expect(finish).toBeTypeOf("function"));
     if (boundary === "owner") { authMock.user = { uid: "user_2" }; view.rerender(<WalletWorkspace />); }
     if (boundary === "lock") { vaultMock.locked = true; view.rerender(<WalletWorkspace />); }
-    if (boundary === "tab") fireEvent.click(screen.getByTestId("one-wallet-add"));
+    if (boundary === "tab") fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
     if (boundary === "card") { fireEvent.click(screen.getByRole("button", { name: "All (5)", hidden: true })); fireEvent.click(screen.getByRole("button", { name: "Open Card 1, ending 1001", hidden: true })); }
     if (boundary === "epoch") act(() => advanceVaultSessionEpoch());
     const visibility = boundary === "visibility" ? vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden") : null;
@@ -458,7 +458,7 @@ describe("Wallet video browser workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy card number" }));
     if (change === "owner") { authMock.user = { uid: "user_2" }; view.rerender(<WalletWorkspace />); }
     if (change === "lock") { vaultMock.locked = true; view.rerender(<WalletWorkspace />); }
-    if (change === "tab") fireEvent.click(screen.getByTestId("one-wallet-add"));
+    if (change === "tab") fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
     if (change === "overview") fireEvent.click(screen.getByRole("button", { name: "All (5)", hidden: true }));
     if (change === "card") {
       fireEvent.click(screen.getByRole("button", { name: "All (5)", hidden: true }));
@@ -498,7 +498,7 @@ describe("Wallet video browser workspace", () => {
   it("opens the existing Add form from a selected card", async () => {
     await open();
     fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000", hidden: true }));
-    fireEvent.click(screen.getByTestId("one-wallet-add"));
+    fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
     await waitFor(() => expect(screen.getByTestId("secure-card-add-form")).toBeVisible());
     expect(screen.queryByRole("button", { name: "Take photo" })).toBeNull();
     const photos = screen.getByRole("button", { name: "Choose from photos", exact: true });
@@ -590,7 +590,7 @@ describe("Wallet video browser workspace", () => {
     await waitFor(() => expect(finish).toBeTypeOf("function"));
     if (boundary === "owner") { authMock.user = { uid: "user_2" }; view.rerender(<WalletWorkspace />); }
     if (boundary === "lock") { vaultMock.locked = true; view.rerender(<WalletWorkspace />); }
-    if (boundary === "tab") fireEvent.click(screen.getByTestId("one-wallet-add"));
+    if (boundary === "tab") fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
     if (boundary === "visibility") { vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden"); fireEvent(document, new Event("visibilitychange")); }
     await act(async () => finish({ secrets: { pan: "4000000000000002", cvv: "999", pin: "9876" } }));
     expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
@@ -613,7 +613,7 @@ describe("Wallet video browser workspace", () => {
     expect(screen.queryByTestId("one-wallet-reveal-1001")).toBeNull();
     expect(serviceMock.getCard).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("•••• •••• •••• 1001"));
-    fireEvent.click(screen.getByRole("button", { name: "All cards", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Back", exact: true }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Card 1", exact: true })).toHaveFocus());
   });
 
@@ -623,8 +623,8 @@ describe("Wallet video browser workspace", () => {
     const browser = screen.getByTestId("wallet-card-browser");
     fireEvent.click(screen.getByRole("button", { name: "Agent One Profile", exact: true }));
     await waitFor(() => expect(screen.getByTestId("wallet-selected-card")).toBeVisible());
-    fireEvent.click(screen.getByTestId("one-wallet-add"));
-    fireEvent.click(screen.getByRole("tab", { name: "My cards", hidden: true, exact: true }));
+    fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
+    fireEvent.click(screen.getByRole("tab", { name: "Cards", hidden: true, exact: true }));
     await waitFor(() => expect(browser).toHaveAttribute("data-mode", "all"));
     expect(screen.getByTestId("wallet-card-browser")).toBe(browser);
     expect(screen.queryByTestId("wallet-selected-card")).toBeNull();

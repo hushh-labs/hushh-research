@@ -308,7 +308,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
                       pointerEvents: hidden ? "none" : undefined }}>
                     <div data-card-motion className="relative origin-bottom">
                     <WalletCardSwipe card={card} disabled={disabled || Boolean(busyCardId)} onOpen={() => openCard(card.cardId)} summary={cardControlSummary?.(card)} hint={scrollReveal && active && Boolean(hintOwnerId) && hintOwner === hintOwnerId} dismissHint={dismissHint}>
-                    <button type="button"
+                    <button type="button" data-wallet-card-id={card.cardId}
                       disabled={disabled || Boolean(busyCardId)}
                       aria-label={cardControlSummary?.(card).title ?? (preview ? card.nickname : `${card.nickname || cardNetworkLabel(card.brand)}, ${cardNetworkLabel(card.brand)} ending in ${card.last4}`)}
                       aria-pressed={active}
