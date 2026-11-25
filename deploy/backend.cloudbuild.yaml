@@ -424,6 +424,8 @@ steps:
     args:
       - "scripts/deploy/backend-deploy.sh"
     env:
+      - "PATH=/usr/lib/google-cloud-sdk/bin:/usr/lib/google-cloud-sdk/platform/bundledpythonunix/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+      - "SSL_CERT_FILE=/usr/lib/google-cloud-sdk/lib/third_party/certifi/cacert.pem"
       - "PROJECT_ID=$PROJECT_ID"
       - "_IMAGE_SETTINGS=${_SKIP_IMAGE_BUILD}|${_IMAGE_REFERENCE}|${_CLOUD_RUN_TAG}|${_BUILD_POD_IMAGE}|${_SECRET_PREFIX}|${_PHONE_ROLLBACK_SHA}|${_PHONE_ROLLBACK_IMAGE_REFERENCE}|${_PHONE_DEPLOY_PHASE}"
       - "_CLOUD_RUN_CAPACITY=max=${_CLOUD_RUN_MAX_INSTANCES},min=${_CLOUD_RUN_MIN_INSTANCES},no_traffic=${_CLOUD_RUN_NO_TRAFFIC},cpu=${_CLOUD_RUN_CPU},concurrency=${_CLOUD_RUN_CONCURRENCY},scaling_target=${_CLOUD_RUN_SCALING_CONCURRENCY_TARGET}"

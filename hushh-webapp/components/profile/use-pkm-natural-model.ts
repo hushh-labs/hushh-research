@@ -1098,21 +1098,29 @@ export function usePkmNaturalModel({
       return undefined;
     }
     setSharingManifestsLoading(true);
+    const manifestDomains = [...visibleMetadataDomains];
+    const manifestEntries: Array<readonly [string, DomainManifest | null]> = [];
+    const manifestConcurrency = Math.min(3, manifestDomains.length);
+    let nextManifestIndex = 0;
+    const runManifestWorker = async () => {
+      while (nextManifestIndex < manifestDomains.length) {
+        const domain = manifestDomains[nextManifestIndex];
+        nextManifestIndex += 1;
+        if (!domain || cancelled) return;
+        const manifest = await PersonalKnowledgeModelService.getDomainManifest(
+          applicationOwnerId,
+          domain.key,
+          vaultOwnerToken,
+        ).catch(() => null);
+        manifestEntries.push([domain.key, manifest] as const);
+      }
+    };
     void Promise.all(
-      visibleMetadataDomains.map(
-        async (domain) =>
-          [
-            domain.key,
-            await PersonalKnowledgeModelService.getDomainManifest(
-              applicationOwnerId,
-              domain.key,
-              vaultOwnerToken,
-            ).catch(() => null),
-          ] as const,
-      ),
+      Array.from({ length: manifestConcurrency }, runManifestWorker),
     )
-      .then((entries) => {
-        if (!cancelled) setSharingManifests(Object.fromEntries(entries));
+      .then(() => {
+        if (!cancelled)
+          setSharingManifests(Object.fromEntries(manifestEntries));
       })
       .finally(() => {
         if (!cancelled) setSharingManifestsLoading(false);
@@ -1145,6 +1153,7 @@ export function usePkmNaturalModel({
     setMemoryCardsLoading(true);
     setMemoryCardsLoadError(false);
     const loadedDomains: Record<string, Record<string, unknown>> = {};
+    let progressFlushScheduled = false;
     const updateCards = () => {
       locationSnapshot.current = loadedDomains.location
         ? { session: memoryReadSession, data: loadedDomains.location }
@@ -1162,6 +1171,14 @@ export function usePkmNaturalModel({
       });
       setMemoryCards(sorted);
     };
+    const scheduleUpdateCards = () => {
+      if (progressFlushScheduled) return;
+      progressFlushScheduled = true;
+      queueMicrotask(() => {
+        progressFlushScheduled = false;
+        if (!cancelled) updateCards();
+      });
+    };
     void PkmDomainResourceService.getManyStaleFirst({
       userId: applicationOwnerId,
       domains: visibleMetadataDomains.map((domain) => domain.key),
@@ -1173,7 +1190,7 @@ export function usePkmNaturalModel({
       onProgress: ({ domain, snapshot }) => {
         if (cancelled || !snapshot?.data) return;
         loadedDomains[domain] = snapshot.data;
-        updateCards();
+        scheduleUpdateCards();
       },
     })
       .then(({ snapshots, failedDomains }) => {
