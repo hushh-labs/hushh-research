@@ -978,6 +978,16 @@ if [[ "${_DEPLOY_ENV}" == "uat" && "${PROJECT_ID}" == "hushh-pda-uat" && -z "${c
     personal_agent_enabled="true"
     personal_agent_backend="gcp"
     personal_agent_autoprovision="true"
+    gcp_backend_live="true"
+    if [[ -n "${_RUNTIME_SERVICE_ACCOUNT:-}" ]]; then
+      consent_plane_sa="${_RUNTIME_SERVICE_ACCOUNT}"
+      pod_invoker_member="serviceAccount:${_RUNTIME_SERVICE_ACCOUNT}"
+    fi
+    user_gcp_live="true"
+    user_gcp_substrate_apply="true"
+    pod_ingress="all"
+    personal_agent_reconcile="true"
+    personal_agent_reachability="true"
     hosted_pod_tier="true"
     hosted_pod_project="${PROJECT_ID}"
     pod_turn_enabled="true"
