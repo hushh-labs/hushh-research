@@ -380,7 +380,7 @@ jobs:
           # 'some'. Without this setting a '!' pattern would match every other
           # file in the repository.
           predicate-quantifier: 'some-with-excludes'
-          list-files: json
+          list-files: ${{ github.event_name == 'pull_request' && 'json' || 'none' }}
           # scripts/ci is split by the lane that executes each script.
           # The web lanes run orchestrate.sh, its web-*.sh scripts and the
           # shared UI review-base resolver. The shared web-common.sh
