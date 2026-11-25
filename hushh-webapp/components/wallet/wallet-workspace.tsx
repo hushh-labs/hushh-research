@@ -10,8 +10,8 @@ import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events"
  * vault key; the server only ever holds ciphertext plus the non-secret
  * summary envelope. Distinct from the Wallet Profile surface.
  *
- * Owned and received cards use compact collections; Add and card details
- * reuse the shared adaptive surfaces. The page composes the shared shell and
+ * Web uses the Cards/Add/Sharing tabs and inline card deck; native
+ * presentation retains its owned scenes. The page composes the shared shell and
  * runs no page-enter animation of its own: the single route crossfade is the
  * only motion on open, and content lands where its placeholder stood.
  * States and the reveal rule live in `lib/wallet/wallet-view-state.ts`.
@@ -73,6 +73,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { cardNetworkLabel } from "@/components/wallet/card-network-mark";
+import { SecureCardAddForm } from "./secure-card-add-form";
+import { nativeWalletCardFormsEnabled } from "@/lib/capacitor/native-wallet-card";
 import { AdaptiveWalletCardForm } from "@/components/wallet/native-wallet-card-form";
 import { clearSecretOffer, peekSecretOffer } from "@/lib/pkm/secret-offer-handoff";
 import { SecretsVaultService } from "@/lib/pkm/secrets-vault-service";
@@ -113,6 +115,11 @@ import { ROUTES } from "@/lib/navigation/routes";
 
 
 const WALLET_TABS = [
+  { value: "cards", label: "Cards" },
+  { value: "add", label: "Add" },
+  { value: "sharing", label: "Sharing" },
+];
+const NATIVE_WALLET_TABS = [
   { value: "cards", label: "My cards" },
   { value: "sharing", label: "Shared with me" },
 ];
@@ -335,6 +342,8 @@ export function WalletWorkspace() {
       }
     }
   };
+  const [nativeWallet] = useState(() => nativeWalletCardFormsEnabled());
+  const walletTabs = nativeWallet ? NATIVE_WALLET_TABS : WALLET_TABS;
   const [walletAccessOpen, setWalletAccessOpen] = useState(false);
   const walletAccessTrigger = useRef<HTMLButtonElement>(null);
   const addTrigger = useRef<HTMLButtonElement>(null);
@@ -970,7 +979,7 @@ export function WalletWorkspace() {
 
   const hasCards = ready && cards.length > 0;
   const showSearch = hasCards && activeTab === "cards";
-  const collectionTab = activeTab === "add" ? "cards" : activeTab;
+  const collectionTab = nativeWallet && activeTab === "add" ? "cards" : activeTab;
 
   const executeSave = async (job: WalletSaveJob) => {
     const { context, card } = job;
@@ -1136,20 +1145,20 @@ export function WalletWorkspace() {
             inert={nativeWorkspaceOwnsWalletSurface}
             style={nativeWorkspaceOwnsWalletSurface ? { visibility: "hidden" } : undefined}
           >
-            <div className={workspaceStyles.actions}>
+            {nativeWallet ? <div className={workspaceStyles.actions}>
               <span className={workspaceStyles.collectionCount}>{ready ? `${cards.length} ${cards.length === 1 ? "payment card" : "payment cards"}` : "Your cards"}</span>
               <div className="flex items-center gap-2">
                 <Button ref={walletAccessTrigger} variant="ghost" size="compact" disabled={!ready} onClick={() => setWalletAccessOpen(true)} aria-label="Wallet access" className={workspaceStyles.accessButton}><ShieldCheck aria-hidden="true" className="size-4" /><span>Wallet access</span></Button>
                 <Button ref={addTrigger} size="compact" disabled={!ready || Boolean(currentSave)} onClick={() => selectTab("add")} aria-label="Add a card" data-testid="one-wallet-add"><Plus aria-hidden="true" className="size-4" />Add card</Button>
               </div>
-            </div>
+            </div> : null}
             <TopShellTabs
               tabSet={{
                 id: "wallet",
                 label: "Wallet",
                 queryParam: "view",
                 activeValue: collectionTab,
-                tabs: WALLET_TABS.map((option) => ({ ...option, href: pathname })),
+                tabs: walletTabs.map((option) => ({ ...option, href: pathname })),
               }}
               onValueChange={selectTab}
               disabled={!ready}
@@ -1162,8 +1171,8 @@ export function WalletWorkspace() {
             data-native-wallet-web-surface={nativeWorkspaceOwnsWalletSurface ? "hidden" : "visible"}
           >
           <SwipeViews
-            disabled={!ready || activeTab === "add"}
-            options={WALLET_TABS}
+            disabled={!ready || (nativeWallet && activeTab === "add")}
+            options={walletTabs}
             tabSetId="wallet"
             activeValue={collectionTab}
             onSelectionChange={selectTab}
@@ -1255,20 +1264,32 @@ export function WalletWorkspace() {
                 removeConfirmed: card => { const context = vaultContextRef.current(); if (context && !busyCardId && !removalRef.current) confirmRemove({ card, context }); } }}
               onSharing={() => selectTab("sharing")}
               details={cardDetails}
-              active={activeTab === "cards" || activeTab === "sharing"}
+              active={activeTab === "cards" || (nativeWallet && activeTab === "sharing")}
               onRemove={requestRemove}
               busyCardId={busyCardId}
               disabled={Boolean(busyCardId)}
             />
           ) : null}
           </div>
+          {!nativeWallet ? <div className={WALLET_TAB_PANEL}>
+            {ready && activeTab === "add" ? <div className="mx-auto w-full max-w-[820px] pb-4">
+              <SecureCardAddForm
+                key={`${renderedOwnerId}:${filing?.secretId ?? "new"}:${offerNickname ?? ""}:${formRevision}`}
+                backRoute={ROUTES.ONE_WALLET} collectSecurityCode showIntroduction={false}
+                getNetworkContext={vaultContext} scanInToolbar active
+                initialNickname={offerNickname ?? undefined} initialPan={filing?.pan}
+                onSubmit={beginSave} onCancel={returnToWalletView}
+              />
+            </div> : null}
+          </div> : null}
           <div className={WALLET_TAB_PANEL} data-testid="one-wallet-sharing">
-            {ready && renderedOwnerId ? <WalletSharingHistory key={renderedOwnerId} ownerId={renderedOwnerId} active={activeTab === "sharing"} direction="received" presentation="cards" getContext={getHistoryContext}
+            {!nativeWallet && ready ? <WalletSharing key={renderedOwnerId} cards={cards} profile={walletIdentity} active={activeTab === "sharing"} getHistoryContext={getHistoryContext} /> : null}
+            {nativeWallet && ready && renderedOwnerId ? <WalletSharingHistory key={renderedOwnerId} ownerId={renderedOwnerId} active={activeTab === "sharing"} direction="received" presentation="cards" getContext={getHistoryContext}
               nativePresentation={nativeWorkspaceOwnsWalletSurface} onNativeProjection={setNativeSharedHistory} /> : null}
           </div>
           </SwipeViews>
           </div>
-          {ready ? <AdaptiveWalletCardForm
+          {nativeWallet && ready ? <AdaptiveWalletCardForm
             key={`${renderedOwnerId}:${filing?.secretId ?? "new"}:${offerNickname ?? ""}:${formRevision}`}
             open={activeTab === "add"} ownerId={renderedOwnerId ?? ""}
             onReturnFocus={() => (saveJob.current ? pendingCardRef.current : addTrigger.current)?.focus({ preventScroll: true })}
@@ -1278,7 +1299,7 @@ export function WalletWorkspace() {
             onSubmit={beginSave} onCancel={returnToWalletView}
             onNativeFallback={walletPresentation.retireForWeb}
           /> : null}
-          <SettingsDetailPanel open={ready && walletAccessOpen} onOpenChange={setWalletAccessOpen} title="Wallet access" description="Manage Wallet-wide permissions and sharing history."
+          <SettingsDetailPanel open={nativeWallet && ready && walletAccessOpen} onOpenChange={setWalletAccessOpen} title="Wallet access" description="Manage Wallet-wide permissions and sharing history."
             surfaceClassName={`${presentationStyles.walletPortal} ${presentationStyles.walletDialog}`} desktopMaxWidth="680px" desktopMaxWidthClassName="sm:!max-w-[680px]"
             onCloseAutoFocus={event => { event.preventDefault(); walletAccessTrigger.current?.focus({ preventScroll: true }); }}>
             {ready ? <WalletSharing key={renderedOwnerId} cards={cards} profile={walletIdentity} active={walletAccessOpen} getHistoryContext={getHistoryContext} receivedHistory={false} /> : null}
