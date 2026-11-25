@@ -53,6 +53,9 @@ describe("fetchWithWebTimeout", () => {
     expect(webFetchTimeoutMsForPath("/api/kai/gmail/receipts/detail")).toBe(
       80_000,
     );
+    // One's mailbox check waits for a model answer, so it outlasts a scan; its source email is a single read.
+    expect(webFetchTimeoutMsForPath("/api/kai/gmail/receipts/notice")).toBe(95_000);
+    expect(webFetchTimeoutMsForPath("/api/kai/gmail/receipts/notice/source")).toBe(95_000);
     expect(webFetchTimeoutMsForPath("/api/kai/gmail/receipts/user-123")).toBe(
       60_000,
     );

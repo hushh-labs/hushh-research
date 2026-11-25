@@ -28,8 +28,11 @@ const referenceRows: Row[] = [
   ['2026-08-04', '2026-09-04', '2026-10-04', '2026-11-04'].map((d): Row => [m as string, d, a as number, 'Streaming plan', 'Software & Subscriptions'])),
  ['Corner Cafe', '2026-11-20', 450, 'Lunch', 'Food'],
 ];
+// data-notice="1": saved receipts carry sealed routing keys, as real ones do, so One's mailbox check can be asked about them.
+const sealedKeys = document.documentElement.dataset.notice === '1';
+const sealedKey = (index: number) => `grs1_reference_source_${index}`.padEnd(48, 'x');
 const referenceReceipts = referenceRows.map(([merchant, date, amount, detail, category], index) => ({
- id: 100 + index, source_id: `reference-source-${index}`, receipt_key: `reference-source-${index}`, source_kind: 'gmail_live' as const,
+ id: 100 + index, source_id: `reference-source-${index}`, receipt_key: `reference-source-${index}`, ...(sealedKeys ? { durable_source_ref: sealedKey(index) } : {}), source_kind: 'gmail_live' as const,
  source_evidence: [], gmail_message_id: `reference-message-${index}`, merchant_name: merchant, merchant_domain: `${merchant.toLowerCase().replace(/[^a-z]/g, '')}.example`,
  category, category_confidence: 1, transaction_date: date, amount, currency: 'INR', short_detail: detail,
  status: 'paid' as const, document_kind: 'receipt' as const, event_type: 'purchase' as const, recurrence: category === 'Food' ? 'one_time' as const : 'recurring' as const,

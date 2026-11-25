@@ -14,7 +14,7 @@ from collections.abc import Awaitable
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response, status
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from api.middleware import require_firebase_auth, verify_user_id_match
@@ -22,6 +22,7 @@ from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.gmail_live_receipts_service import get_gmail_live_receipts_service
 from hushh_mcp.services.gmail_receipt_cutover import GmailReceiptStorageCutoverError
+from hushh_mcp.services.gmail_receipt_notice_service import get_gmail_receipt_notice_service
 from hushh_mcp.services.gmail_receipts_service import GmailApiError, get_gmail_receipts_service
 from hushh_mcp.services.owner_placement_guard import hub_content_firebase, hub_content_owner
 from hushh_mcp.services.receipt_memory_service import get_receipt_memory_preview_service
@@ -89,6 +90,41 @@ class GmailLiveReceiptDetailRequest(BaseModel):
 
     user_id: str = Field(min_length=1, max_length=128)
     source_id: str = Field(min_length=1, max_length=340)
+
+
+class GmailReceiptNoticePrior(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=80)
+    kind: str = Field(default="", max_length=30)
+    provider: str = Field(default="", max_length=60)
+    headline: str = Field(default="", max_length=100)
+
+
+class GmailReceiptNoticeRequest(BaseModel):
+    """The receipts the device holds for one mailbox, as sealed routing keys only."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: str = Field(min_length=1, max_length=128)
+    account_key: str = Field(min_length=1, max_length=256)
+    receipt_keys: list[str] = Field(min_length=1, max_length=40)
+    prior: list[GmailReceiptNoticePrior] = Field(default_factory=list, max_length=12)
+
+    @field_validator("receipt_keys")
+    @classmethod
+    def _bounded_keys(cls, keys: list[str]) -> list[str]:
+        if any(not 1 <= len(key) <= 340 for key in keys):
+            raise ValueError("receipt key length")
+        return keys
+
+
+class GmailReceiptNoticeSourceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: str = Field(min_length=1, max_length=128)
+    account_key: str = Field(min_length=1, max_length=256)
+    open_key: str = Field(min_length=1, max_length=340)
 
 
 class GmailReceiptIdentifier(BaseModel):
@@ -389,6 +425,10 @@ def _live_receipt_http_error(exc: Exception) -> HTTPException:
                 "Receipt extraction is temporarily unavailable."
             ),
             "GMAIL_RECEIPT_EXTRACTION_TIMEOUT": ("Receipt extraction timed out. Please try again."),
+            "GMAIL_RECEIPT_NOTICE_TIMEOUT": "One couldn't finish checking in time.",
+            "GMAIL_RECEIPT_NOTICE_UNAVAILABLE": "One can't check right now.",
+            "GMAIL_RECEIPT_NOTICE_INVALID": "One got an unusable answer.",
+            "GMAIL_RECEIPT_NOTICE_IN_PROGRESS": "One is already checking.",
         }
         return HTTPException(
             status_code=503
@@ -409,6 +449,9 @@ def _live_receipt_http_error(exc: Exception) -> HTTPException:
                     "GMAIL_RECEIPT_DETAIL_TIMEOUT",
                     "GMAIL_RECEIPT_EXTRACTION_UNAVAILABLE",
                     "GMAIL_RECEIPT_EXTRACTION_TIMEOUT",
+                    "GMAIL_RECEIPT_NOTICE_TIMEOUT",
+                    "GMAIL_RECEIPT_NOTICE_UNAVAILABLE",
+                    "GMAIL_RECEIPT_NOTICE_IN_PROGRESS",
                 },
             },
             headers={"Cache-Control": "private, no-store", "Pragma": "no-cache"},
@@ -852,6 +895,84 @@ async def gmail_live_receipt_detail(
         raise
     except Exception as exc:
         logger.warning("kai.gmail.live_receipt_detail_failed error=%s", type(exc).__name__)
+        raise _live_receipt_http_error(exc) from None
+
+
+@router.post("/gmail/receipts/notice")
+async def gmail_receipt_notice(
+    payload: GmailReceiptNoticeRequest,
+    request: Request,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict = Depends(hub_content_owner),
+):
+    """Ask One what, if anything, the owner's receipts and provider mail call for.
+
+    Read-only: the answer is a list of source-quoted findings validated in code.
+    Nothing is cancelled, paid, sent or stored on the server.
+    """
+
+    owner = _live_receipt_owner(
+        firebase_uid=firebase_uid,
+        token_data=token_data,
+        requested_user_id=payload.user_id,
+    )
+    _no_store(response)
+
+    async def require_current_access() -> None:
+        await _revalidate_live_receipt_access(token_data=token_data, owner=owner)
+
+    try:
+        return await get_gmail_receipt_notice_service().analyze(
+            user_id=owner,
+            consent_token=str(token_data.get("token") or ""),
+            require_access=require_current_access,
+            receipt_keys=payload.receipt_keys,
+            expected_account=payload.account_key,
+            prior=[item.model_dump() for item in payload.prior],
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning(
+            "kai.gmail.receipt_notice_failed request_id=%s error=%s code=%s",
+            getattr(request.state, "request_id", ""),
+            type(exc).__name__,
+            exc.code if isinstance(exc, GmailApiError) else None,
+        )
+        raise _live_receipt_http_error(exc) from None
+
+
+@router.post("/gmail/receipts/notice/source")
+async def gmail_receipt_notice_source(
+    payload: GmailReceiptNoticeSourceRequest,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict = Depends(hub_content_owner),
+):
+    """Open the one email behind a finding, read fresh from the owner's own mailbox."""
+
+    owner = _live_receipt_owner(
+        firebase_uid=firebase_uid,
+        token_data=token_data,
+        requested_user_id=payload.user_id,
+    )
+    _no_store(response)
+
+    async def require_current_access() -> None:
+        await _revalidate_live_receipt_access(token_data=token_data, owner=owner)
+
+    try:
+        return await get_gmail_receipt_notice_service().source(
+            user_id=owner,
+            key=payload.open_key,
+            require_access=require_current_access,
+            expected_account=payload.account_key,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("kai.gmail.receipt_notice_source_failed error=%s", type(exc).__name__)
         raise _live_receipt_http_error(exc) from None
 
 

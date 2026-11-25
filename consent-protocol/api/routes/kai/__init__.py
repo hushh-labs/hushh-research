@@ -74,6 +74,8 @@ KAI_ROUTE_CONTRACT_PATHS = [
     "/gmail/receipts/{user_id}",
     "/gmail/receipts/scan",
     "/gmail/receipts/detail",
+    "/gmail/receipts/notice",
+    "/gmail/receipts/notice/source",
     "/gmail/receipts-memory/preview",
     "/gmail/receipts-memory/artifacts/{artifact_id}",
     "/gmail/webhook",

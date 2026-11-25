@@ -18,7 +18,8 @@ import json
 import logging
 import os
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import parseaddr, parsedate_to_datetime
@@ -887,6 +888,95 @@ def _validated_projection(
         **enrichment,
         "_source_evidence": source_evidence,
     }
+
+
+class ReceiptReadSession:
+    """One owner-pinned, bounded Gmail read for a reader that needs more than receipts.
+
+    The receipt-notice reader uses this to open the owner's own receipt emails
+    and the other mail from the same providers. It cannot choose a different
+    owner or mailbox: authority, token refresh, the response budget and the
+    sealed source identifiers all stay with :class:`GmailLiveReceiptsService`.
+    """
+
+    def __init__(
+        self,
+        service: GmailLiveReceiptsService,
+        authority: _ReadAuthority,
+        client: httpx.AsyncClient,
+        budget: list[int],
+    ) -> None:
+        self._service = service
+        self._authority = authority
+        self._client = client
+        self._budget = budget
+
+    @property
+    def account(self) -> str:
+        return self._authority.account
+
+    def message_id_for(self, key: str) -> str | None:
+        """Resolve a sealed locator or a signed source id to this mailbox's message id."""
+
+        if not isinstance(key, str):
+            return None
+        if key.startswith("grs1_"):
+            return self._service._open_locator(self._authority, key)
+        message_id = self._service._message_id_from_source(key)
+        if message_id and hmac.compare_digest(
+            key, self._service._source_id(self._authority, message_id)
+        ):
+            return message_id
+        return None
+
+    def locator(self, message_id: str) -> str:
+        """A fresh sealed routing key that opens this message for this owner only."""
+
+        return self._service._sealed_locator(self._authority, message_id)
+
+    def stable_id(self, message_id: str) -> str:
+        """A deterministic identifier for this message that reveals no provider id."""
+
+        return self._service._event_id(self._authority, message_id)[:24]
+
+    async def list_ids(self, query: str, limit: int) -> list[str]:
+        listing = await self._service._get(
+            client=self._client,
+            authority=self._authority,
+            path="/messages",
+            params={
+                "q": query,
+                "maxResults": max(1, min(25, int(limit))),
+                "includeSpamTrash": "false",
+                "fields": "messages(id,threadId)",
+            },
+            budget=self._budget,
+        )
+        found = listing.get("messages") if isinstance(listing, dict) else None
+        if not isinstance(found, list):
+            return []
+        ids: list[str] = []
+        for item in found:
+            message_id = item.get("id") if isinstance(item, dict) else None
+            if isinstance(message_id, str) and _PROVIDER_ID.fullmatch(message_id):
+                ids.append(message_id)
+        return ids
+
+    async def fetch(self, message_ids: list[str]) -> list[dict[str, Any]]:
+        """Full messages; ones deleted since they were listed are skipped, not errors."""
+
+        return await self._service._fetch_messages(
+            client=self._client,
+            authority=self._authority,
+            message_ids=list(message_ids),
+            budget=self._budget,
+            missing=[],
+        )
+
+    async def require_current(self) -> None:
+        await self._service._require_current(
+            authority=self._authority, require_access=self._authority.require_access
+        )
 
 
 class GmailLiveReceiptsService:
@@ -2007,6 +2097,26 @@ class GmailLiveReceiptsService:
             response_budget=_RESPONSE_BUDGET,
         )
 
+    @asynccontextmanager
+    async def read_session(
+        self,
+        *,
+        user_id: str,
+        require_access: RequireAccess,
+        expected_account: str | None = None,
+    ) -> AsyncIterator[ReceiptReadSession]:
+        authority = await self._authority(user_id=user_id, require_access=require_access)
+        if expected_account is not None and authority.account != expected_account:
+            raise GmailApiError(
+                "The Mail account changed. Reopen Mail to continue.",
+                status_code=409,
+                code="GMAIL_RECEIPT_ACCOUNT_CHANGED",
+            )
+        async with httpx.AsyncClient(
+            transport=self._transport, timeout=10, follow_redirects=False
+        ) as client:
+            yield ReceiptReadSession(self, authority, client, [_RESPONSE_BUDGET])
+
     async def detail(
         self,
         *,
@@ -2113,4 +2223,18 @@ def get_gmail_live_receipts_service() -> GmailLiveReceiptsService:
     return _live_receipts_service
 
 
-__all__ = ["GmailLiveReceiptsService", "get_gmail_live_receipts_service"]
+# Pure evidence helpers shared with the receipt-notice reader.
+message_evidence = _evidence
+message_headers = _header_map
+message_iso_date = _iso_date
+preferred_total = _preferred_total
+
+__all__ = [
+    "GmailLiveReceiptsService",
+    "ReceiptReadSession",
+    "get_gmail_live_receipts_service",
+    "message_evidence",
+    "message_headers",
+    "message_iso_date",
+    "preferred_total",
+]

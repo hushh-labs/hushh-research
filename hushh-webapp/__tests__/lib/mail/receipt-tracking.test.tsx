@@ -6,7 +6,8 @@ import { ReceiptTrackingProvider } from "@/components/gmail/receipts/receipt-tra
 import { RecurringView } from "@/components/gmail/receipts/recurring-view";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { findCancellationProof } from "@/lib/mail/receipt-insights";
-import { evaluatePriceRise, exceedsRise, risePercent } from "@/lib/mail/receipt-price-rise";
+import { evaluatePriceRise, exceedsRise, priceRiseSentence, risePercent } from "@/lib/mail/receipt-price-rise";
+import { riseFacts } from "@/lib/mail/receipt-tracking-present";
 import {
   confirmCancellation, confirmedSavings, emptyTrackingDoc, loadTracking, nextDateFor, pendingCancellations, saveTracking,
   savePlanReview, skipOccurrence, stopTracking, trackBill, validateTrackingDoc, type Ctx, type NewBill,
@@ -40,12 +41,24 @@ describe("price-rise rule", () => {
     expect(evaluatePriceRise([...history, point(11, 176400)], "INR", NOW)).toBeNull();
     expect(risePercent(176400, 147000)).toBe("20.0");
   });
-  it("compares a bill that never changed with its agreed price, and invents no baseline from short history", () => {
+  it("calls a bill that never changed the usual amount, never an agreed price, and invents no baseline from short history", () => {
     const same = [point(6, 79900), point(7, 79900), point(8, 79900)];
     expect(evaluatePriceRise([...same, point(9, 95880)], "INR", new Date(2026, 8, 30))).toBeNull();
-    expect(evaluatePriceRise([...same, point(9, 95881)], "INR", new Date(2026, 8, 30))?.basis).toBe("agreed_price");
+    const rise = evaluatePriceRise([...same, point(9, 95881)], "INR", new Date(2026, 8, 30));
+    expect(rise?.basis).toBe("median_last_three");
+    expect(rise && priceRiseSentence("Wi-Fi", rise)).toBe("Wi-Fi is ₹958.81, up 20.0% from your usual ₹799.");
     expect(evaluatePriceRise([point(7, 100), point(8, 100), point(9, 500)], "INR", new Date(2026, 8, 30))).toBeNull();
     expect(evaluatePriceRise([...same, point(9, 500000)], "INR", new Date(2027, 5, 1))).toBeNull(); // too old to be news
+  });
+  it("treats three rent receipts of ₹4,000 then ₹5,000 as 25% above the usual rent, and ₹4,800 as exactly 20%", () => {
+    const rent = [point(6, 400000), point(7, 400000), point(8, 400000)];
+    const flagged = evaluatePriceRise([...rent, point(9, 500000)], "INR", new Date(2026, 8, 30));
+    expect([flagged?.baselineMinor, flagged?.percent, flagged?.basis]).toEqual([400000, "25.0", "median_last_three"]);
+    expect(flagged && priceRiseSentence("Rent", flagged)).toBe("Rent is ₹5,000, up 25.0% from your usual ₹4,000.");
+    expect(flagged && riseFacts(flagged).map((fact) => fact.label)).toContain("Usual (middle of the last 3 paid)");
+    expect(flagged && riseFacts(flagged).map((fact) => fact.label).join()).not.toMatch(/agreed/i);
+    expect(evaluatePriceRise([...rent, point(9, 480000)], "INR", new Date(2026, 8, 30))).toBeNull(); // exactly +20%
+    expect(evaluatePriceRise([...rent, point(9, 480001)], "INR", new Date(2026, 8, 30))?.percent).toBe("20.0");
   });
 });
 

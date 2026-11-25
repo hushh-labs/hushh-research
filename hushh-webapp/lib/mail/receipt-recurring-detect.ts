@@ -9,7 +9,10 @@ export interface DetectedBill {
   kind: "fixed" | "variable";
   currency: string;
   frequency: Cadence;
-  /** Agreed price for a fixed bill, in minor units. */
+  /**
+   * The amount every receipt so far showed, for a bill that has never changed, in minor units. It is what the
+   * receipts say, not an agreed price: only an agreement can establish one.
+   */
   agreedMinor: number | null;
   /** The day of the month the receipts cluster around. */
   anchorDay: number;
@@ -41,8 +44,8 @@ export function detectRecurringBills(rows: readonly RecentReceiptRow[], today: D
     if (!cadence || series.points.length < 3) continue;
     const amounts = series.points.map((point) => point.minor);
     const priceRise = evaluatePriceRise(series.points.map((point) => ({ at: point.at, minor: point.minor, receiptKey: point.receiptKey, label: series.merchant })), series.currency, today);
-    // A bill that never changed until its newest receipt is still a fixed bill with an agreed price.
-    const fixed = new Set(amounts).size === 1 || priceRise?.basis === "agreed_price";
+    // A bill that never changed until its newest receipt still reads as a fixed amount.
+    const fixed = new Set(amounts).size === 1 || (priceRise !== null && new Set(amounts.slice(0, -1)).size === 1);
     const days = series.points.map((point) => point.at.getDate()).sort((a, b) => a - b);
     const anchorDay = days[Math.floor(days.length / 2)]!;
     const count = series.points.length;
@@ -56,7 +59,7 @@ export function detectRecurringBills(rows: readonly RecentReceiptRow[], today: D
       kind: fixed ? "fixed" : "variable",
       currency: series.currency,
       frequency: cadence,
-      agreedMinor: fixed ? (priceRise?.basis === "agreed_price" ? priceRise.baselineMinor : low) : null,
+      agreedMinor: fixed ? (priceRise ? priceRise.baselineMinor : low) : null,
       anchorDay,
       nextOn: rollForward(isoDate(series.points.at(-1)!.at), cadence, anchorDay, today),
       reason: `${WORDS[count] ?? count} receipts show ${money} paid ${span}.`,
