@@ -362,3 +362,47 @@ async def test_browser_recovery_never_promotes_unclosed_or_malformed_completion(
     fixture.log.records.append(record)
     with pytest.raises(BrowserRefused, match="TASK_LOG_INVALID"):
         await recover_browser_tasks(fixture.log, "owner", "pod", incarnation="epoch")
+
+
+@pytest.mark.parametrize(
+    ("env", "expected_status", "expected_wire_env"),
+    [
+        ("uat", 200, "uat"),
+        ("production", 503, None),
+    ],
+)
+async def test_browser_routes_admit_uat_and_refuse_production(
+    monkeypatch, env, expected_status, expected_wire_env
+):
+    from types import SimpleNamespace
+
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+
+    from api.routes.one import pod_browser
+
+    async def held():
+        return None
+
+    authority = SimpleNamespace(environment=env, require_held=held)
+    monkeypatch.setattr(
+        pod_browser,
+        "verified_session",
+        lambda authorization, *, role, scope: (
+            authority,
+            {"user_id": "owner", "hushh_id": "pod", "exp": 1900},
+        ),
+    )
+    monkeypatch.setattr(pod_browser, "pod_incarnation", lambda: "epoch")
+    app = FastAPI()
+    app.include_router(pod_browser.router)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://pod") as client:
+        resp = await client.get(
+            "/api/one/pod/browser/capability",
+            headers={"Authorization": "Bearer owner-session"},
+        )
+        assert resp.status_code == expected_status
+        if expected_status == 200:
+            assert resp.json()["environment"] == expected_wire_env
+        else:
+            assert resp.json()["detail"]["code"] == "BROWSER_ENVIRONMENT_UNAVAILABLE"

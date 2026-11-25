@@ -175,6 +175,26 @@ def test_proposal_head_does_not_gain_search_or_intro_tools():
     ]
 
 
+def test_browser_delegation_stays_in_the_qualified_full_pod_roster(monkeypatch):
+    from hushh_mcp.one_adk import computer_use_agent
+
+    # Qualification alone cannot expose Browser to Shared or the proposal head.
+    # The current owner/scope and lazy-allocation boundaries have their own
+    # Browser runtime test; isolate the roster's placement boundary here.
+    monkeypatch.setattr(computer_use_agent, "browser_task_hand_available", lambda: True)
+    monkeypatch.setattr(agent_tree, "pod_mode", lambda: True)
+    assert computer_use_agent.start_browser_task in agent_tree._one_roster_tools(
+        specialist_model="test-model"
+    )
+    assert computer_use_agent.start_browser_task not in agent_tree._one_roster_tools(
+        tool_mode="proposal"
+    )
+    monkeypatch.setattr(agent_tree, "pod_mode", lambda: False)
+    assert computer_use_agent.start_browser_task not in agent_tree._one_roster_tools(
+        specialist_model="test-model"
+    )
+
+
 def test_drive_read_tools_are_only_in_admitted_chat_roster(monkeypatch):
     monkeypatch.setattr(agent_tree, "pod_mode", lambda: False)
     baseline = agent_tree._one_roster_tools(specialist_model="test-model")

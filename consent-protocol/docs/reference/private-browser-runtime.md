@@ -205,6 +205,39 @@ neither unrestricted access to the pod nor permission to bypass another tool's
 confirmation. Task state and lifecycle belong to the private agent. Browser is not a separate
 customer service or process-security boundary.
 
+### Chat triggers and lazy execution
+
+One's existing function calling owns the Browser decision. Ordinary Chat,
+sign-in, opening the workspace and reconnect discovery do not create a Browser
+task. Public factual questions, policies and article summaries use available
+search or read tools. Browser is for an explicitly requested website interaction.
+When the task or exact public origin is missing, One asks for it rather than
+guessing. A follow-up can use an unambiguous task and origin already established
+in the conversation. There is no second classifier or numeric confidence gate.
+
+The chat hand is exposed only inside the authenticated private-pod invocation,
+with `browser.invoke` and an available qualified runtime. Chat admits
+`dev`/`development` and `uat`, preserving the exact `uat` owner binding;
+`prod`/`production` remain unavailable. The existing kill switch, exact
+host/image/model qualification, public-origin policy, owner, incarnation,
+expiry and per-call authority checks still apply. A supported environment alone
+does not enable Browser, and a missing hand must not be described as a running
+task or replaced with another execution provider.
+
+`start_browser_task` returns invocation metadata. Its acceptance is not execution
+or completion: the existing owner UI must approve model/screen processing before
+the worker allocates Chromium. The same task opens the workspace when verified
+active work starts. Close and Back hide it without cancelling; subsequent status
+refreshes respect that dismissal. Reconnect discovers the existing task rather
+than submitting the goal again.
+
+Login and consequential effects retain their existing protected-entry and exact
+review boundaries. Owner takeover suppresses model observation until explicit
+handback and a fresh observation. Approved bounded work may continue after app
+disconnection; local vault locking is not server-side revocation. Explicit Stop,
+revocation, expiry and idle cleanup retain their existing teardown controls.
+Waiting or terminal tasks stop live refreshes; opening Chat is not a keepalive.
+
 ### Qualification and owner activation
 
 The existing release may carry `browserQualifications`, one per qualified host.

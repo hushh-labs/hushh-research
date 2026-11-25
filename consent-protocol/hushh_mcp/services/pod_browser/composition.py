@@ -171,6 +171,9 @@ class PodBrowserComposition:
                 sessions_factory=sessions,
                 public_research_only=not self._deployment.public_policy.interactive,
                 delivery=self._delivery,
+                environment=(
+                    "uat" if getattr(self._authority, "environment", "") == "uat" else "development"
+                ),
             )
             self._journal, self._owner, self._runtime = journal, owner_id, runtime
             return runtime

@@ -13,6 +13,33 @@ certify the currently serving image or replace the original operation receipts.
 Use the [hosting module](../../architecture/modules/hosting.md) and
 [Browser module](../../architecture/modules/browser.md) for system boundaries.
 
+## Browser chat triggers and UAT handoff
+
+The source contract admits Browser from qualified Dev and UAT private-pod Chat;
+production remains unavailable. One chooses explicit website interaction through
+its existing hand, clarifies missing terms and uses admitted search/reads for
+informational requests. The workspace opens only after processing approval and
+verified active work, preserving owner dismissal and reconnect identity.
+
+Focused Browser authority, native ADK, route, manifest and workspace tests cover
+these source boundaries. The UAT regression fails with the old Dev-only guards;
+the preview regression fails without the approval guard. Synthetic Gemini 4 Hydrogen first-tool probes of Dev and UAT source exercised explicit interaction, informational requests,
+missing intent, unavailable Browser and resolved references twice each. It chose
+Browser only for explicit interaction. The short request "Pay this bill" first
+looked up the existing app-action catalog; this does not prove its later
+clarification or payment behavior. No tools executed during this model probe.
+
+This is source and synthetic selection evidence, not installed UAT acceptance.
+A Browser-only UAT port reuses the reviewed workspace and wire contracts from
+[#9776](https://github.com/hushh-labs/hushh-research/pull/9776), independently of
+the broader [sandbox promotion](https://github.com/hushh-labs/hushh-research/pull/9960).
+Qualification and deployment must include the actual owner/sandbox image;
+a hub deployment alone cannot install this chat fix. Browser qualification
+publication remains Dev-only, and the sandbox host remains unqualified. Exact-image Browser
+enablement, takeover, Resume, reconnect, Stop and Web/iOS/Android human journeys
+remain required. Saved website logins remain the separate Phase 4 in
+[#9511](https://github.com/hushh-labs/hushh-research/issues/9511).
+
 ## What the retained evidence establishes
 
 | Boundary | Evidence established | Still requires its own proof |

@@ -71,8 +71,12 @@ class BrowserTaskRuntime:
         availability_check: Callable[[], None] | None = None,
         public_research_only: bool = False,
         delivery: BrowserDeliveryPort | None = None,
+        environment: Literal["development", "uat"] = "development",
     ) -> None:
         self._owner, self._pod, self._incarnation = owner_id, pod_id, incarnation
+        self._environment: Literal["development", "uat"] = (
+            "uat" if environment == "uat" else "development"
+        )
         self._launcher, self._model, self._reviews, self._source = launcher, model, reviews, source
         self._authority_factory, self._log, self._admission = authority_factory, log, admission
         self._sessions_factory, self._clock = sessions_factory, clock
@@ -104,7 +108,7 @@ class BrowserTaskRuntime:
             "owner_id": self._owner,
             "pod_id": self._pod,
             "incarnation": self._incarnation,
-            "environment": "development",
+            "environment": self._environment,
         }
         if os.getenv("POD_COMPUTER_USE_ENABLED", "").lower() not in {"1", "true"}:
             return BrowserCapability(available=False, code="BROWSER_DISABLED", **identity)
@@ -278,7 +282,7 @@ class BrowserTaskRuntime:
                     pod_id=self._pod,
                     incarnation=self._incarnation,
                     task_id="browser_" + uuid4().hex,
-                    environment="development",
+                    environment=self._environment,
                     expires_at=min(access.expires_at, int(self._clock()) + 900),
                 )
                 try:

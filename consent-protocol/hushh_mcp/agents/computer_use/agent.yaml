@@ -87,7 +87,7 @@ pkm:
 surfaces:
   chat: true
   web: true
-  not_applicable_reason: Gated private-pod dev pilot; no shared runtime, device browser, native plugin, or A2A surface.
+  not_applicable_reason: Gated private-pod Dev/UAT pilot; no shared runtime, device browser, native plugin, or A2A surface.
 privacy:
   context_allowlist: [browser.owner_task, browser.untrusted_screen, browser.tool_receipt, browser.approved_non_secret_projection]
   plaintext_telemetry: false
@@ -100,4 +100,4 @@ rollout:
   kill_switch: POD_COMPUTER_USE_ENABLED
   rollback: Disable browser admission, stop workers, and preserve encrypted opt-in state; never replay uncertain actions.
 availability:
-  environments: [development]
+  environments: [development, uat]

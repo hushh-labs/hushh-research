@@ -155,7 +155,7 @@
         "chat": true,
         "ios": false,
         "mcp": false,
-        "not_applicable_reason": "Gated private-pod dev pilot; no shared runtime, device browser, native plugin, or A2A surface.",
+        "not_applicable_reason": "Gated private-pod Dev/UAT pilot; no shared runtime, device browser, native plugin, or A2A surface.",
         "voice": false,
         "web": true
       },
@@ -7330,7 +7330,7 @@
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
     "action_gateway": "3b9295e4861cb8c82a68f4fd9d7c47a334b3af36ce8c0204ce9245133017d59e",
-    "agent_registry": "d13755a388462c09e9062631992c9b84654072723b02b53505f17c6c501f4311",
+    "agent_registry": "5b477e7fd9dfe3f75c5f553e0f3d2684b1ef572b1fd473a6979df011fd4717d9",
     "cache_manifest": "669b3627c54a7f298c9b011b5e7e54681c1d1747ef4ab70728aa5de077dccea6",
     "data_plane": "d469a73b8a7ba58d10ff2347b6d7f4cdaf191d460a0818c4d1706c8ab3e9b0cf",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",

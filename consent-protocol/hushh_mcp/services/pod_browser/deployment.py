@@ -53,7 +53,7 @@ class BrowserDeployment(StrictContract):
     """Process-local binding, constructed only after authenticated recovery."""
 
     version: Literal[1]
-    environment: Literal["development"]
+    environment: Literal["development", "uat"]
     pod_id: str = Field(min_length=1, max_length=256)
     pod_key_id: str = Field(min_length=1, max_length=256)
     incarnation: str = Field(min_length=1, max_length=256)
@@ -67,7 +67,8 @@ class BrowserDeployment(StrictContract):
         self.readiness.require_ready()
         if (
             authority is not active_session_authority()
-            or authority.environment not in {"dev", "development"}
+            or authority.environment not in {"dev", "development", "uat"}
+            or (authority.environment == "uat") != (self.environment == "uat")
             or self.pod_id != authority.hushh_id
             or self.pod_key_id != authority.pod_key_id
             or self.incarnation != pod_incarnation()
@@ -98,7 +99,7 @@ def recovered_browser_deployment(authority) -> BrowserDeployment:
             raise BrowserRefused("BROWSER_OWNER_POLICY_UNQUALIFIED")
         deployment = BrowserDeployment(
             version=1,
-            environment="development",
+            environment="uat" if getattr(authority, "environment", "") == "uat" else "development",
             pod_id=approved.pod_id,
             pod_key_id=approved.pod_key_id,
             incarnation=pod_incarnation(),

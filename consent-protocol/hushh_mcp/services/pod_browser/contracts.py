@@ -41,7 +41,7 @@ class BrowserBinding(StrictContract):
     pod_id: str = Field(min_length=1, max_length=256)
     incarnation: str = Field(min_length=1, max_length=256)
     task_id: str = Field(min_length=1, max_length=128)
-    environment: Literal["development"]
+    environment: Literal["development", "uat"]
     expires_at: int = Field(gt=0)
 
 

@@ -1,16 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { X } from "@/components/icons";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Lock } from "@/components/icons";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
-import { type ComputerUseBinding, type ComputerUsePhase, type ComputerUseSnapshot, type ComputerUseTransport, isComputerUseTerminal } from "@/lib/computer-use/contracts";
+import {
+  type ComputerUseBinding,
+  type ComputerUsePhase,
+  type ComputerUseSnapshot,
+  type ComputerUseTransport,
+  isComputerUseActivelyStreaming,
+  isComputerUseTerminal,
+} from "@/lib/computer-use/contracts";
 import { ComputerUseTaskController } from "@/lib/computer-use/task-controller";
-import { ComputerUsePreview } from "./computer-use-preview";
 import { ComputerUseReview } from "./computer-use-review";
 import { ComputerUseSessions } from "./computer-use-sessions";
+import {
+  extractVerifiedDomain,
+  useWorkspaceSplitPaneHost,
+  WorkspaceSplitPaneSurface,
+} from "./workspace-split-pane";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 
 const PHASE_COPY: Record<ComputerUsePhase, string> = {
@@ -27,22 +38,30 @@ export function ComputerUseTaskCard({
   binding,
   transport,
   route = "/",
+  openReviewSignal = 0,
   onDownloadSaved,
   onTerminalSnapshot,
+  onSnapshotChange,
 }: {
   binding: ComputerUseBinding;
   transport: ComputerUseTransport;
   route?: string;
+  openReviewSignal?: number;
   onDownloadSaved?: (receipt: { fileId: string; name: string }) => void;
   onTerminalSnapshot?: (snapshot: ComputerUseSnapshot) => void;
+  onSnapshotChange?: (snapshot: ComputerUseSnapshot) => void;
 }) {
   const { ownerId, podId, incarnation, taskId, environment } = binding;
   const controller = useMemo(() => new ComputerUseTaskController({ ownerId, podId, incarnation, taskId, environment }, transport),
     [ownerId, podId, incarnation, taskId, environment, transport]);
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   const mobile = useIsMobile();
+  const splitPaneHost = useWorkspaceSplitPaneHost();
   const [open, setOpen] = useState(false);
   const [reviewId, setReviewId] = useState<string | null>(null);
+  const lastOpenSignalRef = useRef(openReviewSignal);
+  const openedTaskRef = useRef<string | null>(null);
+  const taskIdentity = JSON.stringify([ownerId, podId, incarnation, taskId, environment]);
   useBackLayer(route, reviewId ? 4 : open ? 3 : 0, () => {
     if (reviewId) setReviewId(null);
     else if (open) setOpen(false);
@@ -55,12 +74,12 @@ export function ComputerUseTaskCard({
     void controller.refresh().catch(() => undefined);
     const interval = setInterval(() => {
       const current = controller.getSnapshot();
-      if (document.hidden || current.pending || !current.snapshot
-        || isComputerUseTerminal(current.snapshot.phase)) return;
+      if (document.hidden || current.pending || !isComputerUseActivelyStreaming(current.snapshot)) return;
       void controller.refresh().catch(() => undefined);
     }, 2_000);
     const visibility = () => {
-      if (!document.hidden && !controller.getSnapshot().pending) {
+      const current = controller.getSnapshot();
+      if (!document.hidden && !current.pending && (!current.verified || isComputerUseActivelyStreaming(current.snapshot))) {
         void controller.refresh().catch(() => undefined);
       }
     };
@@ -74,12 +93,34 @@ export function ComputerUseTaskCard({
 
   const snapshot = state.snapshot;
   useEffect(() => {
+    if (state.verified && snapshot) onSnapshotChange?.(snapshot);
+  }, [onSnapshotChange, snapshot, state.verified]);
+  useEffect(() => {
+    if (
+      !state.verified || !isComputerUseActivelyStreaming(snapshot) || !snapshot?.approvedOrigins?.length
+      || snapshot.review?.purpose === "model_process" || openedTaskRef.current === taskIdentity
+    ) return;
+    // Approved origins appear only after processing consent, unlike a worker wait.
+    // Show actual work once, including reconnects. Status refreshes must respect
+    // an owner's Close or Back instead of opening the same task again.
+    openedTaskRef.current = taskIdentity;
+    setOpen(true);
+  }, [snapshot, state.verified, taskIdentity]);
+  useEffect(() => {
     if (snapshot && isComputerUseTerminal(snapshot.phase)) {
       onTerminalSnapshot?.(snapshot);
     }
   }, [snapshot, onTerminalSnapshot]);
+  useEffect(() => {
+    if (openReviewSignal === lastOpenSignalRef.current) return;
+    lastOpenSignalRef.current = openReviewSignal;
+    if (openReviewSignal <= 0) return;
+    if (snapshot?.review) setReviewId(snapshot.review.id);
+    else setOpen(true);
+  }, [openReviewSignal, snapshot]);
   const usable = state.verified && snapshot?.capability === "ready" && !isComputerUseTerminal(snapshot.phase);
-  const canPreview = usable && snapshot?.review?.purpose !== "model_process";
+  const canPreview = usable && Boolean(snapshot?.approvedOrigins?.length) && snapshot?.review?.purpose !== "model_process";
+  const verifiedDomain = extractVerifiedDomain(snapshot);
   const message = !state.verified && !state.pending ? "Couldn’t reach the browser. Check again to reconnect."
     : snapshot?.code === "BROWSER_MODEL_RATE_LIMITED" ? "Your AI is busy. Try this task again later."
     : snapshot?.code === "BROWSER_WAITING_FOR_WORKER" ? "Waiting for current background work to finish…"
@@ -87,7 +128,7 @@ export function ComputerUseTaskCard({
     : snapshot?.controlOwner === "owner" ? "You’re in control. Agent paused."
     : snapshot ? PHASE_COPY[snapshot.phase] : "Checking browser availability…";
 
-  function control(action: "takeover" | "resume" | "cancel"): void {
+  const control = useCallback((action: "takeover" | "resume" | "cancel"): void => {
     const labels = {
       takeover: ["Pausing the agent…", "You’re in control."],
       resume: ["Resuming the agent…", "Agent resumed."],
@@ -99,7 +140,17 @@ export function ComputerUseTaskCard({
       error: "Couldn’t confirm that change. Check the browser before continuing.",
     });
     void operation.catch(() => undefined);
-  }
+  }, [controller]);
+
+  const saveDownloadById = useCallback((downloadId: string): void => {
+    void controller.saveDownload(downloadId).then(
+      (saved) => {
+        morphyToast.info("Saved to Files.");
+        onDownloadSaved?.(saved);
+      },
+      () => morphyToast.error("Couldn’t verify the save. Check Files before trying again."),
+    );
+  }, [controller, onDownloadSaved]);
 
   function confirmReview(id: string): void {
     const operation = controller.review(id);
@@ -110,7 +161,7 @@ export function ComputerUseTaskCard({
     void operation.then(() => setReviewId(null)).catch(() => undefined);
   }
 
-  const controls = (
+  const controls = useMemo(() => (
     <div className="flex flex-wrap items-center gap-2" aria-busy={state.pending}>
       {snapshot?.controlOwner === "owner" ? (
         <ShellActionSurface variant="pill" className="min-h-11" disabled={!usable || state.pending || Boolean(snapshot?.review) || snapshot.goalCompleted} onClick={() => control("resume")}>
@@ -129,7 +180,41 @@ export function ComputerUseTaskCard({
           <ComputerUseSessions key={snapshot.controlEpoch} controller={controller} snapshot={snapshot} pending={state.pending} />
         ) : null}
     </div>
+  ), [canPreview, control, controller, snapshot, state.pending, usable]);
+
+  const renderSplitPaneContent = useCallback(
+    (showMobileHeaderClose: boolean) => (
+      <WorkspaceSplitPaneSurface
+        controller={controller}
+        snapshot={snapshot}
+        verified={state.verified}
+        canPreview={canPreview}
+        statusMessage={message}
+        controls={controls}
+        onClose={() => setOpen(false)}
+        onOpenReview={snapshot?.review ? () => setReviewId(snapshot.review?.id ?? null) : undefined}
+        onSaveDownload={saveDownloadById}
+        downloadPending={state.pending}
+        showMobileHeaderClose={showMobileHeaderClose}
+      />
+    ),
+    [canPreview, controller, controls, message, saveDownloadById, snapshot, state.pending, state.verified],
   );
+
+  useEffect(() => {
+    if (!splitPaneHost) return;
+    if (open && !mobile) {
+      splitPaneHost.setPane({
+        id: taskId,
+        render: () => renderSplitPaneContent(false),
+      });
+    } else {
+      splitPaneHost.clearPane(taskId);
+    }
+    return () => {
+      splitPaneHost.clearPane(taskId);
+    };
+  }, [mobile, open, renderSplitPaneContent, splitPaneHost, taskId]);
 
   return (
     <section className="w-full min-w-0 space-y-3 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-separator)] p-4" aria-label="Browser task">
@@ -157,6 +242,37 @@ export function ComputerUseTaskCard({
         )}
         </div>
       </div>
+      {usable && snapshot?.phase === "needs_owner" && snapshot.controlOwner !== "owner" ? (
+        <div
+          data-testid="browser-protected-entry-card"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-separator)] bg-foreground/[0.03] px-3 py-2.5 text-sm"
+        >
+          <div className="flex min-w-0 flex-1 items-start gap-2">
+            <Lock className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <div className="min-w-0">
+              <p className="font-medium text-foreground">
+                {verifiedDomain ? `Waiting on ${verifiedDomain}` : "Protected sign-in or confirmation"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Model screen viewing stays off while you take control.
+              </p>
+            </div>
+          </div>
+          {canPreview ? (
+            <ShellActionSurface
+              variant="pill"
+              className="min-h-10"
+              disabled={state.pending}
+              onClick={() => {
+                setOpen(true);
+                control("takeover");
+              }}
+            >
+              Sign in privately
+            </ShellActionSurface>
+          ) : null}
+        </div>
+      ) : null}
       {state.verified && snapshot?.phase === "completed" && snapshot.summary ? (
         <p className="whitespace-pre-wrap break-words text-sm">{snapshot.summary}</p>
       ) : null}
@@ -164,13 +280,7 @@ export function ComputerUseTaskCard({
         <div key={download.id} className="flex min-w-0 flex-wrap items-center gap-2">
           <span className="min-w-0 flex-1 break-words text-sm">{download.name}</span>
           <ShellActionSurface variant="pill" className="min-h-11" disabled={state.pending}
-            onClick={() => { void controller.saveDownload(download.id).then(
-              (saved) => {
-                morphyToast.info("Saved to Files.");
-                onDownloadSaved?.(saved);
-              },
-              () => morphyToast.error("Couldn’t verify the save. Check Files before trying again."),
-            ); }}>Save to Files</ShellActionSurface>
+            onClick={() => saveDownloadById(download.id)}>Save to Files</ShellActionSurface>
         </div>
       ))}
       {usable && snapshot?.review ? (
@@ -181,15 +291,9 @@ export function ComputerUseTaskCard({
             open={reviewId === snapshot.review.id} onClose={() => setReviewId(null)} onConfirm={confirmReview} />
         </div>
       ) : null}
-      {open && !mobile ? (
+      {open && !mobile && !splitPaneHost ? (
         <aside className="flex min-h-0 flex-col gap-3" aria-label="Browser preview">
-          <div className="flex items-center justify-between gap-3">
-            {controls}
-            <ShellActionSurface className="size-11" aria-label="Close browser preview" onClick={() => setOpen(false)}>
-              <X className="size-4" aria-hidden />
-            </ShellActionSurface>
-          </div>
-          <ComputerUsePreview controller={controller} />
+          {renderSplitPaneContent(false)}
         </aside>
       ) : null}
       {mobile ? (
@@ -200,9 +304,8 @@ export function ComputerUseTaskCard({
               <SheetTitle>Browser</SheetTitle>
               <SheetDescription>{message}</SheetDescription>
             </SheetHeader>
-            {controls}
             <div className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom,0px)]">
-              <ComputerUsePreview controller={controller} />
+              {renderSplitPaneContent(true)}
             </div>
           </SheetContent>
         </Sheet>

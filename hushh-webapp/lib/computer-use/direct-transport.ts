@@ -1,5 +1,5 @@
 import {
-  type ComputerUseBinding, type ComputerUsePhase, type ComputerUseReview, type ComputerUseSessionReceipt, type ComputerUseSnapshot,
+  type ComputerUseBinding, type ComputerUseEnvironment, type ComputerUsePhase, type ComputerUseReview, type ComputerUseSessionReceipt, type ComputerUseSnapshot,
   type ComputerUseTransport, sameComputerUseBinding,
 } from "./contracts";
 
@@ -123,10 +123,13 @@ export function parseComputerUseSnapshot(value: unknown, expected: ComputerUseBi
       throw new Error("BROWSER_RESPONSE_REFUSED");
     }
   }
+  if (source.environment !== "development" && source.environment !== "uat") {
+    throw new Error("BROWSER_RESPONSE_REFUSED");
+  }
   const binding: ComputerUseBinding = {
     ownerId: source.owner_id as string, podId: source.pod_id as string,
     incarnation: source.incarnation as string, taskId: source.task_id as string,
-    environment: source.environment as "development",
+    environment: source.environment as ComputerUseEnvironment,
   };
   const phases: ComputerUsePhase[] = ["running", "needs_owner", "completed", "unavailable", "outcome_uncertain", "cancelled"];
   if (!sameComputerUseBinding(binding, expected) || !phases.includes(wire.phase as ComputerUsePhase)
