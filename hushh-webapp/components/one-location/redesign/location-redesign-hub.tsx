@@ -132,7 +132,7 @@ import type {
 } from "@/lib/one-location/types";
 import { NativeLocationRoute, NativeLocationLayer, nativeLocationDurationRows, useNativeLocationEnabled, useNativeLocationPaneActive } from "./native-location-workspace";
 import type { NativeWorkspaceSurfaceSection } from "@/lib/capacitor/native-workspace-surface";
-import { locationHeaderStatusText, LocationHeaderActions, LocationPrimaryShareCard, LocationRequestDurationHeader } from "./location-hub-summary";
+import { LocationHeaderActions, LocationPrimaryShareCard, LocationRequestDurationHeader } from "./location-hub-summary";
 import type { CircleRecipientSelection } from "@/lib/one-location/circle-recipient-selection";
 import type { AutoApproveScope } from "@/lib/one-location/location-control-state";
 import {
@@ -1188,8 +1188,6 @@ export function LocationRedesignHub({ vm, nativeFrame }: { vm: LocationHubViewMo
       inlineActions: [{ key: "notification-recovery", label: pushPrompt.permission === "denied" ? "Open settings" : pushPrompt.permission === "granted" ? "Retry" : "Turn on",
         tone: "ghost" as const, enabled: !pushPrompt.isRetryingPushRegistration, pending: pushPrompt.isRetryingPushRegistration, run: pushPrompt.enable, web: true }] }] : []),
     ...(vm.loadError ? [{ key: "load-error", label: "Location unavailable", detail: vm.loadError, run: vm.onRetryLoad }] : []),
-    { key: "location-enabled", label: "My location", detail: locationHeaderStatusText(vm), toggle: { value: vm.locationEnabled,
-      change: value => value ? vm.onShowMyLocation() : vm.onHideMyLocation() } },
     ...(vm.locationBlocked ? [
       { key: "permission-guide", label: recoveryGuide.title, detail: recoveryGuide.steps.join(" ") },
       { key: "permission-retry", label: "Check again", enabled: !vm.locationAcquiring, pending: vm.locationAcquiring, run: vm.onShowMyLocation },

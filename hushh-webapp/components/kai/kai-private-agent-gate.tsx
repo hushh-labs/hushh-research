@@ -1,12 +1,15 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
 
+import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { BodyText, PageTitle, SupportingText } from "@/components/app-ui/typography";
 import { useKaiPlacement } from "@/lib/kai/kai-placement";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { Button } from "@/lib/morphy-ux/button";
+import { resolveAppRouteLayoutMode } from "@/lib/navigation/app-route-layout";
 
 /**
  * Kai renders only for a Shared owner. Everyone else sees, plainly, that Kai is
@@ -14,13 +17,14 @@ import { Button } from "@/lib/morphy-ux/button";
  */
 export function KaiPrivateAgentGate({ children }: { children: ReactNode }) {
   const { user, loading, accountPrincipal } = useAuth();
+  const pathname = usePathname();
   const [attempt, setAttempt] = useState(0);
   const principal = !loading && accountPrincipal?.firebaseUid === user?.uid
     ? accountPrincipal : null;
   const placement = useKaiPlacement(principal, attempt);
   if (placement === "shared") return <>{children}</>;
   if (placement === "checking") return <HushhLoader label="Opening Finance…" />;
-  return (
+  const fallback = (
     <section
       className="mx-auto flex max-w-md flex-col gap-3 px-4 py-16 text-center"
       data-kai-placement={placement}
@@ -46,4 +50,7 @@ export function KaiPrivateAgentGate({ children }: { children: ReactNode }) {
       )}
     </section>
   );
+  return resolveAppRouteLayoutMode(pathname ?? "/one/kai") === "flow"
+    ? <FullscreenFlowShell width="agent">{fallback}</FullscreenFlowShell>
+    : fallback;
 }

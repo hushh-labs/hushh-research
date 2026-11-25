@@ -746,6 +746,23 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             call.resolve(self.ack(identity, sequence: self.fence.update, phase: "active"))
         }
     }
+    func mainFrameDocumentCommitPendingIdentity() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard let identity = fence.identity else { return }
+        HushhSessionPrivacyShield.shared.retireDocument(identity.document)
+        _ = fence.retire(identity)
+        detachPresentation()
+    }
+    private func detachPresentation() {
+        model.clear()
+        context = ""
+        editorContext = ""
+        requestedVisible = false
+        compositor?.remove("agent-dock")
+        hosting?.willMove(toParent: nil); hosting?.view.removeFromSuperview(); hosting?.removeFromParent(); hosting = nil
+        placement = nil
+        layoutState = NativeDockLayoutState()
+    }
     @objc func retire(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let identity = self.identity(call) else { call.reject("NATIVE_DOCK_INVALID"); return }
@@ -758,12 +775,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
                     result["recovery"] = ["text": self.model.text, "context": self.editorContext,
                         "editorRevision": self.editorRevision, "consumed": self.model.awaitingConsumption] as JSObject
                 }
-                self.model.clear()
-                self.editorContext = ""
-                self.compositor?.remove("agent-dock")
-                self.hosting?.willMove(toParent: nil); self.hosting?.view.removeFromSuperview(); self.hosting?.removeFromParent(); self.hosting = nil
-                self.placement = nil
-                self.layoutState = NativeDockLayoutState()
+                self.detachPresentation()
             }
             call.resolve(result)
         }

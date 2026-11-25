@@ -2860,7 +2860,7 @@
       "native": {
         "route": "/one/connect",
         "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fconnect",
+        "initialRoute": "/login?redirect=%2Fone%2Fconnect",
         "expectedMarker": "native-route-connect",
         "expectedRoute": "/one/connect",
         "autoReviewerLogin": true,
@@ -11466,5 +11466,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "124c1ab1db92341469aa0d09847d482fafb88be07d34fb57f73635868a03cadc"
+  "content_sha256": "59aaa98d7891e8680a8267a2a4433f73420763cfec25a56c273421c771599fd4"
 }

@@ -356,7 +356,7 @@
     {
       "route": "/one/connect",
       "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fconnect",
+      "initialRoute": "/login?redirect=%2Fone%2Fconnect",
       "expectedMarker": "native-route-connect",
       "expectedRoute": "/one/connect",
       "autoReviewerLogin": true,

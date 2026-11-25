@@ -541,12 +541,31 @@ final class NativeSupportTests: XCTestCase {
         host.view.addSubview(webView)
         let target = DelegateProbe()
         let committed = expectation(description: "committed page observed")
-        let forwarder = HushhMainFrameNavigationDelegate(target: target) { _ in committed.fulfill() }
+        var commitCount = 0
+        var onCommit = { committed.fulfill() }
+        let forwarder = HushhMainFrameNavigationDelegate(target: target) { _ in
+            commitCount += 1
+            onCommit()
+        }
         webView.navigationDelegate = forwarder
         webView.loadHTMLString("<html><body>public fixture</body></html>", baseURL: nil)
         wait(for: [committed], timeout: 20)
         XCTAssertTrue(target.didStart)
         XCTAssertTrue(target.didCommit)
+
+        let sameDocument = expectation(description: "React-style history update")
+        webView.evaluateJavaScript("history.pushState({}, '', '#retained')") { _, error in
+            XCTAssertNil(error)
+            sameDocument.fulfill()
+        }
+        wait(for: [sameDocument], timeout: 5)
+        XCTAssertEqual(commitCount, 1, "Same-document navigation must retain its native owner")
+
+        let replaced = expectation(description: "Web-only replacement observed")
+        onCommit = { replaced.fulfill() }
+        webView.loadHTMLString("<html><body>Web-only replacement</body></html>", baseURL: nil)
+        wait(for: [replaced], timeout: 20)
+        XCTAssertEqual(commitCount, 2)
     }
     @MainActor
     func testEditorMenuKeepsItsDelegateUntilDismissalCompletes() {
@@ -5717,14 +5736,27 @@ final class NativeSupportTests: XCTestCase {
         var documents = HushhSessionPrivacyDocumentState()
         documents.commit("document-a")
         XCTAssertTrue(documents.isCommitted("document-a"))
+        documents.retire("document-a")
+        XCTAssertFalse(documents.isCommitted("document-a"))
+        XCTAssertFalse(documents.accepts("document-a"), "The outgoing document is revoked before the successor identity resolves")
+        documents.observe("document-a")
+        documents.commit("document-a")
+        XCTAssertFalse(documents.accepts("document-a"), "Late bridge traffic cannot revive the outgoing document")
         documents.observe("document-b")
         XCTAssertFalse(documents.isCommitted("document-b"))
-        documents.commit("document-b")
-        XCTAssertTrue(documents.isCommitted("document-b"))
+        documents.retire("document-b")
+        documents.observe("document-b")
+        XCTAssertFalse(documents.accepts("document-b"), "An intermediate owner is revoked when another commit overtakes its identity read")
+        documents.observe("replacement-b")
+        XCTAssertFalse(documents.isCommitted("replacement-b"))
+        documents.commit("replacement-b")
+        XCTAssertTrue(documents.isCommitted("replacement-b"))
         XCTAssertFalse(documents.accepts("document-a"))
+        documents.retire("document-a")
+        XCTAssertTrue(documents.isCommitted("replacement-b"), "Late retirement cannot revoke the successor")
         documents.commit("document-c")
         XCTAssertTrue(documents.isCommitted("document-c"))
-        XCTAssertFalse(documents.isCommitted("document-b"))
+        XCTAssertFalse(documents.isCommitted("replacement-b"))
         documents.restart()
         XCTAssertFalse(documents.isCommitted("document-c"))
         XCTAssertFalse(documents.accepts("document-c"))

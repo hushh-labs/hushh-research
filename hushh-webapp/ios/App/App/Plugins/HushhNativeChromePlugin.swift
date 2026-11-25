@@ -776,19 +776,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     func mainFrameDocumentCommitPendingIdentity() {
         dispatchPrecondition(condition: .onQueue(.main))
         interactionGeneration += 1
-        for slot in slots.values {
-            slot.sequence += 1
-            slot.choiceValue = nil
-            slot.state.invalidate()
-            slot.hosting?.view.isUserInteractionEnabled = false
-            slot.hosting?.view.accessibilityElementsHidden = true
-            compositor?.setAdmission(slot.controlId, admitted: false,
-                presentationRegionRevision: slot.presentationRegionRevision, privacyGeneration: slot.privacyGeneration)
-            if let presenter = slot.presenter {
-                trackPanePresenterRetirement(presenter)
-                presenter.retire {}
-            }
-        }
+        invalidatePresentation()
     }
     @objc func acquireContentPane(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in

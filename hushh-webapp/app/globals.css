@@ -8074,7 +8074,7 @@ html[data-accent="gold"].dark {
 
 /* Chat keeps the same shared navbar as every other route, but its accent is
    always iOS blue. The bottom shell is outside the Chat page's token scope. */
-html:has([data-direct-message-page]) {
+html.direct-messages-palette {
   --chat-ios-accent: #0071e3;
   --chat-glass: rgba(255, 255, 255, 0.68);
   --chat-glass-edge: rgba(255, 255, 255, 0.65);
@@ -8102,7 +8102,7 @@ html:has([data-direct-message-page]) {
   --accent: #0071e3;
 }
 
-html.dark:has([data-direct-message-page]) {
+html.dark.direct-messages-palette {
   --chat-ios-accent: #0a84ff;
   --chat-glass: rgba(30, 30, 36, 0.62);
   --chat-glass-edge: rgba(255, 255, 255, 0.14);
@@ -8130,7 +8130,7 @@ html.dark:has([data-direct-message-page]) {
   --accent: #0a84ff;
 }
 
-html:has([data-direct-message-page]) [data-app-bottom-shell] {
+html.direct-messages-palette [data-app-bottom-shell] {
   --app-accent: var(--chat-ios-accent);
   --app-accent-deep: var(--chat-ios-accent);
   --app-accent-bright: var(--chat-ios-accent);
@@ -8141,7 +8141,7 @@ html:has([data-direct-message-page]) [data-app-bottom-shell] {
   --accent: var(--chat-ios-accent);
 }
 
-html.dark:has([data-direct-message-page]) [data-app-bottom-shell] {
+html.dark.direct-messages-palette [data-app-bottom-shell] {
   --app-accent: var(--chat-ios-accent);
   --app-accent-deep: var(--chat-ios-accent);
   --app-accent-bright: var(--chat-ios-accent);

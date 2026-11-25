@@ -33,6 +33,7 @@ vi.mock("@/lib/services/owner-pod-endpoint", () => ({
   loadPinnedEndpoint: async () => null,
 }));
 vi.mock("next/navigation", () => ({
+  usePathname: () => "/one/kai",
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
 }));

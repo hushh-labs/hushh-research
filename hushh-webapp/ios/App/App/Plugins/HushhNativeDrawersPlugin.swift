@@ -746,6 +746,11 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         if family == "profile" { retireProfileForm(completion: completion) }
         else { completion() }
     }
+    @MainActor func mainFrameDocumentCommitPendingIdentity() {
+        guard let document = sessionFence.document else { return }
+        HushhSessionPrivacyShield.shared.retireDocument(document)
+        retireAll()
+    }
     @MainActor private func retireAll() {
         walletCard.retire()
         ownedChoices.retire()

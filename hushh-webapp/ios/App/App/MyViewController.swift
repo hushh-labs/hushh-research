@@ -316,8 +316,17 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         dispatchPrecondition(condition: .onQueue(.main))
         committedDocumentReadGeneration &+= 1
         let generation = committedDocumentReadGeneration
+        if let document = committedNativeDocumentId {
+            HushhSessionPrivacyShield.shared.retireDocument(document)
+        }
         committedNativeDocumentId = nil
         documentAuthorityState = .pending
+        // A new Web document has no JavaScript owner to dismiss the outgoing
+        // native replicas. Retire them before its identity read can complete.
+        (bridge?.plugin(withName: "HushhNativeDrawers") as? HushhNativeDrawersPlugin)?.mainFrameDocumentCommitPendingIdentity()
+        (bridge?.plugin(withName: "HushhNativeDock") as? HushhNativeDockPlugin)?.mainFrameDocumentCommitPendingIdentity()
+        (bridge?.plugin(withName: "HushhNativeNavigation") as? HushhNativeNavigationPlugin)?.mainFrameDocumentCommitPendingIdentity()
+        (bridge?.plugin(withName: "HushhNativeVaultGate") as? NativeVaultGatePlugin)?.mainFrameDocumentCommitPendingIdentity()
         (bridge?.plugin(withName: "HushhNativeChrome") as? HushhNativeChromePlugin)?.mainFrameDocumentCommitPendingIdentity()
         webView.evaluateJavaScript("window.__HUSHH_NATIVE_DOCUMENT_ID__") { [weak self, weak webView] value, error in
             DispatchQueue.main.async {
