@@ -41,10 +41,14 @@ import type {
 import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-limits";
 import { withLocationTypography } from "./location-typography";
 import { SosHoldProgress } from "./sos-hold-progress";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 
 const AlertDialogContent = withLocationTypography(UnscopedAlertDialogContent);
 
 const HOLD_DURATION_MS = 2_000;
+// Allow ordinary timer scheduling jitter, but never complete an old intent
+// when a suspended WebView resumes after its confirmation window.
+const HOLD_COMPLETION_GRACE_MS = 1_000;
 export type SmsQuickMessage = "Come get me" | "I'm not safe";
 /** Presets populate the same editable message that either send control uses. */
 const QUICK_MESSAGES: readonly SmsQuickMessage[] = [
@@ -132,6 +136,7 @@ export function SosPanel({
   const sendPreparationRef = useRef<AbortController | null>(null);
   const frameRef = useRef<number | null>(null);
   const holdStartedAtRef = useRef<number | null>(null);
+  const holdWallStartedAtRef = useRef<number | null>(null);
   const holdTargetRef = useRef<"sms" | "composer" | null>(null);
   const countdownModeRef = useRef<"hold" | "tap" | null>(null);
   const tapCountdownRef = useRef(false);
@@ -189,6 +194,7 @@ export function SosPanel({
     sendPreparationRef.current?.abort();
     sendPreparationRef.current = null;
     holdStartedAtRef.current = null;
+    holdWallStartedAtRef.current = null;
     holdTargetRef.current = null;
     countdownModeRef.current = null;
     tapCountdownRef.current = false;
@@ -210,7 +216,7 @@ export function SosPanel({
    * so release the latch here.
    */
   const fireTrigger = useCallback(() => {
-    if (firedRef.current || disabled) return;
+    if (firedRef.current || disabled || appInteractionCoordinator.getLifecycleSnapshot().state !== "active") return;
     firedRef.current = true;
     clearHold(false);
     setProgress(1);
@@ -225,6 +231,19 @@ export function SosPanel({
   }, [clearHold, disabled, onTrigger, selectedMessage]);
 
   const completeHold = useCallback(() => {
+    const startedAt = holdStartedAtRef.current;
+    const wallStartedAt = holdWallStartedAtRef.current;
+    const elapsed = startedAt === null ? NaN : performance.now() - startedAt;
+    // Some mobile clocks pause during sleep. Wall time is an additional stale
+    // intent veto; monotonic elapsed still owns completion of the two seconds.
+    const wallElapsed = wallStartedAt === null ? NaN : Date.now() - wallStartedAt;
+    const maximumAge = HOLD_DURATION_MS + HOLD_COMPLETION_GRACE_MS;
+    if (!Number.isFinite(elapsed) || elapsed < 0 || elapsed > maximumAge ||
+        !Number.isFinite(wallElapsed) || wallElapsed < 0 || wallElapsed > maximumAge) {
+      suppressSendClickRef.current = true;
+      clearHold();
+      return;
+    }
     // A browser emits click after pointerup/Space keyup. A completed hold has
     // already sent, so that trailing click must not arm a second countdown.
     if (countdownModeRef.current === "hold" && holdTargetRef.current === "composer") {
@@ -233,7 +252,7 @@ export function SosPanel({
       // beyond two seconds. A new deliberate press clears it in startHold.
     }
     fireTrigger();
-  }, [fireTrigger]);
+  }, [clearHold, fireTrigger]);
 
   const updateProgress = useCallback(function tickProgress() {
     if (holdStartedAtRef.current === null || firedRef.current) return;
@@ -255,6 +274,7 @@ export function SosPanel({
     if (disabled || holdStartedAtRef.current !== null || firedRef.current || tapCountdownRef.current) return;
     suppressSendClickRef.current = false;
     holdStartedAtRef.current = performance.now();
+    holdWallStartedAtRef.current = Date.now();
     holdTargetRef.current = target;
     countdownModeRef.current = "hold";
     setHoldTarget(target);
@@ -270,6 +290,7 @@ export function SosPanel({
     countdownModeRef.current = "tap";
     holdTargetRef.current = "composer";
     holdStartedAtRef.current = performance.now();
+    holdWallStartedAtRef.current = Date.now();
     setTapCountdownActive(true);
     setHoldTarget("composer");
     setProgress(0);
@@ -279,6 +300,10 @@ export function SosPanel({
   }, [completeHold, customMessage, disabled, prepareSend, updateProgress]);
 
   const cancelHold = useCallback(() => clearHold(true), [clearHold]);
+  const interruptPendingSend = useCallback(() => {
+    if (countdownModeRef.current !== null) suppressSendClickRef.current = true;
+    cancelHold();
+  }, [cancelHold]);
 
   const handleSendClick = () => {
     if (suppressSendClickRef.current) {
@@ -293,18 +318,22 @@ export function SosPanel({
   };
 
   useEffect(() => {
-    const onWindowBlur = () => cancelHold();
+    const releaseLifecycle = appInteractionCoordinator.subscribeLifecycle(() => {
+      if (appInteractionCoordinator.getLifecycleSnapshot().state !== "active") interruptPendingSend();
+    });
+    const onWindowBlur = () => interruptPendingSend();
     const onVisibility = () => {
-      if (document.hidden) cancelHold();
+      if (document.hidden) interruptPendingSend();
     };
     window.addEventListener("blur", onWindowBlur);
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
+      releaseLifecycle();
       window.removeEventListener("blur", onWindowBlur);
       document.removeEventListener("visibilitychange", onVisibility);
       clearHold();
     };
-  }, [cancelHold, clearHold]);
+  }, [clearHold, interruptPendingSend]);
 
   useEffect(() => {
     if (busy) observedBusyRef.current = true;
@@ -351,10 +380,18 @@ export function SosPanel({
         (event.type === "pointercancel" || performance.now() - holdStartedAtRef.current >= 250)) {
       suppressSendClickRef.current = true;
     }
+    // Clear the hold before releasing capture: a normal short tap must still
+    // reach its click handler when release emits lostpointercapture.
+    if (!tapCountdownRef.current) cancelHold();
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    if (!tapCountdownRef.current) cancelHold();
+  };
+
+  const handleLostPointerCapture = () => {
+    if (countdownModeRef.current !== "hold") return;
+    suppressSendClickRef.current = true;
+    cancelHold();
   };
 
   const handleKeyDown = (
@@ -587,10 +624,11 @@ export function SosPanel({
                 onPointerDown={(event) => handlePointerDown(event, "composer")}
                 onPointerUp={handlePointerEnd}
                 onPointerCancel={handlePointerEnd}
+                onLostPointerCapture={handleLostPointerCapture}
                 onPointerLeave={handlePointerLeave}
                 onKeyDown={(event) => handleKeyDown(event, "composer")}
                 onKeyUp={(event) => handleKeyUp(event, "composer")}
-                onBlur={cancelHold}
+                onBlur={interruptPendingSend}
                 onContextMenu={(event) => event.preventDefault()}
                 className="ui-text-compact-button-label relative flex h-11 min-w-[72px] touch-none select-none items-center justify-center overflow-hidden rounded-[calc(var(--app-input-radius)-6px)] bg-[color:var(--app-destructive)] px-3 text-[color:var(--app-destructive-fg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-[color:var(--sos-control-surface-hover)] disabled:text-[color:var(--sos-label)]"
               >
@@ -641,12 +679,13 @@ export function SosPanel({
                 disabled={disabled}
                 aria-label={`Press and hold for two seconds to send Save My Soul SMS alert with your live location to ${recipientCountLabel}`}
                 onPointerDown={(event) => handlePointerDown(event, "sms")}
+                onLostPointerCapture={handleLostPointerCapture}
                 onPointerUp={handlePointerEnd}
                 onPointerCancel={handlePointerEnd}
                 onPointerLeave={handlePointerLeave}
                 onKeyDown={(event) => handleKeyDown(event, "sms")}
                 onKeyUp={(event) => handleKeyUp(event, "sms")}
-                onBlur={cancelHold}
+                onBlur={interruptPendingSend}
                 onContextMenu={(event) => event.preventDefault()}
                 data-sos-core={busy ? "" : undefined}
                 className={cn(
