@@ -210,7 +210,7 @@ for (const width of [393, 1440]) test(`Finance update access uses latest choices
   await mount(page, width);
   // Creation/approval is proved above. Start this independent scenario from
   // existing approved transport data; every update still uses production UI.
-  await page.getByRole("button", { name: "Open sample existing Finance access", exact: true }).click();
+  await page.getByRole("button", { name: "Open sample existing Finance access", exact: true }).press("Enter");
   const edit = page.getByRole("dialog", { name: "Share Finance", exact: true });
   await expect(edit.getByRole("checkbox", { name: "Other connection 1", exact: true })).toBeVisible();
   await expect(edit.getByRole("checkbox", { name: /Sample connection/ })).toHaveCount(0);
@@ -227,7 +227,22 @@ for (const width of [393, 1440]) test(`Finance update access uses latest choices
   await amount.fill("");
   await amount.pressSequentially("3");
   await expect(amount).toHaveValue("3");
-  await update.getByLabel("Duration unit").selectOption("3600");
+  const unit = update.getByLabel("Duration unit");
+  await amount.press("Tab");
+  await expect(unit).toBeFocused();
+  const focusedFieldStyle = async (field: Element) => {
+    const style = getComputedStyle(field);
+    await Promise.allSettled(field.getAnimations().map((animation) => animation.finished));
+    const { backgroundColor, borderRadius, boxShadow, height, outlineStyle } = style;
+    return { backgroundColor, borderRadius, boxShadow, height, outlineStyle };
+  };
+  const unitStyle = await unit.evaluate(focusedFieldStyle);
+  await unit.press("Shift+Tab");
+  await expect(amount).toBeFocused();
+  expect(await amount.evaluate(focusedFieldStyle)).toEqual(unitStyle);
+  expect(unitStyle.boxShadow).not.toBe("none");
+  expect(unitStyle.outlineStyle).toBe("none");
+  await unit.selectOption("3600");
   await expect(amount).toHaveValue("3");
   await update.getByRole("button", { name: "Preview", exact: true }).click();
   const review = page.getByRole("dialog", { name: "Review before sharing", exact: true });

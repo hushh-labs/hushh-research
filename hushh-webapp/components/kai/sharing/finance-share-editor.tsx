@@ -1,12 +1,15 @@
 "use client";
+import type { ComponentProps } from "react";
 import { OnboardingStepper } from "@/components/app-ui/onboarding-stepper";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { SectionLabel } from "@/components/app-ui/typography";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { Input } from "@/components/ui/input";
+import { ChevronDown } from "@/components/icons";
+import { Input, INPUT_CLASSNAME } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { financeSections } from "@/lib/finance-sharing/contract";
+import { cn } from "@/lib/utils";
 import {
   sharingSteps,
   type EditStep,
@@ -21,6 +24,16 @@ const sectionLabel = {
   holdings: "Selected stocks",
   note: "Your note",
 };
+
+function DurationSelect({ className, ...props }: ComponentProps<"select">) {
+  return (
+    <span className={cn("relative block", className)}>
+      <select {...props} className={cn(INPUT_CLASSNAME, "appearance-none pr-9")} />
+      <ChevronDown className="pointer-events-none absolute end-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+    </span>
+  );
+}
+
 export function FinanceShareEditor({
   flow,
   initialShare,
@@ -202,8 +215,8 @@ export function FinanceShareEditor({
             {modeButtons}
             <label className="mt-5 block text-sm">
               Access ends
-              <select
-                className="mt-2 min-h-11 w-full rounded-full border border-input bg-background px-4"
+              <DurationSelect
+                className="mt-2"
                 value={durationChoice}
                 onChange={(e) => setDurationChoice(e.target.value)}
               >
@@ -216,7 +229,7 @@ export function FinanceShareEditor({
                 ) : mode === "ongoing" ? (
                   <option value="until_stopped">When I stop sharing</option>
                 ) : null}
-              </select>
+              </DurationSelect>
             </label>
             {durationChoice === "custom" ? (
               <fieldset className="mt-3">
@@ -232,16 +245,16 @@ export function FinanceShareEditor({
                     aria-invalid={!durationValid}
                     onChange={(e) => setCustomValue(e.target.value)}
                   />
-                  <select
+                  <DurationSelect
                     aria-label="Duration unit"
-                    className="min-h-11 rounded-full border border-input bg-background px-4"
+                    className="shrink-0"
                     value={customUnit}
                     onChange={(e) => setCustomUnit(Number(e.target.value))}
                   >
                     <option value={60}>Minutes</option>
                     <option value={3600}>Hours</option>
                     <option value={86400}>Days</option>
-                  </select>
+                  </DurationSelect>
                 </div>
                 <p className={styles.caption}>Choose 1 minute to 7 days.</p>
                 {!durationValid ? (
