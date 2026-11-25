@@ -2062,6 +2062,18 @@ export class ApiService {
       );
     }
     ApiService.clearRoutingHostingBurstCache();
+    if (options.target === "shared") {
+      try {
+        const { snapshotValidatedAuthSessionPrincipal } = await import("@/lib/auth/session-owner");
+        const principal = snapshotValidatedAuthSessionPrincipal();
+        if (principal?.ownerId) {
+          const ownerPod = await import("./owner-pod-endpoint");
+          await ownerPod.clearPinnedPodEndpoint(principal.ownerId);
+        }
+      } catch {
+        // Best-effort local pin eviction; server detach remains authoritative.
+      }
+    }
     return payload;
   }
 
@@ -2105,6 +2117,16 @@ export class ApiService {
       );
     }
     ApiService.clearRoutingHostingBurstCache();
+    try {
+      const { snapshotValidatedAuthSessionPrincipal } = await import("@/lib/auth/session-owner");
+      const principal = snapshotValidatedAuthSessionPrincipal();
+      if (principal?.ownerId) {
+        const ownerPod = await import("./owner-pod-endpoint");
+        await ownerPod.clearPinnedPodEndpoint(principal.ownerId);
+      }
+    } catch {
+      // Best-effort local pin refresh before re-admitting the newly adopted sandbox.
+    }
     return payload;
   }
 

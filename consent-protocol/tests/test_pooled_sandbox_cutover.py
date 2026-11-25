@@ -1312,3 +1312,81 @@ async def test_persisted_shared_hosting_choice_row_promotes_idempotently_to_ace(
     )
     assert second == promoted
     assert len(reg.upserts) == 1
+
+
+@pytest.mark.asyncio
+async def test_explicit_switch_to_shared_stays_sticky_and_can_reenter_sandbox_with_bumped_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Owners switching from Confidential Sandbox to Hussh Shared stay on Shared until they opt back in."""
+    _enable_cutover(monkeypatch)
+
+    reg = _FakeRegistry()
+    jobs = _FakeJobs()
+    grants = _FakeGrants()
+    fake_detach = _make_fake_detach(reg)
+
+    initial = await ensure_pooled_sandbox_placement(
+        user_id="uid-sticky-shared",
+        registry=reg,
+        job_repo=jobs,
+        grant_service=grants,
+    )
+    assert initial is not None
+    assert initial["deployment_target"] == "ace"
+    initial_hushh_id = initial["hushh_id"]
+    assert initial["backend_metadata"]["endpointVersion"] == 1
+
+    # Simulate owner clicking Switch to Hussh Shared (runtime_placement.switch_hosting_placement)
+    detached_verdict = await fake_detach(
+        row=initial,
+        reason="owner switched to Hussh Shared",
+        allow_stalled_states=True,
+    )
+    assert detached_verdict is not None
+    post_detach_choice = {"tier": "shared", "chosen_at": "2026-11-19T00:00:05Z"}
+
+    class _FakeChoiceRepo:
+        async def get(self, _uid: str) -> dict[str, Any]:
+            return post_detach_choice
+
+    # Status polls calling ensure_pooled_sandbox_placement MUST preserve Hussh Shared!
+    polled = await ensure_pooled_sandbox_placement(
+        user_id="uid-sticky-shared",
+        registry=reg,
+        job_repo=jobs,
+        grant_service=grants,
+        hosting_choice_repo=_FakeChoiceRepo(),
+    )
+    assert polled is not None
+    assert polled.get("deployment_target") is None
+    assert (
+        resolve_hosting_mode(
+            row=polled,
+            registry_read_ok=True,
+            setup_job=None,
+            setup_job_read_ok=True,
+            shared_choice=post_detach_choice,
+            shared_choice_read_ok=True,
+        )
+        == "shared"
+    )
+
+    # Explicit 1-click re-adoption returns the owner to Confidential Sandbox with bumped endpointVersion.
+    readopted = await adopt_pooled_sandbox_for_owner(
+        user_id="uid-sticky-shared",
+        allow_clean_slate=True,
+        registry=reg,
+        job_repo=jobs,
+        grant_service=grants,
+        migration_job_repo=_FakeMigrationJobs(),
+        identity_service=_FakeIdentityService({"uid-sticky-shared": {"phone_verified": True}}),
+        detach_fn=fake_detach,
+        trigger_retirement_sweep_fn=lambda: None,
+    )
+    assert readopted["deploymentTarget"] == "ace"
+    assert readopted["hushhId"] == initial_hushh_id
+    restored = await reg.get("uid-sticky-shared")
+    assert restored is not None
+    assert restored["deployment_target"] == "ace"
+    assert restored["backend_metadata"]["endpointVersion"] == 2

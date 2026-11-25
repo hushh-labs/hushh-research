@@ -318,7 +318,7 @@ describe("cloud step placement states", () => {
   });
 
   it("shows graphical Hussh Pods provider identity and legacy Azure migration option when explicitly enabled outside Dev", async () => {
-    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
     vi.stubEnv("NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE", "0");
     vi.stubEnv("NEXT_PUBLIC_HOSTED_AZURE_MIGRATION_ENABLED", "1");
     vi.mocked(ApiService.getHostedAzureMigrationStatus).mockResolvedValue({

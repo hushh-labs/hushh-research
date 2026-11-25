@@ -29,7 +29,7 @@ import {
   KAI_MARKET_PATH,
   ROUTES,
 } from "@/lib/navigation/routes";
-import { isPooledSandboxSwitchAvailable } from "@/lib/one/owner-cloud";
+import { isByocSelectableOnBuild, isPooledSandboxSwitchAvailable } from "@/lib/one/owner-cloud";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { ApiService } from "@/lib/services/api-service";
 import {
@@ -200,7 +200,7 @@ export function PhoneMandatePageContent() {
             phoneNumber: activeUser.phoneNumber,
             phoneVerified: AccountIdentityService.hasVerifiedPhone(identity),
           })
-        : isPooledSandboxSwitchAvailable()
+        : isPooledSandboxSwitchAvailable() && isByocSelectableOnBuild()
         ? buildOneSetupCloudRoute(redirectPath)
         : buildOneSetupRoute({ returnTo: redirectPath });
       await PreVaultUserStateService.syncOnboardingJourney({

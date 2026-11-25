@@ -24,6 +24,7 @@ import {
   HOSTED_POD_PROVIDER_LABELS,
   hostedPodDisplayLabel,
   hostedPodProvider,
+  isByocSelectableOnBuild,
   isHostedAzureMigrationAvailable,
   isHostedPodTierUnderMaintenance,
   isOwnerCloudTarget,
@@ -157,9 +158,11 @@ function AgentSettingsBody({
 
   if (kind === "hosting") {
     const pooledSwitchAvailable = isPooledSandboxSwitchAvailable();
+    const byocSelectable = isByocSelectableOnBuild();
     const isPersonalSandboxActive =
       mode === "hussh_pods" && status?.deploymentTarget === "ace";
     const canManageCloud =
+      (byocSelectable || mode === "byoc") &&
       status?.featureEnabled === true &&
       (mode === "shared" ||
         mode === "pending" ||
@@ -198,7 +201,7 @@ function AgentSettingsBody({
       status?.state === "active" &&
       (mode === "byoc" || (mode === "hussh_pods" && activeHostedProvider === "gcp"));
     const hasHostingDetails =
-      (mode === "hussh_pods" && !hostedUnderMaintenance) ||
+      (mode === "hussh_pods" && (!hostedUnderMaintenance || isPersonalSandboxActive)) ||
       (mode === "byoc" && status?.state === "active");
 
     if (activeDetail === "hosting-details" && hasHostingDetails) {
@@ -212,7 +215,7 @@ function AgentSettingsBody({
             </div>
           ) : null}
 
-          {mode === "hussh_pods" && !hostedUnderMaintenance ? (
+          {mode === "hussh_pods" && (!hostedUnderMaintenance || isPersonalSandboxActive) ? (
             <SettingsGroup title="Active runtime" density="compact" headingClassName="!mt-0">
               <HusshPodsActiveCard
                 deploymentTarget={status?.deploymentTarget}
@@ -516,54 +519,56 @@ function AgentSettingsBody({
           density="compact"
           headingClassName="!mt-5"
         >
-          {!pooledSwitchAvailable ? (
-            <SettingsRow
-              title="Hussh Shared"
-              description={
-                mode === "byoc"
-                  ? "Remove your current cloud below to switch."
-                  : "Managed shared service with automatic updates."
-              }
-              trailing={
-                mode === "shared"
-                  ? "Current"
-                  : mode === "unplaced"
-                    ? "Choose"
-                    : canSwitchToShared
-                      ? "Switch"
-                      : undefined
-              }
-              disabled={busy && canSwitchToShared}
-              onClick={
-                mode === "unplaced"
-                  ? chooseHosting
+          <SettingsRow
+            title="Hussh Shared"
+            description={
+              mode === "byoc"
+                ? "Remove your current cloud below to switch."
+                : "Managed shared service with standalone Finance and automatic updates."
+            }
+            trailing={
+              mode === "shared"
+                ? "Current"
+                : mode === "unplaced"
+                  ? "Choose"
                   : canSwitchToShared
-                    ? () => setConfirmSwitch("shared")
+                    ? "Switch"
                     : undefined
-              }
-              chevron={mode === "unplaced" || canSwitchToShared}
-              testId="hosting-choice-shared"
-            />
-          ) : null}
+            }
+            disabled={busy && canSwitchToShared}
+            onClick={
+              mode === "unplaced"
+                ? chooseHosting
+                : canSwitchToShared
+                  ? () => setConfirmSwitch("shared")
+                  : undefined
+            }
+            chevron={mode === "unplaced" || canSwitchToShared}
+            testId="hosting-choice-shared"
+          />
           <SettingsRow
             title="Bring your own cloud"
             description={
-              status && !status.featureEnabled
-                ? "Temporarily unavailable for new setups."
-                : "Run in your own Google Cloud or Microsoft Azure project."
+              !byocSelectable && mode !== "byoc"
+                ? "Run in your own Google Cloud or Microsoft Azure project."
+                : status && !status.featureEnabled
+                  ? "Temporarily unavailable for new setups."
+                  : "Run in your own Google Cloud or Microsoft Azure project."
             }
             trailing={
               mode === "byoc"
                 ? "Current"
-                : status && !status.featureEnabled
-                  ? "Unavailable"
-                  : mode === "pending"
-                    ? "Continue"
-                    : canManageCloud && (mode === "shared" || mode === "hussh_pods")
-                      ? "Switch"
-                      : canManageCloud && mode === "unplaced"
-                        ? "Choose"
-                        : undefined
+                : !byocSelectable
+                  ? "Coming soon"
+                  : status && !status.featureEnabled
+                    ? "Unavailable"
+                    : mode === "pending"
+                      ? "Continue"
+                      : canManageCloud && (mode === "shared" || mode === "hussh_pods")
+                        ? "Switch"
+                        : canManageCloud && mode === "unplaced"
+                          ? "Choose"
+                          : undefined
             }
             disabled={busy && canManageCloud}
             onClick={
