@@ -234,12 +234,12 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
         })
         self.assertEqual(budget.connection_policy(profile, "production"), {
             "database_max_connections": 400,
-            "admission_limit": 300,
-            "administrative_reserve": 30,
+            "admission_limit": 360,
+            "administrative_reserve": 40,
         })
         for invalid in (None, {}, {"database_max_connections": 400},
-                        {"database_max_connections": True, "admission_limit": 300,
-                         "administrative_reserve": 30}):
+                        {"database_max_connections": True, "admission_limit": 360,
+                         "administrative_reserve": 40}):
             with self.subTest(invalid=invalid):
                 changed = copy.deepcopy(profile)
                 changed["environments"]["production"]["connection_policy"] = invalid
@@ -255,7 +255,7 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
         profile = json.loads(budget.DEFAULT_PROFILE.read_text())
         config = profile["environments"]["production"]
         config["services"] = {}
-        config["jobs"] = {"drill": {"connections_per_task": 270,
+        config["jobs"] = {"drill": {"connections_per_task": 320,
                                      "concurrent_executions": 1}}
         inventory = {"database_max_connections": 400, "services": {}, "jobs": {
             "drill": {"metadata": {"name": "drill"}, "spec": {"template": {
@@ -264,9 +264,9 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
             }}}
         }}
         report = budget.evaluate(profile, "production", inventory)
-        self.assertEqual(report["projected_connections"], 300)
+        self.assertEqual(report["projected_connections"], 360)
         self.assertTrue(report["admitted"])
-        config["jobs"]["drill"]["connections_per_task"] = 271
+        config["jobs"]["drill"]["connections_per_task"] = 321
         self.assertFalse(budget.evaluate(profile, "production", inventory)["admitted"])
 
     def test_deferred_retirement_counts_multiple_old_generations_until_deletion(
@@ -281,42 +281,45 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
             revision("app-older-drain"),
         ]
         profile = json.loads(budget.DEFAULT_PROFILE.read_text())
-        # Multiple older generations may still hold admitted requests. Neither
-        # a zero minimum instance count nor aggregate SQL peaks prove drainage.
-        for environment in ("uat", "production"):
-            for configured in profile["environments"][environment]["services"].values():
-                with self.subTest(environment=environment, container=configured["container"]):
-                    settings = {**SETTINGS, "count_retained_revisions": configured.get("count_retained_revisions")}
-                    rows = budget.service_budget("app", settings, service, revisions, CONNECTION)
-                    self.assertEqual(
-                        {row["name"] for row in rows}, {r["metadata"]["name"] for r in revisions}
-                    )
-                    self.assertEqual(sum(row["connections"] for row in rows), 210)
-        # Negative control: the legacy policy reserves only one unreferenced revision.
-        legacy = budget.service_budget("app", SETTINGS, service, revisions, CONNECTION)
-        self.assertEqual(sum(row["connections"] for row in legacy), 140)
+        # UAT deferred retirement reserves every retained generation while draining;
+        # Production reserves serving, tagged, latest-ready, and the single rollback anchor
+        # without reserving peak autoscaling slots for older 0%-traffic dormant revisions.
+        for configured in profile["environments"]["uat"]["services"].values():
+            with self.subTest(environment="uat", container=configured["container"]):
+                settings = {**SETTINGS, "count_retained_revisions": configured.get("count_retained_revisions")}
+                rows = budget.service_budget("app", settings, service, revisions, CONNECTION)
+                self.assertEqual(
+                    {row["name"] for row in rows}, {r["metadata"]["name"] for r in revisions}
+                )
+                self.assertEqual(sum(row["connections"] for row in rows), 210)
+        for configured in profile["environments"]["production"]["services"].values():
+            with self.subTest(environment="production", container=configured["container"]):
+                settings = {**SETTINGS, "count_retained_revisions": configured.get("count_retained_revisions")}
+                rows = budget.service_budget("app", settings, service, revisions, CONNECTION)
+                self.assertEqual(len(rows), 2)
+                self.assertEqual(sum(row["connections"] for row in rows), 140)
 
     def test_post_release_checks_retained_capacity_without_next_candidate(self) -> None:
         profile = json.loads(budget.DEFAULT_PROFILE.read_text())
         inventory = fixtures.retained_production_inventory(profile, revision)
         revisions = inventory["services"]["consent-protocol"]["revisions"]
-        # The deployed candidate is already among the three retained revisions.
-        # Default admission still reserves another backend and optional worker.
+        # Serving + newest rollback (2 * 80 = 160) + 1-worker candidate (40) + optional
+        # worker candidate (6) + readiness job (16) + admin reserve (40) = 262 <= 360.
         next_release = budget.evaluate(profile, "production", inventory)
         self.assertEqual(next_release["phase"], "pre-deploy")
-        self.assertEqual(next_release["projected_connections"], 372)
-        self.assertFalse(next_release["admitted"])
+        self.assertEqual(next_release["projected_connections"], 262)
+        self.assertTrue(next_release["admitted"])
         bootstrap = budget.evaluate(
             profile, "production", inventory,
             additional_candidate_services=("consent-protocol",),
         )
-        self.assertEqual(bootstrap["projected_connections"], 452)
+        self.assertEqual(bootstrap["projected_connections"], 302)
         self.assertEqual(
             next(row["connections"] for row in bootstrap["services"]
                  if row["name"] == "consent-protocol:additional-candidate"),
-            80,
+            40,
         )
-        self.assertFalse(bootstrap["admitted"])
+        self.assertTrue(bootstrap["admitted"])
         for invalid in ("uat", "post-release"):
             with self.subTest(extra_candidate_refusal=invalid):
                 with self.assertRaises(budget.BudgetError):
@@ -334,23 +337,24 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
                 additional_candidate_services=("consent-protocol",),
             )
         bridge = budget.evaluate(profile, "production", inventory, maintenance_profile="serving_backend_clone_v1")
-        self.assertEqual(bridge["projected_connections"], 300)
+        self.assertEqual(bridge["projected_connections"], 230)
         self.assertTrue(bridge["admitted"])
         self.assertEqual(next(row["connections"] for row in bridge["services"] if row["name"] == "consent-protocol:new-candidate"), 8)
         self.assertEqual(next(row["connections"] for row in bridge["services"] if row["name"] == "consent-protocol-drive-worker:new-candidate"), 6)
         recovering = copy.deepcopy(inventory)
         failed = copy.deepcopy(revisions[0])
         failed["metadata"]["name"] = "consent-protocol-failed-bridge"
+        failed["metadata"]["creationTimestamp"] = "2026-10-02"
         failed["metadata"]["annotations"]["autoscaling.knative.dev/maxScale"] = "1"
         failed["spec"]["containers"][0]["env"][0]["value"] = "2"
         failed["spec"]["containers"][0]["env"][1]["value"] = "2"
         recovering["services"]["consent-protocol"]["revisions"].append(failed)
         recovery = budget.evaluate(profile, "production", recovering, maintenance_profile="serving_backend_clone_v2")
-        self.assertEqual(recovery["projected_connections"], 300)
+        self.assertEqual(recovery["projected_connections"], 150)
         self.assertTrue(recovery["admitted"])
         self.assertEqual(next(row["connections"] for row in recovery["services"] if row["name"] == "consent-protocol:new-candidate"), 6)
         self.assertFalse(any(row["name"] == "consent-protocol-drive-worker:new-candidate" for row in recovery["services"]))
-        self.assertEqual(budget.evaluate(profile, "production", recovering)["projected_connections"], 380)
+        self.assertEqual(budget.evaluate(profile, "production", recovering)["projected_connections"], 190)
         with self.assertRaises(budget.BudgetError):
             budget.evaluate(profile, "production", recovering, maintenance_profile="serving_backend_clone_v2", candidate_services=frozenset())
         with self.assertRaises(budget.BudgetError):
@@ -362,9 +366,9 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
         current = budget.evaluate(
             profile, "production", inventory, phase="post-release"
         )
-        self.assertEqual(current["projected_connections"], 3 * 80 + 16 + 30)
+        self.assertEqual(current["projected_connections"], 2 * 80 + 16 + 40)
         self.assertEqual(current["admission_scope"], "profiled-application")
-        self.assertEqual(len(current["services"]), 3)
+        self.assertEqual(len(current["services"]), 2)
         self.assertTrue(current["admitted"])
         frontend_only = budget.evaluate(
             profile,
@@ -395,19 +399,20 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
                 code = budget.main()
             return code, json.loads(output.getvalue())
 
-        self.assertEqual(cli([])[0], 1)
+        self.assertEqual(cli([])[0], 0)
         self.assertEqual(cli(["--phase", "post-release"])[0], 0)
         self.assertEqual(cli(["--no-candidates"])[0], 0)
-        # A larger pool on a draining revision remains a real capacity violation.
-        revisions[-1]["spec"]["containers"][0]["env"][2]["value"] = "2"
+        # A larger pool on the retained rollback revision that exceeds 360 remains a real violation.
+        revisions[1]["spec"]["containers"][0]["env"][2]["value"] = "15"
         code, excess = cli(["--phase", "post-release"])
-        self.assertEqual(excess["projected_connections"], 306)
+        self.assertEqual(excess["projected_connections"], 366)
         self.assertFalse(excess["admitted"])
         self.assertEqual(code, 1)
-        overflow = revisions[-1]["spec"]["containers"][0]["env"].pop()
+        revisions[1]["spec"]["containers"][0]["env"][2]["value"] = "0"
+        overflow = revisions[1]["spec"]["containers"][0]["env"].pop()
         with self.assertRaisesRegex(budget.BudgetError, "DB_SQLALCHEMY_MAX_OVERFLOW"):
             budget.evaluate(profile, "production", inventory, phase="post-release")
-        revisions[-1]["spec"]["containers"][0]["env"].append(overflow)
+        revisions[1]["spec"]["containers"][0]["env"].append(overflow)
         for section, name, error in (
             ("services", "consent-protocol", "service inventory differs"),
             ("jobs", "consent-protocol-genai-readiness", "job inventory drift"),
