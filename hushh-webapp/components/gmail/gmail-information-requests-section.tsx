@@ -689,7 +689,11 @@ function GmailInformationRequestsWorkspace({
       setActivityNextOffset(activity.next_offset);
       setActivityTotalCount(activity.total_count);
       setActivityLoaded(true);
-      trackEvent("one_kyc_action", { action: "workflow_refreshed", result: "success" });
+      trackEvent("one_kyc_action", {
+        route_id: "gmail",
+        action: "workflow_refreshed",
+        result: "success",
+      });
       return true;
       })(), deadline);
     } catch (scanError) {
@@ -699,7 +703,11 @@ function GmailInformationRequestsWorkspace({
         else automaticScanSessionRef.current = null;
         return false;
       }
-      trackEvent("one_kyc_action", { action: "workflow_refreshed", result: "error" });
+      trackEvent("one_kyc_action", {
+        route_id: "gmail",
+        action: "workflow_refreshed",
+        result: "error",
+      });
       setError(
         scanError instanceof Error
           ? scanError.message
@@ -757,6 +765,7 @@ function GmailInformationRequestsWorkspace({
         if (!next.monitoring_enabled) publishDisplayRef.current({ preference: next, requests: null, activity: null });
         setPreference(next);
         trackEvent("one_kyc_action", {
+          route_id: "gmail",
           action: enabled ? "access_approved" : "access_denied",
           result: "success",
         });
@@ -946,9 +955,17 @@ function GmailInformationRequestsWorkspace({
           ...current,
           [workflow.workflow_id]: { body },
         }));
-        trackEvent("one_kyc_action", { action: "redraft_completed", result: "success" });
+        trackEvent("one_kyc_action", {
+          route_id: "gmail",
+          action: "redraft_completed",
+          result: "success",
+        });
       } catch (draftError) {
-        trackEvent("one_kyc_action", { action: "redraft_completed", result: "error" });
+        trackEvent("one_kyc_action", {
+          route_id: "gmail",
+          action: "redraft_completed",
+          result: "error",
+        });
         setError(
           draftError instanceof Error
             ? draftError.message
@@ -1026,7 +1043,11 @@ function GmailInformationRequestsWorkspace({
           body: draft.body,
         }), operationDeadline);
         if (result.state === "sent") {
-          trackEvent("one_kyc_action", { action: "reply_sent", result: "success" });
+          trackEvent("one_kyc_action", {
+            route_id: "gmail",
+            action: "reply_sent",
+            result: "success",
+          });
           CacheSyncService.onMailKycChanged(userId);
           setWorkflows((current) =>
             current.filter((item) => item.workflow_id !== workflow.workflow_id),
@@ -1089,7 +1110,11 @@ function GmailInformationRequestsWorkspace({
           vaultOwnerToken,
           workflowId: workflow.workflow_id,
         }), operationDeadline);
-        trackEvent("one_kyc_action", { action: "reply_rejected", result: "success" });
+        trackEvent("one_kyc_action", {
+          route_id: "gmail",
+          action: "reply_rejected",
+          result: "success",
+        });
         CacheSyncService.onMailKycChanged(userId);
         setWorkflows((current) =>
           current.filter((item) => item.workflow_id !== workflow.workflow_id),
