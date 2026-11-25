@@ -63,6 +63,8 @@ export function ComputerUseTaskCard({
   const [open, setOpen] = useState(false);
   const [reviewId, setReviewId] = useState<string | null>(null);
   const lastOpenSignalRef = useRef(openReviewSignal);
+  const openedTaskRef = useRef<string | null>(null);
+  const taskIdentity = JSON.stringify([ownerId, podId, incarnation, taskId, environment]);
   useBackLayer(route, reviewId ? 4 : open ? 3 : 0, () => {
     if (reviewId) setReviewId(null);
     else if (open) setOpen(false);
@@ -94,6 +96,17 @@ export function ComputerUseTaskCard({
 
   const snapshot = state.snapshot;
   useEffect(() => {
+    if (
+      !state.verified || !isComputerUseActivelyStreaming(snapshot) || !snapshot?.approvedOrigins?.length
+      || snapshot.review?.purpose === "model_process" || openedTaskRef.current === taskIdentity
+    ) return;
+    // Approved origins appear only after processing consent, unlike a worker wait.
+    // Show actual work once, including reconnects. Status refreshes must respect
+    // an owner's Close or Back instead of opening the same task again.
+    openedTaskRef.current = taskIdentity;
+    setOpen(true);
+  }, [snapshot, state.verified, taskIdentity]);
+  useEffect(() => {
     if (state.verified && snapshot && isComputerUseTerminal(snapshot.phase)) {
       onTerminalSnapshot?.(snapshot);
     }
@@ -106,7 +119,7 @@ export function ComputerUseTaskCard({
     else setOpen(true);
   }, [openReviewSignal, snapshot]);
   const usable = state.verified && snapshot?.capability === "ready" && !isComputerUseTerminal(snapshot.phase);
-  const canPreview = usable && snapshot?.review?.purpose !== "model_process";
+  const canPreview = usable && Boolean(snapshot?.approvedOrigins?.length) && snapshot?.review?.purpose !== "model_process";
   const verifiedDomain = extractVerifiedDomain(snapshot);
   const message = !state.verified && !state.pending ? "Couldn’t reach the browser. Check again to reconnect."
     : snapshot?.code === "BROWSER_MODEL_RATE_LIMITED" ? "Your AI is busy. Try this task again later."

@@ -131,7 +131,7 @@ class PodChatContext:
             if (
                 authority is not self.authority
                 or claims != self.claims
-                or authority.environment not in {"dev", "development"}
+                or authority.environment not in {"dev", "development", "uat"}
                 or pod_incarnation() != self._browser_incarnation
             ):
                 raise BrowserRefused("BROWSER_OWNER_REFUSED")
@@ -148,7 +148,7 @@ class PodChatContext:
             runtime is None
             or not runtime.capability().available
             or SCOPE_BROWSER_INVOKE not in set(self.claims.get("scopes") or [])
-            or self.authority.environment not in {"dev", "development"}
+            or self.authority.environment not in {"dev", "development", "uat"}
         ):
             return nullcontext()
         owner = BrowserOwnerAccess(
@@ -157,6 +157,7 @@ class PodChatContext:
             incarnation=self._browser_incarnation,
             expires_at=int(self.claims["exp"]),
             check=self._browser_access,
+            environment="uat" if self.authority.environment == "uat" else "development",
         )
         return browser_task_invocation(runtime, owner)
 

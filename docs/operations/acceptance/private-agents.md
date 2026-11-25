@@ -23,6 +23,34 @@ Source-implemented on `dev` (pending live `hushh-pda-dev` atomic rollout and bac
 - **Offline `pod_mode()` custody parity:** Scheduled background Goals (`scheduled_goal` wake trigger via `pod_scheduled_runtime.py`) execute inside DEK-sealed `pod_mode()` custody without Hub/disk plaintext or interactive browser `X-Hussh-Chat-Key`.
 - **Live Dev rollout & acceptance status:** Atomic Dev deployment (`deploy-dev.yml` `scope=all`, `build_pod_image=true`), `sandbox-edge-gateway` / `hussh-one-sandbox-v1` `@sha256:` digest alignment, and live Chrome comeback verification remain tracked in [#9744](https://github.com/hushh-labs/hushh-research/issues/9744) alongside [#9511](https://github.com/hushh-labs/hushh-research/issues/9511), [#9736](https://github.com/hushh-labs/hushh-research/issues/9736), [#9517](https://github.com/hushh-labs/hushh-research/issues/9517), [#9370](https://github.com/hushh-labs/hushh-research/issues/9370), and [#5507](https://github.com/hushh-labs/hushh-research/issues/5507).
 
+## Browser chat triggers and UAT handoff
+
+The source contract admits Browser from qualified Dev and UAT private-pod Chat;
+production remains unavailable. One chooses explicit website interaction through
+its existing hand, clarifies missing terms and uses admitted search/reads for
+informational requests. The workspace opens only after processing approval and
+verified active work, preserving owner dismissal and reconnect identity.
+
+Focused Browser authority, native ADK, route, manifest and workspace tests cover
+these source boundaries. The UAT regression fails with the old Dev-only guards;
+the preview regression fails without the approval guard. A synthetic Gemini 4
+Hydrogen first-tool probe exercised explicit interaction, informational requests,
+missing intent, unavailable Browser and resolved references twice each. It chose
+Browser only for explicit interaction. The short request "Pay this bill" first
+looked up the existing app-action catalog; this does not prove its later
+clarification or payment behavior. No tools executed during this model probe.
+
+This is source and synthetic selection evidence, not installed UAT acceptance.
+A Browser-only UAT port reuses the reviewed workspace and wire contracts from
+[#9776](https://github.com/hushh-labs/hushh-research/pull/9776), independently of
+the broader [sandbox promotion](https://github.com/hushh-labs/hushh-research/pull/9960).
+Qualification and deployment must include the actual owner/sandbox image;
+a hub deployment alone cannot install this chat fix. Browser qualification
+publication remains Dev-only, and the sandbox host remains unqualified. Exact-image Browser
+enablement, takeover, Resume, reconnect, Stop and Web/iOS/Android human journeys
+remain required. Saved website logins remain the separate Phase 4 in
+[#9511](https://github.com/hushh-labs/hushh-research/issues/9511).
+
 ## Current Dev sharing checkpoint (17 November 2026)
 
 Three Stripe Sandbox cases passed through the private Chats: funding credited
