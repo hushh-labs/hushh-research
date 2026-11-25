@@ -22,6 +22,10 @@ import GmailInformationRequestsSection from "@/components/gmail/gmail-informatio
 import { ReceiptHistory } from "@/components/gmail/receipt-history";
 import { ReceiptSyncToolbar, receiptSyncStatus } from "@/components/gmail/receipt-sync-toolbar";
 import { GmailRecentReceipts } from "@/components/gmail/gmail-recent-receipts";
+import { ReceiptTrackingProvider } from "@/components/gmail/receipts/receipt-tracking-context";
+import { ReceiptsHeader, type ReceiptsView } from "@/components/gmail/receipts/receipts-chrome";
+import { ReceiptsActivitySheet } from "@/components/gmail/receipts/receipts-activity";
+import { RecurringView } from "@/components/gmail/receipts/recurring-view";
 import { GmailReceiptMemorySave } from "@/components/gmail/gmail-receipt-memory-save";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { MailReceiptResourceService } from "@/lib/services/mail-receipt-resource-service";
@@ -245,6 +249,8 @@ export default function GmailReceiptsPage({
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [nativeReceiptDetails, setNativeReceiptDetails] = useState(false);
   const [nativeHistory, setNativeHistory] = useState(false);
+  const [receiptsView, setReceiptsView] = useState<ReceiptsView>("all");
+  const [activityOpen, setActivityOpen] = useState(false);
   useBackLayer(normalizeStaticExportPathname(pathname), nativeHistory ? 2 : 0, () => { setNativeHistory(false); return true; });
 
   const receiptsRef = useRef<ReceiptListItem[]>([]);
@@ -501,6 +507,11 @@ export default function GmailReceiptsPage({
           .length !== 1));
     return [...freshRows, ...savedRows];
   }, [currentSavedSnapshot, hasSealedReceiptAccess, visibleReceipts, receiptAccountKey, receiptSourceAliases]);
+  const [openReceiptRequest, setOpenReceiptRequest] = useState<{ key: string; nonce: number } | null>(null);
+  const receiptRowsForRecurring = useMemo(
+    () => visibleSavedRows ?? buildRecentReceiptRows(visibleReceipts, gmail.status?.google_sub || gmail.status?.google_email || null),
+    [visibleSavedRows, visibleReceipts, gmail.status?.google_sub, gmail.status?.google_email],
+  );
   const visibleTotal = currentSavedSnapshot?.coverage.source_count ?? (receiptDisplayScopeCurrent ? total : 0);
   const visibleHasMore = receiptDisplayScopeCurrent && hasMore;
   const hasStoredReceipts = visibleReceipts.length > 0 || Boolean(visibleSavedRows?.length);
@@ -707,6 +718,8 @@ export default function GmailReceiptsPage({
   }), [userId]);
 
   const isConnected = gmail.presentation.isConnected;
+  // Back from Recurring returns to All receipts before it leaves the workspace.
+  useBackLayer(normalizeStaticExportPathname(pathname), receiptsWorkspaceActive && isConnected && receiptsView === "recurring" ? 1 : 0, () => { setReceiptsView("all"); return true; });
   useEffect(() => {
     if (isConnected) receiptReadsClosedRef.current = false;
   }, [isConnected, userId]);
@@ -1812,15 +1825,38 @@ export default function GmailReceiptsPage({
   );
 
   const receiptsPanel = (
+    <ReceiptTrackingProvider
+      userId={userId}
+      vaultKey={vaultKey ?? null}
+      vaultOwnerToken={vaultOwnerToken ?? null}
+      accountKey={receiptAccountKey}
+      enabled={Boolean(isConnected && hasSealedReceiptAccess && receiptsWorkspaceActive)}
+    >
     <div className="space-y-4">
       <div hidden={nativeHistory} className="space-y-4">
       {journeyVariant === "workspace" && !isConnected ? mailStatusPanel : null}
       {isConnected && hasSealedReceiptAccess ? (
-        <ReceiptSyncToolbar detailsOpen={nativeReceiptDetails} onDetailsOpenChange={setNativeReceiptDetails} key={`${userId}:${snapshotVaultSessionEpoch()}`} snapshot={currentSavedSnapshot} refreshing={loadingReceipts || receiptResource.refreshing}
+        <ReceiptsHeader
+          headingId="recent-receipts-title"
+          view={receiptsView}
+          onViewChange={setReceiptsView}
+          trailingLabel={receiptsView === "all" ? "Activity" : "History"}
+          onTrailing={() => setActivityOpen(true)}
+        />
+      ) : null}
+      {isConnected && hasSealedReceiptAccess && receiptsView === "all" ? (
+        <ReceiptSyncToolbar compact detailsOpen={nativeReceiptDetails} onDetailsOpenChange={setNativeReceiptDetails} key={`${userId}:${snapshotVaultSessionEpoch()}`} snapshot={currentSavedSnapshot} refreshing={loadingReceipts || receiptResource.refreshing}
           progress={receiptResource.progress} restoring={receiptRestorePending} migration={receiptStorageReadOnly} active={receiptsWorkspaceActive}
           error={receiptResource.error ?? receiptListError} disabled={!receiptSyncAvailable}
           onRestore={receiptRestoreFailed && receiptAccountKey ? () => void retryReceiptRestore() : undefined}
           onRefresh={receiptSyncAvailable && receiptResource.error && !receiptConnectionLost ? () => void handleSyncNow() : undefined} />
+      ) : null}
+
+      {isConnected && hasSealedReceiptAccess && receiptsView === "recurring" ? (
+        <RecurringView
+          rows={receiptRowsForRecurring}
+          onOpenReceipt={(key) => { setReceiptsView("all"); setOpenReceiptRequest({ key, nonce: Date.now() }); }}
+        />
       ) : null}
 
       {(receiptsWorkspaceActive && isConnected) || (receiptsWorkspaceActive && Boolean(visibleSavedRows?.length)) ? (
@@ -1828,6 +1864,7 @@ export default function GmailReceiptsPage({
           aria-labelledby="recent-receipts-title"
           className="space-y-3"
           data-testid="recent-receipts"
+          hidden={receiptsView !== "all" && isConnected && hasSealedReceiptAccess}
         >
           {isConnected && !hasSealedReceiptAccess && !loadingStatus ? (
             <SurfaceInset className="flex flex-col items-start gap-3 px-4 py-4 text-sm text-muted-foreground">
@@ -1910,7 +1947,7 @@ export default function GmailReceiptsPage({
 
           {hasSealedReceiptAccess && (hasVerifiedReceiptSnapshot || visibleReceipts.length > 0 || Boolean(visibleSavedRows?.length)) ? (
             <GmailRecentReceipts
-              headingId="recent-receipts-title"
+              openRequest={openReceiptRequest}
               accountKey={
                 gmail.status?.google_sub || gmail.status?.google_email || null
               }
@@ -1949,6 +1986,14 @@ export default function GmailReceiptsPage({
       {historySession ? <ReceiptHistory showEmpty={nativeHistory} session={historySession} getIdToken={idTokenProvider}
         allowRead={gmail.status?.receipt_history_available === true} active={receiptsWorkspaceActive && !gmail.loadingStatus} /> : null}
     </div>
+    <ReceiptsActivitySheet
+      open={activityOpen}
+      onOpenChange={setActivityOpen}
+      mode={receiptsView === "all" ? "activity" : "history"}
+      syncLine={receiptSyncStatus({ snapshot: currentSavedSnapshot, refreshing: loadingReceipts || receiptResource.refreshing, progress: receiptResource.progress,
+        restoring: receiptRestorePending, error: receiptResource.error ?? receiptListError, disabled: !receiptSyncAvailable })}
+    />
+    </ReceiptTrackingProvider>
   );
 
   const nativeRoot: MailNativeSection[] = [];

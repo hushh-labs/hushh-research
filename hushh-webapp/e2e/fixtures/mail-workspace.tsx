@@ -12,7 +12,29 @@ import { primeCachedGmailReceipts } from '@/lib/profile/gmail-receipts-cache';
 import { captureReceiptSnapshot } from '@/lib/mail/receipt-snapshot';
 import { MailReceiptResourceService } from '@/lib/services/mail-receipt-resource-service';
 import { publishValidatedAuthSessionPrincipal } from '@/lib/auth/session-owner';
-const syntheticReceipts = ['Amazon','Apple','Myntra','Udemy','Plaid'].map((merchant, i) => ({
+// "receipts-ref": a mailbox with recurring bills, five monthly plans and one ordinary purchase, to compare with the
+// product reference. data-rise="1" adds a November electricity bill that is 32.7% above its usual amount.
+type Row = [merchant: string, date: string, amount: number, detail: string, category: 'Bills' | 'Software & Subscriptions' | 'Food'];
+const rise = document.documentElement.dataset.rise === '1';
+const referenceRows: Row[] = [
+ ...['2026-03-02', '2026-06-02', '2026-09-02', '2026-12-02'].map((d): Row => ['Orbit Mobile', d, 899, 'Mobile recharge', 'Bills']),
+ ...['2026-09-01', '2026-10-01', '2026-11-01', '2026-12-01'].map((d): Row => ['Maple Homes', d, 24000, 'House rent', 'Bills']),
+ ...(rise ? [['2026-08-26', 1420], ['2026-09-26', 1470], ['2026-10-26', 1780], ['2026-11-26', 1950]] : [['2026-09-26', 1420], ['2026-10-26', 1470], ['2026-11-26', 1780]])
+  .map(([d, a]): Row => ['Electricity bill', d as string, a as number, 'Electricity', 'Bills']),
+ ...['2026-08-30', '2026-09-30', '2026-10-30', '2026-11-30'].map((d): Row => ['Wi-Fi', d, 799, 'Internet', 'Bills']),
+ ...['2026-08-30', '2026-09-30', '2026-10-30', '2026-11-30'].map((d): Row => ['Cable TV', d, 499, 'Cable', 'Bills']),
+ ...['2026-08-31', '2026-09-30', '2026-10-31', '2026-11-30'].map((d): Row => ['Monthly deposit', d, 5000, 'Deposit', 'Bills']),
+ ...[['Alpha TV', 299], ['Beta Stream', 399], ['Gamma Play', 199], ['Delta Sports', 249], ['Epsilon Kids', 249]].flatMap(([m, a]) =>
+  ['2026-08-04', '2026-09-04', '2026-10-04', '2026-11-04'].map((d): Row => [m as string, d, a as number, 'Streaming plan', 'Software & Subscriptions'])),
+ ['Corner Cafe', '2026-11-20', 450, 'Lunch', 'Food'],
+];
+const referenceReceipts = referenceRows.map(([merchant, date, amount, detail, category], index) => ({
+ id: 100 + index, source_id: `reference-source-${index}`, receipt_key: `reference-source-${index}`, source_kind: 'gmail_live' as const,
+ source_evidence: [], gmail_message_id: `reference-message-${index}`, merchant_name: merchant, merchant_domain: `${merchant.toLowerCase().replace(/[^a-z]/g, '')}.example`,
+ category, category_confidence: 1, transaction_date: date, amount, currency: 'INR', short_detail: detail,
+ status: 'paid' as const, document_kind: 'receipt' as const, event_type: 'purchase' as const, recurrence: category === 'Food' ? 'one_time' as const : 'recurring' as const,
+}));
+const syntheticReceipts = document.documentElement.dataset.stress === 'receipts-ref' ? referenceReceipts : ['Amazon','Apple','Myntra','Udemy','Plaid'].map((merchant, i) => ({
  id: i + 1, source_id: `synthetic-source-${i}`, receipt_key: `synthetic-source-${i}`, source_kind: 'gmail_live' as const,
  source_evidence: [], gmail_message_id: `synthetic-message-${i}`, merchant_name: merchant, merchant_domain: `${merchant.toLowerCase()}.com`,
  category: document.documentElement.dataset.stress === 'categories'

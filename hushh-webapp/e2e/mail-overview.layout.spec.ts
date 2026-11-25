@@ -16,47 +16,6 @@ test.beforeAll(async () => {
 
 test.afterAll(() => disposeFixture?.());
 
-for (const width of [393, 1024]) {
-  for (const theme of ["light", "dark"] as const) {
-    test(`Mail receipt category bars stay inside their card at ${width}px ${theme}`, async ({ page }, testInfo) => {
-      await page.setViewportSize({ width, height: 1000 });
-      await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
-      await page.route("http://localhost/fixture.js", route => route.fulfill({ contentType: "application/javascript; charset=utf-8", body: script }));
-      await page.route("http://localhost/mail-workspace", route => route.fulfill({
-        contentType: "text/html; charset=utf-8",
-        body: `<!doctype html><html class="${theme}" data-workspace="receipts" data-stress="categories"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>`,
-      }));
-      await page.goto("http://localhost/mail-workspace");
-      const collection = page.getByTestId("receipt-collection-overview");
-      await expect(collection.getByRole("heading", { name: "Categories", exact: true })).toBeVisible();
-      await awaitProductFont(page);
-      const card = collection.locator("[data-surface-tone]").filter({ has: page.getByRole("heading", { name: "Categories", exact: true }) });
-      const content = card.locator('[data-slot="card-content"]');
-      await expect(content.getByRole("listitem")).toHaveCount(5);
-      const bounds = await content.evaluate(element => {
-        const shell = element.closest("[data-surface-tone]")!.getBoundingClientRect();
-        const box = element.getBoundingClientRect();
-        return { cardHeight: shell.height, contentTop: box.top - shell.top, contentBottom: box.bottom - shell.bottom,
-          scrollHeight: element.scrollHeight, clientHeight: element.clientHeight };
-      });
-      expect(bounds.cardHeight).toBe(256);
-      expect(bounds.contentTop).toBeGreaterThanOrEqual(0);
-      expect(bounds.contentBottom).toBeLessThanOrEqual(1);
-      expect(bounds.scrollHeight).toBeGreaterThan(bounds.clientHeight);
-      await content.evaluate(element => { element.scrollTop = element.scrollHeight; });
-      const last = content.getByRole("listitem").last();
-      await expect(last).toContainText("Uncategorized");
-      const lastBar = (await last.locator('[aria-hidden="true"]').boundingBox())!;
-      const shell = (await card.boundingBox())!;
-      expect(lastBar.y).toBeGreaterThanOrEqual(shell.y);
-      expect(lastBar.y + lastBar.height).toBeLessThanOrEqual(shell.y + shell.height - 16);
-      expect(lastBar.x + lastBar.width).toBeLessThanOrEqual(shell.x + shell.width);
-      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
-      await page.screenshot({ path: testInfo.outputPath(`receipt-category-contained-${width}-${theme}.png`) });
-    });
-  }
-}
-
 for (const width of [360, 393, 430, 768, 1024, 1440]) {
   for (const theme of ["light", "dark"] as const) {
     for (const workspace of ["overview", "kyc", "receipts"] as const) {
@@ -145,20 +104,13 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
         }
         if (workspace === "receipts") {
           await expect(page.getByText("Amazon", { exact: true })).toBeVisible();
-          const collection = page.getByTestId("receipt-collection-overview");
-          const cards = collection.locator("[data-surface-tone]");
-          await expect(cards).toHaveCount(2);
-          expect(await cards.evaluateAll(elements => elements.map(element => element.getBoundingClientRect().height))).toEqual([256, 256]);
-          const headings = await collection.getByRole("heading").evaluateAll(elements => elements.map(element => {
-            const style = getComputedStyle(element);
-            return [style.fontSize, style.lineHeight, style.fontWeight];
-          }));
-          expect(headings).toEqual([["14px", "22px", "600"], ["14px", "22px", "600"]]);
+          await expect(page.getByTestId("receipt-controls")).toBeVisible();
+          await expect(page.getByRole("heading", { name: "Receipts", level: 2 })).toBeVisible();
           const month = await page.getByTestId("receipt-month-group").first().getByRole("heading").evaluate(element => {
             const style = getComputedStyle(element);
             return [style.fontSize, style.lineHeight, style.fontWeight, style.letterSpacing];
           });
-          expect(month).toEqual(["12px", "18px", "600", "normal"]);
+          expect(month).toEqual(["17px", "22px", "600", "normal"]);
         }
         expect(errors).toEqual([]);
         await page.screenshot({ path: testInfo.outputPath(`mail-${workspace}-${width}-${theme}.png`) });

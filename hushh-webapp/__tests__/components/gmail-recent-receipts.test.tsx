@@ -152,58 +152,41 @@ describe("receipt merchant logo", () => {
     );
 
     expect(screen.queryByTestId("receipt-summary")).not.toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "All" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    const typeFilter = screen.getByTestId("receipt-type-filter") as HTMLSelectElement;
+    const chooseType = (value: string) => fireEvent.change(typeFilter, { target: { value } });
+    expect(typeFilter.value).toBe("all");
+    expect(within(typeFilter).queryByRole("option", { name: "Due" })).toBeNull();
     expect(
       screen.getAllByTestId("receipt-month-group").map(group => group.querySelector("h3")?.textContent),
-    ).toEqual(["OCTOBER 2026", "SEPTEMBER 2026"]);
+    ).toEqual(["October 2026", "September 2026"]);
     expect(screen.getAllByTestId("receipt-row")[0]).toHaveAccessibleName(
-      /Supabase.*Overdue.*Cloud & Infra.*124\.01/i,
+      /Supabase.*Cloud & Infra.*124\.01.*Overdue/i,
     );
-    expect(screen.getAllByTestId("receipt-row")[0]).toHaveClass(
-      "bg-[color:var(--app-card-surface-default-solid)]",
-    );
-    expect(screen.getAllByTestId("receipt-row")[0]).not.toHaveClass(
-      "bg-[color:var(--app-warning-tint)]",
-    );
-    expect(
-      screen
-        .getByText("Paid", { selector: '[data-slot="badge"]' })
-        .closest('[data-slot="badge"]'),
-    ).toHaveClass("bg-[color:var(--app-success-tint)]");
-    expect(
-      screen
-        .getByText("Overdue", { selector: '[data-slot="badge"]' })
-        .closest('[data-slot="badge"]'),
-    ).toHaveClass("bg-[color:var(--app-destructive-tint)]");
+    for (const summary of screen.getAllByTestId("receipt-month-summary")) expect(summary).toHaveTextContent(/payments?/);
 
-    fireEvent.click(screen.getByRole("tab", { name: "Paid" }));
+    chooseType("paid");
     expect(screen.getAllByTestId("receipt-row")).toHaveLength(1);
     expect(screen.getByText("Paid Store")).toBeVisible();
     expect(screen.queryByText("Supabase")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("tab", { name: "Due" }));
-    expect(screen.queryAllByTestId("receipt-row")).toHaveLength(0);
-    expect(screen.getByText("No receipts match this view.")).toBeVisible();
-    expect(screen.queryByText("Software Store")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("tab", { name: "Overdue" }));
+    chooseType("overdue");
     expect(screen.getAllByTestId("receipt-row")).toHaveLength(1);
     expect(screen.getByText("Supabase")).toBeVisible();
 
-    fireEvent.click(screen.getByRole("tab", { name: "All" }));
+    chooseType("all");
     expect(screen.getByText("Supabase")).toBeVisible();
 
-    fireEvent.click(screen.getByRole("tab", { name: "Upcoming" }));
+    chooseType("upcoming");
     expect(screen.getAllByTestId("receipt-row")).toHaveLength(2);
     expect(screen.getByText("Software Store")).toBeVisible();
     expect(screen.getByText("Trial Store")).toBeVisible();
 
-    fireEvent.click(screen.getByRole("tab", { name: "Cancelled" }));
-    expect(screen.getAllByTestId("receipt-row")).toHaveLength(2);
+    chooseType("cancelled");
+    expect(screen.getAllByTestId("receipt-row")).toHaveLength(1);
     expect(screen.getByText("Cancelled Store")).toBeVisible();
+
+    chooseType("refunds");
+    expect(screen.getAllByTestId("receipt-row")).toHaveLength(1);
     expect(screen.getByText("Refunded Store")).toBeVisible();
   });
 
@@ -274,7 +257,7 @@ describe("receipt merchant logo", () => {
     expect(screen.getByText("2 / 3")).toBeVisible();
     expect(loadReceiptDetail).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("tab", { name: "Paid" }));
+    fireEvent.change(screen.getByTestId("receipt-type-filter"), { target: { value: "paid" } });
     expect(screen.getByText("1 / 2")).toBeVisible();
     expect(screen.getAllByTestId("receipt-row")).toHaveLength(10);
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
@@ -296,10 +279,7 @@ describe("receipt merchant logo", () => {
     ).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Close detail panel" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(screen.getByRole("tab", { name: "Paid" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    expect((screen.getByTestId("receipt-type-filter") as HTMLSelectElement).value).toBe("paid");
     expect(screen.getByText("2 / 2")).toBeVisible();
     await waitFor(() => expect(selectedRow).toHaveFocus());
 
@@ -346,6 +326,7 @@ describe("receipt merchant logo", () => {
     expect(screen.queryByText("Unknown merchant")).toBeNull();
   });
   afterEach(() => {
+  window.sessionStorage.clear();
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
