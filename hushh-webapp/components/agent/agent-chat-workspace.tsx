@@ -10272,17 +10272,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               hidden one polling and what closes its portalled machine panel,
               which a `hidden` ancestor cannot reach. Nothing is shared between
               the two: no message, no history row. */}
-          {puppyEverOpened && puppyLiveOnBuild ? (
-            <PuppyOneSurface
-              key={applicationOwnerId ?? "signed-out"}
-              active={isPuppySurface}
-              sharedDock={isCanonicalChatRoute}
-              composerDisabled={isHistoryDrawerOpen}
-              conversations={puppyConversations}
-              activeConversationId={puppyConversationId}
-              onCreateConversation={handleCreateNewPuppyChat}
-              className={cn(!isPuppySurface && "hidden", "lg:px-8")}
-            />
+          {puppyEverOpened ? (
+            puppyLiveOnBuild ? (
+              <PuppyOneSurface
+                key={applicationOwnerId ?? "signed-out"}
+                active={isPuppySurface}
+                sharedDock={isCanonicalChatRoute}
+                composerDisabled={isHistoryDrawerOpen}
+                conversations={puppyConversations}
+                activeConversationId={puppyConversationId}
+                onCreateConversation={handleCreateNewPuppyChat}
+                className={cn(!isPuppySurface && "hidden", "lg:px-8")}
+              />
+            ) : null
           ) : null}
 
           {isPuppySurface && !puppyLiveOnBuild ? (

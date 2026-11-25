@@ -130,6 +130,8 @@ def _make_fake_detach(reg: _FakeRegistry):
         updated["pod_pubkey"] = None
         updated["pod_key_id"] = None
         updated["pod_key_wrapping_alg"] = None
+        updated["pod_signing_pubkey"] = None
+        updated["pod_signing_key_id"] = None
         for col in _OWNER_CLOUD_COLUMNS:
             updated[col] = None
         updated["backend_metadata"] = {"detachedPlacements": prior_detached}

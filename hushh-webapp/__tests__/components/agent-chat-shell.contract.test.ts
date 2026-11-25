@@ -272,6 +272,8 @@ describe("private-agent chat shell contract", () => {
 
     expect(workspace).not.toContain("{isPuppySurface ? <PuppyOneSurface /> : null}");
     expect(workspace).toContain("{puppyEverOpened ? (");
+    expect(workspace).toContain("puppyLiveOnBuild ? (");
+    expect(workspace).toContain('data-testid="puppy-coming-soon-surface"');
     expect(workspace).toContain("active={isPuppySurface}");
     // Lazily, so a workspace that never opens Puppy costs the loopback
     // gateway and the trusted-device list nothing.
