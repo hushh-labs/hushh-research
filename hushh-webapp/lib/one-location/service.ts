@@ -1572,11 +1572,13 @@ export class OneLocationService {
     reason?: string;
     shareKind?: string;
     sourceCircleId?: string;
+    isEffectCurrent?: () => boolean;
   }): Promise<OneLocationGrant> {
     const response = await apiJson<{ grant: OneLocationGrant }>(
       "/api/one/location/grants",
       {
         method: "POST",
+        ...(params.isEffectCurrent ? { isEffectCurrent: params.isEffectCurrent } : {}),
         headers: jsonAuthHeaders(params.vaultOwnerToken),
         body: JSON.stringify({
           recipientUserId: params.recipientUserId,
@@ -1628,6 +1630,7 @@ export class OneLocationService {
     capturedAt?: string | null;
     note?: string | null;
     emergencyNumber?: string | null;
+    isEffectCurrent?: () => boolean;
   }): Promise<{
     emailed: number;
     attempted: number;
@@ -1656,6 +1659,7 @@ export class OneLocationService {
         // likely to be sent from. Use the Next.js origin for this route.
       }>(`${nextRouteOrigin()}/api/one/location/sos-email`, {
         method: "POST",
+        ...(params.isEffectCurrent ? { isEffectCurrent: params.isEffectCurrent } : {}),
         headers: jsonAuthHeaders(params.vaultOwnerToken),
         body: JSON.stringify({
           grantIds: params.grantIds,
@@ -1743,6 +1747,7 @@ export class OneLocationService {
     vaultOwnerToken: string;
     grantId: string;
     envelope: OneLocationEncryptedEnvelope;
+    isEffectCurrent?: () => boolean;
   }): Promise<OneLocationStoredEnvelope> {
     const response = await apiJson<{
       envelope: OneLocationEncryptedEnvelope;
@@ -1751,6 +1756,7 @@ export class OneLocationService {
       `/api/one/location/grants/${encodeURIComponent(params.grantId)}/envelopes`,
       {
         method: "POST",
+        ...(params.isEffectCurrent ? { isEffectCurrent: params.isEffectCurrent } : {}),
         headers: jsonAuthHeaders(params.vaultOwnerToken),
         body: JSON.stringify({ envelope: params.envelope }),
       },

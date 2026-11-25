@@ -28,6 +28,9 @@ import type {
   PlainLocationPoint,
 } from "@/lib/one-location/types";
 import {
+  createSosSendIntent,
+  SOS_SEND_INTENT_MAX_AGE_MS,
+  SOS_SEND_EXPIRED_MESSAGE,
   isSosShareReadyRecipient,
   runSosPanic,
   selectSmsRecipients,
@@ -288,6 +291,63 @@ describe("runSosPanic", () => {
     vi.clearAllMocks();
   });
 
+  it("rejects an expired confirmation before creating a grant", async () => {
+    const sendIntent = createSosSendIntent();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + SOS_SEND_INTENT_MAX_AGE_MS + 1);
+    const publish = vi.fn();
+    try {
+      const error = await runSosPanic({ vaultOwnerToken: "tok", recipients: [makeRecipient("userA")],
+        point: makePoint(), publish, sendIntent }).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(SosPanicError);
+      expect(error).toMatchObject({ message: SOS_SEND_EXPIRED_MESSAGE, partialIncident: null });
+      expect(createGrantMock).not.toHaveBeenCalled();
+      expect(publish).not.toHaveBeenCalled();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("checkpoints an in-flight grant after expiry without publishing or starting queued contacts", async () => {
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    const sendIntent = createSosSendIntent();
+    createGrantMock.mockImplementationOnce(async () => {
+      clock.mockReturnValue(now + SOS_SEND_INTENT_MAX_AGE_MS + 1);
+      return makeGrant("g1", "userA");
+    });
+    const publish = vi.fn();
+    try {
+      const error = await runSosPanic({ vaultOwnerToken: "tok", ownerUserId: "owner",
+        recipients: ["userA", "userB", "userC", "userD"].map((id) => makeRecipient(id)),
+        point: makePoint(), publish, sendIntent }).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(SosPanicError);
+      expect(error).toMatchObject({ message: SOS_SEND_EXPIRED_MESSAGE,
+        partialIncident: { grantIds: ["g1"], ownerUserId: "owner" } });
+      expect(saveSosIncidentMock).toHaveBeenCalledWith(expect.objectContaining({ grantIds: ["g1"] }));
+      expect(createGrantMock).toHaveBeenCalledTimes(1);
+      expect(publish).not.toHaveBeenCalled();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("retains a known delivery when an already-dispatched publication completes after expiry", async () => {
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    createGrantMock.mockResolvedValueOnce(makeGrant("g1", "userA"));
+    try {
+      const result = await runSosPanic({ vaultOwnerToken: "tok", recipients: [makeRecipient("userA")],
+        point: makePoint(), publish: async () => {
+          clock.mockReturnValue(now + SOS_SEND_INTENT_MAX_AGE_MS + 1);
+          return true;
+        } });
+      expect(result.grantIds).toEqual(["g1"]);
+      expect(result.delivery).toEqual([expect.objectContaining({ alerted: true })]);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it("throws SosPanicError with partialIncident === null when recipients is empty — does NOT call saveSosIncident", async () => {
     const publish = vi.fn();
 
@@ -328,6 +388,7 @@ describe("runSosPanic", () => {
       durationHours: 8,
       reason: "sos_panic",
       shareKind: "sos",
+      isEffectCurrent: expect.any(Function),
     });
     expect(createGrantMock).toHaveBeenNthCalledWith(2, {
       vaultOwnerToken: "tok",
@@ -336,6 +397,7 @@ describe("runSosPanic", () => {
       durationHours: 8,
       reason: "sos_panic",
       shareKind: "sos",
+      isEffectCurrent: expect.any(Function),
     });
   });
 
@@ -400,6 +462,7 @@ describe("runSosPanic", () => {
       durationHours: 8,
       reason: "Come get me",
       shareKind: "sos",
+      isEffectCurrent: expect.any(Function),
     });
   });
 
@@ -422,6 +485,7 @@ describe("runSosPanic", () => {
       durationHours: 8,
       reason: "Meet me by the north entrance.",
       shareKind: "sos",
+      isEffectCurrent: expect.any(Function),
     });
   });
 
