@@ -25,7 +25,7 @@ const CONTACT = "user-contact";
 
 describe("latest SMS Feed incident", () => {
   const grant = (id: string, createdAt: string, extra: Partial<OneLocationGrant> = {}) => ({
-    id, ownerUserId: CONTACT, recipientUserId: ME, shareKind: "sos", status: "active", createdAt,
+    id, feedSmsConfirmed: true, ownerUserId: CONTACT, recipientUserId: ME, shareKind: "sos", status: "active", createdAt,
     ...extra,
   } as OneLocationGrant);
 

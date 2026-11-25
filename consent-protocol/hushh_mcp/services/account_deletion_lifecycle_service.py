@@ -1280,18 +1280,23 @@ class AccountDeletionLifecycleService:
             return FirebaseCleanupAttempt(
                 "identity_retained", classification="firebase_shared_identity_retained"
             )
-        from hushh_mcp.runtime_settings import get_firebase_credential_settings
+        from hushh_mcp.runtime_settings import (
+            get_app_runtime_settings,
+            get_firebase_credential_settings,
+        )
         from hushh_mcp.services.account_deletion_firebase_erasure import phone_intent_project
 
         selected = get_firebase_credential_settings().auth_project_id
-        project = await settle_cleanup_database_call(
-            phone_intent_project, user_id, cast(str, expected_phone_digest)
-        )
-        if selected and project != selected:
-            # Keep the old receipt for review; no SDK request may retarget it.
-            return FirebaseCleanupAttempt(
-                "retry_pending", classification="firebase_authority_mismatch"
+        project: str | None = None
+        if selected or get_app_runtime_settings().environment == "dev":
+            project = await settle_cleanup_database_call(
+                phone_intent_project, user_id, cast(str, expected_phone_digest)
             )
+            if (selected or project) and project != selected:
+                # Keep the old receipt for review; no SDK request may retarget it.
+                return FirebaseCleanupAttempt(
+                    "retry_pending", classification="firebase_authority_mismatch"
+                )
         try:
             return await asyncio.wait_for(
                 self._delete_or_quarantine_firebase_identity(
@@ -1396,7 +1401,6 @@ class AccountDeletionLifecycleService:
                     return FirebaseCleanupAttempt(
                         "retry_pending", classification="firebase_authority_mismatch"
                     )
-                assert_firebase_identity_mutation_allowed(firebase_app)
                 if intent_kind == "phone_orphan":
                     if expected_phone_digest is None:
                         return FirebaseCleanupAttempt(
@@ -1410,6 +1414,7 @@ class AccountDeletionLifecycleService:
                     )
                     if validation_result is not None:
                         return validation_result
+                assert_firebase_identity_mutation_allowed(firebase_app)
                 assert_firebase_identity_mutation_allowed(firebase_app)
                 from firebase_admin import auth as firebase_auth
 

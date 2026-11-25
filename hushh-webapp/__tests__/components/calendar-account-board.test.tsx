@@ -508,13 +508,14 @@ describe("three-account Calendar board", () => {
     view.rerender(cloneElement(node, { connectionRevision: 1 }));
     await screen.findByText("Planning review");
     const meet = joinAction();
-    expect(meet.web).toBe(true);
-    act(() => { void meet.run!(); });
-    const chooser = screen.getByRole("dialog", { name: "Check Google account" });
-    expect(within(chooser).getByRole("link", { name: "Open Meet" })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij?authuser=default%40example.com");
-    fireEvent.click(within(chooser).getByRole("button", { name: "Cancel" }));
+    expect(meet.web).toBe(false);
+    await act(async () => { await meet.run!(); });
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(mocks.openBrowser).toHaveBeenCalledTimes(1);
+    expect(mocks.openBrowser).toHaveBeenCalledTimes(2);
+    const meetUrl = new URL((mocks.openBrowser.mock.calls[1][0] as { url: string }).url);
+    expect(meetUrl.origin + meetUrl.pathname).toBe("https://accounts.google.com/AccountChooser");
+    expect(meetUrl.searchParams.get("Email")).toBe("default@example.com");
+    expect(meetUrl.searchParams.get("continue")).toBe("https://meet.google.com/abc-defg-hij?authuser=default%40example.com");
   });
 
   it("summarizes occasions after meetings and opens a responsive detail dialog", async () => {

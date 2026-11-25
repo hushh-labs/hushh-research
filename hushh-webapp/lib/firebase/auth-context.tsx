@@ -2120,8 +2120,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
   );
 
   const confirmPhoneTransfer = useCallback(async (): Promise<User> => {
-    throw new Error("This number is already linked to an account. Use a different number or contact support.");
-  }, []);
+    const proof = phoneTransferProofRef.current;
+    const currentUser = userRef.current;
+    if (!proof || !currentUser) throw new Error("Request a fresh real SMS code before transferring this number.");
+    requirePhoneVerificationOwner(proof.userId, proof.epoch);
+    await AccountIdentityService.transferCurrentUserPhone(currentUser, proof, () =>
+      phoneTransferProofRef.current === proof && userRef.current?.uid === currentUser.uid && phoneVerificationEpochRef.current === proof.epoch);
+    requirePhoneVerificationOwner(proof.userId, proof.epoch);
+    phoneRecovery.cancelNativeStart();
+    phoneTransferProofRef.current = null;
+    setPhoneVerificationAttempt(null);
+    phoneVerificationOwnerRef.current = null;
+    return currentUser;
+  }, [phoneRecovery, requirePhoneVerificationOwner]);
   const confirmPhoneLinkedDeletion = useCallback((input: LinkedDeletionInput, visitIsCurrent: () => boolean = () => true) => {
     const principal = principalRef.current;
     const owner = snapshotValidatedAuthSessionOwner();

@@ -19,6 +19,7 @@ import {
   type TodoItem,
 } from "@/lib/services/todo-list-pkm-service";
 import { useTodoLiveTasks } from "@/lib/todos/use-todo-live-tasks";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import * as todoService from "@/lib/services/todo-list-pkm-service";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
 import type { RedactedCalendarEvent } from "@/lib/calendar/use-calendar-upcoming-events";

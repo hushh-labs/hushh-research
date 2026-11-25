@@ -3502,7 +3502,7 @@ describe("Connect — Circles", () => {
   });
 
   it("returns from Circles to the loaded directory without starting another read", async () => {
-    render(<ConnectPageClient />);
+    const { rerender } = render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
 
     expect(screen.queryByRole("button", { name: "Select people" })).toBeNull();
@@ -3511,7 +3511,10 @@ describe("Connect — Circles", () => {
 
     await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
     expect(String(mocks.routerPush.mock.calls[0][0])).toContain("tab=circles");
-    mocks.searchParams = new URLSearchParams("tab=circles");
+    mocks.searchParams = new URL(
+      String(mocks.routerPush.mock.calls.at(-1)![0]),
+      "http://localhost",
+    ).searchParams;
     rerender(<ConnectPageClient />);
     expect(
       screen.queryByRole("button", { name: "Cancel selecting people" }),
@@ -3520,6 +3523,11 @@ describe("Connect — Circles", () => {
     const reads = mocks.searchDirectory.mock.calls.length;
     await act(async () => {
       fireEvent.click(screen.getByRole("tab", { name: "Connections", exact: true }));
+      mocks.searchParams = new URL(
+        String(mocks.routerPush.mock.calls.at(-1)![0]),
+        "http://localhost",
+      ).searchParams;
+      rerender(<ConnectPageClient />);
     });
     expect(screen.getByRole("button", { name: "Explore your network" })).toBeVisible();
     expect(mocks.searchDirectory).toHaveBeenCalledTimes(reads);

@@ -6,7 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ConversationComposer } from "@/components/app-ui/conversation-composer";
 import { SHELL_ICON_BUTTON_CLASSNAME } from "@/components/app-ui/shell-action-surface";
-import { MessageCircle, ImageIcon, ArrowDown, Plus, Smile, Play, FileText, X } from "@/components/icons";
+import { MessageCircle, ImageIcon, ArrowDown, Plus, Play, FileText, Smile, X } from "@/components/icons";
 import { CircleChatService, type CircleChatSession, type CircleChatState, type CircleChatReceipt, type CircleMembershipEvent, type CircleChatPage, type CircleMessageState, type ChatMutationResult } from "@/lib/services/circle-chat-service";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { MAX_CHAT_IMAGE_BYTES, MAX_CHAT_TEXT, validateChatAttachmentBytes, type ChatImageThumbnail, type ChatMessage, type SealedChatMessage } from "@/lib/circle-chat/crypto";
@@ -41,6 +41,10 @@ const foreground = () => document.visibilityState === "visible" && appInteractio
 // Coalesce busy-group doorbells within a quarter-second refresh cadence.
 // Four sessions at four refreshes/sec fit the API's 1200/min owner read budget.
 const REFRESH_CADENCE_MS = 250;
+// A doorbell, lifecycle resume, and the long-poll stream already make the
+// thread current promptly. The fallback is only a missed-event repair and
+// must not continuously rescan a long Circle history every five seconds.
+const REFRESH_REPAIR_INTERVAL_MS = 15_000;
 function cadence(signal: AbortSignal, earliest: number): Promise<void> {
   const delay = earliest - performance.now();
   if (delay <= 0 || signal.aborted) return Promise.resolve();
@@ -120,7 +124,7 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
     const resume = () => { if (!paneActiveRef.current || !foreground()) abort?.abort(); else void listen(); };
     resumeWait.current = resume;
     void listen();
-    const timer = window.setInterval(resume, 5000);
+    const timer = window.setInterval(resume, REFRESH_REPAIR_INTERVAL_MS);
     const removeLifecycle = appInteractionCoordinator.subscribeLifecycle(resume);
     document.addEventListener("visibilitychange", resume); window.addEventListener("online", resume);
     return () => { active = false; abort?.abort(); clearInterval(timer); removeLifecycle();
@@ -147,9 +151,10 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
         await cadence(abort.signal, nextRefreshAt);
         if (!active || abort.signal.aborted || !foreground()) break;
         nextRefreshAt = performance.now() + REFRESH_CADENCE_MS;
-        if (!ready) { await CircleChatService.initialize(session); ready = true; }
+        const bootstrap = !ready;
+        if (bootstrap) { await CircleChatService.initialize(session); ready = true; }
         if (!active) return;
-        const next = await CircleChatService.state(session, abort.signal);
+        const next = await CircleChatService.state(session, abort.signal, bootstrap);
         if (active) { setState(next.latestSequence <= acknowledgedRead.current ? { ...next, unreadCount: 0 } : next); setError(null); }
         } while (dirty && active && foreground());
       } catch (err) {
@@ -171,7 +176,7 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
       }
     });
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 15000);
+    const timer = window.setInterval(() => void refresh(), REFRESH_REPAIR_INTERVAL_MS);
     window.addEventListener(CIRCLE_CHAT_CHANGED, onEvent);
     window.addEventListener("online", refresh);
     document.addEventListener("visibilitychange", refresh);
@@ -199,23 +204,24 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
       }} /></label> : null}
     </div> : null}
     {open && paneActive && state && !state.muted && !revoked ? <div className="px-3 pt-3"><FeedPushPrompt context="chat" /></div> : null}
-    {!chatLane && !state && !error && !revoked ? <p role="status" className="p-4 text-sm text-muted-foreground">Connecting chat…</p> : null}
     {revoked ? <p role="alert" className="p-4 text-sm">You no longer have access to this circle chat.</p> : null}
     {error && !revoked ? <div role="alert" className="p-4 text-sm">{error} <Button variant="text" size="sm" className={chatLane ? quietStyles.action : undefined} onClick={() => setRevision((n) => n + 1)}>Reconnect</Button></div> : null}
-    {started && state && !revoked ? <div hidden={!open || !paneActive} className={chatLane ? "min-h-0 flex-1" : inlineStyles.thread}><CircleChatThread key={`${threadScope.current.revision}:${state.membershipJoinedAt ?? "legacy"}`} circleName={circleName} session={session} membershipJoinedAt={state.membershipJoinedAt} visible={open && paneActive} readingBlocked={readingBlocked} chatLane={chatLane} chatLaneTheme={chatLaneTheme}
+    {started && state && !revoked ? <div hidden={!open || !paneActive} className={chatLane ? "min-h-0 flex-1" : inlineStyles.thread}><CircleChatThread key={`${threadScope.current.revision}:${state.membershipJoinedAt ?? "legacy"}`} circleName={circleName} session={session} membershipJoinedAt={state.membershipJoinedAt} initialPage={state.latest} visible={open && paneActive} readingBlocked={readingBlocked} chatLane={chatLane} chatLaneTheme={chatLaneTheme}
       onRead={(sequence) => { acknowledgedRead.current = Math.max(acknowledgedRead.current, sequence); setState((old) => old && old.latestSequence <= sequence ? { ...old, unreadCount: 0 } : old); }}
       onRevoked={() => { accessLost.current?.(); setRevoked(true); setState(null); setOpen(false); }} /></div> : null}
   </section>
   </>;
 }
 
-function CircleChatThread({ circleName, session, membershipJoinedAt, visible, onRead, onRevoked, readingBlocked, chatLane, chatLaneTheme }: {
+function CircleChatThread({ circleName, session, membershipJoinedAt, initialPage, visible, onRead, onRevoked, readingBlocked, chatLane, chatLaneTheme }: {
   session: CircleChatSession; visible: boolean; onRead: (sequence: number) => void; onRevoked: () => void;
   membershipJoinedAt?: string;
+  initialPage?: CircleChatPage;
   circleName: string; readingBlocked: boolean; chatLane: boolean; chatLaneTheme: "light" | "dark";
 }) {
   const blockingLayer = useVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions;
   const [messages, setMessages] = useState<OpenMessage[]>([]);
+  const initialPageRef = useRef(initialPage);
   const [membershipEvents, setMembershipEvents] = useState<CircleMembershipEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasOlder, setHasOlder] = useState(false);
@@ -451,7 +457,9 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, visible, on
         const receiptRange = () => messagesRef.current.length ? {
           receiptAfter: messagesRef.current[0]!.sequence - 1, receiptThrough: last.current,
         } : {};
-        let page = await CircleChatService.messages(session, incremental ? { after: last.current, ...receiptRange() } : {}, abort.signal);
+        const bootstrapped = initialPageRef.current;
+        initialPageRef.current = undefined;
+        let page = bootstrapped ?? await CircleChatService.messages(session, incremental ? { after: last.current, ...receiptRange() } : {}, abort.signal);
         if (!active.current || generation !== historyGeneration.current) continue;
         await reconcile(abort.signal);
         if (!active.current || generation !== historyGeneration.current) continue;
@@ -488,7 +496,7 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, visible, on
       }
     };
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 5000);
+    const timer = window.setInterval(() => void refresh(), REFRESH_REPAIR_INTERVAL_MS);
     window.addEventListener(CIRCLE_CHAT_CHANGED, event); window.addEventListener("online", refresh);
     document.addEventListener("visibilitychange", refresh);
     const removeLifecycle = appInteractionCoordinator.subscribeLifecycle(() => { void refresh(); });
@@ -633,11 +641,14 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, visible, on
     sendLock.current = true; setSending(true); setError(null);
     let sealed = pending;
     let local = outgoingRef.current;
-    if (file?.type.startsWith("image/")) {
+    // Keep every outbound message visible while sealing/sending. Text-only
+    // messages need the same retryable local state as image messages; only
+    // the image preview itself needs a local File.
+    if (text.trim() || file?.type.startsWith("image/")) {
       local = local ? { ...local, delivery: "sending" } : {
         id: crypto.randomUUID(), clientMessageId: "", senderUserId: session.userId, senderName: "You",
-        createdAt: new Date().toISOString(), content: { text: text.trim(), attachment: { kind: "photo", type: file.type, name: file.name.slice(0, 160) } },
-        failed: false, localImage: file, delivery: "sending",
+        createdAt: new Date().toISOString(), content: { text: text.trim(), ...(file?.type.startsWith("image/") ? { attachment: { kind: "photo" as const, type: file.type, name: file.name.slice(0, 160) } } : {}) },
+        failed: false, ...(file?.type.startsWith("image/") ? { localImage: file } : {}), delivery: "sending",
       };
       local.clientMessageId ||= local.id;
       outgoingRef.current = local; setOutgoing(local);
@@ -727,7 +738,6 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, visible, on
           }
         }
       }}>Load earlier messages</Button> : null}
-      {loading && !chatLane ? <p role="status" className="text-sm text-muted-foreground">Loading messages…</p> : null}
       {!loading && !messages.length && !membershipEvents.length && !outgoing ? <p className="py-8 text-center text-sm text-muted-foreground">Start the conversation. Say hello or share a file.</p> : null}
       <div role="log" aria-label="Circle message history" aria-live={atBottom && visible ? "polite" : "off"} aria-relevant="additions" aria-busy={loading || loadingOlder}><ol ref={messageList}>{[
         ...messages.map((message, index) => ({ kind: "message" as const, id: `${message.senderUserId}:${message.clientMessageId ?? message.id}`, createdAt: message.createdAt, message, previous: messages[index - 1] })),
@@ -749,7 +759,6 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, visible, on
     <div className={chatLane ? laneStyles.composer : "relative space-y-2 border-t border-border/60 p-3 sm:px-5 sm:py-4"} data-theme={chatLane ? chatLaneTheme : undefined} data-circle-chat-composer data-messages-type-scale={chatLane || undefined}>
     {chatLane && latestControl ? <div className={laneStyles.latestControl}>{latestControl}</div> : null}
     {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-    {jumping ? <p role="status" className="text-sm text-muted-foreground">Loading messages…</p> : null}
     {reply ? <div className="flex min-w-0 items-center gap-2 rounded-lg border-l-2 border-primary bg-muted/50 px-3 py-2" aria-label="Replying to message">
       <div className="min-w-0 flex-1 text-sm"><p className="font-semibold"><bdi>{connectPersonName({ displayName: reply.senderName })}</bdi></p><p dir="auto" className="line-clamp-2 break-words">{messages.find((item) => item.id === reply.id)?.content?.text ?? reply.content?.text ?? "Attachment"}</p></div>
       <Button variant="plain" size="icon-touch" aria-label="Cancel reply" disabled={sending || Boolean(pending)} onClick={() => setReply(null)}><X aria-hidden="true" className="size-4" /></Button>
@@ -776,9 +785,15 @@ function CircleChatThread({ circleName, session, membershipJoinedAt, visible, on
           <button type="button" className={`${SHELL_ICON_BUTTON_CLASSNAME} ${chatLane ? `${laneStyles.attachButton} !h-11 !w-11` : "!h-11 !w-11"}`} aria-label="Attach photo, video, or document" disabled={sending || Boolean(pending)}>{chatLane ? <Plus aria-hidden="true" className="size-5" /> : <ImageIcon aria-hidden="true" className="size-5" />}</button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" side="top" className="min-w-40" data-messages-type-scale={chatLane || undefined}>
-          <DropdownMenuItem onSelect={() => fileInput.current?.click()}><ImageIcon className="h-4 w-4" aria-hidden="true" /> Photo</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => videoInput.current?.click()}><Play className="h-4 w-4" aria-hidden="true" /> Video</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => documentInput.current?.click()}><FileText className="h-4 w-4" aria-hidden="true" /> Document</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => fileInput.current?.click()}>
+            <ImageIcon className="h-4 w-4" aria-hidden="true" /> Photo
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => videoInput.current?.click()}>
+            <Play className="h-4 w-4" aria-hidden="true" /> Video
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => documentInput.current?.click()}>
+            <FileText className="h-4 w-4" aria-hidden="true" /> Document
+          </DropdownMenuItem>
           <p className="px-2 pb-0.5 pt-1 text-[11px] text-muted-foreground">Up to 5 MB</p>
         </DropdownMenuContent>
       </DropdownMenu>} />

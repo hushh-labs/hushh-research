@@ -42,11 +42,11 @@ describe("executeAgentGatewayAction connected systems", () => {
     expect(input.router.push).not.toHaveBeenCalled();
   });
 
-  it("keeps the previous-account deletion review manual-only", async () => {
+  it("rejects the retired previous-account deletion review gateway action", async () => {
     const actionId = "phone_mandate.review_previous_deletion";
     const input = { ...baseInput(actionId), allowedActionIds: [actionId] };
     const result = await executeAgentGatewayAction(input);
-    expect(result).toMatchObject({ status: "blocked", reason: "manual_only" });
+    expect(result).toMatchObject({ status: "invalid", reason: "missing_action" });
     expect(input.router.push).not.toHaveBeenCalled();
   });
 

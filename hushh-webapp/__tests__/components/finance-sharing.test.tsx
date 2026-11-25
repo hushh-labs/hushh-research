@@ -296,21 +296,6 @@ it("uses the other person's identity in either sharing direction @feature_connec
     render(<FinanceSharingManager open onOpenChange={vi.fn()} />);
     fireEvent.click(await screen.findByRole("button", { name: "View Recipient's profile" }));
     expect(preview.mock.calls[0][0].detail).toMatchObject({ personRef: "recipient-public", userId: "recipient" });
-    fireEvent.click(screen.getByRole("button", { name: "Shared with you" }));
-    fireEvent.click(await screen.findByRole("button", { name: "View Owner's profile" }));
-    expect(preview.mock.calls[1][0].detail.userId).toBe("sender");
-    expect(preview.mock.calls[1][0].detail.personRef).toBeUndefined();
-    expect(mocks.stop).not.toHaveBeenCalled(); expect(mocks.decrypt).not.toHaveBeenCalled();
-  } finally { window.removeEventListener("hussh:person-profile-preview", preview); }
-});
-
-it("uses the other person's identity in either sharing direction @feature_connected_profiles", async () => {
-  mocks.history.mockImplementation(async (_context, direction) => ({ items: [{ ...grant, direction, ownerUserId: "sender", recipientPersonRef: "recipient-public" }], nextCursor: null }));
-  const preview = vi.fn(); window.addEventListener("hussh:person-profile-preview", preview);
-  try {
-    render(<FinanceSharingManager open onOpenChange={vi.fn()} />);
-    fireEvent.click(await screen.findByRole("button", { name: "View Recipient's profile" }));
-    expect(preview.mock.calls[0][0].detail).toMatchObject({ personRef: "recipient-public", userId: "recipient" });
     fireEvent.click(screen.getByRole("tab", { name: "Shared with you" }));
     fireEvent.click(await screen.findByRole("button", { name: "View Owner's profile" }));
     expect(preview.mock.calls[1][0].detail.userId).toBe("sender");

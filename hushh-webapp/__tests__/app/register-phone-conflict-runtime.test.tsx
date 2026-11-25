@@ -105,7 +105,10 @@ describe("register-phone conflict runtime", () => {
     const continuationId = "c71a3aab-a901-4f18-8e20-f3fb2fd61a09";
     vi.mocked(fetch).mockImplementation(async (url) => String(url).endsWith("/phone/recovery/continuations")
       ? Response.json({ continuation_id: continuationId, state: "awaiting_previous_sign_in", expires_at: "2099-01-01T00:00:00Z" })
-      : Response.json({ detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" } }, { status: 409 }));
+      // While in-place deletion is off (production today), Delete keeps the sign-in handoff.
+      : String(url).endsWith("/phone/linked-account/deletions")
+        ? Response.json({ detail: { code: "PHONE_LINKED_DELETION_UNAVAILABLE" } }, { status: 503 })
+        : Response.json({ detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" } }, { status: 409 }));
     render(<AuthProvider><AgentRuntimeStateProvider><PhoneMandatePageContent /></AgentRuntimeStateProvider></AuthProvider>);
     const phone = await screen.findByRole("textbox", { name: "Phone number" });
     fireEvent.change(phone, { target: { value: "6505550101" } });
@@ -123,7 +126,6 @@ describe("register-phone conflict runtime", () => {
     expect(destination.searchParams.get("redirect")).toBe(`/register-phone?recovery=${continuationId}`);
     expect(destination.href).not.toContain("6505550101");
     expect(destination.href).not.toContain("123456");
-    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/linked-account/deletions") || String(url).includes("/delete-lost-vault"))).toBe(false);
   });
   it.each([false, true])("settles linked deletion without reusing SMS or replaying an uncertain confirmation (lost ACK: %s)", async (lostAck) => {
     const operation = "d2a5e0f0-8c5e-4f2c-9a51-3f0d6b5f9a11";

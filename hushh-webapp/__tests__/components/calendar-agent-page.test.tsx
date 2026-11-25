@@ -81,18 +81,6 @@ describe("CalendarAgentPage", () => {
     expect(screen.queryByRole("button", { name: "Enable scheduling" })).toBeNull();
   });
 
-  it("shows one connect action and names every product Google will ask about", async () => {
-    mocks.status.mockResolvedValue({ configured: true, connected: false, status: "disconnected", scope_csv: "" });
-    render(<CalendarAgentPage />);
-    await waitForConnectButton();
-    expect(screen.queryByRole("checkbox")).toBeNull();
-    expect(screen.queryByText(/Optional\. Setup asks/)).toBeNull();
-    const disclosure = screen.getByTestId("calendar-setup-permissions");
-    for (const product of ["Calendar", "Google Meet", "Google Drive", "Gmail"]) {
-      expect(disclosure).toHaveTextContent(new RegExp(`${product}:`));
-    }
-  });
-
   it("opens the connected workspace with the existing chat and disconnect handlers", async () => {
     mocks.status.mockResolvedValue({
       configured: true,

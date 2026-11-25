@@ -576,6 +576,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
                 ?? (event.transparency === "transparent" ? "Shown as free time" : !sourceIncluded ? "This calendar is not used for your free time" : response === "tentative" ? "You said maybe" : null);
               const actions: NonNullable<CalendarNativeRow["inlineActions"]> = [];
               if (!ended && safeMeetingUrl(event.conference_url)) actions.push({ key: `${id}:join:${eventIdentity(event)}`, label: "Join", symbol: "video", tone: "primary",
+                web: false,
                 run: async () => {
                   const href = calendarJoinHref(event.conference_url, account.google_email);
                   if (!href || isCalendarEventEnded(event, Date.now(), zone)) return;

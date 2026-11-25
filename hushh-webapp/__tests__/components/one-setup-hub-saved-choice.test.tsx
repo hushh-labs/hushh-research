@@ -432,9 +432,10 @@ it("auto-defaults oneRuntimeSetupChoice when Hussh Confidential Sandbox (ace) is
     state: "active",
   };
   render(<OneSetupHub />);
-  const finish = await screen.findByRole("button", { name: "Finish setup" });
+  const finish = await screen.findByRole("button", { name: "Continue" });
   await waitFor(() => expect(finish).toBeEnabled());
   expect(screen.getByRole("button", { name: "Agent home: Connected" })).toBeVisible();
   fireEvent.click(finish);
+  fireEvent.click(await screen.findByRole("button", { name: "Finish setup" }));
   await screen.findByRole("dialog");
 });

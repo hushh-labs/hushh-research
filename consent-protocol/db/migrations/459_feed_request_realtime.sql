@@ -1,6 +1,5 @@
 -- Wake the existing owner-scoped Feed stream when a displayed request state
 -- changes without appending a history row. No private row fields cross NOTIFY.
-BEGIN;
 SET LOCAL lock_timeout = '10s';
 
 CREATE OR REPLACE FUNCTION public.notify_feed_request_projection()
@@ -116,4 +115,3 @@ BEGIN
 END;
 $$;
 
-COMMIT;

@@ -69,6 +69,8 @@ export type NetworkSummary = {
   networkDegree: NetworkDegree | null;
   mutualConnectionCount: number;
   mutualConnectionPreview: NetworkPerson | null;
+  /** Up to two, in a stable order; absent from an older server. */
+  mutualConnectionPreviews?: NetworkPerson[];
   canBrowseConnections: boolean;
   visibleConnectionCount?: number | null;
 };

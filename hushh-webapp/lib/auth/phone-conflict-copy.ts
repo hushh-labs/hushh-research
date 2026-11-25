@@ -26,6 +26,10 @@ export function resolvePhoneFailureMessage(error: unknown, fallback: string, bac
   if (["credential-already-in-use", "phone-number-already-exists"].includes(code)) return PHONE_CONFLICT_COPY.inApp;
   if (code === "code-expired") return "This verification code has expired. Please request a new code.";
   if (code === "invalid-verification-code" || code === "UAT_PHONE_TEST_INVALID_CODE") return "That code isn't right. Check it and try again.";
+  if (code === "invalid-phone-number") return "Enter a valid phone number with your country code and try again.";
+  if (code === "operation-not-allowed") return "Phone verification is temporarily unavailable for this configuration. Please try again later.";
+  if (code === "sms-region-not-allowed") return "SMS verification is not currently available for this country or region.";
+  if (code === "phone-verification-start-timeout") return "Sending the verification code took too long. Request a new code.";
   if (code === "requires-recent-login") return "For security, sign in again before changing your phone number.";
   if (code === "too-many-requests") return "Too many attempts. Wait a moment before trying again.";
   return fallback;
