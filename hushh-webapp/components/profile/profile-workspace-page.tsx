@@ -200,6 +200,7 @@ import { getProvider, ProviderIcon } from "@/components/profile/provider-identit
 import { EmailIdentityMark } from "@/components/app-ui/email-identity-mark";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { cn } from "@/lib/utils";
+import { validateDisplayName } from "@/components/profile/display-name-editor";
 import { DisplayNameEditor } from "@/components/profile/display-name-editor";
 import { NativeDisplayNameEditor } from "@/components/profile/native-display-name-editor";
 import { NativePhoneVerificationFlow } from "@/components/profile/native-phone-verification-flow";
@@ -581,6 +582,11 @@ function ProfilePageContent({
     return true;
   }, [isDeleting, isResetting, dismissAccountConfirmation, onNativeMenuClose]);
   const [editingDisplayName, setEditingDisplayName] = useState(false);
+  const [chatNameDraft, setChatNameDraft] = useState<{ owner: NonNullable<ReturnType<typeof snapshotValidatedAuthSessionOwner>>; value: string } | null>(null);
+  const closeDisplayNameEditor = useCallback(() => {
+    setEditingDisplayName(false);
+    setChatNameDraft(null);
+  }, []);
   const [nativeNameHost, setNativeNameHost] = useState<HTMLDivElement | null>(null);
   const [nativePhoneHost, setNativePhoneHost] = useState<HTMLDivElement | null>(null);
   const [nativeAccountException, setNativeAccountException] = useState<"photo" | "name" | null>(null);
@@ -763,9 +769,9 @@ function ProfilePageContent({
   }, [presentation, nativeMenuOpen, activePanel, activeDetail, showDeleteConfirm, showResetConfirm, dismissAccountConfirmation]);
   useEffect(() => {
     if (activePanel !== "account" || activeDetail) {
-      setNativeAccountException(null); setEditingDisplayName(false);
+      setNativeAccountException(null); closeDisplayNameEditor();
     }
-  }, [activePanel, activeDetail, applicationOwnerId]);
+  }, [activePanel, activeDetail, applicationOwnerId, closeDisplayNameEditor]);
   useEffect(() => {
     if (!editingDisplayName && nativeAccountException === "name") setNativeAccountException(null);
   }, [editingDisplayName, nativeAccountException]);
@@ -2735,6 +2741,19 @@ function ProfilePageContent({
     { enabled: Boolean(user) && activePanel === "account" && phoneLookupPending && accountPhoneStatus === "unavailable" },
   );
 
+  useLocalOnboardingActionHandler("profile.update_display_name", async (slots) => {
+    const value = typeof slots?.display_name === "string" ? slots.display_name : "";
+    const owner = snapshotValidatedAuthSessionOwner();
+    if (!applicationOwnerId || owner?.userId !== applicationOwnerId || !isValidatedAuthSessionOwnerCurrent(owner))
+      return { status: "blocked", summary: "Sign in again before editing your account." };
+    const invalid = validateDisplayName(value);
+    if (invalid) return { status: "blocked", summary: invalid };
+    if (editingDisplayName) return { status: "blocked", summary: "Finish or close the current name edit first." };
+    setChatNameDraft({ owner, value });
+    setEditingDisplayName(true);
+    return { status: "started", summary: "Your proposed display name is ready in the account editor. Review it and choose Save. Your name has not changed yet." };
+  }, { enabled: Boolean(user) && activePanel === "account" && !activeDetail });
+
   // Profile's three remaining unwired actions. Registered here rather than in
   // the global registrar because each genuinely needs this page's state --
   // the delete flow's vault resolution, the support composer's kind and reply
@@ -3649,7 +3668,7 @@ function ProfilePageContent({
               {editingDisplayName ? "Close" : "Edit"}
             </span>
           }
-          onClick={() => setEditingDisplayName((open) => !open)}
+          onClick={() => { closeDisplayNameEditor(); if (!editingDisplayName) setEditingDisplayName(true); }}
         />
         {editingDisplayName ? (
           <div
@@ -3662,8 +3681,9 @@ function ProfilePageContent({
             {presentation === "native-page" ? <div ref={setNativeNameHost} /> : <DisplayNameEditor
               user={user}
               ownerId={applicationOwnerId}
-              onSaved={() => setEditingDisplayName(false)}
-              onCancel={() => setEditingDisplayName(false)}
+              initialDraft={chatNameDraft && chatNameDraft.owner.userId === applicationOwnerId && isValidatedAuthSessionOwnerCurrent(chatNameDraft.owner) ? chatNameDraft.value : undefined}
+              onSaved={() => { closeDisplayNameEditor(); setChatNameDraft(null); }}
+              onCancel={() => { closeDisplayNameEditor(); setChatNameDraft(null); }}
             />}
           </div>
         ) : null}
@@ -5271,7 +5291,7 @@ function ProfilePageContent({
       },
       ...(accountConfirmation ? { back: dismissAccountConfirmation } : {}), rows: new Map([
         ["account-photo", () => setNativeAccountException("photo")],
-        ["account-name", () => setEditingDisplayName(true)],
+        ["account-name", () => { setChatNameDraft(null); setEditingDisplayName(true); }],
         ["account-phone", () => { if (phoneLookupPending) { void retryPhoneLookup(); return; } updateProfileView({ panel: "account", detail: "phone" }, "push"); }],
         ["account-wallet", () => router.push(ROUTES.ONE_WALLET_CARD)],
         ["account-payments-open", () => openVaultBackedPanel("payouts")],
@@ -5293,9 +5313,9 @@ function ProfilePageContent({
           else if (showResetConfirm) await handleResetAccount();
         }],
       ]), editor: destinationId => editingDisplayName && activePanel === "account" && !activeDetail ?
-        <NativeDisplayNameEditor user={user} ownerId={applicationOwnerId} destinationId={destinationId} portalFallback webHost={nativeNameHost}
+        <NativeDisplayNameEditor user={user} ownerId={applicationOwnerId} initialDraft={chatNameDraft && chatNameDraft.owner.userId === applicationOwnerId && isValidatedAuthSessionOwnerCurrent(chatNameDraft.owner) ? chatNameDraft.value : undefined} destinationId={destinationId} portalFallback webHost={nativeNameHost}
           onWebFallback={() => setNativeAccountException("name")}
-          onSaved={() => setEditingDisplayName(false)} onCancel={() => setEditingDisplayName(false)} /> : null }}
+          onSaved={() => { closeDisplayNameEditor(); setChatNameDraft(null); }} onCancel={() => { closeDisplayNameEditor(); setChatNameDraft(null); }} /> : null }}
     menu={{ owner: applicationOwnerId, ready: isVaultUnlocked, open: nativeMenuOpen, surfaceOpen: nativeMenuOpen,
       ...(agentSettingsActive ? { navigationLocked: nativeAgentSettings.navigationBlocked() } : nativePayoutActive ? { navigationLocked: nativePayout.busy } : nativeConnectorsActive ? { navigationLocked: nativeConnectors.blocking } : nativeWorldModelActive ? { navigationLocked: nativeWorldModel.blocking } : nativeMemoryActive ? { navigationLocked: nativeMemory.busy } : nativeRuntimeActive ? { navigationLocked: runtimeSettings.isSaving || runtimeSettings.isRemoving || runtimeSettings.credentialValidation.status === "checking" } : {}),
       enabled: !isDeleting && !isResetting && !(devicesActive && devicesModel.busy) && !(nativeFinanceActive && nativeFinance.busy) &&

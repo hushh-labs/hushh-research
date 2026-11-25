@@ -473,4 +473,27 @@ describe("DisplayNameEditor", () => {
     ).toBeDisabled();
     expect(screen.getByRole("textbox", { name: "Display name" })).toHaveValue("");
   });
+
+
+it("keeps a chat proposal separate from the stored name until the existing Save", async () => {
+  render(<DisplayNameEditor user={testUser} ownerId="user-1" initialDraft="Mira Iyer" />);
+  expect(screen.getByRole("textbox", { name: "Display name" })).toHaveValue("Mira Iyer");
+  expect(AccountIdentityService.updateDisplayName).not.toHaveBeenCalled();
+  vi.mocked(AccountIdentityService.updateDisplayName).mockResolvedValueOnce({ user_id: "user-1", display_name: "Mira Iyer" });
+  fireEvent.click(screen.getByRole("button", { name: /save/i }));
+  await waitFor(() => expect(AccountIdentityService.updateDisplayName).toHaveBeenCalledExactlyOnceWith(testUser, "Mira Iyer"));
+});
+
+
+it("retires a mounted chat proposal across sign-out and same-owner relogin", async () => {
+  const { publishValidatedAuthSessionOwner } = await import("@/lib/auth/session-owner");
+  act(() => publishValidatedAuthSessionOwner("user-1"));
+  render(<DisplayNameEditor user={testUser} ownerId="user-1" initialDraft="Abandoned proposal" />);
+  expect(screen.getByRole("textbox", { name: "Display name" })).toHaveValue("Abandoned proposal");
+  act(() => { publishValidatedAuthSessionOwner(null); publishValidatedAuthSessionOwner("user-1"); });
+  expect(screen.getByRole("textbox", { name: "Display name" })).toHaveValue(testUser.displayName);
+  expect(AccountIdentityService.updateDisplayName).not.toHaveBeenCalled();
+  act(() => publishValidatedAuthSessionOwner(null));
+});
+
 });

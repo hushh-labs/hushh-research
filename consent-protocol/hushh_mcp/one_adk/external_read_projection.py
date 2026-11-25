@@ -7,6 +7,12 @@ from typing import Any
 from google.adk.sessions import Session
 
 from hushh_mcp.adk_bridge.contract import SpecialistReadResult
+from hushh_mcp.one_adk.account_context_contract import (
+    ACCOUNT_CONTEXT_TOOL,
+    PRIVATE_ACCOUNT_ANSWER,
+    STATE_ACCOUNT_CONTEXT_ENABLED,
+    STATE_ACCOUNT_CONTEXT_PRIVATE,
+)
 from hushh_mcp.one_adk.external_read_boundary import (
     READ_TOOLS,
     STATE_DRIVE_READ_OUTCOME,
@@ -23,8 +29,8 @@ from hushh_mcp.one_adk.plaid_connector_tools import (
     STATE_PLAID_RESULT,
 )
 from hushh_mcp.one_adk.receipt_client_tools import (
+    PRIVATE_DEVICE_READ_TOOLS,
     PRIVATE_RECEIPT_ANSWER,
-    RECEIPT_TOOL_NAMES,
     STATE_RECEIPT_PRIVATE,
     STATE_RECEIPT_RESULT,
 )
@@ -51,6 +57,7 @@ _EPHEMERAL = frozenset(
         STATE_PLAID_CLIENT_READY,
         STATE_PLAID_POSTURE,
         STATE_PLAID_RESULT,
+        STATE_ACCOUNT_CONTEXT_ENABLED,
         "temp:hussh:workspace_chat_admission",
         "temp:hussh:drive_search_selection",
         "temp:hussh:mcp_approval",
@@ -109,6 +116,28 @@ def redacted_read_receipt(response: Any) -> dict[str, Any]:
 
 
 def durable_external_read_projection(session: Session) -> Session:
+    account_calls = {
+        part.function_call.id
+        for event in session.events
+        if event.content
+        for part in event.content.parts or []
+        if part.function_call and part.function_call.name == ACCOUNT_CONTEXT_TOOL
+    }
+    account_invocations = (
+        set(session.state.get(STATE_ACCOUNT_CONTEXT_PRIVATE) or [])
+        | {
+            invocation
+            for event in session.events
+            for invocation in event.actions.state_delta.get(STATE_ACCOUNT_CONTEXT_PRIVATE, [])
+        }
+        | {
+            event.invocation_id
+            for event in session.events
+            if event.content
+            for part in event.content.parts or []
+            if part.function_call and part.function_call.name == ACCOUNT_CONTEXT_TOOL
+        }
+    )
     receipt_result_invocations = set(session.state.get(STATE_RECEIPT_PRIVATE) or []) | {
         invocation
         for event in session.events
@@ -121,8 +150,8 @@ def durable_external_read_projection(session: Session) -> Session:
             for event in session.events
             if event.content
             for part in event.content.parts or []
-            if (part.function_call and part.function_call.name in RECEIPT_TOOL_NAMES)
-            or (part.function_response and part.function_response.name in RECEIPT_TOOL_NAMES)
+            if (part.function_call and part.function_call.name in PRIVATE_DEVICE_READ_TOOLS)
+            or (part.function_response and part.function_response.name in PRIVATE_DEVICE_READ_TOOLS)
         }
         | {
             invocation
@@ -183,18 +212,29 @@ def durable_external_read_projection(session: Session) -> Session:
         if event.content is None:
             continue
         for part in event.content.parts or []:
+            if (
+                part.function_response
+                and part.function_response.id in account_calls
+                and part.function_response.name == "unknown"
+            ):
+                part.function_response.name = ACCOUNT_CONTEXT_TOOL
             if part.function_call and (
-                part.function_call.name in RECEIPT_TOOL_NAMES
+                part.function_call.name in PRIVATE_DEVICE_READ_TOOLS
                 or event.invocation_id in receipt_result_invocations
             ):
                 part.function_call.args = {}
             if part.function_response and (
-                part.function_response.name in RECEIPT_TOOL_NAMES
+                part.function_response.name in PRIVATE_DEVICE_READ_TOOLS
                 or event.invocation_id in receipt_result_invocations
             ):
                 part.function_response.response = {"content_redacted": True}
             if event.author != "user" and event.invocation_id in receipt_invocations and part.text:
-                part.text = None if part.thought else PRIVATE_RECEIPT_ANSWER
+                placeholder = (
+                    PRIVATE_ACCOUNT_ANSWER
+                    if event.invocation_id in account_invocations
+                    else PRIVATE_RECEIPT_ANSWER
+                )
+                part.text = None if part.thought else placeholder
             # Keep SDK call names, IDs, associations and opaque thought
             # signatures. Only tool arguments/results are redacted. Ordinary
             # user requests and the encrypted assistant answer are preserved.

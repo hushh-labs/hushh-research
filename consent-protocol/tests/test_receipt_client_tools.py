@@ -25,6 +25,13 @@ from google.adk.sessions import Session
 from google.adk.sessions.base_session_service import BaseSessionService, ListSessionsResponse
 from google.genai import types
 
+from hushh_mcp.one_adk.account_context_contract import (
+    ACCOUNT_CONTEXT_DESCRIPTION,
+    ACCOUNT_CONTEXT_PARAMETERS,
+    ACCOUNT_CONTEXT_TOOL,
+    PRIVATE_ACCOUNT_ANSWER,
+    STATE_ACCOUNT_CONTEXT_ENABLED,
+)
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
 from hushh_mcp.one_adk.receipt_client_tools import (
     PRIVATE_RECEIPT_ANSWER,
@@ -111,6 +118,20 @@ RESULT = {
         }
     ],
 }
+ACCOUNT_QUERY = {"section": "identity"}
+ACCOUNT_RESULT = {
+    "status": "ok",
+    "source": "committed_account_identity",
+    "identity": {
+        "display_name": "SYNTHETIC_PRIVATE_MERCHANT",
+        "masked_email": "***@example.test",
+        "masked_phone": "••• 4826",
+        "email_verified": True,
+        "phone_verified": None,
+        "has_photo": False,
+        "last_synced_at": "2026-11-24T06:00:00Z",
+    },
+}
 
 
 class SealedReadbackService(BaseSessionService):
@@ -172,6 +193,8 @@ class NoSweepSessionManager(SessionManager):
 
 class StubReceiptModel(BaseLlm):
     calls: int = 0
+    operation: str = NAME
+    query: dict = QUERY
     streamed_function_call: bool = False
     observations: list[dict] = []
 
@@ -194,7 +217,9 @@ class StubReceiptModel(BaseLlm):
                         role="model",
                         parts=[
                             types.Part(
-                                function_call=types.FunctionCall(name=NAME, args=dict(QUERY))
+                                function_call=types.FunctionCall(
+                                    name=self.operation, args=self.query
+                                )
                             )
                         ],
                     ),
@@ -205,7 +230,9 @@ class StubReceiptModel(BaseLlm):
                 content=types.Content(
                     role="model",
                     parts=[
-                        types.Part(function_call=types.FunctionCall(name=NAME, args=dict(QUERY)))
+                        types.Part(
+                            function_call=types.FunctionCall(name=self.operation, args=self.query)
+                        )
                     ],
                 ),
                 partial=False,
@@ -213,7 +240,13 @@ class StubReceiptModel(BaseLlm):
             )
         elif self.calls == 2:
             assert PRIVATE_LABEL in prompt, "The authorized result must reach this model request"
-            assert "7.00" in prompt
+            assert (
+                "7.00"
+                if self.operation == NAME
+                else "email_verified"
+                if self.operation == ACCOUNT_CONTEXT_TOOL
+                else "market_value"
+            ) in prompt
             config = llm_request.config.tool_config.function_calling_config
             assert str(config.mode).endswith("NONE")
             yield LlmResponse(
@@ -242,13 +275,23 @@ def state(**extra):
     }
 
 
-def run_input(run_id, messages, **extra_state):
+def run_input(run_id, messages, *, operation=NAME, **extra_state):
+    tools = [Tool(**receipt_tool_declaration(NAME))]
+    if operation == ACCOUNT_CONTEXT_TOOL:
+        tools = [
+            Tool(
+                name=operation,
+                description=ACCOUNT_CONTEXT_DESCRIPTION,
+                parameters=ACCOUNT_CONTEXT_PARAMETERS,
+            )
+        ]
+        extra_state[STATE_ACCOUNT_CONTEXT_ENABLED] = True
     return RunAgentInput(
         thread_id=THREAD,
         run_id=run_id,
         state=state(**extra_state),
         messages=messages,
-        tools=[Tool(**receipt_tool_declaration(NAME))],
+        tools=tools,
         context=[],
         forwarded_props={},
     )
@@ -256,17 +299,27 @@ def run_input(run_id, messages, **extra_state):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "streamed_function_call", [False, True], ids=["native-final", "native-partial-final"]
-)
-@pytest.mark.parametrize(
-    "same_worker", [False, True], ids=["cross-worker-reread", "same-worker-producer"]
+    ("operation", "streamed_function_call", "same_worker"),
+    [
+        (NAME, False, False),
+        (NAME, True, False),
+        (NAME, False, True),
+        (NAME, True, True),
+        (ACCOUNT_CONTEXT_TOOL, True, False),
+        (ACCOUNT_CONTEXT_TOOL, False, True),
+    ],
 )
 async def test_native_receipt_result_current_turn_only_and_encrypted_reload(
-    streamed_function_call, same_worker
+    operation, streamed_function_call, same_worker
 ):
+    account = operation == ACCOUNT_CONTEXT_TOOL
+    query, result = (ACCOUNT_QUERY, ACCOUNT_RESULT) if account else (QUERY, RESULT)
     store = SealedReadbackService()
     model = StubReceiptModel(
-        model="synthetic-receipt-probe", streamed_function_call=streamed_function_call
+        model="synthetic-receipt-probe",
+        streamed_function_call=streamed_function_call,
+        operation=operation,
+        query=query,
     )
 
     def gate(tool, args, tool_context):
@@ -275,7 +328,7 @@ async def test_native_receipt_result_current_turn_only_and_encrypted_reload(
     root = LlmAgent(
         name="one",
         model=model,
-        tools=[AGUIToolset(tool_filter=[NAME])],
+        tools=[AGUIToolset(tool_filter=[operation])],
         before_tool_callback=gate,
         before_model_callback=receipt_before_model,
         after_model_callback=receipt_after_model,
@@ -290,8 +343,15 @@ async def test_native_receipt_result_current_turn_only_and_encrypted_reload(
         use_thread_id_as_session_id=True,
         emit_messages_snapshot=True,
     )
-    user = UserMessage(id="synthetic-user-1", role="user", content="Show spending by merchant")
-    initial_events = [event async for event in agent.run(run_input("synthetic-run-1", [user]))]
+    user = UserMessage(
+        id="synthetic-user-1",
+        role="user",
+        content="What is my account name?" if account else "Show spending by merchant",
+    )
+    initial_events = [
+        event
+        async for event in agent.run(run_input("synthetic-run-1", [user], operation=operation))
+    ]
     assert not any(str(event.type).endswith("RUN_ERROR") for event in initial_events)
     calls = [event for event in initial_events if str(event.type).endswith("TOOL_CALL_END")]
     assert len(calls) == 1
@@ -309,7 +369,9 @@ async def test_native_receipt_result_current_turn_only_and_encrypted_reload(
         read_sealed,
         owner_id=OWNER,
         conversation_id=THREAD,
-        results=[{"toolCallId": call_id, "toolName": NAME, "request": QUERY, "result": RESULT}],
+        results=[
+            {"toolCallId": call_id, "toolName": operation, "request": query, "result": result}
+        ],
     )
     elapsed = time.perf_counter() - started
     print(
@@ -319,7 +381,7 @@ async def test_native_receipt_result_current_turn_only_and_encrypted_reload(
     assert elapsed < 2.5
     assert call_id in saved.state["pending_tool_calls"]
     actual_call_id = saved.state.get("lro_tool_call_id_remap", {}).get(call_id, call_id)
-    assert saved.state[STATE_RECEIPT_PENDING][actual_call_id]["operation"] == NAME
+    assert saved.state[STATE_RECEIPT_PENDING][actual_call_id]["operation"] == operation
     assert model.calls == 1
     saved_calls = [
         part.function_call
@@ -335,13 +397,13 @@ async def test_native_receipt_result_current_turn_only_and_encrypted_reload(
         role="tool",
         tool_call_id=call_id,
         content=json.dumps(
-            {"schema": "receipt_result.v1", "operation": NAME, "ephemeral_result": True}
+            {"schema": "receipt_result.v1", "operation": operation, "ephemeral_result": True}
         ),
     )
     assert PRIVATE_LABEL not in wire.content and "7.00" not in wire.content
     forwarded = {
         "receiptToolResults": [
-            {"toolCallId": call_id, "toolName": NAME, "request": QUERY, "result": RESULT}
+            {"toolCallId": call_id, "toolName": operation, "request": query, "result": result}
         ]
     }
     reference = admit_receipt_result(
@@ -355,7 +417,7 @@ async def test_native_receipt_result_current_turn_only_and_encrypted_reload(
             {
                 "id": call_id,
                 "type": "function",
-                "function": {"name": NAME, "arguments": json.dumps(QUERY)},
+                "function": {"name": operation, "arguments": json.dumps(query)},
             }
         ],
     }
@@ -363,7 +425,10 @@ async def test_native_receipt_result_current_turn_only_and_encrypted_reload(
         event
         async for event in agent.run(
             run_input(
-                "synthetic-run-2", [user, assistant, wire], **{STATE_RECEIPT_RESULT: reference}
+                "synthetic-run-2",
+                [user, assistant, wire],
+                operation=operation,
+                **{STATE_RECEIPT_RESULT: reference},
             )
         )
     ]
@@ -395,7 +460,8 @@ async def test_native_receipt_result_current_turn_only_and_encrypted_reload(
         and PRIVATE_ANSWER not in restored_json
         and not any("7.00" in text for text in string_values(json.loads(restored_json)))
     )
-    assert PRIVATE_RECEIPT_ANSWER in restored_json and restored.state[STATE_RECEIPT_PRIVATE]
+    assert (PRIVATE_ACCOUNT_ANSWER if account else PRIVATE_RECEIPT_ANSWER) in restored_json
+    assert restored.state[STATE_RECEIPT_PRIVATE]
     assert STATE_RECEIPT_RESULT not in restored_json and reference not in restored_json
 
     ordinary = UserMessage(id="synthetic-user-ordinary", role="user", content="Say hello")

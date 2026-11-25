@@ -67,6 +67,11 @@ from hushh_mcp.agents.onboarding.agent import (
     resolve_onboarding_goal as _resolve_onboarding_goal,
 )
 from hushh_mcp.hushh_adk.manifest import AgentManifestV2, ManifestLoader
+from hushh_mcp.one_adk.account_context_contract import (
+    ACCOUNT_CONTEXT_TOOL,
+    ACCOUNT_INSTRUCTION,
+    STATE_ACCOUNT_CONTEXT_ENABLED,
+)
 from hushh_mcp.one_adk.action_tools import (
     add_to_pkm,
     continue_app_goal,
@@ -1164,6 +1169,8 @@ def _compose_one_instruction_parts(
     # The owner's Settings choices: a trusted style channel, separate from the
     # recalled-memory packet above, rendered only from server templates.
     style_instruction = owner_style_instruction(state_getter) + focus_instruction(state_getter)
+    if callable(state_getter) and state_getter(STATE_ACCOUNT_CONTEXT_ENABLED):
+        style_instruction += ACCOUNT_INSTRUCTION
     voice_context = state_getter(STATE_VOICE_CONTEXT) if callable(state_getter) else None
     if not isinstance(voice_context, dict):
         dynamic_tail = (
@@ -2907,7 +2914,7 @@ def _one_roster_tools(
         from hushh_mcp.one_adk.receipt_client_tools import RECEIPT_TOOL_NAMES
         from hushh_mcp.one_adk.wiki_recall_tools import WIKI_TOOL_NAMES, pod_files_wiki_enabled
 
-        client_tool_names = set(RECEIPT_TOOL_NAMES) | set(PLAID_TOOL_NAMES)
+        client_tool_names = set(RECEIPT_TOOL_NAMES) | {ACCOUNT_CONTEXT_TOOL} | set(PLAID_TOOL_NAMES)
         if not pod_files_wiki_enabled():
             client_tool_names |= set(WIKI_TOOL_NAMES)
         tools.append(AGUIToolset(tool_filter=sorted(client_tool_names)))

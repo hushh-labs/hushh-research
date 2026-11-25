@@ -6419,7 +6419,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onContextUsage: (usage) => {
             void chatMemory.recordUsage({ requestId: usage.modelCallId, inputTokens: usage.inputTokens }).catch(() => undefined);
           },
-          onReceiptPrivate: () => {
+          onReceiptPrivate: (kind) => {
             if (streamAbortController.signal.aborted) return;
             accumulatedThinkingSummary = "";
             pendingThinkingDelta = "";
@@ -6432,7 +6432,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               serverMessageId: latestServerMessageId,
             });
             updateMessage(assistantMessageId, message => ({ ...message, thinkingSummary: undefined, isThinkingStreaming: false, receiptPrivate: {
-              ownerId: userId, vaultEpoch: snapshotVaultSessionEpoch(), conversationId: conversationIdRef.current,
+              ownerId: userId, kind: kind ?? message.receiptPrivate?.kind, vaultEpoch: snapshotVaultSessionEpoch(), conversationId: conversationIdRef.current,
               expiresAt: Date.now() + 5 * 60 * 1000,
             } }));
           },
@@ -7235,10 +7235,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onContextUsage: (usage) => {
             void chatMemory.recordUsage({ requestId: usage.modelCallId, inputTokens: usage.inputTokens }).catch(() => undefined);
           },
-          onReceiptPrivate: () => {
+          onReceiptPrivate: (kind) => {
             if (streamAbortController.signal.aborted) return;
             updateMessage(assistantMessageId, current => ({ ...current, receiptPrivate: {
-              ownerId: userId, vaultEpoch: snapshotVaultSessionEpoch(), conversationId: conversationIdRef.current,
+              ownerId: userId, kind: kind ?? current.receiptPrivate?.kind, vaultEpoch: snapshotVaultSessionEpoch(), conversationId: conversationIdRef.current,
               expiresAt: Date.now() + 5 * 60 * 1000,
             } }));
           },

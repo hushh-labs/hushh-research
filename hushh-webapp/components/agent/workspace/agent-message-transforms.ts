@@ -84,7 +84,7 @@ export type AgentMessage = {
   ephemeral?: boolean;
   restoredFromHistory?: boolean;
   memoryCapture?: AgentPkmCaptureStatus;
-  receiptPrivate?: { ownerId: string; vaultEpoch: number; conversationId: string | null; expiresAt: number };
+  receiptPrivate?: { kind?: "account"; ownerId: string; vaultEpoch: number; conversationId: string | null; expiresAt: number };
   receiptRedacted?: boolean;
   kind?: "selection";
   /** Sent while One was working and taken into that reply at its next step. */

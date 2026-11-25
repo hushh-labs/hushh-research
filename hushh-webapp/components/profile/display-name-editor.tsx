@@ -21,9 +21,11 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type FormEvent,
 } from "react";
 import type { User } from "firebase/auth";
+import { getAuthSessionGeneration, subscribeAuthSessionGeneration } from "@/lib/auth/session-owner";
 import {
   SpinnerGapIcon as Loader2,
 } from "@/components/icons";
@@ -125,6 +127,8 @@ export type DisplayNameEditorProps = {
    * identity's display name, then the Firebase user's.
    */
   initialDisplayName?: string | null;
+  /** A proposed edit only. The existing Save remains the mutation boundary. */
+  initialDraft?: string;
   /** Called after a successful save; the parent usually pops the screen. */
   onSaved?: (identity: AccountIdentity | null) => void;
   /** Renders a Cancel control when provided. */
@@ -161,17 +165,19 @@ export function useDisplayNameEditor({
   user,
   ownerId,
   initialDisplayName,
+  initialDraft,
   onSaved,
-}: Pick<DisplayNameEditorProps, "user" | "ownerId" | "initialDisplayName" | "onSaved">) {
+}: Pick<DisplayNameEditorProps, "user" | "ownerId" | "initialDisplayName" | "initialDraft" | "onSaved">) {
   // The application owner, not the Firebase UID: identities and native presentation compare it.
   const uid = user ? ownerId ?? null : null;
-  const owner = useRef({ uid });
+  const generation = useSyncExternalStore(subscribeAuthSessionGeneration, getAuthSessionGeneration, () => null);
+  const owner = useRef({ uid, generation });
   const [stateOwner, setStateOwner] = useState(owner.current);
-  const ready = stateOwner.uid === uid && stateOwner === owner.current;
+  const ready = stateOwner.uid === uid && stateOwner.generation === generation && stateOwner === owner.current;
   const [shownName, setShownName] = useState(() =>
     initialName(user, uid, initialDisplayName),
   );
-  const [draft, setDraft] = useState(shownName);
+  const [draft, setDraft] = useState(initialDraft ?? shownName);
   const [dirty, setDirty] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -184,10 +190,10 @@ export function useDisplayNameEditor({
   const draftRevision = useRef(0);
 
   useLayoutEffect(() => {
-    if (owner.current.uid === uid) return;
+    if (owner.current.uid === uid && owner.current.generation === generation) return;
     // Change authority at commit, not during an abortable concurrent render.
     // A fresh object also fences A -> B -> A with the same UID string.
-    owner.current = { uid };
+    owner.current = { uid, generation };
     // The old owner's optional seed may still be in the parent props. Resolve
     // the incoming owner from its own cache/auth identity instead.
     const name = initialName(user, uid);
@@ -201,7 +207,7 @@ export function useDisplayNameEditor({
     setSaving(false);
     setServerError(null);
     setStateOwner(owner.current);
-  }, [uid, user, initialDisplayName]);
+  }, [uid, user, initialDisplayName, generation]);
 
   useLayoutEffect(() => {
     mountedRef.current = true;
