@@ -64,6 +64,7 @@ import {
 } from "@/lib/one-location/sos-incident";
 import {
   SosPanicError,
+  createSosSendIntent,
   isSosShareReadyRecipient,
   runSosPanic,
   selectSmsRecipients,
@@ -454,6 +455,7 @@ export function SaveMySoul() {
       note.trim().slice(0, ONE_LOCATION_SHARE_NOTE_MAX_LENGTH) || null;
     setBusy("send");
     setTapDelivery(null);
+    const sendIntent = createSosSendIntent();
     try {
       const point = await OneLocationService.captureCurrentPosition({
         fresh: true,
@@ -468,6 +470,7 @@ export function SaveMySoul() {
       const result = await runSosPanic({
         vaultOwnerToken,
         ownerUserId: userId,
+        sendIntent,
         recipients: readyContacts,
         point,
         note: message,
@@ -481,7 +484,7 @@ export function SaveMySoul() {
             sos: true,
             vaultOwnerToken,
             encrypt: encryptLocationForRecipient,
-            store: (params) => OneLocationService.storeEnvelope(params),
+            store: (params) => OneLocationService.storeEnvelope({ ...params, isEffectCurrent: sendIntent.isCurrent }),
           });
           const row = published.published[0];
           if (!row) {
@@ -499,6 +502,7 @@ export function SaveMySoul() {
       const mail = await OneLocationService.sendSosEmails({
         vaultOwnerToken,
         grantIds: result.grantIds,
+        isEffectCurrent: sendIntent.isCurrent,
         latitude: point.latitude,
         longitude: point.longitude,
         accuracyM: point.accuracyM ?? null,
