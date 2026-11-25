@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { toHoldingViewModel } from "@/components/kai/holdings/holding-view-model";
 import { projectSavedPortfolio } from "@/components/kai/views/portfolio-save-projection";
+import { formatPlaidBalanceDate, formatStatementBalanceDate, portfolioImportLabel } from "@/components/kai/views/portfolio-display-facts";
 
 const WEBAPP_ROOT = path.resolve(__dirname, "../..");
 
@@ -12,6 +13,32 @@ function read(relativePath: string) {
 }
 
 describe("Portfolio workspace hierarchy", () => {
+  it("labels the active portfolio source without guessing an unknown statement format", () => {
+    const snapshots = [
+      { id: "statement-a", label: "June", fileName: "statement.PDF" },
+      { id: "statement-b", label: "July", fileName: "holdings.csv" },
+      { id: "statement-c", label: "August" },
+      { id: "statement-d", label: "September", fileName: "holdings.xlsx" },
+    ];
+    expect(portfolioImportLabel("statement", snapshots, "statement-a")).toBe("PDF");
+    expect(portfolioImportLabel("statement", snapshots, "statement-b")).toBe("CSV");
+    expect(portfolioImportLabel("statement", snapshots, "statement-c")).toBe("Statement");
+    expect(portfolioImportLabel("statement", snapshots, "statement-d")).toBe("Statement");
+    expect(portfolioImportLabel("statement", snapshots, "missing")).toBe("Statement");
+    expect(portfolioImportLabel("plaid", snapshots, "statement-a")).toBe("Plaid");
+  });
+
+  it("distinguishes statement coverage, import time, and Plaid sync", () => {
+    expect(formatStatementBalanceDate({ statementPeriodEnd: "2026-11-04", importedAt: "2026-11-05" })).toBe("Statement through Nov 4, 2026");
+    expect(formatStatementBalanceDate({ statementPeriodEnd: "2026-02-31", importedAt: "2026-11-05" })).toBe("Imported Nov 5, 2026");
+    expect(formatStatementBalanceDate(undefined, "2026-11-04")).toBe("Statement through Nov 4, 2026");
+    expect(formatStatementBalanceDate(undefined)).toBe("Statement date unavailable");
+    const now = Date.parse("2026-11-06T12:00:00Z");
+    expect(formatPlaidBalanceDate("2026-11-06T11:48:00Z", now)).toBe("Plaid synced 12 minutes ago");
+    expect(formatPlaidBalanceDate("2026-11-04", now)).toBe("Plaid synced Nov 4, 2026");
+    expect(formatPlaidBalanceDate("unknown", now)).toBe("Plaid sync date unavailable");
+  });
+
   it("shows actual share count and derived prices without fabricating missing gain", () => {
     const holding = {
       client_id: "holding-1",
@@ -41,12 +68,12 @@ describe("Portfolio workspace hierarchy", () => {
 
     expect(dashboard).toContain("<PortfolioOverview");
     const overview = read("components/kai/views/portfolio-overview.tsx");
-    expect(overview).not.toContain("<SettingsGroup");
-    for (const title of ["Holdings", "Allocation", "Performance"]) {
-      expect(overview).toContain(`>${title}</SectionLabel>`);
+    expect(overview).toContain('testId="portfolio-explore"');
+    for (const section of ["holdings", "allocation", "performance"]) {
+      expect(overview).toContain(`onOpenSection("${section}")`);
     }
     expect(overview).not.toContain('title: "Portfolio source"');
-    expect(overview).toContain('onOpenSection("sources")}>Manage portfolio');
+    expect(overview).toContain('onOpenSection("sources")');
     expect(dashboard).toContain('testId="portfolio-holdings-mobile-list"');
     expect(dashboard).toContain("isHoldingsEditing");
     expect(dashboard).toContain('className="hidden min-w-0 md:block"');
