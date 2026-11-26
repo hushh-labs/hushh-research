@@ -163,9 +163,14 @@ export function OnboardingJourneyGuard({
   const persistentSetupResolved = Boolean(
     userId && OneSetupCompletionHintService.isResolved(userId),
   );
+  const persistentWelcomeResolved = Boolean(
+    userId &&
+      (InitialContacts.wasDismissed(userId) ||
+        OneSetupCompletionHintService.isWelcomeResolved?.(userId)),
+  );
   const cachedAdmissionAllowsCurrentRoute = Boolean(
     (normalizedGuardPathname === ROUTES.ONE_WELCOME ||
-      Boolean(userId && InitialContacts.wasDismissed(userId)) ||
+      persistentWelcomeResolved ||
       cachedState?.initialContactsWelcomeAcknowledged !== false && Boolean(cachedState)) &&
     (persistentSetupResolved ||
     (cachedState &&
@@ -261,7 +266,9 @@ export function OnboardingJourneyGuard({
         return;
       }
 
-      const verifyWelcome = !InitialContacts.wasDismissed(userId);
+      const verifyWelcome =
+        !InitialContacts.wasDismissed(userId) &&
+        !OneSetupCompletionHintService.isWelcomeResolved?.(userId);
       const needsWelcomeBootstrap = verifyWelcome && !cachedState;
       function redirectPendingWelcome(state: PreVaultUserState): boolean {
         if (verifyWelcome && state.setupCompleted === true && state.initialContactsWelcomeAcknowledged === false && normalizedGuardPathname !== ROUTES.ONE_WELCOME) {
@@ -317,7 +324,10 @@ export function OnboardingJourneyGuard({
         const restored =
           await OneSetupCompletionHintService.hydrateFromNative(userId);
         if (cancelled) return;
-        if (restored && !needsWelcomeBootstrap) {
+        const nativeWelcomeResolved =
+          InitialContacts.wasDismissed(userId) ||
+          Boolean(OneSetupCompletionHintService.isWelcomeResolved?.(userId));
+        if (restored && nativeWelcomeResolved) {
           redirectTargetRef.current = null;
           setError(false);
           setChecking(false);

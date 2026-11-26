@@ -24,6 +24,7 @@ const {
   bootstrapStateMock,
   getCachedBootstrapStateMock,
   isPersistentSetupResolvedMock,
+  isPersistentWelcomeResolvedMock,
   isOnboardingAdmissionExemptRouteMock,
   authState,
   retrySessionVerification,
@@ -35,6 +36,7 @@ const {
   bootstrapStateMock: vi.fn(),
   getCachedBootstrapStateMock: vi.fn(),
   isPersistentSetupResolvedMock: vi.fn(),
+  isPersistentWelcomeResolvedMock: vi.fn(),
   isOnboardingAdmissionExemptRouteMock: vi.fn(),
   authState: {
     user: { uid: "journey-user" } as { uid: string } | null,
@@ -121,6 +123,7 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
 vi.mock("@/lib/services/one-setup-completion-hint-service", () => ({
   OneSetupCompletionHintService: {
     isResolved: isPersistentSetupResolvedMock,
+    isWelcomeResolved: isPersistentWelcomeResolvedMock,
     // Native-durable rehydration mirrors the positive latch: on web (test env)
     // it resolves to the current latch value, so an unresolved user still falls
     // through to the network bootstrap path these cases assert.
@@ -163,6 +166,8 @@ describe("OnboardingJourneyGuard", () => {
     getCachedBootstrapStateMock.mockReset();
     isPersistentSetupResolvedMock.mockReset();
     isPersistentSetupResolvedMock.mockReturnValue(false);
+    isPersistentWelcomeResolvedMock.mockReset();
+    isPersistentWelcomeResolvedMock.mockReturnValue(false);
     isOnboardingAdmissionExemptRouteMock.mockReset();
     isOnboardingAdmissionExemptRouteMock.mockReturnValue(false);
     authState.user = { uid: "journey-user" };
@@ -261,6 +266,24 @@ describe("OnboardingJourneyGuard", () => {
     expect(await screen.findByText("one home")).toBeTruthy();
     expect(screen.queryByText("Checking setup...")).toBeNull();
     expect(bootstrapStateMock).toHaveBeenCalledTimes(1);
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("admits a returning user synchronously on cold boot once both setup and welcome latches are resolved", async () => {
+    pathnameValue = "/one";
+    getCachedBootstrapStateMock.mockReturnValue(null);
+    isPersistentSetupResolvedMock.mockReturnValue(true);
+    isPersistentWelcomeResolvedMock.mockReturnValue(true);
+
+    render(
+      <OnboardingJourneyGuard>
+        <div>one home</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    expect(screen.getByText("one home")).toBeTruthy();
+    expect(screen.queryByText("Checking setup...")).toBeNull();
+    expect(bootstrapStateMock).not.toHaveBeenCalled();
     expect(replace).not.toHaveBeenCalled();
   });
 
