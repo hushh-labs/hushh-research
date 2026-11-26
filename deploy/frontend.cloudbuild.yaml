@@ -334,6 +334,7 @@ steps:
           --build-arg NEXT_PUBLIC_ONE_WALLET_CARD_ENABLED=${_ONE_WALLET_CARD_ENABLED} \
           --build-arg NEXT_PUBLIC_ONE_WALLET_ENABLED=${_ONE_WALLET_ENABLED} \
           --build-arg NEXT_PUBLIC_ONE_LOCATION_NEARBY_CHECK_IN=${_ONE_LOCATION_NEARBY_CHECK_IN} \
+          --build-arg NEXT_PUBLIC_ONE_MAIN_CHAT_LOCATION_ENABLED=${_ONE_MAIN_CHAT_LOCATION_ENABLED} \
           --build-arg NEXT_PUBLIC_LOCATION_MAP_DEMO=${_LOCATION_MAP_DEMO} \
           --build-arg NEXT_PUBLIC_WORKOS_SSO_ENABLED=${_WORKOS_SSO_ENABLED} \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_DEBUG=false \
@@ -476,6 +477,7 @@ substitutions:
   # callers by cohort and this only avoids collecting a location for a flow that
   # would then be refused. Turning this on alone changes nothing server-side.
   _ONE_LOCATION_NEARBY_CHECK_IN: "false"
+  _ONE_MAIN_CHAT_LOCATION_ENABLED: "false"
   # Shows the operator preview of fifty fictional people on the location map
   # (`?demo=people`). Default off, and the UAT web lane is the only caller that
   # turns it on. `isLocationMapDemoAvailable()` keeps a hard production floor
