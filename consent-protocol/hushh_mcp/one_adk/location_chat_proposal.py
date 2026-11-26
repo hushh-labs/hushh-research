@@ -35,10 +35,48 @@ LocationChatAction = Literal[
     "ask_extension",
     "approve",
     "decline",
+    "setup_location",
+    "enable_location",
+    "enable_device_location",
+    "resume_updates",
+    "sos_review",
+    "sos_stop",
+    "sms_contacts",
+    "manage_circles",
+    "manage_places",
+    "manage_ratings",
+    "manage_contacts",
+    "manage_settings",
+    "enable_auto_approve",
+    "disable_auto_approve",
+    "manage_links",
+    "check_in",
+    "nearby_check_in",
+    "view_self",
 ]
 DurationMode = Literal["timed", "until_stopped"]
 Direction = Literal["incoming", "outgoing", "all"]
 _LIST_ACTIONS = frozenset({"list_shares", "list_requests"})
+_UNTARGETED_ACTIONS = frozenset(
+    {
+        "setup_location",
+        "enable_location",
+        "enable_device_location",
+        "resume_updates",
+        "sos_review",
+        "sos_stop",
+        "sms_contacts",
+        "manage_places",
+        "manage_ratings",
+        "manage_contacts",
+        "manage_settings",
+        "enable_auto_approve",
+        "disable_auto_approve",
+        "manage_links",
+        "nearby_check_in",
+        "view_self",
+    }
+)
 _TIME_ACTIONS = frozenset(
     {
         "share_options",
@@ -50,6 +88,7 @@ _TIME_ACTIONS = frozenset(
         "extend",
         "ask_extension",
         "approve",
+        "check_in",
     }
 )
 
@@ -64,14 +103,49 @@ LOCATION_CHAT_INSTRUCTION = (
     "share_private when the person chooses private sharing without specifying a mode. "
     "Carry named Connections and Circles into the picker. Use share_public "
     "for an explicitly requested public link and leave people and circles empty. "
-    "share_pin sends a one-time current pin; share_live shares ongoing updates. "
+    "Use share_pin for a one-time current pin and share_live for ongoing updates. "
+    "A duration specifies live sharing. If you just asked how long to share with a "
+    "named connection or Circle and the reply is '1 hour', call propose_location_action "
+    "with share_live, the original audience and duration_hours=1 in that turn. "
     "Include every named "
     "person and existing Circle in one proposal. 'Ask Maya to share' uses ask and reuses "
-    "an active share. 'Show me Maya's location' uses view and sends no request. Use "
+    "an active share. Asking for someone else's location needs no GPS on the sender's "
+    "device. Offer request review immediately. The card handles setup and device "
+    "permission for actions that need them, in this conversation. "
+    "'Show me Maya's location' uses view and sends no request. Use "
     "list_shares and list_requests with incoming or outgoing when specified. stop ends "
     "a share, set_duration replaces its duration, extend adds time to your share, "
     "ask_extension asks the owner for more time, approve and decline answer incoming "
     "requests. Pass names as hints. For this tool the card does the name lookup. "
+    "Use setup_location to start or finish Location setup, enable_location to turn on "
+    "Location sharing in Hussh, enable_device_location to enable or check device "
+    "Location permission, and resume_updates to resume paused updates. Keep all four "
+    "in Chat. Use sos_review when asked to open, send, or check a Save My Soul alert "
+    "(also called SMS or SOS in Location). Use sos_stop to stop an active alert. "
+    "Use sms_contacts when asked to see, add, or remove emergency contacts. The "
+    "emergency contact list in the card determines who receives the alert. Do not "
+    "pass names or substitute another audience. SMS here means Save My Soul. "
+    "Keep the alert, contact editor and permission recovery in Chat. Never navigate "
+    "to a Location screen to do one of these actions. Explaining how SMS works or "
+    "asking a safety question does not send an alert. "
+    "Use manage_circles to open or change Circles, including creating, joining, "
+    "adding or removing members, renaming, leaving, deleting, or answering a Circle "
+    "invitation. Pass the named Circle and person as hints. Use manage_places to "
+    "review, save or delete places, manage_ratings to review or change the owner's "
+    "place ratings, manage_contacts to find contacts or review contact invitations, "
+    "manage_links to review or stop public links, "
+    "and manage_settings for Location settings, pause, precision, ghost mode, "
+    "and notification preferences. To turn on automatic approval of incoming Location "
+    "requests use enable_auto_approve, carrying explicitly named Circles. To turn it "
+    "off use disable_auto_approve. The owner reviews the scope in this chat. "
+    "Use check_in for privately sharing "
+    "a check-in with a trusted person or Circle. For 'check me in here', 'check in' "
+    "without a recipient, checking in at a venue, nearby presence or checkout, "
+    "call nearby_check_in immediately. A fresh request opens the Check-in screen automatically. "
+    "Its venue picker uses the device's current position. Never infer a venue from memory. "
+    "The person chooses or confirms the venue change on the Check-in screen. Returning to "
+    "this conversation offers a control to reopen it. Use view_self for 'where am I' or 'show my current location' "
+    "to offer a device location preview. This preview shares nothing. "
     "Never pass IDs, coordinates or inferred people. "
     "Leave unknown duration empty. Use until_stopped only when explicitly requested. "
     "Keep replies short and identify the next step shown on the card. Only the "
@@ -89,8 +163,7 @@ LOCATION_CHAT_TYPED_CONTINUATION = (
     "Location follow-up; do not route an unrelated question to Location. "
     "For questions about Circles or members, call list_my_location_circles or "
     "get_location_circle_members. For Connections, use list_my_connections. For "
-    "Location capabilities, settings, places, permissions, saved places, check-ins, "
-    "emergency controls, or other Location tasks outside the inline review, use "
+    "Location capabilities, place discovery, or other informational requests, use "
     "the existing Location tools and authored workflows. Delegate support questions "
     "to ask_location_agent. Match the user's request to an existing action or workflow "
     "before offering to open a screen. A requested navigation only opens the screen. "
@@ -110,6 +183,58 @@ LEGACY_LOCATION_CHAT_ACTIONS = frozenset(
         "location.open_active_shares",
         "location.open_shared_with_me",
         "location.open_needs_review",
+        "location.open_share",
+        "location.open_ask",
+        "location.refresh",
+        "location.select_ask_recipient",
+        "location.select_share_recipient",
+        "location.open_sos",
+        "location.trigger_sos",
+        "location.verify_sos_delivery",
+        "location.sos_default",
+        "location.stop_sos",
+        "location.open_sms_contacts",
+        "location.add_emergency_contact",
+        "location.remove_emergency_contact",
+        "location.resume_updates",
+        "location.setup.start",
+        "location.setup.accept_consent",
+        "location.setup.advance",
+        "route.one_setup_location",
+        "location.open_settings",
+        "location.open_ratings",
+        "location.find_contacts",
+        "location.open_invite",
+        "location.add_connections",
+        "location.review_notifications",
+        "location.pause_updates",
+        "location.set_sharing_enabled",
+        "location.set_precision",
+        "location.set_auto_share",
+        "location.set_ghost_mode",
+        "location.open_create_circle",
+        "location.open_join_circle",
+        "location.open_circles",
+        "location.create_circle",
+        "location.add_to_circle",
+        "location.remove_from_circle",
+        "location.rename_circle",
+        "location.set_circle_kind",
+        "location.leave_circle",
+        "location.delete_circle",
+        "location.accept_circle_invite",
+        "location.decline_circle_invite",
+        "location.save_current_location",
+        "location.delete_saved_location",
+        "location.open_links",
+        "location.open_temporary_link",
+        "location.share_public_link",
+        "location.revoke_public_link",
+        "location.open_check_in",
+        "location.send_check_in",
+        "location.nearby_check_in",
+        "location.confirm_nearby_check_in",
+        "location.checkout_nearby",
     }
 )
 
@@ -124,12 +249,18 @@ def location_chat_enabled() -> bool:
 
 
 def admit_location_chat_review(forwarded: dict[str, Any], *, owner_admitted: bool) -> bool:
-    return (
-        owner_admitted
-        and location_chat_enabled()
-        and forwarded.get("mainChat") is True
-        and forwarded.get("locationChatReview") is True
-    )
+    if (
+        not owner_admitted
+        or not location_chat_enabled()
+        or forwarded.get("locationChatReview") is not True
+    ):
+        return False
+    screen = forwarded.get("screenContext")
+    if screen is None:
+        # Older pinned One clients advertised this capability without a screen snapshot.
+        return forwarded.get("mainChat") is True
+    route = screen.get("route") if isinstance(screen, dict) else None
+    return isinstance(route, dict) and route.get("pathname") == "/"
 
 
 def legacy_location_chat_action(state: Any, action_id: str) -> dict[str, str] | None:
@@ -190,10 +321,20 @@ class LocationChatIntent(BaseModel):
 
     @model_validator(mode="after")
     def check_action_fields(self) -> LocationChatIntent:
+        if self.action in _UNTARGETED_ACTIONS and self.people:
+            raise ValueError("This action uses its own review controls.")
         if self.action == "share_public" and self.people:
             raise ValueError("A public link does not take named recipients.")
-        if self.circles and self.action not in {"share_live", "share_pin", "share_private"}:
-            raise ValueError("Circles are available for sharing.")
+        if self.circles and self.action not in {
+            "share_live",
+            "share_pin",
+            "share_private",
+            "ask",
+            "manage_circles",
+            "enable_auto_approve",
+            "check_in",
+        }:
+            raise ValueError("This action does not accept Circles.")
         if self.direction is not None and self.action not in _LIST_ACTIONS:
             raise ValueError("Direction is only used for lists.")
         if self.duration_hours is not None and self.action not in _TIME_ACTIONS:
@@ -255,7 +396,11 @@ def propose_location_action(
     """Prepare a review in the current conversation for a Location action.
 
     Actions are share_options, share_private, share_public, share_live, share_pin, ask, view, list_shares, list_requests,
-    stop, set_duration, extend, ask_extension, approve, and decline. People
+    stop, set_duration, extend, ask_extension, approve, decline, setup_location,
+    enable_location, enable_device_location, resume_updates, sos_review, sos_stop,
+    sms_contacts, manage_circles, manage_places, manage_ratings, manage_contacts, manage_settings,
+    enable_auto_approve, disable_auto_approve, manage_links,
+    check_in, nearby_check_in, and view_self. People
     and Circles are names as given, not IDs. Supply duration_hours as a
     number only when stated. For list direction use incoming, outgoing, or all.
     This tool only offers review. The person confirms on the review card.

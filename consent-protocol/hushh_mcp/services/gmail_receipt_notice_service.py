@@ -95,7 +95,9 @@ def _prior(items: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     return clean
 
 
-async def _run_notice_gene(prompt: str, user_id: str, consent_token: str) -> dict[str, Any]:
+async def _run_notice_gene(
+    prompt: str, user_id: str, consent_token: str, *, model: Any | None = None
+) -> dict[str, Any]:
     try:
         return await run_email_gene(
             gene_id="agent_email_receipt_notice",
@@ -103,6 +105,7 @@ async def _run_notice_gene(prompt: str, user_id: str, consent_token: str) -> dic
             user_id=user_id,
             consent_token=consent_token,
             output_schema=EMAIL_RECEIPT_NOTICE_SCHEMA,
+            **({"model": model} if model is not None else {}),
             timeout_seconds=_MODEL_TIMEOUT_SECONDS,
         )
     except TimeoutError:
@@ -311,6 +314,7 @@ class GmailReceiptNoticeService:
         require_access: RequireAccess,
         receipt_keys: list[str],
         expected_account: str | None,
+        account_id: str = "default",
         prior: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         if not _enabled():
@@ -333,6 +337,7 @@ class GmailReceiptNoticeService:
                 require_access=require_access,
                 receipt_keys=receipt_keys,
                 expected_account=expected_account,
+                account_id=account_id,
                 prior=prior,
             )
         finally:
@@ -346,6 +351,7 @@ class GmailReceiptNoticeService:
         require_access: RequireAccess,
         receipt_keys: list[str],
         expected_account: str | None,
+        account_id: str = "default",
         prior: list[dict[str, Any]] | None,
     ) -> dict[str, Any]:
         now = self._clock()
@@ -356,6 +362,7 @@ class GmailReceiptNoticeService:
                     user_id=user_id,
                     require_access=require_access,
                     expected_account=expected_account,
+                    **({"account_id": account_id} if account_id != "default" else {}),
                 ) as session:
                     async with asyncio.timeout(_READ_DEADLINE_SECONDS):
                         rows, skipped = await self._read(session, receipt_keys)
@@ -443,6 +450,7 @@ class GmailReceiptNoticeService:
         key: str,
         require_access: RequireAccess,
         expected_account: str | None,
+        account_id: str = "default",
     ) -> dict[str, Any]:
         """The one email behind a finding, read fresh from the owner's own mailbox."""
 
@@ -452,6 +460,7 @@ class GmailReceiptNoticeService:
                     user_id=user_id,
                     require_access=require_access,
                     expected_account=expected_account,
+                    **({"account_id": account_id} if account_id != "default" else {}),
                 ) as session:
                     message_id = session.message_id_for(key)
                     if not message_id:

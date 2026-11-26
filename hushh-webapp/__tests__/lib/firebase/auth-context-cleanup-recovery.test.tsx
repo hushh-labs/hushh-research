@@ -64,4 +64,25 @@ describe("own cleanup receipt recovery", () => {
     expect(screen.getByText("Vault content for account-b")).toBeInTheDocument();
     expect(mocks.authServiceSignOut).not.toHaveBeenCalled(); expect(mocks.replaceDocument).not.toHaveBeenCalled();
   });
+
+  it("keeps the workspace mounted and preserves the in-memory principal across wake token refresh and transient network hiccups", async () => {
+    renderProvider();
+    await screen.findByText("Vault content for account-owner");
+
+    // Simulate a background token refresh / wake re-emission where session-status temporarily fails (503).
+    mocks.apiGetAccountSessionStatus.mockResolvedValueOnce(
+      Response.json({ detail: { code: "AUTH_ACCOUNT_STATUS_UNAVAILABLE" } }, { status: 503 }),
+    );
+    mocks.apiGetAccountCleanupStatus.mockResolvedValueOnce(new Response(null, { status: 503 }));
+
+    await act(async () => {
+      mocks.authStateListener?.(mocks.firebaseUser);
+      await Promise.resolve();
+    });
+
+    // Active workspace stays mounted without flashing Verification required or dropping owner identity.
+    expect(screen.getByText("Vault content for account-owner")).toBeInTheDocument();
+    expect(screen.queryByText("Verification required")).not.toBeInTheDocument();
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+  });
 });

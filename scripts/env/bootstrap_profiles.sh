@@ -1042,6 +1042,9 @@ hydrate_frontend_cloud() {
     NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_REDIRECT_URI NEXT_PUBLIC_GOOGLE_ANDROID_CONNECTOR_DEV_ENABLED; do
     set_secret_key_or_cached "$file" "$profile" "$project" "$connector_pin" "false" "$cache_file"
   done
+  if [ "$profile" = "uat" ]; then
+    set_mapped_secret_key_or_cached "$file" "$profile" "$project" "NEXT_PUBLIC_GOOGLE_IOS_CONNECTOR_CLIENT_ID" "false" "$cache_file" GOOGLE_IOS_CONNECTOR_CLIENT_ID
+  fi
   if google_contacts_client_id="$(resolve_cloud_or_cached_secret_value "$project" "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID" "$cache_file")"; then
     upsert_env_value "$file" "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID" "$google_contacts_client_id"
   else

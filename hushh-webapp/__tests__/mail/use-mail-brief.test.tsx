@@ -149,6 +149,9 @@ describe("honest failure", () => {
     expect(result.current.brief.fetchedAt).toBe(T0);
     // The part that succeeded did move.
     expect(result.current.completed.fetchedAt).toBe(T0 + 5 * MINUTE);
+    const returning = mount({ active: false });
+    expect(returning.result.current.brief.fetchedAt).toBe(T0);
+    expect(returning.result.current.completed.fetchedAt).toBe(T0 + 5 * MINUTE);
   });
 
   it("moves the time only when a refresh succeeds, and shows the newer items", async () => {
@@ -174,6 +177,10 @@ describe("honest failure", () => {
     await settle();
 
     expect(result.current.brief).toMatchObject({ status: "error", data: null, fetchedAt: 0 });
+    expect(result.current.completed.data).toBeNull();
+    const returning = mount({ active: false });
+    expect(returning.result.current.brief.data).toBeNull();
+    expect(returning.result.current.completed.data).toBeNull();
   });
 });
 
@@ -188,6 +195,36 @@ describe("one mailbox at a time", () => {
     expect(result.current.brief.error?.reason).toBe("account_changed");
     expect(result.current.completed.data).toBeNull();
     expect(result.current.brief.fetchedAt).toBe(0);
+  });
+
+  it("restores B before its refresh and rejects the late B response after selecting C", async () => {
+    const select = (id: string) => ({ accountKey: id, expectedAccount: id });
+    const serve = (id: string) => {
+      client.fetchMailBrief.mockResolvedValue(briefOf(id, [id]));
+      client.fetchMailCompleted.mockResolvedValue(completedOf(id));
+    };
+    serve("A");
+    const screen = mount(select("A"));
+    await settle();
+    serve("B");
+    screen.rerender(select("B"));
+    await settle();
+    serve("A");
+    screen.rerender(select("A"));
+    await settle();
+    vi.setSystemTime(T0 + 2 * MINUTE);
+    let finish!: (value: MailBrief) => void;
+    client.fetchMailBrief.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    client.fetchMailCompleted.mockResolvedValue(completedOf("B"));
+    screen.rerender(select("B"));
+    expect(screen.result.current.brief.data?.attention[0]?.title).toBe("B");
+    expect(screen.result.current.brief.refreshing).toBe(true);
+    serve("C");
+    screen.rerender(select("C"));
+    expect(screen.result.current.brief.data).toBeNull();
+    await settle();
+    await act(async () => finish(briefOf("B", ["late B"])));
+    expect(screen.result.current.brief.data?.attention[0]?.title).toBe("C");
   });
 
   it("starts clean for another mailbox and ignores a read still running for the last one", async () => {

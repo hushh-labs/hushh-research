@@ -4,7 +4,7 @@ import type {
   OneLocationAccessRequest, OneLocationEncryptedEnvelope, OneLocationGrant, OneLocationState,
 } from "@/lib/one-location/types";
 
-import type { MainLocationAction, MainLocationProposal } from "./main-chat-location-contract";
+import type { LocationRecoveryAction, LocationSafetyAction, LocationWorkspaceAction, MainLocationAction, MainLocationProposal } from "./main-chat-location-contract";
 
 export type { MainLocationAction, MainLocationContinuation, MainLocationProposal } from "./main-chat-location-contract";
 
@@ -23,7 +23,7 @@ export type MainLocationChoice = { label: string; targets: MainLocationTarget[];
 export type MainLocationPlan = {
   planId: string;
   attemptId?: string | null;
-  action: Exclude<MainLocationAction, "list_shares" | "list_requests" | "share_options" | "share_private" | "share_public">;
+  action: Exclude<MainLocationAction, LocationRecoveryAction | LocationSafetyAction | LocationWorkspaceAction | "list_shares" | "list_requests" | "share_options" | "share_private" | "share_public">;
   personUserId?: string | null;
   personDisplayLabel?: string | null;
   grantId?: string | null;
@@ -53,8 +53,18 @@ function request<T>(token: string, path: string, body?: object) {
 }
 
 export async function restoreMainLocationPlans(token: string, originId: string): Promise<MainLocationPlan[]> {
-  const result = await request<{ plans: MainLocationPlan[] }>(token, `${PATH}/origin/${encodeURIComponent(originId)}`);
-  return result.plans ?? [];
+  const plans: MainLocationPlan[] = [];
+  const seen = new Set<string>();
+  let cursor: string | undefined;
+  do {
+    const path = `${PATH}/origin/${encodeURIComponent(originId)}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`;
+    const result = await request<{ plans: MainLocationPlan[]; nextCursor?: string | null }>(token, path);
+    plans.push(...result.plans ?? []);
+    cursor = result.nextCursor ?? undefined;
+    if (cursor && seen.has(cursor)) throw new Error("The Location review could not be fully restored. Try again.");
+    if (cursor) seen.add(cursor);
+  } while (cursor);
+  return [...new Map(plans.map((plan) => [plan.planId, plan])).values()];
 }
 
 export function prepareMainLocationPlan(token: string, proposal: MainLocationProposal, target: MainLocationTarget) {
@@ -120,7 +130,7 @@ export async function resolveMainLocationChoices(params: {
 }): Promise<MainLocationChoice[]> {
   const { proposal, loadState, token, ownerId } = params;
   const names = proposal.people ?? [];
-  const circles = proposal.action === "ask" ? [] : proposal.circles ?? [];
+  const circles = proposal.circles ?? [];
   if (["share_live", "share_pin", "ask"].includes(proposal.action)) {
     const lookup = async (name?: string) => {
       const result = await OneLocationService.listRecipientsPage({ vaultOwnerToken: token, page: 1, limit: 50, query: name });

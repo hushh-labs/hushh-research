@@ -66,6 +66,8 @@ export type SosPanelProps = {
   active: boolean;
   dispatchStatus?: SosDispatchStatus;
   busy: boolean;
+  sendBlocked?: boolean;
+  requireTrustedInput?: boolean;
   /**
    * Returning the handler's promise is load-bearing: the panel awaits it to
    * learn whether the trigger actually started work. `handleTriggerSos` bails
@@ -100,6 +102,8 @@ export function SosPanel({
   active,
   dispatchStatus,
   busy,
+  sendBlocked = false,
+  requireTrustedInput = false,
   onTrigger,
   onPrepareSend,
   onStopSos,
@@ -158,7 +162,7 @@ export function SosPanel({
   // A cached key projection is not send-time authority. The owning trigger
   // refreshes the exact Circle and reports actual delivery, even if this
   // screen first opened with pending or incomplete recipient metadata.
-  const disabled = hardDisabled || noContacts;
+  const disabled = hardDisabled || noContacts || sendBlocked;
   const recipientCountLabel =
     recipientCount === 1 ? "1 contact" : `${recipientCount} contacts`;
   const activeStatus = dispatchStatus === "sending" ? "Sending alert…"
@@ -352,7 +356,7 @@ export function SosPanel({
     event: PointerEvent<HTMLButtonElement>,
     target: "sms" | "composer",
   ) => {
-    if (event.button > 0) return;
+    if (event.button > 0 || (requireTrustedInput && !event.nativeEvent.isTrusted)) return;
     if (tapCountdownRef.current) return;
     event.currentTarget.setPointerCapture?.(event.pointerId);
     startHold(target);
@@ -620,14 +624,20 @@ export function SosPanel({
                     ? "sos-short-message-error"
                     : tapCountdownActive ? "sos-send-hint" : undefined
                 }
-                onClick={handleSendClick}
+                onClick={(event) => {
+                  if (!requireTrustedInput || event.nativeEvent.isTrusted) handleSendClick();
+                }}
                 onPointerDown={(event) => handlePointerDown(event, "composer")}
                 onPointerUp={handlePointerEnd}
                 onPointerCancel={handlePointerEnd}
                 onLostPointerCapture={handleLostPointerCapture}
                 onPointerLeave={handlePointerLeave}
-                onKeyDown={(event) => handleKeyDown(event, "composer")}
-                onKeyUp={(event) => handleKeyUp(event, "composer")}
+                onKeyDown={(event) => {
+                  if (!requireTrustedInput || event.nativeEvent.isTrusted) handleKeyDown(event, "composer");
+                }}
+                onKeyUp={(event) => {
+                  if (!requireTrustedInput || event.nativeEvent.isTrusted) handleKeyUp(event, "composer");
+                }}
                 onBlur={interruptPendingSend}
                 onContextMenu={(event) => event.preventDefault()}
                 className="ui-text-compact-button-label relative flex h-11 min-w-[72px] touch-none select-none items-center justify-center overflow-hidden rounded-[calc(var(--app-input-radius)-6px)] bg-[color:var(--app-destructive)] px-3 text-[color:var(--app-destructive-fg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-[color:var(--sos-control-surface-hover)] disabled:text-[color:var(--sos-label)]"
@@ -683,7 +693,9 @@ export function SosPanel({
                 onPointerUp={handlePointerEnd}
                 onPointerCancel={handlePointerEnd}
                 onPointerLeave={handlePointerLeave}
-                onKeyDown={(event) => handleKeyDown(event, "sms")}
+                onKeyDown={(event) => {
+                  if (!requireTrustedInput || event.nativeEvent.isTrusted) handleKeyDown(event, "sms");
+                }}
                 onKeyUp={(event) => handleKeyUp(event, "sms")}
                 onBlur={interruptPendingSend}
                 onContextMenu={(event) => event.preventDefault()}
@@ -735,6 +747,7 @@ export function SosPanel({
               disabled={stopBusy}
               onClick={(event) => {
                 event.preventDefault();
+                if (requireTrustedInput && !event.nativeEvent.isTrusted) return;
                 onStopSos();
                 setStopConfirmOpen(false);
               }}

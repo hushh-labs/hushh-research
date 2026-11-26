@@ -520,7 +520,7 @@ async def test_mail_metadata_rechecks_scope_and_incarnation_after_read(
 
 @pytest.mark.parametrize(
     "mode,status",
-    [("byoc", 404), ("pending", 404), ("unplaced", 404), ("hussh_pods", 404), ("unknown", 503)],
+    [("byoc", 404), ("pending", 404), ("unplaced", 404), ("unknown", 503)],
 )
 async def test_private_or_unknown_placement_never_reopens_specialist_reader(
     flags_on, monkeypatch, mode, status

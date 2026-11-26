@@ -117,6 +117,15 @@ const OWNER_POD_ROUTES = new Set([
   "tasks/control",
   "calendar/events",
   "gmail/todos",
+  "gmail/followups/account",
+  "gmail/followups/brief",
+  "gmail/followups/recent",
+  "gmail/followups/search",
+  "gmail/followups/open",
+  "gmail/followups/track",
+  "gmail/followups/check",
+  "gmail/followups/draft",
+  "gmail/followups/document",
   "todos/suggestions",
   "todos/suggestions/status",
 ]);
@@ -131,6 +140,8 @@ const OWNER_POD_ROUTE_PATTERNS: readonly RegExp[] = [
   /^browser\/tasks\/browser_[a-f0-9]{32}(\/(frame|control|input|review|session))?$/,
   /^browser\/tasks\/browser_[a-f0-9]{32}\/downloads\/[a-f0-9]{32}$/,
   /^connectors\/(gmail|calendar|drive|contacts)$/,
+  /^connectors\/gmail\/accounts(\/[a-f0-9]{32})?$/,
+  /^connectors\/gmail\/accounts\/[a-f0-9]{32}\/receipts\/(scan|detail|notice|notice-source)$/,
   /^circle-rules\/rule_[a-z0-9][a-z0-9_-]{7,63}(\/toggle)?$/,
   /^agent-chat\/(history|conversations)\/[A-Za-z0-9_-]{1,256}$/,
   /^agent-chat\/history\/[A-Za-z0-9_-]{1,256}\/information-requests$/,
@@ -275,13 +286,18 @@ export async function ownerPodRequest(
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${session.session}`);
   const method = (init.method ?? "GET").toUpperCase();
-  if (["calendar/events", "gmail/todos", "todos/suggestions", "todos/suggestions/status"].includes(route)) {
-    const post = route === "calendar/events" || route === "todos/suggestions";
+  if (route.startsWith("gmail/followups/") || ["calendar/events", "gmail/todos", "todos/suggestions", "todos/suggestions/status"].includes(route)) {
+    const post = route.startsWith("gmail/followups/") || route === "calendar/events" || route === "todos/suggestions";
     if (session.role !== "app" || !session.scopes.includes("pkm.read") ||
       method !== (post ? "POST" : "GET") || (!post && body != null)) {
       throw new Error("POD_TASK_SOURCE_READ_REFUSED");
     }
   }
+  if (/^connectors\/gmail\/accounts(\/[a-f0-9]{32})?$/.test(route) && (
+    session.role !== 'app' || body != null ||
+    (route === 'connectors/gmail/accounts' ? method !== 'GET' : method !== 'DELETE') ||
+    !session.scopes.includes(method === 'GET' ? 'pod.status' : 'pod.config')
+  )) throw new Error('POD_CONNECTOR_REQUEST_REFUSED');
   if (route === "tasks" || route === "tasks/control") {
     if (!(route === "tasks" && method === "GET") && method !== "POST")
       throw new Error("SCHEDULE_ROUTE_REFUSED");

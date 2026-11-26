@@ -54,6 +54,22 @@ describe("/api/one/[...path] proxy", () => {
       expect(timeout).toHaveBeenLastCalledWith(expected);
     }
   });
+  it("lets only the Mail brief outlast the default budget, inside the screen's own 60 s", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("{}", { headers: { "Content-Type": "application/json" } }),
+    );
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    for (const [segments, expected] of [
+      [["mail", "overview", "brief"], 58_000],
+      [["mail", "overview", "completed"], 45_000],
+    ] as const) {
+      const request = new NextRequest(`http://localhost:3000/api/one/${segments.join("/")}`, {
+        method: "POST", body: "{}", headers: { "Content-Type": "application/json" },
+      });
+      await route.POST(request, { params: Promise.resolve({ path: [...segments] }) });
+      expect(timeout).toHaveBeenLastCalledWith(expected);
+    }
+  });
   it("forwards owner-authorized Wallet network metadata with a private response", async () => {
     const upstream = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ network: "visa", source: "prefix", candidates: [] }), { headers: { "Content-Type": "application/json", "Cache-Control": "private, no-store" } }));
     const body = JSON.stringify({ iinPrefix: "411111", panLength: 16 });

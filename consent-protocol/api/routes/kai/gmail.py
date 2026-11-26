@@ -76,6 +76,7 @@ class GmailReceiptMemoryPreviewRequest(BaseModel):
 class GmailLiveReceiptScanRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    account_id: str = Field(default="default", min_length=1, max_length=128)
     user_id: str = Field(min_length=1, max_length=128)
     page: int = Field(default=1, ge=1, le=50)
     per_page: int = Field(default=6, ge=1, le=6)
@@ -88,6 +89,7 @@ class GmailLiveReceiptScanRequest(BaseModel):
 class GmailLiveReceiptDetailRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    account_id: str = Field(default="default", min_length=1, max_length=128)
     user_id: str = Field(min_length=1, max_length=128)
     source_id: str = Field(min_length=1, max_length=340)
 
@@ -106,6 +108,7 @@ class GmailReceiptNoticeRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    account_id: str = Field(default="default", min_length=1, max_length=128)
     user_id: str = Field(min_length=1, max_length=128)
     account_key: str = Field(min_length=1, max_length=256)
     receipt_keys: list[str] = Field(min_length=1, max_length=40)
@@ -122,6 +125,7 @@ class GmailReceiptNoticeRequest(BaseModel):
 class GmailReceiptNoticeSourceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    account_id: str = Field(default="default", min_length=1, max_length=128)
     user_id: str = Field(min_length=1, max_length=128)
     account_key: str = Field(min_length=1, max_length=256)
     open_key: str = Field(min_length=1, max_length=340)
@@ -779,11 +783,12 @@ async def gmail_live_receipt_scan(
                 page=payload.page,
                 per_page=payload.per_page,
                 cursor=payload.cursor,
+                **({"account_id": payload.account_id} if payload.account_id != "default" else {}),
+                **({"expected_account": payload.account_key} if payload.account_key else {}),
                 **(
                     {
                         "checkpoint": payload.checkpoint,
                         "incremental": True,
-                        "expected_account": payload.account_key,
                     }
                     if payload.incremental or payload.checkpoint
                     else {}
@@ -885,6 +890,7 @@ async def gmail_live_receipt_detail(
             source_id=payload.source_id,
             consent_token=str(token_data.get("token") or ""),
             require_access=require_current_access,
+            **({"account_id": payload.account_id} if payload.account_id != "default" else {}),
         )
         logger.info(
             "kai.gmail.live_receipt_detail_completed has_excerpt=%s",
@@ -927,6 +933,7 @@ async def gmail_receipt_notice(
             user_id=owner,
             consent_token=str(token_data.get("token") or ""),
             require_access=require_current_access,
+            **({"account_id": payload.account_id} if payload.account_id != "default" else {}),
             receipt_keys=payload.receipt_keys,
             expected_account=payload.account_key,
             prior=[item.model_dump() for item in payload.prior],
@@ -967,6 +974,7 @@ async def gmail_receipt_notice_source(
             user_id=owner,
             key=payload.open_key,
             require_access=require_current_access,
+            **({"account_id": payload.account_id} if payload.account_id != "default" else {}),
             expected_account=payload.account_key,
         )
     except HTTPException:

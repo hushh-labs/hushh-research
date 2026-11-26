@@ -5,11 +5,14 @@ import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vau
 import { ROUTES } from "@/lib/navigation/routes";
 import { readComputerUseJson } from "@/lib/computer-use/direct-transport";
 
+import type { FollowupMailbox, MailFollowup } from "@/lib/mail/mail-followup-model";
+
+export const MAIL_FOLLOWUP_TEMPLATE = "agent_email.send_followup.v1";
 export const FILE_ORGANIZATION_TEMPLATE = "agent_files.organize_file.v1";
 const ONE_TASK_TEMPLATE = "agent_one.execute_task.v1";
 
 function isScheduledCapability(value: unknown): boolean {
-  return value === FILE_ORGANIZATION_TEMPLATE || value === ONE_TASK_TEMPLATE;
+  return value === FILE_ORGANIZATION_TEMPLATE || value === ONE_TASK_TEMPLATE || value === MAIL_FOLLOWUP_TEMPLATE;
 }
 
 export type ScheduleFileSelection = { id: string; name: string } & (
@@ -25,7 +28,7 @@ export function scheduledTaskHref(taskId?: string): string {
 
 /** Product availability only; the pod still enforces execution authority. */
 export function areScheduledTasksAvailable(): boolean {
-  return resolveAppEnvironment() === "development";
+  return resolveAppEnvironment() !== "production";
 }
 
 export type ScheduledTask = {
@@ -46,7 +49,7 @@ export type ScheduledTask = {
   timezone: string;
   next_run_at: number;
   authorization_expires_at: number;
-  last_run: { state: string; started_at: number; finished_at?: number } | null;
+  last_run: { state: string; started_at: number; finished_at?: number; sent_source?: string } | null;
 };
 export type ScheduledTasksStatus = {
   available: boolean;
@@ -118,6 +121,9 @@ function parseTask(value: unknown): ScheduledTask {
     last_run: row.last_run && {
       state: row.last_run.state,
       started_at: row.last_run.started_at,
+      ...(row.capability === MAIL_FOLLOWUP_TEMPLATE && row.state === "completed" && row.last_run.state === "completed" &&
+        typeof row.last_run.sent_source === "string" && /^ms1\.[A-Za-z0-9_-]{16,2044}$/.test(row.last_run.sent_source)
+        ? {sent_source:row.last_run.sent_source} : {}),
       ...(row.last_run.finished_at
         ? { finished_at: row.last_run.finished_at }
         : {}),
@@ -270,6 +276,19 @@ export class PodScheduledTasksClient {
     )
       throw new Error("SCHEDULE_RESPONSE_REFUSED");
     return updated;
+  }
+
+  async sendMailFollowup(box: FollowupMailbox, item: MailFollowup, draft: NonNullable<MailFollowup["draft"]>,
+    due: number, signal: AbortSignal): Promise<ScheduledTask> {
+    if (box.account !== item.account || box.connection !== item.connection) throw new Error("Mailbox changed.");
+    const task = parseTask(await this.request("tasks", {method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({request_id:item.key, title:"Approved Mail follow-up", capability:MAIL_FOLLOWUP_TEMPLATE,
+        parameters:{account:box.account,connection:box.connection,address:box.address,source:item.source,quote:item.quote,
+          fulfilment:item.fulfilment,debtor:item.debtor,document:item.document,draft,due},
+        first_run_at:due,repeat:"once",timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,
+        authorization_expires_at:due+300,confirmed:true})},signal));
+    if (task.capability !== MAIL_FOLLOWUP_TEMPLATE) throw new Error("SCHEDULE_RESPONSE_REFUSED");
+    return task;
   }
 
   async organizeFile(

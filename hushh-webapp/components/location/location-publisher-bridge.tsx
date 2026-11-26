@@ -6,12 +6,10 @@
  * Mounted by AgentOwnerGate, so publishing survives
  * navigation. It owns three things:
  *
- *  1. The continuous watch -> coarsen -> encrypt -> storeEnvelope loop for
- *     every active owner grant, gated by `effective === "sharing"` (server
- *     `sharing_state === "on"` AND OS granted AND not paused). The moment
- *     app sharing turns off — a `turn_sharing_off` tool result, a resolved
- *     tap confirmation, or the settings resource changing — the watch is
- *     cleared and native background sharing is stopped.
+ *  1. The continuous watch -> coarsen -> encrypt -> storeEnvelope loop.
+ *     Ordinary grants require effective sharing. Active Save My Soul grants
+ *     use the owner's separate emergency consent and still require device
+ *     Location access and unpaused updates.
  *  2. The `publish_location_envelopes` / `register_recipient_key` /
  *     `report_os_permission` client steps the relay asks the device to run.
  *  3. The `request_os_permission` directive, which is REFUSED unless the
@@ -64,6 +62,7 @@ import {
 import { resolveLocationRecoveryGuide } from "@/lib/one-location/location-permission-recovery";
 import { isLocationPermissionDeniedError } from "@/lib/one-location/location-readiness";
 import { haversineMeters } from "@/lib/one-location/marker-interpolation";
+import { isFixedLocationGrant, isSmsTriggeredGrant } from "@/lib/one-location/notifications";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
@@ -263,7 +262,10 @@ export function LocationPublisherBridge({ pathname }: { pathname?: string | null
 
   useSyncExternalStore(subscribeLocationStopQueue, locationStopQueueRevision, () => 0);
   const grants = activeOwnerGrants(state).filter((grant) =>
-    grant.shareKind !== "pin" && !hasQueuedLocationStop(uid, grant.id));
+    !isFixedLocationGrant(grant) && !hasQueuedLocationStop(uid, grant.id) &&
+    (isSmsTriggeredGrant(grant)
+      ? sharing.os === "granted" && !sharing.paused
+      : sharing.effective === "sharing"));
   useEffect(() => {
     if (!uid || !vaultOwnerToken) return;
     const retry = () => {
@@ -286,10 +288,7 @@ export function LocationPublisherBridge({ pathname }: { pathname?: string | null
   const recipientsRef = useRef(recipientsByUserId);
   recipientsRef.current = recipientsByUserId;
 
-  const publishing =
-    sharing.effective === "sharing" &&
-    Boolean(vaultOwnerToken) &&
-    grants.length > 0;
+  const publishing = Boolean(uid && vaultOwnerToken && grants.length);
   const appSharing = sharing.appSharing;
   const precision = sharing.precision;
 
@@ -319,8 +318,8 @@ export function LocationPublisherBridge({ pathname }: { pathname?: string | null
     const publishMovement = async (point: PlainLocationPoint) => {
       if (cancelled) return;
       const token = tokenRef.current;
-      if (!token) return;
-      if (sharingRef.current.effective !== "sharing") return;
+      const owner = uidRef.current;
+      if (!token || !owner || !grantsRef.current.length) return;
       if (
         typeof document !== "undefined" &&
         document.visibilityState === "hidden"
@@ -344,26 +343,38 @@ export function LocationPublisherBridge({ pathname }: { pathname?: string | null
 
       inFlightRef.current = true;
       try {
-        const result = await publishPointToGrants({
-          point,
-          grants: grantsRef.current,
-          recipientsByUserId: recipientsRef.current,
-          precision: sharingRef.current.precision,
-          vaultOwnerToken: token,
-          encrypt: encryptLocationForRecipient,
-          store: (params) => hasQueuedLocationStop(uidRef.current, params.grantId)
-            ? Promise.reject(new Error("This share has stopped on this device."))
-            : OneLocationService.storeEnvelope(params),
-        });
+        const active = grantsRef.current;
+        const results = await Promise.all([false, true].map((sos) => {
+          const eligible = active.filter((grant) => isSmsTriggeredGrant(grant) === sos);
+          if (!eligible.length) return null;
+          return publishPointToGrants({
+            point,
+            grants: eligible,
+            recipientsByUserId: recipientsRef.current,
+            precision: sharingRef.current.precision,
+            sos,
+            vaultOwnerToken: token,
+            encrypt: encryptLocationForRecipient,
+            store: (params) => {
+              const canPublish = () => !cancelled && uidRef.current === owner &&
+                !hasQueuedLocationStop(owner, params.grantId) &&
+                grantsRef.current.some((grant) => grant.id === params.grantId);
+              return canPublish()
+                ? OneLocationService.storeEnvelope({ ...params, isEffectCurrent: canPublish })
+                : Promise.reject(new Error("This share has stopped on this device."));
+            },
+          });
+        }));
         if (cancelled) return;
-        if (result.published.length > 0) {
+        if (results.some((result) => result?.published.length)) {
           lastPublishedRef.current = point;
           lastPublishedAtRef.current = Date.now();
         }
-        const refused = result.failures.some(
+        const failures = results.flatMap((result) => result?.failures ?? []);
+        const refused = failures.some(
           (failure) => failure.code === "permission_denied",
         );
-        const grantGone = result.failures.some((failure) =>
+        const grantGone = failures.some((failure) =>
           GRANT_GONE_REASONS.has(String(failure.reason ?? "")),
         );
         if (refused || grantGone) {
@@ -434,12 +445,12 @@ export function LocationPublisherBridge({ pathname }: { pathname?: string | null
   useEffect(() => {
     const was = wasAppSharingRef.current;
     wasAppSharingRef.current = appSharing;
-    if (was && !appSharing) {
+    if (was && !appSharing && !publishing) {
       // The watch effect above has already been torn down by `publishing`
       // flipping; native needs an explicit stop.
       void OneLocationService.stopBackgroundShare().catch(() => undefined);
     }
-  }, [appSharing]);
+  }, [appSharing, publishing]);
 
   // ---------------------------------------------------------------------
   // 1c. Native background share follows the current grants

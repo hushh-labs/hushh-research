@@ -120,9 +120,11 @@ async def test_location_review_routes_main_chat_to_a_non_successful_handoff():
         mail_review_supported=True, location_chat_review_supported=True
     )
     assert "propose_location_action" not in {tool["name"] for tool in legacy}
+    assert "trigger_save_my_soul" in {tool["name"] for tool in legacy}
     main_names = {tool["name"] for tool in main_chat}
     assert "propose_location_action" in main_names
     assert "share_with" not in main_names
+    assert "trigger_save_my_soul" not in main_names
 
     ctx = ToolContext(
         user_id="owner",
@@ -138,6 +140,11 @@ async def test_location_review_routes_main_chat_to_a_non_successful_handoff():
     ctx.services["location_chat_review"] = True
     blocked = await executor.call(ctx, "share_with", {})
     assert blocked.result.reason_code == "location_chat_review_required"
+    blocked_sos = await executor.call(ctx, "trigger_save_my_soul", {})
+    assert blocked_sos.result.reason_code == "location_chat_review_required"
+    sos_review = await executor.call(ctx, "propose_location_action", {"action": "sos_review"})
+    assert sos_review.pending is None
+    assert sos_review.result.public()["proposal"]["action"] == "sos_review"
     invalid = await executor.call(ctx, "propose_location_action", {**args, "confirmed": True})
     assert invalid.result.reason_code == "invalid_arguments"
     outcome = await executor.call(ctx, "propose_location_action", args)

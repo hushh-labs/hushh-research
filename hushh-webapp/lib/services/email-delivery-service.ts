@@ -1,4 +1,4 @@
-import { ownerContentIsPrivate } from './private-agent-specialist-chat';
+import { ownerRequiresByocIsolation } from '@/lib/one/byoc-isolation';
 import { confirmPrivateGoogleAction, PrivateGoogleUnsupportedError } from './private-google-connections';
 import { AuthService } from './auth-service';
 import { ApiService } from "@/lib/services/api-service";
@@ -341,7 +341,7 @@ async function postJson<T>(
   auth: EmailDeliveryAuth,
   body: Record<string, unknown>,
 ): Promise<T> {
-  if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('This shared email operation');
+  if (await ownerRequiresByocIsolation()) throw new PrivateGoogleUnsupportedError('This shared email operation');
   const response = await ApiService.apiFetch(path, {
     method: "POST",
     headers: emailHeaders(auth),
@@ -376,7 +376,7 @@ function draftFromPayload(payload: unknown): EmailDraftResult {
 export class EmailDeliveryService {
   /** Reconcile the same reviewed attempt after a lost response; this never sends. */
   static async sendStatus(input: EmailDeliveryAuth & { actionId: string }): Promise<EmailSendStatus> {
-    if (await ownerContentIsPrivate()) {
+    if (await ownerRequiresByocIsolation()) {
       if (!/^gmod_[A-Za-z0-9_-]{16,64}$/.test(input.actionId)) {
         throw new EmailDeliveryError("That mail review is unavailable.", 404, "ACTION_NOT_FOUND");
       }
@@ -415,7 +415,7 @@ export class EmailDeliveryService {
   static async saveGmailDraft(input: EmailDeliveryAuth & {
     draft: EmailDraft;
   }): Promise<void> {
-    if (await ownerContentIsPrivate()) {
+    if (await ownerRequiresByocIsolation()) {
       const prepared = await preparePrivateEmail(input.draft, 'save_draft');
       const result = await confirmPrivateGoogleAction(prepared.proposalId, 'gmail_mailbox');
       if (result.status !== 'saved' || result.action !== 'save_draft' || typeof result.draft_id !== 'string') throw new EmailDeliveryError('Check Gmail Drafts before trying again.', 502);
@@ -445,7 +445,7 @@ export class EmailDeliveryService {
   ): Promise<{ action: string; count: number }> {
     let payload: Record<string, unknown> | null;
     try {
-      payload = await ownerContentIsPrivate()
+      payload = await ownerRequiresByocIsolation()
         ? await confirmPrivateGoogleAction(input.proposalId, 'gmail_mailbox')
         : asRecord(await postJson<unknown>("/api/one/email/mailbox/execute", input, {
             proposal_id: input.proposalId,
@@ -493,7 +493,7 @@ export class EmailDeliveryService {
     draftRef?: string;
     revision?: number;
   }): Promise<PreparedEmailSend> {
-    if (await ownerContentIsPrivate()) {
+    if (await ownerRequiresByocIsolation()) {
       const prepared = await preparePrivateEmail(input.draft, 'send_email');
       for (const [id, held] of privateSends) if (held.expiresAt <= Date.now() || held.owner !== prepared.owner) privateSends.delete(id);
       privateSends.set(prepared.proposalId, { owner: prepared.owner, draftHash: await reviewedDraftHash(input.draft), expiresAt: Date.parse(prepared.expiresAt) });
@@ -540,7 +540,7 @@ export class EmailDeliveryService {
     draftRef?: string;
     revision?: number;
   }): Promise<SentEmailResult> {
-    if (await ownerContentIsPrivate()) {
+    if (await ownerRequiresByocIsolation()) {
       const held = privateSends.get(input.actionId);
       if (!held || held.owner !== AuthService.getCurrentUser()?.uid || held.expiresAt <= Date.now() || input.attachmentToken || held.draftHash !== await reviewedDraftHash(input.draft)) throw new EmailDeliveryError('This message needs a new review before sending.', 409, 'PRIVATE_EMAIL_REVIEW_REQUIRED');
       privateSends.delete(input.actionId);

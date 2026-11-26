@@ -42,6 +42,16 @@ async def test_location_review_is_admitted_only_for_main_owner_chat(monkeypatch)
     assert not admit_location_chat_review(props, owner_admitted=False)
     assert not admit_location_chat_review({**props, "mainChat": False}, owner_admitted=True)
     assert admit_location_chat_review(props, owner_admitted=True)
+    regular = {"locationChatReview": True, "screenContext": {"route": {"pathname": "/"}}}
+    assert admit_location_chat_review(regular, owner_admitted=True)
+    assert not admit_location_chat_review(regular, owner_admitted=False)
+    assert not admit_location_chat_review(
+        {**regular, "locationChatReview": False}, owner_admitted=True
+    )
+    for screen in ({}, [], {"route": None}, {"route": {"pathname": "/one/location"}}):
+        assert not admit_location_chat_review(
+            {**props, "screenContext": screen}, owner_admitted=True
+        )
 
     context = SimpleNamespace(state={STATE_LOCATION_CHAT_REVIEW: True})
     bypass = await agent_tree.run_app_action(
@@ -50,7 +60,7 @@ async def test_location_review_is_admitted_only_for_main_owner_chat(monkeypatch)
     assert bypass["status"] == "chat_review_required"
     assert bypass["next_tool"] == "propose_location_action"
     assert legacy_location_chat_action(context.state, "location.chat.turn") is None
-    assert legacy_location_chat_action(context.state, "location.open_settings") is None
+    assert legacy_location_chat_action(context.state, "location.open_settings") is not None
     unavailable = agent_tree._before_one_tool(
         SimpleNamespace(name="propose_location_action"), {}, SimpleNamespace(state={})
     )
@@ -95,6 +105,17 @@ def test_location_proposal_restores_intent_without_execution_authority():
         "invalid_proposal"
     )
     assert propose_location_action("ask", [proposal["id"]])["status"] == "invalid_proposal"
+    assert propose_location_action("enable_auto_approve", circles=["Trusted"])["circles"] == [
+        "Trusted"
+    ]
+    assert (
+        propose_location_action("enable_auto_approve", people=["Kushal"])["status"]
+        == "invalid_proposal"
+    )
+    assert (
+        propose_location_action("disable_auto_approve", circles=["Trusted"])["status"]
+        == "invalid_proposal"
+    )
     trigger = Event(
         id="location-proposal",
         invocation_id="turn",
@@ -114,6 +135,42 @@ def test_location_proposal_restores_intent_without_execution_authority():
     )
     assert [message["id"] for message in restored["messages"]] == ["answer"]
     assert restored["messages"][0]["metadata"]["locationChatProposal"] == proposal
+
+
+@pytest.mark.parametrize(
+    ("legacy_action", "proposal_action"),
+    [
+        ("location.open_sos", "sos_review"),
+        ("location.stop_sos", "sos_stop"),
+        ("location.open_sms_contacts", "sms_contacts"),
+        ("location.add_emergency_contact", "sms_contacts"),
+        ("location.setup.start", "setup_location"),
+        ("location.set_sharing_enabled", "enable_location"),
+        ("location.resume_updates", "resume_updates"),
+        ("location.create_circle", "manage_circles"),
+        ("location.save_current_location", "manage_places"),
+        ("location.open_ratings", "manage_ratings"),
+        ("location.find_contacts", "manage_contacts"),
+        ("location.revoke_public_link", "manage_links"),
+        ("location.send_check_in", "check_in"),
+        ("location.checkout_nearby", "nearby_check_in"),
+    ],
+)
+async def test_main_chat_location_actions_require_inline_review(legacy_action, proposal_action):
+    context = SimpleNamespace(state={STATE_LOCATION_CHAT_REVIEW: True})
+    redirected = await agent_tree.run_app_action(legacy_action, {"confirmed": True}, context)
+    assert redirected["status"] == "chat_review_required"
+    assert redirected["next_tool"] == "propose_location_action"
+    assert legacy_location_chat_action({}, legacy_action) is None
+    proposal = propose_location_action(proposal_action)
+    assert location_chat_proposal_from_result(proposal) == proposal
+    assert location_chat_proposal_from_result({**proposal, "confirmed": True}) is None
+
+
+def test_sos_proposal_cannot_override_the_reviewed_emergency_contact_roster():
+    assert propose_location_action("sos_review", people=["Someone else"])["status"] == (
+        "invalid_proposal"
+    )
 
 
 def test_location_follow_up_only_carries_display_choices_in_main_owner_chat(monkeypatch):

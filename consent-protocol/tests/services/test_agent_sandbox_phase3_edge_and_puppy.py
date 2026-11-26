@@ -475,6 +475,7 @@ async def test_edge_gateway_cors_sse_sentinel_storage_activation_and_waking(
                     return {
                         "status": "ok",
                         "sandbox": sandbox_name,
+                        "ios_client": os.environ.get("GOOGLE_IOS_CONNECTOR_CLIENT_ID"),
                         "durable": os.environ.get("POD_DURABLE_IDENTITY_ENABLED"),
                         "storage_backend": os.environ.get("POD_STORAGE_BACKEND"),
                         "prefix_url": os.environ.get("POD_STORAGE_PREFIX_TOKEN_URL"),
@@ -530,6 +531,7 @@ async def test_edge_gateway_cors_sse_sentinel_storage_activation_and_waking(
         hub_url="https://dev.api.hussh.ai",
         deploy_env="dev",
         consent_ed25519_public_keys='{"kid1":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}',
+        ios_connector_client_id="123456789-testclient.apps.googleusercontent.com",
         allowed_app_origins=["https://dev.one.hussh.ai"],
         sentinel_model_gateway_url=f"http://127.0.0.1:{sentinel_runtime.model_gateway_port}",
         sentinel_vertex_project="hushh-pda-dev",
@@ -576,6 +578,7 @@ async def test_edge_gateway_cors_sse_sentinel_storage_activation_and_waking(
             assert h1.status_code == 200
             assert h1.headers["access-control-allow-origin"] == "https://dev.one.hussh.ai"
             body = h1.json()
+            assert body["ios_client"] == "123456789-testclient.apps.googleusercontent.com"
             assert body["durable"] == "1"
             assert body["storage_backend"] == "commit_log"
             assert (

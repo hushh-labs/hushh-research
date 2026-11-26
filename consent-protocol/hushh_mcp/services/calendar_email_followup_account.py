@@ -100,18 +100,31 @@ async def _bindings(user_id: str, account_id: str) -> tuple[str, tuple[str, ...]
         mail_binding = await google.read_grant_binding(
             user_id=user_id, service="gmail", account_id=account_id
         )
-        if not mail_binding:
+        if not mail_binding or mail_binding[:4] != (
+            user_id,
+            "gmail",
+            account_id,
+            calendar.provider_subject,
+        ):
             raise SelectedMailAccessError("selected_mail_permission_required")
     return calendar.provider_subject, calendar.binding, mail_binding
 
 
-async def open_selected_mail_grant(*, user_id: str, account_id: str) -> SelectedMailGrant:
+async def open_selected_mail_grant(
+    *, user_id: str, account_id: str, force_refresh: bool = False
+) -> SelectedMailGrant:
     subject, calendar_binding, mail_binding = await _bindings(user_id, account_id)
     if account_id == "default":
-        token = await get_gmail_receipts_service().get_read_access_token(user_id=user_id)
+        token = await get_gmail_receipts_service().get_read_access_token(
+            user_id=user_id, **({"force_refresh": True} if force_refresh else {})
+        )
     else:
         token = await get_google_connection_service().access_token(
-            user_id=user_id, service="gmail", access_level="read", account_id=account_id
+            user_id=user_id,
+            service="gmail",
+            access_level="read",
+            account_id=account_id,
+            **({"force_refresh": True} if force_refresh else {}),
         )
     if (subject, calendar_binding, mail_binding) != await _bindings(user_id, account_id):
         raise SelectedMailAccessError("mail_grant_changed")

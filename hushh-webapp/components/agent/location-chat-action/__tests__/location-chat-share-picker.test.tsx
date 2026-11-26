@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 import { LocationChatSharePicker } from "../location-chat-share-picker";
+import { OneLocationService } from "@/lib/one-location/service";
 
 vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: {
@@ -47,4 +48,26 @@ test("carries a unique first-name Connection into review without sharing", async
   fireEvent.click(screen.getByRole("radio", { name: "Current pin" }));
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   expect(onContinue).toHaveBeenCalledWith("share_pin", [{ label: "Neelesh Meena", personUserId: "neelesh" }]);
+});
+
+test("requests can page to a person without a receiving key and include a Circle without offering sharing", async () => {
+  vi.mocked(OneLocationService.listRecipientsPage).mockImplementation(async ({ page = 1 }) => ({
+    items: [{ userId: page === 1 ? "maya" : "neelesh", displayName: page === 1 ? "Maya" : "Neelesh", canReceiveLocation: false }],
+    page, hasMore: page === 1, total: 2,
+  } as Awaited<ReturnType<typeof OneLocationService.listRecipientsPage>>));
+  const onContinue = vi.fn();
+  render(<LocationChatSharePicker ownerId="owner" token="owner-token" busy={false}
+    initialMode="ask" onContinue={onContinue} onBack={() => {}} />);
+
+  expect(screen.queryByRole("radio")).toBeNull();
+  fireEvent.click(await screen.findByRole("button", { name: "Show more connections" }));
+  const person = await screen.findByRole("button", { name: "Neelesh", exact: true });
+  expect(person).toBeEnabled();
+  fireEvent.click(person);
+  fireEvent.click(await screen.findByRole("button", { name: "Family", exact: true }));
+  expect(onContinue).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  expect(onContinue).toHaveBeenCalledExactlyOnceWith("ask", [
+    { label: "Neelesh", personUserId: "neelesh" }, { label: "Family", circleId: "circle-1" },
+  ]);
 });

@@ -91,6 +91,8 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
           await expect(chip).toBeFocused();
         }
         if (workspace === "followups") {
+          // The tab opens the tracked board inside the same reading frame; the attention list is one tap away.
+          await page.getByRole("button", { name: "View Overview follow-ups" }).click();
           await expect(page.getByRole("heading", { name: "Follow-ups", level: 2 })).toBeVisible();
           const followupsPanel = page.getByRole("tabpanel", { name: "Follow-ups" });
           await expect(followupsPanel.getByTestId("attention-card")).toHaveCount(4);

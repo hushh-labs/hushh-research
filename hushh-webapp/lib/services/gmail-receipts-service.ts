@@ -1,5 +1,5 @@
-import { ownerContentIsPrivate } from './private-agent-specialist-chat';
-import { privateGoogleStatus, disconnectPrivateGoogle, requireSharedGoogleExchange, PrivateGoogleUnsupportedError } from './private-google-connections';
+import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
+import { notifyMailGrantsChanged, privateGoogleStatus, disconnectPrivateGoogle, PrivateGoogleUnsupportedError } from './private-google-connections';
 import { trackEvent } from "@/lib/observability/client";
 import { ApiService } from "@/lib/services/api-service";
 import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
@@ -789,6 +789,27 @@ function buildSealedHeaders(
   };
 }
 
+export type PrivateReceiptMailbox = { accountId: string; credentialId: string };
+
+async function privateReceiptRead(mailbox: PrivateReceiptMailbox, owner: string, operation: "scan" | "detail" | "notice" | "notice-source",
+  body: object, signal?: AbortSignal) {
+  const { snapshotValidatedAuthSessionPrincipal } = await import("@/lib/auth/session-owner");
+  const current = () => snapshotValidatedAuthSessionPrincipal()?.ownerId === owner && !signal?.aborted;
+  if (!current()) throw new Error("Mail session changed.");
+  const response = await ApiService.ownerPodRequest(`connectors/gmail/accounts/${mailbox.accountId}/receipts/${operation}`, {
+    method: "POST", cache: "no-store", signal, headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...body, credential_id: mailbox.credentialId }),
+  }, false, undefined, undefined, current);
+  if (!response.ok) {
+    const error = await extractLiveReceiptError(response, "Your private agent could not read the selected mailbox.");
+    if (current() && (error.code === "GMAIL_CONNECTION_CHANGED" || isReceiptConnectionLostError(error))) notifyMailGrantsChanged();
+    throw error;
+  }
+  const result: unknown = await response.json();
+  if (!current()) throw new Error("Mail session changed.");
+  return result;
+}
+
 export class GmailReceiptsService {
   /**
    * Ask One what the saved receipts and the providers' other mail call for. Read-only: the answer is findings
@@ -798,11 +819,14 @@ export class GmailReceiptsService {
     idToken: string;
     vaultOwnerToken: string;
     userId: string;
+    accountId?: string;
+    privateMailbox?: PrivateReceiptMailbox;
     accountKey: string;
     receiptKeys: string[];
     prior: Array<{ id: string; kind: string; provider: string; headline: string }>;
     signal?: AbortSignal;
   }): Promise<NoticeCheck> {
+    if (params.privateMailbox) return parseNoticeResponse(await privateReceiptRead(params.privateMailbox, params.userId, "notice", { receipt_keys: params.receiptKeys.slice(0,40), prior: params.prior.slice(0,12) }, params.signal), params.accountKey);
     if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Mail receipt insights');
     const response = await ApiService.apiFetch(GMAIL_RECEIPTS_API_TEMPLATES.receiptNotice, {
       method: "POST",
@@ -811,6 +835,7 @@ export class GmailReceiptsService {
       headers: { ...buildSealedHeaders(params.idToken, params.vaultOwnerToken), "Content-Type": "application/json" },
       body: JSON.stringify({
         user_id: params.userId,
+        ...(params.accountId ? { account_id: params.accountId } : {}),
         account_key: params.accountKey,
         receipt_keys: params.receiptKeys.slice(0, 40),
         prior: params.prior.slice(0, 12),
@@ -830,17 +855,25 @@ export class GmailReceiptsService {
     idToken: string;
     vaultOwnerToken: string;
     userId: string;
+    accountId?: string;
+    privateMailbox?: PrivateReceiptMailbox;
     accountKey: string;
     openKey: string;
     signal?: AbortSignal;
   }): Promise<NoticeSource> {
+    if (params.privateMailbox) return parseNoticeSource(await privateReceiptRead(params.privateMailbox, params.userId, "notice-source", { source_id: params.openKey }, params.signal));
     if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Mail receipt insights');
     const response = await ApiService.apiFetch(GMAIL_RECEIPTS_API_TEMPLATES.receiptNoticeSource, {
       method: "POST",
       cache: "no-store",
       signal: params.signal,
       headers: { ...buildSealedHeaders(params.idToken, params.vaultOwnerToken), "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: params.userId, account_key: params.accountKey, open_key: params.openKey }),
+      body: JSON.stringify({
+        user_id: params.userId,
+        ...(params.accountId ? { account_id: params.accountId } : {}),
+        account_key: params.accountKey,
+        open_key: params.openKey,
+      }),
     });
     if (!response.ok) throw await extractLiveReceiptError(response, "That email isn't available.");
     const payload: unknown = await response.json().catch(() => { throw invalidLiveReceiptResponse(); });
@@ -901,7 +934,7 @@ export class GmailReceiptsService {
     includeGrantedScopes: boolean;
     purpose?: "read" | "send" | "compose" | "modify" | "settings" | "full";
   }): Promise<GmailConnectStartResponse> {
-    await requireSharedGoogleExchange();
+    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Shared Gmail exchange');
     trackGmailEventForOwner(params.userId, "gmail_connect_started", {
       action: params.includeGrantedScopes ? "incremental" : "full",
       result: "success",
@@ -951,7 +984,7 @@ export class GmailReceiptsService {
     userId: string;
     purpose?: "read" | "send" | "compose";
   }): Promise<GmailNativeConnectStartResponse> {
-    await requireSharedGoogleExchange();
+    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Shared Gmail exchange');
     trackGmailEventForOwner(params.userId, "gmail_connect_started", {
       action: params.purpose === "send" ? "incremental" : "full",
       result: "success",
@@ -994,7 +1027,7 @@ export class GmailReceiptsService {
     serverAuthCode: string;
     purpose?: "read" | "send";
   }): Promise<GmailConnectionStatus> {
-    await requireSharedGoogleExchange();
+    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Shared Gmail exchange');
     try {
       const response = await ApiService.apiFetch(
         GMAIL_RECEIPTS_API_TEMPLATES.connectNativeComplete,
@@ -1062,7 +1095,7 @@ export class GmailReceiptsService {
     code: string;
     state: string;
   }, options: { recordTelemetry?: boolean } = {}): Promise<GmailConnectionStatus> {
-    await requireSharedGoogleExchange();
+    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Shared Gmail exchange');
     const recordTelemetry = options.recordTelemetry !== false;
     try {
       const response = await ApiService.apiFetch(
@@ -1259,6 +1292,8 @@ export class GmailReceiptsService {
     idToken: string;
     vaultOwnerToken: string;
     userId: string;
+    accountId?: string;
+    privateMailbox?: PrivateReceiptMailbox;
     page?: number;
     cursor?: string | null;
     checkpoint?: string | null;
@@ -1267,7 +1302,7 @@ export class GmailReceiptsService {
     perPage?: number;
     signal?: AbortSignal;
   }): Promise<GmailLiveReceiptScanResponse> {
-    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Mail receipt sync');
+    if (!params.privateMailbox && await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Mail receipt sync');
     const page = Math.max(1, Math.min(50, Math.trunc(params.page ?? 1)));
     const perPage = Math.max(
       1,
@@ -1276,6 +1311,11 @@ export class GmailReceiptsService {
         Math.trunc(params.perPage ?? MAX_LIVE_RECEIPTS_PER_PAGE),
       ),
     );
+    if (params.privateMailbox) {
+      const data = await privateReceiptRead(params.privateMailbox, params.userId, "scan",
+        { page, per_page: perPage, incremental: params.incremental ?? false, cursor: params.cursor, checkpoint: params.checkpoint }, params.signal);
+      return parseLiveReceiptScanResponse(data, { page, perPage });
+    }
     try {
       const response = await ApiService.apiFetch(
         GMAIL_RECEIPTS_API_TEMPLATES.receiptsScan,
@@ -1289,6 +1329,7 @@ export class GmailReceiptsService {
           },
           body: JSON.stringify({
             user_id: params.userId,
+            ...(params.accountId ? { account_id: params.accountId } : {}),
             page,
             per_page: perPage,
             ...(params.accountKey ? { account_key: params.accountKey } : {}),
@@ -1324,9 +1365,12 @@ export class GmailReceiptsService {
     idToken: string;
     vaultOwnerToken: string;
     userId: string;
+    accountId?: string;
+    privateMailbox?: PrivateReceiptMailbox;
     sourceId: string;
     signal?: AbortSignal;
   }): Promise<GmailLiveReceiptDetailResponse> {
+    if (params.privateMailbox) return parseLiveReceiptDetailResponse(await privateReceiptRead(params.privateMailbox, params.userId, "detail", { source_id: params.sourceId }, params.signal), params.sourceId);
     if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Mail receipt details');
     const sourceId = params.sourceId.trim();
     if (!sourceId || sourceId.length > 340) {
@@ -1344,6 +1388,7 @@ export class GmailReceiptsService {
         },
         body: JSON.stringify({
           user_id: params.userId,
+          ...(params.accountId ? { account_id: params.accountId } : {}),
           source_id: sourceId,
         }),
       },

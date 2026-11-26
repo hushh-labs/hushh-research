@@ -188,7 +188,9 @@ const apiServiceStub: Record<string, unknown> = {
   : /^\/api\/kai\/gmail\/receipts\/notice(\/source)?$/.test(path)
     ? window.fetch(path, options as RequestInit)
     : Promise.reject(new Error('Unhandled fixture network request')),
- getPersonalAgentStatus: async () => ({ hostingMode: 'shared' }),
+ // The tracked-Follow-ups fixture stands in for an owner whose private runtime holds the mailbox.
+ getPersonalAgentStatus: async () => ({ hostingMode: document.documentElement.dataset.fixturePrivateMail === 'true' ? 'byoc' : 'shared' }),
+ getPersonalAgentStatusForRouting: async () => ({ hostingMode: document.documentElement.dataset.fixturePrivateMail === 'true' ? 'byoc' : 'shared' }),
 };
 export const ApiService = new Proxy(apiServiceStub, { get: (target, name) => name in target ? target[name as string]
  : async () => { throw new Error('Unhandled fixture network request'); } });
