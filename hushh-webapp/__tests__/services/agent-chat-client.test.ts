@@ -120,32 +120,67 @@ describe("native Cloud chat", () => {
     publishValidatedAuthSessionOwner(null);
   });
 
-  it("sends only the native body and delivers the saved-portfolio surface to the live turn", async () => {
+  it("preserves native surfaces and distinct Browser receipts without replaying discovery", async () => {
     const { ONE_A2UI_CATALOG } = await import("@/lib/a2ui/surface-store");
     const surface = {
       version: "1.0", createSurface: { catalogId: ONE_A2UI_CATALOG, surfaceId: "holdings",
         components: [{ id: "root", component: "SavedPortfolio", section: "holdings" }] },
     };
-    const event = { author: "one", content: { parts: [{ functionResponse: {
+    const event = { author: "one", content: { parts: [{ text: "Browser task prepared." }, { functionResponse: {
       name: "send_a2ui_json_to_client", response: { validated_a2ui_json: [surface] },
     } }] } };
+    const receipt = { invocationId: "run:a", toolCallId: "b", status: "accepted",
+      binding: { owner_id: input.userId, task_id: `browser_${"a".repeat(32)}` } };
+    const notice = (payload: unknown) => `event: browser_task\ndata: ${JSON.stringify(payload)}\n\n`;
     vi.mocked(ApiService.ownerPodRequest).mockResolvedValueOnce(new Response(
-      `event: start\ndata: {"sessionId":"native-thread"}\n\ndata: ${JSON.stringify(event)}\n\nevent: done\ndata: {}\n\n`,
+      `event: start\ndata: {"sessionId":"native-thread"}\n\n` +
+      notice({ ...receipt, invocationId: "foreign-owner", binding: { ...receipt.binding, owner_id: "other-owner" } }) +
+      notice({ ...receipt, invocationId: "invalid-task", binding: { ...receipt.binding, task_id: "invalid" } }) +
+      notice({ ...receipt, invocationId: "blocked", status: "blocked" }) + notice({ ...receipt, invocationId: "extra-field", goal: "unrelated payload" }) +
+      notice(receipt) + notice(receipt) +
+      notice({ ...receipt, invocationId: "run", toolCallId: "a:b" }) +
+      notice({ ...receipt, invocationId: "run-2", toolCallId: "call-2", binding: { ...receipt.binding, task_id: `browser_${"b".repeat(32)}` } }) +
+      `data: ${JSON.stringify(event)}\n\nevent: done\ndata: {}\n\n` +
+      notice({ ...receipt, invocationId: "late", toolCallId: "late" }),
       { headers: { "Content-Type": "text/event-stream" } },
     ));
     const onStart = vi.fn();
     const onNativeOutput = vi.fn();
-    await expect(streamAgentChat({ ...input, handlers: { onStart, onNativeOutput } }))
-      .resolves.toMatchObject({ conversationId: "native-thread", interrupted: false });
+    const onBrowserTaskCreated = vi.fn();
+    await expect(streamAgentChat({ ...input, handlers: { onStart, onNativeOutput, onBrowserTaskCreated } }))
+      .resolves.toMatchObject({ conversationId: "native-thread", interrupted: false, text: "Browser task prepared." });
     const post = vi.mocked(ApiService.ownerPodRequest).mock.calls[1]!;
     const sent = JSON.parse(String(post[1]?.body));
     expect(sent).toMatchObject({ transport: "native-adk-v1", threadId: "native-thread", message: input.message });
     expect(sent).not.toHaveProperty("tools");
     expect(sent).not.toHaveProperty("messages");
     expect(onStart).toHaveBeenCalledOnce();
+    expect(onBrowserTaskCreated).toHaveBeenCalledTimes(3);
+    expect(onStart.mock.invocationCallOrder[0]).toBeLessThan(onBrowserTaskCreated.mock.invocationCallOrder[0]!);
+    expect(JSON.stringify(onNativeOutput.mock.calls)).not.toContain(receipt.binding.task_id);
     expect(onNativeOutput.mock.lastCall?.[0].surfaces.get("holdings").components.get("root"))
       .toMatchObject({ component: "SavedPortfolio", section: "holdings" });
     expect(mockTransport.runAgent).not.toHaveBeenCalled();
+  });
+
+  it.each(["owner", "vault", "stop"] as const)("discards a native Browser receipt after %s retirement", async retirement => {
+    const abort = new AbortController();
+    const receipt = { invocationId: "run-1", toolCallId: "call-1", status: "accepted",
+      binding: { owner_id: input.userId, task_id: `browser_${"a".repeat(32)}` } };
+    vi.mocked(ApiService.ownerPodRequest).mockResolvedValueOnce(new Response(
+      `event: start\ndata: {"sessionId":"native-thread"}\n\nevent: browser_task\ndata: ${JSON.stringify(receipt)}\n\nevent: done\ndata: {}\n\n`,
+      { headers: { "Content-Type": "text/event-stream" } },
+    ));
+    const onBrowserTaskCreated = vi.fn();
+    await expect(streamAgentChat({ ...input, signal: abort.signal, handlers: {
+      onBrowserTaskCreated,
+      onStart: () => {
+        if (retirement === "owner") { publishValidatedAuthSessionOwner(null); publishValidatedAuthSessionOwner(input.userId); }
+        else if (retirement === "vault") advanceVaultSessionEpoch();
+        else abort.abort();
+      },
+    } })).rejects.toMatchObject({ name: "AbortError" });
+    expect(onBrowserTaskCreated).not.toHaveBeenCalled();
   });
 
   it("preserves the original conversation for recovery when native streaming ends early", async () => {

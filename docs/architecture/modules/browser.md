@@ -29,6 +29,12 @@ sequenceDiagram
 2. **Take over safely:** Click to take direct control for logins, sensitive forms, or payments; model observation pauses while you enter credentials manually.
 3. **Approve or stop:** Confirm sensitive site actions explicitly or halt the task at any instant without replaying uncertain side effects.
 
+One's admitted Browser hand prepares an invocation for the current owner. An
+accepted receipt refreshes the existing Browser task card, where approval and
+controls remain available. AG-UI and opt-in native ADK Chat use the same discovery
+callback; native notices are deduplicated by invocation, call and task. Reconnect
+rediscovers the existing task.
+
 ## Saved website logins
 
 **Status: source candidate.** Memory → Website logins manages the reserved

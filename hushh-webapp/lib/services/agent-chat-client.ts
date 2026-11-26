@@ -1551,7 +1551,7 @@ async function streamAgentChatAttempt(input: {
       try {
         const output = await streamNativeCloudChat({
           request: { method: "POST", headers, body, signal: transportAbort.signal },
-          conversationId: threadId, isCurrent: current, handlers,
+          conversationId: threadId, ownerId: input.userId, isCurrent: current, handlers,
         });
         if (output.status === "error") throw new Error(formatAgentChatErrorMessage("", output.errorCode));
         if (!handlers.onNativeOutput && output.settledText) handlers.onToken?.(output.settledText);

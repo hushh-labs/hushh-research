@@ -8,6 +8,7 @@ from contextlib import nullcontext
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
 from ag_ui.core import RunFinishedEvent, TextMessageContentEvent
 from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.events import Event
@@ -166,6 +167,204 @@ async def test_native_runner_streams_and_settles_with_chat_app():
     ]
     assert DETACHED_ANSWER in texts
     assert "working" not in texts
+
+
+async def test_native_runner_projects_real_browser_hand_receipt_with_adk_generated_ids(monkeypatch):
+    from google.adk.agents import LlmAgent
+    from google.adk.models.base_llm import BaseLlm
+    from google.adk.models.llm_response import LlmResponse
+
+    from hushh_mcp.one_adk.computer_use_agent import browser_task_invocation, start_browser_task
+    from tests.helpers.pod_browser import task_runtime_fixture
+
+    class Provider(BaseLlm):
+        calls: int = 0
+
+        async def generate_content_async(self, llm_request, stream=False):
+            self.calls += 1
+            part = (
+                genai_types.Part(
+                    function_call=genai_types.FunctionCall(
+                        name="start_browser_task",
+                        args={
+                            "request_id": "native-browser-1",
+                            "goal": "Open the requested private page.",
+                            "allowed_origins": ["https://example.com"],
+                        },
+                    )
+                )
+                if self.calls == 1
+                else genai_types.Part(text="Browser task prepared.")
+            )
+            yield LlmResponse(content=genai_types.Content(role="model", parts=[part]))
+
+    fixture = task_runtime_fixture(monkeypatch)
+    app = build_chat_adk_app(
+        LlmAgent(
+            name="one", model=Provider(model="synthetic-provider"), tools=[start_browser_task]
+        ),
+        app_name="native_browser_probe",
+    )
+    sessions = InMemorySessionService()
+    session = await sessions.create_session(app_name=app.name, user_id="owner")
+    admission = PodUpgradeAdmission(log_resolver=lambda: None)
+    settled = AsyncMock()
+    identities = []
+
+    async with Runner(app=app, session_service=sessions) as runner:
+
+        async def open_fixture():
+            async for event in runner.run_async(
+                user_id=session.user_id,
+                session_id=session.id,
+                new_message=genai_types.Content(
+                    role="user", parts=[genai_types.Part(text="Open the selected page")]
+                ),
+                run_config=RunConfig(streaming_mode=StreamingMode.SSE),
+            ):
+                identities.extend(
+                    (event.invocation_id, response.id, response.response)
+                    for response in event.get_function_responses()
+                    if response.name == "start_browser_task"
+                )
+                yield event
+
+        try:
+            with browser_task_invocation(fixture.runtime, fixture.owner):
+                frames = [
+                    frame
+                    async for frame in native_chat_frames(
+                        open_fixture,
+                        owner_id=session.user_id,
+                        conversation_id=session.id,
+                        require_access=AsyncMock(),
+                        settle=settled,
+                        admission=admission,
+                        incarnation="native-browser",
+                    )
+                ]
+            assert len(identities) == 1
+            invocation_id, call_id, result = identities[0]
+            assert invocation_id and call_id.startswith("adk-")
+            assert result["status"] == "accepted"
+            receipts = [
+                json.loads(block.removeprefix(b"event: browser_task\ndata: "))
+                for frame in frames
+                for block in frame.split(b"\n\n")
+                if block.startswith(b"event: browser_task\ndata: ")
+            ]
+            assert receipts == [
+                {
+                    "invocationId": invocation_id,
+                    "toolCallId": call_id,
+                    "status": "accepted",
+                    "binding": {
+                        "owner_id": "owner",
+                        "task_id": result["binding"]["task_id"],
+                    },
+                }
+            ]
+            assert frames[-1] == b"event: done\ndata: {}\n\n"
+            settled.assert_awaited_once()
+            assert fixture.launcher.calls == 0  # Discovery never approves screen processing.
+            assert fixture.admission._states["epoch"].active == 1
+            assert (await admission.status(incarnation="native-browser"))["activeWork"] == 0
+        finally:
+            await fixture.runtime.drain()
+
+
+def _native_browser_receipt_event():
+    return Event(
+        author="one",
+        invocation_id="invocation:1",
+        content=genai_types.Content(
+            role="user",
+            parts=[
+                genai_types.Part(
+                    function_response=genai_types.FunctionResponse(
+                        id="call:1",
+                        name="start_browser_task",
+                        response={
+                            "status": "accepted",
+                            "binding": {"owner_id": "owner", "task_id": "browser_" + "a" * 32},
+                        },
+                    )
+                )
+            ],
+        ),
+    )
+
+
+def test_native_browser_receipt_is_closed_metadata_and_preserves_visible_text():
+    event = _native_browser_receipt_event()
+    response = event.content.parts[0].function_response.response
+    response.update({"url": "https://private.example", "password": "PRIVATE_CREDENTIAL"})
+    response["binding"]["token"] = "PRIVATE_GRANT"
+    event.content.role = "model"
+    event.content.parts.extend(
+        [
+            genai_types.Part(text="Visible answer"),
+            genai_types.Part.from_function_call(
+                name="start_browser_task", args={"goal": "PRIVATE_ARGUMENT"}
+            ),
+        ]
+    )
+    frame = encode_native_chat_output(event)
+    receipt, visible, _ = frame.split(b"\n\n")
+    assert json.loads(receipt.removeprefix(b"event: browser_task\ndata: ")) == {
+        "invocationId": "invocation:1",
+        "toolCallId": "call:1",
+        "status": "accepted",
+        "binding": {"owner_id": "owner", "task_id": "browser_" + "a" * 32},
+    }
+    assert json.loads(visible.removeprefix(b"data: "))["content"]["parts"] == [
+        {"text": "Visible answer"}
+    ]
+    assert b"PRIVATE_" not in frame and b"private.example" not in frame
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "refused",
+        "missing_binding",
+        "bad_task",
+        "empty_owner",
+        "large_owner",
+        "missing_call",
+        "bad_call",
+        "missing_invocation",
+        "foreign_agent",
+        "partial",
+        "other_tool",
+    ],
+)
+def test_native_browser_receipt_refuses_unaccepted_or_uncorrelated_output(fault):
+    event = _native_browser_receipt_event()
+    response = event.content.parts[0].function_response
+    if fault == "refused":
+        response.response["status"] = "blocked"
+    elif fault == "missing_binding":
+        response.response.pop("binding")
+    elif fault == "bad_task":
+        response.response["binding"]["task_id"] = "arbitrary-task"
+    elif fault == "empty_owner":
+        response.response["binding"]["owner_id"] = ""
+    elif fault == "large_owner":
+        response.response["binding"]["owner_id"] = "a" * 257
+    elif fault == "missing_call":
+        response.id = None
+    elif fault == "bad_call":
+        response.id = "private\ncall"
+    elif fault == "missing_invocation":
+        event.invocation_id = ""
+    elif fault == "foreign_agent":
+        event.author = "computer_use"
+    elif fault == "partial":
+        event.partial = True
+    else:
+        response.name = "unrelated_tool"
+    assert encode_native_chat_output(event) == b""
 
 
 async def test_native_stream_refuses_to_complete_when_access_ends_before_settlement():

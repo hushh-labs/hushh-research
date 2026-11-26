@@ -430,7 +430,11 @@ object prototypes. Specimen holdings are synthetic.
 
 The native runner rehearsal passes ADK events through
 `native_chat_output.py`. That projection keeps visible text and the read-only
-Hussh surface messages. It drops private thought, provider state, tool
+Hussh surface messages. An accepted `start_browser_task` result also emits the
+named `browser_task` SSE event with exactly `invocationId`, `toolCallId`,
+`status: "accepted"` and `binding: {owner_id, task_id}`. Correlation comes from
+the actual ADK invocation and function response. The projection retains only
+this bounded metadata. It omits private thought, provider state, tool
 arguments, unrelated tool results and renderer calls. The shared pod frame
 transport owns backpressure, owner-bound cancellation and request key expiry.
 The native app builder loads the installed Hussh catalog through the contract
@@ -453,6 +457,14 @@ the signed-in pod advertises `nativeAdkChatVersion: 1`. Native turns send one
 message or a connector decision. Current Shared, intro, and unsupported
 continuation flows use the AG-UI adapter. An admitted native stream that ends
 without a terminal frame uses the existing conversation recovery before retrying.
+
+The native Browser notice follows the validated `start` frame. The client checks
+the current owner and conversation, deduplicates the correlated invocation/call/task
+and invokes the existing `onBrowserTaskCreated` discovery callback. Multiple
+distinct tasks in one turn remain discoverable, including coalesced SSE frames.
+The notice stays in the in-flight observer, outside rendered A2UI/text and history.
+The existing approval-gated Browser card owns execution and consent. Replay and
+reconnect reuse task discovery rather than starting another Browser operation.
 
 The local Puppy bridge projects its own provider stream into the native Chat
 envelope. It uses a named `start` event for the local session ID and

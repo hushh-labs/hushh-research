@@ -1,5 +1,6 @@
 import { readNativeAdkTurn } from "@/lib/a2ui/native-adk-visual-stream";
 import { sendWhileAgentWakes } from "@/lib/agent/owner-pod-wake";
+import { browserTaskProgress } from "@/lib/computer-use/chat-progress";
 import { ApiService } from "./api-service";
 import { createAgentStreamLiveness } from "./agent-chat-liveness";
 import type { AgentChatStreamHandlers } from "./agent-chat-client";
@@ -24,10 +25,11 @@ export async function admitsNativeCloudChat(
 export async function streamNativeCloudChat(input: {
   request: RequestInit;
   conversationId: string;
+  ownerId: string;
   isCurrent: () => boolean;
   handlers: AgentChatStreamHandlers;
 }) {
-  const { request, conversationId, isCurrent, handlers } = input;
+  const { request, conversationId, ownerId, isCurrent, handlers } = input;
   const watchdog = new AbortController();
   const signal = request.signal ? AbortSignal.any([request.signal, watchdog.signal]) : watchdog.signal;
   const active = () => isCurrent() && !signal.aborted;
@@ -42,6 +44,7 @@ export async function streamNativeCloudChat(input: {
   );
   let started = false;
   let lastMessageId: string | undefined;
+  const browserReceipts = new Set<string>();
   liveness.start();
   try {
     const response = await liveness.fetch({ ...request, signal });
@@ -65,6 +68,16 @@ export async function streamNativeCloudChat(input: {
         handlers.onServerMessageId?.(lastMessageId);
       }
       handlers.onNativeOutput?.(output);
+    }, (receipt, sessionId) => {
+      if (!active() || !browserTaskProgress(receipt, ownerId).accepted) return;
+      if (sessionId !== conversationId) throw new Error("POD_CHAT_REQUEST_INVALID");
+      // Several frames may share a network chunk; the parser has already seen
+      // start even when its aggregate visual update has not been delivered yet.
+      if (!started) { started = true; handlers.onStart?.({ conversationId }); }
+      const key = JSON.stringify([receipt.invocationId, receipt.toolCallId, receipt.binding.task_id]);
+      if (browserReceipts.has(key) || !active()) return;
+      browserReceipts.add(key);
+      handlers.onBrowserTaskCreated?.();
     });
     if (!active()) throw new DOMException("Agent turn cancelled", "AbortError");
     return result;
