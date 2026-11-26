@@ -15,6 +15,7 @@ type CalendarConnectHeroProps = {
   /** Google authorization lapsed; announced to assistive tech only. */
   needsReauth: boolean;
   onConnect: () => void;
+  showSetupPermissions?: boolean;
   /** Sign-in progress and cancel affordance, rendered under the action. */
   children?: ReactNode;
 };
@@ -56,6 +57,7 @@ export function CalendarConnectHero({
   busy,
   needsReauth,
   onConnect,
+  showSetupPermissions = false,
   children,
 }: CalendarConnectHeroProps) {
   return (
@@ -104,7 +106,7 @@ export function CalendarConnectHero({
         </p>
       ) : null}
 
-      <CalendarSetupPermissions />
+      {showSetupPermissions ? <CalendarSetupPermissions /> : null}
 
       {children}
     </section>
