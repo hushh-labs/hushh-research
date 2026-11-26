@@ -116,6 +116,51 @@ def test_pin_has_its_own_immutable_lane_and_pinned_view(location_plans):
             connection.execute(text("SELECT * FROM public.one_location_chat_plans"))
 
 
+def test_origin_pagination_restores_large_audiences_without_cross_owner_cursors(location_plans):
+    service, db = location_plans
+    origin_id = str(uuid4())
+    first = offer(service, origin_id=origin_id)
+    db.execute_raw(
+        """INSERT INTO one_location_chat_plans
+          (user_id, person_user_id, origin_id, intent_hash, action, terms,
+           created_at, expires_at, executed_at, receipt)
+        SELECT user_id, person_user_id, origin_id, repeat(md5(n::text), 2), action, terms,
+               created_at, expires_at, executed_at, receipt
+        FROM one_location_chat_plans CROSS JOIN generate_series(1, 204) n
+        WHERE id = CAST(:id AS UUID)""",
+        {"id": first["planId"]},
+    )
+    plans = LocationChatPlanService(service())
+    page = plans.for_origin_page(user_id="owner", origin_id=origin_id)
+    assert len(page["plans"]) == 100
+    assert page["nextCursor"]
+    cursor = page["nextCursor"]
+    restored = list(page["plans"])
+    while page["nextCursor"]:
+        page = plans.for_origin_page(
+            user_id="owner", origin_id=origin_id, cursor=page["nextCursor"]
+        )
+        restored.extend(page["plans"])
+    assert len(restored) == len({row["planId"] for row in restored}) == 205
+    assert plans.for_origin_page(user_id="other", origin_id=origin_id, cursor=cursor) == {
+        "plans": [],
+        "nextCursor": None,
+    }
+    foreign = offer(service, origin_id=str(uuid4()))
+    assert plans.for_origin_page(
+        user_id="owner", origin_id=origin_id, cursor=foreign["planId"]
+    ) == {"plans": [], "nextCursor": None}
+    db.execute_raw(
+        "UPDATE one_location_chat_plans SET receipt=NULL, executed_at=NULL "
+        "WHERE origin_id=CAST(:origin AS UUID)",
+        {"origin": origin_id},
+    )
+    db.execute_raw("UPDATE one_location_recipient_keys SET status='rotated' WHERE user_id='other'")
+    rotated = plans.for_origin_page(user_id="owner", origin_id=origin_id)
+    assert rotated["plans"] == []
+    assert rotated["nextCursor"]
+
+
 def test_erasure_removes_reviews_for_either_party(location_plans):
     _, db = location_plans
     db.execute_raw("""

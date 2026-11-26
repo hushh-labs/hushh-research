@@ -52,9 +52,31 @@ a visitor, and verify that stopping it from Chat or Location ends access.
 Repeat from typed Chat using “Private with Maya and Family” followed by “Make
 it 30 minutes.” Check that the review carries the chosen audience forward and
 that a typed yes leaves confirmation on the card. Try an ambiguous contact
-name and resolve it from the picker. Check that Location support requests,
-Circle membership questions, and map navigation still use their existing
-tools, and that a subsequent Mail or Calendar request resumes its own flow.
+name and resolve it from the picker. Check that Location support requests and
+Circle membership questions still use their existing read tools, and that a
+subsequent Mail or Calendar request resumes its own flow. Explicit navigation
+requests may open Location; sharing and requesting must keep the Chat route
+and conversation mounted.
+
+Repeat share and request through an existing private agent that returns the
+registered Location navigation or recipient-selection action. The same inline
+review must open. A blocked overlay, owner change or unavailable action must
+prevent the action. This compatibility path must not execute a mutation or
+claim that a share was sent before confirmation.
+
+From Chat, test Location setup, account sharing off, device permission denied,
+device Location Services off and paused updates. Recover through the card and
+retry the original action with its audience retained. Browser and OS settings
+may require a system prompt or Settings; the app must keep the pending review
+in Chat. Test Circles, saved places, public link management, private check-in,
+nearby check-in and settings from their inline reviews. Verify each change in
+the Location workspace and reflect changes made there back in Chat.
+
+For Save My Soul (SMS), review the current emergency contacts in Chat, then
+send only to consenting test accounts. Change the roster or recipient key
+between review and send and require a fresh review. Check per-contact delivery,
+partial failure, email fallback failure and Stop while email fallback is still
+pending. A stopped alert must not resume ordinary sharing that was already off.
 
 1. In ONE’s main Chat, type a request to share your current location with a
    named person. Confirm the recipient, preview the point, and tap to send.

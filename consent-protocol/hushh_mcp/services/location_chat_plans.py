@@ -522,22 +522,36 @@ class LocationChatPlanService:
         return self._project(self._read(user_id, plan_id))
 
     def for_origin(self, *, user_id: str, origin_id: str) -> list[dict[str, Any]]:
+        return self.for_origin_page(user_id=user_id, origin_id=origin_id)["plans"]
+
+    def for_origin_page(
+        self, *, user_id: str, origin_id: str, cursor: str | None = None
+    ) -> dict[str, Any]:
         rows = self.location._execute_many(
-            """SELECT * FROM one_location_chat_plans
-            WHERE user_id = :user_id AND origin_id = CAST(:origin_id AS UUID)
-              AND (receipt IS NOT NULL OR expires_at > clock_timestamp())
-            ORDER BY created_at DESC, id DESC LIMIT 100""",
-            {"user_id": user_id, "origin_id": _uuid(origin_id)},
+            """SELECT p.* FROM one_location_chat_plans p
+            WHERE p.user_id = :user_id AND p.origin_id = CAST(:origin_id AS UUID)
+              AND (p.receipt IS NOT NULL OR p.expires_at > clock_timestamp())
+              AND (CAST(:cursor AS UUID) IS NULL OR (p.created_at, p.id) < (
+                SELECT c.created_at, c.id FROM one_location_chat_plans c
+                WHERE c.id = CAST(:cursor AS UUID)
+                  AND c.user_id = :user_id AND c.origin_id = CAST(:origin_id AS UUID)
+              ))
+            ORDER BY p.created_at DESC, p.id DESC LIMIT 101""",
+            {
+                "user_id": user_id,
+                "origin_id": _uuid(origin_id),
+                "cursor": _uuid(cursor) if cursor else None,
+            },
         )
         plans = []
-        for row in rows:
+        for row in rows[:100]:
             try:
                 plans.append(self._project(row))
             except OneLocationAgentError as exc:
                 if exc.code != "LOCATION_RECIPIENT_UNAVAILABLE":
                     raise
                 # Rotation invalidates this pending review, not sibling receipts.
-        return plans
+        return {"plans": plans, "nextCursor": str(rows[99]["id"]) if len(rows) > 100 else None}
 
     def purge_expired_reviews(self) -> int:
         row = self.location._execute_one(

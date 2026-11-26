@@ -22,7 +22,7 @@ const recipient = (over: Partial<OneLocationRecipient> = {}): OneLocationRecipie
 describe("buildBackgroundShareSession", () => {
   it("maps active grants with a resolvable recipient key", () => {
     const session = buildBackgroundShareSession({
-      activeGrants: [grant()],
+      activeGrants: [grant(), grant({ id: "check-in", shareKind: "check_in" }), grant({ id: "pin", shareKind: "pin" })],
       recipients: [recipient()],
       vaultOwnerToken: "tok",
       backendBaseUrl: "https://api.example.com",

@@ -1706,6 +1706,7 @@ export class OneLocationService {
     reason?: string;
     shareKind?: string;
     sourceCircleId?: string | null;
+    isEffectCurrent?: () => boolean;
   }): Promise<{
     grant: OneLocationGrant;
     envelope: OneLocationEncryptedEnvelope;
@@ -1719,6 +1720,7 @@ export class OneLocationService {
       "/api/one/location/grants/with-envelope",
       {
         method: "POST",
+        ...(params.isEffectCurrent ? { isEffectCurrent: params.isEffectCurrent } : {}),
         headers: jsonAuthHeaders(params.vaultOwnerToken),
         body: JSON.stringify({
           recipientUserId: params.recipientUserId,
