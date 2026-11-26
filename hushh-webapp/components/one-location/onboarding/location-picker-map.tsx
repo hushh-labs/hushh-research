@@ -72,6 +72,8 @@ export interface LocationPickerMapProps {
   reverseGeocode?: (lat: number, lng: number) => Promise<string | null>;
   /** Re-center the map on the device GPS fix. */
   onLocateMe?: () => Promise<{ latitude: number; longitude: number } | null>;
+  /** Restart the onboarding capture, including permission and map setup. */
+  onRecapture?: () => void;
   /** Emitted when the owner confirms the pin position. */
   onConfirm: (picked: PickedLocation) => void;
   /**
@@ -148,6 +150,7 @@ export function LocationPickerMap({
   initialAccuracyM = null,
   reverseGeocode,
   onLocateMe,
+  onRecapture,
   onConfirm,
   onReadyChange,
   onSelectionChange,
@@ -168,7 +171,8 @@ export function LocationPickerMap({
   // Only the web renderer needs the browser JS SDK; skip loading it on native.
   const { status: webStatus } = useGoogleMaps({ enabled: !native });
   const [nativeStatus, setNativeStatus] = useState<MapsLoadStatus>("loading");
-  const status = native ? nativeStatus : webStatus;
+  const [webMapStatus, setWebMapStatus] = useState<MapsLoadStatus>("loading");
+  const status = native ? nativeStatus : webStatus === "ready" ? webMapStatus : webStatus;
   const { resolvedTheme } = useTheme();
 
   const colorScheme = resolvedTheme === "dark" ? "DARK" : "LIGHT";
@@ -372,17 +376,26 @@ export function LocationPickerMap({
   // force a fresh node when the theme flips.
   useEffect(() => {
     if (native) return;
-    if (status !== "ready" || !containerRef.current || mapRef.current) return;
+    if (webStatus !== "ready" || !containerRef.current || mapRef.current) return;
     const start = centerRef.current;
-    const map = new google.maps.Map(containerRef.current, {
-      center: start,
-      zoom: 17,
-      disableDefaultUI: true,
-      clickableIcons: false,
-      gestureHandling: "greedy",
-      colorScheme,
-    });
+    let map: google.maps.Map;
+    try {
+      map = new google.maps.Map(containerRef.current, {
+        center: start,
+        zoom: 17,
+        disableDefaultUI: true,
+        clickableIcons: false,
+        gestureHandling: "greedy",
+        colorScheme,
+      });
+    } catch {
+      setWebMapStatus("error");
+      return;
+    }
     mapRef.current = map;
+    // The SDK can load even when the map tiles never arrive.
+    setWebMapStatus(compact ? "loading" : "ready");
+    const tiles = compact ? map.addListener("tilesloaded", () => setWebMapStatus("ready")) : null;
 
     const dragStart = map.addListener("dragstart", startDragging);
     const idle = map.addListener("idle", () => {
@@ -404,6 +417,7 @@ export function LocationPickerMap({
       dragStart.remove();
       idle.remove();
       click.remove();
+      tiles?.remove();
       if (debounceRef.current !== null) {
         window.clearTimeout(debounceRef.current);
         debounceRef.current = null;
@@ -412,7 +426,7 @@ export function LocationPickerMap({
       mapRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [native, status, colorScheme]);
+  }, [native, webStatus, colorScheme, compact]);
 
   // NATIVE: build the map with the SAME @capacitor/google-maps SDK as "Your
   // Map". This authenticates by app bundle id (native key), so it renders inside
@@ -607,6 +621,11 @@ export function LocationPickerMap({
   useEffect(() => {
     if (!canConfirm || !onSelectionChange) return;
     const { lat, lng } = centerRef.current;
+    // Reporting the untouched seed as a pick cancels the owner's pending
+    // reverse-geocode. Only publish a real edit or a newly resolved address.
+    const seed = initialPinRef.current;
+    if (!hasInteractedRef.current && lat === seed.lat && lng === seed.lng &&
+        (!address || address === seed.address)) return;
     onSelectionChange({ latitude: lat, longitude: lng, address });
   }, [address, canConfirm, onSelectionChange]);
 
@@ -703,12 +722,12 @@ export function LocationPickerMap({
 
           {/* Keep the host through loading and timeout recovery. The ready
               effect must receive the same mounted element when the SDK arrives. */}
-          {!native && status !== "error" ? (
+          {!native && webStatus !== "error" ? (
             <div key={colorScheme} ref={containerRef} className="h-full w-full" />
           ) : null}
 
           {unavailable ? (
-            <LocationPickerUnavailable descriptionId={mapUnavailableDescriptionId} compact={compact} />
+            <LocationPickerUnavailable descriptionId={mapUnavailableDescriptionId} compact={compact} onRecapture={onRecapture} />
           ) : status !== "ready" ? (
             // Overlay (not a replacement): on native the map element stays mounted
             // underneath so create() can resolve; this loader simply covers it
@@ -770,7 +789,9 @@ export function LocationPickerMap({
                 </div>
               </div>
 
-              {onLocateMe ? (
+              {onRecapture ? (
+                <button type="button" onClick={onRecapture} className="absolute bottom-3 right-3 min-h-11 rounded-full bg-white px-4 text-[color:var(--app-accent-deep,#0b62c4)] shadow-sm dark:bg-[#1c2430] dark:text-[#9bc7f5]">Retry location capture</button>
+              ) : onLocateMe ? (
                 <button
                   type="button"
                   onClick={() => void handleLocateMe()}
