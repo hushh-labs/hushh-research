@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from ag_ui.core import RunAgentInput
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Discriminator,
+    Field,
+    Tag,
+    ValidationError,
+    model_validator,
+)
 from sse_starlette.sse import EventSourceResponse
 
 from api.routes.external_connectors import (
@@ -18,6 +26,7 @@ from api.routes.one import pod_agent_chat_connectors, pod_command_proposals
 from api.routes.one.agent_context import sanitize_agent_context
 from api.routes.one.pod_chat_owner import owner_context
 from api.routes.one.pod_consent_chat import admit_continuation
+from api.routes.one.pod_native_chat_request import NativePodChatRequest
 from api.routes.one.pod_turn import PodTurnRequest, _require_enabled
 from hushh_mcp.one_adk import owner_style
 from hushh_mcp.one_adk.account_context_contract import (
@@ -45,6 +54,7 @@ from hushh_mcp.one_adk.location_chat_proposal import (
 )
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
+from hushh_mcp.one_adk.native_pod_chat import AdmittedNativePodTurn, NativeMcpDecision
 from hushh_mcp.one_adk.nws_turn_context import STATE_NWS_REPORT, admit_nws_report
 from hushh_mcp.one_adk.plaid_connector_tools import (
     STATE_PLAID_CLIENT_READY,
@@ -232,10 +242,16 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
                 parameters=ACCOUNT_CONTEXT_PARAMETERS,
             )
         )
+    return _trusted_turn_state(input.thread_id, forwarded, owner, account_enabled=account_enabled)
+
+
+def _trusted_turn_state(
+    thread_id: str, forwarded: dict, owner: PodChatContext, *, account_enabled: bool = False
+) -> tuple[dict, PodTurnRequest]:
     options = PodTurnRequest.model_validate(
         {
-            "message": "AG-UI turn",
-            "conversationId": input.thread_id,
+            "message": "Chat turn",
+            "conversationId": thread_id,
             **{
                 key: forwarded[key]
                 for key in (
@@ -282,10 +298,10 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
             forwarded, owner_admitted=True
         ),
         STATE_MCP_APPROVAL: admit_resume_receipt(
-            forwarded, owner_id=owner.owner, conversation_id=input.thread_id
+            forwarded, owner_id=owner.owner, conversation_id=thread_id
         ),
         STATE_MCP_CONFIGURATION: admit_turn_configurations(
-            forwarded, owner_id=owner.owner, conversation_id=input.thread_id
+            forwarded, owner_id=owner.owner, conversation_id=thread_id
         ),
         "temp:hussh:requested_person_selection": str(forwarded.get("personSelectionHandle") or "")[
             :128
@@ -301,7 +317,7 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         "hussh:consent_token": store_request_secret(
             owner.authority.local_token(owner.claims), ttl_seconds=240
         ),
-        "hussh:conversation_id": input.thread_id,
+        "hussh:conversation_id": thread_id,
         "hussh:data_door_grants": {
             key: store_request_secret(value, ttl_seconds=240)
             for key, value in (options.data_door_grants or {}).items()
@@ -322,8 +338,57 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
     return state, options
 
 
+def _stream_response(frames) -> EventSourceResponse:
+    return EventSourceResponse(
+        frames,
+        headers={
+            "Cache-Control": "no-cache, no-store, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+async def _native_chat(input: NativePodChatRequest, owner: PodChatContext) -> EventSourceResponse:
+    try:
+        state, options = _trusted_turn_state(input.thread_id, dict(input.forwarded_props), owner)
+    except (ValidationError, owner_style.OwnerStyleError):
+        raise HTTPException(400, detail={"code": "POD_CHAT_REQUEST_INVALID"}) from None
+    except ActionDirectiveAuthorityError:
+        raise HTTPException(409, detail={"code": "MCP_REVIEW_CHANGED"}) from None
+    except ExternalMcpError as exc:
+        raise HTTPException(400, detail={"code": exc.code}) from None
+
+    decision = (
+        NativeMcpDecision(input.decision.interrupt_id, input.decision.confirmed)
+        if input.decision is not None
+        else None
+    )
+    if bool(state[STATE_MCP_APPROVAL]) != bool(decision and decision.confirmed):
+        raise HTTPException(409, detail={"code": "MCP_REVIEW_CHANGED"})
+    state["temp:hussh:split_dynamic_context"] = True
+    await owner.require_access()
+    turn = AdmittedNativePodTurn(input.thread_id, input.run_id, state, input.message, decision)
+    return _stream_response(owner.stream_native(options, turn))
+
+
+def _turn_transport(value: Any) -> str:
+    if isinstance(value, NativePodChatRequest):
+        return value.transport
+    if isinstance(value, dict) and "transport" in value:
+        return "native-adk-v1"
+    return "ag-ui"
+
+
+PodChatRequest = Annotated[
+    Annotated[NativePodChatRequest, Tag("native-adk-v1")] | Annotated[RunAgentInput, Tag("ag-ui")],
+    Discriminator(_turn_transport),
+]
+
+
 @router.post("")
-async def chat(input: RunAgentInput, owner: PodChatContext = Depends(context)):
+async def chat(input: PodChatRequest, owner: PodChatContext = Depends(context)):
+    if isinstance(input, NativePodChatRequest):
+        return await _native_chat(input, owner)
     try:
         from hushh_mcp.one_adk.pod_mcp_restore import restore_resume
 
@@ -388,13 +453,7 @@ async def chat(input: RunAgentInput, owner: PodChatContext = Depends(context)):
     agent = await owner.build_agent(options)
     # Never merge client state or forward credentials into SDK/session state.
     admitted = input.model_copy(update={"state": state, "forwarded_props": {}})
-    return EventSourceResponse(
-        pod_chat_events(agent, admitted, owner_id=owner.owner),
-        headers={
-            "Cache-Control": "no-cache, no-store, no-transform",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return _stream_response(pod_chat_events(agent, admitted, owner_id=owner.owner))
 
 
 @router.get("/conversations/{user_id}")
@@ -434,6 +493,7 @@ async def history(
     limit: int = Query(50, ge=1, le=100),
     before: str | None = Query(default=None, max_length=160),
     owner: PodChatContext = Depends(context),
+    transport: Literal["native-adk-v1"] | None = None,
 ):
     pending_before_read = conversation_id in _ACTIVE_THREADS or turn_is_preparing(
         owner.owner, conversation_id
@@ -487,7 +547,7 @@ async def history(
 
     result["mcpReviews"] = [
         {"interruptId": value["interruptId"], "reference": value["reference"]}
-        for value in await pending_reviews(owner, session)
+        for value in await pending_reviews(owner, session, use_native_ids=transport is not None)
     ]
     return result
 
