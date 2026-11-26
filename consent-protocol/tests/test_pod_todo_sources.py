@@ -370,13 +370,50 @@ def test_calendar_grant_recovery_is_not_an_owner_authentication_failure(owner_ap
 def test_unavailable_mail_store_is_a_safe_retryable_failure(owner_app, monkeypatch):
     from hushh_mcp.services import pod_connector_credentials as store
 
-    def unavailable(_connector):
+    def unavailable(connector_id, *, account_id):
+        assert (connector_id, account_id) == ("gmail", "")
         raise store.ConnectorCredentialsUnavailable("fixture unavailable")
 
     monkeypatch.setattr(store, "active_connector_credential", unavailable)
     response = request(owner_app, MAIL)
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "MAIL_READ_UNAVAILABLE"
+    assert owner_app.google.requests == []
+
+
+def test_selected_followup_mailbox_store_failure_is_retryable(owner_app, monkeypatch):
+    from api.routes.one import pod_mail_followups
+    from hushh_mcp.services import pod_connector_credentials as store
+
+    owner_app.client.app.include_router(pod_mail_followups.router)
+    primary = store.active_connector_credential("gmail")
+    slot = "selected-mailbox"
+    selected = SimpleNamespace(
+        credential_id=primary.credential_id,
+        account_id=slot,
+        account_subject=primary.account_subject,
+        status=store.STATUS_CONNECTED,
+    )
+    looked_up = []
+
+    def lookup(account):
+        assert account == "selected"
+        return selected
+
+    def unavailable(connector_id, *, account_id):
+        looked_up.append((connector_id, account_id))
+        raise store.ConnectorCredentialsUnavailable("fixture unavailable")
+
+    monkeypatch.setattr(store, "active_mail_account", lookup)
+    monkeypatch.setattr(store, "active_connector_credential", unavailable)
+    response = owner_app.client.post(
+        "/api/one/pod/gmail/followups/account",
+        headers={"Authorization": "Bearer owner-fixture"},
+        json={"account": "selected", "connection": primary.credential_id},
+    )
+    assert looked_up == [("gmail", slot)]
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "MAIL_FOLLOWUP_UNAVAILABLE"
     assert owner_app.google.requests == []
 
 

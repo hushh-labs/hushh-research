@@ -25,8 +25,20 @@ from hushh_mcp.services.pod_mail_followups import (
 router = APIRouter(prefix="/api/one/pod/gmail/followups", route_class=PrivateNoStoreRoute)
 
 
+MailOperation = Literal["account", "search", "open", "track", "check", "draft", "document"]
+REQUEST_TYPES: dict[MailOperation, type[Selection]] = {
+    "account": Selection,
+    "search": Search,
+    "open": Source,
+    "track": Track,
+    "check": Tracked,
+    "draft": Track,
+    "document": Document,
+}
+
+
 async def mail_followups(
-    operation: Literal["account", "search", "open", "track", "check", "draft", "document"],
+    operation: MailOperation,
     request: Request,
     authorization: str | None = Header(default=None),
     x_consent_token: str | None = Header(default=None, alias="X-Consent-Token"),
@@ -45,19 +57,8 @@ async def mail_followups(
                 if len(data) + len(chunk) > 32768:
                     raise _refuse(413, "MAIL_REQUEST_TOO_LARGE")
                 data.extend(chunk)
-            classes = {
-                "account": Selection,
-                "search": Search,
-                "open": Source,
-                "track": Track,
-                "check": Tracked,
-                "draft": Track,
-                "document": Document,
-            }
             try:
-                selection = (
-                    classes[operation].model_validate_json(data) if operation in classes else None
-                )
+                selection = REQUEST_TYPES[operation].model_validate_json(data)
             except ValidationError:
                 raise _refuse(422, "INVALID_MAIL_REQUEST") from None
             result = await run_mail(
@@ -72,12 +73,14 @@ async def mail_followups(
     except HTTPException:
         raise
     except GmailMetadataError as exc:
+        if exc.code == "retryable":
+            raise _refuse(503, "MAIL_FOLLOWUP_UNAVAILABLE") from None
         raise _refuse(409, "MAIL_" + exc.code.upper()) from None
     except Exception:
         raise _refuse(503, "MAIL_FOLLOWUP_UNAVAILABLE") from None
 
 
-def register(operation: str) -> None:
+def register(operation: MailOperation) -> None:
     async def handle(
         request: Request,
         authorization: str | None = Header(default=None),
@@ -90,5 +93,5 @@ def register(operation: str) -> None:
     )
 
 
-for operation in ("account", "search", "open", "track", "check", "draft", "document"):
+for operation in REQUEST_TYPES:
     register(operation)
