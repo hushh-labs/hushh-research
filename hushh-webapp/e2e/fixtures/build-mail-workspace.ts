@@ -16,7 +16,7 @@ export async function buildMailWorkspaceFixture(followups = false) {
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "mail-workspace-"));
   fixtureDir = outDir;
   const boundaries = path.join(root, "e2e/fixtures/mail-workspace-boundaries.tsx");
-    const stubbed = ['next/navigation', '@/lib/consent/use-consent-pending-summary-count', '@/lib/feed/use-feed-unread-count', '@/lib/firebase/config', '@/lib/firebase/auth-context', '@/hooks/use-auth', '@/lib/vault/vault-context', '@/hooks/use-effective-avatar-url', '@/lib/persona/persona-context', '@/lib/capacitor/native-presentation-regions', '@/lib/services/vault-service', '@/lib/flows/delete-account', '@/lib/profile/gmail-connector-store', '@/lib/kai/actions/voice-surface-metadata', '@/lib/agent/local-onboarding-actions', '@/lib/capacitor', '@/lib/services/pre-vault-user-state-service', '@/lib/services/kyc-identity-profile-pkm-service', '@/lib/services/gmail-information-requests-service', '@/components/vault/vault-unlock-dialog', '@/lib/services/api-service'];
+    const stubbed = ['@/components/agent/agent-bar', '@/components/agent/native-agent-dock', '@/components/agent/location-command-provider', 'next/navigation', '@/lib/consent/use-consent-pending-summary-count', '@/lib/feed/use-feed-unread-count', '@/lib/firebase/config', '@/lib/firebase/auth-context', '@/hooks/use-auth', '@/lib/vault/vault-context', '@/hooks/use-effective-avatar-url', '@/lib/persona/persona-context', '@/lib/capacitor/native-presentation-regions', '@/lib/services/vault-service', '@/lib/flows/delete-account', '@/lib/profile/gmail-connector-store', '@/lib/kai/actions/voice-surface-metadata', '@/lib/agent/local-onboarding-actions', '@/lib/capacitor', '@/lib/services/pre-vault-user-state-service', '@/lib/services/kyc-identity-profile-pkm-service', '@/lib/services/gmail-information-requests-service', '@/components/vault/vault-unlock-dialog', '@/lib/services/api-service'];
     const receiptResource = path.join(root, 'e2e/fixtures/mail-receipt-resource.ts');
   await build({
     configFile: false,
@@ -44,10 +44,10 @@ export async function buildMailWorkspaceFixture(followups = false) {
     ],
     resolve: {
       alias: [
-        ...(followups ? ["@/lib/services/private-google-connections", "@/lib/one/google-native-connect",
+        ...["@/lib/services/private-google-connections", "@/lib/one/google-native-connect",
           "@/lib/services/todo-list-pkm-service", "@/lib/services/mail-followups-service"].map(find => ({
           find, replacement: path.join(root, "e2e/fixtures/mail-followups-boundaries.ts")
-        })) : []),
+        })),
         ...stubbed.map(find => ({ find: new RegExp(`^${find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`), replacement: boundaries })),
         { find: '@/lib/services/mail-receipt-resource-service', replacement: receiptResource },
         { find: "@", replacement: root },
