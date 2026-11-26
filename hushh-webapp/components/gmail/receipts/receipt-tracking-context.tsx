@@ -81,7 +81,11 @@ export function ReceiptTrackingProvider({
         setStatus("error");
       });
     const stopListening = subscribeDurableOwnerReset((owner) => { if (owner === userId) setAttempt((value) => value + 1); });
-    return () => { stopListening(); };
+    return () => {
+      generation.current += 1;
+      loaded.current = null;
+      stopListening();
+    };
   }, [ready, userId, vaultKey, vaultOwnerToken, accountKey, attempt, session]);
 
   const apply = useCallback<ReceiptTrackingValue["apply"]>((change) => {
