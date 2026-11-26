@@ -102,3 +102,58 @@ async def test_two_google_mailboxes_keep_separate_custody_and_targeted_disconnec
     restored, _ = await pod_connector_credentials.read_connector_credentials(log, hushh_id=OWNER)
     assert list(restored) == ["gmail"]
     assert client.get(accounts_path, headers=HUB).status_code == 403
+
+
+async def test_three_mailboxes_resolve_separate_refresh_grants_after_disconnect(request):
+    from hushh_mcp.services.pod_connector_tokens import PodGoogleTokenSource
+    from hushh_mcp.services.pod_gmail_local import PodGmailConnection
+
+    log, google = request.getfixturevalue("pod")
+    client = _client()
+    issued = _now_ms() - 1000
+    addresses = ["a@team.example", "b@team.example", "c@other.example"]
+    for index, address in enumerate(addresses):
+        google.token_answer[1]["id_token"] = _id_token(
+            sub=str(10000 + index), email=address, email_verified=True
+        )
+        google.token_answer[1]["refresh_token"] = "fixture-" + address
+        response = client.put(
+            PATH, json=_mail_envelope(issued + index, {"mode": "add"}), headers=OWNER_SESSION
+        )
+        assert response.status_code == 200
+
+    async def refresh(_url, form):
+        return 200, {
+            "access_token": "access-" + form["refresh_token"],
+            "expires_in": 3600,
+            "scope": "https://www.googleapis.com/auth/gmail.readonly",
+        }
+
+    tokens = PodGoogleTokenSource(log_resolver=lambda: log, post=refresh, clock=lambda: 1000)
+    inventory = PATH + "/accounts"
+    accounts = {
+        row["email"]: row for row in client.get(inventory, headers=OWNER_SESSION).json()["accounts"]
+    }
+    assert set(accounts) == set(addresses)
+
+    async def verify(address):
+        row = accounts[address]
+        held = pod_connector_credentials.active_mail_account(row["accountId"])
+        assert held.credential_id == row["credentialId"]
+        gmail = PodGmailConnection(OWNER, account_id=held.account_id, token_source=tokens)
+        assert await gmail._token(OWNER, "read") == "access-fixture-" + address
+
+    for address in addresses:
+        await verify(address)
+    removed = accounts[addresses[1]]
+    assert (
+        client.delete(
+            inventory + "/" + removed["accountId"],
+            params={"credential_id": removed["credentialId"]},
+            headers=OWNER_SESSION,
+        ).json()["status"]
+        == "absent"
+    )
+    assert pod_connector_credentials.active_mail_account(removed["accountId"]) is None
+    await verify(addresses[0])
+    await verify(addresses[2])
