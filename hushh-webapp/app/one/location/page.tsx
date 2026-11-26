@@ -168,6 +168,7 @@ import { resolveContactSourceProbeFailure } from "@/lib/contacts/contact-source-
 import { createContactSyncAccountPhoneResolver } from "@/lib/contacts/contact-sync-identity";
 import { useContactDiscoverabilityConsent } from "@/lib/contacts/use-contact-discoverability-consent";
 import { isWeb } from "@/lib/capacitor/platform";
+import { withDeadline } from "@/lib/utils/with-deadline";
 import { apiErrorCode } from "@/lib/services/api-client";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { isLocationRequestPending } from "@/lib/one-location/request-expiry";
@@ -4540,7 +4541,7 @@ export function OneLocationAgentPageContent({
     // block every share path and pin the toggle off whenever the platform could
     // not introspect its own permission — which is every iPhone, since WebKit
     // has no `geolocation` entry in the Permissions API.
-    const nextPermission = await OneLocationService.getPermissionState().catch(
+    const nextPermission = await withDeadline(OneLocationService.getPermissionState(), Date.now() + 3_000).catch(
       () => ({
         state: "prompt" as const,
         precise: null,
@@ -4747,7 +4748,7 @@ export function OneLocationAgentPageContent({
       } catch (error) {
         if (options?.isStale?.()) return { ready: false };
         const nextPermission =
-          await OneLocationService.getPermissionState().catch(() => null);
+          await withDeadline(OneLocationService.getPermissionState(), Date.now() + 3_000).catch(() => null);
         if (options?.isStale?.()) return { ready: false };
         if (nextPermission) {
           setPermission(nextPermission);
@@ -13666,7 +13667,7 @@ export function OneLocationAgentPageContent({
 
   // The optional Now banner owns saving places after onboarding. Coalesce taps
   // and retain the account epoch while device/network work settles.
-  const openSavedPlaceFromBanner = useCallback((activateLocation = true, showModal = true): Promise<boolean> => {
+  const openSavedPlaceFromBanner = useCallback((activateLocation = true, showModal = true, retryCapture = false): Promise<boolean> => {
       if (savedLocationSessionUserId !== auth.userId || !auth.userId) {
         return Promise.resolve(false);
       }
@@ -13699,11 +13700,12 @@ export function OneLocationAgentPageContent({
           isStale: () => !intentIsCurrent(),
           autoOpenSettings: false,
           announce: showModal,
+          ...(!showModal ? { getMaxAgeMs: () => 0 } : {}),
         });
         if (!intentIsCurrent()) return false;
         // Setup only previews the point until Save & continue. Recover a
         // recent same-session measurement if the next acquisition timed out.
-        const recent = !activateLocation && readiness.failure === "no-fix"
+        const recent = !activateLocation && !retryCapture && readiness.failure === "no-fix"
           ? LocationBus.getRecentMeasuredFix(userId, 30_000)
           : null;
         const point: PlainLocationPoint | null = readiness.point ?? (recent
@@ -14231,7 +14233,7 @@ export function OneLocationAgentPageContent({
 
   // Use the saved-place acquisition owner without opening another surface.
   const handlePrepareOnboardingLocation = useCallback(
-    () => openSavedPlaceFromBanner(false, false),
+    (reason: "entry" | "retry") => openSavedPlaceFromBanner(false, false, reason === "retry"),
     [openSavedPlaceFromBanner],
   );
 
@@ -14294,6 +14296,8 @@ export function OneLocationAgentPageContent({
           place={{
             address: onboardingPlace?.address ?? null,
             loadingAddress: onboardingPlace?.loadingAddress ?? false,
+            locationAccessBlocked: locationDenialObserved || Boolean(locationBlockReason(permission)),
+            onOpenLocationSettings: !isWeb() ? handleOpenLocationSettings : undefined,
             saving: onboardingPlace?.saving ?? false,
             mapInitial: onboardingPlace?.point ?? null,
             onSearchPlaces: vaultOwnerToken ? searchBannerSavedPlaces : undefined,

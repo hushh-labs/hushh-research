@@ -1,7 +1,7 @@
 import { MapPin } from "@/components/icons";
 
 /** Recovery copy keeps the captured point usable when the renderer is down. */
-export function LocationPickerUnavailable({ descriptionId, compact }: { descriptionId: string; compact: boolean }) {
+export function LocationPickerUnavailable({ descriptionId, compact, onRecapture }: { descriptionId: string; compact: boolean; onRecapture?: () => void }) {
   return (
     <div
       role="status"
@@ -17,8 +17,9 @@ export function LocationPickerUnavailable({ descriptionId, compact }: { descript
         id={descriptionId}
         className="text-[13px] font-medium text-[#5b6472] dark:text-[#9aa6b6]"
       >
-        {compact ? "Map unavailable. Check the captured address." : "The interactive map isn't available right now. You can continue with the captured point and complete the address manually."}
+        {compact ? "Map preview unavailable. You can enter the address for this point." : "The interactive map isn't available right now. You can continue with the captured point and complete the address manually."}
       </p>
+      {onRecapture && <button type="button" onClick={onRecapture} className="min-h-11 rounded-full bg-white px-4 text-[color:var(--app-accent-deep,#0b62c4)] shadow-sm dark:bg-[#1c2430] dark:text-[#9bc7f5]">Retry location capture</button>}
     </div>
   );
 }
