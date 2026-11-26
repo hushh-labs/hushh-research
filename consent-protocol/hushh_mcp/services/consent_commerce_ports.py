@@ -289,6 +289,17 @@ async def free_scope_lineage(db: Any, user_id: str, scope: str, agent_id: str | 
 
 async def append_external_event(service: Any, event: dict, connection: Any = None) -> int:
     from hushh_mcp.consent.paid_admission import is_paid_grant, validate_free_grant_commit
+    from hushh_mcp.consent.pkm_scope_policy import is_owner_item_grant_scope
+
+    if (
+        event["action"] in {"CONSENT_DENIED", "CANCELLED", "REVOKED"}
+        and event.get("request_id")
+        and event["scope"].startswith("attr.credentials.")
+        and is_owner_item_grant_scope(event["scope"])
+    ):
+        from hushh_mcp.services.owner_item_grants import commit_owner_item_terminal
+
+        return await commit_owner_item_terminal(service, event, connection)
 
     if (
         (event["metadata"] or {}).get("upfront_price_reviewed") is True
@@ -342,6 +353,10 @@ async def append_external_event(service: Any, event: dict, connection: Any = Non
         and event["request_id"]
         and not is_paid_grant(event["metadata"])
     ):
+        if is_owner_item_grant_scope(event["scope"]):
+            from hushh_mcp.services.owner_item_grants import commit_owner_item_grant
+
+            return await commit_owner_item_grant(service, event)
         event_id = await commit_free_event(service, event, validate_free_grant_commit)
         if event_id is not None:
             return event_id

@@ -808,7 +808,7 @@
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "c77979736702511bdbcdea1c9d28c0ab07aa66b821d1002344ef5941e4903ee5",
+      "system_instruction_sha256": "2d74346b897120f0437dcb400dfc290999428c622684658c86bcf29f787c595b",
       "telemetry_namespace": "agent.computer_use",
       "tools": [],
       "ui_type": "chat",

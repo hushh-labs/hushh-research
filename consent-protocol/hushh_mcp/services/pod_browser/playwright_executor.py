@@ -59,6 +59,8 @@ class PlaywrightExecutor:
         self._captured_navigation: tuple[int, str] | None = None
         self._main_frame_id: str | None = None
         self._redirects = BrowserRedirects()
+        self._credential_targets = None
+        self._credential_operation = None
 
     def _request_paused(self, event: dict) -> None:
         # Capture synchronously at delivery. Never consult a later input's
@@ -91,7 +93,38 @@ class PlaywrightExecutor:
         if cdp is None or self._closed:
             return
         try:
-            response = await self._network.fetch(request_from_event(event, scope))
+            if (
+                self._credential_targets is not None
+                and self._credential_targets.submitting
+                and event.get("resourceType") == "Document"
+                and event.get("frameId") == self._main_frame_id
+            ):
+                await self._credential_targets.navigation_cleanup.require_receipt()
+                self._credential_targets.original_cleared = True
+            captured = request_from_event(event, scope)
+            proof = None
+            if self._credential_targets is not None and self._credential_targets.submitting:
+                if event.get("redirectedRequestId"):
+                    proof = {
+                        "kind": "redirect",
+                        "operation_id": self._credential_operation,
+                        "request_id": request_id,
+                        "parent_request_id": event["redirectedRequestId"],
+                    }
+                elif event.get("resourceType") == "Document":
+                    fingerprint = self._credential_targets.navigation_cleanup.authentication
+                    if fingerprint is not None:
+                        proof = {
+                            "kind": "submit",
+                            "operation_id": self._credential_operation,
+                            "request_id": request_id,
+                            **fingerprint,
+                        }
+            response = (
+                await self._network.fetch(captured, credential_proof=proof)
+                if proof is not None
+                else await self._network.fetch(captured)
+            )
             # Validate original headers, then preserve the multimap in CDP.
             if (
                 response.download_id is not None
@@ -159,6 +192,7 @@ class PlaywrightExecutor:
                     "--host-resolver-rules=MAP * ~NOTFOUND",
                     "--webrtc-ip-handling-policy=disable_non_proxied_udp",
                     "--force-webrtc-ip-handling-policy",
+                    "--disable-features=BackForwardCache",
                     "--disk-cache-size=33554432",
                     "--media-cache-size=16777216",
                 ],
@@ -290,6 +324,94 @@ class PlaywrightExecutor:
         finally:
             if playwright is not None:
                 await playwright.stop()
+
+    def bind_scope_validator(self, check):
+        binder = getattr(self._network, "bind_scope_validator", None)
+        if binder is not None:
+            binder(check)
+
+    async def require_clear_secret_inputs(self) -> None:
+        from .playwright_credentials import require_clear_inputs
+
+        if self._page is None or self._page.is_closed():
+            raise BrowserRefused("BROWSER_NOT_INITIALIZED")
+        await require_clear_inputs(self._page, cdp=self._cdp, frame_id=self._main_frame_id)
+
+    async def fill_credentials(self, request, lease, *, scope, check) -> dict:
+        from .playwright_credentials import PrivateEntryTargets
+
+        page = self._page
+        if page is None or page.is_closed() or not self._chromium_sandbox:
+            raise BrowserRefused("BROWSER_CREDENTIAL_EXECUTION_UNQUALIFIED")
+        from .playwright_secret_cleanup import SerializedFormCleanup
+
+        if self._cdp is None or self._main_frame_id is None:
+            raise BrowserRefused("BROWSER_SECRET_CLEANUP_UNCONFIRMED")
+        targets = PrivateEntryTargets(
+            page,
+            request,
+            navigation_cleanup=SerializedFormCleanup(
+                self._cdp, self._main_frame_id, expected_target=lease.expected_target
+            ),
+        )
+        binder = getattr(self._network, "bind_credential_authority", None)
+        if binder is not None:
+            binder(lease.submission)
+        self._credential_operation = request.operation_id
+        self._credential_targets = targets
+        self._scope = scope
+        try:
+            await check()
+            await targets.verify()
+            self._redirects.begin_action()
+            await targets.fill_submit(lease, check=check)
+            await self._settle_requests()
+            await self._redirects.wait_for_document(page, scope.remaining() * 1000)
+            await self._settle_requests()
+            if self._uncertain:
+                raise BrowserRefused("BROWSER_OUTCOME_UNCERTAIN")
+            await check()
+            await targets.clear_selected()
+            await targets.reject_echo(lease)
+            return {"submitted": True, "cleared": True}
+        except asyncio.CancelledError:
+            raise
+        except BrowserRefused:
+            raise
+        except Exception:
+            raise BrowserRefused("BROWSER_CREDENTIAL_ENTRY_FAILED") from None
+        finally:
+            try:
+                await targets.clear()
+            finally:
+                self._credential_targets = None
+                self._credential_operation = None
+                if binder is not None:
+                    binder(None)
+                self._scope = None
+
+    async def verify_credential_targets(self, request) -> dict:
+        from .playwright_credentials import PrivateEntryTargets
+
+        if self._page is None or self._page.is_closed() or not self._chromium_sandbox:
+            raise BrowserRefused("BROWSER_CREDENTIAL_EXECUTION_UNQUALIFIED")
+        from .playwright_secret_cleanup import SerializedFormCleanup
+
+        if self._cdp is None or self._main_frame_id is None:
+            raise BrowserRefused("BROWSER_SECRET_CLEANUP_UNCONFIRMED")
+        targets = PrivateEntryTargets(
+            self._page,
+            request,
+            navigation_cleanup=SerializedFormCleanup(self._cdp, self._main_frame_id),
+        )
+        try:
+            await targets.verify()
+            return targets.target_receipt
+        finally:
+            # Verification never changes the selected inputs or takes a frame.
+            for element in targets.elements.values():
+                await element.dispose()
+            await targets.navigation_cleanup.close()
 
     async def export_session(self, approved_origins: frozenset[str]) -> RememberedState:
         import time

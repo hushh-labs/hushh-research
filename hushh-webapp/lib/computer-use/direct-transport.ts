@@ -23,7 +23,7 @@ function reviewTerms(value: unknown): ComputerUseReview | undefined {
   const review = record(value);
   const terms = record(review.terms);
   if (typeof review.review_id !== "string" || !review.review_id || review.review_id.length > 128
-    || !["model_process", "disclose", "session_remember", "session_restore", "provider_safety"].includes(String(review.purpose))) {
+    || !["model_process", "disclose", "session_remember", "session_restore", "provider_safety", "credential_fill"].includes(String(review.purpose))) {
     throw new Error("BROWSER_REVIEW_REFUSED");
   }
   const origins = terms.origins ?? terms.destination_origins ?? [];
@@ -88,7 +88,7 @@ function reviewTerms(value: unknown): ComputerUseReview | undefined {
     for (const source of fields) {
       const field = record(source);
       if (typeof field.domain !== "string" || !/^[a-z][a-z0-9_]{0,63}$/.test(field.domain)
-        || ["secrets", "runtime_secrets", "wallet", "identity"].includes(field.domain)
+        || ["secrets", "runtime_secrets", "wallet", "identity", "credentials"].includes(field.domain)
         || typeof field.path !== "string" || !/^[a-z0-9_]+(?:\.[a-z0-9_]+){0,7}$/.test(field.path)) {
         throw new Error("BROWSER_REVIEW_REFUSED");
       }
@@ -143,6 +143,14 @@ export function parseComputerUseSnapshot(value: unknown, expected: ComputerUseBi
     throw new Error("BROWSER_RESPONSE_REFUSED");
   }
   if (wire.goal_completed !== undefined && typeof wire.goal_completed !== "boolean") throw new Error("BROWSER_RESPONSE_REFUSED");
+  if (wire.credential_entry_active !== undefined && typeof wire.credential_entry_active !== "boolean") throw new Error("BROWSER_RESPONSE_REFUSED");
+  const credentialAvailable = record(wire.capability).saved_logins_available;
+  if (credentialAvailable !== undefined && typeof credentialAvailable !== "boolean") throw new Error("BROWSER_RESPONSE_REFUSED");
+  const credentialRequest = wire.credential_request == null ? undefined : record(wire.credential_request);
+  if (credentialRequest && (typeof credentialRequest.operation_id !== "string" || !/^[A-Za-z0-9_-]{8,128}$/.test(credentialRequest.operation_id)
+    || typeof credentialRequest.handle !== "string" || !/^[A-Za-z0-9_-]{8,128}$/.test(credentialRequest.handle)
+    || typeof credentialRequest.origin !== "string" || credentialRequest.origin.length > 4096
+    || new URL(credentialRequest.origin).origin !== credentialRequest.origin || new URL(credentialRequest.origin).protocol !== "https:")) throw new Error("BROWSER_RESPONSE_REFUSED");
   const available = record(wire.capability).available;
   if (typeof available !== "boolean") throw new Error("BROWSER_RESPONSE_REFUSED");
   if (wire.summary != null && (typeof wire.summary !== "string" || Array.from(wire.summary).length > 2000)) {
@@ -178,6 +186,10 @@ export function parseComputerUseSnapshot(value: unknown, expected: ComputerUseBi
     ...(typeof wire.code === "string" ? { code: wire.code } : {}),
     ...(wire.input_pending !== undefined ? { inputPending: wire.input_pending as boolean } : {}),
     ...(wire.goal_completed !== undefined ? { goalCompleted: wire.goal_completed as boolean } : {}),
+    ...(record(wire.binding).expires_at !== undefined ? { authorizationExpiresAt: integer(record(wire.binding).expires_at, 1) } : {}),
+    ...(wire.credential_entry_active !== undefined ? { credentialEntryActive: wire.credential_entry_active as boolean } : {}),
+    ...(credentialAvailable !== undefined ? { savedLoginsAvailable: credentialAvailable as boolean } : {}),
+    ...(credentialRequest ? { credentialRequest: { operationId: credentialRequest.operation_id as string, handle: credentialRequest.handle as string, origin: credentialRequest.origin as string } } : {}),
     ...(wire.phase === "completed" && typeof wire.summary === "string" ? { summary: wire.summary } : {}),
     capability: available ? "ready" : "unavailable",
     controlOwner: wire.control_owner as ComputerUseSnapshot["controlOwner"],
@@ -246,6 +258,26 @@ export function createDirectComputerUseTransport(
     return parseComputerUseSnapshot(await readComputerUseJson(response), binding);
   };
   return {
+    credentials: async (binding, origin, signal) => {
+      const response = await request(`${path(binding)}/credentials?origin=${encodeURIComponent(origin)}`, {
+        signal, cache: "no-store", headers: { "X-Browser-Pod-Incarnation": binding.incarnation },
+      });
+      const body: unknown = await readComputerUseJson(response);
+      if (!Array.isArray(body) || body.length > 20) throw new Error("BROWSER_RESPONSE_REFUSED");
+      return body.map(value => {
+        const item = record(value);
+        if (typeof item.handle !== "string" || !/^[A-Za-z0-9_-]{8,128}$/.test(item.handle) || item.origin !== origin) throw new Error("BROWSER_RESPONSE_REFUSED");
+        return { handle: item.handle, origin };
+      });
+    },
+    useTransientCredential: (binding, handle, operation_id, control_epoch, payload, signal) => snapshot(binding, "/credentials/transient", {
+      method: "POST", signal, headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ handle, operation_id, control_epoch, ...payload }),
+    }),
+    useCredential: (binding, handle, operation_id, control_epoch, signal) => snapshot(binding, "/credentials/use", {
+      method: "POST", signal, headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ handle, operation_id, control_epoch }),
+    }),
     saveDownload: async (binding, id, name, parent, signal) => {
       const response = await request(`${path(binding)}/downloads/${encodeURIComponent(id)}`, {
         method: "POST", signal, cache: "no-store",

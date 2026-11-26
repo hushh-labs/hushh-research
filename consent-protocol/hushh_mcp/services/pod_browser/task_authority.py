@@ -91,7 +91,10 @@ class TaskConsent(BrowserConsentPort):
             if offer.purpose != purpose:
                 raise BrowserRefused("BROWSER_REVIEW_INVALID")
             self._pending(owner_review(offer))
-            if purpose not in {"provider_safety", "disclose"} or self._wait_for_review is None:
+            if (
+                purpose not in {"provider_safety", "disclose", "credential_fill"}
+                or self._wait_for_review is None
+            ):
                 raise
             # Keep the exact native invocation paused in this bounded task.
             # A confirmation wakes this stack, not a new interpretation of the
@@ -107,6 +110,13 @@ class TaskAuthority(BrowserAuthorityPort):
         self, binding: BrowserBinding, consent: TaskConsent, authority: BrowserAuthorityPort
     ) -> None:
         self._binding, self._consent, self._authority = binding, consent, authority
+
+    async def consume_credential_nonce(self, binding, nonce: str) -> None:
+        await self.check_binding(binding)
+        consume = getattr(self._authority, "consume_credential_nonce", None)
+        if consume is None:
+            raise BrowserRefused("BROWSER_CREDENTIAL_NONCE_UNAVAILABLE")
+        await consume(binding, nonce)
 
     async def check_binding(self, binding: BrowserBinding) -> None:
         if binding != self._binding:

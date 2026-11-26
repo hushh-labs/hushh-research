@@ -2998,7 +2998,11 @@ export class ApiService {
     durationHours?: number;
     modelProcessingAllowed?: boolean;
     exportEnvelope?: import("@/lib/consent/export-envelope-v2").ConsentExportEnvelopeSubmissionV2;
+    beforeEffect?: () => Promise<void>;
+    isEffectCurrent?: () => boolean;
   }): Promise<Response> {
+    await data.beforeEffect?.();
+    if (data.isEffectCurrent && !data.isEffectCurrent()) throw new Error("CONSENT_OWNER_CHANGED");
     const requestId = data.requestId || data.token;
     const vaultOwnerToken = data.vaultOwnerToken;
     trackEvent("consent_action_submitted", {
@@ -3073,6 +3077,8 @@ export class ApiService {
 
     const response = await apiFetch("/api/consent/pending/approve", {
       method: "POST",
+      beforeDispatch: data.beforeEffect,
+      isEffectCurrent: data.isEffectCurrent,
       headers: {
         Authorization: `Bearer ${vaultOwnerToken}`,
       },
@@ -4698,6 +4704,21 @@ export class ApiService {
           withCurrentOwnerEffect({ ...init, credentials: "omit" }, current),
         ),
     };
+  }
+
+  /** Public-key context for an explicit credential-custody action, bound to
+   * the current owner and unlocked vault generation. This does not issue a grant. */
+  static async ownerCredentialSealContext(expectedOwnerId: string, isCurrent?: () => boolean): Promise<import("@/lib/one/ai-selection-recipient").AiSelectionSealContext> {
+    const principal = snapshotValidatedAuthSessionPrincipal();
+    const epoch = snapshotVaultSessionEpoch();
+    const current = () => !!principal && principal.ownerId === expectedOwnerId && isFirebaseSessionOwnerCurrent(principal) &&
+      isVaultSessionEpochCurrent(epoch) && (isCurrent?.() ?? true);
+    if (!current()) throw new Error("CREDENTIAL_OWNER_RETIRED");
+    const transport = await this.ownerPodTransport();
+    const { currentPodConnection } = await import("./owner-pod-endpoint");
+    const connection = await currentPodConnection(expectedOwnerId, transport);
+    if (!current()) throw new Error("CREDENTIAL_OWNER_RETIRED");
+    return { userId: expectedOwnerId, ...connection, transport };
   }
 
   /** Exact app routes only; content never falls back to the shared hub. */

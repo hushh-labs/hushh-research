@@ -387,6 +387,13 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/browser/tasks/{task_id}/review",
         "/api/one/pod/browser/tasks/{task_id}/session",
         "/api/one/pod/browser/tasks/{task_id}/downloads/{download_id}",
+        "/api/one/pod/browser/tasks/{task_id}/credentials",
+        "/api/one/pod/browser/tasks/{task_id}/credentials/use",
+        "/api/one/pod/browser/tasks/{task_id}/credentials/transient",
+        # Owner config authority admits recipient-encrypted credential projections
+        # and monotonic revocation metadata, never plaintext credential CRUD.
+        "/api/one/pod/credentials",
+        "/api/one/pod/credentials/{credential_id}",
         "/api/one/pod/connectors/{connector_id}",
         # Bounded To-do metadata; the routes still require an owner app session,
         # pkm.read and the current local Google grant (test_pod_todo_sources.py).
@@ -484,6 +491,7 @@ def _concrete(path: str) -> str:
     values = {
         "task_id": "browser_" + "0" * 32,
         "download_id": "0" * 32,
+        "credential_id": "cred_" + "0" * 32,
         "command_id": "00000000-0000-4000-8000-000000000001",
         "connector_id": "gmail"
         if path.startswith("/api/one/pod/connectors/")
@@ -498,6 +506,25 @@ def _concrete(path: str) -> str:
 def test_the_owner_reachable_surface_is_exactly_these_paths():
     from api.middlewares.pod_ingress import is_app_surface
 
+    # Path reachability does not authorize new verbs. Pin the credential entry
+    # and custody seams independently of their ingress regex and shared prefix.
+    credential_methods = {
+        "/api/one/pod/browser/tasks/{task_id}/credentials": {"GET"},
+        "/api/one/pod/browser/tasks/{task_id}/credentials/use": {"POST"},
+        "/api/one/pod/browser/tasks/{task_id}/credentials/transient": {"POST"},
+        "/api/one/pod/credentials": {"POST"},
+        "/api/one/pod/credentials/{credential_id}": {"GET", "DELETE"},
+    }
+    methods = {
+        path: {
+            method
+            for route in pod_server.app.routes
+            if getattr(route, "path", None) == path
+            for method in getattr(route, "methods", ())
+        }
+        for path in credential_methods
+    }
+    assert methods == credential_methods
     mounted = _paths()
     expected = OWNER_REACHABLE_PATHS | QUEUE_REACHABLE_PATHS | PROVIDER_REACHABLE_PATHS
     assert expected <= mounted, (

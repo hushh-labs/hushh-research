@@ -3827,6 +3827,53 @@
       "native_surface_id": "native-route-pkm-location-detail"
     },
     {
+      "route_pattern": "/one/pkm/logins",
+      "page_file": "app/one/pkm/logins/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.pkm.logins",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.one.pkm.logins",
+        "purpose": "Help the owner open secure website login controls. Passwords and verification secrets stay outside chat and model processing.",
+        "screen": "pkm_logins",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": "route.one_pkm_logins",
+        "happy_path_action_ids": [
+          "route.one_pkm_logins"
+        ],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Navigation is complete after the secure website login page opens. Credential edits require the owner to use its private controls.",
+        "next_route": "/one/pkm/logins",
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "pkm_logins",
+      "voice_contract_file": "app/one/pkm/logins/page.voice-action-contract.json",
+      "action_ids": [
+        "route.one_pkm_logins"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": "native-route-pkm-logins"
+    },
+    {
       "route_pattern": "/one/pkm/recent",
       "page_file": "app/one/pkm/recent/page.tsx",
       "route_mode": "standard",
