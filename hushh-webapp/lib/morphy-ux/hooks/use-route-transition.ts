@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { appHaptic } from "@/lib/capacitor/app-haptics";
 import {
@@ -47,14 +47,14 @@ import {
 
 // Kept in sync with the route-transition motion tokens in globals.css.
 // On browsers supporting document.startViewTransition, navigation runs a
-// simultaneous GPU-composited directional transition (220-260ms, Apple HIG
-// spring ease) with Top App Bar and Bottom Shell pinned rock-steady and zero
-// blank-canvas blink. On fallback browsers, the CSS directional envelope uses
-// EXIT_MS + ENTER_MS.
+// simultaneous GPU-composited directional transition (150-170ms, crisp ease-out)
+// with Top App Bar and Bottom Shell pinned rock-steady and zero blank-canvas
+// blink. On fallback browsers, the CSS directional envelope uses EXIT_MS + ENTER_MS.
 const EXIT_MS = 60;
-const ENTER_MS = 220;
+const ENTER_MS = 160;
 const MAX_PENDING_MS = 9_000;
-const VIEW_TRANSITION_SETTLE_TIMEOUT_MS = 1_200;
+const VIEW_TRANSITION_SETTLE_TIMEOUT_MS = 120;
+const prefetchedInternalHrefs = new Set<string>();
 
 type RouteTransitionState = "idle" | "pending" | "entering";
 export type RouteTransitionDirection =
@@ -573,11 +573,27 @@ export function useRouteTransition() {
   const router = useRouter();
   const mounted = useRef(false);
   const previousPathname = useRef(pathname);
+  const previousLayoutPathname = useRef(pathname);
   const routeKey = searchParams.size
     ? `${pathname}?${searchParams.toString()}`
     : pathname;
 
   useEffect(() => {
+    function warmInternalAnchor(target: EventTarget | null) {
+      if (!(target instanceof Element)) return;
+      if (typeof router.prefetch !== "function") return;
+      const anchor = target.closest("a[href]");
+      if (!(anchor instanceof HTMLAnchorElement)) return;
+      const href = internalHref(anchor);
+      if (!href || prefetchedInternalHrefs.has(href)) return;
+      prefetchedInternalHrefs.add(href);
+      router.prefetch(href, { kind: "full" as never });
+    }
+
+    function onPointerIntent(event: Event) {
+      warmInternalAnchor(event.target);
+    }
+
     function onClick(event: MouseEvent) {
       if (event.defaultPrevented || event.button !== 0) return;
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
@@ -609,6 +625,13 @@ export function useRouteTransition() {
     // Observe history ONCE so compatibility router.push/replace callers receive
     // the visual envelope without delaying or replaying Next.js's mutation.
     const restoreHistory = patchHistory();
+    document.addEventListener("pointerdown", onPointerIntent, {
+      capture: true,
+      passive: true,
+    });
+    document.addEventListener("pointerover", onPointerIntent, {
+      passive: true,
+    });
     document.addEventListener("click", onClick, true);
     window.addEventListener("pageshow", onPageShow);
     window.addEventListener("popstate", onPopState);
@@ -624,6 +647,8 @@ export function useRouteTransition() {
         clearRouteTimers();
       }
       cancelActiveViewTransition();
+      document.removeEventListener("pointerdown", onPointerIntent, true);
+      document.removeEventListener("pointerover", onPointerIntent);
       document.removeEventListener("click", onClick, true);
       window.removeEventListener("pageshow", onPageShow);
       window.removeEventListener("popstate", onPopState);
@@ -634,6 +659,52 @@ export function useRouteTransition() {
       document.documentElement.removeAttribute("aria-busy");
     };
   }, [router]);
+
+  // Warm visible same-origin links on idle after each route settles so tapping
+  // capabilities on /one (Memory, Files, Location, Finance, etc.) commits
+  // synchronously from the client router cache without cold chunk waterfalls.
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof router.prefetch !== "function") {
+      return;
+    }
+    const warmVisibleLinks = () => {
+      const anchors = document.querySelectorAll<HTMLAnchorElement>("a[href]");
+      let warmed = 0;
+      for (const anchor of anchors) {
+        if (warmed >= 16) break;
+        const href = internalHref(anchor);
+        if (!href || prefetchedInternalHrefs.has(href)) continue;
+        prefetchedInternalHrefs.add(href);
+        router.prefetch(href, { kind: "full" as never });
+        warmed += 1;
+      }
+    };
+    const win = window as Window & {
+      requestIdleCallback?: (
+        cb: () => void,
+        opts?: { timeout: number },
+      ) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (typeof win.requestIdleCallback === "function") {
+      const id = win.requestIdleCallback(warmVisibleLinks, { timeout: 500 });
+      return () => win.cancelIdleCallback?.(id);
+    }
+    const timer = window.setTimeout(warmVisibleLinks, 120);
+    return () => window.clearTimeout(timer);
+  }, [pathname, router]);
+
+  // Release any active View Transition synchronously as soon as React mutates
+  // the incoming route's DOM. NEVER schedule this inside requestAnimationFrame:
+  // browsers suppress rendering (and pause rAF) until startViewTransition's
+  // updateCallback promise resolves.
+  useLayoutEffect(() => {
+    const pathnameChanged = previousLayoutPathname.current !== pathname;
+    previousLayoutPathname.current = pathname;
+    if (!pathnameChanged || !pendingViewTransitionResolve) return;
+    completePendingViewTransition();
+    setRouteState("idle");
+  }, [pathname]);
 
   // The resolved route key is the single, authoritative signal that the
   // NEW route has mounted — so this effect OWNS the enter beat for every
@@ -698,9 +769,9 @@ export function useRouteTransition() {
     }
     if (pathnameChanged) {
       if (pendingViewTransitionResolve) {
-        // The incoming route has committed. WebKit can withhold animation
-        // frames until this callback settles and it can capture the new page.
         completePendingViewTransition();
+        setRouteState("idle");
+      } else if (activeViewTransition) {
         setRouteState("idle");
       } else if (document.documentElement.dataset.routeTransition === "pending") {
         // Fallback browsers without View Transitions: let the incoming page's

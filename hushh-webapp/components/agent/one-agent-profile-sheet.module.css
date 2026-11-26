@@ -122,30 +122,6 @@
 .profile {
   padding: 14px var(--page-inline-gutter-standard) 4px;
 }
-.terminalSection {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.terminalToggle {
-  display: flex;
-  width: 100%;
-  min-height: 36px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 2px 4px;
-  border: 0;
-  background: transparent;
-  color: var(--foreground);
-  text-align: left;
-  cursor: pointer;
-}
-.terminalToggle h3 {
-  margin: 0;
-  font-size: var(--app-side-pane-section-size);
-  font-weight: 600;
-}
 .sectionHeading {
   display: flex;
   align-items: center;

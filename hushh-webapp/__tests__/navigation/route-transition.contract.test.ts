@@ -42,12 +42,13 @@ describe("shared route transition contract", () => {
     expect(driver).toContain("startViewTransition");
     expect(driver).toContain("resolveRouteTransitionDirection");
     expect(driver).toContain("const EXIT_MS = 60");
-    expect(driver).toContain("const ENTER_MS = 220");
+    expect(driver).toContain("const ENTER_MS = 160");
+    expect(driver).not.toMatch(/requestAnimationFrame\(\(\)\s*=>\s*\{[\s\S]{0,120}completePendingViewTransition/);
     expect(styles).toContain("--motion-route-exit-duration: 60ms");
-    expect(styles).toContain("--motion-route-enter-duration: 220ms");
-    expect(styles).toContain("--motion-route-tab-duration: 220ms");
-    expect(styles).toContain("--motion-route-push-duration: 260ms");
-    expect(styles).toContain("--motion-route-pop-duration: 240ms");
+    expect(styles).toContain("--motion-route-enter-duration: 160ms");
+    expect(styles).toContain("--motion-route-tab-duration: 150ms");
+    expect(styles).toContain("--motion-route-push-duration: 170ms");
+    expect(styles).toContain("--motion-route-pop-duration: 160ms");
     expect(styles).toContain("view-transition-name: app-top-shell");
     expect(styles).toContain("view-transition-name: app-bottom-shell");
     expect(styles).toContain("var(--motion-route-exit-duration)");
