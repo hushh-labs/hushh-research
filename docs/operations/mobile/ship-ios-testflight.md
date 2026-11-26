@@ -191,10 +191,13 @@ and SHA using exact UAT CI. Set `verify_candidate_before_promotion=true` on the
 `uat` deployment when candidate health and text recovery must complete before
 traffic changes. The Ubuntu preflight verifies the current successful UAT
 deployment attempt, the retained acceptance artifact, and the revision and image
-serving all backend traffic. It also compares the native release controls with
-the Main dispatch commit and uses the graph verifier from the accepted CI
-authority. The archive uses the selected application SHA and
-checks the serving revision again before export. This mode supports the
+serving all backend traffic. Signing inputs normally match the Main dispatch
+commit. Pipeline owners can review a differing input set for one exact `uat`
+commit in `scripts/ci/uat-native-release-input-review.json`. The Main workflow
+checks the commit, tree, and fingerprints of the signing inputs before the archive
+can start. Changes to either set of signing inputs require a fresh review.
+The archive uses the selected application SHA and the accepted CI graph verifier,
+then checks the serving revision again before export. This mode supports the
 standard build with `require_hardware=false`.
 
 Exact UAT upload receipts record their source branch. Existing upload recovery
