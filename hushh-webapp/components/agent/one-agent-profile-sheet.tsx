@@ -16,13 +16,10 @@ import {
   SettingsRow,
 } from "@/components/app-ui/settings-ui";
 import { LiveMirrorPreview } from "@/components/profile/live-mirror-preview";
-import { WorkspaceTerminalPanel } from "@/components/computer-use/workspace-terminal-panel";
 import {
   AccountProfileIcon,
   Activity,
-  ChevronDown,
   ClipboardList,
-  Code2,
   ConnectedSystemsAgentIcon,
   ConsentAgentIcon,
   FinanceAgentIcon,
@@ -127,7 +124,6 @@ function OneActivityWorkspace({
   sessionActions?: readonly OneSessionActionEntry[];
 }) {
   const [journalTick, setJournalTick] = useState(0);
-  const [terminalExpanded, setTerminalExpanded] = useState(true);
 
   useEffect(() => {
     if (!active) return;
@@ -239,34 +235,6 @@ function OneActivityWorkspace({
           </div>
         )}
       </section>
-
-      <section
-        className={styles.terminalSection}
-        aria-label="Sandbox terminal"
-        data-testid="one-activity-terminal-section"
-      >
-        <button
-          type="button"
-          className={styles.terminalToggle}
-          aria-expanded={terminalExpanded}
-          onClick={() => setTerminalExpanded((current) => !current)}
-        >
-          <span className="inline-flex items-center gap-2">
-            <Code2 className="size-4 text-muted-foreground" aria-hidden />
-            <h3 data-app-pane-section-label>Sandbox terminal</h3>
-          </span>
-          <ChevronDown
-            className={cn(
-              "size-4 text-muted-foreground transition-transform duration-150 motion-reduce:transition-none",
-              !terminalExpanded && "-rotate-90",
-            )}
-            aria-hidden
-          />
-        </button>
-        {terminalExpanded ? (
-          <WorkspaceTerminalPanel key={ownerId} active={active && terminalExpanded} />
-        ) : null}
-      </section>
     </div>
   );
 }
@@ -369,7 +337,7 @@ function WebOneAgentProfile({
           </button>
         </SheetClose>
         <SheetDescription className="sr-only">
-          One workspace activity, terminal, tasks, and profile.
+          One workspace activity, tasks, and profile.
         </SheetDescription>
         <OneProfileContent
           open={open}
@@ -388,7 +356,7 @@ function WebOneAgentProfile({
 }
 
 /** One content model and hierarchy across renderers; Feed stays strictly on its
- * dedicated bottom-bar route while One's character pane hosts live Activity & Terminal. */
+ * dedicated bottom-bar route while One's character pane hosts live Activity. */
 function OneProfileContent({
   open,
   onOpenChange,
@@ -412,7 +380,7 @@ function OneProfileContent({
   };
 
   let activity: ReactNode = (
-    <p className={styles.notice}>Sign in to view workspace activity and terminal.</p>
+    <p className={styles.notice}>Sign in to view workspace activity.</p>
   );
   if (open && tab === "activity" && user && userId) {
     activity = (

@@ -522,6 +522,7 @@ function AgentGridItem({
   return (
     <Link
       href={mode.href}
+      prefetch
       data-profile-body-swipe=""
       aria-label={`Open ${mode.title}`}
       data-testid={`one-agent-tile-${mode.id}`}
@@ -565,6 +566,7 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
   return (
     <Link
       href={mode.href}
+      prefetch
       data-profile-body-swipe=""
       aria-label={`Open ${mode.title}`}
       title={mode.description}
