@@ -117,8 +117,8 @@ def test_image_build_steps_stay_identical_to_the_combined_build() -> None:
             assert combined_config["substitutions"][name] == default, name
 
 
-def test_recorded_recovery_frontend_recipes_only_change_the_reviewed_sdk_runtime():
-    """The recovery overlay keeps every application build/deploy instruction."""
+def test_recorded_recovery_frontend_recipes_preserve_the_reviewed_build_contract():
+    """Only the reviewed SDK and staging Location build arguments may differ."""
     source = "84b80bcab6b5b7a4de21a5a992d3c969dacba5b9"
     runtime = _steps(FRONTEND_IMAGE_BUILD)["resolve-google-contacts-client-config"]
     assert re.fullmatch(
@@ -143,6 +143,25 @@ def test_recorded_recovery_frontend_recipes_only_change_the_reviewed_sdk_runtime
                 assert "env" not in step
                 step["name"], step["env"] = runtime["name"], runtime["env"]
                 changed += 1
+        historical["substitutions"]["_ONE_MAIN_CHAT_LOCATION_ENABLED"] = "false"
+        build_step = next(
+            step for step in historical["steps"] if step["id"] == "build-frontend-image"
+        )
+        body = build_step["args"][1]
+        cache_note = (
+            "# Registry layer cache (buildx, mode=max): caches the npm ci + next build layers\n"
+            "# so an unchanged package-lock turns dependency install into a cache hit. First\n"
+            "# build after this lands is cold (seeds :buildcache); later builds are minutes.\n"
+        )
+        assert body.count(cache_note) == 1
+        body = body.replace(cache_note, "")
+        line_end = " " + chr(92) + "\n"
+        check_in_arg = "  --build-arg NEXT_PUBLIC_ONE_LOCATION_NEARBY_CHECK_IN=${_ONE_LOCATION_NEARBY_CHECK_IN}"
+        location_arg = "  --build-arg NEXT_PUBLIC_ONE_MAIN_CHAT_LOCATION_ENABLED=${_ONE_MAIN_CHAT_LOCATION_ENABLED}"
+        assert body.count(check_in_arg + line_end) == 1
+        build_step["args"][1] = body.replace(
+            check_in_arg + line_end, check_in_arg + line_end + location_arg + line_end
+        )
         assert historical == reviewed
     assert changed == 3
 
