@@ -9,7 +9,9 @@ import {
   getActiveStatementSnapshotId,
   getFinancialCompatibilityView,
   getStatementSnapshotOptions,
+  getStoredActiveSource,
 } from "@/lib/kai/brokerage/financial-sources";
+import { resolveFinancePortfolio } from "@/lib/kai/brokerage/resolve-portfolio-source";
 import { buildVaultPlaidStatus } from "@/lib/kai/plaid-vault/vault-sync";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import {
@@ -112,6 +114,7 @@ function buildResource(params: {
   initialStatementPortfolio?: PortfolioData | null;
   cacheTier: KaiFinancialResourceAuditMeta["cacheTier"];
   source: KaiFinancialResourceAuditMeta["source"];
+  requireSavedSelection?: boolean;
 }): KaiFinancialResource {
   const compatibilityView = getFinancialCompatibilityView(params.financialDomain);
   const statementPortfolio =
@@ -136,16 +139,28 @@ function buildResource(params: {
     (!hasSavedStatementSnapshot && hasPortfolioHoldings(plaidPortfolio))
       ? "plaid"
       : "statement";
-  const activeSource = pickPreferredSource({
-    preferred: desiredSource,
-    availableSources,
-  });
-  const activePortfolio = activeSource === "plaid" ? plaidPortfolio : statementPortfolio;
+  // Plaid status advertises its own source. The vault's explicit selection
+  // governs private answers and shares even when another source has holdings.
+  const selectedSource = params.requireSavedSelection
+    ? getStoredActiveSource(params.financialDomain)
+    : null;
+  const activeSource = selectedSource ?? pickPreferredSource({ preferred: desiredSource, availableSources });
+  let activePortfolio = activeSource === "plaid" ? plaidPortfolio : statementPortfolio;
+  const isV7 = compatibilityView.storageContract === "v7";
+  if (params.requireSavedSelection && activeSource === "statement" && params.financialDomain &&
+      (activeStatementSnapshotId || isV7)) {
+    const savedSnapshot = !activeStatementSnapshotId || statementSnapshots.some(({ id }) => id === activeStatementSnapshotId);
+    activePortfolio = savedSnapshot ? resolveFinancePortfolio(params.financialDomain, {
+      kind: "statement",
+      snapshotId: activeStatementSnapshotId,
+      ...(isV7 ? { representation: "current-v7" } : {}),
+    }) : null;
+  }
   const hasFinancialData =
     hasPortfolioHoldings(statementPortfolio) ||
     hasPortfolioHoldings(plaidPortfolio) ||
     statementSnapshots.length > 0;
-  const holdings = extractHoldings(activePortfolio ?? statementPortfolio ?? plaidPortfolio);
+  const holdings = extractHoldings(params.requireSavedSelection ? activePortfolio : activePortfolio ?? statementPortfolio ?? plaidPortfolio);
 
   return {
     userId: params.userId,
@@ -259,6 +274,21 @@ async function loadNetworkResource(
 }
 
 export class KaiFinancialResourceService {
+  /** Resolve the active source from the exact saved domain the caller is reviewing. */
+  static activeSavedSource(userId: string, financialDomain: Record<string, unknown>) {
+    const resource = buildResource({
+      userId,
+      financialDomain,
+      plaidStatus: buildVaultPlaidStatus(financialDomain, userId),
+      cacheTier: "network",
+      source: "network",
+      requireSavedSelection: true,
+    });
+    if (!resource.activePortfolio) return null;
+    const kind = resource.activeSource;
+    return { kind, snapshotId: kind === "statement" ? resource.activeStatementSnapshotId : null };
+  }
+
   /** A fresh, vault-fenced snapshot for a chat card or answer, with no cache publication. */
   static async readForAnswer(params: KaiFinancialResourceRequest, isCurrent: () => boolean) {
     if (!isCurrent()) return null;
@@ -272,6 +302,7 @@ export class KaiFinancialResourceService {
         plaidStatus: buildVaultPlaidStatus(financial, params.userId),
         cacheTier: "network",
         source: "network",
+        requireSavedSelection: true,
       }),
       isCurrent: () => isCurrent() && generation === readGeneration(params.userId),
     };

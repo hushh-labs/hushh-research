@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { FinancePortfolioCard } from "@/components/agent/finance-portfolio-card";
+import { A2uiSurfaceView } from "@/components/a2ui/a2ui-surface-view";
+import { applyA2uiMessage, ONE_A2UI_CATALOG } from "@/lib/a2ui/surface-store";
 
 const state = vi.hoisted(() => ({ unlocked: false, resource: vi.fn(), remember: vi.fn(async () => undefined) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ userId: "owner" }) }));
@@ -31,6 +33,40 @@ function toggleCard(label: string, open = true) {
 }
 
 describe("Finance portfolio card", () => {
+  it("resolves the unlocked owner's active statement for a native card and expands all 52 positions", async () => {
+    state.unlocked = true;
+    state.resource.mockClear();
+    mockPortfolio({
+      activeSource: "statement",
+      activeStatementSnapshotId: "active-statement",
+      activePortfolio: {
+        holdings: Array.from({ length: 52 }, (_, index) => ({
+          symbol: `HOLD${index + 1}`, name: `Saved holding ${index + 1}`,
+          quantity: 1, price: index + 1, market_value: index + 1, currency: "USD",
+        })),
+      },
+    });
+    const surface = applyA2uiMessage(new Map(), {
+      version: "1.0",
+      createSurface: {
+        surfaceId: "saved", catalogId: ONE_A2UI_CATALOG,
+        components: [{ id: "root", component: "SavedPortfolio", section: "holdings" }],
+      },
+    }).get("saved")!;
+    const view = render(<A2uiSurfaceView surface={surface} />);
+    expect(screen.getByText("Saved portfolio requested.")).toBeVisible();
+    expect(state.resource).not.toHaveBeenCalled();
+    view.rerender(<A2uiSurfaceView surface={surface} portfolioConversationId="owner-thread" />);
+    await screen.findByText("Holdings");
+    toggleCard("Holdings");
+    const list = await screen.findByRole("list", { name: "Portfolio holdings" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(5);
+    fireEvent.click(screen.getByRole("button", { name: "Show all 52 holdings" }));
+    expect(within(list).getAllByRole("listitem")).toHaveLength(52);
+    expect(within(list).getByText("Saved holding 1")).toBeVisible();
+    expect(state.resource.mock.calls[0]?.[0]).toMatchObject({ userId: "owner" });
+  });
+
   it("blocks protected information while locked", () => {
     state.unlocked = false;
     state.resource.mockClear();

@@ -1,13 +1,26 @@
 import type { PortfolioData } from "@/components/kai/types/portfolio";
 import type { FinanceSource } from "@/lib/finance-sharing/contract";
-import { getActiveSource, getActiveStatementSnapshotId, getPlaidPortfolio, getStatementPortfolio, getStatementSnapshots } from "./financial-sources";
+import {
+  getActiveSource,
+  getActiveStatementSnapshotId,
+  getFinancialCoreV7Portfolio,
+  getPlaidPortfolio,
+  getStatementPortfolio,
+  getStatementSnapshots,
+} from "./financial-sources";
 import { normalizeStatementPortfolio } from "./statement-portfolio";
 
 /** Resolve the named source without falling through to the current selection. */
 export function resolveFinancePortfolio(financial: Record<string, unknown>, source: FinanceSource): PortfolioData | null {
   if (source.representation === "current-v7") {
-    if (getActiveSource(financial) !== source.kind || (source.kind === "statement" && getActiveStatementSnapshotId(financial) !== source.snapshotId)) return null;
-    return source.kind === "plaid" ? getPlaidPortfolio(financial) : getStatementPortfolio(financial);
+    if (getActiveSource(financial) !== source.kind) return null;
+    if (source.kind === "plaid") return getPlaidPortfolio(financial);
+    const snapshots = getStatementSnapshots(financial);
+    // The V7 core has no statement ID linking its positions to one of
+    // several artifact records. A legacy selection alone cannot bind them.
+    if (snapshots.length > 1 || getActiveStatementSnapshotId(financial) !== source.snapshotId ||
+        (source.snapshotId !== null && !snapshots.some(snapshot => snapshot.id === source.snapshotId))) return null;
+    return getFinancialCoreV7Portfolio(financial);
   }
   if (source.kind === "plaid") return getPlaidPortfolio(financial);
   if (source.snapshotId) {

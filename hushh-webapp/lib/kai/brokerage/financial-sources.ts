@@ -56,7 +56,7 @@ function getFinancialCoreV7(financial: AnyObj | null | undefined): AnyObj | null
   return asRecord(financial?.financial_core_v7);
 }
 
-function buildFinancialCoreV7Portfolio(
+export function getFinancialCoreV7Portfolio(
   financial: AnyObj | null | undefined
 ): PortfolioData | null {
   const core = getFinancialCoreV7(financial);
@@ -154,15 +154,19 @@ export function getStatementSnapshotOptions(
   });
 }
 
-export function getActiveSource(
+export function getStoredActiveSource(
   financial: AnyObj | null | undefined
-): PortfolioSource {
+): PortfolioSource | null {
   const v7ActiveSource = cleanText(getFinancialCoreV7(financial)?.active_source);
   if (v7ActiveSource === "plaid" || v7ActiveSource === "statement") {
     return v7ActiveSource;
   }
   const activeSource = cleanText(getSources(financial).active_source);
-  return activeSource === "plaid" ? "plaid" : "statement";
+  return activeSource === "plaid" || activeSource === "statement" ? activeSource : null;
+}
+
+export function getActiveSource(financial: AnyObj | null | undefined): PortfolioSource {
+  return getStoredActiveSource(financial) ?? "statement";
 }
 
 export function getActiveStatementSnapshotId(
@@ -186,7 +190,7 @@ export function getActiveStatementSnapshot(financial: AnyObj | null | undefined)
 }
 
 export function getStatementPortfolio(financial: AnyObj | null | undefined): PortfolioData | null {
-  const v7Portfolio = buildFinancialCoreV7Portfolio(financial);
+  const v7Portfolio = getFinancialCoreV7Portfolio(financial);
   if (v7Portfolio && getActiveSource(financial) === "statement") return v7Portfolio;
   const activeSnapshot = getActiveStatementSnapshot(financial);
   const candidate =
@@ -206,7 +210,7 @@ export function getPlaidPortfolio(financial: AnyObj | null | undefined): Portfol
     const vaultPortfolio = toVaultPortfolioData(financial ?? {});
     if (vaultPortfolio && hasHoldings(vaultPortfolio)) return vaultPortfolio;
   }
-  const v7Portfolio = buildFinancialCoreV7Portfolio(financial);
+  const v7Portfolio = getFinancialCoreV7Portfolio(financial);
   if (v7Portfolio && getActiveSource(financial) === "plaid") return v7Portfolio;
   return null;
 }
@@ -349,11 +353,16 @@ export function removeStatementSnapshot(
     if (!activeSnapshot) return null;
     const canonical = asRecord(activeSnapshot?.canonical_v2) ?? activeSnapshot;
     const normalized = normalizeStoredPortfolio(canonical, { preserveEntries: true }) as PortfolioData;
+    const keepPlaid = getActiveSource(financial) === "plaid" && Boolean(getPlaidPortfolio(financial));
     nextFinancial.sources = {
       ...nextSources,
-      active_source: "statement",
+      active_source: keepPlaid ? "plaid" : "statement",
       statement: buildStatementSource(financial, remainingSnapshots, nextActiveId, updatedAt),
     };
+    if (keepPlaid) {
+      nextFinancial.updated_at = updatedAt;
+      return nextFinancial;
+    }
     nextFinancial.portfolio = normalized;
     nextFinancial.analytics =
       getPortfolioAnalytics(activeSnapshot) ??

@@ -683,8 +683,9 @@ def test_rebind_checks_expiry_after_waiting_for_the_ledger_lock(db, private_revi
         event.remove(db.engine, "before_cursor_execute", observe)
 
 
+@pytest.mark.parametrize("use_native_runner", [False, True])
 async def test_private_native_mcp_suspend_preview_confirm_resume(
-    db, monkeypatch, tmp_path, request
+    db, monkeypatch, tmp_path, request, use_native_runner
 ):
     """Real ADK pause/preview/browser approval/resume; fake only model/provider transport."""
     from copy import deepcopy
@@ -708,13 +709,24 @@ async def test_private_native_mcp_suspend_preview_confirm_resume(
     from hushh_mcp.one_adk import governed_mcp_toolset as governed
     from hushh_mcp.one_adk import pod_agui_lifetime as lifetime
     from hushh_mcp.one_adk.agui_factory import build_authenticated_agui
+    from hushh_mcp.one_adk.chat_adk_app import build_chat_adk_app
     from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
     from hushh_mcp.one_adk.mcp_call_approval import review_private_call
+    from hushh_mcp.one_adk.native_pod_chat import (
+        AdmittedNativePodTurn,
+        NativeMcpDecision,
+        run_native_pod_chat,
+    )
     from hushh_mcp.one_adk.pod_adk_session_repository import (
         PodAdkSessionProjection,
         PodAdkSessionRepository,
     )
     from hushh_mcp.one_adk.pod_agui_context import PodChatContext
+    from hushh_mcp.one_adk.pod_mcp_restore import (
+        pending_reviews,
+        resolve_pending_mcp_reviews,
+        restore_resume,
+    )
     from hushh_mcp.one_adk.pod_mcp_review import prepare_private_review
     from hushh_mcp.one_adk.registered_mcp_toolset import RegisteredMcpToolset
     from hushh_mcp.services import pod_binding_service
@@ -845,14 +857,17 @@ async def test_private_native_mcp_suspend_preview_confirm_resume(
         ]
     )
 
+    def make_head():
+        return LlmAgent(
+            name="one",
+            model=model,
+            instruction="Use the requested connector tool.",
+            tools=[RegisteredMcpToolset(authorize_call=review_private_call)],
+        )
+
     def make_agent():
         agent = build_authenticated_agui(
-            LlmAgent(
-                name="one",
-                model=model,
-                instruction="Use the requested connector tool.",
-                tools=[RegisteredMcpToolset(authorize_call=review_private_call)],
-            ),
+            make_head(),
             owner.sessions,
             app_name="hussh_one",
             user_id_extractor=lambda _: owner_id,
@@ -883,6 +898,24 @@ async def test_private_native_mcp_suspend_preview_confirm_resume(
         state, _ = pod_agent_chat.trusted_state(value, owner)
         return value.model_copy(update={"state": state, "forwarded_props": {}})
 
+    async def run_direct(value, *, text=None, decision=None):
+        async def prepare():
+            return build_chat_adk_app(make_head(), app_name="hussh_one"), None, AsyncMock()
+
+        checkpoint = AsyncMock()
+        frames = [
+            frame
+            async for frame in run_native_pod_chat(
+                owner,
+                AdmittedNativePodTurn(value.thread_id, value.run_id, value.state, text, decision),
+                prepare=prepare,
+                settle=checkpoint,
+                admission=admission,
+                incarnation="synthetic-incarnation",
+            )
+        ]
+        return frames, checkpoint
+
     app = FastAPI()
     app.include_router(broker_route.router)
     app.include_router(external_connectors.router)
@@ -906,33 +939,40 @@ async def test_private_native_mcp_suspend_preview_confirm_resume(
             return response
 
         owner.mcp_approval = PodMcpApprovalPort(owner, client=SimpleNamespace(post=pod_post))
-        first = [
-            event
-            async for event in make_agent().run(
-                make_input(
-                    "first",
-                    [UserMessage(id="user-1", role="user", content="Search synthetic records.")],
-                )
+        prompt = "Search synthetic records."
+        first_input = make_input("first", [UserMessage(id="user-1", role="user", content=prompt)])
+        if use_native_runner:
+            frames, checkpoint = await run_direct(first_input, text=prompt)
+            checkpoint.assert_awaited_once()
+            assert frames[-1] == b"event: review\ndata: {}\n\n"
+            assert private_argument.encode() not in b"".join(frames)
+            sealed = await owner.sessions.get_session(
+                app_name="hussh_one", user_id=owner_id, session_id=thread
             )
-        ]
-        assert not any(event.type == EventType.RUN_ERROR for event in first)
-        finished = next(event for event in reversed(first) if event.type == EventType.RUN_FINISHED)
-        assert finished.outcome.type == "interrupt"
+            (review,) = await pending_reviews(owner, sealed, use_native_ids=True)
+            interrupt_id, reference = review["interruptId"], review["reference"]
+        else:
+            first = [event async for event in make_agent().run(first_input)]
+            assert not any(event.type == EventType.RUN_ERROR for event in first)
+            finished = next(
+                event for event in reversed(first) if event.type == EventType.RUN_FINISHED
+            )
+            assert finished.outcome.type == "interrupt"
+            interrupt = finished.outcome.interrupts[0]
+            encoded = "".join(
+                event.delta
+                for event in first
+                if event.type == EventType.TOOL_CALL_ARGS
+                and event.tool_call_id == interrupt.tool_call_id
+            )
+            interrupt_id = interrupt.id
+            reference = json.loads(encoded)["toolConfirmation"]["payload"]
+            assert private_argument not in encoded
         native.assert_not_awaited()
         assert (await admission.status(incarnation="synthetic-incarnation"))["activeWork"] == 0
-        interrupt = finished.outcome.interrupts[0]
-        encoded = "".join(
-            event.delta
-            for event in first
-            if event.type == EventType.TOOL_CALL_ARGS
-            and event.tool_call_id == interrupt.tool_call_id
-        )
-        reference = json.loads(encoded)["toolConfirmation"]["payload"]
-        assert private_argument not in encoded
         # Drop every request-local secret and reconstruct the keyed recovery
         # adapter, native session repository and process epoch before review.
         from hushh_mcp.one_adk import request_secrets
-        from hushh_mcp.one_adk.pod_mcp_restore import pending_reviews, restore_resume
 
         request_secrets._values.clear()
         owner.mcp_pending = recovery_store()
@@ -946,9 +986,24 @@ async def test_private_native_mcp_suspend_preview_confirm_resume(
         restored_session = await owner.sessions.get_session(
             app_name="hussh_one", user_id=owner_id, session_id=thread
         )
-        recovered_review = await pending_reviews(owner, restored_session)
-        assert len(recovered_review) == 1 and recovered_review[0]["interruptId"] == interrupt.id
+        recovered_review = await pending_reviews(
+            owner, restored_session, use_native_ids=use_native_runner
+        )
+        assert len(recovered_review) == 1 and recovered_review[0]["interruptId"] == interrupt_id
         assert private_argument not in json.dumps(recovered_review)
+        (native_target,) = await resolve_pending_mcp_reviews(
+            owner, thread, [interrupt_id], use_native_ids=use_native_runner
+        )
+        assert any(
+            event.invocation_id == native_target.invocation_id
+            and any(
+                call.id == native_target.confirmation_id and call.name == "adk_request_confirmation"
+                for call in event.get_function_calls()
+            )
+            for event in restored_session.events
+        )
+        assert native_target.reference == recovered_review[0]["reference"]
+        assert private_argument not in json.dumps(native_target.native)
         review_body = external_connectors.McpReviewRequest(
             conversationId=thread,
             toolName=tool_name,
@@ -997,28 +1052,42 @@ async def test_private_native_mcp_suspend_preview_confirm_resume(
             for key in ("directiveId", "connectorId", "toolName", "pendingHandle")
         }
         approval["directiveId"] = preview["directiveId"]
-        second = [
-            event
-            async for event in make_agent().run(
-                await restore_resume(
-                    owner,
-                    make_input(
-                        "resume",
-                        [],
-                        approval={**approval, "receipt": receipt},
-                        resume=[
-                            ResumeEntry(
-                                interrupt_id=interrupt.id,
-                                status="resolved",
-                                payload={"confirmed": True},
-                            )
-                        ],
-                    ),
+        resume_input = make_input(
+            "resume",
+            [],
+            approval={**approval, "receipt": receipt},
+            resume=[
+                ResumeEntry(
+                    interrupt_id=interrupt_id,
+                    status="resolved",
+                    payload={"confirmed": True},
                 )
+            ],
+        )
+        if use_native_runner:
+            invalid_input = make_input(
+                "invalid-resume", [], approval={**approval, "receipt": receipt}
             )
-        ]
-        assert not any(event.type == EventType.RUN_ERROR for event in second)
-        assert any(event.type == EventType.RUN_FINISHED for event in second)
+            invalid_frames, invalid_checkpoint = await run_direct(
+                invalid_input,
+                decision=NativeMcpDecision(interrupt_id="another-confirmation", confirmed=True),
+            )
+            assert invalid_frames[-1] == b'event: error\ndata: {"code":"AGENT_ERROR"}\n\n'
+            invalid_checkpoint.assert_not_awaited()
+            native.assert_not_awaited()
+            frames, checkpoint = await run_direct(
+                resume_input,
+                decision=NativeMcpDecision(interrupt_id=interrupt_id, confirmed=True),
+            )
+            checkpoint.assert_awaited_once()
+            assert frames[-1] == b"event: done\ndata: {}\n\n"
+            assert b"Completed." in b"".join(frames)
+        else:
+            second = [
+                event async for event in make_agent().run(await restore_resume(owner, resume_input))
+            ]
+            assert not any(event.type == EventType.RUN_ERROR for event in second)
+            assert any(event.type == EventType.RUN_FINISHED for event in second)
         native.assert_awaited_once()
         assert native.await_args.kwargs["args"] == {"q": private_argument}
         recovered = await owner.sessions.get_session(

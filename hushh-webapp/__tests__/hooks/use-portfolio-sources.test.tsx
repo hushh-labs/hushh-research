@@ -101,11 +101,11 @@ function makeFinancial(options: { snapshotCount?: number; withVault?: boolean } 
 function saveRunsBuild(current: Record<string, unknown>) {
   mocks.saveMergedDomain.mockImplementation(
     async (params: {
-      build: (context: { currentDomainData: Record<string, unknown> }) => {
+      build: (context: { currentDomainData: Record<string, unknown>; expectedDataVersion: number }) => {
         domainData: Record<string, unknown>;
       };
     }) => {
-      const plan = params.build({ currentDomainData: current });
+      const plan = params.build({ currentDomainData: current, expectedDataVersion: 7 });
       return { success: true, fullBlob: { financial: plan.domainData } };
     },
   );
@@ -249,5 +249,16 @@ describe("usePortfolioSources", () => {
     const plan = call.build({ currentDomainData: makeFinancial({ snapshotCount: 2 }) });
     expect(plan.mergeDecision).toMatchObject({ merge_mode: "replace_domain" });
     expect(mocks.storeMergedDomainWithPreparedBlob).not.toHaveBeenCalled();
+  });
+
+  it("rejects a reviewed deletion if the current vault revision has changed", async () => {
+    useFinancial(makeFinancial({ snapshotCount: 2 }));
+    const { result } = await renderReadyHook();
+    await act(async () => {
+      await expect(result.current.deleteStatementSnapshot("statement-july", 6))
+        .rejects.toThrow("Review the statement again");
+    });
+    expect(result.current.activeStatementSnapshotId).toBe("statement-july");
+    expect(result.current.statementSnapshots).toHaveLength(2);
   });
 });

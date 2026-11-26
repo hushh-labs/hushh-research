@@ -19,6 +19,7 @@ from hushh_mcp.one_adk.external_read_projection import (
     durable_external_read_projection,
     redacted_read_receipt,
 )
+from hushh_mcp.one_adk.native_chat_output import A2UI_TOOL_NAME
 from tests.helpers.chat_keys import static_chat_cipher
 
 
@@ -105,6 +106,58 @@ def test_encrypted_roundtrip_redacts_tools_but_preserves_answers_and_continuatio
     # The live SDK still sees the current result; only the durable copy changes.
     assert session.events[2].content.parts[0].function_call.args == {"request": "PRIVATE_QUERY"}
     assert session.state[STATE_EXTERNAL_READ] == "read-turn"
+
+
+def test_encrypted_history_preserves_a2ui_call_identity_without_visual_values():
+    live = Session(
+        id="thread",
+        app_name="one",
+        user_id="owner",
+        events=[
+            _event(
+                [
+                    types.Part(
+                        function_call=types.FunctionCall(
+                            id="visual-call",
+                            name=A2UI_TOOL_NAME,
+                            args={"a2ui_payload": "SYNTHETIC_PRIVATE_INPUT"},
+                        )
+                    )
+                ],
+            ),
+            _event(
+                [
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            id="visual-call",
+                            name=A2UI_TOOL_NAME,
+                            response={
+                                "validated_a2ui_json": [{"dataModel": "SYNTHETIC_PRIVATE_RESULT"}]
+                            },
+                        )
+                    )
+                ],
+            ),
+            _event([types.Part(text="Here is your portfolio view.")]),
+        ],
+    )
+    service = EncryptedAdkSessionService(static_chat_cipher())
+    encoded = service._encode(live)
+    restored = service._decode(
+        {f"payload_{key}": value for key, value in encoded.items()},
+        app_name=live.app_name,
+        user_id=live.user_id,
+        session_id=live.id,
+    )
+
+    assert "SYNTHETIC_PRIVATE_" in live.model_dump_json()
+    assert "SYNTHETIC_PRIVATE_" not in restored.model_dump_json()
+    call = restored.events[0].content.parts[0].function_call
+    response = restored.events[1].content.parts[0].function_response
+    assert call.id == response.id == "visual-call"
+    assert call.args == {}
+    assert response.response == {"content_redacted": True}
+    assert restored.events[2].content.parts[0].text == "Here is your portfolio view."
 
 
 def test_mail_offer_restores_only_inside_owner_encrypted_session():

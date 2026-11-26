@@ -1,0 +1,209 @@
+{
+  "$schema": "https://a2ui.org/specification/v1_0/catalog_definition.json",
+  "catalogId": "hussh.ai:morphy-one/v1",
+  "protocolVersion": "1.0",
+  "title": "Hussh One",
+  "description": "Approved inline surfaces for the private agent.",
+  "components": {
+    "SurfaceCard": {
+      "type": "object",
+      "allowedParents": [
+        "Surface"
+      ],
+      "allowedChildren": [
+        "TextBlock",
+        "DataTable",
+        "PortfolioAllocation",
+        "PortfolioPerformance",
+        "PortfolioSources",
+        "FinanceShareProposal"
+      ],
+      "properties": {
+        "children": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://a2ui.org/specification/v1_0/common_types.json#/$defs/ComponentId"
+          }
+        }
+      },
+      "required": [
+        "children"
+      ]
+    },
+    "TextBlock": {
+      "type": "object",
+      "allowedParents": [
+        "Surface",
+        "SurfaceCard"
+      ],
+      "properties": {
+        "text": {
+          "$ref": "https://a2ui.org/specification/v1_0/common_types.json#/$defs/DynamicString"
+        },
+        "emphasis": {
+          "enum": [
+            "title",
+            "body",
+            "muted"
+          ]
+        }
+      },
+      "required": [
+        "text"
+      ]
+    },
+    "DataTable": {
+      "type": "object",
+      "allowedParents": [
+        "Surface",
+        "SurfaceCard"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "previewRows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "description": "Show up to this many rows initially. The full bound table remains available in the chat."
+        },
+        "columns": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "rows": {
+          "anyOf": [
+            {
+              "type": "array",
+              "maxItems": 1000,
+              "items": {
+                "type": "array",
+                "maxItems": 8,
+                "minItems": 1,
+                "items": {
+                  "type": [
+                    "string",
+                    "number",
+                    "null"
+                  ],
+                  "maxLength": 200
+                }
+              }
+            },
+            {
+              "$ref": "https://a2ui.org/specification/v1_0/common_types.json#/$defs/DataBinding"
+            }
+          ]
+        }
+      },
+      "required": [
+        "label",
+        "columns",
+        "rows"
+      ]
+    },
+    "PortfolioAllocation": {
+      "type": "object",
+      "description": "Read-only asset mix. Bind to an authorized Finance object containing currency, totalValue and rows with name and value.",
+      "allowedParents": ["Surface", "SurfaceCard"],
+      "properties": {
+        "snapshot": {
+          "$ref": "https://a2ui.org/specification/v1_0/common_types.json#/$defs/DataBinding"
+        }
+      },
+      "required": ["snapshot"]
+    },
+    "PortfolioPerformance": {
+      "type": "object",
+      "description": "Read-only portfolio performance. Bind to an authorized Finance object containing currency, value, invested, cash, sinceBought and optional history with dated values.",
+      "allowedParents": ["Surface", "SurfaceCard"],
+      "properties": {
+        "snapshot": {
+          "$ref": "https://a2ui.org/specification/v1_0/common_types.json#/$defs/DataBinding"
+        }
+      },
+      "required": ["snapshot"]
+    },
+    "PortfolioSources": {
+      "type": "object",
+      "description": "Read-only active portfolio source. Bind to an authorized Finance object with kind plaid or statement and optional fileName and importedAt for an uploaded statement.",
+      "allowedParents": ["Surface", "SurfaceCard"],
+      "properties": {
+        "snapshot": {
+          "$ref": "https://a2ui.org/specification/v1_0/common_types.json#/$defs/DataBinding"
+        }
+      },
+      "required": ["snapshot"]
+    },
+    "FinanceShareProposal": {
+      "type": "object",
+      "description": "Propose opening the app's portfolio sharing review. Only the app chooses the active portfolio, exact recipients, fields, and confirmation.",
+      "allowedParents": ["Surface", "SurfaceCard"],
+      "additionalProperties": false,
+      "properties": {
+        "audience": { "enum": ["connection", "verified_advisor"] }
+      },
+      "required": ["audience"]
+    },
+    "FinancePortfolioUpload": {
+      "type": "object",
+      "description": "Offer to import a statement using the app's file picker. Only the owner chooses the file and the existing import workflow validates it before saving.",
+      "allowedParents": ["Surface"],
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "FinanceStockPreview": {
+      "type": "object",
+      "description": "Offer the app's review for one stock ticker. Only the owner may confirm and start analysis.",
+      "allowedParents": ["Surface"],
+      "additionalProperties": false,
+      "properties": { "ticker": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9.-]{0,15}$" } },
+      "required": ["ticker"]
+    },
+    "FinanceTopGainers": {
+      "type": "object",
+      "description": "Ask the app to show its public U.S. market gainers card.",
+      "allowedParents": ["Surface"],
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "FinancePortfolioPicker": {
+      "type": "object",
+      "description": "Open the app's source picker to switch portfolios or review deletion of a saved statement. The owner chooses the exact source and confirms deletion separately.",
+      "allowedParents": ["Surface"],
+      "additionalProperties": false,
+      "properties": { "mode": { "enum": ["switch", "delete"] } },
+      "required": ["mode"]
+    },
+    "FinancePlaidConnection": {
+      "type": "object",
+      "description": "Offer the app's Plaid card to connect or refresh linked accounts after a visible owner action.",
+      "allowedParents": ["Surface"],
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "SavedPortfolio": {
+      "type": "object",
+      "description": "Ask the app to display a section from the owner's active saved portfolio. The app selects and reads the portfolio through the unlocked vault.",
+      "allowedParents": ["Surface"],
+      "additionalProperties": false,
+      "properties": {
+        "section": { "enum": ["holdings", "allocation", "performance", "sources"] }
+      },
+      "required": ["section"]
+    }
+  },
+  "functions": {}
+}
