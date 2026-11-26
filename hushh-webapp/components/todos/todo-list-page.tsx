@@ -9,6 +9,9 @@ import {
   type Ref,
 } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { ScheduledTasksPanelBody, useScheduledTasksModel } from "@/components/scheduled-tasks/scheduled-tasks-panel";
+import { areScheduledTasksAvailable, isScheduledTaskId } from "@/lib/services/pod-scheduled-tasks";
 
 import {
   ChevronDown,
@@ -159,6 +162,19 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   const writeReady = Boolean(
     userId && isVaultUnlocked && vaultKey && vaultOwnerToken,
   );
+  const requestedSchedule = useSearchParams()?.get("scheduled");
+  const selectedSchedule = isScheduledTaskId(requestedSchedule) ? requestedSchedule : null;
+  const schedulesEnabled = writeReady && areScheduledTasksAvailable();
+  const schedules = useScheduledTasksModel(schedulesEnabled ? userId ?? "" : "", ROUTES.ONE_TASKS);
+  const seenScheduleLink = useRef<string | null>(null);
+  useEffect(() => {
+    if (!requestedSchedule) seenScheduleLink.current = null;
+    if (schedulesEnabled && requestedSchedule && (requestedSchedule === "1" || selectedSchedule) &&
+        seenScheduleLink.current !== requestedSchedule) {
+      seenScheduleLink.current = requestedSchedule;
+      schedules.changeOpen(true);
+    }
+  }, [requestedSchedule, schedules, schedulesEnabled, selectedSchedule]);
   useEffect(() => {
     if (writeReady) return;
     setEditorOpen(false);
@@ -416,6 +432,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
           titleRole="agent"
           actions={
             <div className="flex max-w-full flex-wrap items-center gap-2">
+              {schedulesEnabled ? <ScheduledTasksPanelBody model={schedules} selectedId={selectedSchedule} inTasks /> : null}
               {writeReady && userId && vaultKey && vaultOwnerToken ? <TodoTaskSources open={sourcesOpen} onOpenChange={setSourcesOpen} persistence={{ userId, vaultKey, vaultOwnerToken }} selected={selected} coverage={liveTasks.coverage} loading={liveTasks.sourceLoading} disabled={itemsLoading || !itemsLoaded || itemsLoadError || isSaving}
                 isCurrent={isCurrent} onChange={setSelected} /> : null}
               {writeReady && agentLoadError ? (
@@ -678,5 +695,5 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     ],
     overflowHref: agentFeed.actionables.some(item => item.id === "consent:overflow") ? agentFeed.actionables.find(item => item.id === "consent:overflow")?.href || "/one/feed" : null,
     save: saveTask, toggle: toggleTask, remove: deleteTask,
-  }} fallback={content} />;
+  }} fallback={content} schedules={schedulesEnabled ? schedules : undefined} selectedSchedule={selectedSchedule} />;
 }
