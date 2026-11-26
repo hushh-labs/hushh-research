@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { createElement } from "react";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -20,6 +22,17 @@ const update = (path: string, value: unknown) => ({
 });
 
 describe("One read-only A2UI catalog", () => {
+  it.each(["consent-protocol", "hushh-webapp"])(
+    "ships the canonical catalog in %s",
+    (packageDir) => {
+      const catalog = "contracts/a2ui/morphy-one.v1.catalog.json";
+      const repoRoot = resolve(process.cwd(), "..");
+      const canonical = readFileSync(resolve(repoRoot, catalog), "utf8");
+      const packaged = readFileSync(resolve(repoRoot, packageDir, catalog), "utf8");
+      expect(packaged.replaceAll("\r\n", "\n")).toBe(canonical.replaceAll("\r\n", "\n"));
+    },
+  );
+
   it("uses v1.0 pointer binding and leaves the earlier snapshot intact", () => {
     const initial = applyA2uiMessage(new Map(), create);
     const previous = initial.get("holdings")!;
