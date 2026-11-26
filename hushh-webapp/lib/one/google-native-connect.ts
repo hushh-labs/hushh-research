@@ -230,34 +230,27 @@ export async function connectGoogleConnector(
   if (!current()) return { ok: false, code: changedCode() };
   // Prove this installation can reach its owner's session-only connector door
   // before asking Google for any new authority.
-  let browserReady: Response | undefined;
   try {
     const ready = await ApiService.ownerPodRequest(`connectors/${connector}`, { method: 'GET' });
-    if (browserMail && ready.ok) browserReady = ready.clone();
     if (!ready.ok) return { ok: false, code: refusalCode(await ready.json().catch(() => null), ready.status) };
-    if (connector === "gmail" && !deps.mailAccount) {
-      const existing = await ready.json().catch(() => null);
+    if (connector === "gmail" && (browserMail || !deps.mailAccount)) {
+      const status = await ready.json().catch(() => null);
       if (!current()) return { ok: false, code: changedCode() };
-      if (existing?.connectorId === "gmail" && existing.status === "connected" && existing.capabilities?.manage === true && existing.capabilities?.read === true) {
-        return { ok: true, status: "connected" };
+      if (!deps.mailAccount && status?.connectorId === "gmail" && status.status === "connected" &&
+          status.capabilities?.manage === true && status.capabilities?.read === true) return { ok: true, status: "connected" };
+      if (browserMail && status?.connectorId === "gmail") {
+        if (!("browserClientId" in status)) {
+          if (deps.mailAccount?.mode === "reconnect") return { ok: false, code: "MAIL_RECONNECT_ON_PHONE" };
+          return { ok: false, code: "PHONE_HANDOFF_REQUIRED", handoff: phoneHandoff("gmail", false, false, deps.mailAccount?.mode === "add") };
+        }
+        if (typeof status.browserClientId === "string" &&
+            /^[0-9]{4,32}-[a-z0-9]{8,64}\.apps\.googleusercontent\.com$/.test(status.browserClientId)) {
+          client = { profile: "hussh_uat_mail_web", clientId: status.browserClientId, redirectUri: UAT_MAIL_ORIGIN };
+        }
       }
     }
   } catch { return { ok: false, code: 'AGENT_UNREACHABLE' }; }
   if (!current()) return { ok: false, code: changedCode() };
-  if (browserReady) {
-    const status = await browserReady.json().catch(() => null);
-    if (!current()) return { ok: false, code: changedCode() };
-    if (status?.connectorId === "gmail" && !deps.mailAccount && status.status === "connected" &&
-        status.capabilities?.manage === true && status.capabilities?.read === true) return { ok: true, status: "connected" };
-    if (status?.connectorId === "gmail" && !("browserClientId" in status)) {
-      if (deps.mailAccount?.mode === "reconnect") return { ok: false, code: "MAIL_RECONNECT_ON_PHONE" };
-      return { ok: false, code: "PHONE_HANDOFF_REQUIRED", handoff: phoneHandoff("gmail", false, false, deps.mailAccount?.mode === "add") };
-    }
-    if (status?.connectorId === "gmail" && typeof status.browserClientId === "string" &&
-        /^[0-9]{4,32}-[a-z0-9]{8,64}\.apps\.googleusercontent\.com$/.test(status.browserClientId)) {
-      client = { profile: "hussh_uat_mail_web", clientId: status.browserClientId, redirectUri: UAT_MAIL_ORIGIN };
-    }
-  }
   if (!client) return { ok: false, code: "MAIL_BROWSER_NOT_CONFIGURED" };
   let transition: GoogleConnectorTransition;
   try {
@@ -309,7 +302,7 @@ export async function connectGoogleConnector(
     transition,
   }, firebaseUid, current);
   if (!current()) return { ok: false, code: changedCode() };
-  if (delivered.ok && browserMail) notifyMailGrantsChanged();
+  if (delivered.ok && connector === "gmail") notifyMailGrantsChanged();
   return delivered;
 }
 
