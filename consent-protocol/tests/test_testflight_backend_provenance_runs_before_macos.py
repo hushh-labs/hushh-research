@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import os
 import plistlib
-import shlex
+import runpy
 import subprocess
 import sys
 from pathlib import Path
@@ -23,6 +23,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "ship-ios-testflight.yml"
+SIGNING_INPUTS_CHECK = ROOT / "scripts" / "ci" / "verify-uat-native-release-inputs.py"
 CHECK = "Verify matching UAT backend revision"
 
 
@@ -34,6 +35,40 @@ def _names(job: dict) -> list[str]:
     return [str(step.get("name") or step.get("uses") or "") for step in job["steps"]]
 
 
+def _git(repo: Path, *args: str) -> str:
+    return subprocess.check_output(  # noqa: S603 - synthetic Git repository only.
+        ["git", *args], cwd=repo, text=True, stderr=subprocess.DEVNULL
+    ).strip()
+
+
+def _init_signing_repo(repo: Path) -> None:
+    _git(repo, "init")
+    _git(repo, "config", "user.name", "Synthetic release fixture")
+    _git(repo, "config", "user.email", "synthetic@example.invalid")
+    (repo / "hushh-webapp").mkdir()
+    (repo / "hushh-webapp/package.json").write_text('{"scripts": {}}\n')
+
+
+def _check_signing_inputs(
+    repo: Path, main_sha: str, candidate: str, branch: str = "uat"
+) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(  # noqa: S603 - actual verifier, synthetic Git inputs.
+        [
+            sys.executable,
+            str(SIGNING_INPUTS_CHECK),
+            "--main-sha",
+            main_sha,
+            "--application-sha",
+            candidate,
+            "--source-branch",
+            branch,
+        ],
+        cwd=repo,
+        capture_output=True,
+        check=False,
+    )
+
+
 def test_provenance_check_runs_in_the_ubuntu_preflight_after_the_sha_resolves() -> None:
     preflight = _jobs()["preflight"]
     assert str(preflight["runs-on"]).startswith("ubuntu"), preflight["runs-on"]
@@ -42,6 +77,14 @@ def test_provenance_check_runs_in_the_ubuntu_preflight_after_the_sha_resolves() 
     assert CHECK in names, f"{CHECK!r} left the preflight job"
     check_at = names.index(CHECK)
     assert names.index("Resolve exact green release SHA") < check_at
+    resolve = preflight["steps"][names.index("Resolve exact green release SHA")]["run"]
+    assert resolve.index("require_protected_tip(") < resolve.index(
+        str(SIGNING_INPUTS_CHECK.relative_to(ROOT))
+    )
+    assert (
+        '--main-sha "$GITHUB_SHA" --application-sha "$SHA" --source-branch "$SOURCE_BRANCH"'
+        in resolve
+    )
     assert names.index("Authenticate to Google Cloud with workload identity") < check_at
 
     step = preflight["steps"][check_at]
@@ -78,47 +121,18 @@ def test_provenance_check_runs_in_the_ubuntu_preflight_after_the_sha_resolves() 
     ],
 )
 def test_signing_parity_locks_build_and_signing_inputs_only(tmp_path, path, allowed):
-    def git(*args):
-        return subprocess.check_output(  # noqa: S603 - synthetic Git repository only.
-            ["git", *args], cwd=tmp_path, text=True, stderr=subprocess.DEVNULL
-        ).strip()
-
-    git("init")
-    git("config", "user.name", "Synthetic release fixture")
-    git("config", "user.email", "synthetic@example.invalid")
-    (tmp_path / "README.md").write_text("base\n")
-    git("add", ".")
-    git("commit", "-m", "Main signing inputs")
-    authority = git("rev-parse", "HEAD")
+    _init_signing_repo(tmp_path)
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "Main signing inputs")
+    authority = _git(tmp_path, "rev-parse", "HEAD")
     changed = tmp_path / path
     changed.parent.mkdir(parents=True, exist_ok=True)
     changed.write_text("candidate changes\n")
-    git("add", ".")
-    git("commit", "-m", "UAT input change")
-    candidate = git("rev-parse", "HEAD")
-    resolve = next(
-        step["run"]
-        for step in _jobs()["preflight"]["steps"]
-        if step.get("name") == "Resolve exact green release SHA"
-    )
-    start = resolve.index('git diff --exit-code --quiet "$GITHUB_SHA" "$SHA" --')
-    command = resolve[start : resolve.index(" || {", start)].replace("\\\n", " ")
-    command = command.replace("$GITHUB_SHA", authority).replace("$SHA", candidate)
-    result = subprocess.run(  # noqa: S603 - actual authored parity command, synthetic Git inputs.
-        shlex.split(command), cwd=tmp_path, capture_output=True, check=False
-    )
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "UAT input change")
+    candidate = _git(tmp_path, "rev-parse", "HEAD")
+    result = _check_signing_inputs(tmp_path, authority, candidate)
     assert result.returncode == (0 if allowed else 1), result.stderr
-
-
-def _manifest_parity_code() -> str:
-    resolve = next(
-        step["run"]
-        for step in _jobs()["preflight"]["steps"]
-        if step.get("name") == "Resolve exact green release SHA"
-    )
-    start = resolve.index("python3 -c '", resolve.index("The package manifest stays"))
-    body = resolve[start + len("python3 -c '") :]
-    return body[: body.index("\n' ||")]
 
 
 @pytest.mark.parametrize(
@@ -141,11 +155,6 @@ def _manifest_parity_code() -> str:
 def test_package_manifest_parity_locks_invoked_scripts_lifecycle_hooks_and_manifest(
     tmp_path, mutate, allowed
 ):
-    def git(*args):
-        return subprocess.check_output(  # noqa: S603 - synthetic Git repository only.
-            ["git", *args], cwd=tmp_path, text=True, stderr=subprocess.DEVNULL
-        ).strip()
-
     manifest = {
         "scripts": {
             "ios:prepare:uat": "node ./scripts/native/prepare-ios-uat-archive.mjs",
@@ -157,27 +166,70 @@ def test_package_manifest_parity_locks_invoked_scripts_lifecycle_hooks_and_manif
         "dependencies": {"next": "16.4.6"},
     }
     path = tmp_path / "hushh-webapp" / "package.json"
-    path.parent.mkdir()
-    git("init")
-    git("config", "user.name", "Synthetic release fixture")
-    git("config", "user.email", "synthetic@example.invalid")
+    _init_signing_repo(tmp_path)
     path.write_text(json.dumps(manifest))
-    git("add", ".")
-    git("commit", "-m", "Main manifest")
-    authority = git("rev-parse", "HEAD")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "Main manifest")
+    authority = _git(tmp_path, "rev-parse", "HEAD")
     mutate(manifest)
     path.write_text(json.dumps(manifest))
-    git("add", ".")
-    git("commit", "-m", "UAT manifest")
-    candidate = git("rev-parse", "HEAD")
-    result = subprocess.run(  # noqa: S603 - actual authored parity code, synthetic Git inputs.
-        [sys.executable, "-c", _manifest_parity_code()],
-        cwd=tmp_path,
-        env={**os.environ, "GITHUB_SHA": authority, "SHA": candidate},
-        capture_output=True,
-        check=False,
-    )
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "UAT manifest")
+    candidate = _git(tmp_path, "rev-parse", "HEAD")
+    result = _check_signing_inputs(tmp_path, authority, candidate)
     assert result.returncode == (0 if allowed else 1), result.stderr
+
+
+def test_main_review_record_admits_only_the_exact_uat_signing_inputs(tmp_path, monkeypatch):
+    _init_signing_repo(tmp_path)
+    package_dir = tmp_path / "hushh-webapp"
+    lockfile = package_dir / "package-lock.json"
+    lockfile.write_text("{}\n")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "Main signing inputs")
+    authority = _git(tmp_path, "rev-parse", "HEAD")
+    lockfile.write_text('{"name":"uat"}\n')
+    (package_dir / "package.json").write_text('{"scripts":{"precap:build":"node prepare.mjs"}}\n')
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "UAT signing inputs")
+    candidate = _git(tmp_path, "rev-parse", "HEAD")
+
+    monkeypatch.chdir(tmp_path)
+    verifier = runpy.run_path(str(SIGNING_INPUTS_CHECK))
+    record = verifier["review_record"](
+        candidate,
+        verifier["build_file_changes"](authority, candidate),
+        verifier["build_manifest"](authority),
+        verifier["build_manifest"](candidate),
+    )
+    approval = tmp_path / verifier["APPROVAL_PATH"]
+    approval.parent.mkdir(parents=True)
+    approval.write_text(json.dumps(record))
+    assert _check_signing_inputs(tmp_path, authority, candidate).returncode == 1
+
+    _git(tmp_path, "checkout", "--detach", authority)
+    _git(tmp_path, "add", str(approval))
+    _git(tmp_path, "commit", "-m", "Review exact UAT signing inputs")
+    reviewed_main = _git(tmp_path, "rev-parse", "HEAD")
+    assert _check_signing_inputs(tmp_path, reviewed_main, candidate).returncode == 0
+    assert _check_signing_inputs(tmp_path, reviewed_main, candidate, "uat-isolated").returncode == 1
+
+    _git(tmp_path, "checkout", "--detach", candidate)
+    _git(tmp_path, "commit", "--allow-empty", "-m", "Another UAT commit with the same tree")
+    other_candidate = _git(tmp_path, "rev-parse", "HEAD")
+    assert _check_signing_inputs(tmp_path, reviewed_main, other_candidate).returncode == 1
+
+    _git(tmp_path, "checkout", "--detach", reviewed_main)
+    lockfile.write_text('{"name":"updated-main"}\n')
+    _git(tmp_path, "commit", "-am", "Change Main signing inputs")
+    changed_main = _git(tmp_path, "rev-parse", "HEAD")
+    assert _check_signing_inputs(tmp_path, changed_main, candidate).returncode == 1
+
+    _git(tmp_path, "checkout", "--detach", reviewed_main)
+    (package_dir / "package.json").write_text('{"scripts":{"precap:build":"node newer.mjs"}}\n')
+    _git(tmp_path, "commit", "-am", "Change Main lifecycle script")
+    changed_main_manifest = _git(tmp_path, "rev-parse", "HEAD")
+    assert _check_signing_inputs(tmp_path, changed_main_manifest, candidate).returncode == 1
 
 
 def test_testflight_parity_allowlist_covers_every_invoked_script_and_import() -> None:
@@ -200,24 +252,14 @@ def test_testflight_parity_allowlist_covers_every_invoked_script_and_import() ->
             if sub not in expanded:
                 queue.append(sub)
 
-    code = _manifest_parity_code()
-    locked_scripts = set(re.findall(r'"([A-Za-z0-9:_-]+)"', code.split("LIFECYCLE", 1)[0]))
-    missing_scripts = sorted(expanded - locked_scripts)
+    verifier = runpy.run_path(str(SIGNING_INPUTS_CHECK))
+    missing_scripts = sorted(expanded - verifier["INVOKED_SCRIPTS"])
     assert not missing_scripts, (
         f"Invoked TestFlight npm scripts missing from allowlist: {missing_scripts}"
     )
 
-    resolve = next(
-        step["run"]
-        for step in _jobs()["preflight"]["steps"]
-        if step.get("name") == "Resolve exact green release SHA"
-    )
-    parity_block = resolve[
-        resolve.index('git diff --exit-code --quiet "$GITHUB_SHA" "$SHA" --') : resolve.index(
-            " || {", resolve.index('git diff --exit-code --quiet "$GITHUB_SHA" "$SHA" --')
-        )
-    ]
-    assert ":(exclude)" not in parity_block, (
+    build_inputs = verifier["BUILD_INPUTS"]
+    assert all(not path.startswith(":(exclude)") for path in build_inputs), (
         "Use positive build/signing allowlist, not exclusion denylist"
     )
     for rel in (
@@ -227,7 +269,7 @@ def test_testflight_parity_allowlist_covers_every_invoked_script_and_import() ->
         text = (ROOT / rel).read_text(encoding="utf-8")
         for imp in re.findall(r'from\s+["\']\.\./([^"\']+)["\']', text):
             target = f"hushh-webapp/scripts/{imp}"
-            assert target in parity_block, (
+            assert target in build_inputs, (
                 f"Transitive native import {target} missing from parity pathspec"
             )
 
