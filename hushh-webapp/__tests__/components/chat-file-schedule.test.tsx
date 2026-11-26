@@ -66,6 +66,26 @@ describe("private Files schedule review in Chat", () => {
     expect(organize).not.toHaveBeenCalled();
   });
 
+  it("uses Sandbox scheduling with analysis consent even when the upload queue is unavailable", async () => {
+    const client = PodScheduledTasksClient.prototype;
+    vi.mocked(client.status).mockResolvedValue({
+      available: true, code: null, authorization_limit_at: Math.floor(Date.now() / 1000) + 172800,
+      templates: [FILE_ORGANIZATION_TEMPLATE], files_via_schedule: true, tasks: [],
+    });
+    mocks.settings.mockResolvedValue({ revision: 2, analysis: true, backgroundAvailable: false, excluded: [] });
+    const organize = vi.spyOn(client, "organizeFile").mockResolvedValue({
+      id: taskId, title: "Organize Minutes.txt", state: "scheduled", revision: 2,
+      capability: FILE_ORGANIZATION_TEMPLATE, repeat: "once", timezone: "UTC",
+      next_run_at: scheduledAt / 1000, authorization_expires_at: scheduledAt / 1000 + 86400,
+      last_run: null,
+    });
+    const confirm = await openReview();
+    mocks.settings.mockResolvedValueOnce({ revision: 3, analysis: false, backgroundAvailable: false, excluded: [] });
+    fireEvent.click(confirm);
+    expect(await screen.findByRole("alert")).toHaveTextContent("selected file or its permission changed");
+    expect(organize).not.toHaveBeenCalled();
+  });
+
   it("does not list Shared files or offer confirmation", async () => {
     mocks.hosting = "shared";
     render(<ChatFileScheduleCard proposal={{ runAt: null }} credentials={credentials} onDismiss={vi.fn()} />);

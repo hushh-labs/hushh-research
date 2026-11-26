@@ -55,6 +55,7 @@ export type ScheduledTasksStatus = {
   available: boolean;
   code: string | null;
   templates: string[];
+  files_via_schedule?: boolean;
   tasks: ScheduledTask[];
   authorization_limit_at: number | null;
 };
@@ -235,6 +236,7 @@ export class PodScheduledTasksClient {
       new Set(tasks.map((row) => row.id)).size !== tasks.length ||
       !Array.isArray(body.templates) ||
       body.templates.some((value) => !isScheduledCapability(value)) ||
+      (body.files_via_schedule !== undefined && typeof body.files_via_schedule !== "boolean") ||
       (body.code !== null &&
         (typeof body.code !== "string" || !/^[A-Z_]{1,128}$/.test(body.code)))
     )
@@ -243,6 +245,7 @@ export class PodScheduledTasksClient {
       available: body.available,
       code: body.code,
       templates: body.templates,
+      ...(body.files_via_schedule !== undefined ? { files_via_schedule: body.files_via_schedule } : {}),
       tasks,
       authorization_limit_at: body.authorization_limit_at,
     };

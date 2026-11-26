@@ -311,6 +311,7 @@ class VirginStandbyRuntime:
                         ("sentinel_vertex_project", ("HUSSH_SENTINEL_VERTEX_PROJECT",)),
                         ("sentinel_vertex_location", ("HUSSH_SENTINEL_VERTEX_LOCATION",)),
                         ("sandbox_name", ("ACE_SANDBOX_ID",)),
+                        ("schedule_worker_email", ("HUSSH_SANDBOX_TASK_WORKER_EMAIL",)),
                     ):
                         raw_val = payload.get(opt_field)
                         val = (
