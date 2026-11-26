@@ -498,3 +498,62 @@ def test_recorded_inert_bridge_joins_activity_and_system_events(closed_workos, d
             closed_workos.revision_inventory(
                 [inventory], check=lambda _: True, project=authority["PROJECT"]
             )
+
+
+def test_v2_update_service_template_restore_is_qualified(closed_workos):
+    sha = "a" * 40
+    event = {
+        "timestamp": "2026-11-24T12:07:20Z",
+        "resource": {"labels": {"service_name": "consent-protocol"}},
+        "logName": "projects/hushh-pda/logs/cloudaudit.googleapis.com%2Factivity",
+        "protoPayload": {
+            "serviceName": "run.googleapis.com",
+            "methodName": "google.cloud.run.v2.Services.UpdateService",
+            "request": {
+                "@type": "type.googleapis.com/google.cloud.run.v2.UpdateServiceRequest",
+                "updateMask": "template",
+                "service": {
+                    "name": "projects/hushh-pda/locations/us-central1/services/consent-protocol",
+                    "template": {
+                        "revision": "consent-protocol-00328-gib",
+                        "labels": {"deploy-sha": sha},
+                        "containers": [
+                            {
+                                "name": "consent-protocol",
+                                "env": [{"name": "WORKOS_SSO_ENABLED", "value": "false"}],
+                            }
+                        ],
+                    },
+                },
+            },
+            "response": {},
+        },
+    }
+    templates = closed_workos._audit_templates(event, project="hushh-pda")
+    assert len(templates) == 1
+    template, completed_name, completion = templates[0]
+    assert completed_name is None
+    assert completion is False
+    assert template["metadata"] == {
+        "name": "consent-protocol-00328-gib",
+        "labels": {"deploy-sha": sha},
+    }
+
+
+def test_published_emergency_branch_shas_reads_packed_and_loose_refs(tmp_path):
+    import emergency_admission
+
+    git_dir = tmp_path / ".git"
+    fix_dir = git_dir / "refs" / "remotes" / "origin" / "fix"
+    fix_dir.mkdir(parents=True)
+    loose_sha = "1" * 40
+    packed_sha = "2" * 40
+    ignored_sha = "3" * 40
+    (fix_dir / "production-adk-harness-20261119").write_text(loose_sha + "\n")
+    (git_dir / "packed-refs").write_text(
+        f"# pack-refs with: peeled fully-peeled sorted\n"
+        f"{packed_sha} refs/remotes/origin/hotfix/prod-incident\n"
+        f"{ignored_sha} refs/remotes/origin/feat/unrelated\n"
+    )
+    found = emergency_admission.published_emergency_branch_shas(tmp_path)
+    assert found == frozenset({loose_sha, packed_sha})

@@ -68,5 +68,7 @@ describe("/register-phone safe-area shell contract", () => {
     expect(source).toContain("key={user.uid}");
     expect(styles).toContain("grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr)");
     expect(styles).toContain("--font-app-display");
+    expect(styles).not.toMatch(/\.recaptcha\s*\{[^}]*display:\s*none/);
+    expect(styles).toContain(".recaptcha { height: 0; overflow: visible; }");
   });
 });

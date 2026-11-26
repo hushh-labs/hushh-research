@@ -1505,3 +1505,34 @@ async def test_remote_read_caches_eliminate_redundant_io_while_preserving_fencin
         await log.require_open()
     with pytest.raises(PodLogFenced):
         await log.append("late", {})
+
+
+@pytest.mark.asyncio
+async def test_gcs_write_retries_rate_limited_and_transient_responses(monkeypatch):
+    import hushh_mcp.services.pod_commit_log as pcl
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(pcl.time, "sleep", sleeps.append)
+
+    class RateLimitedThenOkTransport(_FakeGcsTransport):
+        def __init__(self):
+            super().__init__()
+            self.closed_statuses: list[int] = []
+            self.attempts = 0
+
+        def post(self, url, **kwargs):
+            self.attempts += 1
+            if self.attempts in (1, 2):
+                status = 429 if self.attempts == 1 else 503
+                resp = _FakeResponse(status, {"error": "rate_limited"})
+                resp.close = lambda s=status: self.closed_statuses.append(s)  # type: ignore[attr-defined]
+                return resp
+            return _FakeResponse(200, {"generation": "42"})
+
+    transport = RateLimitedThenOkTransport()
+    store = GcsObjectStore("user-bucket", session=transport)
+    version = await store.put_if_generation("head.json", b"{}", "3")
+    assert version == "42"
+    assert transport.attempts == 3
+    assert transport.closed_statuses == [429, 503]
+    assert len(sleeps) == 2

@@ -152,7 +152,7 @@
 .phoneForm :global(#phone-flow-code) { font-size: 22px; scroll-margin-block: 80px; }
 .phoneForm :global([data-figma-otp-actions]) { display: flex; justify-content: center; margin-top: 10px; padding: 0; }
 .phoneForm :global([data-figma-otp-actions] button) { min-height: 44px; color: var(--app-accent) !important; font-family: var(--font-app-body); font-size: 14px; font-weight: 500; }
-.recaptcha { display: none; }
+.recaptcha { height: 0; overflow: visible; }
 /* The conflict owns its state heading; keep the entry/OTP title out of it. */
 .content:has([data-phone-conflict]) > h1 { display: none; }
 .shell .content [data-phone-conflict-title] { font-size: clamp(24px, 6vw, 28px) !important; line-height: 1.15 !important; text-align: left !important; }

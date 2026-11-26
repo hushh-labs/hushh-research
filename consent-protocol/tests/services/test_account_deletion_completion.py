@@ -154,3 +154,29 @@ async def test_wake_drains_before_the_next_tick(monkeypatch):
         loop.cancel()
         with suppress(asyncio.CancelledError):
             await loop
+
+
+async def test_cleanup_loop_defers_dedicated_connection_capacity_without_error_log(
+    monkeypatch, caplog
+):
+    from db.connection import DedicatedConnectionCapacityError
+
+    woke = asyncio.Event()
+
+    async def busy_drain():
+        woke.set()
+        raise DedicatedConnectionCapacityError("Background database work is busy; retry later.")
+
+    monkeypatch.setattr(runtime, "_wake", None)
+    monkeypatch.setattr(lifecycle, "drain_account_deletion_cleanup_intents", busy_drain)
+    with caplog.at_level("INFO", logger=runtime.logger.name):
+        loop = asyncio.create_task(runtime._account_deletion_cleanup_loop(3600))
+        try:
+            await asyncio.wait_for(woke.wait(), timeout=2)
+            await asyncio.sleep(0.02)
+        finally:
+            loop.cancel()
+            with suppress(asyncio.CancelledError):
+                await loop
+    assert any("cleanup_deferred_db_busy" in r.message for r in caplog.records)
+    assert not any(r.levelname == "ERROR" for r in caplog.records)

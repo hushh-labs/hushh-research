@@ -6,7 +6,7 @@ vi.mock("@/lib/auth/google-signup-token", () => ({
   googleSignupConfigured: () => Boolean(process.env.NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID),
 }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { PHONE_CONFLICT_COPY } from "@/lib/auth/phone-conflict-copy";
+import { PHONE_CONFLICT_COPY, resolvePhoneFailureMessage } from "@/lib/auth/phone-conflict-copy";
 
 const {
   mockAuth,
@@ -1589,5 +1589,30 @@ describe("document request identity", () => {
     mockLinkWithPopup.mockRejectedValue({ code: "auth/credential-already-in-use" });
     await expect(AuthService.linkGoogleIdentity("b", () => true)).rejects.toThrow("identity_already_linked");
     expect(mockSignInWithPopup).not.toHaveBeenCalled();
+  });
+
+  it("maps Firebase and test-transport phone verification failures to clear guidance instead of generic fallback", () => {
+    const fallback = "Couldn't send the verification code. Please try again.";
+    expect(resolvePhoneFailureMessage({ code: "auth/captcha-check-failed" }, fallback)).toContain(
+      "Browser security verification could not complete",
+    );
+    expect(resolvePhoneFailureMessage({ code: "auth/invalid-app-credential" }, fallback)).toContain(
+      "Browser security verification could not complete",
+    );
+    expect(resolvePhoneFailureMessage({ code: "auth/unauthorized-domain" }, fallback)).toContain(
+      "Browser security verification could not complete",
+    );
+    expect(resolvePhoneFailureMessage({ code: "auth/quota-exceeded" }, fallback)).toContain(
+      "SMS verification has reached its temporary limit",
+    );
+    expect(resolvePhoneFailureMessage({ code: "network-request-failed" }, fallback)).toContain(
+      "Check your connection",
+    );
+    expect(resolvePhoneFailureMessage({}, fallback, "PHONE_TEST_START_UNAVAILABLE")).toContain(
+      "temporarily unavailable",
+    );
+    expect(resolvePhoneFailureMessage({ code: "phone-already-linked-to-current-user" }, fallback)).toBe(
+      "This phone number is already linked to your account.",
+    );
   });
 });
