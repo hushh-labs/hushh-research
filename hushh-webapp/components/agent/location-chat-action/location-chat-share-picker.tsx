@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { CheckIcon, CircleUserRoundIcon, UsersIcon } from "lucide-react";
+import { CheckIcon, UserCircleIcon, UsersThreeIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { MainLocationTarget } from "@/lib/agent/main-chat-location";
@@ -45,9 +45,15 @@ export function LocationChatSharePicker({ token, ownerId, initialMode = "share_l
     if (!suggestedPeople?.length) return;
     let current = true;
     const people = suggestedPeople.map(async (name) => {
-      const { items } = await OneLocationService.listRecipientsPage({ vaultOwnerToken: token, page: 1, limit: 40, query: name });
-      const exact = items.filter((item) => item.userId !== ownerId && normalized(item.displayName) === normalized(name));
-      const person = exact.length === 1 ? exact[0] : undefined;
+      const requestedName = normalized(name);
+      const { items, hasMore } = await OneLocationService.listRecipientsPage({ vaultOwnerToken: token, page: 1, limit: 40, query: name });
+      const singleName = !/\s/u.test(requestedName);
+      const matches = items.filter((item) => {
+        if (item.userId === ownerId) return false;
+        const displayName = normalized(item.displayName);
+        return displayName === requestedName || (singleName && displayName.startsWith(`${requestedName} `));
+      });
+      const person = !hasMore && matches.length === 1 ? matches[0] : undefined;
       return person?.canReceiveLocation
         ? [`person:${person.userId}`, { label: person.displayName, personUserId: person.userId }] as const : null;
     });
@@ -129,7 +135,7 @@ export function LocationChatSharePicker({ token, ownerId, initialMode = "share_l
 
   function audienceButton(id: string, target: MainLocationTarget, detail: string | undefined, disabled = false) {
     const checked = Boolean(selected[id]);
-    const Icon = target.circleId ? UsersIcon : CircleUserRoundIcon;
+    const Icon = target.circleId ? UsersThreeIcon : UserCircleIcon;
     return <button key={id} type="button" aria-pressed={checked} disabled={busy || disabled}
       onClick={() => toggle(id, target)}
       className={cn("flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2 text-start text-sm focus-visible:outline focus-visible:outline-2 disabled:opacity-60",

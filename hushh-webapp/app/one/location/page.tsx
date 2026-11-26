@@ -3539,18 +3539,19 @@ export function OneLocationAgentPageContent({
     );
   }, [activeReceivedGrants, auth.userId, openedGrantTick, unwatchedTick]);
   const stopQueueRevision = useSyncExternalStore(subscribeLocationStopQueue, locationStopQueueRevision, () => 0);
-  const activeOwnerGrants = useMemo(
-    () => (state?.ownerGrants ?? []).filter((grant) =>
-      grant.status === "active" && grant.shareKind !== "pin" && !hasQueuedLocationStop(auth.userId, grant.id)),
-    [auth.userId, state?.ownerGrants, stopQueueRevision],
-  );
-  const activeOwnerPins = useMemo(
-    () => (state?.ownerGrants ?? []).filter((grant) =>
+  const activeOwnerGrants = useMemo(() => {
+    // Pending stops come from the local queue, separately from the server grant state.
+    void stopQueueRevision;
+    return (state?.ownerGrants ?? []).filter((grant) =>
+      grant.status === "active" && grant.shareKind !== "pin" && !hasQueuedLocationStop(auth.userId, grant.id));
+  }, [auth.userId, state?.ownerGrants, stopQueueRevision]);
+  const activeOwnerPins = useMemo(() => {
+    void stopQueueRevision;
+    return (state?.ownerGrants ?? []).filter((grant) =>
       grant.status === "active" && grant.shareKind === "pin" &&
       Boolean(grant.expiresAt && Date.parse(grant.expiresAt) > nowMs) &&
-      !hasQueuedLocationStop(auth.userId, grant.id)),
-    [auth.userId, nowMs, state?.ownerGrants, stopQueueRevision],
-  );
+      !hasQueuedLocationStop(auth.userId, grant.id));
+  }, [auth.userId, nowMs, state?.ownerGrants, stopQueueRevision]);
   /**
    * Live Save My Soul shares the server holds for this owner, whichever
    * device or voice session armed them. The device incident record only knows
@@ -6811,6 +6812,7 @@ export function OneLocationAgentPageContent({
     return () => window.clearInterval(interval);
   }, [
     activeOwnerGrants,
+    auth.userId,
     busy,
     locationControl.paused,
     permission?.state,
@@ -7048,6 +7050,7 @@ export function OneLocationAgentPageContent({
     };
   }, [
     activeOwnerGrants,
+    auth.userId,
     locationControl.paused,
     permission?.state,
     publishEnvelopeWithRetry,

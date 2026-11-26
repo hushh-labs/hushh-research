@@ -29,7 +29,7 @@ import {
 } from "react";
 import { usePathname } from "next/navigation";
 import { ROUTES } from "@/lib/navigation/routes";
-import { MAIN_CHAT_LOCATION_ENABLED } from "@/lib/agent/main-chat-location";
+import { MAIN_CHAT_LOCATION_ENABLED } from "@/lib/agent/main-chat-location-contract";
 import { Capacitor } from "@capacitor/core";
 
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";

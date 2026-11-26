@@ -1,6 +1,6 @@
 "use client";
 import dynamic from "next/dynamic";
-import { MAIN_CHAT_LOCATION_ENABLED, parseMainLocationProposal, type MainLocationContinuation } from "@/lib/agent/main-chat-location";
+import { MAIN_CHAT_LOCATION_ENABLED, parseMainLocationProposal, type MainLocationContinuation } from "@/lib/agent/main-chat-location-contract";
 import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import { calendarProposalReviewError, calendarProposalReviewExtras, legacyCalendarProposalPayload } from "@/lib/agent/calendar-proposal-review";
 import { useChatMemory } from "@/lib/agent/use-chat-memory";

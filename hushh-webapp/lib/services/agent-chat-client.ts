@@ -110,7 +110,7 @@ import type { ReceiptCanonicalIndex } from "@/lib/profile/gmail-receipt-memory-i
 import { RECEIPT_FUNCTIONS, RECEIPT_TOOL_DECLARATIONS, type ReceiptAnalysisRequest, type ReceiptFunction } from "@/lib/mail/receipt-analysis";
 import { receiptCallRequest, receiptCallRunner, settleReceiptCalls, type ReceiptSetupState } from "./agent-chat-receipt-calls";
 
-import { parseMainLocationProposal, type MainLocationContinuation, type MainLocationProposal } from "@/lib/agent/main-chat-location";
+import { parseMainLocationProposal, type MainLocationContinuation, type MainLocationProposal } from "@/lib/agent/main-chat-location-contract";
 
 export type AgentChatMessage = {
   id: string;

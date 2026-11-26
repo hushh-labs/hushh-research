@@ -9,6 +9,8 @@ vi.mock("@/lib/one-location/service", () => ({
       items: query === "Priya" ? [
         { userId: "priya-1", displayName: "Priya", canReceiveLocation: true },
         { userId: "priya-2", displayName: "Priya", canReceiveLocation: true },
+      ] : query === "Neelesh" ? [
+        { userId: "neelesh", displayName: "Neelesh Meena", canReceiveLocation: true },
       ] : [{ userId: "maya", displayName: "Maya", canReceiveLocation: true }],
       page: 1, hasMore: false,
     })),
@@ -33,4 +35,16 @@ test("carry exact typed suggestions into the editable private audience without g
   await waitFor(() => expect(onSelectionChange).toHaveBeenLastCalledWith({
     mode: "share_pin", targets: [{ label: "Family", circleId: "circle-1" }],
   }));
+});
+
+test("carries a unique first-name Connection into review without sharing", async () => {
+  const onContinue = vi.fn();
+  render(<LocationChatSharePicker ownerId="owner" token="owner-token" busy={false}
+    suggestedPeople={["Neelesh"]} onContinue={onContinue} onBack={() => {}} />);
+
+  await screen.findByRole("button", { name: "Remove Neelesh Meena from the audience" });
+  expect(onContinue).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("radio", { name: "Current pin" }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  expect(onContinue).toHaveBeenCalledWith("share_pin", [{ label: "Neelesh Meena", personUserId: "neelesh" }]);
 });

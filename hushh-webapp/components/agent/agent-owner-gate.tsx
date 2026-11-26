@@ -13,7 +13,7 @@ import { CalendarVoiceChatBridge } from "@/components/calendar/calendar-voice-ch
 import { OneVoiceMailDraftBridge } from "@/components/one-voice/one-voice-mail-draft-bridge";
 import { useOneVoiceLiveEnabled, useOneVoiceCommandsEnabled } from "@/lib/one-voice/readiness";
 import { dispatchAgentConversationAfterRoute } from "@/lib/agent/agent-voice-settings";
-import { MAIN_CHAT_LOCATION_ENABLED } from "@/lib/agent/main-chat-location";
+import { MAIN_CHAT_LOCATION_ENABLED } from "@/lib/agent/main-chat-location-contract";
 
 /**
  * Exactly one microphone owner at a time.
