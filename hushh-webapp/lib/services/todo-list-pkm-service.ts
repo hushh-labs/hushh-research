@@ -18,6 +18,8 @@ import {
 import { normalizeInternalRouteHref } from "@/lib/navigation/routes";
 import { taskCapabilitySchema, type TaskCapability } from "@/lib/todos/task-suggestion-model";
 
+import { followupSchema, type MailFollowup } from "@/lib/mail/mail-followup-model";
+
 export const TODO_LIST_PKM_DOMAIN = "one_todos" as const;
 
 import {
@@ -172,7 +174,9 @@ function normalizeItem(value: unknown): TodoItem | null {
   const type = normalizeType(value.type);
   const sourceId = text(value.sourceId ?? value.calendarEventId, 240) || null;
 
+  const mail = value.mailFollowup ? followupSchema.safeParse(value.mailFollowup) : null;
   return {
+    ...(mail?.success ? { mailFollowup: mail.data } : {}),
     id,
     title,
     type,
@@ -524,6 +528,38 @@ export const TodoListPkmService = {
   },
 
   create: createTodo,
+
+  trackMail(persistence: TodoWriteParams, finding: MailFollowup) {
+    const item = followupSchema.parse(finding);
+    const task = buildTodo({ source: "gmail", type: "automatic", sourceId: `mail_thread:${item.key}`,
+      title: item.title, notes: item.fulfilment });
+    return write(persistence, "one_todo_list_gmail_follow_up", `one_todo_list:create:${task.id}`,
+      current => current.tasks.some(existing => existing.id === task.id)
+        ? current.tasks : [{ ...task, mailFollowup: item }, ...current.tasks]);
+  },
+
+  updateMail(persistence: TodoWriteParams, task: TodoItem, change:
+    | { received: NonNullable<MailFollowup["received"]> }
+    | { watching: true }
+    | { reviewed: true }
+    | { draft: NonNullable<MailFollowup["draft"]> }) {
+    const expected = task.mailFollowup;
+    if (!expected) throw new Error("Missing mail obligation.");
+    const now = new Date().toISOString();
+    return write(persistence, "one_todo_list_gmail_follow_up", `one_todo_list:mail:${task.id}:${crypto.randomUUID()}`,
+      current => {
+        if (!current.tasks.some(row => row.id === task.id)) throw new Error("This task no longer exists.");
+        return current.tasks.map(row => {
+        if (row.id !== task.id) return row;
+        const item = row.mailFollowup;
+        if (!item || item.key !== expected.key || row.status === "deleted" ||
+          row.revision !== task.revision) throw new Error("This task changed. Reopen Follow-ups.");
+        if ("received" in change && row.status !== "pending") return row;
+        if ("reviewed" in change && !item.received?.filename) throw new Error("Document unavailable.");
+        return { ...row, mailFollowup: followupSchema.parse({ ...item, ...change, ...("received" in change ? { watching: false, draft: undefined } : {}) }),
+          ...("received" in change ? { status: "done" as const, completedAt: now } : {}), updatedAt: now };
+      }); });
+  },
 
   saveSourceChoices(params: TodoWriteParams & { selectedCapabilities: TaskCapability[] }) {
     const selected = [...new Set(params.selectedCapabilities.map(value => taskCapabilitySchema.parse(value)))];

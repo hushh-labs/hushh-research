@@ -98,9 +98,9 @@ class HubTableRefused(RuntimeError):
     """An inherited hub path asked for a database table this agent does not have."""
 
 
-def _held() -> Optional[store.ConnectorCredential]:
+def _held(account_id: str = "") -> Optional[store.ConnectorCredential]:
     try:
-        return store.active_connector_credential(GMAIL)
+        return store.active_connector_credential(GMAIL, account_id=account_id)
     except store.ConnectorCredentialsUnavailable:
         raise GmailMetadataError("retryable") from None
 
@@ -116,9 +116,12 @@ def _satisfies(credential: store.ConnectorCredential, level: str) -> bool:
 class PodGmailConnection(GmailReceiptsService):
     """The hub Gmail service's three credential seams, answered from the agent's login."""
 
-    def __init__(self, owner_user_id: str, *, token_source: Any = None) -> None:
+    def __init__(
+        self, owner_user_id: str, *, token_source: Any = None, account_id: str = ""
+    ) -> None:
         super().__init__()
         self._owner = owner_user_id
+        self._account_id = account_id
         self._source = token_source
         self._email = ""
 
@@ -135,7 +138,7 @@ class PodGmailConnection(GmailReceiptsService):
     def _fetch_connection_row(self, *, user_id: str) -> dict[str, Any] | None:
         if user_id != self._owner:
             return None
-        credential = _held()
+        credential = _held(self._account_id)
         if credential is None:
             return None
         scopes = list(credential.granted_scopes)
@@ -166,6 +169,10 @@ class PodGmailConnection(GmailReceiptsService):
         if user_id != self._owner:
             raise GmailMetadataError("permission_denied")
         try:
+            if self._account_id:
+                return str(
+                    await self._tokens().access_token(GMAIL, level, account_id=self._account_id)
+                )
             return str(await self._tokens().access_token(GMAIL, level))
         except ConnectorTokenError as exc:
             raise GmailMetadataError(_TOKEN_CODES.get(exc.code, "retryable")) from None
@@ -185,7 +192,9 @@ class PodGmailConnection(GmailReceiptsService):
     ) -> None:
         # Google refused a fresh token: drop it so the next read refreshes, and a dead
         # login then surfaces as needs_reauth from the token source itself.
-        self._tokens().forget(GMAIL)
+        self._tokens().forget(
+            GMAIL, account_id=self._account_id
+        ) if self._account_id else self._tokens().forget(GMAIL)
 
     def _derive_connection_state(self, row: dict[str, Any] | None) -> str:
         if not row:
@@ -193,7 +202,7 @@ class PodGmailConnection(GmailReceiptsService):
         return "connected" if row.get("status") == "connected" else "needs_reauth"
 
     def modify_permission_granted(self, row: dict[str, Any] | None) -> bool:
-        credential = _held()
+        credential = _held(self._account_id)
         return (
             self._derive_connection_state(row) == "connected"
             and credential is not None

@@ -1,3 +1,5 @@
+import type { MailFollowup } from "@/lib/mail/mail-followup-model";
+
 /** Import-safe task values and projections. Persistence remains in the existing
  * encrypted PKM service; a renderer imports no authentication or native SDK. */
 
@@ -49,6 +51,7 @@ export type TodoItem = {
   completedAt: string | null;
   deletedAt: string | null;
   revision?: number;
+  mailFollowup?: MailFollowup;
 };
 
 /** Active rows are pending tasks. Completed and dismissed rows stay private. */

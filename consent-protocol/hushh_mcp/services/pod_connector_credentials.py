@@ -29,11 +29,16 @@ from hushh_mcp.services.pod_connector_credential_seal import (
     ConnectorCredentialRefused,
     OpenedConnectorCredential,
 )
+from hushh_mcp.services.pod_mail_accounts import connection_slot, credential_key, find_account
 
 logger = logging.getLogger(__name__)
 
 RECORD_KIND = "pod_connector_credential_v1"
 CLEARED_KIND = "pod_connector_credential_cleared_v1"
+ACCOUNT_RECORD_KIND = "pod_mail_account_credential_v1"
+ACCOUNT_CLEARED_KIND = "pod_mail_account_credential_cleared_v1"
+CREDENTIAL_RECORD_KINDS = frozenset({RECORD_KIND, ACCOUNT_RECORD_KIND})
+CREDENTIAL_CLEARED_KINDS = frozenset({CLEARED_KIND, ACCOUNT_CLEARED_KIND})
 RECORD_VERSION = 1
 STATUS_CONNECTED = "connected"
 STATUS_NEEDS_REAUTH = "needs_reauth"
@@ -67,6 +72,8 @@ class ConnectorCredential:
     refresh_token: str = field(default="", repr=False)
     client_secret: Optional[str] = field(default=None, repr=False)
     mcp: Optional[dict[str, Any]] = field(default=None, repr=False)
+    account_id: str = ""
+    account_email: str = field(default="", repr=False)
 
 
 def _now_ms() -> int:
@@ -94,6 +101,8 @@ def _from_payload(payload: Mapping[str, Any]) -> Optional[ConnectorCredential]:
             refresh_token=str(payload.get("refreshToken") or ""),
             client_secret=payload.get("clientSecret") or None,
             mcp=dict(payload["mcp"]) if isinstance(payload.get("mcp"), Mapping) else None,
+            account_id=str(payload.get("accountId") or ""),
+            account_email=str(payload.get("accountEmail") or ""),
         )
     except (KeyError, TypeError, ValueError):
         logger.warning("pod_connector_credentials.stored_record_ignored")
@@ -108,20 +117,26 @@ def credentials_from_records(
     floors: dict[str, int] = {}
     for record in records or []:
         kind = str((record or {}).get("kind") or "")
-        if kind not in {RECORD_KIND, CLEARED_KIND}:
+        if kind not in CREDENTIAL_RECORD_KINDS | CREDENTIAL_CLEARED_KINDS:
             continue
         payload = (record or {}).get("payload") or {}
         if not isinstance(payload, Mapping) or str(payload.get("hushh_id") or "") != hushh_id:
             continue
         connector = str(payload.get("connectorId") or "")
+        try:
+            key = credential_key(connector, str(payload.get("accountId") or ""))
+        except ValueError:
+            raise ConnectorCredentialsUnavailable("invalid mailbox record") from None
         issued = payload.get("issuedAtMs")
         if type(issued) is int:
             floors[connector] = max(floors.get(connector, 0), issued)
-        credential = _from_payload(payload) if kind == RECORD_KIND else None
+        if bool(payload.get("accountId")) != (kind in {ACCOUNT_RECORD_KIND, ACCOUNT_CLEARED_KIND}):
+            raise ConnectorCredentialsUnavailable("invalid mailbox record version")
+        credential = _from_payload(payload) if kind in CREDENTIAL_RECORD_KINDS else None
         if credential is None:
-            current.pop(connector, None)
+            current.pop(key, None)
         else:
-            current[connector] = credential
+            current[key] = credential
     return current, floors
 
 
@@ -157,7 +172,12 @@ async def _append_against_snapshot(log: Any, *, hushh_id: str, build: Build) -> 
             await log.append(kind, payload, expected_seq=last_seq)
         except PodLogConflict:
             continue
-        _refresh_active(connector=str(payload["connectorId"]), credential=result)
+        _refresh_active(
+            connector=credential_key(
+                str(payload["connectorId"]), str(payload.get("accountId") or "")
+            ),
+            credential=result,
+        )
         return result
     raise PodLogConflict("the connector login could not be recorded against a stable head")
 
@@ -176,6 +196,8 @@ def _payload(hushh_id: str, credential: ConnectorCredential) -> dict[str, Any]:
         "clientId": credential.client_id,
         "clientSecret": credential.client_secret,
         "mcp": credential.mcp,
+        "accountId": credential.account_id,
+        "accountEmail": credential.account_email,
         "generation": credential.generation,
         "status": credential.status,
         "connectedAtMs": credential.connected_at_ms,
@@ -192,13 +214,17 @@ async def record_connector_credential(
     granted_scopes: tuple[str, ...],
     refresh_token: str,
     now_ms: Optional[int] = None,
+    account_email: str = "",
 ) -> ConnectorCredential:
     """Make ``opened`` this connector's login. Refuses one that is not strictly newer."""
 
     def build(current: dict, floors: dict) -> tuple[str, dict, ConnectorCredential]:
         if opened.issued_at_ms <= floors.get(opened.connector_id, 0):
             raise ConnectorCredentialRefused(STALE_CREDENTIAL)
-        previous = current.get(opened.connector_id)
+        try:
+            account_id, previous = connection_slot(current, opened, account_subject)
+        except ValueError as exc:
+            raise ConnectorCredentialRefused(str(exc)) from None
         credential = ConnectorCredential(
             credential_id=opened.credential_id,
             connector_id=opened.connector_id,
@@ -214,8 +240,14 @@ async def record_connector_credential(
             refresh_token=refresh_token,
             client_secret=opened.client_secret,
             mcp=opened.mcp,
+            account_id=account_id,
+            account_email=account_email,
         )
-        return RECORD_KIND, _payload(hushh_id, credential), credential
+        return (
+            ACCOUNT_RECORD_KIND if credential.account_id else RECORD_KIND,
+            _payload(hushh_id, credential),
+            credential,
+        )
 
     recorded: ConnectorCredential = await _append_against_snapshot(
         log, hushh_id=hushh_id, build=build
@@ -232,6 +264,7 @@ async def advance_credential(
     expected_credential_id: Optional[str] = None,
     refresh_token: Optional[str] = None,
     needs_reauth: bool = False,
+    account_id: str = "",
 ) -> Optional[ConnectorCredential]:
     """Rotate the refresh token or mark ``needs_reauth``, as the next generation.
 
@@ -240,7 +273,7 @@ async def advance_credential(
     """
 
     def build(current: dict, _floors: dict) -> tuple[Optional[str], Optional[dict], Any]:
-        held: Optional[ConnectorCredential] = current.get(connector_id)
+        held: Optional[ConnectorCredential] = current.get(credential_key(connector_id, account_id))
         if (
             held is None
             or held.generation != expected_generation
@@ -253,7 +286,7 @@ async def advance_credential(
         elif refresh_token:
             changes["refresh_token"] = refresh_token
         nxt = replace(held, **changes)
-        return RECORD_KIND, _payload(hushh_id, nxt), nxt
+        return ACCOUNT_RECORD_KIND if nxt.account_id else RECORD_KIND, _payload(hushh_id, nxt), nxt
 
     advanced: Optional[ConnectorCredential] = await _append_against_snapshot(
         log, hushh_id=hushh_id, build=build
@@ -268,6 +301,7 @@ async def clear_connector_credential(
     connector_id: str,
     reason: str = "owner",
     expected_credential_id: Optional[str] = None,
+    account_id: str = "",
 ) -> Optional[ConnectorCredential]:
     """Remove a connector; idempotent. Returns what was held, for revocation."""
 
@@ -275,18 +309,19 @@ async def clear_connector_credential(
 
     def build(current: dict, floors: dict) -> tuple[Optional[str], Optional[dict], Any]:
         removed.clear()
-        held = current.get(connector_id)
+        held = current.get(credential_key(connector_id, account_id))
         if held is None or (
             expected_credential_id is not None and held.credential_id != expected_credential_id
         ):
             return None, None, None
         removed.append(held)
         return (
-            CLEARED_KIND,
+            ACCOUNT_CLEARED_KIND if account_id else CLEARED_KIND,
             {
                 "hushh_id": hushh_id,
                 "version": RECORD_VERSION,
                 "connectorId": connector_id,
+                "accountId": account_id,
                 "credentialId": held.credential_id,
                 "generation": held.generation + 1,
                 "issuedAtMs": floors.get(connector_id, held.issued_at_ms),
@@ -327,11 +362,25 @@ def set_active_connector_credentials(
     _LOAD_FAILED = False
 
 
-def active_connector_credential(connector_id: str) -> Optional[ConnectorCredential]:
+def active_connector_credential(
+    connector_id: str, *, account_id: str = ""
+) -> Optional[ConnectorCredential]:
     """The login a connector uses now, or None. Raises when the logins could not be read."""
     if _LOAD_FAILED:
         raise ConnectorCredentialsUnavailable("this pod could not read its connector logins")
-    return _ACTIVE.get(connector_id)
+    return _ACTIVE.get(credential_key(connector_id, account_id))
+
+
+def mail_account_credentials() -> tuple[ConnectorCredential, ...]:
+    if _LOAD_FAILED:
+        raise ConnectorCredentialsUnavailable("this pod could not read its connector logins")
+    return tuple(item for item in _ACTIVE.values() if item.connector_id == "gmail")
+
+
+def active_mail_account(account_id: str) -> Optional[ConnectorCredential]:
+    if _LOAD_FAILED:
+        raise ConnectorCredentialsUnavailable("this pod could not read its connector logins")
+    return find_account(_ACTIVE, account_id)
 
 
 def held_connector_ids() -> tuple[str, ...]:
