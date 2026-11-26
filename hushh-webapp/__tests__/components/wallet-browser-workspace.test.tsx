@@ -500,7 +500,8 @@ describe("Wallet video browser workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000", hidden: true }));
     fireEvent.click(screen.getByRole("tab", { name: "Add", exact: true }));
     await waitFor(() => expect(screen.getByTestId("secure-card-add-form")).toBeVisible());
-    expect(screen.queryByRole("button", { name: "Take photo" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Take photo" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: "Scan card" })).toBeNull();
     const photos = screen.getByRole("button", { name: "Choose from photos", exact: true });
     const choosePhoto = vi.spyOn(screen.getByLabelText("Choose a card photo", { exact: true }), "click");
     fireEvent.click(photos); expect(choosePhoto).toHaveBeenCalledOnce();
