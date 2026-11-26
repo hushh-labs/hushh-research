@@ -73,3 +73,14 @@ if [ -f "$DCO_CHECK" ] && [ "${HUSSH_ALLOW_UNSIGNED_PUSH:-0}" != "1" ]; then
 fi
 
 printf '%s\n' "$REFS" | sh "$DELEGATE" "$@"
+DELEGATE_STATUS=$?
+if [ "$DELEGATE_STATUS" -eq 0 ] && command -v gh >/dev/null 2>&1; then
+  CURRENT_BRANCH=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+  if [ -n "$CURRENT_BRANCH" ] && [ "$CURRENT_BRANCH" != "main" ] && [ "$CURRENT_BRANCH" != "uat" ] && [ "$CURRENT_BRANCH" != "dev" ]; then
+    OPEN_PR=$(gh pr list --head "$CURRENT_BRANCH" --state open --json number,isDraft,reviewRequests --jq '.[] | select(.isDraft == false and (.reviewRequests | length) == 0) | .number' 2>/dev/null | head -n 1 || true)
+    if [ -n "$OPEN_PR" ]; then
+      "$REPO_ROOT/bin/hushh" agents review-route --pr "$OPEN_PR" --apply >/dev/null 2>&1 || true
+    fi
+  fi
+fi
+exit "$DELEGATE_STATUS"

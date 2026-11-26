@@ -136,9 +136,14 @@ describe("cloud step placement states", () => {
     expect(await screen.findByText("kai workspace")).toBeTruthy();
   });
 
-  it("keeps private Finance off the hub", async () => {
-    given({ hostingMode: "byoc", state: "active" });
+  it("opens Finance on Confidential Sandbox while keeping external BYOC off the hub", async () => {
+    given({ hostingMode: "hussh_pods", state: "active" });
     const { KaiPrivateAgentGate } = await import("@/components/kai/kai-private-agent-gate");
+    const sandboxView = render(<KaiPrivateAgentGate><div>kai workspace</div></KaiPrivateAgentGate>);
+    expect(await screen.findByText("kai workspace")).toBeTruthy();
+    sandboxView.unmount();
+
+    given({ hostingMode: "byoc", state: "active" });
     render(<KaiPrivateAgentGate><div>kai workspace</div></KaiPrivateAgentGate>);
     expect(await screen.findByText("Kai will be available on your agent soon.")).toBeTruthy();
     expect(screen.queryByText("kai workspace")).toBeNull();
