@@ -7,9 +7,9 @@ import {
   snapshotVaultSessionEpoch,
   isVaultSessionEpochCurrent,
 } from "@/lib/vault/session-epoch";
-import type { FollowupMailbox } from "@/lib/mail/mail-followup-model";
+
 import { MailFollowupsWorkspace } from "./mail-followups-workspace";
-import { MailFollowupsScreen } from "./mail-followups-screen";
+
 import { MailActionButton } from "./mail-action-button";
 
 export function MailFollowupsEntry(
@@ -23,14 +23,32 @@ export function MailFollowupsEntry(
     [session.vaultOwnerToken],
   );
   const [placement, setPlacement] = useState<"private" | "shared" | "error">();
-  const [shared, setShared] = useState<FollowupMailbox>();
+  const shared = useMemo(
+    () => ({
+      mail,
+      async load(signal: AbortSignal) {
+        const { default: primary, additional } = await mail.inventory(signal);
+        if (primary && expectedAccount && expectedAccount !== primary.account)
+          throw new Error("Mailbox changed.");
+        return [...(primary ? [primary] : []), ...additional].map((box) => ({
+          accountId: box.account,
+          credentialId: box.connection,
+          email: box.address,
+          capabilities: { read: true, manage: false },
+          isDefault: box === primary,
+        }));
+      },
+      remove: mail.disconnectShared,
+    }),
+    [mail, expectedAccount],
+  );
   useEffect(() => {
     const controller = new AbortController();
     const epoch = snapshotVaultSessionEpoch();
     const current = () =>
       !controller.signal.aborted && isVaultSessionEpochCurrent(epoch);
     setPlacement(undefined);
-    setShared(undefined);
+
     async function load() {
       const { hostingMode } =
         await ApiService.getPersonalAgentStatusForRouting();
@@ -40,11 +58,6 @@ export function MailFollowupsEntry(
         return;
       }
       if (hostingMode !== "shared") throw new Error("Unknown mailbox hosting.");
-      const box = await mail.inventory(controller.signal);
-      if (!current()) return;
-      if (expectedAccount && expectedAccount !== box.account)
-        throw new Error("Mailbox changed.");
-      setShared(box);
       setPlacement("shared");
     }
     void load().catch(() => {
@@ -53,17 +66,8 @@ export function MailFollowupsEntry(
     return () => controller.abort();
   }, [mail, session.userId, expectedAccount]);
   if (placement === "private") return <MailFollowupsWorkspace {...props} />;
-  if (placement === "shared" && shared)
-    return (
-      <MailFollowupsScreen
-        key={shared.connection}
-        mail={mail}
-        session={session}
-        account={shared.account}
-        connection={shared.connection}
-        onBack={onBack}
-      />
-    );
+  if (placement === "shared")
+    return <MailFollowupsWorkspace {...props} shared={shared} />;
   return (
     <>
       <MailActionButton onClick={onBack}>Back to Mail</MailActionButton>

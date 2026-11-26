@@ -28,14 +28,30 @@ import { MailFollowupsBoard } from "./mail-followups-board";
 import { MailFollowupsService } from "@/lib/services/mail-followups-service";
 import type { FollowupMailbox } from "@/lib/mail/mail-followup-model";
 
+type BoardAccount = Pick<
+  PrivateMailAccount,
+  "accountId" | "credentialId" | "email" | "isDefault" | "capabilities"
+>;
+
+export interface SharedMailboxAccess {
+  mail: typeof MailFollowupsService;
+  load: (signal: AbortSignal) => Promise<BoardAccount[]>;
+  remove: (
+    account: string,
+    connection: string,
+  ) => Promise<{ disconnected: boolean }>;
+}
+
 function AllMailBoard({
+  mail,
   accounts,
   session,
   onTask,
   onTrack,
   onBack,
 }: {
-  accounts: PrivateMailAccount[];
+  mail: typeof MailFollowupsService;
+  accounts: BoardAccount[];
   session: TodoWriteParams;
   onTrack: () => void;
   onBack: () => void;
@@ -56,11 +72,7 @@ function AllMailBoard({
         accounts
           .filter((a) => a.capabilities.read)
           .map((a) =>
-            MailFollowupsService.account(
-              a.accountId,
-              a.credentialId,
-              controller.signal,
-            ),
+            mail.account(a.accountId, a.credentialId, controller.signal),
           ),
       ),
       TodoListPkmService.load(session),
@@ -73,7 +85,13 @@ function AllMailBoard({
         if (!controller.signal.aborted) setFailed(true);
       });
     return () => controller.abort();
-  }, [accounts, session.userId, session.vaultKey, session.vaultOwnerToken]);
+  }, [
+    mail,
+    accounts,
+    session.userId,
+    session.vaultKey,
+    session.vaultOwnerToken,
+  ]);
   return (
     <>
       <MailActionButton onClick={onBack}>Back to Mail</MailActionButton>
@@ -102,21 +120,24 @@ export function MailFollowupsWorkspace({
   session,
   onBack,
   confirmTransition,
+  shared,
 }: {
+  shared?: SharedMailboxAccess;
   session: TodoWriteParams;
   onBack: () => void;
   confirmTransition: (
     terms: GoogleConnectorTransitionReview,
   ) => Promise<boolean>;
 }) {
-  const [accounts, setAccounts] = useState<PrivateMailAccount[]>();
+  const mail = shared?.mail ?? MailFollowupsService;
+  const [accounts, setAccounts] = useState<BoardAccount[]>();
   const [handoff, setHandoff] = useState<{
     key: string;
     action: "evidence" | "plan";
   }>();
   const [pickTrack, setPickTrack] = useState(false);
   const [choice, setChoice] = useState<string>();
-  const [disconnect, setDisconnect] = useState<PrivateMailAccount>();
+  const [disconnect, setDisconnect] = useState<BoardAccount>();
   const [revision, refresh] = useState(0);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -132,12 +153,15 @@ export function MailFollowupsWorkspace({
   useEffect(() => {
     let live = true;
     const controller = new AbortController();
-    privateMailAccounts()
+    const inventory = shared
+      ? shared.load(controller.signal)
+      : privateMailAccounts();
+    inventory
       .then((value) =>
         Promise.all(
           value.map(async (account) => {
             if (account.email || !account.capabilities.read) return account;
-            const box = await MailFollowupsService.account(
+            const box = await mail.account(
               account.accountId,
               account.credentialId,
               controller.signal,
@@ -162,7 +186,7 @@ export function MailFollowupsWorkspace({
       live = false;
       controller.abort();
     };
-  }, [revision, epoch]);
+  }, [revision, epoch, shared, mail]);
   const active = accounts?.filter((account) => account.capabilities.read);
   const all = choice === "all" && Boolean(active?.length);
   const selected =
@@ -189,10 +213,10 @@ export function MailFollowupsWorkspace({
       if (current()) setBusy(false);
     }
   }
-  async function remove(account: PrivateMailAccount) {
+  async function remove(account: BoardAccount) {
     setBusy(true);
     try {
-      const result = await disconnectPrivateMailAccount(
+      const result = await (shared?.remove ?? disconnectPrivateMailAccount)(
         account.accountId,
         account.credentialId,
       );
@@ -231,10 +255,12 @@ export function MailFollowupsWorkspace({
             </option>
           ))}
         </select>
-        <MailActionButton disabled={busy} onClick={add}>
-          Add Google account
-        </MailActionButton>
-        {selected && !all && (
+        {!shared && (
+          <MailActionButton disabled={busy} onClick={add}>
+            Add Google account
+          </MailActionButton>
+        )}
+        {selected && !all && (!shared || !selected.isDefault) && (
           <MailActionButton
             disabled={busy}
             onClick={() => setDisconnect(selected)}
@@ -268,6 +294,7 @@ export function MailFollowupsWorkspace({
       {all && accounts ? (
         <>
           <AllMailBoard
+            mail={mail}
             accounts={accounts}
             session={session}
             onBack={onBack}
@@ -283,6 +310,7 @@ export function MailFollowupsWorkspace({
         </>
       ) : selected ? (
         <MailFollowupsScreen
+          mail={mail}
           handoff={handoff}
           key={selected.credentialId}
           account={selected.accountId}

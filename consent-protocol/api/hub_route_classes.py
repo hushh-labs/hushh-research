@@ -69,6 +69,7 @@ GET,POST /api/connectors/google_drive/sharing/packets/{packet_id}/preview
 POST /api/one/todos/suggestions
 POST /api/one/mail/followups/inventory
 POST /api/one/mail/followups/account
+POST /api/one/mail/followups/disconnect
 POST /api/one/mail/followups/search
 POST /api/one/mail/followups/open
 POST /api/one/mail/followups/track

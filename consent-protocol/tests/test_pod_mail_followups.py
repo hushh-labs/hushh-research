@@ -283,3 +283,101 @@ async def test_shared_route_refuses_changed_connection_before_provider_read(monk
         )
     assert refused.value.status_code == 409
     read.assert_not_awaited()
+
+
+async def test_shared_inventory_and_selected_tokens_survive_disconnect(monkeypatch):
+    import json
+
+    from starlette.requests import Request
+
+    from api.routes.one import mail_followups as shared
+
+    grants = {"b": "b@example.test", "c": "c@other.test"}
+    primary = dict(
+        status="connected",
+        revoked=False,
+        google_sub="a",
+        google_email="a@example.test",
+        followup_read_generation="grant-a",
+    )
+    gmail = SimpleNamespace(
+        _fetch_connection_row=lambda **_: primary,
+        _ensure_access_token=AsyncMock(return_value=("access-a", primary)),
+    )
+
+    async def list_rows(sql, params):
+        assert params == {"owner": "owner"}
+        return SimpleNamespace(
+            data=[
+                dict(account_id=k, provider_email=v, gmail_read_generation="grant-" + k)
+                for k, v in grants.items()
+            ]
+        )
+
+    async def binding(*, user_id, service, account_id):
+        assert (user_id, service) == ("owner", "gmail")
+        if account_id in grants:
+            return (
+                "owner",
+                "gmail",
+                account_id,
+                "sub-" + account_id,
+                "date",
+                "revision",
+                "scope",
+                "grant-" + account_id,
+            )
+
+    async def access(*, user_id, service, account_id, access_level):
+        assert (user_id, service, access_level) == ("owner", "gmail", "read")
+        assert account_id in grants
+        return "access-" + account_id
+
+    async def disconnect(*, user_id, account_id, expected_generation):
+        assert (user_id, expected_generation) == ("owner", "grant-" + account_id)
+        del grants[account_id]
+
+    google = SimpleNamespace(
+        _execute_raw_async=list_rows,
+        read_grant_binding=binding,
+        access_token=access,
+        disconnect_mail_read_grant=disconnect,
+    )
+    monkeypatch.setattr(shared, "require_hub_content_current", AsyncMock())
+    monkeypatch.setattr(shared, "get_google_connection_service", lambda: google)
+    monkeypatch.setattr(shared, "get_gmail_receipts_service", lambda: gmail)
+
+    async def observe(operation, selected, *, new_reader, **_):
+        reader = new_reader()
+        await reader._require_access()
+        token, _row = await reader._gmail._ensure_access_token(user_id="owner")
+        return {"credential_used": token}
+
+    monkeypatch.setattr(shared, "assess_mail", observe)
+
+    async def call(op, **payload):
+        async def receive():
+            return {"type": "http.request", "body": json.dumps(payload).encode()}
+
+        response = await shared.shared_mail(
+            op,
+            Request({"type": "http", "headers": []}, receive),
+            {"user_id": "owner", "token": "fixture"},
+        )
+        return json.loads(response.body)
+
+    inventory = await call("inventory")
+    boxes = [inventory["default"], *inventory["additional"]]
+    assert [box["address"] for box in boxes] == ["a@example.test", "b@example.test", "c@other.test"]
+    selections = [{k: box[k] for k in ("account", "connection")} for box in boxes]
+    for selected, slot in zip(selections, "abc", strict=True):
+        assert await call("account", **selected) == {"credential_used": "access-" + slot}
+    with pytest.raises(HTTPException) as mismatch:
+        await call("account", account="additional/c", connection="grant-b")
+    assert mismatch.value.status_code == 409
+    assert await call("disconnect", **selections[1]) == {"disconnected": True}
+    with pytest.raises(HTTPException) as revoked:
+        await call("account", **selections[1])
+    assert revoked.value.status_code == 409
+    assert await call("account", **selections[0]) == {"credential_used": "access-a"}
+    assert await call("account", **selections[2]) == {"credential_used": "access-c"}
