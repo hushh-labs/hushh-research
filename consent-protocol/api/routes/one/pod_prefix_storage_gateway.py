@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 import urllib.parse
 from pathlib import Path
@@ -39,6 +40,7 @@ from hushh_mcp.services.pod_commit_log import (
     object_prefix_segments,
 )
 from hushh_mcp.services.pod_object_version import ABSENT, ObjectVersion, is_object_version
+from hushh_mcp.services.pod_storage_transport import shared_pod_storage_transport
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,8 @@ router = APIRouter(prefix="/api/one/pod/storage-gateway", tags=["personal-agent"
 _MAX_OBJECT_BYTES = 16 * 1024 * 1024
 _DEFAULT_STORE_FACTORY: Callable[[], Any] | None = None
 _DEFAULT_REGISTRY_FACTORY: Callable[[], Any] | None = None
+_STORE_CACHE_LOCK = threading.Lock()
+_CACHED_GCS_STORE: tuple[tuple[str, str], GcsObjectStore] | None = None
 _READ_ADMISSION_TTL_S = 5.0
 _READ_ADMISSION_CACHE: dict[tuple[str, str, int], float] = {}
 
@@ -57,19 +61,28 @@ def set_storage_gateway_overrides_for_tests(
     registry_factory: Callable[[], Any] | None = None,
 ) -> None:
     """Inject mock backing store / registry cleanly in unit tests."""
-    global _DEFAULT_STORE_FACTORY, _DEFAULT_REGISTRY_FACTORY
+    global _DEFAULT_STORE_FACTORY, _DEFAULT_REGISTRY_FACTORY, _CACHED_GCS_STORE
     _DEFAULT_STORE_FACTORY = store_factory
     _DEFAULT_REGISTRY_FACTORY = registry_factory
+    with _STORE_CACHE_LOCK:
+        _CACHED_GCS_STORE = None
     _READ_ADMISSION_CACHE.clear()
 
 
 def _resolve_store() -> Any | None:
+    global _CACHED_GCS_STORE
     if _DEFAULT_STORE_FACTORY is not None:
         return _DEFAULT_STORE_FACTORY()
     bucket = pod_storage_gateway_gcs_bucket()
     if bucket:
         prefix = pod_storage_gateway_gcs_prefix()
-        return GcsObjectStore(bucket, prefix=prefix)
+        key = (bucket, prefix)
+        with _STORE_CACHE_LOCK:
+            if _CACHED_GCS_STORE is not None and _CACHED_GCS_STORE[0] == key:
+                return _CACHED_GCS_STORE[1]
+            store = GcsObjectStore(bucket, prefix=prefix, session=shared_pod_storage_transport())
+            _CACHED_GCS_STORE = (key, store)
+            return store
     local_root = pod_storage_gateway_local_root()
     if local_root:
         return LocalObjectStore(Path(local_root))
@@ -302,6 +315,13 @@ async def gateway_get_or_list(
             )
         except ValueError:
             return Response(status_code=403, content=b"invalid list prefix")
+        except (RuntimeError, OSError) as exc:
+            logger.warning(
+                "pod_storage_gateway.store_error op=list hushh_id=%s error=%s",
+                claims.get("hushh_id"),
+                type(exc).__name__,
+            )
+            return Response(status_code=503, content=b"storage gateway unavailable")
         import json  # noqa: PLC0415
 
         return Response(
@@ -315,7 +335,15 @@ async def gateway_get_or_list(
     except ValueError:
         return Response(status_code=400, content=b"invalid object key")
 
-    data, version = await store.get_with_generation(clean_path)
+    try:
+        data, version = await store.get_with_generation(clean_path)
+    except (RuntimeError, OSError) as exc:
+        logger.warning(
+            "pod_storage_gateway.store_error op=get hushh_id=%s error=%s",
+            claims.get("hushh_id"),
+            type(exc).__name__,
+        )
+        return Response(status_code=503, content=b"storage gateway unavailable")
     if data is None or version == ABSENT:
         return Response(status_code=404, content=b"")
     return Response(
@@ -339,7 +367,7 @@ async def gateway_put(
     )
     if isinstance(auth_res, Response):
         return auth_res
-    clean_path, _claims = auth_res
+    clean_path, claims = auth_res
     store = _resolve_store()
     if store is None:
         return Response(status_code=503, content=b"storage gateway unconfigured")
@@ -353,34 +381,46 @@ async def gateway_put(
     if len(body) > _MAX_OBJECT_BYTES:
         return Response(status_code=413, content=b"object too large")
 
-    if if_none_match == "*":
-        new_version = await store.put_if_generation(clean_path, body, ABSENT)
-        if new_version is None:
-            return Response(status_code=409, content=b"conflict")
-        return Response(status_code=201, content=b"", headers={"ETag": _format_etag(new_version)})
-
-    if if_match is not None:
-        expected = _parse_if_match(if_match)
-        if expected is None:
-            return Response(status_code=400, content=b"malformed If-Match")
-        current, cur_version = await store.get_with_generation(clean_path)
-        if current is None or cur_version == ABSENT:
-            return Response(status_code=404, content=b"absent")
-        if cur_version.strip('"') != expected.strip('"'):
-            return Response(status_code=412, content=b"precondition failed")
-        new_version = await store.put_if_generation(clean_path, body, cur_version)
-        if new_version is None:
-            return Response(status_code=412, content=b"precondition failed")
-        return Response(status_code=201, content=b"", headers={"ETag": _format_etag(new_version)})
-
-    for _attempt in range(3):
-        _, cur_version = await store.get_with_generation(clean_path)
-        new_version = await store.put_if_generation(clean_path, body, cur_version)
-        if new_version is not None:
+    try:
+        if if_none_match == "*":
+            new_version = await store.put_if_generation(clean_path, body, ABSENT)
+            if new_version is None:
+                return Response(status_code=409, content=b"conflict")
             return Response(
                 status_code=201, content=b"", headers={"ETag": _format_etag(new_version)}
             )
-    return Response(status_code=409, content=b"concurrent write conflict")
+
+        if if_match is not None:
+            expected = _parse_if_match(if_match)
+            if expected is None:
+                return Response(status_code=400, content=b"malformed If-Match")
+            current, cur_version = await store.get_with_generation(clean_path)
+            if current is None or cur_version == ABSENT:
+                return Response(status_code=404, content=b"absent")
+            if cur_version.strip('"') != expected.strip('"'):
+                return Response(status_code=412, content=b"precondition failed")
+            new_version = await store.put_if_generation(clean_path, body, cur_version)
+            if new_version is None:
+                return Response(status_code=412, content=b"precondition failed")
+            return Response(
+                status_code=201, content=b"", headers={"ETag": _format_etag(new_version)}
+            )
+
+        for _attempt in range(3):
+            _, cur_version = await store.get_with_generation(clean_path)
+            new_version = await store.put_if_generation(clean_path, body, cur_version)
+            if new_version is not None:
+                return Response(
+                    status_code=201, content=b"", headers={"ETag": _format_etag(new_version)}
+                )
+        return Response(status_code=409, content=b"concurrent write conflict")
+    except (RuntimeError, OSError) as exc:
+        logger.warning(
+            "pod_storage_gateway.store_error op=put hushh_id=%s error=%s",
+            claims.get("hushh_id"),
+            type(exc).__name__,
+        )
+        return Response(status_code=503, content=b"storage gateway unavailable")
 
 
 @router.delete("/{object_path:path}")
@@ -393,7 +433,7 @@ async def gateway_delete(
     )
     if isinstance(auth_res, Response):
         return auth_res
-    clean_path, _claims = auth_res
+    clean_path, claims = auth_res
     store = _resolve_store()
     if store is None:
         return Response(status_code=503, content=b"storage gateway unconfigured")
@@ -403,5 +443,13 @@ async def gateway_delete(
     except ValueError:
         return Response(status_code=400, content=b"invalid object key")
 
-    existed = await store.delete(clean_path)
+    try:
+        existed = await store.delete(clean_path)
+    except (RuntimeError, OSError) as exc:
+        logger.warning(
+            "pod_storage_gateway.store_error op=delete hushh_id=%s error=%s",
+            claims.get("hushh_id"),
+            type(exc).__name__,
+        )
+        return Response(status_code=503, content=b"storage gateway unavailable")
     return Response(status_code=204 if existed else 404, content=b"")
