@@ -5260,7 +5260,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "d3e6b36214487a0c5dab03b39d5a5f8102b5331c3f00e6abdb45b0b1f92f5796",
+      "system_instruction_sha256": "9a8b8f1cbab3a1e33aea2cebcc40e7aebdb6be739b7aa2f6d5baccba2a9bbc78",
       "telemetry_namespace": "agent.one",
       "tools": [
         {

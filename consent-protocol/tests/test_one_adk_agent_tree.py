@@ -5755,6 +5755,29 @@ class TestNamedShareChain:
 
     NAMED_ACTIONS = ("location.share_selected", "location.send_request", "connect.send_request")
 
+    def test_main_chat_offers_inline_review_even_when_location_screen_controls_are_advertised(self):
+        from hushh_mcp.one_adk.location_chat_proposal import STATE_LOCATION_CHAT_REVIEW
+
+        state = {
+            STATE_LOCATION_CHAT_REVIEW: True,
+            STATE_VOICE_CONTEXT: {
+                "available_action_ids": ["location.share_selected", "route.one_location"],
+            },
+        }
+        instruction = _one_runtime_instruction(SimpleNamespace(state=state))
+        assert "propose_location_action" in instruction
+        assert "location.share_selected" not in instruction
+        assert "location.send_request" not in instruction
+        assert "list_my_location_shares" not in instruction
+        assert "route.one_location" in instruction
+        assert "connect.send_request" in instruction
+        assert "get_location_circle_members" in instruction
+
+        state[STATE_LOCATION_CHAT_REVIEW] = False
+        legacy = _one_runtime_instruction(SimpleNamespace(state=state))
+        assert "location.share_selected" in legacy
+        assert "propose_location_action" not in legacy
+
     def test_the_old_navigate_then_pick_chain_is_gone_for_named_requests(self):
         instruction = ONE_IDENTITY_INSTRUCTION
 
