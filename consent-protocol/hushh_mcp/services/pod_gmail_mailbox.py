@@ -259,10 +259,13 @@ class PodGmailMailboxActions(GmailMailboxActions):
         self, *, credential_id: str, account: str, envelope: dict[str, Any]
     ) -> dict[str, Any]:
         token = await self.linked_calendar_token(credential_id=credential_id, account=account)
+        return await self.deliver_thread_reply(token, envelope["draft"], envelope["reply"])
+
+    async def deliver_thread_reply(self, token, draft, reply):
         return await self._deliver(
             token,
-            {"action": "send_email", "draft": envelope["draft"]},
-            reply_context=GmailReplyContext(**envelope["reply"]),
+            {"action": "send_email", "draft": draft},
+            reply_context=GmailReplyContext(**reply),
         )
 
     async def _deliver(

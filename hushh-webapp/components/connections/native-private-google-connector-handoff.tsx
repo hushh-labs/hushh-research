@@ -11,7 +11,8 @@ import calendarPresentation from '@/components/calendar/calendar-presentation.mo
 import { Button } from '@/components/ui/button';
 import { ApiService } from '@/lib/services/api-service';
 import { ROUTES } from '@/lib/navigation/routes';
-import { googleConnectorIntent, googleConnectorWantsCalendarList, googleConnectorWantsOtherContacts, GOOGLE_CONNECTOR_HANDOFF_EVENT } from '@/lib/one/google-connector-intent';
+import { parseGoogleConnectorIntent, googleConnectorWantsCalendarList, googleConnectorWantsOtherContacts, GOOGLE_CONNECTOR_HANDOFF_EVENT } from '@/lib/one/google-connector-intent';
+import { privateMailAccounts } from '@/lib/services/private-google-connections';
 import { connectGoogleConnector, connectRefusalMessage } from '@/lib/one/google-native-connect';
 import { GoogleConnectorPhoneHandoff } from './google-connector-phone-handoff';
 import { phoneHandoff } from '@/lib/one/google-native-connect';
@@ -29,6 +30,7 @@ export function NativePrivateGoogleConnectorHandoff() {
   const calendar = connector === 'calendar' || calendarOrigin;
   const [includeOtherContacts, setIncludeOtherContacts] = useState(false);
   const [includeCalendarList, setIncludeCalendarList] = useState(false);
+  const [addMailbox, setAddMailbox] = useState(false);
   const [paused, setPaused] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -40,11 +42,11 @@ export function NativePrivateGoogleConnectorHandoff() {
       const detail: unknown = (event as CustomEvent).detail;
       const tagged = detail !== null && typeof detail === 'object' && 'link' in detail ? detail : null;
       const link = tagged ? tagged.link : detail;
-      const next = typeof link === 'string' ? googleConnectorIntent(link) : null;
+      const next = typeof link === 'string' ? parseGoogleConnectorIntent(link) : null;
       if (next && typeof link === 'string') {
         setIncludeOtherContacts(googleConnectorWantsOtherContacts(link));
         setIncludeCalendarList(googleConnectorWantsCalendarList(link));
-        intentEpoch.current += 1; cancelTransition(); setConnector(next); setMessage(''); setPaused(false); setBusy(false);
+        intentEpoch.current += 1; cancelTransition(); setConnector(next.connector); setAddMailbox(next.addMailbox); setMessage(''); setPaused(false); setBusy(false);
         setCalendarOrigin(Boolean(tagged && 'presentation' in tagged && tagged.presentation === 'calendar'));
       }
     };
@@ -59,8 +61,8 @@ export function NativePrivateGoogleConnectorHandoff() {
     let remove: (() => void) | undefined;
     let liveArrival = false;
     const consume = (raw: string) => {
-      const next = googleConnectorIntent(raw);
-      if (next && !disposed) { intentEpoch.current += 1; cancelTransition(); setConnector(next); setCalendarOrigin(false); setIncludeOtherContacts(googleConnectorWantsOtherContacts(raw)); setIncludeCalendarList(googleConnectorWantsCalendarList(raw)); setMessage(''); setBusy(false); }
+      const next = parseGoogleConnectorIntent(raw);
+      if (next && !disposed) { intentEpoch.current += 1; cancelTransition(); setConnector(next.connector); setAddMailbox(next.addMailbox); setCalendarOrigin(false); setIncludeOtherContacts(googleConnectorWantsOtherContacts(raw)); setIncludeCalendarList(googleConnectorWantsCalendarList(raw)); setMessage(''); setBusy(false); }
     };
     void import('@capacitor/app').then(async ({ App }) => {
       const listener = await App.addListener('appUrlOpen', (event) => { liveArrival = true; consume(event.url); });
@@ -80,9 +82,15 @@ export function NativePrivateGoogleConnectorHandoff() {
     setBusy(true); setMessage('');
     try {
       const outcome = await connectGoogleConnector(connector, { isCurrent: current, vaultOwnerCapability: vaultOwnerToken, includeOtherContacts, includeCalendarList,
+        ...(addMailbox ? { mailAccount: { mode: "add" as const } } : {}),
         confirmLegacyTransition: terms => confirmTransition(terms, calendar ? 'calendar' : undefined) });
       if (!current()) return;
       if (!outcome.ok) { setMessage(connectRefusalMessage(outcome.code, connector)); return; }
+      if (addMailbox) {
+        const accounts = await privateMailAccounts();
+        if (current()) setMessage(accounts.some(account => account.accountId === outcome.accountId && account.status === 'connected') ? outcome.legacyCleanup === 'unconfirmed' ? 'Mailbox connected. The previous Google connection still needs verification.' : 'Your mailbox is connected to your private agent.' : 'Your agent could not confirm the mailbox. Refresh Mail.');
+        return;
+      }
       const response = await ApiService.ownerPodRequest(`connectors/${connector}`, { method: 'GET' });
       const confirmed = await response.json() as { connectorId?: string; status?: string };
       if (!current()) return;
@@ -96,7 +104,7 @@ export function NativePrivateGoogleConnectorHandoff() {
     <DialogContent className={calendar ? calendarPresentation.portal : undefined} data-connect-type-scale={calendar ? "page" : undefined}>
       <DialogTitle>Connect {connector === 'gmail' ? 'Gmail' : `Google ${connector ?? ''}`}</DialogTitle>
       <DialogDescription>{includeOtherContacts ? 'Allow Agent One to look up people Google saved in Other Contacts for scheduling.' : includeCalendarList ? 'Allow Agent One to list your subscribed Google calendars.' : 'This phone connects Google to the private agent of the account signed in here.'}</DialogDescription>
-      {!Capacitor.isNativePlatform() && connector ? <GoogleConnectorPhoneHandoff handoff={phoneHandoff(connector, includeOtherContacts, includeCalendarList)} calendar={calendar} /> : !loading && !user ? <Button onClick={() => { setPaused(true); router.push(ROUTES.LOGIN); }}>Sign in on this phone</Button> :
+      {!Capacitor.isNativePlatform() && connector ? <GoogleConnectorPhoneHandoff handoff={phoneHandoff(connector, includeOtherContacts, includeCalendarList, addMailbox)} calendar={calendar} /> : !loading && !user ? <Button onClick={() => { setPaused(true); router.push(ROUTES.LOGIN); }}>Sign in on this phone</Button> :
         !vaultKey || !vaultOwnerToken ? <Button disabled={loading} onClick={() => { setPaused(true); router.push(ROUTES.PROFILE_CONNECTORS); }}>Unlock your vault</Button> :
           <Button disabled={busy} onClick={() => void connect()}>{busy ? 'Connecting…' : 'Continue with Google'}</Button>}
       {message && <p role="status" className={calendar ? calendarPresentation.support : "text-sm"}>{message}</p>}

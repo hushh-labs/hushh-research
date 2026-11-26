@@ -34,6 +34,7 @@ from typing import Any, Callable, Optional
 from hushh_mcp.services import pod_connector_credentials as store
 from hushh_mcp.services import pod_google_oauth as google
 from hushh_mcp.services.pod_connector_credential_seal import CONNECTOR_SCOPES, GOOGLE_OWNER_CLIENT
+from hushh_mcp.services.pod_mail_accounts import credential_key
 
 logger = logging.getLogger(__name__)
 
@@ -90,14 +91,19 @@ class PodGoogleTokenSource:
 
         return _resolve_log()
 
-    def forget(self, connector_id: str) -> None:
+    def forget(self, connector_id: str, *, account_id: Optional[str] = None) -> None:
         """Drop every cached token for a connector (disconnect, reconnect)."""
-        for key in [key for key in self._cache if key[0] == connector_id]:
+        target = credential_key(connector_id, account_id or "")
+        for key in [
+            key
+            for key in self._cache
+            if key[0] == target or (account_id is None and key[0].startswith(f"{connector_id}:"))
+        ]:
             del self._cache[key]
 
-    def _held(self, service: str) -> store.ConnectorCredential:
+    def _held(self, service: str, account_id: str = "") -> store.ConnectorCredential:
         try:
-            credential = store.active_connector_credential(service)
+            credential = store.active_connector_credential(service, account_id=account_id)
         except store.ConnectorCredentialsUnavailable:
             raise ConnectorTokenError(CREDENTIALS_UNAVAILABLE) from None
         if credential is None:
@@ -123,12 +129,13 @@ class PodGoogleTokenSource:
     ) -> bool:
         return await _advance_or_false(self._log, credential, service, **changes)
 
-    async def access_token(self, service: str, level: str = "read") -> str:
-        lock = self._locks.setdefault(service, asyncio.Lock())
+    async def access_token(self, service: str, level: str = "read", *, account_id: str = "") -> str:
+        slot = credential_key(service, account_id)
+        lock = self._locks.setdefault(slot, asyncio.Lock())
         async with lock:
-            credential = self._held(service)
+            credential = self._held(service, account_id)
             scopes = required_scopes(service, level, credential.granted_scopes)
-            cached = self._cache.get((service, scopes))
+            cached = self._cache.get((slot, scopes))
             now = self._clock()
             if (
                 cached
@@ -143,8 +150,10 @@ class PodGoogleTokenSource:
     ) -> None:
         """Validate an exact grant after revocation, without cached bearer authority."""
         service = credential.connector_id
-        async with self._locks.setdefault(service, asyncio.Lock()):
-            current = store.active_connector_credential(service)
+        async with self._locks.setdefault(
+            credential_key(service, credential.account_id), asyncio.Lock()
+        ):
+            current = store.active_connector_credential(service, account_id=credential.account_id)
             if (
                 current is None
                 or current.status != store.STATUS_CONNECTED
@@ -152,13 +161,15 @@ class PodGoogleTokenSource:
                 != (credential.credential_id, credential.generation)
             ):
                 return
-            self.forget(service)
+            self.forget(service, account_id=credential.account_id)
             scopes = required_scopes(service, "read", credential.granted_scopes)
             try:
                 await self._refresh(credential, service, scopes, self._clock(), post=post)
             except ConnectorTokenError as exc:
                 if exc.code == NEEDS_REAUTH:
-                    current = store.active_connector_credential(service)
+                    current = store.active_connector_credential(
+                        service, account_id=credential.account_id
+                    )
                     if current is not None and current.status == store.STATUS_CONNECTED:
                         if current.credential_id != credential.credential_id:
                             return  # The refusal was for the old login only.
@@ -185,7 +196,7 @@ class PodGoogleTokenSource:
         except google.GoogleOAuthError as exc:
             if exc.code != google.INVALID_GRANT:
                 raise ConnectorTokenError(PROVIDER_UNREACHABLE) from None
-            self.forget(service)
+            self.forget(service, account_id=credential.account_id)
             # The login is dead at Google whether or not this write lands.
             await self._advance(credential, service, needs_reauth=True)
             logger.info("pod_connector_tokens.needs_reauth connector=%s", service)
@@ -198,13 +209,13 @@ class PodGoogleTokenSource:
                 raise ConnectorTokenError(CREDENTIALS_UNAVAILABLE)
             logger.info("pod_connector_tokens.rotated connector=%s", service)
             generation += 1
-        current = self._held(service)
+        current = self._held(service, credential.account_id)
         if current.credential_id != credential.credential_id or current.generation != generation:
             # The response belongs to a disconnected/replaced generation. Neither
             # its access token nor its rotation may escape into the new login.
             raise ConnectorTokenError(CREDENTIALS_UNAVAILABLE)
         expires_at = now + max(grant.expires_in_s, 0)
-        self._cache[(service, scopes)] = (
+        self._cache[(credential_key(service, credential.account_id), scopes)] = (
             credential.credential_id,
             generation,
             grant.access_token,
@@ -229,6 +240,7 @@ async def _advance_or_false(
             connector_id=service,
             expected_generation=credential.generation,
             expected_credential_id=credential.credential_id,
+            account_id=credential.account_id,
             **changes,
         )
     except (PodLogConflict, PodLogFenced, store.ConnectorStoreMissing) as exc:

@@ -533,7 +533,11 @@ async def test_active_scheduled_tasks_registers_one_goal_capability_and_sentinel
     )
     listed = await route_module.list_tasks(SimpleNamespace(headers={}), authorization="Bearer ok")
     assert listed["available"] is True
-    assert listed["templates"] == ["agent_files.organize_file.v1", "agent_one.execute_task.v1"]
+    assert listed["templates"] == [
+        "agent_email.send_followup.v1",
+        "agent_files.organize_file.v1",
+        "agent_one.execute_task.v1",
+    ]
 
     # Sentinel model resolves cleanly without X-Hussh-Chat-Key:
     resolved = await resolve_scheduled_model(world.log, pod_id=OWNER, check=authority.require_held)

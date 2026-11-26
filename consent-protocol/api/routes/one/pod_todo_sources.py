@@ -255,10 +255,9 @@ async def _suggestion_owner(door: dict[str, Any]) -> str:
     return str(claims["user_id"])
 
 
-async def _private_todo_gene(**kwargs: Any) -> object:
+def private_workspace_model() -> Any:
     from api.routes.one import pod_turn
     from hushh_mcp.one_adk.text_runtime import _runtime_model
-    from hushh_mcp.services.one_todo_suggestions import run_todo_gene
 
     payload = pod_turn.PodTurnRequest(message="private-task-suggestions")
     provider, model = pod_turn._resolve_model()
@@ -266,7 +265,7 @@ async def _private_todo_gene(**kwargs: Any) -> object:
     # This surface never borrows the Shared service's model credentials.
     if mode not in {"user_adc", "hosted_pod_adc", "sentinel_vertex", "byok", "user_azure_mi"}:
         raise _refuse(503, "PRIVATE_TASK_MODEL_UNAVAILABLE")
-    model_object = _runtime_model(
+    return _runtime_model(
         runtime_model=model,
         runtime_mode=mode,
         runtime_provider=provider,
@@ -276,7 +275,12 @@ async def _private_todo_gene(**kwargs: Any) -> object:
         runtime_vertex_project=payload.vertex_project,
         runtime_vertex_location=payload.vertex_location,
     )
-    return await run_todo_gene(**kwargs, model=model_object)
+
+
+async def _private_todo_gene(**kwargs: Any) -> object:
+    from hushh_mcp.services.one_todo_suggestions import run_todo_gene
+
+    return await run_todo_gene(**kwargs, model=private_workspace_model())
 
 
 async def run_task_suggestions(body: Any, *, runner: Any = None, **door: Any) -> dict:

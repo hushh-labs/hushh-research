@@ -148,7 +148,14 @@ def _safe_header(value: str) -> str:
     return value
 
 
-def _fingerprint(*, account: str, message_id: str, thread_id: str, headers: dict[str, str]) -> str:
+def _fingerprint(
+    *,
+    account: str,
+    message_id: str,
+    thread_id: str,
+    headers: dict[str, str],
+    key: bytes | None = None,
+) -> str:
     """Routing-relevant fields only. Labels are left out on purpose: archiving or
     reading a message must not void a reply to it, and Trash/Spam are refused on
     every read instead."""
@@ -167,7 +174,9 @@ def _fingerprint(*, account: str, message_id: str, thread_id: str, headers: dict
         sort_keys=True,
     )
     return hmac.new(
-        _signing_key(), _PURPOSE + b":" + canonical.encode("utf-8"), hashlib.sha256
+        key if key is not None else _signing_key(),
+        _PURPOSE + b":" + canonical.encode("utf-8"),
+        hashlib.sha256,
     ).hexdigest()
 
 
@@ -299,7 +308,12 @@ def calendar_linked_reply(
 
 
 def reply_source_from_message(
-    message: dict[str, Any], *, account: str, owner_email: str
+    message: dict[str, Any],
+    *,
+    account: str,
+    owner_email: str,
+    followup_to_sent: bool = False,
+    fingerprint_key: bytes | None = None,
 ) -> GmailReplySource:
     """Derive the reply envelope from one validated provider message."""
     message_id = str(message.get("id") or "")
@@ -309,7 +323,7 @@ def reply_source_from_message(
     labels = {label for label in message.get("labelIds", []) if isinstance(label, str)}
     if labels & _UNREPLYABLE_LABELS:
         raise _error(SOURCE_UNAVAILABLE, "That email can't be replied to from here.")
-    if "SENT" in labels:
+    if "SENT" in labels and not followup_to_sent:
         # The owner sent it, from any of their addresses: a reply would be
         # addressed back to them, or to whoever their own Reply-To named.
         raise _error(
@@ -318,7 +332,15 @@ def reply_source_from_message(
             status_code=422,
         )
     headers = _header_map(message)
-    recipient_email, recipient_display = _recipient(headers, owner_email=owner_email.lower())
+    routing_headers = headers
+    if "SENT" in labels:
+        # Follow up only the unique original addressee; preserve the normal reply contract.
+        if headers.get("cc") or not owner_email or not headers.get("to"):
+            raise _error(TARGET_AMBIGUOUS, "Choose an email addressed to one person.", 422)
+        routing_headers = {"from": headers["to"]}
+    recipient_email, recipient_display = _recipient(
+        routing_headers, owner_email=owner_email.lower()
+    )
     subject = _reply_subject(_safe_header(headers.get("subject", "")))
     in_reply_to, references = _thread_headers(headers)
     return GmailReplySource(
@@ -332,7 +354,11 @@ def reply_source_from_message(
             thread_id=thread_id, in_reply_to=in_reply_to, references=references
         ),
         fingerprint=_fingerprint(
-            account=account, message_id=message_id, thread_id=thread_id, headers=headers
+            account=account,
+            message_id=message_id,
+            thread_id=thread_id,
+            headers=headers,
+            key=fingerprint_key,
         ),
     )
 
