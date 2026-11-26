@@ -163,9 +163,14 @@ export function OnboardingJourneyGuard({
   const persistentSetupResolved = Boolean(
     userId && OneSetupCompletionHintService.isResolved(userId),
   );
+  const persistentWelcomeResolved = Boolean(
+    userId &&
+      (InitialContacts.wasDismissed(userId) ||
+        OneSetupCompletionHintService.isWelcomeResolved?.(userId)),
+  );
   const cachedAdmissionAllowsCurrentRoute = Boolean(
     (normalizedGuardPathname === ROUTES.ONE_WELCOME ||
-      Boolean(userId && InitialContacts.wasDismissed(userId)) ||
+      persistentWelcomeResolved ||
       cachedState?.initialContactsWelcomeAcknowledged !== false && Boolean(cachedState)) &&
     (persistentSetupResolved ||
     (cachedState &&
@@ -261,7 +266,9 @@ export function OnboardingJourneyGuard({
         return;
       }
 
-      const verifyWelcome = !InitialContacts.wasDismissed(userId);
+      const verifyWelcome =
+        !InitialContacts.wasDismissed(userId) &&
+        !OneSetupCompletionHintService.isWelcomeResolved?.(userId);
       const needsWelcomeBootstrap = verifyWelcome && !cachedState;
       function redirectPendingWelcome(state: PreVaultUserState): boolean {
         if (verifyWelcome && state.setupCompleted === true && state.initialContactsWelcomeAcknowledged === false && normalizedGuardPathname !== ROUTES.ONE_WELCOME) {
@@ -317,7 +324,10 @@ export function OnboardingJourneyGuard({
         const restored =
           await OneSetupCompletionHintService.hydrateFromNative(userId);
         if (cancelled) return;
-        if (restored && !needsWelcomeBootstrap) {
+        const nativeWelcomeResolved =
+          InitialContacts.wasDismissed(userId) ||
+          Boolean(OneSetupCompletionHintService.isWelcomeResolved?.(userId));
+        if (restored && nativeWelcomeResolved) {
           redirectTargetRef.current = null;
           setError(false);
           setChecking(false);
@@ -441,6 +451,23 @@ export function OnboardingJourneyGuard({
       (checking && !cachedAdmissionAllowsCurrentRoute) ||
       authLoading ||
       redirecting);
+  const [admittedUserId, setAdmittedUserId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!userId) {
+      setAdmittedUserId(null);
+      return;
+    }
+    if (!loaderActive && !sessionRecoveryActive && !error) {
+      setAdmittedUserId(userId);
+    }
+  }, [error, loaderActive, sessionRecoveryActive, userId]);
+  const retainMountedChildren = Boolean(
+    userId &&
+      admittedUserId === userId &&
+      cachedAdmissionAllowsCurrentRoute &&
+      !shouldEjectSetupSurface &&
+      !redirecting,
+  );
   // Suppress the persistent shell (top tabs/back + bottom nav) while the setup
   // admission check paints its loader, so the loader never leaks the page frame.
   useSessionChromeSuppression(loaderActive || sessionRecoveryActive);
@@ -454,32 +481,7 @@ export function OnboardingJourneyGuard({
     );
   }
   if (passThrough) return <>{children}</>;
-  if (loaderActive) {
-    return (
-      <HushhLoader
-        holdThroughNavigation={shouldEjectSetupSurface || redirecting}
-        stage={
-          shouldEjectSetupSurface
-            ? "workspace"
-            : redirecting
-              ? "setup"
-              : authLoading
-                ? "session"
-                : "setup"
-        }
-        label={
-          shouldEjectSetupSurface
-            ? "Opening One..."
-            : redirecting
-              ? "Returning to setup..."
-              : authLoading
-                ? "Checking secure session..."
-                : "Checking setup..."
-        }
-      />
-    );
-  }
-  if (error) {
+  if (error && !loaderActive) {
     return (
       <SessionVerificationRecovery
         onRetry={() => {
@@ -490,5 +492,40 @@ export function OnboardingJourneyGuard({
       />
     );
   }
-  return <>{children}</>;
+  return (
+    <>
+      {!loaderActive || retainMountedChildren ? (
+        <div
+          style={{ display: loaderActive ? "none" : "contents" }}
+          inert={loaderActive || undefined}
+          aria-hidden={loaderActive || undefined}
+        >
+          {children}
+        </div>
+      ) : null}
+      {loaderActive ? (
+        <HushhLoader
+          holdThroughNavigation={shouldEjectSetupSurface || redirecting}
+          stage={
+            shouldEjectSetupSurface
+              ? "workspace"
+              : redirecting
+                ? "setup"
+                : authLoading
+                  ? "session"
+                  : "setup"
+          }
+          label={
+            shouldEjectSetupSurface
+              ? "Opening One..."
+              : redirecting
+                ? "Returning to setup..."
+                : authLoading
+                  ? "Checking secure session..."
+                  : "Checking setup..."
+          }
+        />
+      ) : null}
+    </>
+  );
 }

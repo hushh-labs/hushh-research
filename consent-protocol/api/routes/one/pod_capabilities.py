@@ -90,7 +90,18 @@ def voice_available() -> bool:
 def _files_organization() -> dict[str, Any]:
     if _env("POD_FILES_ENABLED").lower() not in _TRUE:
         return _capability("files_disabled")
-    if workload_platform() == "azure":
+    platform = workload_platform()
+    if platform == "ace":
+        from hushh_mcp.services.pod_s3_object_store import PREFIX_TOKEN_URL_ENV
+
+        from hushh_mcp.services.pod_files.model_binding import organization_model_status
+
+        if not _env(PREFIX_TOKEN_URL_ENV) and not _env("POD_STORAGE_GCS_BUCKET"):
+            return _capability("requires_google_cloud_storage")
+        return _capability(
+            "" if organization_model_status()["backgroundAvailable"] else "model_not_configured"
+        )
+    if platform == "azure":
         from hushh_mcp.services.pod_files.azure_queue import queue_url
         from hushh_mcp.services.pod_files.library import FilesRefused
         from hushh_mcp.services.pod_files.model_binding import organization_model_status

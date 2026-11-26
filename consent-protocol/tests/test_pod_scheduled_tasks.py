@@ -370,6 +370,46 @@ def test_schedule_delivery_is_model_independent_but_refuses_a_foreign_queue(monk
         delivery.require_ready()
 
 
+@pytest.mark.asyncio
+async def test_resident_schedule_delivery_executes_due_occurrence_and_rehydrates_from_sealed_log(
+    scheduled_tasks, monkeypatch
+):
+    from hushh_mcp.services.pod_scheduled_delivery import ResidentScheduledDelivery
+    from hushh_mcp.services.pod_scheduled_tasks import ScheduleAccess, ScheduledTasks
+
+    monkeypatch.setenv("ACE_SANDBOX_ID", "sandbox-test-01")
+    monkeypatch.setenv("ACE_SANDBOX_REVISION", "rev-1")
+    monkeypatch.delenv("CONTAINER_APP_NAME", raising=False)
+    monkeypatch.delenv("K_SERVICE", raising=False)
+
+    world = scheduled_tasks
+    world.clock[0] = 1000
+    delivery = ResidentScheduledDelivery(clock=lambda: world.clock[0])
+    runtime = ScheduledTasks(
+        access=ScheduleAccess("owner", "pod", "epoch", world.runtime.access.check),
+        log=world.log,
+        capabilities={"agent_files.organize_file.v1": world.capability},
+        delivery=delivery,
+        admission=world.runtime.admission,
+        check_grant=world.check_grant,
+        clock=lambda: world.clock[0],
+    )
+    delivery.bind_runner(runtime.run)
+
+    created = await runtime.create(
+        schedule_request(first_run_at=1001),
+        grant={"subject_id": "browser", "version": 1},
+    )
+    assert created["state"] == "scheduled"
+    world.clock[0] = 1001
+    for _ in range(200):
+        if (await runtime.get(created["id"]))["state"] == "completed":
+            break
+        await asyncio.sleep(0.01)
+    assert world.capability.run.await_count == 1
+    assert (await runtime.get(created["id"]))["state"] == "completed"
+
+
 async def test_active_schedule_renews_its_claim_without_extending_the_approved_deadline(
     scheduled_tasks, monkeypatch
 ):
