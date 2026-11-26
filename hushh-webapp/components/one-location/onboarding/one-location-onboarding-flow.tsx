@@ -1454,7 +1454,7 @@ export function OneLocationOnboardingFlow({
   };
 
   const requestLocation = useCallback((reason: "entry" | "retry" = "retry") => {
-    if (leaving || locationPreparingRef.current || !onPrepareLocation) return;
+    if (leaving || locationPreparingRef.current || placeSaveInFlightRef.current || !onPrepareLocation) return;
     autoLocationAttemptedRef.current = true;
     locationPreparingRef.current = true;
     setLocationError(null);

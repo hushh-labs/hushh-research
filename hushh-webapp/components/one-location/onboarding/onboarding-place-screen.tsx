@@ -78,7 +78,7 @@ export function OnboardingPlaceScreen({
         "grid min-h-0 flex-1 grid-rows-[minmax(136px,1fr)_auto] gap-3 md:grid-rows-1",
         COMPACT_ONBOARDING_COLUMNS_CLASSNAME,
       )}>
-        <div className="relative min-h-0 overflow-hidden rounded-[20px]" data-testid="onboarding-place-map">
+        <div inert={busy && !capturing} className="relative min-h-0 overflow-hidden rounded-[20px]" data-testid="onboarding-place-map">
           {hasPoint && !capturing ? map : (
             <div role="status" aria-live="polite" className="flex h-full min-h-0 flex-col items-center justify-center gap-2 rounded-[20px] bg-[color:var(--app-secondary-surface)] px-5 text-center text-muted-foreground">
               {capturing ? <Loader2 className="h-7 w-7 animate-spin" aria-hidden /> : <MapPin className="h-7 w-7" aria-hidden />}
