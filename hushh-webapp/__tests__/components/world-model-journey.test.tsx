@@ -46,6 +46,7 @@ const auth = vi.hoisted(() => ({
   loading: false,
   sessionVerificationRequired: false,
   phoneNumber: "+14155550123",
+  phoneNumberStatus: "verified",
   signOut: async () => undefined,
   startPhoneVerification: async () => undefined,
   confirmPhoneVerification: async () => undefined,

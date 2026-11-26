@@ -355,7 +355,7 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
     (paneState.open
       ? paneState.location.panel === "world-model"
       : resolveProfileRouteState(pathname, searchParams).panel === "world-model");
-  const { user, userId, loading, sessionVerificationRequired, phoneNumber } = useAuth();
+  const { user, userId, loading, sessionVerificationRequired, phoneNumber, phoneNumberStatus } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked, tokenExpiresAt } =
     useVault();
   // mounted is false only while no app-level reader is attached. retryAt is
@@ -825,12 +825,13 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
   const namesakeNotice = preparing ? identityNotice(shownProgress) : null;
   const namesakesFound =
     status.kind === "nothing" && offered !== null && offered.research.candidates.length > 0;
-  const phone = phoneNumber ?? user?.phoneNumber ?? null;
+  const phone = ready && present && phoneNumberStatus === "verified" ? phoneNumber : null;
   const identity = {
     name: user?.displayName,
     email: user?.email,
     emailVerified: Boolean(user?.emailVerified),
     phone,
+    phoneStatus: phoneNumberStatus,
   };
   // The landmark carries the group's own title, so both read the same.
   const identityLabel = identityGroupTitle(identity);
