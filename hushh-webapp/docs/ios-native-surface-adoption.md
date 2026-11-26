@@ -10,7 +10,7 @@ iPhone 17 Pro Max on iOS 26.5, shared Dev Debug 1.4.1 (69). After Dev merged its
 | Tasks | Native Scheduled runs opens the complete scheduling dialog using the validated account on web and iOS. On Dev it reached the cloud connection message with Refresh enabled in 2.8 seconds. Close restored native Tasks. Open Files and authored Back returned to One. | Populated calendars, run history and schedule controls retain their fixture tests. The configured Dev reviewer requires a cloud connection. |
 | Chat and Location | One synthetic message carried a 275-byte, 12-line attachment. Its viewer opened and native Back returned to Chat. After the Dev merge, the production card again opened the private picker and the public review in 393 × 852 mobile WebKit. Both Back actions restored the share menu. The fixture made zero permission, capture, grant, link or external requests. | Dev returned HTTP 403 when the reviewer session tried to enroll a trusted device. History contained zero saved rows. Live saved replay, remote retrieval and a provider-generated Location card require an existing saved turn or an ordinarily signed-in Dev account with a connected private agent. |
 
-The branch also includes Dev’s scheduled Files change at `de15561452`. Its separate Confidential Sandbox capability is covered by the file-scheduling contracts. The iPhone results above refer to the shared Dev build identified here.
+The branch includes Dev’s Confidential Sandbox file scheduling and Mail Follow-ups through `7b3881bfef`. On the combined source, 79 affected scheduling, Files and Mail checks passed with two existing skips. The iPhone observations refer to the builds identified above.
 
 ## Dev iPhone acceptance, November 25
 

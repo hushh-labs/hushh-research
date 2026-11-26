@@ -3648,11 +3648,33 @@ final class NativeSupportTests: XCTestCase {
     }
 
     @MainActor
-    func testUnacknowledgedDrawerCloseRequestsFreshPresentationWithoutReplayingClose() {
+    func testUnacknowledgedDrawerCloseRequestsFreshPresentationWithoutReplayingClose() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previousKeyWindow?.makeKeyAndVisible()
+        }
         for outcome in ["refreshed", "retired", "stalled"] {
             let controller = NativeDrawerPresentationController(privateDrawerState())
-            controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+            let opened = expectation(description: "\(outcome) starts with a visible settled drawer")
+            let readmitted = outcome == "retired" ? nil : expectation(description: "\(outcome) settles the fresh projection")
+            controller.presentationDidSettle = { projection in
+                switch projection.updateSequence {
+                case 1: opened.fulfill()
+                case 2:
+                    XCTAssertTrue(controller.model.interactionEnabled)
+                    XCTAssertTrue(controller.allowsInteraction("close", row: nil))
+                    readmitted?.fulfill()
+                default: XCTFail("Unexpected projection \(projection.updateSequence)")
+                }
+            }
+            window.rootViewController = controller
+            window.makeKeyAndVisible()
             controller.activateInitialPresentation()
+            await fulfillment(of: [opened], timeout: 2)
             let host = controller.host
             var choices = 0, invalidations = 0
             controller.model.choose = { action, _, _ in
@@ -3683,16 +3705,14 @@ final class NativeSupportTests: XCTestCase {
                 refresh.fulfill()
             }
             controller.settle(open: false, userIntent: true)
-            wait(for: [refresh], timeout: 7)
-            wait(for: [recovery], timeout: 3)
+            await fulfillment(of: [refresh], timeout: 7)
+            await fulfillment(of: [recovery], timeout: 3)
             XCTAssertEqual(choices, 1, "A presentation refresh must not replay Close")
-            if outcome != "retired" {
+            if let readmitted {
                 if outcome == "stalled" { controller.update(privateDrawerState(update: 2)) }
-                let admitted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                    controller.model.interactionEnabled && controller.allowsInteraction("close", row: nil)
-                }, object: controller)
-                XCTAssertEqual(XCTWaiter.wait(for: [admitted], timeout: 2), .completed,
-                    "Fresh owner presentation must restore interaction after settlement")
+                await fulfillment(of: [readmitted], timeout: 2)
+                XCTAssertTrue(controller.model.interactionEnabled)
+                XCTAssertTrue(controller.allowsInteraction("close", row: nil))
             }
             XCTAssertTrue(controller.host === host)
             XCTAssertEqual(choices, 1)
