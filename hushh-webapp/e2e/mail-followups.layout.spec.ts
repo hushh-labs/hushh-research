@@ -102,9 +102,13 @@ for (const width of [393, 1280]) {
       "Draft for c@example.test",
     );
     await expect(page.getByText("To lab-c@example.test")).toBeVisible();
+    await page.getByLabel("Message").fill("My unsent text for C");
     await choose("b");
     await button("Disconnect mailbox").click();
     await button("Confirm disconnect").click();
+    await expect(page.getByText("Choose a mailbox to continue.")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Get the signed document for a" })).toHaveCount(0);
+    await choose("a");
     await expect(
       page.getByRole("heading", { name: "Get the signed document for a" }),
     ).toBeVisible();
@@ -112,6 +116,10 @@ for (const width of [393, 1280]) {
     await expect(
       page.getByRole("heading", { name: "Get the signed document for c" }),
     ).toBeVisible();
+    await button("Plan follow-up").click();
+    await button("Prepare for my review").click();
+    await expect(page.getByLabel("Message")).toHaveValue("My unsent text for C");
+    await expect(page.getByText("From c@example.test")).toBeVisible();
   });
 }
 

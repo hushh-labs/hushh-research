@@ -94,3 +94,36 @@ async def test_additional_mail_grants_never_fall_back_to_default(grants):
     google.mail_grants["account-b"] = ("owner", "gmail", "account-b", "subject-b", "epoch-new")
     with pytest.raises(account.SelectedMailAccessError, match="mail_grant_changed"):
         await selected.require_current()
+
+
+@pytest.mark.asyncio
+async def test_receipt_session_keeps_selected_mailbox_and_rejects_revocation(grants):
+    from hushh_mcp.services.gmail_live_receipts_service import GmailLiveReceiptsService
+    from hushh_mcp.services.gmail_receipts_service import GmailApiError
+
+    google, primary = grants
+    service = GmailLiveReceiptsService(gmail=primary, source_secret=b"synthetic-test-key")
+
+    async def allow_owner():
+        pass
+
+    async with service.read_session(
+        user_id="owner",
+        require_access=allow_owner,
+        account_id="account-b",
+        expected_account="subject-b",
+    ) as reader:
+        assert reader.account == "subject-b"
+        await reader.require_current()
+        google.mail_grants.clear()
+        with pytest.raises(GmailApiError) as changed:
+            await reader.require_current()
+        assert changed.value.code == "GMAIL_CONNECTION_CHANGED"
+
+    with pytest.raises(GmailApiError):
+        async with service.read_session(
+            user_id="owner", require_access=allow_owner, account_id="account-c"
+        ):
+            pytest.fail("A mailbox without Mail access was opened")
+    assert primary.tokens == 0
+    assert google.token_accounts == ["account-b"]

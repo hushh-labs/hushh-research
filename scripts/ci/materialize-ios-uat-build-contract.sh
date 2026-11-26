@@ -68,6 +68,17 @@ for value in "$FB_API_KEY" "$FB_VAPID" "$MAPS_IOS_KEY" "$MAPS_BROWSER_KEY"; do
   [[ -n "$value" ]] && echo "::add-mask::$value"
 done
 
+# Private Gmail redeems native codes against the same public iOS client on the owner agent.
+# UAT builds keep the connector disabled until its client is provisioned.
+if gcloud secrets describe GOOGLE_IOS_CONNECTOR_CLIENT_ID --project="$PROJECT_ID" >/dev/null 2>&1; then
+  ios_connector="$(get_secret GOOGLE_IOS_CONNECTOR_CLIENT_ID)"
+  [[ "$ios_connector" =~ ^[0-9]+-[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$ ]] || {
+    echo "Invalid UAT iOS Google connector client." >&2
+    exit 1
+  }
+  put_env NEXT_PUBLIC_GOOGLE_IOS_CONNECTOR_CLIENT_ID "$ios_connector"
+fi
+
 put_env APP_RUNTIME_PROFILE "uat"
 put_env NEXT_PUBLIC_APP_ENV "uat"
 put_env NEXT_PUBLIC_BACKEND_URL "$BACKEND_URL"

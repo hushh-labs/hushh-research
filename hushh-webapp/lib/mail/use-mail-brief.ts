@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import {
   fetchMailBrief,
@@ -13,7 +13,7 @@ import {
   type MailOverviewReason,
 } from "@/lib/mail/mail-overview-client";
 import { CacheService } from "@/lib/services/cache-service";
-import { subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 const CACHE_PREFIX = "mail_overview_";
 const CACHE_TTL_MS = 10 * 60_000;
@@ -53,7 +53,7 @@ const EMPTY: BriefPart<never> = {
   fetchedAt: 0,
 };
 
-type Cached = { brief: MailBrief | null; completed: MailCompleted | null; fetchedAt: number };
+type Cached = { brief: MailBrief | null; completed: MailCompleted | null; briefAt: number; completedAt: number };
 
 export type MailBriefState = {
   brief: BriefPart<MailBrief>;
@@ -83,11 +83,12 @@ export function useMailBrief(input: {
 }): MailBriefState {
   const { userId, accountKey, expectedAccount, vaultOwnerToken, connected, active } = input;
   const ready = Boolean(connected && userId && accountKey && vaultOwnerToken);
-  const scope = `${userId ?? ""}|${accountKey ?? ""}|${expectedAccount ?? ""}`;
+  const epoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, snapshotVaultSessionEpoch);
+  const scope = JSON.stringify([userId, accountKey, expectedAccount, ready, epoch]);
   const cachedNow = useCallback((): Cached | null => {
-    if (!userId || !accountKey) return null;
+    if (!ready || !userId || !accountKey) return null;
     return CacheService.getInstance().peek<Cached>(cacheKey(userId, accountKey))?.data ?? null;
-  }, [userId, accountKey]);
+  }, [ready, userId, accountKey]);
 
   const [state, setState] = useState<{
     scope: string;
@@ -98,10 +99,10 @@ export function useMailBrief(input: {
     return {
       scope,
       brief: cached?.brief
-        ? { ...EMPTY, status: "ready", data: cached.brief, fetchedAt: cached.fetchedAt }
+        ? { ...EMPTY, status: "ready", data: cached.brief, fetchedAt: cached.briefAt }
         : EMPTY,
       completed: cached?.completed
-        ? { ...EMPTY, status: "ready", data: cached.completed, fetchedAt: cached.fetchedAt }
+        ? { ...EMPTY, status: "ready", data: cached.completed, fetchedAt: cached.completedAt }
         : EMPTY,
     };
   });
@@ -115,10 +116,10 @@ export function useMailBrief(input: {
     setState({
       scope,
       brief: cached?.brief
-        ? { ...EMPTY, status: "ready", data: cached.brief, fetchedAt: cached.fetchedAt }
+        ? { ...EMPTY, status: "ready", data: cached.brief, fetchedAt: cached.briefAt }
         : EMPTY,
       completed: cached?.completed
-        ? { ...EMPTY, status: "ready", data: cached.completed, fetchedAt: cached.fetchedAt }
+        ? { ...EMPTY, status: "ready", data: cached.completed, fetchedAt: cached.completedAt }
         : EMPTY,
     });
   }
@@ -130,7 +131,7 @@ export function useMailBrief(input: {
     flight.current = { scope, controller };
     const token = vaultOwnerToken as string;
     const auth = { vaultOwnerToken: token, expectedAccount, signal: controller.signal };
-    const current = () => latestScope.current === scope && !controller.signal.aborted;
+    const current = () => latestScope.current === scope && isVaultSessionEpochCurrent(epoch) && !controller.signal.aborted;
     const begin = <T,>(part: BriefPart<T>): BriefPart<T> => ({
       ...part,
       status: part.data ? "ready" : "loading",
@@ -159,7 +160,8 @@ export function useMailBrief(input: {
                 brief: pick === "brief" ? (data as unknown as MailBrief) : (cacheable?.brief ?? null),
                 completed:
                   pick === "completed" ? (data as unknown as MailCompleted) : (cacheable?.completed ?? null),
-                fetchedAt,
+                briefAt: pick === "brief" ? fetchedAt : (cacheable?.briefAt ?? 0),
+                completedAt: pick === "completed" ? fetchedAt : (cacheable?.completedAt ?? 0),
               },
               CACHE_TTL_MS,
             );
@@ -174,17 +176,24 @@ export function useMailBrief(input: {
         const error = failure(raw);
         if (error.reason === "aborted") return;
         const loss = ACCESS_LOSS.has(error.reason);
+        if (loss) {
+          controller.abort();
+          if (userId && accountKey) CacheService.getInstance().invalidate(cacheKey(userId, accountKey));
+          const denied = { ...EMPTY, status: "error" as const, error };
+          setState({ scope, brief: denied, completed: denied });
+          return;
+        }
         setState((value) => {
           const part = value[pick] as BriefPart<unknown>;
           return {
             ...value,
             [pick]: {
               status: "error",
-              data: loss ? null : part.data,
+              data: part.data,
               error,
               refreshing: false,
               // A failed read never claims fresher mail than what is on screen.
-              fetchedAt: loss ? 0 : part.fetchedAt,
+              fetchedAt: part.fetchedAt,
             },
           };
         });
@@ -196,7 +205,7 @@ export function useMailBrief(input: {
     ]).finally(() => {
       if (flight.current?.controller === controller) flight.current = null;
     });
-  }, [ready, scope, vaultOwnerToken, expectedAccount, userId, accountKey, cachedNow]);
+  }, [ready, scope, epoch, vaultOwnerToken, expectedAccount, userId, accountKey, cachedNow]);
 
   // Read when the tab shows and nothing recent is held; never while it is hidden.
   useEffect(() => {

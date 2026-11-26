@@ -25,6 +25,14 @@ def sync(source: Path, destination: Path) -> bool:
     types = info.get("CFBundleURLTypes")
     if not isinstance(info.get("GIDClientID"), str) or not isinstance(types, list):
         raise ValueError("Canonical iOS Google client declaration is missing.")
+    # Connector PKCE can use a distinct client from Firebase account sign-in.
+    # Only the entry owned by this build step is regenerated across profiles.
+    connector_name = "Hussh private Google connector"
+    original_types = types[:]
+    types[:] = [entry for entry in types if entry.get("CFBundleURLName") != connector_name]
+    connector = os.getenv("NEXT_PUBLIC_GOOGLE_IOS_CONNECTOR_CLIENT_ID", "").strip()
+    if connector and not re.fullmatch(r"[0-9]{4,32}-[a-z0-9]{8,64}\.apps\.googleusercontent\.com", connector):
+        raise ValueError("Invalid iOS Google connector client.")
     google = []
     for entry in types:
         schemes = entry.get("CFBundleURLSchemes") if isinstance(entry, dict) else None
@@ -40,7 +48,9 @@ def sync(source: Path, destination: Path) -> bool:
     if len(google) != 1:
         raise ValueError("Expected exactly one iOS Google callback scheme.")
     schemes, index = google[0]
-    if info["GIDClientID"] == client and schemes[index] == scheme:
+    if connector and connector != client:
+        types.append({"CFBundleURLName": connector_name, "CFBundleURLSchemes": [".".join(reversed(connector.split(".")))]})
+    if info["GIDClientID"] == client and schemes[index] == scheme and original_types == types:
         return False
     info["GIDClientID"] = client
     schemes[index] = scheme
