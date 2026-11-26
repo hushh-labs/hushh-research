@@ -798,6 +798,7 @@ export class GmailReceiptsService {
     idToken: string;
     vaultOwnerToken: string;
     userId: string;
+    accountId?: string;
     accountKey: string;
     receiptKeys: string[];
     prior: Array<{ id: string; kind: string; provider: string; headline: string }>;
@@ -811,6 +812,7 @@ export class GmailReceiptsService {
       headers: { ...buildSealedHeaders(params.idToken, params.vaultOwnerToken), "Content-Type": "application/json" },
       body: JSON.stringify({
         user_id: params.userId,
+        ...(params.accountId ? { account_id: params.accountId } : {}),
         account_key: params.accountKey,
         receipt_keys: params.receiptKeys.slice(0, 40),
         prior: params.prior.slice(0, 12),
@@ -830,6 +832,7 @@ export class GmailReceiptsService {
     idToken: string;
     vaultOwnerToken: string;
     userId: string;
+    accountId?: string;
     accountKey: string;
     openKey: string;
     signal?: AbortSignal;
@@ -840,7 +843,12 @@ export class GmailReceiptsService {
       cache: "no-store",
       signal: params.signal,
       headers: { ...buildSealedHeaders(params.idToken, params.vaultOwnerToken), "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: params.userId, account_key: params.accountKey, open_key: params.openKey }),
+      body: JSON.stringify({
+        user_id: params.userId,
+        ...(params.accountId ? { account_id: params.accountId } : {}),
+        account_key: params.accountKey,
+        open_key: params.openKey,
+      }),
     });
     if (!response.ok) throw await extractLiveReceiptError(response, "That email isn't available.");
     const payload: unknown = await response.json().catch(() => { throw invalidLiveReceiptResponse(); });
@@ -1259,6 +1267,7 @@ export class GmailReceiptsService {
     idToken: string;
     vaultOwnerToken: string;
     userId: string;
+    accountId?: string;
     page?: number;
     cursor?: string | null;
     checkpoint?: string | null;
@@ -1289,6 +1298,7 @@ export class GmailReceiptsService {
           },
           body: JSON.stringify({
             user_id: params.userId,
+            ...(params.accountId ? { account_id: params.accountId } : {}),
             page,
             per_page: perPage,
             ...(params.accountKey ? { account_key: params.accountKey } : {}),
@@ -1324,6 +1334,7 @@ export class GmailReceiptsService {
     idToken: string;
     vaultOwnerToken: string;
     userId: string;
+    accountId?: string;
     sourceId: string;
     signal?: AbortSignal;
   }): Promise<GmailLiveReceiptDetailResponse> {
@@ -1344,6 +1355,7 @@ export class GmailReceiptsService {
         },
         body: JSON.stringify({
           user_id: params.userId,
+          ...(params.accountId ? { account_id: params.accountId } : {}),
           source_id: sourceId,
         }),
       },

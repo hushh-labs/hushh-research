@@ -36,6 +36,11 @@ from hushh_mcp.agents.email.runtime import (
     run_email_gene,
 )
 from hushh_mcp.runtime_settings import get_core_security_settings
+from hushh_mcp.services.calendar_email_followup_account import (
+    SelectedMailAccessError,
+    SelectedMailGrant,
+    open_selected_mail_grant,
+)
 from hushh_mcp.services.gmail_message_text import MessageTextError, cap_utf8, message_text
 from hushh_mcp.services.gmail_receipt_amounts import SUFFIX_TOTAL as _SUFFIX_TOTAL
 from hushh_mcp.services.gmail_receipt_amounts import TOTAL as _TOTAL
@@ -52,6 +57,7 @@ from hushh_mcp.services.gmail_receipts_service import (
     GmailReceiptsService,
     get_gmail_receipts_service,
 )
+from hushh_mcp.services.google_connection_contract import GoogleConnectionError
 
 _BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
 _logger = logging.getLogger(__name__)
@@ -208,6 +214,7 @@ class _ReadAuthority:
     binding: tuple[str, ...]
     access_token: str
     require_access: RequireAccess | None = None
+    selected_grant: SelectedMailGrant | None = None
     # Google can reject a token before its recorded expiry. One request may
     # refresh it once and re-pin the same account's grant; never more.
     token_refreshed: bool = False
@@ -1364,8 +1371,45 @@ class GmailLiveReceiptsService:
             if active is not None and active.identity is identity:
                 self._active_scans.pop(user_id, None)
 
-    async def _authority(self, *, user_id: str, require_access: RequireAccess) -> _ReadAuthority:
+    @staticmethod
+    async def _open_selected_grant(
+        user_id: str, account_id: str, *, force_refresh: bool = False
+    ) -> SelectedMailGrant:
+        try:
+            return await open_selected_mail_grant(
+                user_id=user_id, account_id=account_id, force_refresh=force_refresh
+            )
+        except SelectedMailAccessError as exc:
+            raise GmailApiError(
+                "Check access to the selected mailbox.",
+                status_code=409,
+                code="GMAIL_CONNECTION_CHANGED",
+            ) from exc
+        except GoogleConnectionError as exc:
+            code = (
+                "GMAIL_REAUTH_REQUIRED"
+                if exc.status_code in (401, 403)
+                else "GMAIL_PROVIDER_UNAVAILABLE"
+            )
+            raise GmailApiError(
+                "The selected mailbox is unavailable.", status_code=exc.status_code, code=code
+            ) from exc
+
+    async def _authority(
+        self, *, user_id: str, require_access: RequireAccess, account_id: str = "default"
+    ) -> _ReadAuthority:
         await require_access()
+        if account_id != "default":
+            grant = await self._open_selected_grant(user_id, account_id)
+            return _ReadAuthority(
+                user_id,
+                grant.provider_subject,
+                grant.epoch_digest,
+                grant.mail_binding,
+                grant.token,
+                require_access,
+                selected_grant=grant,
+            )
         # Refresh first, then observe the public grant binding. A refresh changes
         # the connection row revision, so capturing the binding before it would
         # reject this service's own successful refresh.
@@ -1397,6 +1441,16 @@ class GmailLiveReceiptsService:
         self, *, authority: _ReadAuthority, require_access: RequireAccess
     ) -> None:
         await require_access()
+        if authority.selected_grant is not None:
+            try:
+                await authority.selected_grant.require_current()
+            except SelectedMailAccessError as exc:
+                raise GmailApiError(
+                    "The selected mailbox changed.",
+                    status_code=409,
+                    code="GMAIL_CONNECTION_CHANGED",
+                ) from exc
+            return
         current = await self._gmail.read_grant_binding(user_id=authority.user_id)
         if current != authority.binding:
             raise GmailApiError(
@@ -1422,6 +1476,18 @@ class GmailLiveReceiptsService:
             authority.token_refreshed = True
             if authority.require_access is not None:
                 await authority.require_access()
+            if authority.selected_grant is not None:
+                fresh = await self._open_selected_grant(
+                    authority.user_id, authority.selected_grant.account_id, force_refresh=True
+                )
+                if fresh.epoch_digest != authority.connected_at:
+                    raise GmailApiError(
+                        "The selected mailbox changed.",
+                        status_code=409,
+                        code="GMAIL_CONNECTION_CHANGED",
+                    )
+                authority.access_token = fresh.token
+                return
             try:
                 access_token = await self._gmail.get_read_access_token(
                     user_id=authority.user_id, force_refresh=True
@@ -1846,6 +1912,7 @@ class GmailLiveReceiptsService:
         checkpoint: str | None = None,
         incremental: bool = False,
         expected_account: str | None = None,
+        account_id: str = "default",
     ) -> dict[str, Any]:
         # A process-local lease cannot fence another Cloud Run instance. A
         # nonblocking session lock shares the owner lane across instances;
@@ -1872,6 +1939,7 @@ class GmailLiveReceiptsService:
                         checkpoint=checkpoint,
                         incremental=incremental,
                         expected_account=expected_account,
+                        account_id=account_id,
                     )
         except DedicatedConnectionCapacityError:
             raise GmailApiError(
@@ -1900,12 +1968,15 @@ class GmailLiveReceiptsService:
         checkpoint: str | None = None,
         incremental: bool = False,
         expected_account: str | None = None,
+        account_id: str = "default",
     ) -> dict[str, Any]:
         page = max(1, min(_MAX_PAGE, int(page)))
         per_page = max(1, min(_MAX_PER_PAGE, int(per_page)))
         try:
             async with asyncio.timeout(_DEADLINE_SECONDS):
-                authority = await self._authority(user_id=user_id, require_access=require_access)
+                authority = await self._authority(
+                    user_id=user_id, require_access=require_access, account_id=account_id
+                )
                 if expected_account is not None and authority.account != expected_account:
                     raise GmailApiError(
                         "The Mail account changed. Reopen Mail to continue.",
@@ -2190,8 +2261,11 @@ class GmailLiveReceiptsService:
         user_id: str,
         require_access: RequireAccess,
         expected_account: str | None = None,
+        account_id: str = "default",
     ) -> AsyncIterator[ReceiptReadSession]:
-        authority = await self._authority(user_id=user_id, require_access=require_access)
+        authority = await self._authority(
+            user_id=user_id, require_access=require_access, account_id=account_id
+        )
         if expected_account is not None and authority.account != expected_account:
             raise GmailApiError(
                 "The Mail account changed. Reopen Mail to continue.",
@@ -2210,6 +2284,7 @@ class GmailLiveReceiptsService:
         source_id: str,
         consent_token: str,
         require_access: RequireAccess,
+        account_id: str = "default",
     ) -> dict[str, Any]:
         sealed_locator = source_id.startswith("grs1_")
         gmail_message_id = None if sealed_locator else self._message_id_from_source(source_id)
@@ -2221,7 +2296,9 @@ class GmailLiveReceiptsService:
             )
         try:
             async with asyncio.timeout(_DEADLINE_SECONDS):
-                authority = await self._authority(user_id=user_id, require_access=require_access)
+                authority = await self._authority(
+                    user_id=user_id, require_access=require_access, account_id=account_id
+                )
                 if sealed_locator:
                     gmail_message_id = self._open_locator(authority, source_id)
                 if not gmail_message_id or (

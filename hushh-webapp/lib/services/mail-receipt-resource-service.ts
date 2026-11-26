@@ -92,6 +92,7 @@ export class MailReceiptResourceService {
     restores.set(key, request); restoreEpochs.set(key, epoch); restoreControllers.set(key, controller); return request;
   }
   static refresh(session: ReceiptStoreSession, account: string, getIdToken: () => Promise<string>, options: {
+    accountId?: string;
     force?: boolean; onPage?: (items: ReceiptListItem[], page: number) => void;
   } = {}): Promise<RefreshResult> {
     const key = identity(session.userId, account);
@@ -133,7 +134,7 @@ export class MailReceiptResourceService {
           let retries = 0;
           for (;;) {
             try { response = await GmailReceiptsService.scanReceipts({ idToken, vaultOwnerToken: session.vaultOwnerToken,
-              userId: session.userId, accountKey: account, page, cursor, checkpoint, incremental: true, signal }); break; }
+              userId: session.userId, accountId: options.accountId, accountKey: account, page, cursor, checkpoint, incremental: true, signal }); break; }
             catch (error) {
               const code = (error as { code?: string }).code;
               if (["GMAIL_RECEIPT_CHECKPOINT_EXPIRED", "GMAIL_RECEIPT_CURSOR_EXPIRED"].includes(code ?? "") && !recovered) {
