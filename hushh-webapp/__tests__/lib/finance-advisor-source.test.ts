@@ -90,6 +90,23 @@ describe("advisor source integrity", () => {
     mocks.load.mockResolvedValue({ ...v7, financial_core_v7: { ...v7.financial_core_v7, securities: { sec: { symbol: "AAPL", currency: "EUR" } }, positions: { one: { ...v7.financial_core_v7.positions.one, currency: "USD" } } } });
     await expect(readSavedFinance(context, active, true)).rejects.toThrow();
   });
+  it("does not share V7 positions under an ambiguous statement identity", async () => {
+    mocks.load.mockResolvedValue({
+      pkm_contract_version: "7.0.0",
+      financial_core_v7: {
+        active_source: "statement",
+        securities: { apple: { symbol: "AAPL" } },
+        positions: { position: { security_id: "apple", quantity: 1, market_value: 100 } },
+      },
+      sources: { active_source: "statement", statement: { active_snapshot_id: "selected" } },
+      source_artifacts_v7: { statement_snapshots: [
+        { id: "original", artifact_ref: "sha256:original" },
+        { id: "selected", artifact_ref: "sha256:selected" },
+      ] },
+    });
+    await expect(readSavedFinance(context, source, false, { requireActiveSource: true }))
+      .rejects.toThrow("active portfolio changed");
+  });
   it("reads an untagged V7 position as USD but never hides another account's foreign currency", () => {
     const v7 = (other: Record<string, unknown>) => ({ financial_core_v7: { account_summary: { currency: "USD" }, accounts: { a: other, b: {} },
       securities: { sec: { symbol: "AAPL" } },
