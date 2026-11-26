@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   areScheduledTasksAvailable,
+  MAIL_FOLLOWUP_TEMPLATE,
   PodScheduledTasksClient,
   SCHEDULE_WEEKDAYS,
   type ScheduleControl,
@@ -362,7 +363,7 @@ export function ScheduledTasksPanelBody({ model, selectedId, inTasks = false }: 
                     Resume
                   </Button>
                 )}
-                {task.state === "scheduled" && !task.run_now_pending && status?.run_now_available && (
+                {task.state === "scheduled" && !task.run_now_pending && status?.run_now_available && task.capability !== MAIL_FOLLOWUP_TEMPLATE && (
                   <Button variant="ghost" size="compact"
                     disabled={checking || Boolean(busy) || task.next_run_at < Date.now() / 1000 + 60}
                     onClick={() => void control(task, "run_now")}>Run now</Button>

@@ -23,7 +23,7 @@ export function GmailWorkspaceSkeleton({
     <AppPageShell
       as="div"
       width="reading"
-      className={`${mailStyles.typography} ${titleVisuallyHidden ? mailStyles.workspace : mailStyles.fullPageTitle} pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8`}
+      className={`${mailStyles.typography} ${titleVisuallyHidden ? "" : mailStyles.fullPageTitle} pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8`}
       aria-busy="true"
       aria-label="Checking your Gmail status"
     >

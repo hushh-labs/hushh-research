@@ -240,6 +240,21 @@ async def test_schedule_recovers_outbox_and_claims_once_before_effect(scheduled_
     )["id"] == created["id"]
 
 
+async def test_one_time_cancelled_outcome_is_terminal_on_redelivery(scheduled_tasks):
+    world = scheduled_tasks
+    grant = {"subject_id": "browser", "version": 1}
+    await world.runtime.create(schedule_request(), grant=grant)
+    delivery = world.delivery.offer.call_args.args[:3]
+    other = await world.runtime.create(schedule_request(request_id="another-request"), grant=grant)
+    world.clock[0] = 1101
+    world.capability.run.return_value = "cancelled"
+    for runtime in (world.runtime, world.build()):
+        result = await runtime.run(*delivery)
+        assert result["state"] == result["last_run"]["state"] == "cancelled"
+    world.capability.run.assert_awaited_once()
+    assert (await world.runtime.get(other["id"]))["state"] == "scheduled"
+
+
 @pytest.mark.asyncio
 async def test_recurring_schedule_repairs_lost_next_delivery_without_replaying_effect(
     scheduled_tasks,
@@ -761,3 +776,18 @@ async def test_schedule_authority_loss_cancels_work_before_releasing_update_admi
     assert (await world.build().run(*delivery[:3]))["state"] == "needs_review"
     world.capability.run.assert_awaited_once()
     world.permit.release.assert_awaited_once()
+
+
+async def test_control_cannot_advance_an_exact_time_capability(scheduled_tasks):
+    from hushh_mcp.services.pod_scheduled_mail import ScheduledMailFollowup
+    from hushh_mcp.services.pod_scheduled_tasks import ScheduleRefused
+
+    world = scheduled_tasks
+    world.capability.allow_run_now = ScheduledMailFollowup.allow_run_now
+    row = await world.runtime.create(
+        schedule_request(), grant={"subject_id": "browser", "version": 1}
+    )
+    with pytest.raises(ScheduleRefused, match="SCHEDULE_RUN_NOW_REFUSED"):
+        await world.runtime.control(row["id"], row["revision"], "run_now", confirmed=True)
+    assert (await world.runtime.get(row["id"]))["next_run_at"] == 1100
+    world.capability.run.assert_not_awaited()

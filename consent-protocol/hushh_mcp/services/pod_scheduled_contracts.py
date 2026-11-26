@@ -198,6 +198,7 @@ class _RunReceipt(BaseModel):
     lease_until: int = Field(gt=0)
     claim_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     deadline_at: int | None = Field(default=None, gt=0)
+    sent_source: str | None = Field(default=None, pattern=r"^ms1\.[A-Za-z0-9_-]{16,2044}$")
     finished_at: int | None = Field(default=None, gt=0)
     active_seconds: int = Field(default=0, ge=0, le=900)
     active_limit_seconds: int | None = Field(default=None, ge=1, le=900)
