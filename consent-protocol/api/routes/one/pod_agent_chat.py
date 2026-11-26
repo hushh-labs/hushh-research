@@ -210,6 +210,8 @@ async def capabilities(owner: PodChatContext = Depends(context)):
 
     try:
         from a2ui.adk import SendA2uiToClientToolset  # noqa: F401
+        from a2ui.inference_formats import DirectJsonFormatFactory  # noqa: F401
+        from a2ui.processor import A2uiRequestProcessor, CatalogConfig  # noqa: F401
     except ImportError:
         native = {}
     else:

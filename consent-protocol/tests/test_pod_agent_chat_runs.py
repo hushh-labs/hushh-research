@@ -71,6 +71,24 @@ def test_receipt_tools_have_an_explicit_authenticated_protocol_advertisement():
     assert "pkm.add" in response.json()["admittedActionIds"]
 
 
+def test_native_capability_is_not_advertised_without_visual_processor(monkeypatch):
+    import builtins
+
+    original_import = builtins.__import__
+
+    def unavailable_processor(name, *args, **kwargs):
+        if name == "a2ui.processor":
+            raise ImportError("processor unavailable")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", unavailable_processor)
+    client = _client()
+    client.app.dependency_overrides[pod_agent_chat.context] = lambda: _owner()
+    response = client.get("/api/one/pod/agent-chat/capabilities")
+    assert response.status_code == 200
+    assert "nativeAdkChatVersion" not in response.json()
+
+
 def test_native_cloud_request_only_passes_server_admitted_state(monkeypatch):
     client = _client()
     owner = _owner()
