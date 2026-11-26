@@ -42,7 +42,7 @@ async def mail_followups(
         async with asyncio.timeout(45):
             data = bytearray()
             async for chunk in request.stream():
-                if len(data) + len(chunk) > 8192:
+                if len(data) + len(chunk) > 32768:
                     raise _refuse(413, "MAIL_REQUEST_TOO_LARGE")
                 data.extend(chunk)
             classes = {

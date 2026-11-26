@@ -1141,7 +1141,9 @@ sender, recipient, source and approved time. It rechecks authority, model
 binding, the mailbox and the thread before calling Gmail delivery. Uncertain
 outcomes use the existing schedule recovery contract.
 
-Shared hosting uses its existing connected Gmail grant, vault-owner authorization
-and placement guard at every read. Reconnection changes the grant generation and
+Shared hosting lists the primary Gmail grant and additional Google connections
+with explicit Mail read access. Each read checks vault-owner authorization,
+placement and the selected grant generation. Disconnect withdraws that
+additional account's Mail grant while preserving its Calendar access. Reconnection changes the grant generation and
 invalidates prior message actions. Placement selects the transport before mail
 is opened. Shared hosting has no private-agent schedule execution authority.

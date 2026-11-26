@@ -13,6 +13,7 @@ from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.gmail_metadata_reader import GmailMetadataReader
 from hushh_mcp.services.gmail_receipts_service import get_gmail_receipts_service
+from hushh_mcp.services.google_connection_service import get_google_connection_service
 from hushh_mcp.services.owner_placement_guard import hub_content_owner, require_hub_content_current
 from hushh_mcp.services.pod_mail_followups import (
     Document,
@@ -23,10 +24,12 @@ from hushh_mcp.services.pod_mail_followups import (
     Tracked,
     assess_mail,
 )
+from hushh_mcp.services.shared_mail_accounts import SharedAdditionalGmail, additional_mailboxes
 
 router = APIRouter(prefix="/api/one/mail/followups", route_class=PrivateNoStoreRoute)
 INPUTS = {
     "account": Selection,
+    "disconnect": Selection,
     "search": Search,
     "open": Source,
     "track": Track,
@@ -74,34 +77,95 @@ async def shared_mail(operation, request, claims):
 
     try:
         async with asyncio.timeout(45):
-            box = await mailbox()
+            await require_hub_content_current(owner, "mail_followups", authorized)
             data = bytearray()
             async for chunk in request.stream():
-                if len(data) + len(chunk) > 8192:
+                if len(data) + len(chunk) > 32768:
                     raise HTTPException(413)
                 data.extend(chunk)
             if operation == "inventory":
                 if data != b"{}":
                     raise HTTPException(422)
-                result = box
+                try:
+                    primary = await mailbox()
+                except HTTPException as exc:
+                    if exc.status_code != 409:
+                        raise
+                    primary = None
+                result = {
+                    "default": primary,
+                    "additional": await additional_mailboxes(
+                        get_google_connection_service(), owner
+                    ),
+                }
+                await require_hub_content_current(owner, "mail_followups", authorized)
             else:
                 try:
                     selected = INPUTS[operation].model_validate_json(data)
                 except ValueError:
                     raise HTTPException(422) from None
-                if (selected.account, selected.connection) != (box["account"], box["connection"]):
-                    raise HTTPException(409)
-
-                async def check():
-                    if await mailbox() != box:
+                if selected.account.startswith("additional/"):
+                    google = get_google_connection_service()
+                    slot = selected.account.removeprefix("additional/")
+                    if not slot or slot == "default":
                         raise HTTPException(409)
+
+                    async def binding_now():
+                        await require_hub_content_current(owner, "mail_followups", authorized)
+                        binding = await google.read_grant_binding(
+                            user_id=owner, service="gmail", account_id=slot
+                        )
+                        if not binding or len(binding) != 8 or binding[-1] != selected.connection:
+                            raise HTTPException(409)
+                        return binding
+
+                    binding = await binding_now()
+                    box = next(
+                        (
+                            r
+                            for r in await additional_mailboxes(google, owner)
+                            if r["account"] == selected.account
+                            and r["connection"] == selected.connection
+                        ),
+                        None,
+                    )
+                    if not box:
+                        raise HTTPException(409)
+                    if operation == "disconnect":
+                        await google.disconnect_mail_read_grant(
+                            user_id=owner, account_id=slot, expected_generation=selected.connection
+                        )
+                        return JSONResponse(
+                            {"disconnected": True}, headers=PRIVATE_NO_STORE_HEADERS
+                        )
+                    port = SharedAdditionalGmail(google, owner, box, binding)
+                    subject = binding[3]
+
+                    async def check():
+                        if await binding_now() != binding:
+                            raise HTTPException(409)
+                else:
+                    if operation == "disconnect":
+                        raise HTTPException(409)
+                    box = await mailbox()
+                    if (selected.account, selected.connection) != (
+                        box["account"],
+                        box["connection"],
+                    ):
+                        raise HTTPException(409)
+                    port = gmail
+                    subject = box["account"]
+
+                    async def check():
+                        if await mailbox() != box:
+                            raise HTTPException(409)
 
                 def reader():
                     return GmailMetadataReader(
-                        gmail=gmail,
+                        gmail=port,
                         user_id=owner,
                         require_access=check,
-                        expect_account=box["account"],
+                        expect_account=subject,
                         expose_message_links=True,
                     )
 

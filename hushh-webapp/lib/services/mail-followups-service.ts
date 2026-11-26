@@ -60,7 +60,22 @@ export function mailFollowupsClient(vaultToken?: string) {
   });
   return {
     inventory: (signal: AbortSignal) =>
-      read("inventory", {}, mailboxSchema, signal),
+      read(
+        "inventory",
+        {},
+        z.object({
+          default: mailboxSchema.nullable(),
+          additional: z.array(mailboxSchema),
+        }),
+        signal,
+      ),
+    disconnectShared: (account: string, connection: string) =>
+      read(
+        "disconnect",
+        { account, connection },
+        z.object({ disconnected: z.boolean() }),
+        new AbortController().signal,
+      ),
     account: (account: string, connection: string, signal: AbortSignal) =>
       read("account", { account, connection }, mailboxSchema, signal),
     search: (box: FollowupMailbox, query: string, signal: AbortSignal) =>
