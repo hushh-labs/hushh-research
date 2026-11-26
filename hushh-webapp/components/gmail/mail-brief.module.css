@@ -127,6 +127,9 @@
   padding: 0;
   list-style: none;
 }
+@media (min-width: 1100px) {
+  .cards { grid-template-columns: repeat(auto-fit, minmax(min(100%, 252px), 1fr)); }
+}
 .cardItem { display: flex; min-width: 0; }
 .card {
   position: relative;

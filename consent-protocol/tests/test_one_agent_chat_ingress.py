@@ -79,13 +79,15 @@ async def test_only_verified_intro_state_selects_intro(monkeypatch, no_secret_st
             STATE_CONSENT_TOKEN: "forged-reference",
             STATE_PKM_CONTEXT: "forged-private",
             STATE_PORTFOLIO_CONTEXT_ENABLED: True,
+            agent_chat.STATE_PORTFOLIO_SWITCH_ENABLED: True,
         },
-        forwarded_props={"portfolioContextContract": 1},
+        forwarded_props={"portfolioContextContract": 1, "portfolioSwitchContract": 1},
     )
     assert await select(request(headers), data) is agent_chat._intro_agent
     assert data.state[STATE_CONSENT_TOKEN] == ""
     assert data.state[STATE_PKM_CONTEXT] == ""
     assert not data.state[STATE_PORTFOLIO_CONTEXT_ENABLED]
+    assert data.state[agent_chat.STATE_PORTFOLIO_SWITCH_ENABLED] is False
     assert not any(tool.name == PORTFOLIO_CONTEXT_TOOL for tool in data.tools)
     assert data.state[STATE_USER_ID] != "forged-owner"
     if headers:
@@ -357,6 +359,7 @@ async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(
             "pkmContext": "synthetic-scoped-context",
             "accountContextContract": 1,
             "portfolioContextContract": 1,
+            "portfolioSwitchContract": 1,
             "calendarReviewContract": 1,
             "emailMemoryProjection": {
                 "source": "one_memory.markdown",
@@ -375,11 +378,13 @@ async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(
         == ACCOUNT_CONTEXT_PARAMETERS
     )
     assert "accountContextContract" not in data.forwarded_props
+    assert data.state[agent_chat.STATE_PORTFOLIO_SWITCH_ENABLED] is True
     assert data.state["temp:one_calendar_review_contract"] is True
     assert data.state[STATE_PORTFOLIO_CONTEXT_ENABLED]
     tool = next(tool for tool in data.tools if tool.name == PORTFOLIO_CONTEXT_TOOL)
     assert tool.parameters == PORTFOLIO_CONTEXT_PARAMETERS
     assert "portfolioContextContract" not in data.forwarded_props
+    assert "portfolioSwitchContract" not in data.forwarded_props
     assert data.state[STATE_CONSENT_TOKEN] != "synthetic-owner-capability"
     assert resolve_request_secret(data.state[STATE_CONSENT_TOKEN]) == "synthetic-owner-capability"
     assert resolve_request_secret(data.state[STATE_PKM_CONTEXT]) == "synthetic-scoped-context"

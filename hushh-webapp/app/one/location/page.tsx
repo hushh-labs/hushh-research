@@ -19,6 +19,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ComponentProps,
   type MutableRefObject,
   type ReactNode,
@@ -167,6 +168,7 @@ import { resolveContactSourceProbeFailure } from "@/lib/contacts/contact-source-
 import { createContactSyncAccountPhoneResolver } from "@/lib/contacts/contact-sync-identity";
 import { useContactDiscoverabilityConsent } from "@/lib/contacts/use-contact-discoverability-consent";
 import { isWeb } from "@/lib/capacitor/platform";
+import { withDeadline } from "@/lib/utils/with-deadline";
 import { apiErrorCode } from "@/lib/services/api-client";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { isLocationRequestPending } from "@/lib/one-location/request-expiry";
@@ -434,6 +436,9 @@ import {
 import { useVault } from "@/lib/vault/vault-context";
 import { cn } from "@/lib/utils";
 import { LiveMap } from "@/components/one-location/live-map";
+import {
+  hasQueuedLocationStop, locationStopQueueRevision, subscribeLocationStopQueue,
+} from "@/lib/location/pending-stops";
 import { buildBackgroundShareSession } from "@/lib/one-location/background-share";
 import { syncBackgroundShare } from "@/lib/one-location/background-share-runtime";
 import { BackgroundShareToggle } from "@/app/one/location/background-share-toggle";
@@ -3534,11 +3539,20 @@ export function OneLocationAgentPageContent({
       (grant) => !isOneLocationGrantUnwatched(auth.userId, grant.id),
     );
   }, [activeReceivedGrants, auth.userId, openedGrantTick, unwatchedTick]);
-  const activeOwnerGrants = useMemo(
-    () =>
-      (state?.ownerGrants ?? []).filter((grant) => grant.status === "active"),
-    [state?.ownerGrants],
-  );
+  const stopQueueRevision = useSyncExternalStore(subscribeLocationStopQueue, locationStopQueueRevision, () => 0);
+  const activeOwnerGrants = useMemo(() => {
+    // Pending stops come from the local queue, separately from the server grant state.
+    void stopQueueRevision;
+    return (state?.ownerGrants ?? []).filter((grant) =>
+      grant.status === "active" && grant.shareKind !== "pin" && !hasQueuedLocationStop(auth.userId, grant.id));
+  }, [auth.userId, state?.ownerGrants, stopQueueRevision]);
+  const activeOwnerPins = useMemo(() => {
+    void stopQueueRevision;
+    return (state?.ownerGrants ?? []).filter((grant) =>
+      grant.status === "active" && grant.shareKind === "pin" &&
+      Boolean(grant.expiresAt && Date.parse(grant.expiresAt) > nowMs) &&
+      !hasQueuedLocationStop(auth.userId, grant.id));
+  }, [auth.userId, nowMs, state?.ownerGrants, stopQueueRevision]);
   /**
    * Live Save My Soul shares the server holds for this owner, whichever
    * device or voice session armed them. The device incident record only knows
@@ -4527,7 +4541,7 @@ export function OneLocationAgentPageContent({
     // block every share path and pin the toggle off whenever the platform could
     // not introspect its own permission — which is every iPhone, since WebKit
     // has no `geolocation` entry in the Permissions API.
-    const nextPermission = await OneLocationService.getPermissionState().catch(
+    const nextPermission = await withDeadline(OneLocationService.getPermissionState(), Date.now() + 3_000).catch(
       () => ({
         state: "prompt" as const,
         precise: null,
@@ -4734,7 +4748,7 @@ export function OneLocationAgentPageContent({
       } catch (error) {
         if (options?.isStale?.()) return { ready: false };
         const nextPermission =
-          await OneLocationService.getPermissionState().catch(() => null);
+          await withDeadline(OneLocationService.getPermissionState(), Date.now() + 3_000).catch(() => null);
         if (options?.isStale?.()) return { ready: false };
         if (nextPermission) {
           setPermission(nextPermission);
@@ -6740,7 +6754,7 @@ export function OneLocationAgentPageContent({
         // else ever updated again.
         await Promise.all(
           activeOwnerGrants.map(async (grant) => {
-            if (!automaticPrivatePublishingAllowedRef.current) return;
+            if (!automaticPrivatePublishingAllowedRef.current || hasQueuedLocationStop(auth.userId, grant.id)) return;
             const recipient = recipientForGrant(grant);
             if (!recipient?.keyId || !recipient.publicKeyJwk) {
               // The grant is frozen against one recipient key and the backend
@@ -6799,6 +6813,7 @@ export function OneLocationAgentPageContent({
     return () => window.clearInterval(interval);
   }, [
     activeOwnerGrants,
+    auth.userId,
     busy,
     locationControl.paused,
     permission?.state,
@@ -6979,7 +6994,7 @@ export function OneLocationAgentPageContent({
         // made the movement gate re-fire the same failing publish forever.
         await Promise.all(
           activeOwnerGrants.map(async (grant) => {
-            if (!automaticPrivatePublishingAllowedRef.current) return;
+            if (!automaticPrivatePublishingAllowedRef.current || hasQueuedLocationStop(auth.userId, grant.id)) return;
             const recipient = recipientForGrant(grant);
             if (!recipient?.keyId || !recipient.publicKeyJwk) return;
             try {
@@ -7036,6 +7051,7 @@ export function OneLocationAgentPageContent({
     };
   }, [
     activeOwnerGrants,
+    auth.userId,
     locationControl.paused,
     permission?.state,
     publishEnvelopeWithRetry,
@@ -13651,7 +13667,7 @@ export function OneLocationAgentPageContent({
 
   // The optional Now banner owns saving places after onboarding. Coalesce taps
   // and retain the account epoch while device/network work settles.
-  const openSavedPlaceFromBanner = useCallback((activateLocation = true, showModal = true): Promise<boolean> => {
+  const openSavedPlaceFromBanner = useCallback((activateLocation = true, showModal = true, retryCapture = false): Promise<boolean> => {
       if (savedLocationSessionUserId !== auth.userId || !auth.userId) {
         return Promise.resolve(false);
       }
@@ -13684,11 +13700,12 @@ export function OneLocationAgentPageContent({
           isStale: () => !intentIsCurrent(),
           autoOpenSettings: false,
           announce: showModal,
+          ...(!showModal ? { getMaxAgeMs: () => 0 } : {}),
         });
         if (!intentIsCurrent()) return false;
         // Setup only previews the point until Save & continue. Recover a
         // recent same-session measurement if the next acquisition timed out.
-        const recent = !activateLocation && readiness.failure === "no-fix"
+        const recent = !activateLocation && !retryCapture && readiness.failure === "no-fix"
           ? LocationBus.getRecentMeasuredFix(userId, 30_000)
           : null;
         const point: PlainLocationPoint | null = readiness.point ?? (recent
@@ -14216,7 +14233,7 @@ export function OneLocationAgentPageContent({
 
   // Use the saved-place acquisition owner without opening another surface.
   const handlePrepareOnboardingLocation = useCallback(
-    () => openSavedPlaceFromBanner(false, false),
+    (reason: "entry" | "retry") => openSavedPlaceFromBanner(false, false, reason === "retry"),
     [openSavedPlaceFromBanner],
   );
 
@@ -14279,6 +14296,8 @@ export function OneLocationAgentPageContent({
           place={{
             address: onboardingPlace?.address ?? null,
             loadingAddress: onboardingPlace?.loadingAddress ?? false,
+            locationAccessBlocked: locationDenialObserved || Boolean(locationBlockReason(permission)),
+            onOpenLocationSettings: !isWeb() ? handleOpenLocationSettings : undefined,
             saving: onboardingPlace?.saving ?? false,
             mapInitial: onboardingPlace?.point ?? null,
             onSearchPlaces: vaultOwnerToken ? searchBannerSavedPlaces : undefined,
@@ -14417,7 +14436,8 @@ export function OneLocationAgentPageContent({
       loadRecipientPage({ page: recipientPage + 1, append: true }),
     visibleShareRecipients,
     activeOwnerGrants,
-    manageSharingGrants: liveOwnerGrantsForDisplay,
+    activeOwnerPins,
+    manageSharingGrants: [...liveOwnerGrantsForDisplay, ...activeOwnerPins],
     liveShare: liveShareStatus,
     onLiveShareEnded: handleLiveShareEnded,
     // Received grants stay reachable in their focused detail view. Dismissing

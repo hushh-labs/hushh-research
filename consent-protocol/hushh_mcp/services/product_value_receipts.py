@@ -101,8 +101,8 @@ def _effect_receipt(user_id: str, agent_id: str, proof: str, source: str, genera
         )
         row = conn.execute(
             text("""INSERT INTO one_product_value_receipts
-          (effect_id,user_id,generation,agent_id,proof)
-          SELECT :effect,:uid,epoch.generation,:agent,:proof
+          (effect_id,user_id,generation,agent_id,proof,expires_at)
+          SELECT :effect,:uid,epoch.generation,:agent,:proof,NOW() + INTERVAL '90 days'
           FROM one_product_activity_epochs epoch
           WHERE epoch.user_id=:uid AND epoch.generation=CAST(:generation AS UUID)
             AND (SELECT COUNT(*) FROM one_product_value_receipts
@@ -151,7 +151,12 @@ async def record_calendar_effect(
 def _decision_receipt(user_id: str, request_id: str, generation: str, decision: str) -> bool:
     if not product_activity.enabled_for(user_id):
         return False
-    if not request_id or len(request_id) > 128 or decision not in {"deny", "approve"}:
+    actions = {
+        "deny": "CONSENT_DENIED",
+        "approve": "CONSENT_GRANTED",
+        "revoke": "CONSENT_REVOKED",
+    }
+    if not request_id or len(request_id) > 128 or decision not in actions:
         raise ValueError("Invalid sharing-decision reference")
     effect = hashlib.sha256(
         f"{user_id}:consent-decision:{decision}:{request_id}".encode()
@@ -165,9 +170,10 @@ def _decision_receipt(user_id: str, request_id: str, generation: str, decision: 
         )
         row = conn.execute(
             text("""INSERT INTO one_product_value_receipts
-          (effect_id,user_id,generation,agent_id,proof,occurred_at)
+          (effect_id,user_id,generation,agent_id,proof,occurred_at,expires_at)
           SELECT :effect,:uid,epoch.generation,'agent_nav','nav.owner_decision.v1',
-            to_timestamp(a.issued_at / 1000.0)
+            to_timestamp(a.issued_at / 1000.0),
+            to_timestamp(a.issued_at / 1000.0) + INTERVAL '90 days'
           FROM one_product_activity_epochs epoch JOIN consent_audit a ON a.request_id=:request
           WHERE epoch.user_id=:uid AND epoch.generation=CAST(:generation AS UUID)
             AND a.action=:action AND a.metadata->>'decision_owner_uid'=:uid
@@ -184,7 +190,7 @@ def _decision_receipt(user_id: str, request_id: str, generation: str, decision: 
                 "generation": generation,
                 "request": request_id,
                 "decision": decision,
-                "action": "CONSENT_DENIED" if decision == "deny" else "CONSENT_GRANTED",
+                "action": actions[decision],
             },
         ).fetchone()
         return row is not None

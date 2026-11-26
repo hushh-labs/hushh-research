@@ -437,7 +437,7 @@ export function PhoneMandatePageContent() {
                 </>
               }
             />
-            <div id="recaptcha-container" className={cn("mt-3 min-h-0", styles.recaptcha)} />
+            <div id="recaptcha-container" className={cn("min-h-0", styles.recaptcha)} />
           </div>
         </div>
       </div>

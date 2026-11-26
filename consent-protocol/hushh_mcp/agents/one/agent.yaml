@@ -1210,6 +1210,10 @@ tools:
     description: Draft a goal and task steps for the owner to review. Saves and schedules nothing.
     py_func: hushh_mcp.one_adk.goal_plan_proposal.propose_goal_plan
     required_scope: cap.one.invoke
+  - name: propose_location_action
+    description: Offer an owner-only review of a Location action in the main conversation. Reads and changes nothing.
+    py_func: hushh_mcp.one_adk.location_chat_proposal.propose_location_action
+    required_scope: vault.owner
   - name: react_to_message
     description: Add one optional contextual emoji to the latest typed-chat user message; presentation only, never ends the answer or persists a reaction.
     py_func: hushh_mcp.one_adk.message_reactions.react_to_message

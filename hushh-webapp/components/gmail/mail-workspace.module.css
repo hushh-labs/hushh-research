@@ -47,12 +47,6 @@
   font-size: 14px;
   line-height: 21px;
 }
-.workspace {
-  --app-shell-reading: 728px;
-  --page-inline-gutter-standard: 24px;
-  max-width: 728px;
-}
-.workspace.followupsFrame { max-width: 66rem; }
 .typography :global([data-slot="page-header-description"]),
 .typography :global([data-slot="settings-row-description"]),
 .typography :global(p.text-muted-foreground),
@@ -168,13 +162,11 @@
 .action:active .pill { background: var(--app-accent-tint); }
 .action:disabled { opacity: 0.6; }
 @media (max-width: 620px) {
-  .workspace { --page-inline-gutter-standard: 20px; }
   .typography { --type-input-value-size: 16px; }
   .pill { min-width: 78px; padding-inline: 11px; }
   .utilityAction { --type-compact-button-label-size: 12px; font-size: 12px; }
 }
 @media (max-width: 350px) {
-  .workspace { --page-inline-gutter-standard: 16px; }
   .pill { min-width: 72px; padding-inline: 9px; }
 }
 
@@ -209,9 +201,4 @@
 .track :global(button[data-state="active"]) {
   background: var(--app-card-surface-default-solid);
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.1);
-}
-
-/* Wide screens give the three tabs one shared, wider column; phones and tablets keep the reading measure. */
-@media (min-width: 1100px) {
-  .workspace { --app-shell-reading: 1224px; max-width: 1224px; }
 }

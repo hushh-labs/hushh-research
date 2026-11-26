@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 463,
+  "expected_migration_version": 464,
   "migration_version_policy": "minimum",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -2857,6 +2857,19 @@
       "updated_at",
       "user_id"
     ],
+    "one_location_chat_plans": [
+      "id",
+      "user_id",
+      "person_user_id",
+      "origin_id",
+      "intent_hash",
+      "action",
+      "terms",
+      "created_at",
+      "expires_at",
+      "executed_at",
+      "receipt"
+    ],
     "one_location_circle_invites": [
       "claimed_at",
       "claimed_by_user_id",
@@ -4474,5 +4487,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 463
+  "expected_schema_head": 464
 }

@@ -28,9 +28,7 @@ storage authority are unchanged.
 - The shared top shell owns the visible **Mail** breadcrumb beside its existing
   Back control. Existing authored Back targets and Profile remain unchanged.
   The body retains one visually hidden accessible H1 and compact account detail.
-- Mail uses Connect's 728px **outer** reading frame, including 24px gutters above
-  620px, 20px at 351–620px and 16px at 350px or below. Header and navigation
-  retain their independently sized frames.
+- Mail and Location use the shared 864px reading frame and responsive page gutters.
 - Self-hosted Plus Jakarta Sans remains the family. Effective roles are shared
   header 17/22/600; workspace labels 15/20/550; section 14/22/600; row title
   14/21/550; supporting copy 12/18/400; ordinary action 12/18/550. Inputs retain
@@ -1180,8 +1178,8 @@ X/Y are formulas/anchors; there are no invented screenshot coordinates.
 
 | Surface | Width, X/Y, layout and scroll ownership |
 | --- | --- |
-| Main Mail workspace | Connect reading shell `S=min(V,728px)`, centered; content `C=S−2G`, with `G=16px` at ≤350, `20px` at 351–620, `24px` above620. The shared header and bottom navigation own independent frames. |
-| Setup Gmail, Email handoff, setup Email | Separate setup/handoff shells and footer; they do not inherit the 728px workspace cap. The Mail-specific setup skeleton and OAuth return are scoped at their existing route roots. |
+| Main Mail workspace | Shared reading shell `S=min(V,864px)`, centered. Content width is `S−2G`, where the standard gutter grows from 16px to 20px at 640px, 24px at 1024px and 28px at 1280px. The shared header and bottom navigation own independent frames. |
+| Setup Gmail, Email handoff, setup Email | Separate setup/handoff shells and footer; they do not inherit the workspace cap. The Mail-specific setup skeleton and OAuth return are scoped at their existing route roots. |
 | Initial body Y | Standard signed-in shell content offset applies; local Mail content and the body's tabs scroll beneath the independent top app bar. Scrolling/chrome collapse changes visible coordinates. |
 | Header/stack | Shared top app bar owns Back, `Mail` breadcrumb at 17/22/600 and avatar. The workspace's hidden PageHeader supplies accessible H1 without a second visible title. Tabs are in the body, not another fixed top rail. |
 | Page bottom | Resolved `.app-page-shell` bottom padding24px outranks ordinary route `pb-*` utility. Scroll root separately owns measured bottom-chrome clearance. Do not add these as if one fixed120px rule always wins. |
@@ -1192,15 +1190,15 @@ X/Y are formulas/anchors; there are no invented screenshot coordinates.
 | CSS viewport width | Main Mail content width | Reading-shell content width |
 | ---: | ---: | ---: |
 | 350 |318|318|
-| 351 |311|311|
-| 360 |320|320|
-| 393 |353|353|
-| 430 |390|390|
-| 620 |580|580|
-| 621 |573|573|
-| 768 |680|680|
-| 1024 |680|680|
-| 1440 |680|680|
+| 351 |319|319|
+| 360 |328|328|
+| 393 |361|361|
+| 430 |398|398|
+| 620 |588|588|
+| 621 |589|589|
+| 768 |728|728|
+| 1024 |816|816|
+| 1440 |808|808|
 
 These are arithmetic examples, not rendered screenshots or evidence that the
 reading column must grow monotonically across a gutter breakpoint.

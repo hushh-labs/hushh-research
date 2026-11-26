@@ -10,15 +10,20 @@ from hushh_mcp.one_adk.finance_market_tools import normalize_tickers
 from hushh_mcp.one_adk.history_projection import _record
 from hushh_mcp.one_adk.state_keys import STATE_USER_ID
 
+STATE_PORTFOLIO_SWITCH_ENABLED = "temp:one_portfolio_switch_enabled"
+PORTFOLIO_CARD_SECTIONS = frozenset({"holdings", "allocation", "performance", "sources", "switch"})
+
 
 def show_portfolio_card(section: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Offer a portfolio card in typed Chat. Section is holdings, allocation, performance, or sources."""
+    """Offer a portfolio card in typed Chat. Section is holdings, allocation, performance, sources, or switch."""
     if tool_context.state.get(
         STATE_EXECUTION_SURFACE
     ) != "typed_chat" or not tool_context.state.get(STATE_USER_ID):
         return {"status": "unavailable"}
-    if section not in {"holdings", "allocation", "performance", "sources"}:
+    if not isinstance(section, str) or section not in PORTFOLIO_CARD_SECTIONS:
         return {"status": "invalid_section"}
+    if section == "switch" and not tool_context.state.get(STATE_PORTFOLIO_SWITCH_ENABLED):
+        return {"status": "unavailable"}
     return {
         "status": "card_offered",
         "structured": {
@@ -90,9 +95,12 @@ def _safe_portfolio_descriptor(part: Any) -> dict[str, Any] | None:
     section = structured.get("section")
     if response.get("status") != "card_offered" or structured.get("type") != kind:
         return None
-    if section not in ("holdings", "allocation", "performance", "sources"):
+    if not isinstance(section, str) or section not in PORTFOLIO_CARD_SECTIONS:
         return None
-    return {"activityType": kind, "content": {"type": kind, "section": section}}
+    content = {"type": kind, "section": section}
+    if section == "switch":
+        return {"activityType": kind, "content": {**content, "historical": True}}
+    return {"activityType": kind, "content": content}
 
 
 def _safe_gainers_descriptor(part: Any) -> dict[str, Any] | None:

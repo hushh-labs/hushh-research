@@ -13,6 +13,8 @@ from hushh_mcp.one_adk.drive_result_privacy import _safe_result as safe_connecto
 from hushh_mcp.one_adk.external_read_boundary import READ_TOOLS
 from hushh_mcp.one_adk.external_read_projection import redacted_read_receipt
 from hushh_mcp.one_adk.feed_attention import FEED_ATTENTION_LABEL, opened_feed_items
+from hushh_mcp.one_adk.location_chat_proposal import TOOL_NAME as LOCATION_CHAT_TOOL_NAME
+from hushh_mcp.one_adk.location_chat_proposal import location_chat_proposal_from_result
 from hushh_mcp.one_adk.text_attachments import history_text_attachments
 
 
@@ -281,6 +283,7 @@ _ACTIVITY_TOOLS = frozenset(
         "organize_file",
         "propose_file_schedule",
         "propose_goal_plan",
+        LOCATION_CHAT_TOOL_NAME,
         "open_gmail_email_draft",
         "open_gmail_information_request_reply",
         "open_gmail_reply_draft",
@@ -427,6 +430,16 @@ def _index_turns(events: list[Any], project_event: Callable) -> tuple:
     projected: list[tuple[str, dict[str, Any] | None]] = []
     for index, event in enumerate(events):
         text, metadata = project_event(event)
+        for part in event.content.parts or [] if event.content else []:
+            response = part.function_response
+            if event.author != "user" and response and response.name == LOCATION_CHAT_TOOL_NAME:
+                proposal = location_chat_proposal_from_result(_status_result(response.response))
+                if proposal:
+                    metadata = {**(metadata or {}), "locationChatProposal": proposal}
+            if response and response.name in READ_TOOLS:
+                receipt = redacted_read_receipt(response.response)
+                if isinstance(receipt.get("structured"), dict):
+                    receipts[event.invocation_id] = receipt["structured"]
         projected.append((text, metadata))
         if event.invocation_id:
             turn_events.setdefault(event.invocation_id, []).append(event)
@@ -434,12 +447,6 @@ def _index_turns(events: list[Any], project_event: Callable) -> tuple:
                 last_answer[event.invocation_id] = index
             if metadata and not text:
                 last_card[event.invocation_id] = index
-        for part in event.content.parts or [] if event.content else []:
-            response = part.function_response
-            if response and response.name in READ_TOOLS:
-                receipt = redacted_read_receipt(response.response)
-                if isinstance(receipt.get("structured"), dict):
-                    receipts[event.invocation_id] = receipt["structured"]
     return projected, turn_events, last_answer, last_card, receipts
 
 
@@ -467,6 +474,7 @@ def project_conversation_history(
     # live. Card-only tool events fold into the answer; a turn without an
     # answer keeps its last card message as the anchor.
     held_cards: dict[str, list[dict[str, Any]]] = {}
+    held_location_proposals: dict[str, dict[str, Any]] = {}
     for index, event in enumerate(events):
         text, metadata = projected[index]
         attachments = history_text_attachments(event)
@@ -478,15 +486,15 @@ def project_conversation_history(
             text = ""  # Tool events restore only allowlisted safe descriptors.
         turn = event.invocation_id
         answer_index = last_answer.get(turn) if turn else None
-        if (
-            metadata
-            and not text
-            and answer_index is not None
-            and answer_index > index
-            and metadata.get("structuredExperiences")
-        ):
-            held_cards.setdefault(turn, []).extend(metadata["structuredExperiences"])
-            continue
+        if metadata and not text and answer_index is not None and answer_index > index:
+            cards = metadata.get("structuredExperiences")
+            proposal = metadata.get("locationChatProposal")
+            if cards:
+                held_cards.setdefault(turn, []).extend(cards)
+            if proposal:
+                held_location_proposals[turn] = proposal
+            if cards or proposal:
+                continue
         is_anchor = (
             bool(turn)
             and event.author != "user"
@@ -511,6 +519,11 @@ def project_conversation_history(
                 }
             if activity:
                 metadata = {**(metadata or {}), "turnActivity": activity}
+            if turn in held_location_proposals:
+                metadata = {
+                    "locationChatProposal": held_location_proposals.pop(turn),
+                    **(metadata or {}),
+                }
             if event.author == "one" and turn in receipts and answer_index == index:
                 metadata = {**(metadata or {}), "specialist_read": receipts[turn]}
         if event.author == "user" and text in outcome_labels:

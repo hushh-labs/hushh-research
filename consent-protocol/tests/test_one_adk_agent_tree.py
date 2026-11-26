@@ -811,9 +811,16 @@ def test_portfolio_answer_first_instruction_preserves_legacy_card_support():
     assert "Call show_portfolio_card for portfolio sources" in instruction
     assert "chat was reopened" in instruction
     assert "An active read needs no open card" in instruction
+    assert 'with section "switch"' not in instruction
+    state[_tree.STATE_PORTFOLIO_SWITCH_ENABLED] = True
+    assert 'show_portfolio_card with section "switch"' in _one_runtime_instruction(
+        SimpleNamespace(state=state)
+    )
 
 
 def test_portfolio_card_offer_contains_only_valid_section():
+    from hushh_mcp.one_adk.finance_chat_cards import finance_card_history_descriptor
+
     state = {_tree.STATE_EXECUTION_SURFACE: "typed_chat", STATE_USER_ID: "owner"}
     assert _tree.show_portfolio_card("holdings", _tool_context(state)) == {
         "status": "card_offered",
@@ -821,6 +828,20 @@ def test_portfolio_card_offer_contains_only_valid_section():
     }
     assert _tree.show_portfolio_card("trade", _tool_context(state))["status"] == "invalid_section"
     assert _tree.show_portfolio_card("holdings", _tool_context({}))["status"] == "unavailable"
+    assert _tree.show_portfolio_card("switch", _tool_context(state))["status"] == "unavailable"
+    state[_tree.STATE_PORTFOLIO_SWITCH_ENABLED] = True
+    result = _tree.show_portfolio_card("switch", _tool_context(state))
+    assert result == {
+        "status": "card_offered",
+        "structured": {"type": "one.finance_portfolio.v1", "section": "switch"},
+    }
+    part = SimpleNamespace(
+        function_response=SimpleNamespace(name="show_portfolio_card", response=result)
+    )
+    assert finance_card_history_descriptor(part) == {
+        "activityType": "one.finance_portfolio.v1",
+        "content": {**result["structured"], "historical": True},
+    }
 
 
 def test_stock_preview_offer_is_only_available_to_signed_in_typed_chat():

@@ -16,7 +16,7 @@ latest choice survives a pager resize while navigation is pending. Completing
 a tab animation or repairing layout does not create another navigation; a
 settled user swipe commits its destination once.
 
-Mail reuses this product's shared header, 728px reading frame, compact semantic
+Mail reuses this product's shared header, compact semantic
 roles and neutral accent-pill action treatment. The current mounted Mail
 state/action and optimized-cascade evidence lives in the
 [Mail contract](./mail.md#connect-alignment-and-mounted-presentation-audit--24-october-2026);

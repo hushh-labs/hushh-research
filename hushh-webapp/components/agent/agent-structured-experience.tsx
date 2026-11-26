@@ -37,6 +37,7 @@ import { MailChatCard } from "@/components/agent/mail-chat-card";
 import { ExperienceShell } from "@/components/agent/agent-experience-shell";
 import { FinanceStockPreviewCard } from "@/components/agent/finance-stock-preview-card";
 import { FinancePortfolioCard } from "@/components/agent/finance-portfolio-card";
+import { FinancePortfolioSwitchCard } from "@/components/agent/finance-portfolio-switch-card";
 import { FinancePortfolioUploadCard } from "@/components/agent/finance-portfolio-upload-card";
 import { FinanceTopGainersCard } from "@/components/agent/finance-top-gainers-card";
 import { CustomConnectorProbeCard } from "@/components/agent/custom-connector-probe-card";
@@ -119,7 +120,7 @@ export { AgentTranscriptRevealContext };
 export function AgentStructuredExperienceView({
   experience,
   conversationId,
-  allowPortfolioUpload,
+  allowPortfolioChanges,
   allowFinancePreviewStart,
   onConfirmFinanceAnalysis,
   onOpenConnections,
@@ -131,7 +132,7 @@ export function AgentStructuredExperienceView({
 }: {
   experience: AgentStructuredExperience;
   conversationId?: string | null;
-  allowPortfolioUpload?: boolean;
+  allowPortfolioChanges?: boolean;
   allowFinancePreviewStart?: boolean;
   onConfirmFinanceAnalysis?: (confirmation: string) => Promise<void>;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
@@ -146,9 +147,12 @@ export function AgentStructuredExperienceView({
     case "one.finance_top_gainers.v1":
       return <FinanceTopGainersCard historical={experience.historical} />;
     case "one.finance_portfolio.v1":
+      if (experience.section === "switch") {
+        return <FinancePortfolioSwitchCard allowSwitch={allowPortfolioChanges && !experience.historical} />;
+      }
       return <FinancePortfolioCard section={experience.section} conversationId={conversationId} />;
     case "one.finance_portfolio_upload.v1":
-      return <FinancePortfolioUploadCard offerId={experience.offerId} allowUpload={allowPortfolioUpload && !experience.historical} />;
+      return <FinancePortfolioUploadCard offerId={experience.offerId} allowUpload={allowPortfolioChanges && !experience.historical} />;
     case "one.finance_stock_preview.v1":
       return <FinanceStockPreviewCard ticker={experience.ticker} allowStart={allowFinancePreviewStart} onConfirm={onConfirmFinanceAnalysis} />;
     case "one.shared_with_me_card.v1":

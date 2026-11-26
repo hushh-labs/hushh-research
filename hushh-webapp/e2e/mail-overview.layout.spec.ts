@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
 import { awaitProductFont } from "./fixtures/product-font";
 import { buildMailWorkspaceFixture } from "./fixtures/build-mail-workspace";
@@ -18,10 +18,16 @@ test.beforeAll(async () => {
 
 test.afterAll(() => disposeFixture?.());
 
+async function sharedReadingGutter(page: Page): Promise<number> {
+  return page.evaluate(() =>
+    parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--page-inline-gutter-standard"))
+  );
+}
+
 for (const width of [360, 393, 430, 768, 1024, 1440]) {
   for (const theme of ["light", "dark"] as const) {
     for (const workspace of ["overview", "followups", "receipts"] as const) {
-      test(`Mail ${workspace} ${theme} at ${width}px uses the Connect frame`, async ({ page }, testInfo) => {
+      test(`Mail ${workspace} ${theme} at ${width}px uses the shared reading frame`, async ({ page }, testInfo) => {
         await page.setViewportSize({ width, height: width >= 768 ? 1000 : 852 });
         await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
         const errors: string[] = [];
@@ -36,9 +42,8 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
         await awaitProductFont(page);
         const frame = page.locator(".app-page-shell");
         const geometry = await frame.evaluate(element => ({ width: element.getBoundingClientRect().width, gutter: parseFloat(getComputedStyle(element).paddingLeft) }));
-        // Phones and tablets keep the reading measure; a wide screen gives all three tabs one wider column.
-        expect(geometry.width).toBe(Math.min(width, width >= 1100 ? 1224 : 728));
-        expect(geometry.gutter).toBe(width <= 350 ? 16 : width <= 620 ? 20 : 24);
+        expect(geometry.width).toBe(Math.min(width, 864));
+        expect(geometry.gutter).toBe(await sharedReadingGutter(page));
         const header = page.getByTestId("top-app-bar-breadcrumb-trail");
         await expect(header).toHaveText("Mail");
         const title = await header.locator("span").last().evaluate(element => { const style = getComputedStyle(element); return [style.fontSize, style.lineHeight, style.fontWeight]; });
@@ -131,7 +136,6 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
       await expect(page.getByTestId("mail-header")).toHaveCount(0);
       await expect(page.getByTestId("attention-card")).toHaveCount(0);
       await expect(page.getByRole("heading", { name: "KYC", level: 1 })).toBeVisible();
-      // The app's ordinary reading column (864px), not the wider column Mail's tabs share.
       const frame = page.locator(".app-page-shell");
       expect((await frame.boundingBox())!.width).toBe(Math.min(width, 864));
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
@@ -322,7 +326,7 @@ for (const width of [1440, 1100, 1024, 768, 430, 393, 360]) {
     page.on("pageerror", error => errors.push(error.message));
     const overview = await openBrief(page, { width });
     const frame = (await page.locator(".app-page-shell").boundingBox())!;
-    const gutter = width <= 350 ? 16 : width <= 620 ? 20 : 24;
+    const gutter = await sharedReadingGutter(page);
     const cards = await overview.getByTestId("attention-card").evaluateAll(elements => elements.map(element => { const box = element.getBoundingClientRect(); return { left: box.left, top: box.top, width: box.width, height: box.height, right: box.right }; }));
     expect(cards).toHaveLength(3);
     if (width >= 1100) {
@@ -545,12 +549,12 @@ for (const width of [350, 351, 620, 621, 767]) {
     await page.goto("http://localhost/mail-workspace");
     await expect(page.getByRole("tablist", { name: "Gmail workspace" })).toBeVisible();
     const gutter = await page.locator(".app-page-shell").evaluate(element => parseFloat(getComputedStyle(element).paddingLeft));
-    expect(gutter).toBe(width <= 350 ? 16 : width <= 620 ? 20 : 24);
+    expect(gutter).toBe(await sharedReadingGutter(page));
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
   });
 }
 
-for (const width of [393, 1024]) {
+for (const width of [393, 1024, 1440]) {
   test(`Mail disconnected status ${width}px keeps the Connect action geometry`, async ({ page }) => {
     await page.setViewportSize({ width, height: 852 });
     await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
@@ -563,6 +567,14 @@ for (const width of [393, 1024]) {
     const status = page.getByRole("tabpanel", { name: "Overview" }).getByTestId("mail-connection-status");
     await expect(status).toBeVisible();
     await awaitProductFont(page);
+    const gutter = await sharedReadingGutter(page);
+    const left = (width - Math.min(width, 864)) / 2 + gutter;
+    const tabs = page.getByRole("tablist", { name: "Gmail workspace" });
+    for (const control of [tabs, status]) {
+      const box = (await control.boundingBox())!;
+      expect(box.x).toBeCloseTo(left, 0);
+      expect(box.x + box.width).toBeCloseTo(width - left, 0);
+    }
     const headingType = await status.locator("h2").evaluate(element => {
       const style = getComputedStyle(element);
       return [style.fontSize, style.lineHeight, style.fontWeight];
@@ -587,6 +599,18 @@ for (const width of [393, 1024]) {
     expect(geometry.border).toBe("1px");
     expect(geometry.radius).toBe("999px");
     expect(geometry.background).not.toBe("rgba(0, 0, 0, 0)");
+    await page.route("http://localhost/location-reference", route => route.fulfill({
+      contentType: "text/html; charset=utf-8",
+      body: `<!doctype html><html class="light" data-reference="location"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>`,
+    }));
+    await page.goto("http://localhost/location-reference");
+    for (const reference of [page.getByRole("tablist"), page.getByTestId("one-location-share-row")]) {
+      await expect(reference).toBeVisible();
+      const box = (await reference.boundingBox())!;
+      expect(box.x).toBeCloseTo(left, 0);
+      expect(box.x + box.width).toBeCloseTo(width - left, 0);
+    }
+
   });
 
   test(`Mail KYC request ${width}px keeps review and selection roles`, async ({ page }) => {

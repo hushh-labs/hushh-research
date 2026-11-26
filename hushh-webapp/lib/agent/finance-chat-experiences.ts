@@ -4,6 +4,7 @@ export const FINANCE_STOCK_PREVIEW_EXPERIENCE_TYPE = "one.finance_stock_preview.
 export const FINANCE_PORTFOLIO_EXPERIENCE_TYPE = "one.finance_portfolio.v1" as const;
 export const FINANCE_TOP_GAINERS_EXPERIENCE_TYPE = "one.finance_top_gainers.v1" as const;
 export const FINANCE_PORTFOLIO_UPLOAD_EXPERIENCE_TYPE = "one.finance_portfolio_upload.v1" as const;
+export const PORTFOLIO_SWITCH_CONTRACT = 1;
 
 type FinanceTopGainersExperience = {
   type: typeof FINANCE_TOP_GAINERS_EXPERIENCE_TYPE;
@@ -11,7 +12,11 @@ type FinanceTopGainersExperience = {
 };
 
 export type FinancePortfolioSection = "holdings" | "allocation" | "performance" | "sources";
-type FinancePortfolioExperience = { type: typeof FINANCE_PORTFOLIO_EXPERIENCE_TYPE; section: FinancePortfolioSection };
+type FinancePortfolioExperience = {
+  type: typeof FINANCE_PORTFOLIO_EXPERIENCE_TYPE;
+  section: FinancePortfolioSection | "switch";
+  historical?: true;
+};
 
 type FinanceStockPreviewExperience = {
   type: typeof FINANCE_STOCK_PREVIEW_EXPERIENCE_TYPE;
@@ -59,8 +64,12 @@ export function parseFinancePortfolio(content: unknown): FinancePortfolioExperie
   const record = asRecord(content);
   const section = record?.section;
   if (record?.type !== FINANCE_PORTFOLIO_EXPERIENCE_TYPE ||
-      (section !== "holdings" && section !== "allocation" && section !== "performance" && section !== "sources")) return null;
-  return { type: FINANCE_PORTFOLIO_EXPERIENCE_TYPE, section };
+      (section !== "holdings" && section !== "allocation" && section !== "performance" &&
+        section !== "sources" && section !== "switch")) return null;
+  return {
+    type: FINANCE_PORTFOLIO_EXPERIENCE_TYPE, section,
+    ...(section === "switch" && record.historical === true && { historical: true }),
+  };
 }
 
 export function parseFinanceToolResult(toolName: string | null | undefined, content: unknown): FinanceCardExperience | null {

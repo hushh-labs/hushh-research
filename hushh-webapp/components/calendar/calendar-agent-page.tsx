@@ -869,6 +869,7 @@ export function CalendarAgentPage({
             busy={busy || checkingConnection || !user}
             needsReauth={needsReauth}
             onConnect={connectFirstAccount}
+            showSetupPermissions={Capacitor.isNativePlatform()}
           >
             {popupWaitingNotice}
           </CalendarConnectHero>

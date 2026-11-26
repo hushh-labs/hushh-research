@@ -69,6 +69,7 @@ from hushh_mcp.one_adk.feed_attention import (
     FeedAttentionError,
     admit_feed_attention,
 )
+from hushh_mcp.one_adk.finance_chat_cards import STATE_PORTFOLIO_SWITCH_ENABLED
 from hushh_mcp.one_adk.history_descriptors import (
     _event_text as _event_text,
 )
@@ -128,6 +129,12 @@ from hushh_mcp.one_adk.history_projection import (
     _safe_workspace_connector_setup_descriptor as _safe_workspace_connector_setup_descriptor,
 )
 from hushh_mcp.one_adk.information_request_submission import RecordInformationRequestSubmission
+from hushh_mcp.one_adk.location_chat_proposal import (
+    STATE_LOCATION_CHAT_CONTINUATION,
+    STATE_LOCATION_CHAT_REVIEW,
+    admit_location_chat_continuation,
+    admit_location_chat_review,
+)
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
 from hushh_mcp.one_adk.nws_turn_context import STATE_NWS_REPORT, admit_nws_report
@@ -491,6 +498,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
             )
         )
     portfolio_contract = forwarded.pop("portfolioContextContract", None)
+    portfolio_switch_contract = forwarded.pop("portfolioSwitchContract", None)
     portfolio_enabled = bool(
         token and user_id and type(portfolio_contract) is int and portfolio_contract == 1
     )
@@ -673,6 +681,12 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     owner_display_name = await _owner_display_name_for_turn(user_id) if token and user_id else ""
     return {
         STATE_EXECUTION_SURFACE: "typed_chat",
+        STATE_LOCATION_CHAT_REVIEW: admit_location_chat_review(
+            forwarded, owner_admitted=bool(token and user_id)
+        ),
+        STATE_LOCATION_CHAT_CONTINUATION: admit_location_chat_continuation(
+            forwarded, owner_admitted=bool(token and user_id)
+        ),
         "temp:one_calendar_review_contract": type(forwarded.get("calendarReviewContract")) is int
         and forwarded.get("calendarReviewContract") == 1,
         "temp:one_email_review_contract": type(forwarded.get("emailAgentContract")) is int
@@ -713,6 +727,12 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_NWS_REPORT: admit_nws_report(forwarded, owner_admitted=bool(token and user_id)),
         STATE_ACCOUNT_CONTEXT_ENABLED: account_enabled,
         STATE_PORTFOLIO_CONTEXT_ENABLED: portfolio_enabled,
+        STATE_PORTFOLIO_SWITCH_ENABLED: bool(
+            token
+            and user_id
+            and type(portfolio_switch_contract) is int
+            and portfolio_switch_contract == 1
+        ),
         STATE_OWNER_STYLE: owner_style,
         STATE_OWNER_DISPLAY_NAME: store_request_secret(owner_display_name),
         STATE_GMAIL_INFORMATION_REQUEST_WORKFLOW_ID: workflow_id,
