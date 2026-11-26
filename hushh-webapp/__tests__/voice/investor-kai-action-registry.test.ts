@@ -142,6 +142,7 @@ describe("investor-kai-action-registry", () => {
       "profile.gmail.visit_merchant",
       "route.profile_receipts",
       "route.one_gmail_kyc",
+      "route.kyc_requests",
       "kyc.save_profile",
       "profile.gmail.connect",
       "profile.gmail.sync_now",

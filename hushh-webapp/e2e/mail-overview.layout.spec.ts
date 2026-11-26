@@ -20,7 +20,7 @@ test.afterAll(() => disposeFixture?.());
 
 for (const width of [360, 393, 430, 768, 1024, 1440]) {
   for (const theme of ["light", "dark"] as const) {
-    for (const workspace of ["overview", "followups", "kyc", "receipts"] as const) {
+    for (const workspace of ["overview", "followups", "receipts"] as const) {
       test(`Mail ${workspace} ${theme} at ${width}px uses the Connect frame`, async ({ page }, testInfo) => {
         await page.setViewportSize({ width, height: width >= 768 ? 1000 : 852 });
         await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
@@ -90,34 +90,9 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
           const followupsPanel = page.getByRole("tabpanel", { name: "Follow-ups" });
           await expect(followupsPanel.getByTestId("attention-card")).toHaveCount(4);
           await expect(followupsPanel.getByTestId("followups-count")).toHaveText("4 need you");
-          await expect(followupsPanel.getByTestId("open-kyc")).toBeVisible();
-        }
-        if (workspace === "kyc") {
-          const paste = page.getByRole("button", { name: "Paste details", exact: true });
-          await expect(paste).toBeVisible();
-          expect((await paste.boundingBox())!.height).toBe(44);
-          await paste.click();
-          const dialog = page.getByRole("dialog", { name: "Paste your profile details" });
-          await expect(dialog).toBeVisible();
-          const dialogTitle = await dialog.getByRole("heading", { name: "Paste your profile details" }).evaluate(element => {
-            const style = getComputedStyle(element);
-            return [style.fontSize, style.lineHeight, style.fontWeight, style.fontFamily];
-          });
-          expect(dialogTitle.slice(0, 3)).toEqual(["20px", "28px", "600"]);
-          expect(dialogTitle[3]).toContain("Plus Jakarta Sans");
-          const inputType = await dialog.getByRole("textbox", { name: "KYC details" }).evaluate(element => {
-            const style = getComputedStyle(element);
-            return [style.fontSize, style.lineHeight, style.fontWeight];
-          });
-          expect(inputType).toEqual([width <= 620 ? "16px" : "14px", "22px", "400"]);
-          const utility = dialog.getByRole("button", { name: "Copy prompt to clipboard" });
-          const utilityType = await utility.evaluate(element => {
-            const style = getComputedStyle(element);
-            return [style.fontSize, style.lineHeight, style.fontWeight, element.getBoundingClientRect().height];
-          });
-          expect(utilityType).toEqual([width <= 620 ? "12px" : "13px", "21px", "550", 44]);
-          await dialog.getByRole("button", { name: "Close" }).click();
-          await expect(paste).toBeFocused();
+          // KYC is its own screen: nothing in Follow-ups leads to it or lists it.
+          await expect(page.getByTestId("open-kyc")).toHaveCount(0);
+          await expect(followupsPanel.getByText("Requests for your details")).toHaveCount(0);
         }
         if (workspace === "receipts") {
           await expect(page.getByText("Amazon", { exact: true })).toBeVisible();
@@ -133,6 +108,62 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
         await page.screenshot({ path: testInfo.outputPath(`mail-${workspace}-${width}-${theme}.png`) });
       });
     }
+  }
+}
+
+// KYC is its own screen, not a Mail tab: no tabs, no brief, the same requests and paste flow.
+for (const width of [360, 393, 430, 768, 1024, 1440]) {
+  for (const theme of ["light", "dark"] as const) {
+    test(`KYC screen ${theme} at ${width}px stands alone, with no Mail tabs`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height: width >= 768 ? 1000 : 852 });
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
+      const errors: string[] = [];
+      page.on("pageerror", error => errors.push(error.message));
+      await page.route("http://localhost/fixture.js", route => route.fulfill({ contentType: "application/javascript; charset=utf-8", body: script }));
+      await page.route("http://localhost/mail-workspace", route => route.fulfill({
+        contentType: "text/html; charset=utf-8",
+        body: `<!doctype html><html class="${theme}" data-workspace="kyc"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>`,
+      }));
+      await page.goto("http://localhost/mail-workspace");
+      await awaitProductFont(page);
+      await expect(page.getByRole("tablist", { name: "Gmail workspace" })).toHaveCount(0);
+      await expect(page.getByRole("tab")).toHaveCount(0);
+      await expect(page.getByTestId("mail-header")).toHaveCount(0);
+      await expect(page.getByTestId("attention-card")).toHaveCount(0);
+      await expect(page.getByRole("heading", { name: "KYC", level: 1 })).toBeVisible();
+      // The app's ordinary reading column (864px), not the wider column Mail's tabs share.
+      const frame = page.locator(".app-page-shell");
+      expect((await frame.boundingBox())!.width).toBe(Math.min(width, 864));
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+      const paste = page.getByRole("button", { name: "Paste details", exact: true });
+      await expect(paste).toBeVisible();
+      expect((await paste.boundingBox())!.height).toBe(44);
+      await paste.click();
+      const dialog = page.getByRole("dialog", { name: "Paste your profile details" });
+      await expect(dialog).toBeVisible();
+      const dialogTitle = await dialog.getByRole("heading", { name: "Paste your profile details" }).evaluate(element => {
+        const style = getComputedStyle(element);
+        return [style.fontSize, style.lineHeight, style.fontWeight, style.fontFamily];
+      });
+      expect(dialogTitle.slice(0, 3)).toEqual(["20px", "28px", "600"]);
+      expect(dialogTitle[3]).toContain("Plus Jakarta Sans");
+      const inputType = await dialog.getByRole("textbox", { name: "KYC details" }).evaluate(element => {
+        const style = getComputedStyle(element);
+        return [style.fontSize, style.lineHeight, style.fontWeight];
+      });
+      expect(inputType).toEqual([width <= 620 ? "16px" : "14px", "22px", "400"]);
+      const utility = dialog.getByRole("button", { name: "Copy prompt to clipboard" });
+      const utilityType = await utility.evaluate(element => {
+        const style = getComputedStyle(element);
+        // Layout height, so a dialog still scaling in cannot change what is measured.
+        return [style.fontSize, style.lineHeight, style.fontWeight, (element as HTMLElement).offsetHeight];
+      });
+      expect(utilityType).toEqual([width <= 620 ? "12px" : "13px", "21px", "550", 44]);
+      await dialog.getByRole("button", { name: "Close" }).click();
+      await expect(paste).toBeFocused();
+      expect(errors).toEqual([]);
+      await page.screenshot({ path: testInfo.outputPath(`kyc-${width}-${theme}.png`) });
+    });
   }
 }
 
@@ -467,15 +498,15 @@ test("Mail Overview shows loading, not an empty brief, while One is checking", a
   await expect(overview.getByTestId("attention-card")).toHaveCount(0);
 });
 
-test("a KYC deep link still lands on the KYC requests, under Follow-ups", async ({ page }) => {
+test("a link to KYC opens the KYC screen, with no Mail tab selected or offered", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 852 });
   await page.route("http://localhost/fixture.js", route => route.fulfill({ contentType: "application/javascript; charset=utf-8", body: script }));
   await page.route("http://localhost/mail-workspace", route => route.fulfill({ contentType: "text/html; charset=utf-8",
-    body: `<!doctype html><html class="light" data-workspace="kyc"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>` }));
+    body: `<!doctype html><html class="light" data-workspace="kyc"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>`,
+  }));
   await page.goto("http://localhost/mail-workspace");
-  await expect(page.getByRole("tab", { name: "Follow-ups" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("button", { name: "Paste details", exact: true })).toBeVisible();
-  await expect(page.getByRole("tab", { name: "KYC" })).toHaveCount(0);
+  await expect(page.getByRole("tab")).toHaveCount(0);
 });
 
 for (const width of [360, 393, 430, 768, 1024, 1440]) {

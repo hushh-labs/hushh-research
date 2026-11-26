@@ -323,6 +323,10 @@ export function deriveVoiceRouteScreen(
   ) {
     return { screen: "gmail", subview: null };
   }
+  // The KYC screen reuses the Mail connection and its voice surface, but it is its own route.
+  if (normalizedPath === ROUTES.ONE_KYC) {
+    return { screen: "gmail", subview: "kyc" };
+  }
   if (normalizedPath === ROUTES.PKM || normalizedPath === ROUTES.LEGACY_PKM) {
     return { screen: "pkm", subview: query.get("tab") || null };
   }

@@ -2218,23 +2218,33 @@ describe("ProfileReceiptsPage", () => {
       },
     });
 
-  it("lands a KYC deep link on Follow-ups with the KYC requests open", async () => {
-    render(<ProfileReceiptsPage forceWorkspace="kyc" />);
-    // KYC is not a tab: it sits under Follow-ups, and every existing link to it still works.
-    expect(screen.getByRole("tab", { name: "Follow-ups" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.queryByRole("tab", { name: "KYC" })).toBeNull();
+  it("opens KYC as its own screen: the requests, no Mail tabs, no Mail brief", async () => {
+    render(<ProfileReceiptsPage surface="kyc" />);
     expect(await screen.findByText("KYC requests")).toBeVisible();
+    expect(screen.getByText("KYC")).toBeVisible();
+    expect(screen.getByText("Review information requests and approve each response.")).toBeVisible();
+    // Not a Mail tab: nothing of Mail's own chrome is on this screen.
+    expect(screen.queryByRole("tablist")).toBeNull();
+    expect(screen.queryByRole("tab")).toBeNull();
+    expect(screen.queryByTestId("mail-followups")).toBeNull();
+    expect(screen.queryByTestId("mail-tools-toggle")).toBeNull();
     expect(screen.queryByRole("heading", { name: "Mail not connected" })).toBeNull();
   });
 
-  it("lands a disconnected KYC deep link on the shared Mail status card", async () => {
-    mocks.useGmailConnectorStatus.mockReturnValue(disconnectedKycView());
+  it("never lets a stale KYC value select a Mail tab", async () => {
     render(<ProfileReceiptsPage forceWorkspace="kyc" />);
+    expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByRole("tab", { name: "KYC" })).toBeNull();
+    expect(screen.queryByText("KYC requests")).toBeNull();
+  });
 
-    expect(screen.getByRole("tab", { name: "Follow-ups" })).toHaveAttribute("aria-selected", "true");
-    const panel = screen.getByRole("tabpanel", { name: "Follow-ups" });
-    expect(within(panel).getByRole("heading", { name: "Mail not connected" })).toBeVisible();
-    // One accessible connection action, despite the retained inactive panes.
+  it("shows the shared Mail status card on the KYC screen when Mail is not connected", async () => {
+    mocks.useGmailConnectorStatus.mockReturnValue(disconnectedKycView());
+    render(<ProfileReceiptsPage surface="kyc" />);
+
+    expect(screen.queryByRole("tab")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Mail not connected" })).toBeVisible();
+    // One accessible connection action.
     expect(screen.queryByText("KYC requests")).toBeNull();
     expect(screen.getAllByRole("button", { name: /connect (g)?mail/i })).toHaveLength(1);
 
@@ -2252,17 +2262,17 @@ describe("ProfileReceiptsPage", () => {
     mocks.useGmailConnectorStatus.mockReturnValue(
       makeGmailView({ ...view, status: { ...view.status, revoked: true } }),
     );
-    render(<ProfileReceiptsPage forceWorkspace="kyc" />);
+    render(<ProfileReceiptsPage surface="kyc" />);
     expect(screen.getByRole("heading", { name: "Reconnect Mail" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Reconnect Mail" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "Connect Mail" })).toBeNull();
   });
 
-  it("keeps the status card and its retry on the KYC tab when Gmail status fails", () => {
+  it("keeps the status card and its retry on the KYC screen when Gmail status fails", () => {
     mocks.useGmailConnectorStatus.mockReturnValue(
       makeGmailView({ ...disconnectedKycView(), statusError: "Mail status is unavailable." }),
     );
-    render(<ProfileReceiptsPage forceWorkspace="kyc" />);
+    render(<ProfileReceiptsPage surface="kyc" />);
     expect(screen.getByRole("heading", { name: "Couldn't check Mail" })).toBeVisible();
     expect(screen.getByRole("button", { name: /retry mail status/i })).toBeVisible();
   });
@@ -2288,51 +2298,42 @@ describe("ProfileReceiptsPage", () => {
     expect(screen.getByRole("menuitem", { name: /^reconnect$/i })).toBeVisible();
   });
 
-  it("retains the KYC panel while switching between Mail tabs", async () => {
+  it("offers no way into KYC from Follow-ups", async () => {
     render(<ProfileReceiptsPage />);
     fireEvent.click(screen.getByRole("tab", { name: "Follow-ups" }));
-    fireEvent.click(await screen.findByTestId("open-kyc"));
-    const panel = await screen.findByText("KYC requests");
-    const workspacePanel = screen.getByRole("tabpanel", { name: "Follow-ups" });
-    expect(workspacePanel).toContainElement(panel);
-    expect(panel).toBeVisible();
-    fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
-    expect(workspacePanel).toHaveAttribute("aria-hidden", "true");
-    expect(workspacePanel).toHaveAttribute("inert");
-    expect(screen.queryByRole("tabpanel", { name: "Follow-ups" })).toBeNull();
-    fireEvent.click(screen.getByRole("tab", { name: "Receipts" }));
-    expect(workspacePanel).toHaveAttribute("aria-hidden", "true");
-    expect(workspacePanel).toHaveAttribute("inert");
-    fireEvent.click(screen.getByRole("tab", { name: "Follow-ups" }));
-    expect(screen.getByRole("tabpanel", { name: "Follow-ups" })).toBe(workspacePanel);
-    expect(workspacePanel).toHaveAttribute("aria-hidden", "false");
-    expect(workspacePanel).not.toHaveAttribute("inert");
-    // KYC is still mounted behind "Review requests": the same element, with its state, not a new one.
-    fireEvent.click(screen.getByTestId("open-kyc"));
-    expect(screen.getByText("KYC requests")).toBe(panel);
-    expect(panel).toBeVisible();
+    expect(await screen.findByTestId("mail-followups")).toBeVisible();
+    expect(screen.queryByTestId("open-kyc")).toBeNull();
+    expect(screen.queryByText("Requests for your details")).toBeNull();
+    expect(screen.queryByRole("button", { name: /review requests/i })).toBeNull();
+    expect(screen.queryByText("KYC requests")).toBeNull();
   });
 
-  it("restores the KYC workspace after a secure-session remount", async () => {
-    const firstMount = render(<ProfileReceiptsPage />);
-
-    fireEvent.click(screen.getByRole("tab", { name: "Follow-ups" }));
-    fireEvent.click(await screen.findByTestId("open-kyc"));
-    expect(screen.getByRole("tab", { name: "Follow-ups" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+  it("keeps the KYC screen open across a secure-session remount", async () => {
+    const firstMount = render(<ProfileReceiptsPage surface="kyc" />);
+    expect(await screen.findByText("KYC requests")).toBeVisible();
 
     // OnboardingJourneyGuard temporarily unmounts protected routes while a
     // slow foreground session validation settles.
     firstMount.unmount();
+    render(<ProfileReceiptsPage surface="kyc" />);
+
+    expect(await screen.findByText("KYC requests")).toBeVisible();
+    expect(screen.queryByRole("tab")).toBeNull();
+  });
+
+  it("returns to the tab Mail was left on, for the same mailbox, after a draft in Chat", async () => {
+    const firstMount = render(<ProfileReceiptsPage />);
+    fireEvent.click(screen.getByRole("tab", { name: "Follow-ups" }));
+    expect(screen.getByRole("tab", { name: "Follow-ups" })).toHaveAttribute("aria-selected", "true");
+
+    // Back to Mail from the draft mounts the page again.
+    firstMount.unmount();
     render(<ProfileReceiptsPage />);
 
-    expect(screen.getByRole("tab", { name: "Follow-ups" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    expect(await screen.findByText("KYC requests")).toBeVisible();
+    expect(screen.getByRole("tab", { name: "Follow-ups" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByTestId("mail-followups")).toBeVisible();
+    // The mailbox the person was in is still the one shown.
+    expect(screen.getByTestId("mail-account-chip")).toHaveTextContent("akshat@example.com");
   });
 
   it("opens a Feed-requested workspace over the saved session tab", async () => {

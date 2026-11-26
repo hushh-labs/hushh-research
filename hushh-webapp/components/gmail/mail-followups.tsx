@@ -1,6 +1,5 @@
 "use client";
 
-import { ChevronRight } from "@/components/icons";
 import type { MailBrief } from "@/lib/mail/mail-brief-client";
 import { mailBriefFailureCopy } from "@/lib/mail/mail-overview-copy";
 import type { BriefPart } from "@/lib/mail/use-mail-brief";
@@ -11,7 +10,7 @@ import styles from "./mail-brief.module.css";
 /**
  * Every item that needs the owner, from the same read the Overview uses: no
  * second request, so "All N in Follow-ups" opens exactly those N. Requests for
- * the owner's personal details live under here too.
+ * the owner's personal details are not here: they have their own KYC screen.
  */
 export function MailFollowups({
   brief,
@@ -20,7 +19,6 @@ export function MailFollowups({
   draftFailure,
   onWhy,
   onDraft,
-  onOpenKyc,
   onRetry,
   onReconnect,
   onUnlock,
@@ -31,7 +29,6 @@ export function MailFollowups({
   draftFailure: { key: string; message: string } | null;
   onWhy: (target: WhyTarget) => void;
   onDraft: (request: DraftRequest) => void;
-  onOpenKyc: () => void;
   onRetry: () => void;
   onReconnect: () => void;
   onUnlock: () => void;
@@ -91,21 +88,6 @@ export function MailFollowups({
             <p>Nothing is waiting on you right now.</p>
           </div>
         ) : null}
-      </section>
-
-      <section className={styles.section} aria-labelledby="details-title">
-        <div className={styles.head}>
-          <h2 id="details-title" className={styles.h2}>
-            Requests for your details
-          </h2>
-        </div>
-        <div className={styles.state}>
-          <p>See who has asked for your personal details, and review every reply before it is sent.</p>
-          <button type="button" className={styles.link} onClick={onOpenKyc} data-testid="open-kyc">
-            Review requests
-            <ChevronRight aria-hidden="true" className="size-4" />
-          </button>
-        </div>
       </section>
     </div>
   );

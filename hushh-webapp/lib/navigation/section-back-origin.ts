@@ -63,6 +63,8 @@ const STANDALONE_ROOTS: readonly string[] = [
   ROUTES.ONE_REFERRALS,
   ROUTES.CONNECTED_SYSTEMS,
   ROUTES.EMAIL_AGENT,
+  // The KYC screen opens from Feed, To-dos, Memory and chat; Back returns to whichever one it was.
+  ROUTES.ONE_KYC,
   ROUTES.CONSENTS,
   ROUTES.LEGACY_CONSENTS,
 ];

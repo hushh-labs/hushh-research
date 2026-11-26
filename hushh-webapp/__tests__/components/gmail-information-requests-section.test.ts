@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CacheService } from "@/lib/services/cache-service";
+import { selectKycRequestFromFeed, takeFeedKycSelection } from "@/lib/feed/kyc-selection";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import GmailInformationRequestsSection, {
   isExactDraftCandidate,
@@ -735,6 +736,93 @@ describe("personal Gmail information-request scope boundary", () => {
 
     expect(await screen.findByText("Review request")).toBeVisible();
     expect(screen.getByRole("button", { name: "Open mail" })).toBeVisible();
+  });
+
+  it("opens the request the Feed selected on the KYC screen, and closing it returns to the queue", async () => {
+    gmailServiceMocks.getPreference.mockResolvedValue({
+      user_id: "owner",
+      monitoring_enabled: true,
+      retention: "metadata_only",
+    });
+    gmailServiceMocks.list.mockResolvedValue({
+      workflows: [
+        {
+          workflow_id: "request-1",
+          status: "detected",
+          gmail_thread_id: "thread-1",
+          received_at: "2026-09-02T00:00:00.000Z",
+          requested_field_labels: ["passport_number", "education_history"],
+          candidate_scopes: [],
+          attachment_review_required: false,
+        },
+      ],
+      next_offset: null,
+      total_count: 1,
+    });
+    // The Feed hands over an owner- and session-bound id, then opens the KYC screen.
+    selectKycRequestFromFeed("owner", "request-1");
+
+    render(
+      createElement(GmailInformationRequestsSection, {
+        active: true,
+        userId: "owner",
+        vaultKey: "vault-key",
+        vaultOwnerToken: "vault-owner-token",
+        isConnected: true,
+        idTokenProvider: () => Promise.resolve("firebase-token"),
+        onRequestVaultUnlock: vi.fn(),
+      }),
+    );
+
+    // The request opens for review without another tap, and nothing has been sent or disclosed.
+    expect(await screen.findByText("Review request")).toBeVisible();
+    expect(takeFeedKycSelection("owner")).toBeNull();
+    expect(handoffMocks.createHandoff).not.toHaveBeenCalled();
+
+    // Back out of the review: the queue is still there with the same request.
+    fireEvent.keyDown(screen.getByText("Review request"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByText("Review request")).toBeNull());
+    expect(await screen.findByText("Passport number, Education history")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Review" })).toBeVisible();
+  });
+
+  it("does not open a request that was selected for another owner", async () => {
+    gmailServiceMocks.getPreference.mockResolvedValue({
+      user_id: "owner",
+      monitoring_enabled: true,
+      retention: "metadata_only",
+    });
+    gmailServiceMocks.list.mockResolvedValue({
+      workflows: [
+        {
+          workflow_id: "request-1",
+          status: "detected",
+          gmail_thread_id: "thread-1",
+          received_at: "2026-09-02T00:00:00.000Z",
+          requested_field_labels: ["passport_number"],
+          candidate_scopes: [],
+          attachment_review_required: false,
+        },
+      ],
+      next_offset: null,
+      total_count: 1,
+    });
+    selectKycRequestFromFeed("someone-else", "request-1");
+
+    render(
+      createElement(GmailInformationRequestsSection, {
+        active: true,
+        userId: "owner",
+        vaultKey: "vault-key",
+        vaultOwnerToken: "vault-owner-token",
+        isConnected: true,
+        idTokenProvider: () => Promise.resolve("firebase-token"),
+        onRequestVaultUnlock: vi.fn(),
+      }),
+    );
+
+    expect(await screen.findByText("Passport number")).toBeVisible();
+    expect(screen.queryByText("Review request")).toBeNull();
   });
 
   it("moves a KYC request into One without putting private values in the handoff", async () => {

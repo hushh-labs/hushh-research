@@ -189,6 +189,7 @@ export function profileOriginCrumbLabel(backHref: string): string {
     [ROUTES.ONE_TASKS]: "Tasks",
     [ROUTES.ONE_GOALS]: "Goals",
     [ROUTES.EMAIL_AGENT]: "Mail Agent",
+    [ROUTES.ONE_KYC]: "KYC",
     [KAI_MARKET_PATH]: "Finance",
     [ROUTES.CONNECT]: "Connect",
   };
@@ -751,6 +752,25 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
   },
   {
     id: "one-kyc",
+    resolve: (pathname, searchParams) => {
+      if (pathname !== ROUTES.ONE_KYC) return undefined;
+      const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
+      const fromProfile = originHref === ROUTES.PROFILE;
+      return {
+        backHref: resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
+        width: "profile",
+        align: "center",
+        items: [
+          fromProfile
+            ? { label: "Profile", href: ROUTES.PROFILE }
+            : { label: "One", href: ROUTES.ONE_HOME },
+          { label: "KYC" },
+        ],
+      };
+    },
+  },
+  {
+    id: "one-email-agent",
     resolve: (pathname, searchParams) => {
       if (pathname !== ROUTES.EMAIL_AGENT) return undefined;
       const originHref = normalizeInternalRouteHref(searchParams?.get("from"));

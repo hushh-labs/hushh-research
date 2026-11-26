@@ -27,7 +27,7 @@ describe("Gmail workspace navigation", () => {
       "aria-selected",
       "true",
     );
-    // KYC is a place under Follow-ups, not a fourth tab, and nothing else is offered.
+    // KYC is its own screen, not a fourth tab, and nothing else is offered.
     expect(screen.queryByRole("tab", { name: "KYC" })).toBeNull();
     expect(screen.queryByRole("tab", { name: /Inbox assistant|Views/i })).toBeNull();
 
@@ -35,11 +35,13 @@ describe("Gmail workspace navigation", () => {
     expect(onValueChange).toHaveBeenCalledWith("followups");
   });
 
-  it("keeps Follow-ups selected while the KYC workspace is open", () => {
+  it("never offers KYC as a Mail tab, and never lets it select one", () => {
     render(<GmailWorkspaceNavigation value="kyc" onValueChange={vi.fn()} />);
-    expect(screen.getByRole("tab", { name: "Follow-ups" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "false");
-    expect(gmailWorkspaceTab("kyc")).toBe("followups");
+    expect(screen.queryByRole("tab", { name: "KYC" })).toBeNull();
+    // KYC is its own screen: if it ever reached the tabs they fall back to the default, not to Follow-ups.
+    expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Follow-ups" })).toHaveAttribute("aria-selected", "false");
+    expect(gmailWorkspaceTab("kyc")).toBe("overview");
     expect(gmailWorkspaceTab("receipts")).toBe("receipts");
   });
 

@@ -19,16 +19,22 @@ export default function OneGmailPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const enabled = isOneCapabilityEnabled("gmail");
-  // A Feed item or a Memory/chat offer opens one tab directly
-  // (`/one/gmail?workspace=kyc`). Only the tab name rides in the URL; any
-  // prefill for it is handed over in memory.
-  const feedWorkspace = gmailDeepLinkWorkspace(searchParams.get("workspace"));
+  // A link opens one tab directly (`/one/gmail?workspace=receipts`). Only the
+  // tab name rides in the URL; any prefill for it is handed over in memory.
+  const linkedWorkspace = gmailDeepLinkWorkspace(searchParams.get("workspace"));
+  // KYC is not a Mail tab. Links written before it moved
+  // (`/one/gmail?workspace=kyc`) land on the KYC screen itself, replacing this
+  // entry so Back does not return to a link that only forwards.
+  const opensKyc = linkedWorkspace === "kyc";
+  const feedWorkspace = opensKyc ? undefined : linkedWorkspace;
 
   useEffect(() => {
     if (!enabled) router.replace(ROUTES.ONE_HOME);
-  }, [enabled, router]);
+    else if (opensKyc) router.replace(ROUTES.ONE_KYC);
+  }, [enabled, opensKyc, router]);
 
   if (!enabled) return <RouteLoadingState label="Opening One…" />;
+  if (opensKyc) return <RouteLoadingState label="Opening KYC…" />;
 
   return (
     <CapabilityVaultPrerequisite

@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-11-24",
-  "total_routes": 149,
-  "native_required_routes": 119,
+  "total_routes": 150,
+  "native_required_routes": 120,
   "excluded_routes": 30,
   "routes": [
     {
@@ -420,6 +420,20 @@
       "initialRoute": "/login?redirect=%2Fone%2Fgmail",
       "expectedMarker": "native-route-gmail",
       "expectedRoute": "/one/gmail",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/kyc",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fkyc",
+      "expectedMarker": "native-route-one-kyc",
+      "expectedRoute": "/one/kyc",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [

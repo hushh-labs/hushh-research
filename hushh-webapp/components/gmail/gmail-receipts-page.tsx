@@ -193,6 +193,12 @@ export type GmailReceiptsPageProps = {
   initialWorkspace?: GmailWorkspace;
   /** Explicit Feed navigation takes precedence over the last session tab. */
   forceWorkspace?: GmailWorkspace;
+  /**
+   * `kyc` is the KYC request-and-review screen. It reuses this page's Mail
+   * connection, vault and send-permission handling, but it is not a Mail tab and
+   * shows none of Mail's own tabs, brief or receipts.
+   */
+  surface?: "mail" | "kyc";
 };
 
 export default function GmailReceiptsPage({
@@ -205,7 +211,9 @@ export default function GmailReceiptsPage({
   voicePublisherRole = "route",
   initialWorkspace = "overview",
   forceWorkspace,
+  surface = "mail",
 }: GmailReceiptsPageProps) {
+  const standaloneKyc = surface === "kyc";
   // This component is hosted on both /one/gmail and /one/setup/gmail, so the
   // origin handed to the agent has to be the live path, not a route constant.
   const pathname = usePathname();
@@ -307,22 +315,17 @@ export default function GmailReceiptsPage({
     setReceiptScanProgress(null);
   }, [userId, vaultOwnerToken, isVaultUnlocked, vaultKey]);
   useEffect(() => { setGmailActionBusy(null); }, [userId]);
-  const resolvedInitialWorkspace =
-    journeyVariant === "onboarding"
+  // Mail has three tabs; a stale or forwarded `kyc` never selects one of them.
+  const resolvedInitialWorkspace: GmailWorkspace = standaloneKyc
+    ? "kyc"
+    : journeyVariant === "onboarding"
       ? "receipts"
-      : (forceWorkspace ??
-        getGmailWorkspaceSession(userId, pathname, initialWorkspace));
+      : gmailWorkspaceTab(forceWorkspace ?? getGmailWorkspaceSession(userId, pathname, initialWorkspace));
   const [workspace, setWorkspaceState] = useState<GmailWorkspace>(
     resolvedInitialWorkspace,
   );
   useEffect(() => { setNativeHistory(false); }, [workspace, userId]);
   useEffect(() => { setNativeReceiptDetails(false); }, [userId]);
-  const [kycVisitedOwner, setKycVisitedOwner] = useState<string | null>(
-    resolvedInitialWorkspace === "kyc" ? userId : null,
-  );
-  useEffect(() => {
-    if (workspace === "kyc" && userId) setKycVisitedOwner(userId);
-  }, [workspace, userId]);
 
   const setWorkspace = useCallback(
     (nextWorkspace: GmailWorkspace) => {
@@ -336,12 +339,16 @@ export default function GmailReceiptsPage({
 
   useEffect(() => {
     setWorkspaceState(
-      journeyVariant === "onboarding"
-        ? "receipts"
-        : forceWorkspace ??
-          getGmailWorkspaceSession(userId, pathname, initialWorkspace),
+      standaloneKyc
+        ? "kyc"
+        : journeyVariant === "onboarding"
+          ? "receipts"
+          : gmailWorkspaceTab(
+              forceWorkspace ??
+                getGmailWorkspaceSession(userId, pathname, initialWorkspace),
+            ),
     );
-  }, [forceWorkspace, initialWorkspace, journeyVariant, pathname, userId]);
+  }, [forceWorkspace, initialWorkspace, journeyVariant, pathname, standaloneKyc, userId]);
   // This is intentionally memory-only. A KYC summary can be
   // sensitive, so workspace navigation must not write unfinished text to
   // browser storage just to preserve it.
@@ -458,8 +465,9 @@ export default function GmailReceiptsPage({
     userId,
     enabled: Boolean(userId) && !loading,
     idTokenProvider: user?.getIdToken ? idTokenProvider : null,
-    routeHref:
-      journeyVariant === "onboarding" ? ROUTES.ONE_SETUP_GMAIL : ROUTES.GMAIL,
+    routeHref: standaloneKyc
+      ? ROUTES.ONE_KYC
+      : journeyVariant === "onboarding" ? ROUTES.ONE_SETUP_GMAIL : ROUTES.GMAIL,
     refreshKey: userId || "",
   });
   const receiptAccountKey =
@@ -746,12 +754,8 @@ export default function GmailReceiptsPage({
   const [whyTarget, setWhyTarget] = useState<WhyTarget | null>(null);
   const [findingRequest, setFindingRequest] = useState<{ id: string; nonce: number } | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
-  const [kycFromFollowups, setKycFromFollowups] = useState(false);
-  useEffect(() => { if (workspace !== "kyc") setKycFromFollowups(false); }, [workspace]);
   // A different owner or mailbox never inherits the last one's open sheet or draft state.
   useEffect(() => { setWhyTarget(null); setDraftFailure(null); setToolsOpen(false); }, [userId, receiptAccountKey]);
-  // Back from KYC returns to Follow-ups when the person came from there; a link straight to KYC leaves Mail as before.
-  useBackLayer(normalizeStaticExportPathname(pathname), journeyVariant === "workspace" && workspace === "kyc" && kycFromFollowups ? 1 : 0, () => { setWorkspace("followups"); return true; });
   useEffect(() => {
     if (isConnected) receiptReadsClosedRef.current = false;
   }, [isConnected, userId]);
@@ -1302,7 +1306,6 @@ export default function GmailReceiptsPage({
     setFindingRequest({ id, nonce: Date.now() });
     setWorkspace("receipts");
   }, [setWorkspace]);
-  const openKyc = useCallback(() => { setKycFromFollowups(true); setWorkspace("kyc"); }, [setWorkspace]);
 
   useLocalOnboardingActionHandler("setup.connect_gmail", () => {
     if (journeyVariant !== "onboarding") {
@@ -2133,19 +2136,54 @@ export default function GmailReceiptsPage({
     onReconnect: () => void handleConnectGmail(),
     onUnlock: () => setShowVaultUnlock(true),
   };
+  // The KYC screen: the existing request-and-review flow, unchanged. The panel
+  // is keyed by owner and vault state so another person's drafts never carry over.
+  const kycPanel = (
+    <div className="space-y-4">
+      {!isConnected ? mailStatusPanel : null}
+      {isConnected ? (
+        <div key={`${userId ?? "guest"}:${Boolean(vaultKey && vaultOwnerToken)}`}>
+          <GmailVerificationOnboarding
+            userId={userId}
+            vaultKey={vaultKey}
+            vaultOwnerToken={vaultOwnerToken}
+            onRequestVaultUnlock={requestVaultUnlock}
+            deferred={verificationDeferred}
+            onDeferredChange={setVerificationDeferred}
+            details={verificationDraft}
+            onDetailsChange={setVerificationDraft}
+          >
+            <GmailInformationRequestsSection
+              active
+              accountKey={receiptAccountKey ?? undefined}
+              userId={userId}
+              vaultKey={vaultKey}
+              vaultOwnerToken={vaultOwnerToken}
+              isConnected
+              idTokenProvider={user?.getIdToken ? idTokenProvider : null}
+              onRequestVaultUnlock={requestVaultUnlock}
+              onEnableGmailSend={handleEnableGmailSend}
+            />
+          </GmailVerificationOnboarding>
+        </div>
+      ) : null}
+    </div>
+  );
   const content = (
     <AppPageShell ref={nativeFrame}
       as="div"
       width="reading"
       headerContentSpacing="compact"
-      className={`${mailStyles.typography} ${journeyVariant === "workspace" ? mailStyles.workspace : mailStyles.fullPageTitle} pb-[calc(var(--app-bottom-fixed-ui,96px)+1.5rem)]`}
+      className={`${mailStyles.typography} ${journeyVariant === "workspace" && !standaloneKyc ? mailStyles.workspace : mailStyles.fullPageTitle} pb-[calc(var(--app-bottom-fixed-ui,96px)+1.5rem)]`}
       nativeTest={{
-        routeId:
-          journeyVariant === "workspace"
+        routeId: standaloneKyc
+          ? ROUTES.ONE_KYC
+          : journeyVariant === "workspace"
             ? ROUTES.GMAIL
             : ROUTES.ONE_SETUP_GMAIL,
-        marker:
-          journeyVariant === "workspace"
+        marker: standaloneKyc
+          ? "native-route-one-kyc"
+          : journeyVariant === "workspace"
             ? "native-route-gmail"
             : "native-route-one-setup-gmail",
         authState: user ? "authenticated" : loading ? "pending" : "anonymous",
@@ -2169,6 +2207,12 @@ export default function GmailReceiptsPage({
           undefined
         }
       >
+        {standaloneKyc ? (
+          <PageHeader
+            title="KYC"
+            description="Review information requests and approve each response."
+          />
+        ) : (
         <PageHeader
           title="Mail"
           titleVisuallyHidden={journeyVariant === "workspace"}
@@ -2214,6 +2258,7 @@ export default function GmailReceiptsPage({
             ) : null
           }
         />
+        )}
       </AppPageHeaderRegion>
 
       <AppPageContentRegion
@@ -2222,7 +2267,7 @@ export default function GmailReceiptsPage({
         }
       >
         <SurfaceStack compact>
-          {journeyVariant === "workspace" && isConnected ? (
+          {journeyVariant === "workspace" && !standaloneKyc && isConnected ? (
             <MailHeader
               email={gmail.status?.google_email ?? null}
               attentionCount={mailBrief.brief.data?.attention.length ?? 0}
@@ -2232,7 +2277,7 @@ export default function GmailReceiptsPage({
             />
           ) : null}
 
-          {journeyVariant === "workspace" ? (
+          {journeyVariant === "workspace" && !standaloneKyc ? (
             <GmailWorkspaceNavigation
               value={workspace}
               onValueChange={setWorkspace}
@@ -2266,7 +2311,7 @@ export default function GmailReceiptsPage({
             />
           ) : null}
 
-          {journeyVariant === "workspace" ? withTracking(
+          {standaloneKyc ? kycPanel : journeyVariant === "workspace" ? withTracking(
             <GmailWorkspacePanels
               value={workspace}
               onValueChange={setWorkspace}
@@ -2322,80 +2367,19 @@ export default function GmailReceiptsPage({
                 ),
                 followups: (
                   <>
-                    {workspace === "kyc" ? (
-                      <button
-                        type="button"
-                        className={briefStyles.link}
-                        onClick={() => setWorkspace("followups")}
-                        data-testid="kyc-back-to-followups"
-                      >
-                        Back to Follow-ups
-                      </button>
-                    ) : null}
-                    {/* KYC stays mounted once visited, as it always has, so its state survives tab changes. */}
-                    <div hidden={workspace !== "kyc"} className="space-y-4">
-
-                    {!isConnected && workspace === "kyc" ? mailStatusPanel : null}
-
-                    {isConnected &&
-                    ((userId !== null && kycVisitedOwner === userId) || workspace === "kyc") ? (
-                      <div
-                        key={`${userId ?? "guest"}:${Boolean(vaultKey && vaultOwnerToken)}`}
-                      >
-                        <GmailVerificationOnboarding
-                          userId={userId}
-                          vaultKey={vaultKey}
-                          vaultOwnerToken={vaultOwnerToken}
-                          onRequestVaultUnlock={requestVaultUnlock}
-                          deferred={verificationDeferred}
-                          onDeferredChange={setVerificationDeferred}
-                          details={verificationDraft}
-                          onDetailsChange={setVerificationDraft}
-                        >
-                          <GmailInformationRequestsSection
-                            active={workspace === "kyc"}
-                            accountKey={receiptAccountKey ?? undefined}
-                            userId={userId}
-                            vaultKey={vaultKey}
-                            vaultOwnerToken={vaultOwnerToken}
-                            isConnected
-                            idTokenProvider={
-                              user?.getIdToken ? idTokenProvider : null
-                            }
-                            onRequestVaultUnlock={requestVaultUnlock}
-                            onEnableGmailSend={handleEnableGmailSend}
-                          />
-                        </GmailVerificationOnboarding>
-                      </div>
-                    ) : null}
-
-                    {isConnected &&
-                    (userId === null || kycVisitedOwner !== userId) &&
-                    workspace !== "kyc" ? (
-                      <Skeleton
-                        aria-label="Loading KYC"
-                        className="h-32 w-full"
+                    {!isConnected ? mailStatusPanel : null}
+                    {isConnected ? (
+                      <MailFollowups
+                        brief={mailBrief.brief}
+                        ownerInitial={briefProps.ownerInitial}
+                        draftBusy={draftBusy}
+                        draftFailure={draftFailure}
+                        onWhy={setWhyTarget}
+                        onDraft={briefProps.onDraft}
+                        onRetry={mailBrief.refresh}
+                        onReconnect={() => void handleConnectGmail()}
+                        onUnlock={() => setShowVaultUnlock(true)}
                       />
-                    ) : null}
-                    </div>
-                    {workspace !== "kyc" ? (
-                      <>
-                        {!isConnected ? mailStatusPanel : null}
-                        {isConnected ? (
-                          <MailFollowups
-                            brief={mailBrief.brief}
-                            ownerInitial={briefProps.ownerInitial}
-                            draftBusy={draftBusy}
-                            draftFailure={draftFailure}
-                            onWhy={setWhyTarget}
-                            onDraft={briefProps.onDraft}
-                            onOpenKyc={openKyc}
-                            onRetry={mailBrief.refresh}
-                            onReconnect={() => void handleConnectGmail()}
-                            onUnlock={() => setShowVaultUnlock(true)}
-                          />
-                        ) : null}
-                      </>
                     ) : null}
                   </>
                 ),
@@ -2473,12 +2457,13 @@ export default function GmailReceiptsPage({
           savedCompletionRef={receiptMemorySavedCompletionRef}
           ownerGeneration={receiptCompletion?.generation}
           snapshotRevision={receiptCompletion?.revision}
-          autoSave={journeyVariant !== "onboarding"}
+          autoSave={journeyVariant !== "onboarding" && !standaloneKyc}
         />
       ) : null}
     </AppPageShell>
   );
-  return <NativeMailRoute frame={nativeFrame} model={{ owner: userId, onboarding: journeyVariant === "onboarding", view: workspace,
+  // The KYC screen has no native presentation of its own: with no owner the native layer stays off and the web screen shows.
+  return <NativeMailRoute frame={nativeFrame} model={{ owner: standaloneKyc ? null : userId, onboarding: journeyVariant === "onboarding", view: workspace,
     selectView: setWorkspace, connected: isConnected, rootOnly: showDisconnectConfirm || workspace === "overview" || workspace === "followups" || workspace === "kyc" && !isConnected || workspace === "receipts" && !(hasSealedReceiptAccess && (hasVerifiedReceiptSnapshot || visibleReceipts.length > 0 || Boolean(visibleSavedRows?.length))), webChild: showVaultUnlock || nativeReceiptDetails || nativeHistory, root: nativeRoot,
     confirmation: showDisconnectConfirm ? { title: "Disconnect Mail?", description: "Stops Mail access and receipt sync, and deletes Mail receipts and summaries from Hussh. Information saved to private memory stays.",
       confirm: { key: "disconnect-confirm", label: "Disconnect", destructive: true, enabled: gmailActionBusy !== "disconnect", pending: gmailActionBusy === "disconnect", run: handleDisconnectGmail },

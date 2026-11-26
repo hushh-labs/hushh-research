@@ -1,5 +1,5 @@
 import { createContext } from 'react';
-export const usePathname = () => document.documentElement.dataset.workspace === 'setup' ? '/one/setup/gmail' : document.documentElement.dataset.workspace?.startsWith('callback') ? '/one/profile/gmail/oauth/return' : '/one/gmail';
+export const usePathname = () => document.documentElement.dataset.workspace === 'setup' ? '/one/setup/gmail' : document.documentElement.dataset.workspace?.startsWith('callback') ? '/one/profile/gmail/oauth/return' : document.documentElement.dataset.workspace === 'kyc' ? '/one/kyc' : '/one/gmail';
 const params = new URLSearchParams();
 export const useSearchParams = () => params;
 const router = { push() {}, replace() {}, prefetch() {} };

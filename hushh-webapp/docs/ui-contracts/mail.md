@@ -74,7 +74,7 @@ Owners: [Mail scope](../../components/gmail/mail-workspace.module.css),
 
 The source-coupled mounted fixture compiles Tailwind and local CSS, minifies the
 result with Lightning CSS, and loads the shipped Plus Jakarta Sans binaries.
-WebKit light/dark screenshots and computed assertions cover Overview/KYC/Receipts,
+WebKit light/dark screenshots and computed assertions cover Overview/Follow-ups/Receipts and the KYC screen,
 setup introduction/body and OAuth cancellation recovery at 360, 393, 430, 768,
 1024 and 1440 CSS pixels, plus frame edges at 350/351, 620/621 and 767/768,
 device scale 1. KYC queue/review, monitoring confirmation, receipt detail and
@@ -104,7 +104,7 @@ destination mounts and performs its own read.
 | Disconnected setup | Status card gives source-owned title/detail/helper and **Connect Mail** or **Reconnect Mail**; optional **Retry Mail status** rechecks status. Footer **Skip Mail setup** and its explanatory copy are separate from a verified connection. | Status GET/reconcile as selected by caller; Connect starts consent, Retry only rechecks, Skip settles setup without claiming a grant. |
 | Connected setup | Status/header **Sync receipts**, **Syncing receipts…** or **Sync unavailable**, shared **Disconnect** confirmation, footer **Finish Mail setup**. Busy/disabled states retain caller guards. | Existing receipt resource and connector service; Finish verifies readiness then writes setup completion, Disconnect alone calls connector disconnect. |
 | Google popup/native/callback | Waiting, cancellation, blocked popup, timeout, verified/unverified success and failed return keep their exact [OAuth outcome table](#oauth-each-affirmative-negative-and-uncertain-outcome). The return route owns its genuine full-page title and loader; provider/OS captions belong to Google/OS. | Attempt/source/origin/owner correlation, native server code and status verification. Opening a provider window is not completion. |
-| Connected workspace shell | Shared Back + **Mail** breadcrumb/avatar; connected account/email, **Manage**, and **Overview / KYC / Receipts**. A hidden H1 preserves document semantics. Tabs retain swipe/keyboard/inactive-pane behavior. | Shell/tab selection local; connection status comes from shared connector store. |
+| Connected workspace shell | Shared Back + **Mail** breadcrumb/avatar; connected account/email, **Manage**, and **Overview / Follow-ups / Receipts**. A hidden H1 preserves document semantics. Tabs retain swipe/keyboard/inactive-pane behavior. | Shell/tab selection local; connection status comes from shared connector store. |
 | Manage menu | **Reconnect** opens a deliberate new authorization. **Disconnect** opens **Disconnect Mail?**; **Keep connected** cancels; confirm disconnect closes reads, aborts scan and calls the service. Escape/outside restores Manage focus; nested confirmation takes focus when selected. | Reconnect OAuth or connector disconnect only after the explicit action. Existing success/failure copy and retained encrypted snapshot distinctions are in [Overview](#overview-and-connection-management). |
 | Overview | **Search mail**, **Recent mail** (up to five rows, newest first), **View more**, one **Compose** action; a row opens its exact email in place with **Reply**. See [Overview and connection management](#overview-and-connection-management). | Provider-backed reads through the Overview routes; Compose/Reply open One's reviewed draft card. Nothing is sent or changed by reading, searching or opening. |
 | KYC intake check/vault | **KYC requests / Getting your KYC workspace ready.** skeleton; locked state **Set up KYC**, vault explanation and **Open private vault**. | Existing intake display read and vault unlock; no disclosed profile in skeleton. |
@@ -145,9 +145,10 @@ flowchart TD
   skip --> hub
   roster --> mail["Mail workspace"]
   mail --> overview["Overview"]
-  mail --> kyc["KYC"]
+  mail --> followups["Follow-ups"]
   mail --> receipts["Receipts"]
   overview --> one["Compose or Reply in One's reviewed draft card"]
+  roster --> kyc["KYC screen (/one/kyc), not a Mail tab"]
   kyc --> profile["Paste details or Skip for now"]
   profile --> monitor["Explicit monitoring opt-in"]
   monitor --> request["Request card"]
@@ -173,7 +174,7 @@ flowchart TD
 - [Overview and management](#overview-and-connection-management)
 - [Receipts: every row, field and control](#receipts-tab-scan-rows-filters-and-detail)
 - [Mail onboarding, Google approval and status copy](#mail-onboarding-google-authorization-and-status-copy)
-- [KYC intake, monitoring and every review decision](#kyc-tab-profile-intake-monitoring-and-requests)
+- [KYC intake, monitoring and every review decision](#kyc-screen-profile-intake-monitoring-and-requests)
 - [One editor, formatting, Send and recovery](#one-handoff-mail-editor-and-delivery-activity)
 - [Mailbox changes, follow-ups and voice](#mailbox-changes-follow-ups-and-voice-mail-surfaces)
 - [HTTP methods, bodies, authentication and response fields](#api-and-field-provenance-ledger)
@@ -195,10 +196,11 @@ are not finite app-owned English copy.
 | Product boundary | Current truth |
 | --- | --- |
 | Mail capability | `gmail`, title **Mail**, specialist `agent_email`, description **Receipt sync and purchase-memory review.**, preview **Receipt & purchase memory**. It requires the private vault. |
-| Three workspace tabs | **Overview**, **KYC**, **Receipts**; values `overview`, `kyc`, `receipts`. There is no current Chat or Nudges tab. |
+| Three workspace tabs | **Overview**, **Follow-ups**, **Receipts**; values `overview`, `followups`, `receipts`. KYC is not a tab: it is its own screen at `/one/kyc`. There is no current Chat or Nudges tab. |
 | Personal Gmail | Current connection and provider approval are owned by `GmailReceiptsService`; the stored connection is `kai_gmail_connections`. Personal Gmail KYC requests use the person's inbox. |
 | One | The private agent owns conversation. Overview **Compose** and **Reply** hand an explicit Mail intent to One and open its existing reviewed draft card directly. Entering it starts no model turn and sends nothing. |
-| Compatibility Email/KYC | `/one/email` is a connection/handoff page. `/one/setup/email` is the distinct legacy platform-mailbox preference page. Neither is a fourth Mail tab. |
+| KYC screen | `/one/kyc` (`ROUTES.ONE_KYC`) is the KYC request-and-review screen: the setup tile, the Feed, To-dos, Memory and chat open it. It runs on the one Mail connection and shows the same connect, reconnect and vault states, but none of Mail's tabs, brief or receipts. It has no native presentation of its own; the web screen shows. |
+| Compatibility Email | `/one/email` is a connection/handoff page. `/one/setup/email` is the distinct legacy platform-mailbox preference page. Neither is a Mail tab. |
 | Unmounted components | `GmailChatPanel` and `GmailNudgesSection` have source/tests but no current production caller. Their controls are not current Mail workspace controls. |
 | Send | A chat reply, connection, receipt scan, profile paste or monitoring toggle does not send personal mail. Sending has its own reviewed snapshot and explicit final action. |
 
@@ -214,10 +216,10 @@ Sources: [capability registry](../../lib/onboarding/one-capabilities.ts),
 | --- | --- |
 | `/one/gmail` | `OneGmailPageClient` checks enabled capability, then `CapabilityVaultPrerequisite`, then `GmailReceiptsPage`. Disabled capability replaces route with `/one`; **Opening One…** is the interim state. |
 | `/one/setup/gmail` | Setup-scoped introduction and the same connector workspace; finish/skip return through setup authority. This route has no tab rail. |
-| `?workspace=kyc` / `?workspace=followups` / `?workspace=receipts` | Explicit deep link takes precedence over remembered view. Only the tab value belongs in the URL. Sensitive prefills travel in memory. `kyc` is not a tab: it opens the KYC requests under **Follow-ups**, which stays selected, so every existing link to KYC still lands where it did. |
+| `?workspace=kyc` / `?workspace=followups` / `?workspace=receipts` | Explicit deep link takes precedence over remembered view. Only the tab value belongs in the URL. Sensitive prefills travel in memory. `kyc` is not a Mail tab: the Mail page forwards it, replacing its own history entry, to the KYC screen (`/one/kyc`), so every existing link still lands on the KYC requests and Back does not return to the forwarding link. Memory's older offer link uses it. |
 | Default/invalid query | `gmailDeepLinkWorkspace` accepts only `kyc`, `followups` or `receipts`; otherwise the page uses remembered owner/path workspace, then `overview`. A literal `workspace=overview` is not an explicit force override. |
 | Tab tap/swipe | Shared `SegmentedTabs`/`SwipeViews`, tab-set `gmail-workspace`, accessible name **Gmail workspace**, three tabs in this order: **Overview**, **Follow-ups**, **Receipts**. Changes local selection and owner/path-scoped session key `hushh.gmail.workspace.v1:{userId}:{pathname}`. No tab-selection API or history entry. |
-| Inactive pane | Retained pager pane is inert and `aria-hidden`; it cannot publish active voice controls. KYC first mounts when visited from Follow-ups, then stays mounted (hidden) with its local draft; its request owner receives `active=false` off the KYC view. Back from KYC returns to **Follow-ups** when it was opened from there; a link straight to KYC leaves Mail as before. |
+| Inactive pane | Retained pager pane is inert and `aria-hidden`; it cannot publish active voice controls. The KYC requests are not part of any Mail pane; their owner mounts only on the KYC screen. |
 | `/one/email` | **Mail Agent**; skeleton while connection resolves; disconnected **Connect Mail** routes to `/one/gmail`; connected **Ask One about Mail** opens One. |
 | Compatibility redirects | `/gmail`, `/one/profile/gmail`, `/one/profile/gmail/connection`, `/one/profile/gmail/actions`, and old receipt entries resolve through existing route owners to canonical Mail. Profile connector details remain the connection/recovery owner described in [Connectors](./profile-connectors.md). |
 | OAuth return | `/one/profile/gmail/oauth/return`, shared implementation under `app/profile/gmail/oauth/return`; signed provider state and current owner determine setup versus Mail continuation. |
@@ -341,7 +343,7 @@ Sources: [Overview brief](../../components/gmail/mail-brief.tsx),
 | --- | --- |
 | **Follow-ups** | Every item that needs the owner, from the same read as the Overview's **Needs your attention** (no second request), nearest date first, with the count (**4 need you**, **None waiting**). Each item is the same card: who, the date or term the email states, **Why this?** and **Draft follow-up**/**Draft reply**, with the same verification, sheet and draft behavior. |
 | States | Loading skeleton; **Nothing is waiting on you right now.** only after a read that found nothing; a failed check shows its cause with **Try again**, **Reconnect** or **Unlock** and never reads as empty; items stay on screen when only a refresh fails. |
-| **Review requests** (Requests for your details) | Opens the KYC requests under this tab (**Back to Follow-ups** returns; Follow-ups stays selected). Personal-detail replies, monitoring and verification are unchanged: every reply is reviewed before it is sent. Existing `workspace=kyc` links open the same place. |
+| KYC requests | Not listed here and not linked from here. Requests for the owner's personal details have their own screen (`/one/kyc`); Follow-ups lists only the mail that needs a reply or a follow-up. |
 | Changes outside this tab | Receipts is unchanged except that it opens a named finding on request (`reviewRequest`, once per request); Follow-ups reads no Calendar follow-up monitor, and Mail Overview works with Mail connected on its own. |
 
 Sources: [Follow-ups](../../components/gmail/mail-followups.tsx),
@@ -556,7 +558,7 @@ old syncs retain saved receipts rather than implying lost authorization.
 Sources: [status card](../../components/gmail/mail-kyc-connect-entry.tsx),
 [status presenter and sanitation](../../lib/profile/mail-flow.ts).
 
-## KYC tab: profile intake, monitoring and requests
+## KYC screen: profile intake, monitoring and requests
 
 ### Profile intake and exact pasted-profile content
 
@@ -1287,7 +1289,7 @@ root and each actual portal; it does not opt the whole app into this scale.
 | Meaning/placement | Source-derived size / line height / weight and use |
 | --- | --- |
 | Shared top bar | Visible Mail breadcrumb 17 / 22 / 600; the accessible workspace PageHeader H1 remains visually hidden. Back/avatar keep the shared shell owner. |
-| Agent-top tabs | Overview/KYC/Receipts 15 / 20 / 550. |
+| Agent-top tabs | Overview/Follow-ups/Receipts 15 / 20 / 550. |
 | Full flow title | Setup/callback genuine full-page title 28 / 36 / 600 where the owning route uses that role; no giant Overview hero. |
 | In-page section | Recent mail, KYC profile/requests, Receipts/Overview/Categories/history/recent headings 14 / 22 / 600. Semantic heading variables win the base-layer locks. |
 | Source group | Gmail/status eyebrow and receipt month/evidence labels 12 / 18 / 600 with normal tracking; month `h3` has a narrowly scoped global base rule. |
@@ -1372,7 +1374,7 @@ owner's details. Nothing is predicted or inferred from mail text.
 | --- | --- |
 | Header | Group label **Mail**; count summary such as **1 overdue payment · 2 requests for your details**. |
 | **Brief me** | Accessible **Brief me on my mail**; sends the fixed prompt **Brief me on my mail** to One, never item text. Disabled whenever the welcome prompts are: while the chat checks for a draft saved before a Drive visit, while voice connects, or while a reply loads or streams. **Remind me later**, **Mark as done**, **Show all** and **Hide** stay usable. |
-| Collapsed stack | Top card plus up to two decorative peeks. Card shows subtitle and relative time, then title; tapping the text opens Mail Receipts for a receipt or Mail KYC for a request. |
+| Collapsed stack | Top card plus up to two decorative peeks. Card shows subtitle and relative time, then title; tapping the text opens Mail Receipts for a receipt or the KYC screen for a request. |
 | **Remind me later** / **Mark as done** | Per item, accessible **Remind me later: {title}** / **Mark as done: {title}**. Later hides for 24 hours; done hides until the item's state changes. Toast **Hidden for 24 hours** / **Marked as done** with **Undo**. Focus is placed once the choice is applied, since applying it re-reads the device record and can bring other items back: it moves to the stack while any item is left; when none is, the stack is removed and keyboard use moves focus to the composer (**Message One**), while a tap leaves it so no phone keyboard opens. |
 | **Show all** / **Hide** | Only with two or more items; expanded rows show a local date. The expanded state registers a Back layer that collapses it. Collapsing from the toggle or Back moves focus from a removed row to the toggle. |
 | Choices storage | Device-local per owner (`hushh.mail_attention.v1.<ownerId>`), opaque state keys and times only; Mail itself is unchanged. Each choice builds on the record as stored at that moment, so another tab's choice or Reset is kept, and open tabs pick up another tab's change even while the stack is unmounted. If storage refuses a write (full or disabled), the choice still holds in this tab until it reloads and is saved with this tab's next successful write. Cleared on Reset or account deletion, kept across sign-out. |

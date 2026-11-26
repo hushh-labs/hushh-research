@@ -56,7 +56,7 @@ publishValidatedAuthSessionPrincipal({ firebaseUid: 'synthetic-owner', ownerId: 
 primeCachedGmailReceipts({ userId: 'synthetic-owner', accountKey: 'synthetic-account', response: { items: syntheticReceipts, page: 1, total: syntheticReceipts.length, has_more: false } });
 function Fixture() {
  const workspace = (document.documentElement.dataset.workspace || 'overview') as 'overview'|'followups'|'kyc'|'receipts'|'setup'|'intro'|'skeleton'|'skeleton-hidden'|'callback'|'callback-loading'|'callback-cloud-loading';
- const route = workspace === 'setup' || workspace === 'intro' ? '/one/setup/gmail' : workspace.startsWith('callback') ? '/one/profile/gmail/oauth/return' : '/one/gmail';
+ const route = workspace === 'setup' || workspace === 'intro' ? '/one/setup/gmail' : workspace.startsWith('callback') ? '/one/profile/gmail/oauth/return' : workspace === 'kyc' ? '/one/kyc' : '/one/gmail';
  const style = {...resolveSignedInShellContentOffset({shellVisible:true, routeLayoutMode:'standard'}).style,...resolveTopShellGeometryStyle({hasTabs:false})} as React.CSSProperties;
  return <div data-app-shell-root="true" style={style}>
   <div data-app-scroll-root="true" style={{position:'fixed',inset:0,overflowY:'auto',paddingBottom:'120px'}}>
@@ -67,6 +67,8 @@ function Fixture() {
     ? <CapabilityCinematicIntroGate capabilityId="gmail"><GmailReceiptsPage journeyVariant="onboarding" onFinishSetup={() => {}} onSkipSetup={() => {}} /></CapabilityCinematicIntroGate>
     : workspace === 'setup'
     ? <GmailReceiptsPage journeyVariant="onboarding" onFinishSetup={() => {}} onSkipSetup={() => {}} />
+    : workspace === 'kyc'
+    ? <GmailReceiptsPage surface="kyc" />
     : <GmailReceiptsPage initialWorkspace={workspace} forceWorkspace={workspace} />}</div>
   </div>
   {shell ? <AppBottomShell model={{ navigationHidden: false, agentBarHidden: false, includeComposerHeight: false }} /> : <Navbar/>}

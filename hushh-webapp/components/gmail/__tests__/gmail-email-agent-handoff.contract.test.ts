@@ -41,7 +41,7 @@ describe("Gmail Email Agent handoff contract", () => {
   });
 
   it("asks before Back to Mail discards words the person has written", () => {
-    expect(workspace).toContain("hasUnsentMailText(emailDraftCardValueRef.current)");
+    expect(workspace).toContain("hasUnsentMailText(\n              emailDraftCardValueRef.current,");
     expect(workspace).toContain("Leave this reply?");
     expect(workspace).toContain("Keep writing");
     // Leaving without text is one tap; with text, only the explicit Leave goes.

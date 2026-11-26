@@ -9385,7 +9385,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         <button
           type="button"
           onClick={() =>
-            hasUnsentMailText(emailDraftCardValueRef.current)
+            hasUnsentMailText(
+              emailDraftCardValueRef.current,
+              // What the card opened with is not the person's words until they change it.
+              emailDraftInitialValue?.body ?? (emailDraftAutoDraft ? "" : emailDraftInstruction),
+            )
               ? setLeaveMailPrompt(true)
               : router.push(ROUTES.GMAIL)
           }

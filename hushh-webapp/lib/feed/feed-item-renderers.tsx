@@ -1293,8 +1293,8 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon: Mail,
         domainLabel: "Mail",
         label: "Information request detected",
-        description: "Review a new request in Mail before sharing anything.",
-        href: `${ROUTES.GMAIL}?workspace=kyc`,
+        description: "Review a new request in KYC before sharing anything.",
+        href: ROUTES.ONE_KYC,
       };
     case "mail_receipts_imported":
       return {
@@ -1339,7 +1339,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
             : item.event_type === "mail_message_failed"
               ? "Open Mail to review what happened."
               : "Check Mail before trying again; delivery may have succeeded.",
-        href: `${ROUTES.GMAIL}?workspace=kyc`,
+        href: ROUTES.ONE_KYC,
       };
     // Connection events use the same person-first layout: title is the other
     // person's name, subtitle is the action. Name comes from `counterpart_label`

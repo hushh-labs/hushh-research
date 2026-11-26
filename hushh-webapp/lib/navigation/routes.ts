@@ -209,8 +209,8 @@ export const ROUTES = {
   MARKETPLACE: "/marketplace",
   MARKETPLACE_CONNECTIONS: "/marketplace/connections",
   MARKETPLACE_RIA_PROFILE: "/marketplace/ria",
-  /** Retired mailbox-KYC compatibility target; personal Gmail KYC lives in Email. */
-  ONE_KYC: "/one/email",
+  /** The KYC request-and-review screen. It is its own screen, not a Mail tab. */
+  ONE_KYC: "/one/kyc",
   ONE_FILES: "/one/files",
   ONE_DOCUMENTS_OPEN: "/one/documents/open",
   ONE_CAREER: "/one/career",
@@ -281,10 +281,10 @@ export const ROUTES = {
 } as const;
 
 /**
- * Mail tabs a link may open directly (`/one/gmail?workspace=kyc`). Overview is
- * the page's own default, so it never needs a link. `kyc` is where personal-detail
- * requests are answered; it sits under Follow-ups and every existing link to it
- * keeps working.
+ * Names a link may carry in `/one/gmail?workspace=...`. Overview is the page's
+ * own default, so it never needs a link. `kyc` is not a Mail tab: personal-detail
+ * requests are answered on their own screen (`ROUTES.ONE_KYC`), and the Mail page
+ * sends every existing `workspace=kyc` link there.
  */
 export const GMAIL_DEEP_LINK_WORKSPACES = ["kyc", "followups", "receipts"] as const;
 export type GmailDeepLinkWorkspace = (typeof GMAIL_DEEP_LINK_WORKSPACES)[number];
@@ -298,9 +298,12 @@ export function gmailDeepLinkWorkspace(
     : undefined;
 }
 
-/** The link that opens Mail on one tab; the tab name is the only query. */
+/**
+ * The link that opens Mail on one tab (the tab name is the only query), or, for
+ * `kyc`, the KYC screen itself.
+ */
 export function buildGmailWorkspaceRoute(workspace: GmailDeepLinkWorkspace): string {
-  return withQuery(ROUTES.GMAIL, { workspace });
+  return workspace === "kyc" ? ROUTES.ONE_KYC : withQuery(ROUTES.GMAIL, { workspace });
 }
 
 export function buildMarketplaceRiaProfileRoute(riaId?: string | null) {

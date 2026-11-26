@@ -6,9 +6,9 @@ import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 
 /**
- * Overview, Follow-ups and Receipts are the three tabs. `kyc` is not a tab: it is
- * where personal-detail requests are answered, reached from Follow-ups and from
- * every existing `workspace=kyc` link, and it keeps Follow-ups selected.
+ * Overview, Follow-ups and Receipts are the three Mail tabs. `kyc` is not one of
+ * them: it names the KYC request-and-review screen, which is its own route and
+ * is never offered here.
  */
 export type GmailWorkspace = "overview" | "followups" | "receipts" | "kyc";
 export type GmailWorkspaceTab = Exclude<GmailWorkspace, "kyc">;
@@ -20,9 +20,9 @@ const OPTIONS = [
 ] as const;
 const TAB_SET_ID = "gmail-workspace";
 
-/** The tab a workspace belongs to. */
+/** The Mail tab a value selects; `kyc` is not a tab, so it falls back to Overview. */
 export function gmailWorkspaceTab(workspace: GmailWorkspace): GmailWorkspaceTab {
-  return workspace === "kyc" ? "followups" : workspace;
+  return workspace === "kyc" ? "overview" : workspace;
 }
 
 export function GmailWorkspaceNavigation({

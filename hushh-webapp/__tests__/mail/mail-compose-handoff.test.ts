@@ -178,4 +178,13 @@ describe("hasUnsentMailText: when leaving would lose the person's words", () => 
     expect(hasUnsentMailText(null)).toBe(false);
     expect(hasUnsentMailText(undefined)).toBe(false);
   });
+
+  it("does not count the text the card opened with until the person changes it", () => {
+    expect(hasUnsentMailText({ body: "Write a new email." }, "Write a new email.")).toBe(false);
+    expect(hasUnsentMailText({ body: "<p>Write a new email.</p>" }, "Write a new email.")).toBe(false);
+    expect(hasUnsentMailText({ body: "Could you send it?" }, "Could you send it?")).toBe(false);
+    expect(hasUnsentMailText({ body: "Write a new email. Thanks." }, "Write a new email.")).toBe(true);
+    expect(hasUnsentMailText({ body: "Thanks, I'll pay on Friday." }, "Write a new email.")).toBe(true);
+    expect(hasUnsentMailText({ body: "Anything" }, null)).toBe(true);
+  });
 });

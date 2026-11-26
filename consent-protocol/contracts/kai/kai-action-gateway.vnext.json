@@ -5601,6 +5601,114 @@
       }
     },
     {
+      "action_id": "route.kyc_requests",
+      "surface_id": "gmail",
+      "label": "Open KYC requests",
+      "aliases": [
+        "open kyc requests",
+        "review kyc requests",
+        "review information requests"
+      ],
+      "search_keywords": [
+        "kyc",
+        "information requests",
+        "identity"
+      ],
+      "meaning": "Opens the KYC screen, where information requests are reviewed and every reply is approved before it is sent. It is a screen of its own, not a Mail tab. Shows the connect entry when Gmail is not connected.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kyc"
+        ],
+        "screens": [
+          "gmail"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "navigate to the KYC screen if the route is currently outside it"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/kyc"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/architecture/finance/kai-action-gateway-vnext.md",
+        "app/one/kyc/kyc-page-client.tsx",
+        "components/gmail/gmail-receipts-page.tsx",
+        "components/gmail/mail-kyc-connect-entry.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kyc"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.kyc_requests",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kyc_requests",
+            "label": "Open KYC requests",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kyc",
+              "screen": "gmail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "kyc.save_profile",
       "surface_id": "gmail",
       "label": "Save KYC profile",

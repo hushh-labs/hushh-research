@@ -194,8 +194,15 @@ export function mailHandoffCard(
 /**
  * True when leaving the draft card would throw away words the person wrote.
  * Nothing about a reply's recipient or subject counts: those come back from the
- * original email, so only the body is the person's to lose.
+ * original email, so only the body is the person's to lose. Text the card opened
+ * with (the instruction a new message starts from, or a verified starting draft) is
+ * not theirs until they change it, so leaving an untouched card asks nothing.
  */
-export function hasUnsentMailText(draft: Pick<EmailDraft, "body"> | null | undefined): boolean {
-  return Boolean(draft?.body && richEmailPlainText(draft.body).trim());
+export function hasUnsentMailText(
+  draft: Pick<EmailDraft, "body"> | null | undefined,
+  openedWith?: string | null,
+): boolean {
+  const text = draft?.body ? richEmailPlainText(draft.body).trim() : "";
+  if (!text) return false;
+  return text !== richEmailPlainText(openedWith ?? "").trim();
 }
