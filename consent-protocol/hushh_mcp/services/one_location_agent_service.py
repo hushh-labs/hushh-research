@@ -1116,6 +1116,8 @@ class OneLocationAgentService:
     # ``set_session cannot be used inside a transaction`` and
     # ``object has no attribute '_key_writer_connection'``. The attribute
     # contract (getattr default, assign, del, hasattr) is unchanged.
+    _key_writer_thread_state: threading.local
+
     @property
     def _key_writer_connection(self) -> Any:
         state = self.__dict__.get("_key_writer_thread_state")
