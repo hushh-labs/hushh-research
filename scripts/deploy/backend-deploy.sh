@@ -704,6 +704,8 @@ hub_storage_prefix_base_url=""
 hub_storage_token_provider=""
 pod_storage_gateway_gcs_bucket=""
 sandbox_edge_public_url=""
+sandbox_task_queue=""
+sandbox_task_worker_email=""
 source_pod_retirement_sweep_enabled=""
 dev_custody_broker_seal_key_secret=""
 dev_sandbox_identity_master_key_secret=""
@@ -962,6 +964,12 @@ if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
     hub_storage_token_provider="ace_prefix_bearer"
     pod_storage_gateway_gcs_bucket="hussh-hosted-pods-dev"
     sandbox_edge_public_url="${_dev_ace_edge_url}"
+    # These resources are provisioned in shared Dev; retain their bindings when
+    # the Hub environment is rebuilt. Other projects and lanes remain disabled.
+    if [[ "$PROJECT_ID" == "hushh-pda-dev" && "${_REGION}" == "us-central1" ]]; then
+      sandbox_task_queue="projects/${PROJECT_ID}/locations/${_REGION}/queues/hussh-sandbox-schedules"
+      sandbox_task_worker_email="hussh-sandbox-task-worker@${PROJECT_ID}.iam.gserviceaccount.com"
+    fi
     source_pod_retirement_sweep_enabled="true"
     dev_custody_broker_seal_key_secret="hussh-custody-broker-seal-key"
     dev_sandbox_identity_master_key_secret="sandbox-edge-identity-master-key"
@@ -1095,6 +1103,8 @@ append_optional_env "HUSSH_HUB_STORAGE_PREFIX_BASE_URL" "${hub_storage_prefix_ba
 append_optional_env "HUSSH_HUB_STORAGE_TOKEN_PROVIDER" "${hub_storage_token_provider}"
 append_optional_env "HUSSH_POD_STORAGE_GATEWAY_GCS_BUCKET" "${pod_storage_gateway_gcs_bucket}"
 append_optional_env "HUSSH_SANDBOX_EDGE_PUBLIC_URL" "${sandbox_edge_public_url}"
+append_optional_env "HUSSH_SANDBOX_TASK_QUEUE" "${sandbox_task_queue}"
+append_optional_env "HUSSH_SANDBOX_TASK_WORKER_EMAIL" "${sandbox_task_worker_email}"
 append_optional_env "HUSSH_SOURCE_POD_RETIREMENT_SWEEP_ENABLED" "${source_pod_retirement_sweep_enabled}"
 append_optional_secret "${dev_custody_broker_seal_key_secret}" "HUSSH_CUSTODY_BROKER_SEAL_KEY"
 append_optional_secret "${dev_sandbox_identity_master_key_secret}" "HUSSH_SANDBOX_IDENTITY_MASTER_KEY"
