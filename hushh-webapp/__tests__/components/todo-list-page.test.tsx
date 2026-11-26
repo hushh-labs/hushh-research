@@ -173,11 +173,14 @@ describe("TodoListPage row actions", () => {
       const run = { id: "b".repeat(32), state: "completed", started_at: 1100, finished_at: 1150 };
       vi.spyOn(PodScheduledTasksClient.prototype, "status").mockResolvedValue({
         available: true, code: null, authorization_limit_at: 3000, templates: [FILE_ORGANIZATION_TEMPLATE],
+        run_now_available: true,
         tasks: [{ id, title: "Organize Minutes.txt", capability: FILE_ORGANIZATION_TEMPLATE,
           revision: 3, state: "scheduled", repeat: "monthly", timezone: "UTC",
           next_run_at: Math.floor(new Date(2030, 0, 15, 12).getTime() / 1000),
           authorization_expires_at: 2_000_000_000, last_run: run, recent_runs: [run] }],
       });
+      const control = vi.spyOn(PodScheduledTasksClient.prototype, "control")
+        .mockImplementation(async task => ({ ...task, revision: task.revision + 1, run_now_pending: true }));
       render(<TodoListPage />);
       const panel = await screen.findByRole("dialog", { name: "Scheduled runs" });
       expect(await within(panel).findByText("Organize Minutes.txt")).toBeVisible();
@@ -189,6 +192,9 @@ describe("TodoListPage row actions", () => {
       expect(within(panel).queryByText("Organize Minutes.txt")).not.toBeInTheDocument();
       fireEvent.change(date, { target: { value: "2030-01-15" } });
       expect(within(panel).getByText("Organize Minutes.txt")).toBeVisible();
+      fireEvent.click(within(panel).getByRole("button", { name: "Run now" }));
+      expect(await within(panel).findByText(/^Run requested/)).toBeVisible();
+      expect(control).toHaveBeenCalledWith(expect.objectContaining({ id, revision: 3 }), "run_now", expect.any(AbortSignal));
     } finally {
       vi.unstubAllEnvs();
     }

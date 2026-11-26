@@ -148,6 +148,10 @@ class ScheduledTaskJournal:
         }
         if row.get("weekdays") is not None:
             result["weekdays"] = row["weekdays"]
+        result["run_now_pending"] = row.get("regular_run_at") is not None and row["state"] in {
+            "pending_delivery",
+            "scheduled",
+        }
         if (
             row["incarnation"] != self.access.incarnation
             or row["authorization_expires_at"] <= self.clock()

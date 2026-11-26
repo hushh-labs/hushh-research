@@ -51,6 +51,14 @@ const repeatLabels: Record<ScheduledTask["repeat"], string> = {
   once: "Once", daily: "Daily", weekly: "Weekly", monthly: "Monthly",
 };
 
+const controlLabels: Record<ScheduleControl, { pending: string; success: string }> = {
+  pause: { pending: "Pausing task…", success: "Task paused" },
+  resume: { pending: "Scheduling task…", success: "Task scheduled" },
+  cancel: { pending: "Cancelling task…", success: "Task cancelled" },
+  skip_next: { pending: "Skipping next run…", success: "Next run skipped" },
+  run_now: { pending: "Requesting a run…", success: "Run requested" },
+};
+
 const scheduleViews = ["Agenda", "Day", "Week", "Month"] as const;
 type ScheduleView = (typeof scheduleViews)[number];
 
@@ -159,24 +167,11 @@ export function useScheduledTasksModel(ownerId: string, route: string = ROUTES.O
       return updated;
     });
     const notification = morphyToast.promise(request, {
-      loading:
-        operation === "pause"
-          ? "Pausing task…"
-          : operation === "skip_next"
-            ? "Skipping next run…"
-            : operation === "resume"
-            ? "Scheduling task…"
-            : "Cancelling task…",
+      loading: controlLabels[operation].pending,
       get success() {
         return settledState === "cancelling"
           ? "Stopping current work"
-          : operation === "pause"
-            ? "Task paused"
-            : operation === "skip_next"
-              ? "Next run skipped"
-              : operation === "resume"
-              ? "Task scheduled"
-              : "Task cancelled";
+          : controlLabels[operation].success;
       },
       error: "Could not confirm the change. Reopen Scheduled tasks to check.",
       isCurrent: current,
@@ -325,7 +320,7 @@ export function ScheduledTasksPanelBody({ model, selectedId, inTasks = false }: 
               <div className="min-w-0 flex-1 basis-48">
                 <p className="break-words text-sm font-medium">{task.title}</p>
                 <p className="text-xs text-muted-foreground">
-                  {scheduledTaskLabels[task.state]}
+                  {task.run_now_pending ? "Run requested" : scheduledTaskLabels[task.state]}
                   {task.state === "scheduled" ? ` · ${new Date(task.next_run_at * 1000).toLocaleString()}` : null}
                 </p>
                 <p className="text-xs text-muted-foreground">
@@ -367,7 +362,12 @@ export function ScheduledTasksPanelBody({ model, selectedId, inTasks = false }: 
                     Resume
                   </Button>
                 )}
-                {task.state === "scheduled" && task.repeat !== "once" && status?.repeat_modes?.includes("monthly") && (
+                {task.state === "scheduled" && !task.run_now_pending && status?.run_now_available && (
+                  <Button variant="ghost" size="compact"
+                    disabled={checking || Boolean(busy) || task.next_run_at < Date.now() / 1000 + 60}
+                    onClick={() => void control(task, "run_now")}>Run now</Button>
+                )}
+                {task.state === "scheduled" && !task.run_now_pending && task.repeat !== "once" && status?.repeat_modes?.includes("monthly") && (
                   <Button variant="ghost" size="compact" disabled={checking || Boolean(busy) || !status?.available}
                     onClick={() => void control(task, "skip_next")}>Skip next run</Button>
                 )}

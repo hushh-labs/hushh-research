@@ -205,6 +205,7 @@ class ScheduledTaskRunner:
                 "pending_delivery",
             }:
                 raise ExistingSchedule(row)
+            row["next_run_at"] = row.pop("regular_run_at", None) or row["next_run_at"]
             row.update(state="paused", revision=row["revision"] + 1)
             return row
 
@@ -257,18 +258,22 @@ class ScheduledTaskRunner:
                 raise ExistingSchedule(row)
             row["last_run"].update(state=outcome, finished_at=int(self.clock()))
             if row["state"] == "running":
-                following = (
-                    next_run_after(
-                        row["next_run_at"],
-                        row["repeat"],
-                        row["timezone"],
-                        int(self.clock()),
-                        anchor_at=row["first_run_at"],
-                        weekdays=row.get("weekdays"),
+                following = None
+                if outcome == "completed" and row["repeat"] != "once":
+                    regular = row.pop("regular_run_at", None)
+                    now = int(self.clock())
+                    following = (
+                        regular
+                        if regular is not None and regular > now
+                        else next_run_after(
+                            regular or row["next_run_at"],
+                            row["repeat"],
+                            row["timezone"],
+                            now,
+                            anchor_at=row["first_run_at"],
+                            weekdays=row.get("weekdays"),
+                        )
                     )
-                    if outcome == "completed"
-                    else None
-                )
                 row["state"] = (
                     "pending_delivery"
                     if following and following < row["authorization_expires_at"]
@@ -280,6 +285,8 @@ class ScheduledTaskRunner:
                     row["next_run_at"] = following
             elif row["state"] == "cancelling":
                 row["state"] = "cancelled"
+            if row["state"] in {"completed", "cancelled"}:
+                row.pop("regular_run_at", None)
             row["revision"] += 1
             if row["state"] == "pending_delivery":
                 # A completed occurrence's continuation is retained in history,
