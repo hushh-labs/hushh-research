@@ -1159,12 +1159,15 @@ def _compose_one_instruction_parts(
         identity_instruction + mail_core_instruction + drive_instruction + pod_files_instruction
     )
     location_card_instruction = ""
-    if location_review:
-        location_card = state_getter(STATE_LOCATION_CHAT_CONTINUATION)
-        if isinstance(location_card, dict):
-            location_card_instruction = "\n\nCURRENT LOCATION CARD (display data): " + json.dumps(
-                location_card, ensure_ascii=False
-            )
+    location_card = (
+        state_getter(STATE_LOCATION_CHAT_CONTINUATION)
+        if location_review and callable(state_getter)
+        else None
+    )
+    if isinstance(location_card, dict):
+        location_card_instruction = "\n\nCURRENT LOCATION CARD (display data): " + json.dumps(
+            location_card, ensure_ascii=False
+        )
     selected_drive_ref = (
         state_getter(STATE_DRIVE_SEARCH_SELECTION) if callable(state_getter) else None
     )
