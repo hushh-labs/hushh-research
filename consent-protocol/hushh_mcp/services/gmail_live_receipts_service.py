@@ -111,6 +111,38 @@ _EXTRACTOR_RETRIES = 1
 # counted with extractor_not_receipt instead of failing every other receipt on
 # the page. One such message used to block an owner's whole sync (UAT, Oct 22-29).
 _UNVERIFIED = "GMAIL_RECEIPT_EXTRACTION_UNVERIFIED"
+# One answer the model gave for one message could not be used (cut off, not
+# JSON, or off-schema). It is permanent for that answer, so it is never replayed,
+# but it must not decide the other messages on its page: UAT, Nov 26, a single
+# unreadable answer failed every scan of its page (502, not retryable), so the
+# owner's sync stalled on the same page on every attempt.
+_INVALID = "GMAIL_RECEIPT_EXTRACTION_INVALID"
+_UNREADABLE = "extractor_unreadable"  # internal; reported as extractor_not_receipt
+# A page where no answer at all was usable is a failing model, not one odd
+# email. That page still fails, so it can never pass for an empty mailbox.
+_DECODE_STAGES = frozenset({"invalid_json", "schema_mismatch", "empty_response"})
+
+
+def _schema_property_names(node: Any) -> frozenset[str]:
+    """Every property name the extractor's own output schema defines."""
+
+    names: set[str] = set()
+    if isinstance(node, dict):
+        properties = node.get("properties")
+        if isinstance(properties, dict):
+            names.update(str(name) for name in properties)
+        for child in node.values():
+            names.update(_schema_property_names(child))
+    elif isinstance(node, list):
+        for child in node:
+            names.update(_schema_property_names(child))
+    return frozenset(names)
+
+
+_EXTRACTOR_SCHEMA_FIELDS = _schema_property_names(EMAIL_LIVE_RECEIPT_EXTRACTOR_SCHEMA)
+_SCHEMA_KEYWORDS = frozenset(
+    {"required", "type", "enum", "anyOf", "items", "minItems", "maxItems", "additionalProperties"}
+)
 _RETRYABLE_EXTRACTION_CODES = frozenset(
     {
         "GMAIL_RECEIPT_EXTRACTION_TIMEOUT",
@@ -979,6 +1011,31 @@ class ReceiptReadSession:
         )
 
 
+def _extraction_failure_detail(error: BaseException) -> str:
+    """Which stage and schema field broke one answer, with no answer or email text.
+
+    Only fixed labels and the extractor schema's own property names are ever
+    returned, so the line is safe to log and exact enough to act on.
+    """
+
+    stage = getattr(error, "stage", None)
+    parts = [f"stage={stage if stage in _DECODE_STAGES else 'value_error'}"]
+    keyword = getattr(error, "keyword", None)
+    if keyword in _SCHEMA_KEYWORDS:
+        parts.append(f"keyword={keyword}")
+    fields = _EXTRACTOR_SCHEMA_FIELDS
+    named = [name for name in getattr(error, "path", ()) if name in fields]
+    if named:
+        parts.append("field=" + ".".join(named))
+    chars = getattr(error, "chars", None)
+    if isinstance(chars, int) and not isinstance(chars, bool):
+        parts.append(f"chars={chars}")
+    closed = getattr(error, "closed", None)
+    if isinstance(closed, bool):
+        parts.append(f"closed={str(closed).lower()}")
+    return " ".join(parts)
+
+
 class GmailLiveReceiptsService:
     """One stateless receipt page/detail read per owner-authorized request."""
 
@@ -1198,6 +1255,9 @@ class GmailLiveReceiptsService:
             while current is not None and id(current) not in seen:
                 seen.add(id(current))
                 if isinstance(current, ValueError):
+                    _logger.warning(
+                        "live_receipt_extraction_invalid %s", _extraction_failure_detail(current)
+                    )
                     raise GmailApiError(
                         "Receipt extraction returned an invalid result.",
                         status_code=502,
@@ -1736,6 +1796,8 @@ class GmailLiveReceiptsService:
                     except GmailApiError as exc:
                         if exc.code == _UNVERIFIED and attempt >= _EXTRACTOR_RETRIES:
                             return None, evidence, "extractor_not_receipt"  # Not verified.
+                        if exc.code == _INVALID:
+                            return None, evidence, _UNREADABLE  # Judged with its page below.
                         if (
                             exc.code not in _RETRYABLE_EXTRACTION_CODES
                             or attempt >= _EXTRACTOR_RETRIES
@@ -1746,7 +1808,31 @@ class GmailLiveReceiptsService:
             return item, evidence, None if item else "extractor_not_receipt"
 
         tasks = [asyncio.create_task(one(message)) for message in messages]
-        return list(await self._await_tasks(tasks))
+        results = list(await self._await_tasks(tasks))
+        unreadable = sum(reason == _UNREADABLE for _item, _evidence, reason in results)
+        if not unreadable:
+            return results
+        assessed = sum(
+            item is not None or reason == "extractor_not_receipt"
+            for item, _evidence, reason in results
+        )
+        if not assessed:
+            raise GmailApiError(
+                "Receipt extraction returned an invalid result.",
+                status_code=502,
+                code=_INVALID,
+            )
+        # One unusable answer is not a receipt we can vouch for, which is how
+        # an unverifiable one is already counted; the other messages still count.
+        _logger.warning(
+            "live_receipt_unreadable_skipped unreadable=%d page_candidates=%d",
+            unreadable,
+            len(results),
+        )
+        return [
+            (item, evidence, "extractor_not_receipt" if reason == _UNREADABLE else reason)
+            for item, evidence, reason in results
+        ]
 
     async def scan(
         self,

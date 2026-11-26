@@ -30,6 +30,11 @@ const ONE_EMAIL_DRAFT_TIMEOUT_MS = resolveSlowRequestTimeoutMs(75_000, {
 // A Location proposal can require more than one model turn to resolve a
 // person or circle. Keep this above the command brain's bounded assessment.
 const ONE_LOCATION_PROPOSAL_TIMEOUT_MS = 140_000;
+// The Mail brief reads the mailbox and then asks the model once. The backend
+// ends it at 50 s, so this sits just above that and under the screen's own 60 s
+// abort: under the blanket 45 s the proxy cut off a 46 s answer (UAT, Nov 26) and
+// the owner saw a gateway 504 for a call the backend completed a moment later.
+const ONE_MAIL_BRIEF_TIMEOUT_MS = 58_000;
 // A KYC Inbox scan can classify up to 30 messages and safely replay a
 // side-effect-free model turn after a transient provider failure. It must be
 // allowed to return its persisted partial/full result instead of being cut off
@@ -138,6 +143,7 @@ function resolveOneUpstreamTimeoutMs(
   if (path === "world-model/source-reviews") return 170_000;
   if (path === "finance/advisor-reviews/portfolio-analysis") return PORTFOLIO_REVIEW_UPSTREAM_TIMEOUT_MS;
   if (path === "agent-chat/proposals") return ONE_LOCATION_PROPOSAL_TIMEOUT_MS;
+  if (path === "mail/overview/brief") return ONE_MAIL_BRIEF_TIMEOUT_MS;
   if (path === "pod/lifecycle/stream") {
     return null;
   }

@@ -22,6 +22,7 @@ Mail text is untrusted data throughout and is never executed or followed.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -60,6 +61,10 @@ MAX_UPDATES = 5
 MAX_COMPLETED = 5
 COMPLETED_LOOKBACK_DAYS = 30
 _MODEL_TIMEOUT_SECONDS = 40.0
+# One answer, however many attempts it took. The Gmail reads before it take a few
+# seconds, so this stays under the web proxy's 58 s and the screen's 60 s: a slow
+# model ends as the typed "couldn't finish in time" answer, never as a bare 504.
+_BRIEF_DEADLINE_SECONDS = 50.0
 _CACHE_TTL_SECONDS = 300.0
 _CACHE_MAX = 64
 _QUOTE_MIN = 8
@@ -570,14 +575,15 @@ def verify_brief(
 
 async def _run_gene(prompt: str, user_id: str, consent_token: str) -> dict[str, Any]:
     try:
-        answer: dict[str, Any] = await run_email_gene(
-            gene_id=_GENE_ID,
-            prompt=prompt,
-            user_id=user_id,
-            consent_token=consent_token,
-            output_schema=EMAIL_OVERVIEW_BRIEF_SCHEMA,
-            timeout_seconds=_MODEL_TIMEOUT_SECONDS,
-        )
+        async with asyncio.timeout(_BRIEF_DEADLINE_SECONDS):
+            answer: dict[str, Any] = await run_email_gene(
+                gene_id=_GENE_ID,
+                prompt=prompt,
+                user_id=user_id,
+                consent_token=consent_token,
+                output_schema=EMAIL_OVERVIEW_BRIEF_SCHEMA,
+                timeout_seconds=_MODEL_TIMEOUT_SECONDS,
+            )
         return answer
     except TimeoutError:
         raise MailOverviewError(

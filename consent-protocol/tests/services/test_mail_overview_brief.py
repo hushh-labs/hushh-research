@@ -979,3 +979,18 @@ async def test_a_window_too_large_even_when_small_fails_honestly(monkeypatch):
     with pytest.raises(MailOverviewError) as failure:
         await _brief(fake, answer)
     assert (failure.value.code, failure.value.status_code) == ("BRIEF_UNAVAILABLE", 503)
+
+
+async def test_a_model_that_outlasts_the_brief_deadline_ends_as_the_typed_timeout(monkeypatch):
+    # UAT, Nov 26: a brief that needed more than the web proxy's 45 s reached the
+    # screen as a bare gateway 504. The model call itself now ends first, typed.
+    import asyncio
+
+    async def never_finishes(**_kwargs):
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(mail_overview_brief, "run_email_gene", never_finishes)
+    monkeypatch.setattr(mail_overview_brief, "_BRIEF_DEADLINE_SECONDS", 0.05)
+    with pytest.raises(MailOverviewError) as failure:
+        await mail_overview_brief._run_gene("{}", "owner", "token")
+    assert (failure.value.code, failure.value.status_code) == ("BRIEF_TIMEOUT", 504)
