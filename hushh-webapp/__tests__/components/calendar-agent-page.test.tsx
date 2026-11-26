@@ -319,6 +319,8 @@ describe("CalendarAgentPage", () => {
       expect(beacon).toHaveAttribute("data-native-data-state", "empty-valid");
       expect(beacon).toHaveAttribute("data-native-route-id", entry.expectedRoute);
       expect(beacon).toHaveAttribute("data-native-auth-state", "authenticated");
+    } else {
+      expect(screen.queryByTestId("calendar-setup-permissions")).not.toBeInTheDocument();
     }
   });
 
