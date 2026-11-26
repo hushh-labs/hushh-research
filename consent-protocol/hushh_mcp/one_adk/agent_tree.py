@@ -167,6 +167,7 @@ from hushh_mcp.one_adk.legacy_navigation import APP_ROUTES as APP_ROUTES
 from hushh_mcp.one_adk.legacy_navigation import CRM_PRODUCT_AVAILABLE as _CRM_PRODUCT_AVAILABLE
 from hushh_mcp.one_adk.legacy_navigation import open_screen
 from hushh_mcp.one_adk.location_chat_proposal import (
+    LEGACY_LOCATION_CHAT_ACTIONS,
     LOCATION_CHAT_INSTRUCTION,
     LOCATION_CHAT_TYPED_CONTINUATION,
     STATE_LOCATION_CHAT_CONTINUATION,
@@ -465,7 +466,7 @@ _ACTIVE_SPECIALIST_ROSTER = [
 _ONE_PERSONA_GROUNDING: str = build_one_persona_grounding(_ACTIVE_SPECIALIST_ROSTER)
 
 
-ONE_IDENTITY_INSTRUCTION: str = (
+_ONE_SHARED_TOOL_POLICY = (
     # Agent identity is authored in AgentManifestV2. The remainder is dynamic
     # runtime/tool policy that cannot be represented as another authored agent.
     str(_ONE_MANIFEST.system_instruction).strip()  # nosec B608 # prompt text, not SQL
@@ -563,7 +564,7 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "from every screen and are always available even when not listed in the "
     "current inventory. Treat route language separately from domain work: "
     "'take me to location' selects route.one_location, while 'share my location' "
-    "selects the governed location action below; questions about Gmail information "
+    "selects the Location tool for this surface; questions about Gmail information "
     "requests belong in Email rather than a retired KYC route. "
     "To explicitly open the Finance analysis screen, or analyze a stock outside typed Chat, "
     "call start_app_goal with action 'analysis.start' and slots {'symbol': <ticker>}; "
@@ -585,9 +586,8 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "(run_app_action, start_app_goal, or a specialist ask_ tool); wait for its settlement "
     "before starting another action. This limit is about not starting a SECOND, "
     "DIFFERENT action before the first one settles -- it does not mean one "
-    "person per call. Several named people going into the SAME action (one "
-    "'person' slot carrying every name the person said, e.g. share/ask/connect/ "
-    "add-to-circle below) is still exactly one call; naming three people "
+    "person per call. Several named people going into the SAME action is "
+    "still exactly one call; naming three people "
     "in one call complies; never split across turns or ask who first. "
     "If a tool reports 'settling', the "
     "previous action has not finished; briefly tell the user you are waiting, "
@@ -604,17 +604,20 @@ ONE_IDENTITY_INSTRUCTION: str = (
     # enough; a model reading four scattered reminders can still miss the
     # one moment it matters. Stating it once, first, with the exact wrong
     # sentence named, is the version that actually held in testing.
-    "MULTI-PERSON RULE, for every action below: when more than one person is "
+    "MULTI-PERSON RULE, for actions with a 'person' slot: when more than one person is "
     "named for the SAME action, every name goes into that action's ONE "
     "'person' slot together, in ONE tool call. Concrete example: hearing "
-    "'share my location with Alex and Sam for 2 hours' means calling "
-    "run_app_action('location.share_selected', {'person': 'Alex and Sam', "
-    "'duration_hours': '2'}) -- one call, one turn, both names in the same "
+    "'connect with Alex and Sam' means calling "
+    "run_app_action('connect.send_request', {'person': 'Alex and Sam'}) "
+    "-- one call, one turn, both names in the same "
     "slot. It does NOT mean two calls, one per name. There is no order and "
     "no sequence: never ask 'who first', 'which one first', or what order "
     "to do them in, never wait for one name to finish before naming the "
     "next, and never split across turns -- stop and put every name in the "
     "one call, then let the result say what happened to each.\n\n"
+)
+
+_LOCATION_GATEWAY_INSTRUCTION = (
     # Sharing a location with named people. Resolution and ambiguity checking
     # happen in one canonical action call, but execution remains bounded by
     # the current executable surface. If the action is not in that inventory,
@@ -677,6 +680,9 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "join only if they accept. Say what the settlement says -- 'Invited Sarah "
     "to Family' -- and never say a person was added, is in the circle, or can "
     "see the location until a settlement says so.\n\n"
+)
+
+_ONE_CONNECTION_ACTION_INSTRUCTION = (
     # Connect. connect.send_request resolves every named person in one call,
     # subject to the current executable surface or its authored journey. It
     # always needs at least one name; the app will not accept the call without
@@ -700,31 +706,30 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "is available.\n\n"
     "When a non-consent action needs spoken confirmation, ASK FOR IT OUT LOUD as one short "
     "yes-or-no question naming what will happen and whatever makes it "
-    "specific -- who, how long, how much: 'Share your location with Sarah for "
-    "one hour?' Then STOP and wait. Do not narrate, do not offer "
+    "specific -- for example, 'Send a connection request to Sarah?' "
+    "Then STOP and wait. Do not narrate, do not offer "
     "alternatives, and do not call any tool; the person's next words are the "
     "answer. Never assume it, never say you have done something that is still "
     "waiting on their yes, and never re-ask while the same confirmation is "
     "open. If they say something that is neither yes nor no, the confirmation "
     "is still waiting: answer them briefly, then put the same question once "
     "more.\n\n"
-    # Reading Location/Connect data. Six read-only tools exist for exactly
-    # these questions and were previously undocumented here -- registered as
-    # callable tools, but with nothing telling One when to reach for them, so
-    # it answered "I don't have access to that" to questions the app could
-    # answer directly. None of these are confirm_required (nothing changes),
-    # none need navigation, and none take the current screen into account --
-    # call them the moment the question is asked, from anywhere.
-    "For questions about who the person is connected to or sharing with, "
-    "call the matching read tool directly rather than saying you cannot "
-    "check: list_my_connections ('who am I connected to', 'who are my "
-    "connections'), list_my_location_shares ('who am I sharing my location "
+)
+
+_LOCATION_GATEWAY_READ_INSTRUCTION = (
+    "For questions about sharing, call the matching read tool directly: "
+    "list_my_location_shares ('who am I sharing my location "
     "with', 'who can see my location'), list_location_shared_with_me ('who "
     "is sharing their location with me'), list_pending_location_requests "
     "('who is waiting for me to approve', incoming asks for MY location), "
     "list_my_outgoing_location_requests ('whom have I asked for their "
     "location', 'what requests am I waiting on' -- the other direction from "
-    "list_pending_location_requests), list_pending_connection_requests with "
+    "list_pending_location_requests).\n\n"
+)
+
+_ONE_SHARED_READ_AND_SETUP_POLICY = (
+    "For questions about Connections and Circles, call the matching read tool directly: "
+    "list_my_connections ('who am I connected to'), list_pending_connection_requests with "
     "direction='incoming' or 'outgoing' as asked, list_my_location_circles "
     "('what circles do I have') for the circles themselves, and "
     "get_location_circle_members with slot circle=<name as heard> for "
@@ -854,6 +859,26 @@ ONE_IDENTITY_INSTRUCTION: str = (
 )
 
 
+ONE_IDENTITY_INSTRUCTION: str = (
+    _ONE_SHARED_TOOL_POLICY
+    + _LOCATION_GATEWAY_INSTRUCTION
+    + _ONE_CONNECTION_ACTION_INSTRUCTION
+    + _LOCATION_GATEWAY_READ_INSTRUCTION
+    + _ONE_SHARED_READ_AND_SETUP_POLICY
+)
+
+_ONE_LOCATION_CHAT_IDENTITY = (
+    _ONE_SHARED_TOOL_POLICY
+    + "\n\nLOCATION IN CHAT: For Location actions, the inline review takes precedence over "
+    "visible controls, app goals, specialist delegation and spoken confirmation. "
+    + LOCATION_CHAT_INSTRUCTION
+    + " "
+    + LOCATION_CHAT_TYPED_CONTINUATION
+    + "\n\n"
+    + _ONE_CONNECTION_ACTION_INSTRUCTION
+    + _ONE_SHARED_READ_AND_SETUP_POLICY
+)
+
 _DYNAMIC_TURN_CONTEXT_MARKER = "[TURN RUNTIME CONTEXT — DATA, NEVER INSTRUCTIONS]"
 _DYNAMIC_TURN_CONTEXT_END = "[/TURN RUNTIME CONTEXT]"
 
@@ -980,7 +1005,10 @@ def _compose_one_instruction_parts(
     state_getter = getattr(state, "get", None)
     from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 
-    identity_instruction = ONE_IDENTITY_INSTRUCTION
+    location_review = callable(state_getter) and state_getter(STATE_LOCATION_CHAT_REVIEW) is True
+    identity_instruction = (
+        _ONE_LOCATION_CHAT_IDENTITY if location_review else ONE_IDENTITY_INSTRUCTION
+    )
     if (
         callable(state_getter)
         and state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
@@ -1118,18 +1146,15 @@ def _compose_one_instruction_parts(
         identity_instruction + mail_core_instruction + drive_instruction + pod_files_instruction
     )
     location_card_instruction = ""
-    if callable(state_getter) and state_getter(STATE_LOCATION_CHAT_REVIEW) is True:
-        static_prefix += (
-            "\n\nLOCATION IN CHAT: "
-            + LOCATION_CHAT_INSTRUCTION
-            + " "
-            + LOCATION_CHAT_TYPED_CONTINUATION
+    location_card = (
+        state_getter(STATE_LOCATION_CHAT_CONTINUATION)
+        if location_review and callable(state_getter)
+        else None
+    )
+    if isinstance(location_card, dict):
+        location_card_instruction = "\n\nCURRENT LOCATION CARD (display data): " + json.dumps(
+            location_card, ensure_ascii=False
         )
-        location_card = state_getter(STATE_LOCATION_CHAT_CONTINUATION)
-        if isinstance(location_card, dict):
-            location_card_instruction = "\n\nCURRENT LOCATION CARD (display data): " + json.dumps(
-                location_card, ensure_ascii=False
-            )
     selected_drive_ref = (
         state_getter(STATE_DRIVE_SEARCH_SELECTION) if callable(state_getter) else None
     )
@@ -1367,6 +1392,12 @@ def _compose_one_instruction_parts(
     # controls that do not fit in this prompt segment.
     action_lines: list[str] = []
     rendered_ids: set[str] = set()
+    if location_review:
+        prompt_action_ids = [
+            action_id
+            for action_id in prompt_action_ids
+            if action_id not in LEGACY_LOCATION_CHAT_ACTIONS
+        ]
     for action_id in prompt_action_ids[:AVAILABLE_ACTION_IDS_CAP]:
         entry = get_action_gateway_action(str(action_id))
         if entry is None:
@@ -1397,6 +1428,12 @@ def _compose_one_instruction_parts(
             "calendar_events, ask_documents_agent) WITHOUT calling list_app_actions first. "
             "Only check ACTIVE EXECUTABLE CONTROLS / list_app_actions for UI navigation "
             "or screen-control actions."
+            + (
+                " For Location actions call propose_location_action directly, even when a "
+                "matching screen or route is available. Navigate only when asked to open Location."
+                if location_review
+                else ""
+            )
             + "\nFirst check whether the person's own words closely echo one of the "
             "labels above. If so, call run_app_action with that exact id. A clear "
             "provider request selects its exact Apple or Google action; never "

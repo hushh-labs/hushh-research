@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { NearbyCheckInSheet } from "@/components/one-location/nearby-check-in/nearby-check-in-sheet";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { MainLocationProposal, MainLocationTarget } from "@/lib/agent/main-chat-location";
 import { useBackLayer } from "@/lib/navigation/back-layers";
@@ -47,7 +48,7 @@ async function loadAudience(token: string, ownerId: string, choices: MainLocatio
   return [...audience.values()];
 }
 
-export function LocationChatCheckIn({ proposal, ownerId, token, vaultKey, capturePoint, onBack, onChanged, renderPoint }: {
+export function LocationChatCheckIn({ proposal, ownerId, token, capturePoint, onBack, onChanged, renderPoint }: {
   proposal: MainLocationProposal;
   ownerId: string;
   token: string;
@@ -57,38 +58,19 @@ export function LocationChatCheckIn({ proposal, ownerId, token, vaultKey, captur
   onChanged: () => void;
   renderPoint: (point: PlainLocationPoint) => ReactNode;
 }) {
-  if (proposal.action === "nearby_check_in") return <NearbyReview ownerId={ownerId} token={token} vaultKey={vaultKey} onBack={onBack} onChanged={onChanged} />;
+  if (proposal.action === "nearby_check_in") return <NearbyReview />;
   return <PrivateCheckIn proposal={proposal} ownerId={ownerId} token={token}
     capturePoint={capturePoint} onBack={onBack} onChanged={onChanged} renderPoint={renderPoint} />;
 }
 
-function NearbyReview({ ownerId, token, vaultKey, onBack, onChanged }: {
-  ownerId: string; token: string; vaultKey?: string | null; onBack: () => void; onChanged: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [status, setStatus] = useState<string>();
-  const hadPresence = useRef(false);
+function NearbyReview() {
   if (!isOneLocationNearbyCheckInAvailable()) return <LocationChatActionCard model={{
     phase: "result", title: "Nearby check-in", status: "Nearby check-in is unavailable in this app.",
   }} />;
-  return <>
-    <LocationChatActionCard model={{
-      phase: "result", title: "Nearby check-in", status,
-      description: "Find venues near you, review a check-in, or check out.",
-      actions: [{ id: "open", label: "Review Nearby", variant: "primary" }, { id: "cancel", label: "Close" }],
-    }} onRecover={(id, event) => {
-      if (id === "cancel") onBack();
-      else if (event.nativeEvent.isTrusted) setOpen(true);
-    }} />
-    {open ? <NearbyCheckInSheet open ownerId={ownerId} vaultOwnerToken={token} vaultKey={vaultKey}
-      captureCurrentPosition={(options) => OneLocationService.captureCurrentPosition(options)}
-      onOpenChange={(next) => setOpen(next)}
-      onStateChange={(state, confirmed) => {
-        setStatus(state.presence ? `Checked in at ${state.presence.placeLabel || "a nearby place"}.` : "No active Nearby check-in.");
-        if (confirmed || (hadPresence.current && !state.presence)) onChanged();
-        hadPresence.current = Boolean(state.presence);
-      }} /> : null}
-  </>;
+  return <LocationChatActionCard model={{
+    phase: "result", title: "Nearby check-in",
+    description: "Choose a nearby place or manage your active check-in.",
+  }} map={<Button asChild size="sm"><Link href={ROUTES.ONE_LOCATION_CHECK_IN} prefetch={false}>Open check-in</Link></Button>} />;
 }
 
 function PrivateCheckIn({ proposal, ownerId, token, capturePoint, onBack, onChanged, renderPoint }: Omit<Parameters<typeof LocationChatCheckIn>[0], "vaultKey">) {

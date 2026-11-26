@@ -47,6 +47,8 @@ LocationChatAction = Literal[
     "manage_ratings",
     "manage_contacts",
     "manage_settings",
+    "enable_auto_approve",
+    "disable_auto_approve",
     "manage_links",
     "check_in",
     "nearby_check_in",
@@ -68,6 +70,8 @@ _UNTARGETED_ACTIONS = frozenset(
         "manage_ratings",
         "manage_contacts",
         "manage_settings",
+        "enable_auto_approve",
+        "disable_auto_approve",
         "manage_links",
         "nearby_check_in",
         "view_self",
@@ -99,10 +103,16 @@ LOCATION_CHAT_INSTRUCTION = (
     "share_private when the person chooses private sharing without specifying a mode. "
     "Carry named Connections and Circles into the picker. Use share_public "
     "for an explicitly requested public link and leave people and circles empty. "
-    "share_pin sends a one-time current pin; share_live shares ongoing updates. "
+    "Use share_pin for a one-time current pin and share_live for ongoing updates. "
+    "A duration specifies live sharing. If you just asked how long to share with a "
+    "named connection or Circle and the reply is '1 hour', call propose_location_action "
+    "with share_live, the original audience and duration_hours=1 in that turn. "
     "Include every named "
     "person and existing Circle in one proposal. 'Ask Maya to share' uses ask and reuses "
-    "an active share. 'Show me Maya's location' uses view and sends no request. Use "
+    "an active share. Asking for someone else's location needs no GPS on the sender's "
+    "device. Offer request review immediately. The card handles setup and device "
+    "permission for actions that need them, in this conversation. "
+    "'Show me Maya's location' uses view and sends no request. Use "
     "list_shares and list_requests with incoming or outgoing when specified. stop ends "
     "a share, set_duration replaces its duration, extend adds time to your share, "
     "ask_extension asks the owner for more time, approve and decline answer incoming "
@@ -125,10 +135,16 @@ LOCATION_CHAT_INSTRUCTION = (
     "place ratings, manage_contacts to find contacts or review contact invitations, "
     "manage_links to review or stop public links, "
     "and manage_settings for Location settings, pause, precision, ghost mode, "
-    "auto-sharing and notification preferences. Use check_in for privately sharing "
-    "a check-in with a trusted person or Circle. Use nearby_check_in to check in "
-    "at a venue, review nearby presence or check out. The person chooses or confirms "
-    "the change in Chat. Use view_self for 'where am I' or 'show my current location' "
+    "and notification preferences. To turn on automatic approval of incoming Location "
+    "requests use enable_auto_approve, carrying explicitly named Circles. To turn it "
+    "off use disable_auto_approve. The owner reviews the scope in this chat. "
+    "Use check_in for privately sharing "
+    "a check-in with a trusted person or Circle. For 'check me in here', 'check in' "
+    "without a recipient, checking in at a venue, nearby presence or checkout, "
+    "call nearby_check_in immediately. A fresh request opens the Check-in screen automatically. "
+    "Its venue picker uses the device's current position. Never infer a venue from memory. "
+    "The person chooses or confirms the venue change on the Check-in screen. Returning to "
+    "this conversation offers a control to reopen it. Use view_self for 'where am I' or 'show my current location' "
     "to offer a device location preview. This preview shares nothing. "
     "Never pass IDs, coordinates or inferred people. "
     "Leave unknown duration empty. Use until_stopped only when explicitly requested. "
@@ -233,12 +249,18 @@ def location_chat_enabled() -> bool:
 
 
 def admit_location_chat_review(forwarded: dict[str, Any], *, owner_admitted: bool) -> bool:
-    return (
-        owner_admitted
-        and location_chat_enabled()
-        and forwarded.get("mainChat") is True
-        and forwarded.get("locationChatReview") is True
-    )
+    if (
+        not owner_admitted
+        or not location_chat_enabled()
+        or forwarded.get("locationChatReview") is not True
+    ):
+        return False
+    screen = forwarded.get("screenContext")
+    if screen is None:
+        # Older pinned One clients advertised this capability without a screen snapshot.
+        return forwarded.get("mainChat") is True
+    route = screen.get("route") if isinstance(screen, dict) else None
+    return isinstance(route, dict) and route.get("pathname") == "/"
 
 
 def legacy_location_chat_action(state: Any, action_id: str) -> dict[str, str] | None:
@@ -309,6 +331,7 @@ class LocationChatIntent(BaseModel):
             "share_private",
             "ask",
             "manage_circles",
+            "enable_auto_approve",
             "check_in",
         }:
             raise ValueError("This action does not accept Circles.")
@@ -375,7 +398,8 @@ def propose_location_action(
     Actions are share_options, share_private, share_public, share_live, share_pin, ask, view, list_shares, list_requests,
     stop, set_duration, extend, ask_extension, approve, decline, setup_location,
     enable_location, enable_device_location, resume_updates, sos_review, sos_stop,
-    sms_contacts, manage_circles, manage_places, manage_ratings, manage_contacts, manage_settings, manage_links,
+    sms_contacts, manage_circles, manage_places, manage_ratings, manage_contacts, manage_settings,
+    enable_auto_approve, disable_auto_approve, manage_links,
     check_in, nearby_check_in, and view_self. People
     and Circles are names as given, not IDs. Supply duration_hours as a
     number only when stated. For list direction use incoming, outgoing, or all.
