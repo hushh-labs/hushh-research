@@ -132,6 +132,44 @@ describe("useChatMemory chat-switching and vault-lock boundaries", () => {
     expect(runtimeMocks.trigger).toHaveBeenCalledTimes(1);
   });
 
+  it("captures the owner's reminder without copying Location review metadata into memory", async () => {
+    const messages = [
+      {
+        id: "location-card",
+        role: "assistant" as const,
+        text: "Review your Location share.",
+        locationChatProposal: { id: "location-review-id", people: ["Synthetic recipient"] },
+      },
+      {
+        id: "remember",
+        role: "user" as const,
+        text: "Remember that I prefer short live shares.",
+      },
+    ];
+    renderHook(() =>
+      useChatMemory({
+        userId: "owner-1",
+        vaultKey: "vault-key",
+        vaultEpoch: 1,
+        vaultOwnerToken: "vault-token",
+        getToken: () => "vault-token",
+        conversationId: "chat-location",
+        messages,
+      }),
+    );
+
+    await vi.waitFor(() => expect(runtimeMocks.registerSnapshot).toHaveBeenCalledOnce());
+    const snapshot = runtimeMocks.registerSnapshot.mock.calls[0]![0];
+    expect(snapshot).toMatchObject({
+      messages: [
+        { content: "Review your Location share." },
+        { content: "Remember that I prefer short live shares." },
+      ],
+    });
+    expect(JSON.stringify(snapshot)).not.toMatch(/location-review-id|Synthetic recipient/);
+    await vi.waitFor(() => expect(runtimeMocks.trigger).toHaveBeenCalledWith("remember"));
+  });
+
   it("triggers remember immediately for natural wiki and scope save instructions in chat", async () => {
     renderHook(() =>
       useChatMemory({

@@ -89,7 +89,7 @@ export function ShareLaneRow({
     : comparison || category
       ? isSms ? "Stop SMS" : "Stop"
       : "Stop";
-  const changeTimeControl = !isSms && onChangeEndTime ? (
+  const changeTimeControl = !isSms && grant.shareKind !== "pin" && onChangeEndTime ? (
     <Button data-location-type-role="utility-action"
       type="button"
       variant="link"
@@ -116,7 +116,7 @@ export function ShareLaneRow({
         <p data-location-type-role="row-title" className={cn(
           TYPOGRAPHY_CLASSNAMES.rowLabel,
           "flex min-w-0 items-center gap-1.5 text-foreground",
-          comparison && "@min-[46rem]:sr-only",
+          comparison && grant.shareKind !== "pin" && "@min-[46rem]:sr-only",
           (comparison || category) && "ui-text-row-label-compact",
           comparison && isSms && "text-[color:var(--app-destructive)]",
         )}>
@@ -126,7 +126,8 @@ export function ShareLaneRow({
               aria-hidden="true"
             />
           ) : null}
-          {category ? counterpartName : comparison && isSms ? "SMS" : grantLaneLabel(grant)}
+          {category && grant.shareKind !== "pin" ? counterpartName : category
+            ? `${counterpartName} · ${grantLaneLabel(grant)}` : comparison && isSms ? "SMS" : grantLaneLabel(grant)}
         </p>
         <p data-location-type-role="row-description" className={cn(TYPOGRAPHY_CLASSNAMES.rowDescription, MUTED_TEXT, "[overflow-wrap:anywhere]", (comparison || category) && "ui-text-row-description-compact")}>
           {grant.durationMode === "until_stopped" ? (
