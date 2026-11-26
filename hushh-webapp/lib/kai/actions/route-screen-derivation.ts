@@ -329,6 +329,9 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.PKM_RECENT) {
     return { screen: "pkm_recent", subview: null };
   }
+  if (normalizedPath === ROUTES.PKM_LOGINS) {
+    return { screen: "pkm_logins", subview: null };
+  }
   if (normalizedPath === ROUTES.PKM_LOCATION) {
     return { screen: "pkm_location", subview: null };
   }

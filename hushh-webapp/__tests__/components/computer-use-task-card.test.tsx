@@ -14,7 +14,9 @@ import {
   WorkspaceSplitPaneDock,
   WorkspaceSplitPaneProvider,
 } from "@/components/computer-use/workspace-split-pane";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import type { NativeSessionPrivacyState } from "@/lib/capacitor/session-privacy";
+import { snapshotValidatedAuthSessionOwner, publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { areScheduledTasksAvailable, PodScheduledTasksClient } from "@/lib/services/pod-scheduled-tasks";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
@@ -30,7 +32,12 @@ vi.mock("@/lib/morphy-ux/morphy", () => ({
 const credentials = vi.hoisted(() => ({ list: vi.fn(), seal: vi.fn(), recipient: vi.fn() }));
 vi.mock("@/lib/pkm/credentials-vault-service", () => ({ CredentialsVaultService: { list: credentials.list }, sealTransientCredentialUse: credentials.seal }));
 vi.mock("@/lib/one/ai-selection-recipient", () => ({ agentRecipientFromBinding: credentials.recipient }));
-vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-vault-owner" }) }));
+const credentialSession = vi.hoisted(() => ({ key: "synthetic-key" as string | null, token: "synthetic-vault-owner" as string | null,
+  privacy: undefined as NativeSessionPrivacyState | undefined, listeners: new Set<() => void>() }));
+vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: credentialSession.key, vaultOwnerToken: credentialSession.token,
+  getVaultKey: () => credentialSession.key, getVaultOwnerToken: () => credentialSession.token }) }));
+vi.mock("@/lib/capacitor/session-privacy", () => ({ nativePrivacyObservation: () => ({ state: credentialSession.privacy }),
+  subscribeNativePrivacyObservation: (listener: () => void) => { credentialSession.listeners.add(listener); return () => credentialSession.listeners.delete(listener); } }));
 
 const binding: ComputerUseBinding = {
   ownerId: "owner", podId: "pod", incarnation: "incarnation", taskId: "task", environment: "development",
@@ -146,6 +153,10 @@ beforeEach(() => {
   api.getComputerUseAdmission.mockReset().mockResolvedValue(null);
   api.ownerPodRequest.mockReset();
   api.apiFetch.mockReset();
+  api.ownerCredentialSealContext.mockReset().mockResolvedValue({});
+  credentials.list.mockReset(); credentials.seal.mockReset();
+  credentials.recipient.mockReset().mockResolvedValue({ hushhId: "pod", podKeyId: "key", publicKey: "synthetic-public-key" });
+  credentialSession.key = "synthetic-key"; credentialSession.token = "synthetic-vault-owner"; credentialSession.privacy = undefined;
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
@@ -912,8 +923,7 @@ it.each(["owner", "selection"])("fences a saved-login choice when its %s changes
   fireEvent.click(await screen.findByRole("button", { name: "Use saved login" }));
   const choose = await screen.findByRole("button", { name: "Synthetic account · s…" });
   if (fault === "owner") {
-    publishValidatedAuthSessionOwner(null);
-    publishValidatedAuthSessionOwner("owner");
+    act(() => { publishValidatedAuthSessionOwner(null); publishValidatedAuthSessionOwner("owner"); });
   } else {
     const replacement = { ...pending, revision: 2, controlEpoch: 2,
       credentialRequest: { ...selection, operationId: "credential_replacement" } };
@@ -939,4 +949,59 @@ it("keeps protected-entry status live while stopping all preview frames", async 
   fireEvent(document, new Event("visibilitychange"));
   await waitFor(() => expect(screen.getByRole("button", { name: "View browser" })).toBeEnabled());
   view.unmount();
+});
+
+
+it.each(["lock", "epoch", "privacy"])("retires delayed saved-login reads and sealing on same-owner %s", async (retirement) => {
+  const identity = snapshotValidatedAuthSessionOwner();
+  const wire = transport();
+  const selection = { operationId: "credential_operation", handle: "owner_selection", origin: "https://example.com" };
+  const pending = snapshot({ phase: "needs_owner", savedLoginsAvailable: true, credentialRequest: selection,
+    authorizationExpiresAt: Math.floor(Date.now() / 1000) + 600 });
+  const summaries = [{ id: "cred_" + "a".repeat(32), label: "Private account", usernameHint: "private hint",
+    boundOrigins: [selection.origin], autonomyPolicy: "vault_only" as const }];
+  wire.credentials = vi.fn().mockResolvedValue([]);
+  wire.useTransientCredential = vi.fn().mockResolvedValue(snapshot({ credentialEntryActive: true }));
+  const controller = new ComputerUseTaskController(binding, wire);
+  vi.mocked(wire.read).mockResolvedValue(pending);
+  await controller.refresh();
+  const retire = () => {
+    if (retirement === "lock") { credentialSession.key = null; credentialSession.token = null; advanceVaultSessionEpoch(); }
+    else if (retirement === "epoch") advanceVaultSessionEpoch();
+    else { credentialSession.privacy = { shielded: true, generation: 1, appIsActive: false, cause: "inactive" };
+      credentialSession.listeners.forEach(listener => listener()); }
+  };
+  const restore = () => {
+    credentialSession.key = "synthetic-key"; credentialSession.token = "synthetic-vault-owner";
+    credentialSession.privacy = undefined; credentialSession.listeners.forEach(listener => listener());
+    advanceVaultSessionEpoch();
+  };
+  // A list response born before retirement cannot repopulate its private labels.
+  let finishRead!: (value: typeof summaries) => void;
+  credentials.list.mockImplementationOnce(() => new Promise(resolve => { finishRead = resolve; }));
+  const view = render(<ComputerUseCredentials controller={controller} snapshot={pending} route="/one" pending={false} />);
+  fireEvent.click(screen.getByRole("button", { name: "Use saved login" }));
+  await waitFor(() => expect(credentials.list).toHaveBeenCalledOnce());
+  act(retire);
+  await act(async () => finishRead(summaries));
+  expect(screen.queryByText("Private account · private hint")).toBeNull();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(snapshotValidatedAuthSessionOwner()).toEqual(identity);
+  // Restore the same owner's new vault presentation, then retire an in-flight
+  // vault-only seal. Both its inner beforeEffect and final dispatch stay fenced.
+  act(restore);
+  credentials.list.mockResolvedValue(summaries);
+  let finishSeal!: (value: unknown) => void;
+  let beforeEffect!: () => Promise<void>;
+  credentials.seal.mockImplementationOnce(context => { beforeEffect = context.beforeEffect;
+    return new Promise(resolve => { finishSeal = resolve; }); });
+  fireEvent.click(screen.getByRole("button", { name: "Use saved login" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Private account · private hint" }));
+  await waitFor(() => expect(credentials.seal).toHaveBeenCalledOnce());
+  act(retire);
+  await act(async () => finishSeal({ envelope: { aad: { operationId: selection.operationId, controlEpoch: 1 } }, selection: {} }));
+  expect(wire.useTransientCredential).not.toHaveBeenCalled();
+  await expect(beforeEffect()).rejects.toThrow();
+  expect(snapshotValidatedAuthSessionOwner()).toEqual(identity);
+  view.unmount(); controller.dispose();
 });
