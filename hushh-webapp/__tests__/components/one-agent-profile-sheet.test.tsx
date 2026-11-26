@@ -408,7 +408,7 @@ describe("One agent profile feed preview", () => {
     expect(screen.getByRole("heading", { name: "One" })).toBeInTheDocument();
   });
 
-  it("renders the live Activity workspace (Action logs + Sandbox terminal) only when visible and keeps Feed separate", async () => {
+  it("renders the live Activity workspace (Action logs) only when visible, without manual terminal bloat, and keeps Feed separate", async () => {
     const view = render(
       <OneAgentProfileSheet
         open={false}
@@ -447,22 +447,13 @@ describe("One agent profile feed preview", () => {
     expect(await screen.findByTestId("one-activity-workspace")).toBeInTheDocument();
     expect(screen.getByText("Updated 2026 cashflow goals")).toBeInTheDocument();
     expect(screen.getByText("420ms")).toBeInTheDocument();
-    expect(screen.getByTestId("workspace-terminal-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("workspace-terminal-panel")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Sandbox terminal/i })).toBeNull();
     expect(screen.queryByRole("tab", { name: "Feed" })).toBeNull();
 
     openProfileTab();
     const memory = await screen.findByRole("link", { name: "Open Memory" });
     expect(memory).toHaveAttribute("href", "/one/pkm");
-  });
-
-  it("toggles the Sandbox terminal section inside the Activity workspace", async () => {
-    render(<OneAgentProfileSheet open onOpenChange={mocks.close} />);
-    expect(await screen.findByTestId("workspace-terminal-panel")).toBeInTheDocument();
-    const toggle = screen.getByRole("button", { name: /Sandbox terminal/i });
-    fireEvent.click(toggle);
-    expect(screen.queryByTestId("workspace-terminal-panel")).toBeNull();
-    fireEvent.click(toggle);
-    expect(screen.getByTestId("workspace-terminal-panel")).toBeInTheDocument();
   });
 
   it("keeps native One on the shared hero and tabs without replacing the pane or leaking another owner's name", async () => {

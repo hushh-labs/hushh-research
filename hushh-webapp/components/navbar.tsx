@@ -301,7 +301,7 @@ export const Navbar = ({
     const run = () => {
       for (const href of pending) {
         prefetchedTabHrefs.add(href);
-        router.prefetch(href);
+        router.prefetch(href, { kind: "full" as never });
       }
     };
     const idle = (window as Window & {
