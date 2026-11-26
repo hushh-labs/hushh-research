@@ -872,6 +872,8 @@ def _run_adoption_binding(tmp_path, lane, project, service, prefix):
             (
                 'append_optional_env "ONE_METRICS_UAT_ADOPTION_ENABLED" ',
                 'append_optional_env "ONE_METRICS_ADOPTION_ENABLED" ',
+                'append_optional_env "ONE_PLG_ACTIVITY_ENABLED" ',
+                'append_optional_env "ONE_PLG_ACTIVITY_ALL_REGISTERED" ',
             )
         )
     )
@@ -928,6 +930,8 @@ def test_production_one_adoption_pins(tmp_path, lane, project, service, prefix, 
         assert result.stdout.splitlines() == [
             "BASE=baseline",
             "ONE_METRICS_ADOPTION_ENABLED=true",
+            "ONE_PLG_ACTIVITY_ENABLED=true",
+            "ONE_PLG_ACTIVITY_ALL_REGISTERED=true",
             "BASE=BASE:latest,"
             "ONE_METRICS_ADOPTION_SECRET=ONE_METRICS_ADOPTION_SECRET:7,"
             "ONE_METRICS_ADOPTION_BINDING_JSON=ONE_METRICS_ADOPTION_BINDING_JSON:12",
