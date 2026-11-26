@@ -223,3 +223,25 @@ def test_source_projection_cannot_impersonate_other_authorizations(receipt_field
     payload["confirmation_receipt"].update(receipt_field)
     with pytest.raises(ValidationError, match="source_projection_receipt_invalid"):
         PkmMutationPlanV2.model_validate(payload)
+
+
+def test_mail_watch_receipt_is_limited_to_an_existing_private_task_collection():
+    payload = _plan(
+        operation="update",
+        proposed_domain="one_todos",
+        writer_id="one_todo_list_mail_watch",
+        source_scope_handle="s_abcdefabcdef",
+    )
+    payload["confirmation_receipt"].update(
+        displayed_domain="one_todos", authorization_mode="owner_mail_watch"
+    )
+    plan = PkmMutationPlanV2.model_validate(payload)
+    validate_mutation_plan_for_write(plan=plan, authenticated_user_id="user-1", domain="one_todos")
+    for override in [
+        {"operation": "create"},
+        {"operation": "delete"},
+        {"writer_id": "owner_confirmed_write"},
+        {"affected_export_ids": ["export-1"]},
+    ]:
+        with pytest.raises(ValueError, match="mail_watch_requires_private_task_update"):
+            PkmMutationPlanV2.model_validate({**payload, **override})

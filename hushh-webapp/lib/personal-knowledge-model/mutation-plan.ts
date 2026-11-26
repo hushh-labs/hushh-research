@@ -111,7 +111,15 @@ export type PkmSourceProjectionAuthorization = {
   source: "one_living_memory_source_projection";
 };
 
+export type MailWatchSettlement = {
+  authorizationMode: "owner_mail_watch";
+  confirmedByUser?: never;
+  surface: "web";
+  source: "one_todo_list_mail_watch";
+};
+
 export type PkmWriteAuthorization =
+  | MailWatchSettlement
   | PkmSourceProjectionAuthorization
   | PkmUserConfirmation
   | PkmConnectedSourceSyncAuthorization
@@ -178,6 +186,7 @@ export type PkmMutationPlanV2 = {
     displayed_scope: string;
     sharing_impact_acknowledged: boolean;
     authorization_mode:
+      | "owner_mail_watch"
       | "owner_confirmed"
       | "owner_auto_save_policy"
       | "owner_requested_workflow"
@@ -324,18 +333,19 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
     params.confirmation.authorizationMode === "owner_source_projection"
       ? params.confirmation
       : null;
+  const mailWatch = params.confirmation.authorizationMode === "owner_mail_watch";
   const ownerConfirmation =
     automatic ||
     workflowAuthorization ||
     connectedSourceSync ||
-    sourceProjection
+    sourceProjection || mailWatch
       ? null
       : (params.confirmation as PkmUserConfirmation);
   if (
     !automatic &&
     !workflowAuthorization &&
     !connectedSourceSync &&
-    !sourceProjection &&
+    !sourceProjection && !mailWatch &&
     params.confirmation.confirmedByUser !== true
   ) {
     throw new Error("PKM mutation requires explicit owner confirmation.");
@@ -356,6 +366,8 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
     registryHandle(params.targetManifest, scope) || sourceHandle;
   const operation =
     params.operation || (params.currentManifest ? "update" : "create");
+  if (mailWatch && (domain !== "one_todos" || !["update", "merge"].includes(operation)))
+    throw new Error("Mail watching may only settle an existing Task.");
   if (
     sourceProjection &&
     (domain !== "one_living_sources" || operation === "delete")
@@ -394,7 +406,7 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
     automatic || connectedSourceSync
       ? new Date().toISOString()
       : ownerConfirmation?.confirmedAt || new Date().toISOString();
-  const authorizationReceipt = sourceProjection
+  const authorizationReceipt = mailWatch ? { authorization_mode: "owner_mail_watch" as const } : sourceProjection
     ? { authorization_mode: "owner_source_projection" as const }
     : automaticAuthorization
       ? {
@@ -438,7 +450,7 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
     confidence: Math.max(0, Math.min(1, params.confidence ?? 1)),
     explanation:
       params.explanation ||
-      (sourceProjection
+      (mailWatch ? "Settled an explicitly watched Task from matching private Mail evidence." : sourceProjection
         ? "Rebuilt the private encrypted source inventory from owner-scoped source records; no per-write review or sharing is claimed."
         : connectedSourceSync
           ? `Refreshed ${titleize(domain)} / ${titleize(scope)} from a financial connection the owner linked (${connectedSourceSync.connectedSourceProvider}); no per-write review is claimed.`

@@ -4,6 +4,7 @@ import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { MailActionButton } from "./mail-action-button";
 import { MailFollowupsBoard } from "./mail-followups-board";
+import { checkMailFollowup, useSettledMailTasks } from "./mail-followups-session-watch";
 import {
   type FollowupMailbox,
   type MailFollowup,
@@ -29,33 +30,6 @@ import {
 
 type Rows = z.infer<typeof sourceListSchema>["items"];
 type Evidence = z.infer<typeof evidenceSchema>;
-
-async function recordReply(
-  scheduler: PodScheduledTasksClient,
-  session: TodoWriteParams,
-  task: TodoItem,
-  received: NonNullable<MailFollowup["received"]>,
-  signal: AbortSignal,
-) {
-  const id = task.mailFollowup?.scheduleId;
-  if (id) {
-    const status = await scheduler.status(signal);
-    const scheduled = status.tasks.find(
-      (row) => row.id === id && row.capability === MAIL_FOLLOWUP_TEMPLATE,
-    );
-    if (!scheduled)
-      throw new Error("Could not verify the scheduled follow-up.");
-    if (scheduled.state === "cancelling")
-      throw new Error("Mail is waiting for cancellation to finish.");
-    if (scheduled.state !== "completed" && scheduled.state !== "cancelled") {
-      const updated = await scheduler.control(scheduled, "cancel", signal);
-      if (updated.state !== "cancelled")
-        throw new Error("Mail is waiting for cancellation to finish.");
-    }
-  }
-  signal.throwIfAborted();
-  return tasks.updateMail(session, task, { received });
-}
 
 export function MailFollowupsScreen({
   session,
@@ -227,27 +201,8 @@ export function MailFollowupsScreen({
     setView("plan");
   }
   async function check(task: TodoItem, signal: AbortSignal) {
-    const item = task.mailFollowup!;
-    if (
-      !box ||
-      item.account !== box.account ||
-      item.connection !== box.connection
-    )
-      throw new Error("Mailbox changed.");
-    if (task.status !== "pending") return false;
-    const found = await mail.check(box, item, signal);
-    if (!found.source) return false;
-    signal.throwIfAborted();
-    const result = await recordReply(
-      scheduler,
-      session,
-      task,
-      { source: found.source, filename: found.filename },
-      signal,
-    );
-    if (!result.success)
-      throw new Error("The task changed. Reopen Follow-ups.");
-    return true;
+    if (!box) throw new Error("Mailbox changed.");
+    return checkMailFollowup(session, task, box, scheduler, signal, mail);
   }
   function watch(task: TodoItem) {
     void run(
@@ -269,79 +224,15 @@ export function MailFollowupsScreen({
         setNotice(
           done
             ? "The matching reply arrived. Task completed."
-            : "Watching for the requested reply while this board is open.",
+            : "Watching for the requested reply while One is open and your vault is unlocked.",
         );
       },
     );
   }
-  useEffect(() => {
-    if (!box || view !== "board") return;
-    const pending = items.filter(
-      (row) =>
-        row.status === "pending" &&
-        row.mailFollowup?.watching &&
-        row.mailFollowup.account === box.account &&
-        row.mailFollowup.connection === box.connection,
-    );
-    if (!pending.length) return;
-    const controller = new AbortController();
-    let running = false;
-    async function refreshWatched() {
-      if (
-        running ||
-        document.visibilityState === "hidden" ||
-        !isVaultSessionEpochCurrent(epoch)
-      )
-        return;
-      running = true;
-      try {
-        let changed = false;
-        for (const task of pending) {
-          const found = await mail.check(
-            box!,
-            task.mailFollowup!,
-            controller.signal,
-          );
-          controller.signal.throwIfAborted();
-          if (found.source && isVaultSessionEpochCurrent(epoch)) {
-            const result = await recordReply(
-              scheduler,
-              { userId, vaultOwnerToken, vaultKey },
-              task,
-              { source: found.source, filename: found.filename },
-              controller.signal,
-            );
-            changed ||= result.success;
-          }
-        }
-        if (changed) {
-          const saved = await tasks.load({ userId, vaultOwnerToken, vaultKey });
-          if (!controller.signal.aborted && isVaultSessionEpochCurrent(epoch))
-            setItems(saved.tasks);
-        }
-      } catch {
-        if (!controller.signal.aborted)
-          setError("Mail could not check the watched replies. It will retry.");
-      } finally {
-        running = false;
-      }
-    }
-    const timer = window.setInterval(refreshWatched, 60000);
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
-  }, [
-    box,
-    items,
-    view,
-    userId,
-    vaultOwnerToken,
-    vaultKey,
-    epoch,
-    scheduler,
-    mail,
-  ]);
+  useSettledMailTasks(session, (rows) => {
+    setItems(rows);
+    setActiveTask((previous) => previous && rows.find((row) => row.id === previous.id));
+  });
   function prepare(task: TodoItem) {
     const item = task.mailFollowup!;
     if (!box) return;
@@ -427,6 +318,7 @@ export function MailFollowupsScreen({
         <section className="grid gap-3">
           <h2>{activeTask.title}</h2>
           <p>{activeTask.mailFollowup.fulfilment}</p>
+          <p>No personal Task reminder is linked.</p>
           {activeTask.status === "pending" && (
             <MailActionButton disabled={busy} onClick={() => watch(activeTask)}>
               Watch for a reply
@@ -593,12 +485,17 @@ export function MailFollowupsScreen({
                 disabled={
                   busy ||
                   !draft.body.trim() ||
+                  activeTask.status !== "pending" ||
                   !(Date.parse(sendAt) > Date.now())
                 }
                 onClick={() =>
                   void run(
                     async (signal) => {
                       const due = Math.floor(Date.parse(sendAt) / 1000);
+                      const current = (await tasks.load(session)).tasks.find(row => row.id === activeTask.id);
+                      signal.throwIfAborted();
+                      if (!current || current.status !== "pending" || current.revision !== activeTask.revision)
+                        throw new Error("The task changed. Reopen Follow-ups.");
                       const schedule = await scheduler.sendMailFollowup(
                         box,
                         activeTask.mailFollowup!,

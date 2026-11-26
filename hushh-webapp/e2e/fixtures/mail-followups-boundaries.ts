@@ -3,6 +3,7 @@ import type {
   FollowupMailbox,
   MailFollowup,
 } from "@/lib/mail/mail-followup-model";
+import { dispatchLocalPkmDomainChanged } from "@/lib/pkm/pkm-domain-change-events";
 import type { TodoItem } from "@/lib/todos/todo-list-model";
 const fixture = document.documentElement.dataset;
 let accounts = ["a", "b", "c"].map((id) => ({
@@ -12,6 +13,7 @@ let accounts = ["a", "b", "c"].map((id) => ({
   isDefault: id === "a",
   capabilities: { read: true },
 }));
+export const PRIVATE_MAIL_GRANTS_CHANGED = "one:private-mail-grants-changed";
 export const privateMailAccounts = async () => accounts;
 export const disconnectPrivateMailAccount = async (
   account: string,
@@ -20,6 +22,7 @@ export const disconnectPrivateMailAccount = async (
   accounts = accounts.filter(
     (row) => row.accountId !== account || row.credentialId !== connection,
   );
+  window.dispatchEvent(new Event(PRIVATE_MAIL_GRANTS_CHANGED));
   return { disconnected: true };
 };
 export const connectGoogleConnector = async () => ({ ok: false });
@@ -115,6 +118,7 @@ if (fixture.journey === "board") {
     return { ...row(item), status: index === 6 ? "done" : "pending" };
   });
 }
+export const TODO_LIST_PKM_DOMAIN = "one_todos";
 export const TodoListPkmService = {
   load: async () => ({ tasks }),
   trackMail: async (_: unknown, item: MailFollowup) => {
@@ -122,7 +126,7 @@ export const TodoListPkmService = {
     return { success: true };
   },
   updateMail: async (
-    _: unknown,
+    session: { userId: string },
     item: TodoItem,
     change: Partial<MailFollowup>,
   ) => {
@@ -139,6 +143,7 @@ export const TodoListPkmService = {
           }
         : t,
     );
+    dispatchLocalPkmDomainChanged({ userId: session.userId, domain: TODO_LIST_PKM_DOMAIN, dataVersion: null, updatedAt: null, operation: "stored" });
     return { success: true };
   },
 };

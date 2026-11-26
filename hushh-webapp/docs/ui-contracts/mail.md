@@ -1596,9 +1596,12 @@ picker starts on the existing default connection. All Mail combines verified
 connections and sends each evidence or draft action back to its source mailbox.
 
 Tracking records one obligation in the encrypted shared Tasks collection.
-The source link opens the email containing the promise. A watch checks while
-the unlocked board is open. Completion clears that watch. Review of a received
-document requires opening the attachment and confirming review before preparing
+The source link opens the email containing the promise. An opted-in watch checks
+on vault unlock and about once a minute while One is visible, on any page. It
+checks each watched task against its own mailbox and connection. A matching
+reply completes the encrypted task and clears its watch. Locking the vault or
+hiding One pauses checks. Returning to an unlocked One checks again. Review of a
+received document requires opening the attachment and confirming review before preparing
 the next draft. An exact approved send uses the private agent's qualified
 one-time scheduler where available. Its final check can suppress delivery, and
 only a confirmed provider receipt enables the sent-email link.
