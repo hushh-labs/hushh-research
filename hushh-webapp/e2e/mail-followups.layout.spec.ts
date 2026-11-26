@@ -132,3 +132,57 @@ for (const width of [393, 1280]) {
     ).toBeLessThanOrEqual(width);
   });
 }
+
+test("a matching document cancels only its Task reminder after leaving Mail", async ({ page }) => {
+  await open(page, 393, "reminders");
+  const button = (name: string) => page.getByRole("button", { name, exact: true });
+  const choose = (id: string) => page.getByRole("combobox", { name: "Choose mailbox" })
+    .selectOption({ label: id + "@example.test" });
+  const schedule = async (time: string) => {
+    await button("Remind me in One").click();
+    const localInput = await page.evaluate((time) => {
+      const due = new Date("2026-11-22T" + time + ":00Z");
+      return new Date(due.getTime() - due.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    }, time);
+    await page.getByLabel("Reminder time").fill(localInput);
+    await button("Save reminder").click();
+    await expect(button("Cancel reminder")).toBeVisible();
+  };
+  const storedState = () => page.locator("html").evaluate((root) => {
+    const saved = JSON.parse(root.getAttribute("data-saved-tasks") ?? '{"tasks":[]}') as {
+      tasks: { id: string; status: string; personalReminder?: { state: string } }[];
+    };
+    return Object.fromEntries(saved.tasks.map(task => [
+      task.id[0], [task.status, task.personalReminder?.state],
+    ]));
+  });
+
+  await choose("b");
+  await button("Plan follow-up").click();
+  await schedule("08:09");
+  await button("Cancel reminder").click();
+  await expect.poll(storedState).toMatchObject({ b: ["pending", "cancelled"] });
+  await schedule("08:08");
+
+  await choose("a");
+  await button("Plan follow-up").click();
+  await schedule("08:06");
+  await button("Leave Mail").click();
+  await expect(page.getByRole("combobox", { name: "Choose mailbox" })).toHaveCount(0);
+  await page.evaluate(() => { document.documentElement.dataset.reply = "thanks"; });
+  await page.clock.fastForward(61000);
+  await expect.poll(storedState).toEqual({ a: ["pending", "pending"], b: ["pending", "pending"] });
+
+  await page.evaluate(() => { document.documentElement.dataset.reply = "signed"; });
+  await page.clock.fastForward(61000);
+  await expect.poll(storedState).toEqual({ a: ["done", "cancelled"], b: ["pending", "pending"] });
+  await page.clock.fastForward(4 * 60000);
+  await expect(page.getByText("Task reminder", { exact: true })).toHaveCount(0);
+  await page.clock.fastForward(2 * 60000);
+  const reminder = page.locator("[data-sonner-toast]").filter({ hasText: "Task reminder" });
+  await expect.poll(storedState).toEqual({ a: ["done", "cancelled"], b: ["pending", "delivered"] });
+  await page.clock.runFor(100);
+  await expect(reminder).toHaveCount(1);
+  await expect(reminder).toContainText("Get the signed document for b");
+  await expect(reminder.getByRole("button", { name: "Open Tasks" })).toBeVisible();
+});

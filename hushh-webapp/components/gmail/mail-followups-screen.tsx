@@ -3,6 +3,7 @@
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { MailActionButton } from "./mail-action-button";
+import { MailTaskReminder } from "./mail-task-reminder";
 import { MailFollowupsBoard } from "./mail-followups-board";
 import { checkMailFollowup, useSettledMailTasks } from "./mail-followups-session-watch";
 import {
@@ -204,6 +205,21 @@ export function MailFollowupsScreen({
     if (!box) throw new Error("Mailbox changed.");
     return checkMailFollowup(session, task, box, scheduler, signal, mail);
   }
+  function changeReminder(task: TodoItem, dueAt?: string) {
+    if (!box || task.mailFollowup?.account !== box.account ||
+        task.mailFollowup.connection !== box.connection) return;
+    void run(async (signal) => {
+      const current = () => !signal.aborted && isVaultSessionEpochCurrent(epoch);
+      const result = dueAt
+        ? await tasks.setPersonalReminder(session, task, dueAt, current)
+        : await tasks.cancelPersonalReminder(session, task, current);
+      if (!result.success) throw new Error("The reminder could not be updated. Try again.");
+      return tasks.load(session);
+    }, (saved) => {
+      setItems(saved.tasks);
+      setActiveTask(saved.tasks.find((row) => row.id === task.id));
+    });
+  }
   function watch(task: TodoItem) {
     void run(
       async (signal) => {
@@ -318,7 +334,13 @@ export function MailFollowupsScreen({
         <section className="grid gap-3">
           <h2>{activeTask.title}</h2>
           <p>{activeTask.mailFollowup.fulfilment}</p>
-          <p>No personal Task reminder is linked.</p>
+          <MailTaskReminder
+            key={[activeTask.id, activeTask.personalReminder?.id, activeTask.personalReminder?.dueAt, activeTask.personalReminder?.state].join("/")}
+            task={activeTask}
+            busy={busy}
+            onSave={(dueAt) => changeReminder(activeTask, dueAt)}
+            onCancel={() => changeReminder(activeTask)}
+          />
           {activeTask.status === "pending" && (
             <MailActionButton disabled={busy} onClick={() => watch(activeTask)}>
               Watch for a reply

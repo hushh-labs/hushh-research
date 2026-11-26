@@ -16,10 +16,18 @@ const mocks = vi.hoisted(() => ({
   grants: vi.fn(),
   account: vi.fn(),
   check: vi.fn(),
+  claim: vi.fn(),
+  alert: vi.fn(),
+  dismiss: vi.fn(),
+  navigate: vi.fn(),
   schedulerStatus: vi.fn(),
   schedulerControl: vi.fn(),
 }));
 
+vi.mock("@/lib/capacitor/native-feedback", () => ({
+  nativeFeedbackToast: { info: mocks.alert, dismiss: mocks.dismiss },
+}));
+vi.mock("@/lib/utils/browser-navigation", () => ({ requestInternalAppNavigation: mocks.navigate }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: mocks.auth }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: mocks.vault }));
 vi.mock("@/lib/services/api-service", () => ({
@@ -27,7 +35,7 @@ vi.mock("@/lib/services/api-service", () => ({
 }));
 vi.mock("@/lib/services/todo-list-pkm-service", () => ({
   TODO_LIST_PKM_DOMAIN: "one_todos",
-  TodoListPkmService: { load: mocks.load, updateMail: mocks.update },
+  TodoListPkmService: { load: mocks.load, updateMail: mocks.update, claimReminder: mocks.claim },
 }));
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   PersonalKnowledgeModelService: { loadDomainData: vi.fn() },
@@ -69,6 +77,7 @@ const promise = {
   quote: "I will send the signed report on the 29th.", promised_wording: "on the 29th",
 };
 const task = { id: "task-report", sourceAgent: "gmail", status: "pending", revision: 2, mailFollowup: promise };
+const reminder = { id: "8c8cfb1f-9e69-4443-91ae-abe8b858f3cc", dueAt: "2020-01-01T10:00:00.000Z", state: "pending" as const };
 const received = { source: "ms1.verified-message-source", filename: "signed-report.pdf" };
 
 beforeEach(() => {
@@ -101,7 +110,7 @@ it("starts on vault unlock in Chat and writes only the opted-in task from its cu
     );
   const watched = {
     ...buildTodo({ id: task.id, title: promise.title, source: "gmail", type: "automatic" }),
-    ...task,
+    ...task, personalReminder: reminder,
   };
   let stored: Record<string, unknown> = { _private: { tasks: [
     { ...watched, id: "wrong-grant", mailFollowup: { ...promise, connection: "former-connection" } },
@@ -134,9 +143,12 @@ it("starts on vault unlock in Chat and writes only the opted-in task from its cu
   const { tasks: saved } = await TodoListPkmService.load(session);
   expect(saved.find((item) => item.id === task.id)).toMatchObject({
     status: "done", revision: 3, mailFollowup: { watching: false, received },
+    personalReminder: { ...reminder, state: "cancelled" },
   });
   expect(saved.filter((item) => item.status === "pending").map((item) => item.id).sort())
     .toEqual(["opted-out", "wrong-grant"]);
+  expect(mocks.claim).not.toHaveBeenCalled();
+  expect(mocks.alert).not.toHaveBeenCalled();
   expect(mocks.schedulerStatus).not.toHaveBeenCalled();
   expect(mocks.schedulerControl).not.toHaveBeenCalled();
 });
@@ -219,4 +231,95 @@ it("leaves an empty vault idle until this owner's Tasks change", async () => {
   });
   expect(mocks.load).toHaveBeenCalledTimes(2);
   expect(mocks.update).toHaveBeenCalledOnce();
+});
+
+it("shows the due reminder in Chat only after confirming the winning claim, and clears it on lock", async () => {
+  const { TodoListPkmService, buildTodo } =
+    await vi.importActual<typeof import("@/lib/services/todo-list-pkm-service")>(
+      "@/lib/services/todo-list-pkm-service",
+    );
+  const pending = { ...buildTodo({ id: task.id, title: promise.title, source: "gmail", type: "automatic" }),
+    ...task, personalReminder: reminder };
+  let stored: Record<string, unknown> = { _private: { tasks: [pending] } };
+  vi.mocked(PersonalKnowledgeModelService.loadDomainData).mockImplementation(async () => stored);
+  vi.mocked(PkmWriteCoordinator.saveMergedDomain).mockImplementation(async (write) => {
+    expect(write.confirmation.authorizationMode).toBe("owner_task_reminder");
+    const plan = await write.build({ currentDomainData: stored, currentManifest: null,
+      currentEncryptedDomain: null, baseFullBlob: {}, attempt: 0, upgradedInSession: false });
+    expect(plan.unchanged).not.toBe(true);
+    await write.beforeEffect?.();
+    stored = plan.domainData;
+    // Real writes publish this event before the owning claim call resolves.
+    dispatchLocalPkmDomainChanged({ domain: "one_todos", userId: session.userId,
+      operation: "stored", updatedAt: null, dataVersion: null });
+    return { success: true, saveState: "saved", fullBlob: {} };
+  });
+  mocks.load.mockImplementation(TodoListPkmService.load);
+  mocks.claim.mockImplementation(TodoListPkmService.claimReminder);
+  mocks.check.mockResolvedValue({ source: null });
+  mocks.alert.mockReturnValue(71);
+  const view = render(<MailFollowupsVaultBridge />);
+  await waitFor(() => expect(mocks.alert).toHaveBeenCalledOnce());
+  const snapshot = await TodoListPkmService.load(session);
+  expect(snapshot.tasks[0]).toMatchObject({ id: task.id, status: "pending", revision: 3,
+    personalReminder: { ...reminder, state: "delivered" } });
+  const [message, options] = mocks.alert.mock.calls[0];
+  expect(message).toBe("Task reminder");
+  expect(options.description).toBe(promise.title);
+  expect(options.action.label).toBe("Open Tasks");
+  options.action.onClick();
+  expect(mocks.navigate).toHaveBeenCalledWith({ href: "/one/tasks", source: "tap" });
+  expect(mocks.claim).toHaveBeenCalledOnce();
+  expect(mocks.schedulerControl).not.toHaveBeenCalled();
+  act(() => {
+    advanceVaultSessionEpoch();
+    mocks.vault.mockReturnValue({ ...unlocked, isVaultUnlocked: false });
+    view.rerender(<MailFollowupsVaultBridge />);
+  });
+  expect(mocks.dismiss).toHaveBeenCalledWith(71);
+  options.action.onClick();
+  expect(mocks.navigate).toHaveBeenCalledTimes(1);
+});
+
+it("keeps a due reminder pending on a mail read failure and retries on resume", async () => {
+  mocks.load.mockResolvedValue({ tasks: [{ ...task, personalReminder: reminder }] });
+  mocks.check.mockRejectedValueOnce(new Error("mail unavailable")).mockResolvedValue({ source: null });
+  mocks.claim.mockResolvedValue(false); // A different tab won the subsequent claim.
+  render(<MailFollowupsVaultBridge />);
+  await waitFor(() => expect(mocks.check).toHaveBeenCalledOnce());
+  expect(mocks.claim).not.toHaveBeenCalled();
+  expect(mocks.alert).not.toHaveBeenCalled();
+  await act(async () => { window.dispatchEvent(new Event("pageshow")); });
+  await waitFor(() => expect(mocks.claim).toHaveBeenCalledOnce());
+  expect(mocks.alert).not.toHaveBeenCalled();
+});
+
+it("suppresses a late alert if the Task completed before its claim could be presented", async () => {
+  const pending = { ...task, personalReminder: reminder };
+  mocks.load.mockResolvedValueOnce({ tasks: [pending] })
+    .mockResolvedValue({ tasks: [{ ...pending, status: "done" }] });
+  mocks.check.mockResolvedValue({ source: null });
+  mocks.claim.mockResolvedValue(true);
+  render(<MailFollowupsVaultBridge />);
+  await waitFor(() => expect(mocks.load).toHaveBeenCalledTimes(2));
+  expect(mocks.alert).not.toHaveBeenCalled();
+});
+
+it("withdraws a visible reminder after the Task is completed on another screen", async () => {
+  let saved = { ...task, title: promise.title, personalReminder: { ...reminder, state: "pending" } };
+  mocks.load.mockImplementation(async () => ({ tasks: [saved] }));
+  mocks.check.mockResolvedValue({ source: null });
+  mocks.claim.mockImplementation(async () => {
+    saved = { ...saved, personalReminder: { ...reminder, state: "delivered" } };
+    return true;
+  });
+  mocks.alert.mockReturnValue(27);
+  render(<MailFollowupsVaultBridge />);
+  await waitFor(() => expect(mocks.alert).toHaveBeenCalledOnce());
+  saved = { ...saved, status: "done" };
+  await act(async () => {
+    dispatchLocalPkmDomainChanged({ domain: "one_todos", userId: session.userId,
+      operation: "stored", updatedAt: null, dataVersion: null });
+  });
+  expect(mocks.dismiss).toHaveBeenCalledWith(27);
 });

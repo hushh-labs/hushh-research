@@ -504,6 +504,7 @@ export class PkmWriteCoordinator {
     confirmation:
       | import("@/lib/personal-knowledge-model/mutation-plan").PkmSourceProjectionAuthorization
       | import("@/lib/personal-knowledge-model/mutation-plan").MailWatchSettlement
+      | import("@/lib/personal-knowledge-model/mutation-plan").TaskReminderClaim
       | PkmUserConfirmation
       | import("@/lib/personal-knowledge-model/mutation-plan").PkmOwnerAutoSaveAuthorization
       | import("@/lib/personal-knowledge-model/mutation-plan").PkmRequestedWorkflowAuthorization
@@ -537,6 +538,7 @@ export class PkmWriteCoordinator {
             // upgrade on the owner's behalf.
             allowImplicitUpgrade:
               params.confirmation.authorizationMode !== "owner_mail_watch" &&
+              params.confirmation.authorizationMode !== "owner_task_reminder" &&
               params.confirmation.authorizationMode !==
                 "owner_connected_source_sync" &&
               params.confirmation.authorizationMode !==

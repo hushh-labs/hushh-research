@@ -118,7 +118,17 @@ export type MailWatchSettlement = {
   source: "one_todo_list_mail_watch";
 };
 
+/** A reminder explicitly scheduled on a private Task becomes due in an unlocked
+ * session. The claim gives neither the worker nor another account vault access. */
+export type TaskReminderClaim = {
+  authorizationMode: "owner_task_reminder";
+  confirmedByUser?: never;
+  surface: "web";
+  source: "one_todo_list_task_reminder";
+};
+
 export type PkmWriteAuthorization =
+  | TaskReminderClaim
   | MailWatchSettlement
   | PkmSourceProjectionAuthorization
   | PkmUserConfirmation
@@ -187,6 +197,7 @@ export type PkmMutationPlanV2 = {
     sharing_impact_acknowledged: boolean;
     authorization_mode:
       | "owner_mail_watch"
+      | "owner_task_reminder"
       | "owner_confirmed"
       | "owner_auto_save_policy"
       | "owner_requested_workflow"
@@ -334,18 +345,19 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
       ? params.confirmation
       : null;
   const mailWatch = params.confirmation.authorizationMode === "owner_mail_watch";
+  const taskReminder = params.confirmation.authorizationMode === "owner_task_reminder";
   const ownerConfirmation =
     automatic ||
     workflowAuthorization ||
     connectedSourceSync ||
-    sourceProjection || mailWatch
+    sourceProjection || mailWatch || taskReminder
       ? null
       : (params.confirmation as PkmUserConfirmation);
   if (
     !automatic &&
     !workflowAuthorization &&
     !connectedSourceSync &&
-    !sourceProjection && !mailWatch &&
+    !sourceProjection && !mailWatch && !taskReminder &&
     params.confirmation.confirmedByUser !== true
   ) {
     throw new Error("PKM mutation requires explicit owner confirmation.");
@@ -366,6 +378,10 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
     registryHandle(params.targetManifest, scope) || sourceHandle;
   const operation =
     params.operation || (params.currentManifest ? "update" : "create");
+  if (taskReminder && (domain !== "one_todos" || !["update", "merge"].includes(operation) ||
+    params.confirmation.source !== "one_todo_list_task_reminder")) {
+    throw new Error("A reminder may only claim a due reminder on an existing private Task.");
+  }
   if (mailWatch && (domain !== "one_todos" || !["update", "merge"].includes(operation)))
     throw new Error("Mail watching may only settle an existing Task.");
   if (
@@ -406,7 +422,7 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
     automatic || connectedSourceSync
       ? new Date().toISOString()
       : ownerConfirmation?.confirmedAt || new Date().toISOString();
-  const authorizationReceipt = mailWatch ? { authorization_mode: "owner_mail_watch" as const } : sourceProjection
+  const authorizationReceipt = taskReminder ? { authorization_mode: "owner_task_reminder" as const } : mailWatch ? { authorization_mode: "owner_mail_watch" as const } : sourceProjection
     ? { authorization_mode: "owner_source_projection" as const }
     : automaticAuthorization
       ? {
@@ -450,7 +466,8 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
     confidence: Math.max(0, Math.min(1, params.confidence ?? 1)),
     explanation:
       params.explanation ||
-      (mailWatch ? "Settled an explicitly watched Task from matching private Mail evidence." : sourceProjection
+      (taskReminder ? "Claimed an owner-scheduled in-app reminder on a private Task."
+        : mailWatch ? "Settled an explicitly watched Task from matching private Mail evidence." : sourceProjection
         ? "Rebuilt the private encrypted source inventory from owner-scoped source records; no per-write review or sharing is claimed."
         : connectedSourceSync
           ? `Refreshed ${titleize(domain)} / ${titleize(scope)} from a financial connection the owner linked (${connectedSourceSync.connectedSourceProvider}); no per-write review is claimed.`

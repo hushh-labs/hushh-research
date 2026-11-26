@@ -6,6 +6,19 @@ import type { MailFollowup } from "@/lib/mail/mail-followup-model";
 export type TodoType = "automatic" | "manual";
 export type TodoStatus = "pending" | "done" | "deleted";
 
+export type PersonalTaskReminder = {
+  id: string;
+  dueAt: string;
+  state: "pending" | "delivered" | "cancelled";
+};
+
+/** Reminders store instants so they stay fixed across timezone changes. */
+export function isReminderInstant(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return false;
+  const time = Date.parse(value);
+  return Number.isFinite(time) && new Date(time).toISOString() === value;
+}
+
 /** Calendar dates retain their authored day; reject JavaScript date rollover. */
 export function normalizeTodoDate(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -52,6 +65,7 @@ export type TodoItem = {
   deletedAt: string | null;
   revision?: number;
   mailFollowup?: MailFollowup;
+  personalReminder?: PersonalTaskReminder;
 };
 
 /** Active rows are pending tasks. Completed and dismissed rows stay private. */
