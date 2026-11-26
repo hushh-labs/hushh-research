@@ -1,4 +1,4 @@
-import { ownerContentIsPrivate } from "@/lib/services/private-agent-specialist-chat";
+import { ownerRequiresByocIsolation } from "@/lib/one/byoc-isolation";
 import { PrivateGoogleUnsupportedError } from "@/lib/services/private-google-connections";
 import { scheduleRequest } from "@/lib/services/google-calendar-transport";
 
@@ -54,7 +54,7 @@ export type CalendarBoardBookingReview = {
 };
 
 export async function reviewBoardBooking(params: CalendarBoardBookingInput): Promise<CalendarBoardBookingReview> {
-    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError("Board booking");
+    if (await ownerRequiresByocIsolation()) throw new PrivateGoogleUnsupportedError("Board booking");
     return scheduleRequest<CalendarBoardBookingReview>("proposals", params.vaultOwnerToken, boardBookingPayload(params));
 }
 

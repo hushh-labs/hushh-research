@@ -1,7 +1,7 @@
 import { apiJson } from "@/lib/services/api-client";
 import { oneChatKeyHeaders } from "@/lib/vault/one-chat-key";
+import { ownerRequiresByocIsolation } from "@/lib/one/byoc-isolation";
 import {
-  ownerContentIsPrivate,
   privateAgentSpecialistTurn,
 } from "@/lib/services/private-agent-specialist-chat";
 
@@ -35,7 +35,7 @@ export class EmailChatService {
     message: string;
     conversationId?: string | null;
   }): Promise<EmailChatResponse> {
-    if (await ownerContentIsPrivate()) {
+    if (await ownerRequiresByocIsolation()) {
       return privateAgentSpecialistTurn({ focus: "email", ...params });
     }
     return apiJson<EmailChatResponse>("/api/one/email/chat", {

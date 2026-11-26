@@ -521,6 +521,8 @@ jobs:
 
       - name: Sync canonical hosted runtime secrets
         shell: bash
+        env:
+          DEV_PLAID_ENV: ${{ vars.PLAID_ENV_DEV || 'sandbox' }}
         run: |
           set -euo pipefail
           if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
@@ -546,7 +548,7 @@ jobs:
             --remote-mcp-enabled "true"
             --cors-allowed-origins "${{ env.APP_FRONTEND_ORIGIN }}"
             --obs-data-stale-ratio-threshold "0.25"
-            --plaid-env "production"
+            --plaid-env "${DEV_PLAID_ENV:-sandbox}"
             --plaid-client-name "Hushh Kai"
             --plaid-country-codes "US"
             --plaid-webhook-url "${{ env.APP_FRONTEND_ORIGIN }}/api/kai/plaid/webhook"
