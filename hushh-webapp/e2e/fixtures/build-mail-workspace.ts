@@ -44,10 +44,8 @@ export async function buildMailWorkspaceFixture(followups = false) {
     ],
     resolve: {
       alias: [
-        ...(followups ? ["@/lib/services/personal-knowledge-model-service", "@/lib/services/pkm-write-coordinator"] : [])
-          .map(find => ({ find, replacement: path.join(root, "e2e/fixtures/mail-followups-test-store.ts") })),
         ...["@/lib/services/private-google-connections", "@/lib/one/google-native-connect",
-          ...(!followups ? ["@/lib/services/todo-list-pkm-service"] : []), "@/lib/services/mail-followups-service"].map(find => ({
+          "@/lib/services/todo-list-pkm-service", "@/lib/services/mail-followups-service"].map(find => ({
           find, replacement: path.join(root, "e2e/fixtures/mail-followups-boundaries.ts")
         })),
         ...stubbed.map(find => ({ find: new RegExp(`^${find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`), replacement: boundaries })),

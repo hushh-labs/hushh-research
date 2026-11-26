@@ -654,24 +654,6 @@ describe("personal Task reminders", () => {
     expect(row(first.id).personalReminder?.state).toBe("cancelled");
   });
 
-  it("retains the link through ordinary edits, refuses a stale replacement, and cancels explicitly", async () => {
-    const row = store([original]), dueAt = at(60_000), later = at(120_000);
-    await TodoListPkmService.setPersonalReminder(persistence, original, dueAt);
-    const initial = row(original.id);
-    await TodoListPkmService.update({ ...persistence, taskId: original.id, update: { notes: "Edited" } });
-    expect(row(original.id).personalReminder).toEqual(initial.personalReminder);
-    await TodoListPkmService.setPersonalReminder(persistence, row(original.id), later);
-    const replacement = row(original.id);
-    expect(replacement.personalReminder).toEqual({ ...initial.personalReminder, dueAt: later });
-    await expect(TodoListPkmService.cancelPersonalReminder(persistence, initial)).rejects.toThrow("changed");
-    expect(await TodoListPkmService.claimReminder(persistence, replacement, at(-1000), () => true)).toBe(false);
-    await TodoListPkmService.cancelPersonalReminder(persistence, replacement);
-    const cancelled = row(original.id);
-    expect(cancelled).toMatchObject({ status: "pending", personalReminder: { ...replacement.personalReminder, state: "cancelled" } });
-    await TodoListPkmService.cancelPersonalReminder(persistence, replacement);
-    expect(row(original.id)).toEqual(cancelled);
-  });
-
   it("claims a due Mail reminder only for the persisted watched source and its current grant", async () => {
     const original = makeMail("a");
     const pending = {

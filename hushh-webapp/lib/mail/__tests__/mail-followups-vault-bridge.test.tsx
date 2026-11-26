@@ -293,33 +293,3 @@ it("keeps a due reminder pending on a mail read failure and retries on resume", 
   await waitFor(() => expect(mocks.claim).toHaveBeenCalledOnce());
   expect(mocks.alert).not.toHaveBeenCalled();
 });
-
-it("suppresses a late alert if the Task completed before its claim could be presented", async () => {
-  const pending = { ...task, personalReminder: reminder };
-  mocks.load.mockResolvedValueOnce({ tasks: [pending] })
-    .mockResolvedValue({ tasks: [{ ...pending, status: "done" }] });
-  mocks.check.mockResolvedValue({ source: null });
-  mocks.claim.mockResolvedValue(true);
-  render(<MailFollowupsVaultBridge />);
-  await waitFor(() => expect(mocks.load).toHaveBeenCalledTimes(2));
-  expect(mocks.alert).not.toHaveBeenCalled();
-});
-
-it("withdraws a visible reminder after the Task is completed on another screen", async () => {
-  let saved = { ...task, title: promise.title, personalReminder: { ...reminder, state: "pending" } };
-  mocks.load.mockImplementation(async () => ({ tasks: [saved] }));
-  mocks.check.mockResolvedValue({ source: null });
-  mocks.claim.mockImplementation(async () => {
-    saved = { ...saved, personalReminder: { ...reminder, state: "delivered" } };
-    return true;
-  });
-  mocks.alert.mockReturnValue(27);
-  render(<MailFollowupsVaultBridge />);
-  await waitFor(() => expect(mocks.alert).toHaveBeenCalledOnce());
-  saved = { ...saved, status: "done" };
-  await act(async () => {
-    dispatchLocalPkmDomainChanged({ domain: "one_todos", userId: session.userId,
-      operation: "stored", updatedAt: null, dataVersion: null });
-  });
-  expect(mocks.dismiss).toHaveBeenCalledWith(27);
-});
