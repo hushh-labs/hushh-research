@@ -159,6 +159,48 @@ describe("PkmWriteCoordinator", () => {
     vi.clearAllMocks();
   });
 
+  it("delivers a due Task reminder once when two unlocked devices race the versioned store", async () => {
+    const { TodoListPkmService: first, buildTodo } = await import("@/lib/services/todo-list-pkm-service");
+    // Independent JS realms have independent local write lanes but share revisions.
+    vi.resetModules();
+    const { TodoListPkmService: second } = await import("@/lib/services/todo-list-pkm-service");
+    const reminder = { id: crypto.randomUUID(), state: "pending" as const, dueAt: "2025-01-01T09:00:00.000Z" };
+    const task = { ...buildTodo({ title: "Check the report" }), revision: 4, personalReminder: reminder };
+    let stored = { _private: { tasks: [task] } };
+    let version = 1;
+    stubNoUpgradeNeeded();
+    pkmGetDomainManifestMock.mockResolvedValue({ domain: "one_todos", domain_contract_version: 2, readable_summary_version: 1, top_level_scope_paths: ["tasks"] });
+    prepareDomainWriteContextMock.mockImplementation(async () => ({
+      baseFullBlob: {}, domainData: stored, expectedDataVersion: version,
+      encryptedDomain: { dataVersion: version }, manifest: await pkmGetDomainManifestMock(),
+      snapshot: null, etag: "test-snapshot",
+    }));
+    let bothReady!: () => void;
+    const ready = new Promise<void>(resolve => { bothReady = resolve; });
+    let attempts = 0;
+    pkmStoreMergedDomainWithPreparedBlobMock.mockImplementation(async request => {
+      if (++attempts === 2) bothReady();
+      await ready;
+      expect(request.mutationPlan.confirmation_receipt.authorization_mode).toBe("owner_task_reminder");
+      if (request.expectedDataVersion !== version) return { success: false, conflict: true, fullBlob: {} };
+      stored = request.domainData;
+      return { success: true, dataVersion: ++version, fullBlob: {} };
+    });
+    const now = new Date().toISOString();
+    const outcomes = await Promise.all([
+      first.claimReminder(BASE_PARAMS, task, now, () => true),
+      second.claimReminder(BASE_PARAMS, task, now, () => true),
+    ]);
+    expect(outcomes.sort()).toEqual([false, true]);
+    expect(attempts).toBe(2);
+    expect(version).toBe(2);
+    expect(stored._private.tasks[0]).toMatchObject({ revision: 5, status: "pending",
+      personalReminder: { ...reminder, state: "delivered" } });
+    expect(await first.claimReminder(BASE_PARAMS, task, now, () => true)).toBe(false);
+    expect(attempts).toBe(2);
+    pkmStoreMergedDomainWithPreparedBlobMock.mockReset();
+  });
+
   it("carries the merged write's publication fence through an already-dispatched response", async () => {
     stubNoUpgradeNeeded();
     stubWriteContext();

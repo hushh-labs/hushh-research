@@ -611,3 +611,101 @@ it("reuses each mail obligation and stops only the fulfilled document watch", as
   expect(rows.find(r=>r.mailFollowup?.key===first.key)).toMatchObject({status:"done",mailFollowup:{watching:false}});
   expect(rows.find(r=>r.mailFollowup?.key===second.key)?.status).toBe("pending");
 });
+
+describe("personal Task reminders", () => {
+  const at = (offset: number) => new Date(Date.now() + offset).toISOString();
+  function store(initial: TodoItem[]) {
+    let domain: Record<string, unknown> = { _private: { tasks: initial } };
+    const save = vi.mocked(PkmWriteCoordinator.saveMergedDomain);
+    save.mockImplementation(async write => {
+      const plan = await write.build({ ...coordinatorContext, currentDomainData: domain });
+      await write.beforeEffect?.();
+      if (!plan.unchanged) domain = plan.domainData;
+      return { success: true, saveState: "saved", fullBlob: {}, idempotentReplay: !!plan.unchanged };
+    });
+    return (id: string) => readTodoListState(domain).tasks.find(row => row.id === id)!;
+  }
+  const original = { ...task, revision: 1 };
+  const makeMail = (key: string): TodoItem => {
+    const source = "ms1." + key.repeat(32);
+    return { ...original, id: source, sourceAgent: "gmail", mailFollowup: {
+      key: key.repeat(64), account: "account", connection: "grant", source_kind: "mail_thread",
+      source, thread: source, title: "Get signed report", participant: "Professor",
+      debtor: "professor@example.test", waiting_on: "participant", fulfilment: "Signed project report",
+      quote: "I will send the signed report", document: "Signed report", promised_wording: null,
+    } };
+  };
+
+  it("atomically completes only the matched watched Task and cancels its pending reminder", async () => {
+    const first = makeMail("a"), other = makeMail("b");
+    const row = store([first, other]);
+    const dueAt = at(60_000);
+    await TodoListPkmService.setPersonalReminder(persistence, first, dueAt);
+    await TodoListPkmService.setPersonalReminder(persistence, other, dueAt);
+    const watched = row(first.id), unaffected = row(other.id);
+    expect(watched).toMatchObject({ mailFollowup: { watching: true }, personalReminder: { dueAt, state: "pending" } });
+    const source = "ms1." + "z".repeat(32);
+    await TodoListPkmService.updateMail(persistence, watched, { received: { source, filename: "signed.pdf" } }, () => true, async () => {});
+    expect(row(first.id)).toMatchObject({ status: "done", revision: 3,
+      personalReminder: { ...watched.personalReminder, state: "cancelled" },
+      mailFollowup: { watching: false, received: { source, filename: "signed.pdf" } } });
+    expect(row(other.id)).toEqual(unaffected);
+    await TodoListPkmService.setStatus({ ...persistence, task: row(first.id), status: "pending" });
+    expect(row(first.id).personalReminder?.state).toBe("cancelled");
+  });
+
+  it("retains the link through ordinary edits, refuses a stale replacement, and cancels explicitly", async () => {
+    const row = store([original]), dueAt = at(60_000), later = at(120_000);
+    await TodoListPkmService.setPersonalReminder(persistence, original, dueAt);
+    const initial = row(original.id);
+    await TodoListPkmService.update({ ...persistence, taskId: original.id, update: { notes: "Edited" } });
+    expect(row(original.id).personalReminder).toEqual(initial.personalReminder);
+    await TodoListPkmService.setPersonalReminder(persistence, row(original.id), later);
+    const replacement = row(original.id);
+    expect(replacement.personalReminder).toEqual({ ...initial.personalReminder, dueAt: later });
+    await expect(TodoListPkmService.cancelPersonalReminder(persistence, initial)).rejects.toThrow("changed");
+    expect(await TodoListPkmService.claimReminder(persistence, replacement, at(-1000), () => true)).toBe(false);
+    await TodoListPkmService.cancelPersonalReminder(persistence, replacement);
+    const cancelled = row(original.id);
+    expect(cancelled).toMatchObject({ status: "pending", personalReminder: { ...replacement.personalReminder, state: "cancelled" } });
+    await TodoListPkmService.cancelPersonalReminder(persistence, replacement);
+    expect(row(original.id)).toEqual(cancelled);
+  });
+
+  it("claims a due Mail reminder only for the persisted watched source and its current grant", async () => {
+    const original = makeMail("a");
+    const pending = {
+      ...original,
+      mailFollowup: { ...original.mailFollowup!, watching: true },
+      personalReminder: { id: crypto.randomUUID(), dueAt: at(-60_000), state: "pending" as const },
+    };
+    const row = store([pending]);
+    const now = at(0);
+    const current = () => true;
+    const verify = vi.fn(async () => {});
+    expect(await TodoListPkmService.claimReminder(persistence, pending, now, current)).toBe(false);
+    for (const change of [{ connection: "other" }, { thread: "wrong" }, { source: "wrong" }, { account: "other" }]) {
+      const stale = { ...pending, mailFollowup: { ...pending.mailFollowup, ...change } };
+      expect(await TodoListPkmService.claimReminder(persistence, stale, now, current, verify)).toBe(false);
+    }
+    await expect(TodoListPkmService.claimReminder(persistence, pending, now, current, async () => {
+      throw new Error("Grant revoked");
+    })).rejects.toThrow("Grant revoked");
+    expect(row(pending.id).personalReminder).toEqual(pending.personalReminder);
+    expect(await TodoListPkmService.claimReminder(persistence, pending, now, current, verify)).toBe(true);
+    expect(row(pending.id).personalReminder?.state).toBe("delivered");
+    expect(await TodoListPkmService.claimReminder(persistence, pending, now, current, verify)).toBe(false);
+  });
+
+  it("preserves legacy rows, and a deleted Task cannot deliver a stale pending reminder", async () => {
+    const legacy = { ...original, id: "legacy" };
+    const row = store([original, legacy]);
+    expect(row(legacy.id).personalReminder).toBeUndefined();
+    await TodoListPkmService.setPersonalReminder(persistence, original, at(300_000));
+    const scheduled = row(original.id);
+    await TodoListPkmService.remove({ ...persistence, task: scheduled });
+    expect(row(original.id)).toMatchObject({ status: "deleted", personalReminder: { state: "cancelled" } });
+    expect(row(legacy.id)).toEqual(legacy);
+    expect(await TodoListPkmService.claimReminder(persistence, scheduled, at(0), () => false)).toBe(false);
+  });
+});

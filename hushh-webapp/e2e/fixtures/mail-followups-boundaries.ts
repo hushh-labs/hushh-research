@@ -32,8 +32,8 @@ function finding(account: string): MailFollowup {
     account,
     connection: "slot-" + account,
     source_kind: "mail_thread",
-    source: "source-" + account,
-    thread: "thread-" + account,
+    source: "ms1.original-message-source-" + account,
+    thread: "ms1.original-thread-source-" + account,
     key: account.repeat(64),
     title: "Get the signed document for " + account,
     participant: "Lab contact " + account,
@@ -58,14 +58,14 @@ function row(item: MailFollowup): TodoItem {
     sourceId: item.key,
     link: null,
     notes: null,
-    createdAt: "",
-    updatedAt: "",
+    createdAt: "2026-11-22T07:00:00Z",
+    updatedAt: "2026-11-22T07:00:00Z",
     completedAt: null,
     deletedAt: null,
     mailFollowup: item,
   };
 }
-let tasks = (fixture.journey === "accounts" ? ["a", "b", "c"] : []).map((id) =>
+let tasks = (fixture.journey === "accounts" ? ["a", "b", "c"] : fixture.journey === "reminders" ? ["a", "b"] : []).map((id) =>
   row(finding(id)),
 );
 if (fixture.journey === "board") {
@@ -93,7 +93,7 @@ if (fixture.journey === "board") {
       key: index.toString().repeat(64),
       title: titles[index]!,
       participant,
-      thread: "fixture-thread-" + index,
+      thread: "ms1.fixture-thread-source-" + index,
       waiting_on: index < 4 ? ("owner" as const) : ("participant" as const),
       document:
         [
@@ -117,6 +117,9 @@ if (fixture.journey === "board") {
     };
     return { ...row(item), status: index === 6 ? "done" : "pending" };
   });
+}
+export function initialFollowupTasks(): TodoItem[] {
+  return tasks;
 }
 export const TODO_LIST_PKM_DOMAIN = "one_todos";
 export const TodoListPkmService = {
@@ -150,7 +153,7 @@ export const TodoListPkmService = {
 function verify(box: FollowupMailbox, source: string) {
   if (
     box.connection !== "slot-" + box.account ||
-    ![finding(box.account).source, "received-" + box.account].includes(source)
+    ![finding(box.account).source, "ms1.received-message-source-" + box.account].includes(source)
   )
     throw Error("Wrong mailbox");
 }
@@ -189,8 +192,8 @@ export const MailFollowupsService = {
   check: async (box: FollowupMailbox, item: MailFollowup) => {
     verify(box, item.source);
     fixture.checks = String(Number(fixture.checks || 0) + 1);
-    return fixture.reply === "signed"
-      ? { source: "received-" + box.account, filename: "signed.pdf" }
+    return fixture.reply === "signed" && (fixture.journey !== "reminders" || box.account === "a")
+      ? { source: "ms1.received-message-source-" + box.account, filename: "signed.pdf" }
       : { source: null, filename: null };
   },
   document: async (box: FollowupMailbox, source: string) => {

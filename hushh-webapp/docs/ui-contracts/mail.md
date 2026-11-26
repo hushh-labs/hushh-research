@@ -1549,3 +1549,12 @@ received document requires opening the attachment and confirming review before p
 the next draft. An exact approved send uses the private agent's qualified
 one-time scheduler where available. Its final check can suppress delivery, and
 only a confirmed provider receipt enables the sent-email link.
+
+In a tracked conversation, **Remind me in One** lets the owner choose a local date
+and time. **Save reminder** stores that instant on the encrypted Task and turns on
+its reply watch. The owner can change the time or cancel the personal reminder.
+One checks the watched thread before showing a due reminder while the app is
+visible and the vault is unlocked. It checks overdue reminders on return. Matching
+evidence completes the Task and cancels its pending reminder in the same saved
+change. This action sends no email. An independently approved outgoing follow-up
+has its own schedule and controls.

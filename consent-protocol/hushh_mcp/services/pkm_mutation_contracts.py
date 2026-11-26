@@ -113,6 +113,7 @@ class PkmConfirmationReceiptV2(BaseModel):
         "owner_connected_source_sync",
         "owner_source_projection",
         "owner_mail_watch",
+        "owner_task_reminder",
     ] = "owner_confirmed"
     connected_source_provider: Literal["plaid", "statement_import"] | None = None
     auto_save_policy_version: Literal[1] | None = None
@@ -145,7 +146,11 @@ class PkmConfirmationReceiptV2(BaseModel):
                 raise ValueError("requested_workflow_cannot_include_auto_save_policy")
         elif self.workflow_authority is not None:
             raise ValueError("workflow_authority_requires_requested_workflow")
-        if self.authorization_mode in {"owner_source_projection", "owner_mail_watch"}:
+        if self.authorization_mode in {
+            "owner_source_projection",
+            "owner_mail_watch",
+            "owner_task_reminder",
+        }:
             if self.sharing_impact_acknowledged or any(
                 value is not None
                 for value in (
@@ -302,10 +307,14 @@ class PkmMutationPlanV2(BaseModel):
                 or self.sharing_impact.enters_next_export_revision
             ):
                 raise ValueError("requested_workflow_requires_private_location_save")
-        if self.confirmation_receipt.authorization_mode == "owner_mail_watch":
+        task_writer = {
+            "owner_mail_watch": "one_todo_list_mail_watch",
+            "owner_task_reminder": "one_todo_list_task_reminder",
+        }.get(self.confirmation_receipt.authorization_mode)
+        if task_writer:
             if (
                 domain != "one_todos"
-                or self.writer_id != "one_todo_list_mail_watch"
+                or self.writer_id != task_writer
                 or self.operation not in {"update", "merge"}
                 or self.confirmation_receipt.surface != "web"
                 or self.affected_grant_ids
@@ -314,7 +323,10 @@ class PkmMutationPlanV2(BaseModel):
                 or self.sharing_impact.recipient_labels
                 or self.sharing_impact.enters_next_export_revision
             ):
-                raise ValueError("mail_watch_requires_private_task_update")
+                error = (
+                    "mail_watch" if task_writer == "one_todo_list_mail_watch" else "task_reminder"
+                )
+                raise ValueError(f"{error}_requires_private_task_update")
         if self.confirmation_receipt.authorization_mode == "owner_source_projection":
             if (
                 domain != "one_living_sources"
