@@ -19,9 +19,12 @@ from hushh_mcp.one_adk.pod_adk_session_repository import (
 from hushh_mcp.services.chat_key import bind_request_chat_key_owner, request_has_chat_key
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
     from google.adk.agents import LlmAgent
 
     from api.routes.one.pod_turn import PodTurnRequest
+    from hushh_mcp.one_adk.native_pod_chat import AdmittedNativePodTurn
     from hushh_mcp.one_adk.pod_chat_memory import PodChatMemory
 
 _projection: PodAdkSessionProjection | None = None
@@ -280,7 +283,7 @@ class PodChatContext:
             yield
 
     async def _prepare_text_head(
-        self, options: PodTurnRequest
+        self, options: PodTurnRequest, *, include_client_receipt_tools: bool = True
     ) -> tuple[LlmAgent, PodChatMemory | None, Callable[[Any], Awaitable[None]]]:
         """Resolve the owner-authorized model, specialist runtime, and turn memory."""
         from api.routes.one.pod_turn import (
@@ -344,9 +347,30 @@ class PodChatContext:
                 allow_workspace_tools=False,
                 allow_private_mcp=True,
                 include_thought_summaries=True,
+                include_client_receipt_tools=include_client_receipt_tools,
                 consent_bundle_lookup=PodConsentReadPort(self).lookup,
             )
         return head, memory, prepare
+
+    def stream_native(
+        self, options: PodTurnRequest, turn: AdmittedNativePodTurn
+    ) -> AsyncGenerator[bytes, None]:
+        from hushh_mcp.one_adk.agent_tree import ONE_APP_NAME, _PrivateLiveAccessPlugin
+        from hushh_mcp.one_adk.chat_adk_app import build_native_visual_chat_app
+        from hushh_mcp.one_adk.native_pod_chat import run_native_pod_chat
+
+        async def prepare():
+            head, memory, prepare_memory = await self._prepare_text_head(
+                options, include_client_receipt_tools=False
+            )
+            app = build_native_visual_chat_app(
+                head,
+                app_name=ONE_APP_NAME,
+                plugins=[_PrivateLiveAccessPlugin(self.require_access)],
+            )
+            return app, memory, prepare_memory
+
+        return run_native_pod_chat(self, turn, prepare=prepare, settle=self._finish_turn)
 
     async def build_agent(self, options: PodTurnRequest):
         from hushh_mcp.one_adk.agent_tree import ONE_APP_NAME, _PrivateLiveAccessPlugin

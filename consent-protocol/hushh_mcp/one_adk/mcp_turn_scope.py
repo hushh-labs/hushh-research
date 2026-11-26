@@ -462,6 +462,38 @@ def current_mcp_turn() -> McpTurnResources:
     return scope
 
 
+async def private_chat_mcp_resources(
+    conversation_id: str,
+    *,
+    owner_id: str,
+    configurations: Any,
+    require_access: Callable[[], Awaitable[None]],
+    owner_admission: Callable[[Any], Awaitable[bool]],
+) -> McpTurnResources:
+    """Compose the request's device and pod-custody credentials under one owner."""
+    from hushh_mcp.one_adk.pod_custody_mcp import (
+        custody_configuration_admissions,
+        custody_configurations,
+        merge_turn_configurations,
+    )
+    from hushh_mcp.services.pod_owner_cloud import private_pod_runtime
+
+    await require_access()
+    private = private_pod_runtime()
+    custody = await custody_configurations() if private else []
+    await require_access()
+    return McpTurnResources(
+        conversation_id,
+        owner_id=owner_id,
+        configurations=merge_turn_configurations(configurations or [], custody)
+        if private
+        else configurations or [],
+        owner_admission=owner_admission,
+        configuration_admissions=custody_configuration_admissions(custody),
+        vault_only=True,
+    )
+
+
 @asynccontextmanager
 async def mcp_turn_scope(
     conversation_id: str,

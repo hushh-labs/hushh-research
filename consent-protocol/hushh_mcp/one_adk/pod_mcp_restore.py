@@ -4,7 +4,6 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from ag_ui.core import AssistantMessage, FunctionCall, ToolCall
 from google.genai import types
 
 from hushh_mcp.one_adk.drive_result_privacy import _confirmation_view
@@ -147,6 +146,8 @@ async def resolve_pending_mcp_reviews(
 
 async def restore_resume(owner, input):
     """Use only the pod's sealed native call when a cold browser resumes."""
+    from ag_ui.core import AssistantMessage, FunctionCall, ToolCall
+
     if not input.resume:
         return input
     requested = [entry.interrupt_id for entry in input.resume]

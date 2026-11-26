@@ -697,7 +697,6 @@ async def test_private_native_mcp_suspend_preview_confirm_resume(
     from fastapi.testclient import TestClient
     from google.adk.agents import LlmAgent
     from google.adk.models.llm_response import LlmResponse
-    from google.adk.runners import Runner
     from google.adk.tools.mcp_tool.mcp_tool import McpTool
     from google.genai import types
 
@@ -712,10 +711,12 @@ async def test_private_native_mcp_suspend_preview_confirm_resume(
     from hushh_mcp.one_adk.agui_factory import build_authenticated_agui
     from hushh_mcp.one_adk.chat_adk_app import build_chat_adk_app
     from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
-    from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, review_private_call
-    from hushh_mcp.one_adk.mcp_pending_call import pending_resume_scope
-    from hushh_mcp.one_adk.mcp_turn_scope import consume_turn_configurations, mcp_turn_scope
-    from hushh_mcp.one_adk.native_chat_stream import native_chat_frames
+    from hushh_mcp.one_adk.mcp_call_approval import review_private_call
+    from hushh_mcp.one_adk.native_pod_chat import (
+        AdmittedNativePodTurn,
+        NativeMcpDecision,
+        run_native_pod_chat,
+    )
     from hushh_mcp.one_adk.pod_adk_session_repository import (
         PodAdkSessionProjection,
         PodAdkSessionRepository,
@@ -897,48 +898,22 @@ async def test_private_native_mcp_suspend_preview_confirm_resume(
         state, _ = pod_agent_chat.trusted_state(value, owner)
         return value.model_copy(update={"state": state, "forwarded_props": {}})
 
-    async def run_direct(value, message, *, invocation_id=None):
-        configurations = consume_turn_configurations(
-            value.state, owner_id=owner_id, conversation_id=thread
-        )
+    async def run_direct(value, *, text=None, decision=None):
+        async def prepare():
+            return build_chat_adk_app(make_head(), app_name="hussh_one"), None, AsyncMock()
+
         checkpoint = AsyncMock()
-        async with Runner(
-            app=build_chat_adk_app(make_head(), app_name="hussh_one"),
-            session_service=owner.sessions,
-        ) as runner:
-
-            async def open_source():
-                with owner.runtime_scope():
-                    async with (
-                        pending_resume_scope(value.state[STATE_MCP_APPROVAL]),
-                        mcp_turn_scope(
-                            thread,
-                            owner_id=owner_id,
-                            configurations=configurations,
-                            owner_admission=owner._mcp_owner_admission,
-                        ),
-                    ):
-                        async for event in runner.run_async(
-                            user_id=owner_id,
-                            session_id=thread,
-                            invocation_id=invocation_id,
-                            new_message=message,
-                            state_delta=value.state,
-                        ):
-                            yield event
-
-            frames = [
-                frame
-                async for frame in native_chat_frames(
-                    open_source,
-                    owner_id=owner_id,
-                    conversation_id=thread,
-                    require_access=owner.require_access,
-                    settle=checkpoint,
-                    admission=admission,
-                    incarnation="synthetic-incarnation",
-                )
-            ]
+        frames = [
+            frame
+            async for frame in run_native_pod_chat(
+                owner,
+                AdmittedNativePodTurn(value.thread_id, value.run_id, value.state, text, decision),
+                prepare=prepare,
+                settle=checkpoint,
+                admission=admission,
+                incarnation="synthetic-incarnation",
+            )
+        ]
         return frames, checkpoint
 
     app = FastAPI()
@@ -967,12 +942,7 @@ async def test_private_native_mcp_suspend_preview_confirm_resume(
         prompt = "Search synthetic records."
         first_input = make_input("first", [UserMessage(id="user-1", role="user", content=prompt)])
         if use_native_runner:
-            await owner.sessions.create_session(
-                app_name="hussh_one", user_id=owner_id, session_id=thread
-            )
-            frames, checkpoint = await run_direct(
-                first_input, types.Content(role="user", parts=[types.Part(text=prompt)])
-            )
+            frames, checkpoint = await run_direct(first_input, text=prompt)
             checkpoint.assert_awaited_once()
             assert frames[-1] == b"event: review\ndata: {}\n\n"
             assert private_argument.encode() not in b"".join(frames)
@@ -1095,13 +1065,19 @@ async def test_private_native_mcp_suspend_preview_confirm_resume(
             ],
         )
         if use_native_runner:
-            (target,) = await resolve_pending_mcp_reviews(
-                owner, thread, [interrupt_id], use_native_ids=True
+            invalid_input = make_input(
+                "invalid-resume", [], approval={**approval, "receipt": receipt}
             )
+            invalid_frames, invalid_checkpoint = await run_direct(
+                invalid_input,
+                decision=NativeMcpDecision(interrupt_id="another-confirmation", confirmed=True),
+            )
+            assert invalid_frames[-1] == b'event: error\ndata: {"code":"AGENT_ERROR"}\n\n'
+            invalid_checkpoint.assert_not_awaited()
+            native.assert_not_awaited()
             frames, checkpoint = await run_direct(
                 resume_input,
-                target.confirmation_message(confirmed=True),
-                invocation_id=target.invocation_id,
+                decision=NativeMcpDecision(interrupt_id=interrupt_id, confirmed=True),
             )
             checkpoint.assert_awaited_once()
             assert frames[-1] == b"event: done\ndata: {}\n\n"
