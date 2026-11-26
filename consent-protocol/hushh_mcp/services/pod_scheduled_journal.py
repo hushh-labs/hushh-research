@@ -7,6 +7,7 @@ import copy
 from collections.abc import Awaitable, Callable
 from zoneinfo import ZoneInfoNotFoundError
 
+from hushh_mcp.services.pod_config import config_from_records
 from hushh_mcp.services.pod_log_replay import PodLogConflict
 from hushh_mcp.services.pod_scheduled_contracts import (
     ScheduleAccess,
@@ -17,6 +18,7 @@ from hushh_mcp.services.pod_scheduled_contracts import (
 KIND = "pod_scheduled_task_v1"
 MAX_SCHEDULES = 50
 MAX_RECENT_RUNS = 5
+LOCKDOWN_PAUSED = "SCHEDULE_LOCKDOWN_PAUSED"
 
 
 class ScheduledTaskJournal:
@@ -31,12 +33,20 @@ class ScheduledTaskJournal:
         await self.log.require_open()
 
     async def snapshot(
-        self, *, recent_runs: dict[str, dict[str, dict]] | None = None
+        self,
+        *,
+        recent_runs: dict[str, dict[str, dict]] | None = None,
+        background: bool = False,
     ) -> tuple[dict[str, dict], int]:
         await self.check()
         records, _ = await self.log.replay_since(max_records=30000, max_bytes=64 * 1024 * 1024)
         if len(records) > 30000:
             raise ScheduleRefused("SCHEDULE_HISTORY_LIMIT")
+        if (
+            background
+            and config_from_records(records, hushh_id=self.access.pod_id).session_only_lockdown
+        ):
+            raise ScheduleRefused(LOCKDOWN_PAUSED)
         rows: dict[str, dict] = {}
         for record in records:
             if record.get("kind") != KIND:
@@ -78,10 +88,11 @@ class ScheduledTaskJournal:
         edit: Callable[[dict[str, dict]], dict],
         *,
         authorize: Callable[[dict], Awaitable[None]] | None = None,
+        background: bool = False,
     ) -> dict:
         async with self._lock:
             for _ in range(4):
-                rows, seq = await self.snapshot()
+                rows, seq = await self.snapshot(background=background)
                 row = edit(rows)
                 # Refuse an invalid/oversized projection before it poisons recovery.
                 try:

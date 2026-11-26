@@ -330,6 +330,61 @@ async def test_skip_next_fences_previous_delivery_and_preserves_the_series(sched
     world.capability.run.assert_awaited_once()
 
 
+async def test_session_only_lockdown_pauses_due_work_after_runtime_recovery(scheduled_tasks):
+    from hushh_mcp.services.pod_config import POD_CONFIG_RECORD_KIND
+
+    world = scheduled_tasks
+    task = await world.runtime.create(
+        schedule_request(), grant={"subject_id": "browser", "version": 1}
+    )
+    due = world.delivery.offer.await_args.args
+    await world.log.append(
+        POD_CONFIG_RECORD_KIND,
+        {"hushh_id": "pod", "config": {"session_only_lockdown": True}},
+    )
+    world.clock[0] = due[-1]
+    paused = await world.build().run(*due[:3])
+    assert paused["state"] == "paused" and paused["last_run"] is None
+    world.capability.run.assert_not_awaited()
+
+    await world.log.append(
+        POD_CONFIG_RECORD_KIND,
+        {"hushh_id": "pod", "config": {"session_only_lockdown": False}},
+    )
+    await world.build().run(*due[:3])
+    world.capability.run.assert_not_awaited()
+    await world.runtime.control(task["id"], paused["revision"], "resume", confirmed=True)
+    resumed = world.delivery.offer.await_args.args
+    world.clock[0] = resumed[-1]
+    assert (await world.build().run(*resumed[:3]))["state"] == "completed"
+    world.capability.run.assert_awaited_once()
+
+
+async def test_session_only_lockdown_fences_an_active_offline_claim(scheduled_tasks):
+    from hushh_mcp.services.pod_config import POD_CONFIG_RECORD_KIND
+    from hushh_mcp.services.pod_scheduled_tasks import ScheduleRefused
+
+    world = scheduled_tasks
+    await world.runtime.create(schedule_request(), grant={"subject_id": "browser", "version": 1})
+    due = world.delivery.offer.await_args.args
+    world.clock[0] = due[-1]
+
+    async def lock_during_run(_terms, _occurrence, check):
+        await world.log.append(
+            POD_CONFIG_RECORD_KIND,
+            {"hushh_id": "pod", "config": {"session_only_lockdown": True}},
+        )
+        await check()
+        pytest.fail("The claimed execution continued after lockdown")
+
+    world.capability.run.side_effect = lock_during_run
+    with pytest.raises(ScheduleRefused, match="SCHEDULE_LOCKDOWN_PAUSED"):
+        await world.runtime.run(*due[:3])
+    [task] = await world.build().list()
+    assert task["state"] == "needs_review"
+    assert task["last_run"]["state"] == "outcome_uncertain"
+
+
 @pytest.mark.asyncio
 async def test_schedule_rejects_horizon_outside_signed_grant_before_persisting(scheduled_tasks):
     from hushh_mcp.services.pod_scheduled_tasks import ScheduleRefused

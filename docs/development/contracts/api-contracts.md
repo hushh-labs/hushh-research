@@ -352,6 +352,9 @@ five `recent_runs` per task, newest first, from the sealed schedule journal.
 Each history row contains an occurrence identifier, state, and timestamps.
 The date views show the next recorded scheduled occurrence for each task.
 Task terms, grants, and worker credentials remain private to the agent.
+Session-only lockdown pauses a due offline occurrence before its claim. An
+interrupted active claim requires review. The owner can explicitly resume a
+paused schedule after turning off lockdown.
 
 ## Response Format
 
