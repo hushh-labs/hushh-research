@@ -11,6 +11,36 @@ from .provider_contracts import ProviderContext
 from .stripe_adapter import CommerceProviderError
 
 
+def _is_account_deletion_write_guard(exc: BaseException) -> bool:
+    """Recognize database erasure and retired-generation write fences across drivers."""
+    seen: set[int] = set()
+    while id(exc) not in seen:
+        seen.add(id(exc))
+        constraint = getattr(getattr(exc, "diag", None), "constraint_name", None)
+        if (constraint or getattr(exc, "constraint_name", None)) in {
+            "account_deletion_tombstone_guard",
+            "account_retired_generation_update_guard",
+        }:
+            return True
+        nested = getattr(exc, "orig", None) or exc.__cause__
+        if nested is None and not exc.__suppress_context__:
+            nested = exc.__context__
+        if not isinstance(nested, BaseException):
+            return False
+        exc = nested
+    return False
+
+
+async def _has_retired_owner_guard(connection: Any) -> bool:
+    if not hasattr(connection, "fetchval"):
+        return False
+    return bool(
+        await connection.fetchval(
+            "SELECT to_regprocedure('reject_retired_account_update()') IS NOT NULL"
+        )
+    )
+
+
 class ReconciliationCoordinator(ProviderContext):
     async def reconcile(self, *, max_operations: int = 20) -> dict[str, int]:
         """Bounded durable drain, safe while admission for new purchases is disabled."""
@@ -18,21 +48,41 @@ class ReconciliationCoordinator(ProviderContext):
         limit = max(1, min(max_operations, 100))
 
         async def pending(connection: Any) -> list[dict[str, Any]]:
-            rows = await connection.fetch(
-                """SELECT o.* FROM scope_commerce_provider_operations o
-                WHERE (status IN ('submitted','reconciliation_required') OR
-                  (status='succeeded' AND (
-                    (kind='funding' AND NOT EXISTS(SELECT 1 FROM scope_commerce_fundings f
-                       WHERE f.funding_id=o.operation_id AND f.status IN ('paid','cancelled')))
-                    OR (kind='refund' AND NOT EXISTS(SELECT 1 FROM scope_commerce_obligations f
-                       WHERE f.obligation_id=o.operation_id AND f.status IN ('succeeded','failed')))
-                    OR (kind='payout' AND NOT EXISTS(SELECT 1 FROM scope_commerce_withdrawals w
-                       WHERE w.withdrawal_id::text=o.request_json->'metadata'->>'withdrawal_id'
-                       AND w.status IN ('succeeded','failed'))))))
-                AND (lease_until IS NULL OR lease_until<clock_timestamp())
-                ORDER BY updated_at,operation_id LIMIT $1""",
-                limit,
-            )
+            if await _has_retired_owner_guard(connection):
+                rows = await connection.fetch(
+                    """SELECT o.* FROM scope_commerce_provider_operations o
+                    WHERE (status IN ('submitted','reconciliation_required') OR
+                      (status='succeeded' AND (
+                        (kind='funding' AND NOT EXISTS(SELECT 1 FROM scope_commerce_fundings f
+                           WHERE f.funding_id=o.operation_id AND f.status IN ('paid','cancelled')))
+                        OR (kind='refund' AND NOT EXISTS(SELECT 1 FROM scope_commerce_obligations f
+                           WHERE f.obligation_id=o.operation_id AND f.status IN ('succeeded','failed')))
+                        OR (kind='payout' AND NOT EXISTS(SELECT 1 FROM scope_commerce_withdrawals w
+                           WHERE w.withdrawal_id::text=o.request_json->'metadata'->>'withdrawal_id'
+                           AND w.status IN ('succeeded','failed'))))))
+                    AND (lease_until IS NULL OR lease_until<clock_timestamp())
+                    AND (o.user_id IS NULL OR NOT EXISTS(SELECT 1 FROM account_deletion_tombstones t
+                         WHERE t.user_id_hash='sha256:'||encode(sha256(convert_to(o.user_id,'UTF8')),'hex')
+                           AND t.cleanup_intent_kind='full_account' AND t.erasure_phase='erased'))
+                    ORDER BY updated_at,operation_id LIMIT $1""",
+                    limit,
+                )
+            else:
+                rows = await connection.fetch(
+                    """SELECT o.* FROM scope_commerce_provider_operations o
+                    WHERE (status IN ('submitted','reconciliation_required') OR
+                      (status='succeeded' AND (
+                        (kind='funding' AND NOT EXISTS(SELECT 1 FROM scope_commerce_fundings f
+                           WHERE f.funding_id=o.operation_id AND f.status IN ('paid','cancelled')))
+                        OR (kind='refund' AND NOT EXISTS(SELECT 1 FROM scope_commerce_obligations f
+                           WHERE f.obligation_id=o.operation_id AND f.status IN ('succeeded','failed')))
+                        OR (kind='payout' AND NOT EXISTS(SELECT 1 FROM scope_commerce_withdrawals w
+                           WHERE w.withdrawal_id::text=o.request_json->'metadata'->>'withdrawal_id'
+                           AND w.status IN ('succeeded','failed'))))))
+                    AND (lease_until IS NULL OR lease_until<clock_timestamp())
+                    ORDER BY updated_at,operation_id LIMIT $1""",
+                    limit,
+                )
             return [dict(row) for row in rows]
 
         examined = completed = uncertain = 0
@@ -49,6 +99,10 @@ class ReconciliationCoordinator(ProviderContext):
             except (CommerceProviderError, CommerceError):
                 uncertain += 1
                 await self._defer_operation_reconciliation(operation["operation_id"])
+            except Exception as exc:
+                if not _is_account_deletion_write_guard(exc):
+                    raise
+                uncertain += 1
         events = await self._resume_events(limit=limit)
         recoveries = await self._drain_transfer_recoveries(limit=min(limit, 20))
         drained = await self._resume_withdrawals(limit=limit)
@@ -182,17 +236,30 @@ class ReconciliationCoordinator(ProviderContext):
 class WithdrawalRecovery(ProviderContext):
     async def _resume_withdrawals(self, *, limit: int) -> int:
         async def pending(connection: Any) -> list[dict[str, Any]]:
-            rows = await connection.fetch(
-                """SELECT w.*,COALESCE(w.account_id,s.account_id) AS account_id,s.country FROM scope_commerce_withdrawals w
-                JOIN scope_commerce_sellers s ON s.seller_id=w.seller_id
-                WHERE w.status IN ('queued','transferred','pending','unknown')
-                ORDER BY w.updated_at,w.withdrawal_id LIMIT $1""",
-                limit,
-            )
+            if await _has_retired_owner_guard(connection):
+                rows = await connection.fetch(
+                    """SELECT w.*,COALESCE(w.account_id,s.account_id) AS account_id,s.country FROM scope_commerce_withdrawals w
+                    JOIN scope_commerce_sellers s ON s.seller_id=w.seller_id
+                    WHERE w.status IN ('queued','transferred','pending','unknown')
+                    AND (w.user_id IS NULL OR NOT EXISTS(SELECT 1 FROM account_deletion_tombstones t
+                         WHERE t.user_id_hash='sha256:'||encode(sha256(convert_to(w.user_id,'UTF8')),'hex')
+                           AND t.cleanup_intent_kind='full_account' AND t.erasure_phase='erased'))
+                    ORDER BY w.updated_at,w.withdrawal_id LIMIT $1""",
+                    limit,
+                )
+            else:
+                rows = await connection.fetch(
+                    """SELECT w.*,COALESCE(w.account_id,s.account_id) AS account_id,s.country FROM scope_commerce_withdrawals w
+                    JOIN scope_commerce_sellers s ON s.seller_id=w.seller_id
+                    WHERE w.status IN ('queued','transferred','pending','unknown')
+                    ORDER BY w.updated_at,w.withdrawal_id LIMIT $1""",
+                    limit,
+                )
             return [dict(row) for row in rows]
 
         resumed = 0
         for withdrawal in await self.store._transaction(pending):
+            erased_guard = False
             try:
                 if withdrawal.get("payout_id"):
                     payout = await self.adapter.retrieve(
@@ -224,8 +291,18 @@ class WithdrawalRecovery(ProviderContext):
                 resumed += 1
             except (CommerceProviderError, CommerceError):
                 continue
+            except Exception as exc:
+                if not _is_account_deletion_write_guard(exc):
+                    raise
+                erased_guard = True
+                continue
             finally:
-                await self._mark_withdrawal_reviewed(withdrawal["withdrawal_id"])
+                if not erased_guard:
+                    try:
+                        await self._mark_withdrawal_reviewed(withdrawal["withdrawal_id"])
+                    except Exception as exc:
+                        if not _is_account_deletion_write_guard(exc):
+                            raise
         return resumed
 
     async def _mark_withdrawal_reviewed(self, withdrawal_id: Any) -> None:
@@ -291,18 +368,41 @@ class WithdrawalRecovery(ProviderContext):
 
     async def _weekly_batch(self, *, limit: int) -> int:
         async def owners(connection: Any) -> list[str]:
-            rows = await connection.fetch(
-                """SELECT a.user_id FROM scope_commerce_seller_accounts a
-                WHERE a.eligible AND NOT EXISTS(SELECT 1 FROM scope_commerce_withdrawals w
-                 WHERE w.user_id=a.user_id AND w.created_at>clock_timestamp()-interval '7 days')
-                ORDER BY a.updated_at,a.user_id LIMIT $1""",
-                limit,
+            has_tombstones = (
+                bool(
+                    await connection.fetchval(
+                        "SELECT to_regclass('account_deletion_tombstones') IS NOT NULL"
+                    )
+                )
+                if hasattr(connection, "fetchval")
+                else False
             )
+            if has_tombstones:
+                rows = await connection.fetch(
+                    """SELECT a.user_id FROM scope_commerce_seller_accounts a
+                    WHERE a.eligible
+                    AND NOT EXISTS(SELECT 1 FROM account_deletion_tombstones t
+                     WHERE t.user_id_hash='sha256:'||encode(sha256(convert_to(a.user_id,'UTF8')),'hex'))
+                    AND NOT EXISTS(SELECT 1 FROM scope_commerce_withdrawals w
+                     WHERE w.user_id=a.user_id AND w.created_at>clock_timestamp()-interval '7 days')
+                    ORDER BY a.updated_at,a.user_id LIMIT $1""",
+                    limit,
+                )
+            else:
+                rows = await connection.fetch(
+                    """SELECT a.user_id FROM scope_commerce_seller_accounts a
+                    WHERE a.eligible
+                    AND NOT EXISTS(SELECT 1 FROM scope_commerce_withdrawals w
+                     WHERE w.user_id=a.user_id AND w.created_at>clock_timestamp()-interval '7 days')
+                    ORDER BY a.updated_at,a.user_id LIMIT $1""",
+                    limit,
+                )
             return [row["user_id"] for row in rows]
 
         completed = 0
         week = datetime.now(UTC).isocalendar()
         for user_id in await self.store._transaction(owners):
+            erased_guard = False
             try:
                 preview = await self.preview_withdrawal(user_id)
                 if not preview["eligible"]:
@@ -315,8 +415,18 @@ class WithdrawalRecovery(ProviderContext):
                 completed += 1
             except (CommerceProviderError, CommerceError):
                 continue
+            except Exception as exc:
+                if not _is_account_deletion_write_guard(exc):
+                    raise
+                erased_guard = True
+                continue
             finally:
-                await self._mark_weekly_reviewed(user_id)
+                if not erased_guard:
+                    try:
+                        await self._mark_weekly_reviewed(user_id)
+                    except Exception as exc:
+                        if not _is_account_deletion_write_guard(exc):
+                            raise
         return completed
 
     async def _mark_weekly_reviewed(self, user_id: str) -> None:
