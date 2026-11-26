@@ -7,7 +7,9 @@ from hushh_mcp.services.pod_scheduled_tasks import ScheduleAccess, ScheduledTask
 
 def active_scheduled_tasks() -> ScheduledTasks:
     from hushh_mcp.services.pod_memory_service import _resolve_log
+    from hushh_mcp.services.pod_owner_cloud import hosted_ace_runtime
     from hushh_mcp.services.pod_role import require_serving_role
+    from hushh_mcp.services.pod_sandbox_scheduled_delivery import SandboxScheduledDelivery
     from hushh_mcp.services.pod_scheduled_authority import ScheduledGrantAuthority
     from hushh_mcp.services.pod_scheduled_delivery import GcpScheduledDelivery
     from hushh_mcp.services.pod_scheduled_files import ScheduledFileOrganization
@@ -36,15 +38,17 @@ def active_scheduled_tasks() -> ScheduledTasks:
         await authority.require_held()
 
     grants = ScheduledGrantAuthority(authority, owner, check)
-
+    sandbox = hosted_ace_runtime()
     runtime = ScheduledTasks(
         access=ScheduleAccess(owner, authority.hushh_id, incarnation, check),
         log=log,
         capabilities={
-            "agent_files.organize_file.v1": ScheduledFileOrganization(check),
+            "agent_files.organize_file.v1": ScheduledFileOrganization(
+                check, sandbox_log=log if sandbox else None, sandbox_pod_id=authority.hushh_id
+            ),
             "agent_one.execute_task.v1": ScheduledOneTask(grants, log, check),
         },
-        delivery=GcpScheduledDelivery(log._store),
+        delivery=SandboxScheduledDelivery() if sandbox else GcpScheduledDelivery(log._store),
         admission=ADMISSION,
         check_grant=grants.check_grant,
     )
