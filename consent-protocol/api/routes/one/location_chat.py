@@ -1,88 +1,105 @@
-"""One Location agent chat endpoint (v1, control-plane, non-streaming)."""
+"""Vault-owner Location reviews from ONE's main Chat."""
 
 from __future__ import annotations
 
-import logging
+from datetime import datetime
 from typing import Any
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.middleware import require_vault_owner_token as require_vault_owner_token
-from hushh_mcp.services.chat_key import CHAT_KEY_ERRORS
-from hushh_mcp.services.location_chat_service import LocationChatService
-from hushh_mcp.services.owner_placement_guard import hub_content_owner
+from api.middleware import require_vault_owner_token
+from api.routes.one.location import _handle_error, _service, _user_id
+from hushh_mcp.services.location_chat_plans import (
+    LocationChatAction,
+    LocationChatDurationMode,
+    LocationChatPlanService,
+)
 
-logger = logging.getLogger(__name__)
-
-router = APIRouter(prefix="/api/one", tags=["One Location Agent Chat"])
-
-
-def _service() -> LocationChatService:
-    return LocationChatService()
+router = APIRouter(prefix="/api/one", tags=["One Location Chat"])
 
 
-class ActionResultModel(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    id: str = Field(max_length=64)
-    type: str = Field(max_length=48)
-    status: str = Field(max_length=24)
-    public_url: str | None = Field(default=None, alias="publicUrl", max_length=2048)
-    detail: str | None = Field(default=None, max_length=500)
-
-
-class SelectionResultModel(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    id: str = Field(max_length=64)
-    kind: str = Field(max_length=24)
-    selected: list[dict[str, Any]] | None = None
-    confirmed: bool | None = None
-    free_text: str | None = Field(default=None, alias="freeText", max_length=4000)
-    status: str = Field(max_length=24)
-    display: str | None = Field(default=None, max_length=200)
+class PrepareLocationChatPlanRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+    action: LocationChatAction
+    person_user_id: str | None = Field(
+        default=None, alias="personUserId", min_length=1, max_length=160
+    )
+    grant_id: UUID | None = Field(default=None, alias="grantId")
+    request_id: UUID | None = Field(default=None, alias="requestId")
+    circle_id: UUID | None = Field(default=None, alias="circleId")
+    origin_id: UUID | None = Field(default=None, alias="originId")
+    attempt_id: UUID | None = Field(default=None, alias="attemptId")
+    duration_hours: float | None = Field(default=None, alias="durationHours", gt=0, le=24)
+    duration_mode: LocationChatDurationMode | None = Field(default=None, alias="durationMode")
 
 
-class LocationChatRequest(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    message: str | None = Field(default=None, max_length=4000)
-    conversation_id: str | None = Field(default=None, alias="conversationId", max_length=128)
-    action_result: ActionResultModel | None = Field(default=None, alias="actionResult")
-    selection_result: SelectionResultModel | None = Field(default=None, alias="selectionResult")
+class ExecuteLocationChatPlanRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+    envelope: dict[str, Any] | None = None
+    confirmed_at: datetime | None = Field(default=None, alias="confirmedAt")
 
 
-@router.post("/location/chat")
-async def location_chat(
-    request: LocationChatRequest,
-    token_data: dict = Depends(hub_content_owner),
-) -> dict[str, Any]:
-    if not request.message and request.action_result is None and request.selection_result is None:
-        raise HTTPException(
-            status_code=422, detail="message, actionResult, or selectionResult is required"
-        )
+@router.post("/location/chat-plans/prepare")
+def prepare_location_chat_plan(
+    payload: PrepareLocationChatPlanRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
     try:
-        result: dict[str, Any] = await _service().handle_turn(
-            user_id=token_data["user_id"],
-            message=request.message,
-            consent_token=token_data.get("token", ""),
-            conversation_id=request.conversation_id,
-            action_result=(
-                request.action_result.model_dump(by_alias=True, exclude_none=True)
-                if request.action_result is not None
-                else None
-            ),
-            selection_result=(
-                request.selection_result.model_dump(by_alias=True, exclude_none=True)
-                if request.selection_result is not None
-                else None
-            ),
+        return LocationChatPlanService(_service()).prepare(
+            user_id=_user_id(token_data),
+            **payload.model_dump(mode="json"),
         )
-        return result
-    except CHAT_KEY_ERRORS:
-        # Refuse with the recoverable chat-key message (app handler), not a 500.
-        raise
-    except Exception:
-        logger.exception("Location chat turn failed")
-        raise HTTPException(status_code=500, detail="Location chat could not be processed")
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get("/location/chat-plans/origin/{origin_id}")
+def list_location_chat_plans(
+    origin_id: UUID,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        response.headers["Cache-Control"] = "private, no-store"
+        return {
+            "plans": LocationChatPlanService(_service()).for_origin(
+                user_id=_user_id(token_data),
+                origin_id=str(origin_id),
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get("/location/chat-plans/{plan_id}")
+def inspect_location_chat_plan(
+    plan_id: UUID,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        response.headers["Cache-Control"] = "private, no-store"
+        return LocationChatPlanService(_service()).inspect(
+            user_id=_user_id(token_data),
+            plan_id=str(plan_id),
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/chat-plans/{plan_id}/execute")
+def execute_location_chat_plan(
+    plan_id: UUID,
+    payload: ExecuteLocationChatPlanRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return LocationChatPlanService(_service()).execute(
+            user_id=_user_id(token_data),
+            plan_id=str(plan_id),
+            **payload.model_dump(),
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
