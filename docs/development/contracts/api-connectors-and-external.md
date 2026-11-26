@@ -1141,6 +1141,15 @@ sender, recipient, source and approved time. It rechecks authority, model
 binding, the mailbox and the thread before calling Gmail delivery. Uncertain
 outcomes use the existing schedule recovery contract.
 
+Watch for a reply checks the selected mailbox while the board is visible and
+the owner vault is unlocked. Closing it stops those checks. The approved-send
+worker can cancel its own occurrence when it finds the expected document at
+send time. Its grant has `pod.act` and `pkm.read`. Completing the canonical
+`one_todos` row requires the owner vault key, owner write authorization and the
+current task revision. The worker has no scoped background writer for that
+collection. Closed-board settlement, including cancellation of the matching
+reminder on arrival, therefore requires a separately authorized Tasks capability.
+
 Shared hosting lists the primary Gmail grant and additional Google connections
 with explicit Mail read access. Each read checks vault-owner authorization,
 placement and the selected grant generation. Disconnect withdraws that
