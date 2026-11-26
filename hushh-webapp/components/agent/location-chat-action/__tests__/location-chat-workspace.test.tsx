@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LocationChatCircles } from "../location-chat-circles";
 import { LocationChatSettings } from "../location-chat-settings";
+import { LocationChatCheckIn } from "../location-chat-check-in";
 import { readOneLocationControlState } from "@/lib/one-location/location-control-state";
+import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
+import { ROUTES } from "@/lib/navigation/routes";
 
 const mock = vi.hoisted(() => ({
   listCircles: vi.fn(),
@@ -125,6 +128,64 @@ describe("inline Location workspace", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Automatic approval changed.");
     expect(mock.updateAutoApprovePreference).not.toHaveBeenCalled();
     expect(screen.getByText("On for all contacts")).toBeInTheDocument();
+  });
+
+  it("reviews the named Circle directly in Chat and publishes the saved approval preference", async () => {
+    const owner = "auto-approval-owner";
+    const preference = { enabled: true, scope: { kind: "circles", circleIds: ["family"] }, ruleVersion: 2 };
+    mock.getState.mockResolvedValue({ autoApprovePreference: { enabled: false, scope: null, ruleVersion: 1 } });
+    mock.updateAutoApprovePreference.mockResolvedValue(preference);
+    const onChanged = vi.fn();
+    render(<LocationChatSettings token="owner-token" ownerId={owner} autoApprovalIntent="enable"
+      suggestedCircles={["Family"]} onChanged={onChanged} />);
+
+    expect(await screen.findByRole("checkbox", { name: "Family" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "All contacts" })).not.toBeChecked();
+    expect(mock.getMapPreferences).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Review scope" }));
+    expect(screen.getByText(/Automatically approve new requests from Family/)).toBeInTheDocument();
+    expect(mock.updateAutoApprovePreference).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Save approval scope" }));
+
+    expect(await screen.findByText("On for Family")).toBeInTheDocument();
+    expect(mock.updateAutoApprovePreference).toHaveBeenCalledExactlyOnceWith({
+      vaultOwnerToken: "owner-token", enabled: true, scope: preference.scope,
+    });
+    expect(OneLocationStateResource.readPresentation(owner)?.autoApprovePreference).toEqual(preference);
+    expect(onChanged).toHaveBeenCalledOnce();
+    expect(window.location.pathname).toBe(ROUTES.HOME);
+  });
+
+  it.each([[], ["Family", "Missing"], ["Family", "Team"]])("requires an explicit scope for unresolved or ambiguous audience hints %j", async (...names: string[]) => {
+    mock.getState.mockResolvedValue({ autoApprovePreference: { enabled: false, scope: null, ruleVersion: 1 } });
+    mock.listCircles.mockResolvedValue([circle, { ...circle, id: "team-a", name: "Team" }, { ...circle, id: "team-b", name: "Team" }]);
+    render(<LocationChatSettings token="owner-token" ownerId="owner" autoApprovalIntent="enable" suggestedCircles={names} />);
+    expect(await screen.findByRole("button", { name: "Review scope" })).toBeDisabled();
+    expect(screen.getAllByRole("checkbox").every((checkbox) => !(checkbox as HTMLInputElement).checked)).toBe(true);
+    expect(mock.updateAutoApprovePreference).not.toHaveBeenCalled();
+  });
+
+  it("offers a direct off confirmation and persists it only when pressed", async () => {
+    mock.getState.mockResolvedValue({ autoApprovePreference: { enabled: true, scope: { kind: "all_contacts" }, ruleVersion: 2 } });
+    mock.updateAutoApprovePreference.mockResolvedValue({ enabled: false, scope: null, ruleVersion: 3 });
+    render(<LocationChatSettings token="owner-token" ownerId="owner" autoApprovalIntent="disable" />);
+    const confirm = await screen.findByRole("button", { name: "Turn off auto-approval" });
+    expect(mock.listCircles).not.toHaveBeenCalled();
+    expect(mock.updateAutoApprovePreference).not.toHaveBeenCalled();
+    fireEvent.click(confirm);
+    expect(await screen.findByText("Automatic approval is off.")).toBeInTheDocument();
+    expect(mock.updateAutoApprovePreference).toHaveBeenCalledExactlyOnceWith({
+      vaultOwnerToken: "owner-token", enabled: false, scope: null,
+    });
+  });
+
+  it("restores a nearby check-in with a link to its canonical screen without capturing location", () => {
+    const capture = vi.fn();
+    render(<LocationChatCheckIn proposal={{ id: "proposal", action: "nearby_check_in" }}
+      token="owner-token" ownerId="owner" capturePoint={capture} renderPoint={() => null} onBack={vi.fn()} onChanged={vi.fn()} />);
+    expect(screen.getByRole("link", { name: "Open check-in" })).toHaveAttribute("href", ROUTES.ONE_LOCATION_CHECK_IN);
+    expect(window.location.pathname).toBe(ROUTES.HOME);
+    expect(capture).not.toHaveBeenCalled();
   });
 
   it("requires separate acknowledgement before switching off an active emergency share", async () => {
