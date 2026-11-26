@@ -2062,3 +2062,203 @@ async def test_metrics_uat_aggregate_rechecks_uat_authorities_and_both_connectio
     }
     assert all(call.args[2] == "uat" for call in db.identity.await_args_list)
     assert "customer" not in json.dumps(result) and "outside.invalid" not in json.dumps(result)
+
+
+def test_metrics_v2_admits_ninety_day_windows_and_preserves_v1_seven_day_cap(
+    metrics_aggregate_setup,
+):
+    now = datetime(2026, 11, 26, 12, tzinfo=timezone.utc)
+    binding = {**metrics_aggregate_setup.binding, "coverageFrom": "2026-11-22"}
+    ninety_day = {"startDate": "2026-08-28", "endDate": "2026-11-25", "timezone": "UTC"}
+    v2_req = _metrics_source.AdoptionRequest.model_validate(
+        {**metrics_aggregate_setup.body, "definitionVersion": "2", "period": ninety_day}
+    )
+    first, last = _metrics_source.period_bounds(v2_req, binding, now)
+    assert first == datetime(2026, 8, 28, tzinfo=timezone.utc)
+    assert last == datetime(2026, 11, 26, tzinfo=timezone.utc) - timedelta(microseconds=1)
+    assert _metrics_source.period_bounds(v2_req, binding, now, environment="uat") == (first, last)
+    # v1 remains capped at 7 days and gated on coverageFrom.
+    v1_req = _metrics_source.AdoptionRequest.model_validate(
+        {**metrics_aggregate_setup.body, "definitionVersion": "1", "period": ninety_day}
+    )
+    with pytest.raises(ValueError):
+        _metrics_source.period_bounds(v1_req, binding, now)
+    # 91 days (> 90) and unclosed today (without provisional UAT pin) are rejected on v2.
+    for bad_period in (
+        {"startDate": "2026-08-27", "endDate": "2026-11-25", "timezone": "UTC"},
+        {"startDate": "2026-11-26", "endDate": "2026-11-26", "timezone": "UTC"},
+    ):
+        bad_v2 = _metrics_source.AdoptionRequest.model_validate(
+            {**metrics_aggregate_setup.body, "definitionVersion": "2", "period": bad_period}
+        )
+        with pytest.raises(ValueError):
+            _metrics_source.period_bounds(bad_v2, binding, now)
+    # If binding explicitly upgrades definitionVersion to "2", v1 requests are refused.
+    v2_only_binding = {**binding, "definitionVersion": "2"}
+    v1_short = _metrics_source.AdoptionRequest.model_validate(
+        {
+            **metrics_aggregate_setup.body,
+            "definitionVersion": "1",
+            "period": {"startDate": "2026-11-24", "endDate": "2026-11-25", "timezone": "UTC"},
+        }
+    )
+    with pytest.raises(ValueError):
+        _metrics_source.period_bounds(v1_short, v2_only_binding, now)
+
+
+@pytest.mark.asyncio
+async def test_metrics_v2_deduplicates_subagent_outcomes_and_new_vs_returning_accounts(
+    metrics_aggregate_setup, metrics_aggregate_database, monkeypatch
+):
+    db = metrics_aggregate_database
+    db.guard.ids = db.data.ids = ["returning_owner", "new_owner", "staff"]
+    since_day = (_METRICS_NOW - timedelta(days=30)).date().isoformat()
+    end_day = (_METRICS_NOW - timedelta(days=1)).date().isoformat()
+    identity_snapshot = (
+        {
+            "returning_owner": {
+                "firebase_uid": "returning_owner",
+                "emails": ("ret@outside.invalid",),
+                "registeredAt": (_METRICS_NOW - timedelta(days=60)).isoformat(),
+            },
+            "new_owner": {
+                "firebase_uid": "new_owner",
+                "emails": ("new@outside.invalid",),
+                "registeredAt": (_METRICS_NOW - timedelta(days=5)).isoformat(),
+            },
+            "staff": {
+                "firebase_uid": "staff",
+                "emails": ("staff@company.invalid",),
+                "registeredAt": (_METRICS_NOW - timedelta(days=90)).isoformat(),
+            },
+        },
+        {
+            "returning_owner": {"email": "ret@outside.invalid"},
+            "new_owner": {"email": "new@outside.invalid"},
+            "staff": {"email": "staff@company.invalid"},
+        },
+        {},
+    )
+    monkeypatch.setattr(_metrics_source, "_identity", AsyncMock(return_value=identity_snapshot))
+    monkeypatch.setattr(
+        _metrics_source.AccountDeletionLifecycleService,
+        "active_projection_user_ids",
+        AsyncMock(return_value={"returning_owner", "new_owner", "staff"}),
+    )
+
+    async def data_fetch(query, *_args, **_options):
+        if query == _metrics_source.CANDIDATES_SQL:
+            return [{"user_id": uid} for uid in db.data.ids]
+        assert query == _metrics_source.MEANINGFUL_REPLIES_SQL
+        return [{"user_id": "returning_owner"}, {"user_id": "returning_owner"}]
+
+    monkeypatch.setattr(db.data, "fetch", data_fetch)
+
+    def _subagent_map(**counts):
+        return {
+            sub_id: {"supported": True, "limited": False, "count": counts.get(sub_id, 0)}
+            for sub_id in outcomes.SUBAGENT_OUTCOME_IDS
+        }
+
+    with_subagents = AsyncMock(
+        return_value={
+            "returning_owner": {
+                "supported": True,
+                "limited": False,
+                "count": 2,
+                "bySubagent": _subagent_map(agent_kai=1, agent_personal_information=1, agent_nav=1),
+            },
+            "new_owner": {
+                "supported": True,
+                "limited": False,
+                "count": 3,
+                "bySubagent": _subagent_map(agent_kai=2, agent_email=1),
+            },
+        }
+    )
+    monkeypatch.setattr(
+        _metrics_source.plg_outcomes, "value_summaries_with_subagents", with_subagents
+    )
+    v2_body = {
+        **metrics_aggregate_setup.body,
+        "definitionVersion": "2",
+        "period": {"startDate": since_day, "endDate": end_day, "timezone": "UTC"},
+    }
+    result = await _metrics_source.adoption_aggregate(
+        _metrics_source.AdoptionRequest.model_validate(v2_body),
+        metrics_aggregate_setup.binding,
+        pool=db.pool,
+    )
+    assert result["definitionVersion"] == "2"
+    assert result["metrics"]["activeAccounts"]["value"] == 2
+    assert result["metrics"]["newActiveAccounts"]["value"] == 1
+    assert result["metrics"]["returningActiveAccounts"]["value"] == 1
+    assert result["metrics"]["confirmedOutcomes"]["value"] == 5
+    assert result["bySubagent"]["agent_kai"] == {
+        "outcomeAccounts": {"value": 2, "coverage": "partial", "unit": "account", "basis": "exact"},
+        "confirmedOutcomes": {
+            "value": 3,
+            "coverage": "partial",
+            "unit": "outcome",
+            "basis": "exact",
+        },
+    }
+    assert result["bySubagent"]["agent_email"]["outcomeAccounts"]["value"] == 1
+    assert result["bySubagent"]["agent_email"]["confirmedOutcomes"]["value"] == 1
+    assert result["bySubagent"]["agent_calendar"]["confirmedOutcomes"]["value"] == 0
+    assert result["coverageWindow"] == {
+        "coverageFrom": metrics_aggregate_setup.binding["coverageFrom"],
+        "windowFullyCovered": False,
+    }
+    serialized = json.dumps(result)
+    for forbidden in ("returning_owner", "new_owner", "ret@outside.invalid", "new@outside.invalid"):
+        assert forbidden not in serialized
+
+
+@pytest.mark.asyncio
+async def test_value_summaries_with_subagents_batches_all_specialists_in_single_sql_pass():
+    since = _METRICS_NOW - timedelta(days=14)
+    now = _METRICS_NOW
+    kai_commit = derive_pkm_mutation_commit_id(
+        user_id="owner-1", domain="financial", plan_id="pkm_plan_kai_fixture"
+    )
+    fetch_calls = []
+
+    async def fake_fetch(sql, *args, **_kwargs):
+        fetch_calls.append(sql)
+        if "HAVING COUNT(*)>=500" in sql:
+            return [{"_plg_user_id": "owner-1", "capped": False}]
+        if "FROM pkm_domain_commits" in sql:
+            return [
+                {
+                    "_plg_user_id": "owner-1",
+                    "action_id": kai_commit,
+                    "occurred_at": now - timedelta(days=2),
+                    "domain": "financial",
+                    "plan_id": "pkm_plan_kai_fixture",
+                    "authorization_mode": "owner_confirmed",
+                    "writer_id": "kai_analysis_completion",
+                }
+            ]
+        if (
+            "FROM gmail_owner_send_actions" in sql
+            and "gmail_personal_information_requests" not in sql
+        ):
+            return [
+                {
+                    "_plg_user_id": "owner-1",
+                    "action_id": "mail-1",
+                    "occurred_at": now - timedelta(days=1),
+                }
+            ]
+        return []
+
+    conn = SimpleNamespace(fetch=fake_fetch)
+    batched = await outcomes.value_summaries_with_subagents(conn, ["owner-1"], since, now)
+    assert len(fetch_calls) == 11
+    summary = batched["owner-1"]
+    assert summary["count"] == 2 and summary["limited"] is False
+    assert summary["bySubagent"]["agent_kai"]["count"] == 1
+    assert summary["bySubagent"]["agent_personal_information"]["count"] == 1
+    assert summary["bySubagent"]["agent_email"]["count"] == 1
+    assert summary["bySubagent"]["agent_calendar"]["count"] == 0
