@@ -42,6 +42,16 @@ async def test_location_review_is_admitted_only_for_main_owner_chat(monkeypatch)
     assert not admit_location_chat_review(props, owner_admitted=False)
     assert not admit_location_chat_review({**props, "mainChat": False}, owner_admitted=True)
     assert admit_location_chat_review(props, owner_admitted=True)
+    regular = {"locationChatReview": True, "screenContext": {"route": {"pathname": "/"}}}
+    assert admit_location_chat_review(regular, owner_admitted=True)
+    assert not admit_location_chat_review(regular, owner_admitted=False)
+    assert not admit_location_chat_review(
+        {**regular, "locationChatReview": False}, owner_admitted=True
+    )
+    for screen in ({}, [], {"route": None}, {"route": {"pathname": "/one/location"}}):
+        assert not admit_location_chat_review(
+            {**props, "screenContext": screen}, owner_admitted=True
+        )
 
     context = SimpleNamespace(state={STATE_LOCATION_CHAT_REVIEW: True})
     bypass = await agent_tree.run_app_action(
@@ -95,6 +105,17 @@ def test_location_proposal_restores_intent_without_execution_authority():
         "invalid_proposal"
     )
     assert propose_location_action("ask", [proposal["id"]])["status"] == "invalid_proposal"
+    assert propose_location_action("enable_auto_approve", circles=["Trusted"])["circles"] == [
+        "Trusted"
+    ]
+    assert (
+        propose_location_action("enable_auto_approve", people=["Kushal"])["status"]
+        == "invalid_proposal"
+    )
+    assert (
+        propose_location_action("disable_auto_approve", circles=["Trusted"])["status"]
+        == "invalid_proposal"
+    )
     trigger = Event(
         id="location-proposal",
         invocation_id="turn",

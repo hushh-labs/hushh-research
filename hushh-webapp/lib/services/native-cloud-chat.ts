@@ -9,6 +9,7 @@ export const NATIVE_CLOUD_CHAT_TRANSPORT = "native-adk-v1" as const;
 /** Contact the owner's pod directly. A caller decides compatibility before sending a turn. */
 export async function admitsNativeCloudChat(
   headers: HeadersInit, isCurrent: () => boolean, signal?: AbortSignal,
+  locationChatReview = false,
 ): Promise<boolean> {
   const response = await ApiService.ownerPodRequest("agent-chat/capabilities", {
     headers, signal, cache: "no-store",
@@ -17,8 +18,8 @@ export async function admitsNativeCloudChat(
     await response.body?.cancel().catch(() => undefined);
     return false;
   }
-  const payload = await response.json().catch(() => null) as { nativeAdkChatVersion?: unknown } | null;
-  return isCurrent() && payload?.nativeAdkChatVersion === 1;
+  const payload = await response.json().catch(() => null) as { nativeAdkChatVersion?: unknown; nativeLocationChatReview?: unknown } | null;
+  return isCurrent() && payload?.nativeAdkChatVersion === 1 && (!locationChatReview || payload.nativeLocationChatReview === true);
 }
 
 export async function streamNativeCloudChat(input: {
@@ -26,6 +27,7 @@ export async function streamNativeCloudChat(input: {
   conversationId: string;
   isCurrent: () => boolean;
   handlers: AgentChatStreamHandlers;
+  locationChatReview?: boolean;
 }) {
   const { request, conversationId, isCurrent, handlers } = input;
   const watchdog = new AbortController();
@@ -42,6 +44,7 @@ export async function streamNativeCloudChat(input: {
   );
   let started = false;
   let lastMessageId: string | undefined;
+  let lastLocationProposalId: string | undefined;
   liveness.start();
   try {
     const response = await liveness.fetch({ ...request, signal });
@@ -64,8 +67,12 @@ export async function streamNativeCloudChat(input: {
         lastMessageId = output.serverMessageId;
         handlers.onServerMessageId?.(lastMessageId);
       }
+      if (output.locationChatProposal && output.locationChatProposal.id !== lastLocationProposalId) {
+        lastLocationProposalId = output.locationChatProposal.id;
+        handlers.onLocationProposal?.(output.locationChatProposal);
+      }
       handlers.onNativeOutput?.(output);
-    });
+    }, input.locationChatReview);
     if (!active()) throw new DOMException("Agent turn cancelled", "AbortError");
     return result;
   } catch (error) {

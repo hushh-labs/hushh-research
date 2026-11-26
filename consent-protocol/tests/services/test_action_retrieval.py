@@ -189,6 +189,35 @@ def test_an_explicit_connection_request_surfaces_its_action():
     assert "connect.send_request" in ids, ids
 
 
+@pytest.mark.parametrize("lexical_fallback", [False, True])
+async def test_location_share_discovery_offers_the_executor_for_this_surface(
+    monkeypatch, lexical_fallback
+):
+    from types import SimpleNamespace
+
+    from hushh_mcp.one_adk import action_tools
+    from hushh_mcp.one_adk.location_chat_proposal import STATE_LOCATION_CHAT_REVIEW
+
+    if lexical_fallback:
+        monkeypatch.setattr(action_tools, "search_actions", lambda *args, **kwargs: [])
+    state = {action_tools._STATE_VOICE_CONTEXT: {"available_action_ids": []}}
+    context = SimpleNamespace(state=state)
+    query = "hello can you share my location to Kushal"
+
+    for admitted in (False, True):
+        state[STATE_LOCATION_CHAT_REVIEW] = admitted
+        result = await action_tools.list_app_actions(query, context)
+        share = next(
+            row for row in result["results"] if row["action_id"] == "location.share_selected"
+        )
+        if admitted:
+            assert share["use_tool"] == "propose_location_action"
+            assert "open_first_action_id" not in share
+        else:
+            assert share["use_tool"] == "run_app_action"
+            assert share["open_first_action_id"] == "route.one_location"
+
+
 # ── Result-window integrity ──────────────────────────────────────────────────
 
 

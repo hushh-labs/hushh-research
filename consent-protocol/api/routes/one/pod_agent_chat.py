@@ -213,7 +213,7 @@ async def capabilities(owner: PodChatContext = Depends(context)):
     except ImportError:
         native = {}
     else:
-        native = {"nativeAdkChatVersion": 1}
+        native = {"nativeAdkChatVersion": 1, "nativeLocationChatReview": True}
 
     return {
         **_authenticated_capabilities,
