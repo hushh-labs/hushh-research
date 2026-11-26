@@ -11,7 +11,7 @@ import hmac
 import logging
 import os
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, TypedDict
 from uuid import UUID
 
 from fastapi import (
@@ -2504,6 +2504,10 @@ def request_location_access(
         raise _handle_error(exc) from exc
 
 
+class _ApprovalRevision(TypedDict, total=False):
+    expected_request_revision: int
+
+
 @router.post("/location/requests/{request_id}/approve")
 def approve_location_access_request(
     request_id: str,
@@ -2511,6 +2515,9 @@ def approve_location_access_request(
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
+        approval_revision: _ApprovalRevision = {}
+        if payload.expected_request_revision is not None:
+            approval_revision["expected_request_revision"] = payload.expected_request_revision
         return _service().approve_request(
             owner_user_id=_user_id(token_data),
             request_id=request_id,
@@ -2518,11 +2525,7 @@ def approve_location_access_request(
             duration_hours=payload.duration_hours,
             duration_mode=payload.duration_mode,
             auto_approve_rule_version=payload.auto_approve_rule_version,
-            **(
-                {"expected_request_revision": payload.expected_request_revision}
-                if payload.expected_request_revision is not None
-                else {}
-            ),
+            **approval_revision,
         )
     except Exception as exc:
         raise _handle_error(exc) from exc

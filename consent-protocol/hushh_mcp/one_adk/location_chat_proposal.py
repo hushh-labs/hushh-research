@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import os
 import unicodedata
-from typing import Any, Literal
+from typing import Any, Final, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -13,8 +13,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from hushh_mcp.operons.location.policy import MAX_LOCATION_SHARE_HOURS, MIN_LOCATION_SHARE_HOURS
 
 TOOL_NAME = "propose_location_action"
-PROPOSAL_TYPE = "location.chat_action"
-PROPOSAL_READY = "proposal_ready"
+PROPOSAL_TYPE: Final = "location.chat_action"
+PROPOSAL_READY: Final = "proposal_ready"
 STATE_LOCATION_CHAT_REVIEW = "temp:hussh:location_chat_review"
 STATE_LOCATION_CHAT_CONTINUATION = "temp:hussh:location_chat_continuation"
 VOICE_LOCATION_CHAT_FEATURE = "location_chat_review"
