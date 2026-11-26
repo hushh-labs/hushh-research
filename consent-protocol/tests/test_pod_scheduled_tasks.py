@@ -16,6 +16,12 @@ def test_chat_file_schedule_review_only_returns_normalized_time():
     }
     for unresolved in ("2030-02-01T09:30:00", "2030-02-32T09:30:00+00:00", "tomorrow"):
         assert propose_file_schedule(unresolved)["run_at"] is None
+    assert propose_file_schedule(repeat="weekdays") == {
+        "status": "proposal_ready",
+        "type": "files.schedule_organization",
+        "run_at": None,
+        "repeat": "weekdays",
+    }
 
 
 @pytest.mark.parametrize("scopes", [(), ("files.manage",), ("pod.act", "pod.act")])
@@ -328,6 +334,33 @@ async def test_skip_next_fences_previous_delivery_and_preserves_the_series(sched
     world.clock[0] = next_delivery[-1]
     await world.build().run(*next_delivery[:3])
     world.capability.run.assert_awaited_once()
+
+
+async def test_run_now_claims_a_distinct_occurrence_and_keeps_regular_due_time(scheduled_tasks):
+    world = scheduled_tasks
+    task = await world.runtime.create(
+        schedule_request(repeat="daily", authorization_expires_at=200000),
+        grant={"subject_id": "browser", "version": 1},
+    )
+    regular = world.delivery.offer.await_args.args
+    requested = await world.runtime.control(task["id"], task["revision"], "run_now", confirmed=True)
+    manual = world.delivery.offer.await_args.args
+    assert requested["run_now_pending"] and manual[-1] == world.clock[0]
+    assert manual[2] != regular[2]
+
+    await world.build().run(*regular[:3])
+    world.capability.run.assert_not_awaited()
+    restored = await world.build().run(*manual[:3])
+    assert restored["state"] == "scheduled" and not restored["run_now_pending"]
+    assert restored["next_run_at"] == regular[-1]
+    next_delivery = world.delivery.offer.await_args.args
+    assert next_delivery[2] != regular[2] and next_delivery[-1] == regular[-1]
+
+    await world.build().run(*manual[:3])
+    world.capability.run.assert_awaited_once()
+    world.clock[0] = regular[-1]
+    await world.build().run(*next_delivery[:3])
+    assert world.capability.run.await_count == 2
 
 
 async def test_session_only_lockdown_pauses_due_work_after_runtime_recovery(scheduled_tasks):

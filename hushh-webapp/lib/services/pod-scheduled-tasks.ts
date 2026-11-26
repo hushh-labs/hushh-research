@@ -38,7 +38,7 @@ export type ScheduleRecurrence = {
 };
 export type ScheduledRun = { state: string; started_at: number; finished_at?: number };
 type RecentScheduledRun = ScheduledRun & { id: string };
-export type ScheduleControl = "pause" | "resume" | "cancel" | "skip_next";
+export type ScheduleControl = "pause" | "resume" | "cancel" | "skip_next" | "run_now";
 
 export type ScheduledTask = {
   id: string;
@@ -58,6 +58,7 @@ export type ScheduledTask = {
   weekdays?: number[];
   timezone: string;
   next_run_at: number;
+  run_now_pending?: boolean;
   authorization_expires_at: number;
   last_run: ScheduledRun | null;
   recent_runs?: RecentScheduledRun[];
@@ -67,6 +68,7 @@ export type ScheduledTasksStatus = {
   code: string | null;
   templates: string[];
   repeat_modes?: ScheduleRepeat[];
+  run_now_available?: boolean;
   tasks: ScheduledTask[];
   authorization_limit_at: number | null;
 };
@@ -123,6 +125,7 @@ function parseTask(value: unknown): ScheduledTask {
     !Number.isSafeInteger(row.next_run_at) ||
     row.next_run_at < 1 ||
     row.next_run_at > 253_402_300_799 ||
+    (row.run_now_pending !== undefined && typeof row.run_now_pending !== "boolean") ||
     !Number.isSafeInteger(row.authorization_expires_at) ||
     row.authorization_expires_at < 1 ||
     (row.recent_runs !== undefined && (!Array.isArray(row.recent_runs) || row.recent_runs.length > 5))
@@ -147,6 +150,7 @@ function parseTask(value: unknown): ScheduledTask {
     ...(row.weekdays ? { weekdays: row.weekdays } : {}),
     timezone: row.timezone,
     next_run_at: row.next_run_at,
+    ...(row.run_now_pending !== undefined ? { run_now_pending: row.run_now_pending } : {}),
     authorization_expires_at: row.authorization_expires_at,
     last_run: row.last_run === null ? null : parseRun(row.last_run),
     ...(recentRuns ? { recent_runs: recentRuns } : {}),
@@ -257,6 +261,7 @@ export class PodScheduledTasksClient {
       new Set(tasks.map((row) => row.id)).size !== tasks.length ||
       !Array.isArray(body.templates) ||
       body.templates.some((value) => !isScheduledCapability(value)) ||
+      (body.run_now_available !== undefined && typeof body.run_now_available !== "boolean") ||
       (body.repeat_modes !== undefined && (!Array.isArray(body.repeat_modes) ||
         body.repeat_modes.length > SCHEDULE_REPEATS.length ||
         body.repeat_modes.some(mode => !SCHEDULE_REPEATS.includes(mode)))) ||
@@ -269,6 +274,7 @@ export class PodScheduledTasksClient {
       code: body.code,
       templates: body.templates,
       ...(body.repeat_modes !== undefined ? { repeat_modes: body.repeat_modes } : {}),
+      ...(body.run_now_available !== undefined ? { run_now_available: body.run_now_available } : {}),
       tasks,
       authorization_limit_at: body.authorization_limit_at,
     };
@@ -289,7 +295,7 @@ export class PodScheduledTasksClient {
             schedule_id: task.id,
             revision: task.revision,
             operation,
-            confirmed: operation === "resume" || operation === "skip_next",
+            confirmed: operation === "resume" || operation === "skip_next" || operation === "run_now",
           }),
         },
         signal,

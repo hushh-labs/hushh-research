@@ -1,4 +1,6 @@
-export type FileScheduleProposal = { runAt: number | null };
+const FILE_REPEAT_OPTIONS = ["daily", "weekdays", "weekly", "monthly"] as const;
+export type FileScheduleRepeat = (typeof FILE_REPEAT_OPTIONS)[number];
+export type FileScheduleProposal = { runAt: number | null; repeat?: FileScheduleRepeat };
 
 /** Only a current typed tool result can offer the review. It cannot supply a file or authorize work. */
 export function readFileScheduleProposal(toolName: unknown, value: unknown): FileScheduleProposal | null {
@@ -9,10 +11,13 @@ export function readFileScheduleProposal(toolName: unknown, value: unknown): Fil
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const result = value as Record<string, unknown>;
   if (result.status !== "proposal_ready" || result.type !== "files.schedule_organization") return null;
-  if (result.run_at === null) return { runAt: null };
+  const repeat = FILE_REPEAT_OPTIONS.find(option => option === result.repeat);
+  if (result.repeat !== undefined && !repeat) return null;
+  const details = repeat ? { repeat } : {};
+  if (result.run_at === null) return { runAt: null, ...details };
   if (typeof result.run_at !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$/.test(result.run_at)) return null;
   const instant = Date.parse(result.run_at);
-  return Number.isFinite(instant) ? { runAt: instant } : null;
+  return Number.isFinite(instant) ? { runAt: instant, ...details } : null;
 }
 
 export function localScheduleInput(runAt: number | null): string {

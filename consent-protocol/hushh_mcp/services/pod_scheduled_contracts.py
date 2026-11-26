@@ -234,6 +234,7 @@ class _ScheduleRecord(BaseModel):
     timezone: str = Field(min_length=1, max_length=64)
     first_run_at: int = Field(gt=0)
     next_run_at: int = Field(gt=0)
+    regular_run_at: int | None = Field(default=None, gt=0)
     authorization_expires_at: int = Field(gt=0)
     request_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
     revision: int = Field(ge=1)
@@ -279,6 +280,10 @@ class _ScheduleRecord(BaseModel):
             raise ValueError("Invalid recovered schedule")
         if self.state == "running" and (self.last_run is None or self.last_run.state != "running"):
             raise ValueError("Invalid recovered claim")
+        if self.regular_run_at is not None and not (
+            self.next_run_at < self.regular_run_at < self.authorization_expires_at
+        ):
+            raise ValueError("Invalid recovered on-demand run")
         if (
             self.last_run is not None
             and self.last_run.deadline_at is not None

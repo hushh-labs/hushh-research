@@ -345,6 +345,10 @@ explicit authorization end time. Recurring schedules skip elapsed runs on resume
 An owner can confirm `skip_next` on a scheduled recurring task via
 `POST /api/one/pod/tasks/control`. The new delivery revision fences the skipped
 occurrence before the next eligible run is offered.
+`run_now` confirms a distinct due-now occurrence while retaining the recurring
+schedule's regular due time. It requires at least one minute before the next
+regular run. Clients use `run_now_available` and `run_now_pending` to display
+the action and the delivery state.
 
 `GET /api/one/pod/tasks` advertises `repeat_modes` when scheduling is available.
 Its task records include an optional `weekdays` selection and up to
