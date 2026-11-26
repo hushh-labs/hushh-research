@@ -150,6 +150,7 @@ from hushh_mcp.one_adk.feed_attention import (
     feed_attention_instruction,
 )
 from hushh_mcp.one_adk.finance_chat_cards import (
+    STATE_PORTFOLIO_SWITCH_ENABLED,
     show_market_gainers,
     show_portfolio_card,
     show_portfolio_upload,
@@ -1002,6 +1003,14 @@ def _compose_one_instruction_parts(
             identity_instruction += (
                 " For portfolio holdings, allocation, performance or sources, call "
                 "show_portfolio_card."
+            )
+
+        if state_getter(STATE_PORTFOLIO_SWITCH_ENABLED):
+            identity_instruction += (
+                " To switch the active portfolio or choose another saved statement or linked "
+                'brokerage portfolio, call show_portfolio_card with section "switch". '
+                "Ask the person to pick the source in the card. The selection is saved only "
+                "after the person confirms in the card, which reports the result."
             )
 
     mail_admitted = (

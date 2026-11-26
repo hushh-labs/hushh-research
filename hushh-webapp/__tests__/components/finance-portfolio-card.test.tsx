@@ -1,8 +1,11 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { FinancePortfolioCard } from "@/components/agent/finance-portfolio-card";
+import { FinancePortfolioSwitchCard } from "@/components/agent/finance-portfolio-switch-card";
 
 const state = vi.hoisted(() => ({ unlocked: false, resource: vi.fn(), remember: vi.fn(async () => undefined) }));
+const portfolioSources = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/kai/brokerage/use-portfolio-sources", () => ({ usePortfolioSources: portfolioSources }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ userId: "owner" }) }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ isVaultUnlocked: state.unlocked, vaultKey: "key", vaultOwnerToken: "token" }),
@@ -29,6 +32,33 @@ function toggleCard(label: string, open = true) {
   fireEvent(details, new Event("toggle"));
   return details;
 }
+
+describe("Finance portfolio switch card", () => {
+  it("switches to a saved statement only after confirmation and keeps restored offers inactive", async () => {
+    state.unlocked = true;
+    const changeActiveStatementSnapshot = vi.fn(async () => undefined);
+    const changeActiveSource = vi.fn();
+    portfolioSources.mockClear().mockReturnValue({
+      activeSource: "plaid", availableSources: ["plaid", "statement"], canChangePortfolioSource: true,
+      statementSnapshots: [{ id: "statement", fileName: "November.pdf", label: "November.pdf" }],
+      changeActiveStatementSnapshot, changeActiveSource, reload: vi.fn(),
+    });
+
+    const card = render(<FinancePortfolioSwitchCard allowSwitch={false} />);
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(portfolioSources).not.toHaveBeenCalled();
+    card.rerender(<FinancePortfolioSwitchCard allowSwitch />);
+    const confirm = screen.getByRole("button", { name: "Use portfolio" });
+    expect(confirm).toBeDisabled();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Portfolio" }), { target: { value: "statement:statement" } });
+    expect(changeActiveStatementSnapshot).not.toHaveBeenCalled();
+    fireEvent.click(confirm);
+    expect(await screen.findByText("Active portfolio updated.")).toBeVisible();
+    expect(changeActiveStatementSnapshot).toHaveBeenCalledExactlyOnceWith("statement");
+    expect(changeActiveSource).not.toHaveBeenCalled();
+  });
+});
 
 describe("Finance portfolio card", () => {
   it("blocks protected information while locked", () => {

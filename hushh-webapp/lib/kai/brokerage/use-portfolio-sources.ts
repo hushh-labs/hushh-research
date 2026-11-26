@@ -57,10 +57,12 @@ interface UsePortfolioSourcesParams {
   vaultOwnerToken?: string | null;
   vaultKey?: string | null;
   initialStatementPortfolio?: PortfolioData | null;
+  trackPortfolioReady?: boolean;
 }
 
 interface ReloadOptions {
   background?: boolean;
+  force?: boolean;
 }
 
 interface PlaidRefreshActionResult {
@@ -132,6 +134,7 @@ export function usePortfolioSources({
   vaultOwnerToken,
   vaultKey,
   initialStatementPortfolio = null,
+  trackPortfolioReady = true,
 }: UsePortfolioSourcesParams): UsePortfolioSourcesResult {
   const [statementPortfolio, setStatementPortfolio] = useState<PortfolioData | null>(
     initialStatementPortfolio
@@ -278,15 +281,20 @@ export function usePortfolioSources({
     }).catch(() => undefined);
   }, [userId, vaultKey, vaultOwnerToken]);
 
-  const reload = useCallback(async (options?: ReloadOptions) => {
+  const reload = useCallback(async function reload(options?: ReloadOptions): Promise<void> {
     if (!isVaultSessionEpochCurrent(vaultEpoch)) return;
     const isBackground = options?.background === true;
     const previous = reloadRef.current;
     const sameSession = previous?.ownerId === userId && previous?.epoch === vaultEpoch;
-    if (sameSession && previous.request) return previous.request;
+    if (sameSession && previous.request) {
+      if (!options?.force) return previous.request;
+      await previous.request;
+      if (reloadRef.current?.request) return reloadRef.current.request;
+      return reload(options);
+    }
     const now = Date.now();
     const minReloadGapMs = isBackground ? 2000 : 400;
-    if (sameSession && now - previous.startedAt < minReloadGapMs) return;
+    if (!options?.force && sameSession && now - previous.startedAt < minReloadGapMs) return;
 
     const request = (async () => {
       if (!userId || !vaultOwnerToken) {
@@ -394,12 +402,19 @@ export function usePortfolioSources({
       if (!userId || !vaultOwnerToken || !vaultKey) {
         throw new Error("Unlock your Vault before changing your portfolio.");
       }
+      const isCurrent = () => isVaultSessionEpochCurrent(vaultEpoch);
+      const requireCurrentVault = () => {
+        if (!isCurrent()) throw new Error("Unlock your Vault before changing your portfolio.");
+      };
+      requireCurrentVault();
       let notReady = false;
       const result = await PkmWriteCoordinator.saveMergedDomain({
         userId,
         domain: "financial",
         vaultKey,
         vaultOwnerToken,
+        beforeEffect: async () => requireCurrentVault(),
+        mayPublish: isCurrent,
         confirmation: {
           confirmedByUser: true,
           surface: confirmationSurface(),
@@ -413,6 +428,7 @@ export function usePortfolioSources({
               domainData: context.currentDomainData,
               summary: buildFinancialDomainSummary(context.currentDomainData),
               mergeDecision: REPLACE_FINANCIAL,
+              unchanged: true,
             };
           }
           return {
@@ -422,6 +438,7 @@ export function usePortfolioSources({
           };
         },
       });
+      requireCurrentVault();
       if (notReady) throw new Error(params.notReadyMessage);
       if (!result.success) {
         throw new Error(
@@ -430,11 +447,11 @@ export function usePortfolioSources({
       }
       return toFinancialDomain(result.fullBlob.financial);
     },
-    [userId, vaultKey, vaultOwnerToken]
+    [userId, vaultKey, vaultOwnerToken, vaultEpoch]
   );
 
   useEffect(() => {
-    if (!userId || isLoading || !activePortfolio || !hasPortfolioHoldings(activePortfolio)) {
+    if (!trackPortfolioReady || !userId || isLoading || !activePortfolio || !hasPortfolioHoldings(activePortfolio)) {
       return;
     }
 
@@ -451,7 +468,7 @@ export function usePortfolioSources({
       dedupeKey: `growth:investor:portfolio_ready:${nextKey}`,
       dedupeWindowMs: 5_000,
     });
-  }, [activePortfolio, activeSource, availableSources, isLoading, userId]);
+  }, [activePortfolio, activeSource, availableSources, isLoading, trackPortfolioReady, userId]);
 
   const changeActiveSource = useCallback(
     async (nextSource: PortfolioSource) => {

@@ -27,13 +27,19 @@ const scopeResult = {
 };
 
 describe("AG-UI structured experience registry", () => {
-  it("admits only the four portfolio sections and excludes model-provided holdings", () => {
+  it("admits supported portfolio sections and excludes model-provided holdings", () => {
     const structured = { type: "one.finance_portfolio.v1", section: "allocation", holdings: [{ symbol: "PRIVATE" }] };
     expect(parseAgentToolResultExperience("show_portfolio_card", { status: "card_offered", structured }))
       .toEqual({ type: "one.finance_portfolio.v1", section: "allocation" });
     expect(parseAgentToolResultExperience("show_portfolio_card", {
       status: "card_offered", structured: { ...structured, section: "trade" },
     })).toBeNull();
+    const picker = { type: structured.type, section: "switch" };
+    expect(parseAgentToolResultExperience("show_portfolio_card", {
+      status: "card_offered", structured: { ...picker, options: [{ label: "PRIVATE" }] },
+    })).toEqual(picker);
+    expect(parseAgentActivityExperience(picker.type, { ...picker, historical: true }))
+      .toEqual({ ...picker, historical: true });
   });
 
   it("renders only a Top Gainers descriptor from the dedicated successful tool", () => {

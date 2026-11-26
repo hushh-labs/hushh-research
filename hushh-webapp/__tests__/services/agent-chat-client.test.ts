@@ -1431,6 +1431,7 @@ describe("AG-UI Agent One client", () => {
       } else if (portfolio) {
         expect(portfolioRead).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1", threadId: "thread-1" }), query, expect.any(Function));
         expect(mockTransport.runAgent.mock.calls[0][0].forwardedProps.portfolioContextContract).toBe(1);
+        expect(mockTransport.runAgent.mock.calls[0][0].forwardedProps.portfolioSwitchContract).toBe(1);
       } else {
         expect(receiptTools.run.mock.calls).toEqual([[expect.objectContaining({ userId: "user-1" }), "receipt_spending", query]]);
       }

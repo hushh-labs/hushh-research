@@ -20,9 +20,12 @@ vi.mock("@/lib/cache/request-audit-log", () => ({ logRequestAudit: vi.fn() }));
 
 import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
 import { KaiFinancialResourceService } from "@/lib/kai/kai-financial-resource";
+import { setActiveStatementSnapshot } from "@/lib/kai/brokerage/financial-sources";
+import { applyConnectionLink, applySnapshot } from "@/lib/kai/plaid-vault/projection";
 import { activePortfolioChatView, readPortfolioContext, rememberPortfolioCard } from "@/lib/kai/portfolio-chat-context";
 import { CacheService } from "@/lib/services/cache-service";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { FIRST_PLATYPUS, NOW, firstPlatypusSnapshot } from "../lib/plaid-vault/fixtures";
 
 const PARAMS = { userId: "owner", vaultOwnerToken: "vot", vaultKey: "vk" };
 const BEFORE = { portfolio: { holdings: [{ symbol: "OLD", name: "Old Shares", quantity: 1, market_value: 1 }] } };
@@ -119,6 +122,41 @@ describe("a Kai finance read that races a write", () => {
       holdings: { total_count: 3, positions: card?.positions.map(({ facts }) => facts) },
     });
     expect(card?.positions.map(({ facts }) => facts.market_value)).toEqual([100, 25, null]);
+  });
+
+  it("uses the saved statement for cards and answers after switching away from linked holdings", async () => {
+    const initial = applyConnectionLink({
+      sources: {
+        active_source: "plaid",
+        statement: { snapshots: [{ id: "saved-statement", canonical_v2: AFTER.portfolio }] },
+      },
+    }, {
+      item_id: "item_fp", access_token: "test-token", institution: FIRST_PLATYPUS, products: ["investments"],
+    }, NOW);
+    const linked = applySnapshot(initial, "item_fp", firstPlatypusSnapshot("item_fp", "fp"), NOW);
+    const selected = setActiveStatementSnapshot(linked, "saved-statement", NOW);
+    expect(selected).toBeTruthy();
+    const session = { ...PARAMS, threadId: "switched-thread" };
+    const request = { section: "holdings", source: "active" } as const;
+
+    mocks.prepareDomainWriteContext.mockResolvedValueOnce({ domainData: linked, baseFullBlob: {} });
+    const before = await KaiFinancialResourceService.readForAnswer(PARAMS, () => true);
+    expect(before?.resource).toMatchObject({ activeSource: "plaid", availableSources: ["statement", "plaid"] });
+
+    const release = deferredRead();
+    const pendingCard = KaiFinancialResourceService.readForAnswer(PARAMS, () => true);
+    // The source change already landed. Post-save cache and unrelated domain work can still run.
+    KaiFinancialResourceService.invalidate(PARAMS.userId);
+    bumpPkmInvalidationEpoch(PARAMS.userId, "profile");
+    release(selected!);
+    const cardRead = await pendingCard;
+    expect(cardRead?.isCurrent()).toBe(true);
+    expect(cardRead?.resource).toMatchObject({ activeSource: "statement", holdings: ["NEW"] });
+
+    mocks.prepareDomainWriteContext.mockResolvedValueOnce({ domainData: selected, baseFullBlob: {} });
+    await expect(readPortfolioContext(session, request, () => true)).resolves.toMatchObject({
+      status: "ok", source: "statement", holdings: { positions: [{ name: "New Shares", market_value: 2 }] },
+    });
   });
 
   it("reads current facts but refuses a changed card or another vault session", async () => {
