@@ -1391,6 +1391,7 @@ jobs:
           UAT_CURATED_MCP_CONNECTORS: ${{ vars.CURATED_MCP_CONNECTORS_UAT || 'false' }}
           UAT_CONNECTOR_INTERNAL_OWNER_COHORT: ${{ vars.CONNECTOR_INTERNAL_OWNER_COHORT_UAT || '' }}
           UAT_CONNECTOR_ALL_USERS: ${{ vars.CONNECTOR_UAT_ALL_USERS_UAT || 'false' }}
+          UAT_PLAID_ENV: ${{ vars.PLAID_ENV_UAT || 'sandbox' }}
         run: |
           set -euo pipefail
           email_auth_args=()
@@ -1428,7 +1429,7 @@ jobs:
             --remote-mcp-enabled "true" \
             --cors-allowed-origins "${{ env.APP_FRONTEND_ORIGIN }}" \
             --obs-data-stale-ratio-threshold "0.25" \
-            --plaid-env "production" \
+            --plaid-env "${UAT_PLAID_ENV:-sandbox}" \
             --plaid-client-name "Hushh Kai" \
             --plaid-country-codes "US" \
             --plaid-webhook-url "${{ env.APP_FRONTEND_ORIGIN }}/api/kai/plaid/webhook" \
