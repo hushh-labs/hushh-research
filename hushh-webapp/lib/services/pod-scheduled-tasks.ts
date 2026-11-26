@@ -114,7 +114,7 @@ function parseTask(value: unknown): ScheduledTask {
       row.repeat !== "weekly" || !Array.isArray(row.weekdays) ||
       row.weekdays.length < 1 || row.weekdays.length > 7 ||
       row.weekdays.some((day, index, days) =>
-        !Number.isInteger(day) || day < 0 || day > 6 || (index > 0 && day <= days[index - 1]),
+        !Number.isInteger(day) || day < 0 || day > 6 || day <= (days[index - 1] ?? -1),
       )
     )) ||
     typeof row.timezone !== "string" ||
