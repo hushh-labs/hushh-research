@@ -67,6 +67,7 @@ RUNTIME_CONTRACTS = (
     # Authored Feed activity policy (2026-11-21): read at server import time by
     # feed_activity_policy, so both the root copy and in-context mirror must match.
     ("feed", "activity-policy.v1.json"),
+    ("a2ui", "morphy-one.v1.catalog.json"),
 )
 
 
@@ -144,21 +145,20 @@ def test_a_blank_env_override_is_ignored(monkeypatch: pytest.MonkeyPatch) -> Non
     )
 
 
-def test_the_build_stages_contracts_into_the_docker_context() -> None:
-    """The committed mirror is not on its own proof the IMAGE has a fresh copy.
-
-    Carried over from the pod branch. The mirror could be stale, and
-    `test_in_context_copy_matches_the_repo_root_original` only catches that if it
-    runs before the build. `deploy/backend.cloudbuild.yaml` re-stages the tree from
-    the repo-root original for BOTH images -- a pod runs the same agent code and
-    reads the same generated contracts -- so staleness cannot reach either one.
-    """
-    cloudbuild = (REPO_ROOT / "deploy" / "backend.cloudbuild.yaml").read_text(encoding="utf-8")
-    staged = cloudbuild.count("cp -R contracts consent-protocol/contracts")
-    assert staged >= 2, (
-        f"found {staged} contracts staging step(s); both the hub and pod image "
-        "builds need one or that image ships whatever the mirror happened to hold"
-    )
+@pytest.mark.parametrize(
+    ("recipe", "build_target"),
+    [
+        ("backend-image.cloudbuild.yaml", "--file consent-protocol/Dockerfile "),
+        ("backend.cloudbuild.yaml", "--file consent-protocol/Dockerfile.pod "),
+        ("personal-backend-image.cloudbuild.yaml", "--push consent-protocol"),
+    ],
+)
+def test_the_build_stages_contracts_into_the_docker_context(recipe: str, build_target: str) -> None:
+    """Each image build stages the canonical contracts before using its context."""
+    cloudbuild = (REPO_ROOT / "deploy" / recipe).read_text(encoding="utf-8")
+    stage = cloudbuild.find("cp -R contracts consent-protocol/contracts")
+    build = cloudbuild.find(build_target)
+    assert 0 <= stage < build, f"{recipe} must stage contracts before the image build"
 
 
 def test_the_mirror_is_tracked_and_not_gitignored() -> None:

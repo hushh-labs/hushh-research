@@ -30,6 +30,7 @@ interface PortfolioAllocationBarProps {
   onSelectionChange?: (name: string | null) => void;
   className?: string;
   embedded?: boolean;
+  description?: string;
   formatValue?: (value: number) => string;
 }
 
@@ -48,6 +49,7 @@ export function PortfolioAllocationBar({
   onSelectionChange,
   className,
   embedded,
+  description = "Select a category to focus its holdings.",
   formatValue = formatCurrency,
 }: PortfolioAllocationBarProps) {
   useMarketCurrency();
@@ -92,7 +94,7 @@ export function PortfolioAllocationBar({
   return (
     <AllocationSection
       title="Asset mix"
-      description="Select a category to focus its holdings."
+      description={description}
       className={cn("min-w-0", className)}
       embedded={embedded}
     >

@@ -146,6 +146,14 @@ RiskSnapshot.load(str(manifest))
            "python", "consent-protocol/scripts/generate_capability_graph.py", "--check", groups=("controller",)),
     _check("route-index-integrity", "node", "--input-type=module", "-e",
            "process.chdir('hushh-webapp'); process.argv.push('--check'); await import('./hushh-webapp/scripts/voice/generate-route-orchestration-index.mjs');"),
+    _check("a2ui-catalog-integrity", "python3", "-c", """from pathlib import Path
+catalog = Path('contracts/a2ui/morphy-one.v1.catalog.json')
+canonical = catalog.read_text(encoding='utf-8')
+for root in ('consent-protocol', 'hushh-webapp'):
+    mirror = Path(root) / catalog
+    if mirror.read_text(encoding='utf-8') != canonical:
+        raise SystemExit(f'A2UI catalog mirror differs from canonical source: {mirror}')
+"""),
     _check("route-index-reader", "uv", "run", "--frozen", "--project", "consent-protocol",
            "python", "-m", "pytest", "-q", "consent-protocol/tests/test_route_orchestration_index.py"),
     _check("release-controller-contracts", "uv", "run", "--frozen", "--project", "consent-protocol",

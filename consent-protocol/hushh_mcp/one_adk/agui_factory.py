@@ -2,58 +2,14 @@
 
 from __future__ import annotations
 
-import inspect
-import os
 from collections.abc import Callable
 from typing import Any
 
 from ag_ui_adk.request_state_service import RequestStateSessionService
 from ag_ui_adk.session_manager import SessionManager
-from google.adk.apps import App, ResumabilityConfig
-from google.adk.models.google_llm import Gemini
-from google.genai import types as genai_types
 
 from hushh_mcp.one_adk.agui_turn_timing import HEAD_ONE, TimedADKAgent
-from hushh_mcp.one_adk.tool_retry_plugin import SafeSchemaRetryToolPlugin
-
-try:
-    from google.adk.agents.context_cache_config import ContextCacheConfig
-except ImportError:  # pragma: no cover - older google-adk runtimes lack ContextCacheConfig
-    ContextCacheConfig = None  # type: ignore[assignment,misc]
-
-_APP_ACCEPTS_CONTEXT_CACHE = "context_cache_config" in inspect.signature(App).parameters
-
-
-def _adk_context_cache_config(root_agent: Any) -> Any | None:
-    """Enable ADK implicit prompt/tool context caching only when supported on native Gemini."""
-    if ContextCacheConfig is None or not _APP_ACCEPTS_CONTEXT_CACHE:
-        return None
-    if os.getenv("HUSHH_ADK_CONTEXT_CACHE_DISABLED", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-    }:
-        return None
-    if os.getenv("PYTEST_CURRENT_TEST") and os.getenv("HUSHH_ADK_CONTEXT_CACHE_FORCE_TEST") != "1":
-        return None
-    from hushh_mcp.runtime_settings import pod_sentinel_model_enabled
-
-    if pod_sentinel_model_enabled():
-        return None
-    model = getattr(root_agent, "model", None)
-    supports_gemini_cache = (isinstance(model, str) and model.startswith("gemini-")) or (
-        type(model) is Gemini and not getattr(model, "use_interactions_api", False)
-    )
-    if not supports_gemini_cache:
-        return None
-    params = inspect.signature(ContextCacheConfig).parameters
-    kwargs: dict[str, Any] = {
-        "min_tokens": 4096,
-        "ttl_seconds": 1800,
-        "cache_intervals": 10,
-        "create_http_options": genai_types.HttpOptions(timeout=5000),
-    }
-    return ContextCacheConfig(**{k: v for k, v in kwargs.items() if k in params})
+from hushh_mcp.one_adk.chat_adk_app import build_chat_adk_app
 
 
 class _DurableSessionManager(SessionManager):
@@ -112,20 +68,8 @@ def build_authenticated_agui(
     memory_service: Any = None,
     plugins: list | None = None,
 ) -> TimedADKAgent:
-    cache_config = _adk_context_cache_config(root_agent)
-    resolved_plugins = list(plugins or [])
-    if not any(isinstance(p, SafeSchemaRetryToolPlugin) for p in resolved_plugins):
-        resolved_plugins.append(SafeSchemaRetryToolPlugin())
-    app_kwargs: dict[str, Any] = {
-        "name": app_name,
-        "root_agent": root_agent,
-        "plugins": resolved_plugins,
-        "resumability_config": ResumabilityConfig(is_resumable=True),
-    }
-    if cache_config is not None and _APP_ACCEPTS_CONTEXT_CACHE:
-        app_kwargs["context_cache_config"] = cache_config
     return agent_class.from_app(
-        App(**app_kwargs),
+        build_chat_adk_app(root_agent, app_name=app_name, plugins=plugins),
         head=HEAD_ONE,
         user_id_extractor=user_id_extractor,
         max_concurrent_executions=max_concurrent_executions,

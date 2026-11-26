@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import os
 import tempfile
+from collections.abc import Awaitable, Callable
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import HTTPException
 
@@ -16,6 +17,12 @@ from hushh_mcp.one_adk.pod_adk_session_repository import (
     PodAdkSessionRepository,
 )
 from hushh_mcp.services.chat_key import bind_request_chat_key_owner, request_has_chat_key
+
+if TYPE_CHECKING:
+    from google.adk.agents import LlmAgent
+
+    from api.routes.one.pod_turn import PodTurnRequest
+    from hushh_mcp.one_adk.pod_chat_memory import PodChatMemory
 
 _projection: PodAdkSessionProjection | None = None
 _TERMINAL_MANAGERS: dict[tuple[str, str, str], Any] = {}
@@ -272,19 +279,16 @@ class PodChatContext:
         ):
             yield
 
-    async def build_agent(self, options: Any):
+    async def _prepare_text_head(
+        self, options: PodTurnRequest
+    ) -> tuple[LlmAgent, PodChatMemory | None, Callable[[Any], Awaitable[None]]]:
+        """Resolve the owner-authorized model, specialist runtime, and turn memory."""
         from api.routes.one.pod_turn import (
             _require_local_puppy_admission,
             _resolve_model,
             _resolve_owner_target,
         )
-        from hushh_mcp.one_adk.agent_tree import (
-            ONE_APP_NAME,
-            _PrivateLiveAccessPlugin,
-            build_one_text_agent,
-        )
-        from hushh_mcp.one_adk.agui_factory import build_authenticated_agui
-        from hushh_mcp.one_adk.pod_agui_lifetime import PodTimedADKAgent
+        from hushh_mcp.one_adk.agent_tree import build_one_text_agent
         from hushh_mcp.one_adk.text_runtime import _runtime_model
         from hushh_mcp.services.pod_specialist_runtime import build_pod_specialist_runtime
 
@@ -342,6 +346,14 @@ class PodChatContext:
                 include_thought_summaries=True,
                 consent_bundle_lookup=PodConsentReadPort(self).lookup,
             )
+        return head, memory, prepare
+
+    async def build_agent(self, options: PodTurnRequest):
+        from hushh_mcp.one_adk.agent_tree import ONE_APP_NAME, _PrivateLiveAccessPlugin
+        from hushh_mcp.one_adk.agui_factory import build_authenticated_agui
+        from hushh_mcp.one_adk.pod_agui_lifetime import PodTimedADKAgent
+
+        head, memory, prepare = await self._prepare_text_head(options)
         agent = build_authenticated_agui(
             head,
             self.sessions,

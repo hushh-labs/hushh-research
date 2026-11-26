@@ -52,6 +52,13 @@ export function formatCurrency(value: number | null | undefined, currency = "USD
   return formatMoney(value, getMarketCurrencySnapshot(), { source: currency });
 }
 
+/** Keep saved portfolio observations in their recorded currency. */
+export function formatSavedPortfolioMoney(value: number, currency: string, compact = false): string {
+  return formatMoney(value, { region: "US", rate: null }, {
+    source: currency, notation: compact ? "compact" : "standard",
+  });
+}
+
 /** Whole-unit money, no cents: the format summary strips and projections use. */
 export function formatCurrencyWhole(value: number | null | undefined, currency = "USD"): string {
   return formatMoney(value, getMarketCurrencySnapshot(), { source: currency, maximumFractionDigits: 0 });

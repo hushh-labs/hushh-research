@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState, useSyncExternalStore } from "react";
+import { PortfolioSourceDetails } from "@/components/agent/finance-portfolio-source-details";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import { BriefcaseBusiness, ChevronDown } from "@/components/icons";
 import { PortfolioAllocationBar } from "@/components/kai/charts/portfolio-allocation-bar";
@@ -11,7 +12,7 @@ import { useAuth } from "@/hooks/use-auth";
 import type { FinancePortfolioSection } from "@/lib/agent/finance-chat-experiences";
 import { KaiFinancialResourceService, type KaiFinancialResource } from "@/lib/kai/kai-financial-resource";
 import { normalizeMarketSymbol } from "@/lib/kai/market-symbol";
-import { formatMoney } from "@/lib/kai/market-value-format";
+import { formatSavedPortfolioMoney } from "@/lib/kai/market-value-format";
 import { activePortfolioChatView, rememberPortfolioCard } from "@/lib/kai/portfolio-chat-context";
 import { Button } from "@/lib/morphy-ux/button";
 import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
@@ -25,11 +26,6 @@ const titles: Record<FinancePortfolioSection, string> = {
 
 const HOLDINGS_PREVIEW_COUNT = 5;
 type PortfolioView = NonNullable<ReturnType<typeof activePortfolioChatView>>;
-
-const savedMoney = (value: number, currency: string, compact = false) =>
-  formatMoney(value, { region: "US", rate: null }, {
-    source: currency, notation: compact ? "compact" : "standard",
-  });
 
 function HoldingsList({ positions, singleCurrency }: Pick<PortfolioView, "positions" | "singleCurrency">) {
   const [showAll, setShowAll] = useState(false);
@@ -75,7 +71,7 @@ function HoldingsList({ positions, singleCurrency }: Pick<PortfolioView, "positi
                 "whitespace-nowrap text-right tabular-nums",
                 unavailable ? "ui-text-row-description text-muted-foreground" : "ui-text-row-label-emphasized text-foreground",
               )}>
-                {unavailable ? "Unavailable" : currency ? savedMoney(value, currency) :
+                {unavailable ? "Unavailable" : currency ? formatSavedPortfolioMoney(value, currency) :
                   `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value)} (currency unknown)`}
               </span>
             </li>
@@ -142,25 +138,12 @@ function OpenPortfolioSnapshot({ section, conversationId, userId, vaultKey, vaul
   if (data === undefined) return <p role="status">Loading portfolio…</p>;
   if (!data) return <p role="status">Portfolio information is unavailable.</p>;
   if (section === "sources") {
-    if (data.activeSource === "plaid") return <p>Linked Plaid account</p>;
+    if (data.activeSource === "plaid") return <PortfolioSourceDetails source={{ kind: "plaid" }} />;
     const statement = data.statementSnapshots.find(item => item.id === data.activeStatementSnapshotId);
-    if (!statement) return <p>No portfolio source available.</p>;
-    const importedAt = statement.importedAt;
-    const uploadedAt = importedAt && Number.isFinite(Date.parse(importedAt))
-      ? new Intl.DateTimeFormat(undefined, {
-          dateStyle: "medium",
-          ...(/T\d{2}:\d{2}/i.test(importedAt) ? { timeStyle: "short" } : { timeZone: "UTC" }),
-        }).format(new Date(importedAt))
-      : null;
     return (
-      <div className="space-y-1">
-        <p className="break-words ui-text-row-label-emphasized">{statement.fileName || "Statement name unavailable"}</p>
-        {uploadedAt && importedAt ? (
-          <p className="ui-text-row-description text-muted-foreground">
-            Imported <time dateTime={importedAt}>{uploadedAt}</time>
-          </p>
-        ) : null}
-      </div>
+      <PortfolioSourceDetails source={statement ? {
+        kind: "statement", fileName: statement.fileName ?? null, importedAt: statement.importedAt ?? null,
+      } : null} />
     );
   }
   const view = activePortfolioChatView(data);
@@ -170,7 +153,7 @@ function OpenPortfolioSnapshot({ section, conversationId, userId, vaultKey, vaul
   const asOfLabel = asOf ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeZone: "UTC" })
     .format(new Date(asOf)) : null;
   const period = asOfLabel ? `${view.date_kind === "last_synced" ? "Last synced" : "Statement date"} ${asOfLabel}` : "Saved portfolio";
-  const formatValue = (value: number) => currency ? savedMoney(value, currency) : "Unavailable";
+  const formatValue = (value: number) => currency ? formatSavedPortfolioMoney(value, currency) : "Unavailable";
   return (
     <div className="space-y-3">
       <p className="ui-text-row-description text-muted-foreground">{source} · {period}{currency ? ` · ${currency}` : ""}</p>
@@ -192,7 +175,7 @@ function OpenPortfolioSnapshot({ section, conversationId, userId, vaultKey, vaul
           ) : null}
           {performance.history_available && currency
             ? <SurfaceCard><SurfaceCardContent className="p-4"><PortfolioHistoryChart data={view.history} height={220}
-              currency={currency} formatValue={(value, compact) => savedMoney(value, currency, compact)} /></SurfaceCardContent></SurfaceCard>
+              currency={currency} formatValue={(value, compact) => formatSavedPortfolioMoney(value, currency, compact)} /></SurfaceCardContent></SurfaceCard>
             : <p className="text-sm">History is unavailable for this snapshot.</p>}
         </>
       ) : null}

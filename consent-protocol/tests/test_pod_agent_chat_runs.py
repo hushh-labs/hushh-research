@@ -364,7 +364,8 @@ async def test_history_preparation_reconnect_is_pending_only_for_exact_owner(
     from contextlib import nullcontext, suppress
 
     from hushh_mcp.one_adk import pod_agui_lifetime as pod
-    from hushh_mcp.one_adk import pod_chat_stream as transport
+    from hushh_mcp.one_adk import pod_chat_transport as transport
+    from hushh_mcp.one_adk.pod_chat_stream import pod_chat_events
     from tests.helpers.agui_lifetime import THREAD_ID, USER_ID, _bridge_agent, _owner_input
 
     entered, release = asyncio.Event(), asyncio.Event()
@@ -382,7 +383,7 @@ async def test_history_preparation_reconnect_is_pending_only_for_exact_owner(
     session = SimpleNamespace(events=[], state={}) if session_exists else None
     sessions = SimpleNamespace(get_session=AsyncMock(return_value=session))
     owner = SimpleNamespace(owner=USER_ID, sessions=sessions, require_access=AsyncMock())
-    stream = transport.pod_chat_events(agent, _owner_input(), owner_id=USER_ID)
+    stream = pod_chat_events(agent, _owner_input(), owner_id=USER_ID)
     reader = asyncio.create_task(anext(stream))
     try:
         await asyncio.wait_for(entered.wait(), 1)

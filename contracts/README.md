@@ -44,6 +44,13 @@ backend at runtime, so each also has an in-context copy under
 (`hushh-webapp/__tests__/lib/consent/field-sensitivity-contract.test.ts`, which also runs every case). Changing either changes what the product will
 offer to share, so the two implementations must be re-run together.
 
+## A2UI catalog
+
+Author the [Hussh One catalog](a2ui/morphy-one.v1.catalog.json) here. Copy the
+catalog into the matching `consent-protocol/contracts/a2ui/` and
+`hushh-webapp/contracts/a2ui/` paths for package builds. The repository
+governance check rejects drift in either copy.
+
 ## Duplication rule
 
 `hushh-webapp/contracts/kai/*` mirrors `contracts/kai/*` byte-for-byte, verified

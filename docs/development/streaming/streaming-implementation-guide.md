@@ -420,6 +420,34 @@ not native connector result bodies, while retaining earlier unrelated calls
 and fresh invocations; snapshot projection restarts that boundary at a new user
 message. Live model objects remain unchanged.
 
+### Native ADK and A2UI design specimen
+
+The Holdings specimen on `/design-system` consumes data-only SSE frames with
+the standard SSE `message` event. The decoder accepts visual messages only from
+the top-level private agent's validated A2UI tool result. The renderer applies
+the Hussh catalog and rejects unknown components and bindings that could address
+object prototypes. Specimen holdings are synthetic.
+
+The native runner rehearsal passes ADK events through
+`native_chat_output.py`. That projection keeps visible text and the read-only
+Hussh surface messages. It drops private thought, provider state, tool
+arguments, unrelated tool results and renderer calls. The shared pod frame
+transport owns backpressure, owner-bound cancellation and request key expiry.
+The native app builder loads the installed Hussh catalog through the contract
+resolver and attaches Google's visual tool to the top-level private agent.
+An isolated SDK rehearsal verifies the catalog and the presenter boundary.
+After the owner session settles, the rehearsal emits `done` for completion or
+an empty `review` frame for an approval pause. Access failures use fixed error
+codes.
+The PostgreSQL MCP rehearsal exercises a native pause and resume across a
+reopened encrypted session. The review reference comes from the sealed pending
+call, and the existing action ledger consumes the owner's approval before the
+provider call runs. Native review is still a rehearsal boundary.
+
+Encrypted history retains the A2UI call identity and redacted receipt.
+Raw layout arguments and rendered values stay in the admitted turn.
+The serving Chat endpoint currently uses the AG-UI wire adapter.
+
 ## 4.1 UI Stream Mapping
 
 The canonical app stream surface is `hushh-webapp/components/app-ui/stream-progress-panel.tsx`. Portfolio import and Agent Chat both use that primitive so progress, optional thinking, and answer text stay visually and semantically consistent.

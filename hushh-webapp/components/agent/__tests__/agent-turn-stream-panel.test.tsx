@@ -91,6 +91,7 @@ import {
   driveBatchProgressToVisibleStreamEvent,
 } from "@/components/agent/agent-turn-stream-panel";
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
+import { HoldingsSurfaceSpecimen } from "@/components/design-system/holdings-surface-specimen";
 import { driveOwnerCompileKey } from "@/lib/agent/connector-read-receipt";
 import type { AgentChatToolEvent } from "@/lib/services/agent-chat-client";
 
@@ -108,6 +109,16 @@ function makeToolEvent(overrides: Partial<AgentChatToolEvent> = {}): AgentChatTo
 }
 
 describe("AgentTurnStreamPanel", () => {
+  it("shows an A2UI surface when the native tool completes without an answer string", () => {
+    render(<HoldingsSurfaceSpecimen />);
+    const table = screen.getByRole("table", { name: "Sample portfolio holdings" });
+    expect(within(table).getAllByRole("row")).toHaveLength(6);
+    fireEvent.click(screen.getByRole("button", { name: "Show all 52 rows" }));
+    expect(within(table).getAllByRole("row")).toHaveLength(53);
+    expect(within(table).getByText("DEMO52")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Show fewer rows" }));
+    expect(within(table).getAllByRole("row")).toHaveLength(6);
+  });
   it("renders a completed turn the same live and reopened, with its markdown and no thinking", () => {
     // Founder report 2026-09-27: a live answer sat in a tinted card with a
     // timing line and Activity; reopened, the same answer came back as a bare
