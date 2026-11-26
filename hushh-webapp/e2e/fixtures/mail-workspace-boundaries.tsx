@@ -57,7 +57,7 @@ export const GmailInformationRequestsService = {
 };
 // Only One's mailbox check and the email behind a finding may reach the page's own fetch, where a test answers them.
 export const ApiService = new Proxy({}, { get: (_target, name) => name === 'getPersonalAgentStatus' || name === 'getPersonalAgentStatusForRouting'
- ? async () => ({ hostingMode: document.documentElement.dataset.journey === 'board' ? 'byoc' : 'shared' })
+ ? async () => ({ hostingMode: (document.documentElement.dataset.journey === 'board' || document.documentElement.dataset.fixturePrivateMail === 'true') ? 'byoc' : 'shared' })
  : name === 'apiFetch'
  ? async (path: string, init?: RequestInit) => {
   if (!/^\/api\/kai\/gmail\/receipts\/notice(\/source)?$/.test(path)) throw new Error('Unhandled fixture network request');

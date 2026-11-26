@@ -1,5 +1,12 @@
 import { createRoot } from "react-dom/client";
+import { MailFollowupsSessionWatch } from "@/components/gmail/mail-followups-session-watch";
 import { MailFollowupsWorkspace } from "@/components/gmail/mail-followups-workspace";
+
+const session = {
+  userId: "fixture", vaultKey: "fixture", vaultOwnerToken: "fixture",
+};
+
+document.documentElement.dataset.fixturePrivateMail = "true";
 
 createRoot(document.getElementById("root")!).render(
   <div
@@ -11,12 +18,9 @@ createRoot(document.getElementById("root")!).render(
       overflowY: "auto",
     }}
   >
+    <MailFollowupsSessionWatch session={session} />
     <MailFollowupsWorkspace
-      session={{
-        userId: "fixture",
-        vaultKey: "fixture",
-        vaultOwnerToken: "fixture",
-      }}
+      session={session}
       onBack={() => {}}
       confirmTransition={async () => false}
     />

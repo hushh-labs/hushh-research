@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { MailFollowupsScreen } from "./mail-followups-screen";
+import { useSettledMailTasks } from "./mail-followups-session-watch";
 import { MailActionButton } from "./mail-action-button";
 import {
   privateMailAccounts,
@@ -73,6 +74,9 @@ function AllMailBoard({
       });
     return () => controller.abort();
   }, [mail, accounts, userId, vaultKey, vaultOwnerToken]);
+  useSettledMailTasks(session, (rows) => {
+    setData((previous) => previous && { ...previous, tasks: rows });
+  });
   return (
     <>
       <MailActionButton onClick={onBack}>Back to Mail</MailActionButton>

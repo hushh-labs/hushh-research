@@ -1,6 +1,13 @@
 import { ApiService } from './api-service';
 import type { GoogleConnector } from '@/lib/one/connector-credential-seal';
 
+// No grant or mailbox identifiers are exposed to other browser surfaces.
+export const PRIVATE_MAIL_GRANTS_CHANGED = 'one:private-mail-grants-changed';
+
+function notifyMailGrantsChanged() {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(PRIVATE_MAIL_GRANTS_CHANGED));
+}
+
 export class PrivateGoogleUnsupportedError extends Error {
   readonly code = 'PRIVATE_GOOGLE_OPERATION_UNAVAILABLE';
   constructor(operation: string) {
@@ -26,8 +33,8 @@ export type PrivateMailAccount = PrivateGoogleStatus & {
   accountId: string; credentialId: string; email: string | null; provider: 'google'; isDefault: boolean; receiptSyncAvailable?: boolean;
 };
 
-export async function privateMailAccounts(): Promise<PrivateMailAccount[]> {
-  const response = await ApiService.ownerPodRequest('connectors/gmail/accounts', { method: 'GET' });
+export async function privateMailAccounts(signal?: AbortSignal): Promise<PrivateMailAccount[]> {
+  const response = await ApiService.ownerPodRequest('connectors/gmail/accounts', { method: 'GET', ...(signal && { signal }) });
   if (!response.ok) throw new Error('Your private agent could not load your mailboxes. Update your agent if this continues.');
   const value: unknown = await response.json();
   const accounts = (value as { accounts?: unknown } | null)?.accounts;
@@ -52,6 +59,7 @@ export async function disconnectPrivateMailAccount(accountId: string, credential
   const value = await response.json() as { accountId?: string; status?: string; providerRevoked?: unknown };
   if (value.accountId !== accountId || !['absent', 'connected', 'needs_reauth'].includes(value.status ?? '') ||
       ![true, false, null].includes(value.providerRevoked as boolean | null)) throw new Error('Your private agent could not confirm the disconnect. Refresh Mail.');
+  if (value.status === 'absent' || value.status === 'needs_reauth') notifyMailGrantsChanged();
   return { disconnected: value.status === 'absent', providerRevoked: value.providerRevoked as boolean | null };
 }
 
@@ -78,6 +86,7 @@ export async function privateGoogleStatus(connector: GoogleConnector): Promise<P
 export async function disconnectPrivateGoogle(connector: GoogleConnector): Promise<void> {
   const response = await ApiService.ownerPodRequest(`connectors/${connector}`, { method: 'DELETE' });
   if (!response.ok) throw new Error('Your private agent could not disconnect Google.');
+  if (connector === 'gmail') notifyMailGrantsChanged();
 }
 
 export async function confirmPrivateGoogleAction(proposalId: string, kind: 'calendar' | 'gmail_mailbox', reviewContract?: 1): Promise<Record<string, unknown>> {

@@ -435,14 +435,25 @@ async function write(
   idempotencyScope: string,
   update: (current: TodoListState) => TodoItem[],
   selectedCapabilities?: TaskCapability[],
+  isCurrent?: () => boolean,
+  verifyAuthority?: () => Promise<void>,
 ): Promise<PkmWriteCoordinatorResult> {
   return PkmWriteCoordinator.saveMergedDomain({
     userId: params.userId,
     domain: TODO_LIST_PKM_DOMAIN,
     vaultKey: params.vaultKey,
     vaultOwnerToken: params.vaultOwnerToken,
-    confirmation: { confirmedByUser: true, surface: "web", source },
+    confirmation: source === "one_todo_list_mail_watch"
+      ? { authorizationMode: "owner_mail_watch", surface: "web", source }
+      : { confirmedByUser: true, surface: "web", source },
     idempotencyScope,
+    ...(isCurrent && {
+      beforeEffect: async () => {
+        await verifyAuthority?.();
+        if (!isCurrent()) throw new DOMException("Session changed", "AbortError");
+      },
+      mayPublish: isCurrent,
+    }),
     build: (context) => {
       const currentDomain = (context.currentDomainData ?? {}) as Record<
         string,
@@ -543,23 +554,24 @@ export const TodoListPkmService = {
     | { scheduleId: string; watching: true }
     | { watching: true }
     | { reviewed: true }
-    | { draft: NonNullable<MailFollowup["draft"]> }) {
+    | { draft: NonNullable<MailFollowup["draft"]> }, isCurrent?: () => boolean, verifyAuthority?: () => Promise<void>) {
     const expected = task.mailFollowup;
     if (!expected) throw new Error("Missing mail obligation.");
     const now = new Date().toISOString();
-    return write(persistence, "one_todo_list_gmail_follow_up", `one_todo_list:mail:${task.id}:${crypto.randomUUID()}`,
+    const autoSettle = "received" in change && expected.watching === true && !!verifyAuthority;
+    return write(persistence, autoSettle ? "one_todo_list_mail_watch" : "one_todo_list_gmail_follow_up", `one_todo_list:mail:${task.id}:${crypto.randomUUID()}`,
       current => {
         if (!current.tasks.some(row => row.id === task.id)) throw new Error("This task no longer exists.");
         return current.tasks.map(row => {
         if (row.id !== task.id) return row;
         const item = row.mailFollowup;
         if (!item || item.key !== expected.key || row.status === "deleted" ||
-          row.revision !== task.revision) throw new Error("This task changed. Reopen Follow-ups.");
+          row.revision !== task.revision || (autoSettle && !item.watching)) throw new Error("This task changed. Reopen Follow-ups.");
         if ("received" in change && row.status !== "pending") return row;
         if ("reviewed" in change && !item.received?.filename) throw new Error("Document unavailable.");
         return { ...row, mailFollowup: followupSchema.parse({ ...item, ...change, ...("received" in change ? { watching: false, draft: undefined } : {}) }),
           ...("received" in change ? { status: "done" as const, completedAt: now } : {}), updatedAt: now };
-      }); });
+      }); }, undefined, isCurrent, verifyAuthority);
   },
 
   saveSourceChoices(params: TodoWriteParams & { selectedCapabilities: TaskCapability[] }) {
