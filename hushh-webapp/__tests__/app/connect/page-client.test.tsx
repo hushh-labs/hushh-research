@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
+import type { NativeWorkspaceChoice } from "@/lib/capacitor/native-workspace";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 const mocks = vi.hoisted(() => ({
@@ -3531,6 +3532,51 @@ describe("Connect — Circles", () => {
     });
     expect(screen.getByRole("button", { name: "Explore your network" })).toBeVisible();
     expect(mocks.searchDirectory).toHaveBeenCalledTimes(reads);
+  });
+
+  it("keeps one native presenter as the Circle list loads and a newer tab supersedes it", async () => {
+    const presentation = await import("@/lib/capacitor/native-presentation-policy");
+    const native = await import("@/lib/capacitor/use-native-workspace");
+    const { VaultContext, useVault } = await import("@/lib/vault/vault-context");
+    const { OneLocationService } = await import("@/lib/one-location/service");
+    const automation = await import("@/lib/testing/native-test");
+    const pending = deferred<Awaited<ReturnType<typeof OneLocationService.listCircleWorkspace>>>();
+    const list = vi.spyOn(OneLocationService, "listCircleWorkspace").mockReturnValue(pending.promise);
+    const optedIn = vi.spyOn(presentation, "customNativePresentationEnabled").mockReturnValue(true);
+    const skipWrites = vi.spyOn(automation, "shouldSkipReviewerBackgroundWritesForAutomation").mockReturnValue(true);
+    const workspace = vi.spyOn(native, "useNativeWorkspace").mockReturnValue("native");
+    const vault = { isVaultUnlocked: true, vaultOwnerToken: "fixture-token" } as ReturnType<typeof useVault>;
+    const current = () => workspace.mock.lastCall![0];
+    const select = async (label: string) => {
+      const { content, actions } = current();
+      const option = content.tabs!.options.find(tab => tab.label === label)!;
+      await act(async () => { await actions.get(option.id)!({ rowId: option.id } as NativeWorkspaceChoice); });
+    };
+    const priorUrl = window.location.href;
+    try {
+      const page = <VaultContext.Provider value={vault}><ConnectPageClient /></VaultContext.Provider>;
+      render(page);
+      const { presentationOwner, contentFrame } = current();
+      expect(list).not.toHaveBeenCalled();
+      await select("Circles");
+      expect(current().content.tabs!.options.find(tab => tab.selected)?.label).toBe("Circles");
+      expect(current().content.sections[0]?.rows[0]?.label).toBe("Your circles");
+      const labels = current().content.sections.flatMap(section => section.rows.map(row => row.label));
+      expect(labels).toContain("Loading…");
+      expect(labels).not.toContain("No circles yet");
+      expect(current().content.secondaryTabs).toBeUndefined();
+      expect(current().presentationOwner).toBe(presentationOwner);
+      expect(current().contentFrame).toBe(contentFrame);
+      await select("Connections");
+      await act(async () => { pending.resolve({ circles: [] }); });
+      expect(window.location.search).toContain("tab=all");
+      expect(current().content.tabs!.options.find(tab => tab.selected)?.label).toBe("Connections");
+      expect(current().presentationOwner).toBe(presentationOwner);
+      expect(current().contentFrame).toBe(contentFrame);
+    } finally {
+      workspace.mockRestore(); skipWrites.mockRestore(); optedIn.mockRestore(); list.mockRestore();
+      window.history.replaceState(null, "", priorUrl);
+    }
   });
 
   it("supersedes a pending Circle navigation before the route echo", async () => {

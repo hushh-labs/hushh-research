@@ -685,7 +685,9 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     openEditor: openCreate, closeEditor: closeTaskEditor,
     loading: !itemsLoaded || itemsLoading || ((agentLoading || calendarReadLoading || emailReadLoading || liveTasks.sourceLoading) && pending.length === 0),
     pending, completed, receipts: dueReceipts, busy: creatingTask, savingTaskIds, doneToday, totalToday,
-    webChildOpen: !!webChild || sourcesOpen, calendarIncomplete: upcoming.incomplete,
+    webChildOpen: !!webChild || sourcesOpen || (schedulesEnabled && schedules.open),
+    openSchedules: schedulesEnabled ? () => schedules.changeOpen(true) : undefined,
+    calendarIncomplete: upcoming.incomplete,
     openSources: () => setSourcesOpen(true), sourcesEnabled: !itemsLoading && itemsLoaded && !itemsLoadError && !isSaving,
     errors: [
       ...(itemsLoadError ? [{ label: "Your saved items couldn’t load.", retry: () => { void loadItems(); } }] : []),
@@ -695,5 +697,5 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     ],
     overflowHref: agentFeed.actionables.some(item => item.id === "consent:overflow") ? agentFeed.actionables.find(item => item.id === "consent:overflow")?.href || "/one/feed" : null,
     save: saveTask, toggle: toggleTask, remove: deleteTask,
-  }} fallback={content} schedules={schedulesEnabled ? schedules : undefined} selectedSchedule={selectedSchedule} />;
+  }} fallback={content} />;
 }

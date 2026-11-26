@@ -44,7 +44,7 @@ function projection(): NativeWorkspaceProjection {
 beforeEach(() => { state.enabled = true; state.path = "/one/connect"; state.content = null; vi.clearAllMocks(); });
 describe("Connect workspace admission contract", () => {
   it("uses supported workspace directory choices and invokes the existing selection callback", async () => {
-    render(<NativeConnectWorkspace model={model()} fallback={<p>Complete React Connect</p>} />);
+    render(<NativeConnectWorkspace model={model()} renderFallback={() => <p>Complete React Connect</p>} />);
     const content = projection();
     expect(validNativeWorkspace(content)).toBe(true);
     const directory = content.sections.flatMap(section => section.rows).find(row => row.label === "Directory")!;
@@ -57,7 +57,7 @@ describe("Connect workspace admission contract", () => {
   });
   it("keeps both navigation levels as tabs and uses the same authored callbacks", async () => {
     const value = model();
-    render(<NativeConnectWorkspace model={value} fallback={<p>React</p>} />);
+    render(<NativeConnectWorkspace model={value} renderFallback={() => <p>React</p>} />);
     const content = projection();
     expect(content.tabs?.options.map(option => option.label)).toEqual(["Connections", "Circles"]);
     expect(content.secondaryTabs?.options.map(option => option.label)).toEqual(["My connections", "Find people"]);
@@ -72,7 +72,7 @@ describe("Connect workspace admission contract", () => {
   });
   it("keeps the full React route when the experimental renderer is off", () => {
     state.enabled = false;
-    render(<NativeConnectWorkspace model={model()} fallback={<p>Complete React Connect</p>} />);
+    render(<NativeConnectWorkspace model={model()} renderFallback={() => <p>Complete React Connect</p>} />);
     expect(screen.getByText("Complete React Connect")).toBeVisible();
     expect(state.apply).not.toHaveBeenCalled();
   });
@@ -81,7 +81,7 @@ describe("Connect workspace admission contract", () => {
     render(<NativeConnectWorkspace model={{ ...model(), confirmation: {
       title: "Remove connection", description: "Remove this connection?",
       confirm: { key: "remove-confirm:synthetic", label: "Remove", destructive: true, run: write }, cancel,
-    } }} fallback={<p>Complete React Connect</p>} />);
+    } }} renderFallback={() => <p>Complete React Connect</p>} />);
     const content = projection();
     expect(validNativeWorkspace(content)).toBe(true);
     expect(content.tabs).toBeUndefined();
@@ -97,7 +97,7 @@ describe("Connect workspace admission contract", () => {
     const open = vi.fn(), message = vi.fn(), toggle = vi.fn();
     const person = { key: "public-person", label: "Public Person", photoUrl: null, verified: true,
       primary: { key: "profile", label: "Open profile", run: open }, actions: [{ key: "message", label: "Message", run: message }] };
-    const { rerender } = render(<NativeConnectWorkspace model={{ ...model(), people: [person] }} fallback={<p>React</p>} />);
+    const { rerender } = render(<NativeConnectWorkspace model={{ ...model(), people: [person] }} renderFallback={() => <p>React</p>} />);
     let row = projection().sections.flatMap(section => section.rows).find(row => row.label === person.label)!;
     expect(validNativeWorkspace(projection())).toBe(true);
     expect(row.avatar?.verified).toBe(true);
@@ -105,7 +105,7 @@ describe("Connect workspace admission contract", () => {
     expect(message).toHaveBeenCalledTimes(1); expect(open).not.toHaveBeenCalled();
     await act(async () => { await state.actions.get(row.id)!(); });
     expect(open).toHaveBeenCalledTimes(1);
-    rerender(<NativeConnectWorkspace model={{ ...model(), selectionMode: true, people: [{ ...person, selected: false, toggle }] }} fallback={<p>React</p>} />);
+    rerender(<NativeConnectWorkspace model={{ ...model(), selectionMode: true, people: [{ ...person, selected: false, toggle }] }} renderFallback={() => <p>React</p>} />);
     row = projection().sections.flatMap(section => section.rows).find(row => row.label === person.label)!;
     expect(row.inlineActions).toBeUndefined();
     await act(async () => { await state.actions.get(row.id)!(); });

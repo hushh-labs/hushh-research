@@ -13,6 +13,12 @@ function normalizeEnvironment(raw: string | undefined | null): AppEnvironment | 
   return null;
 }
 
+/** Set at document start by the shared Dev Debug simulator host. */
+export function isSharedDevIosSimulator(): boolean {
+  return typeof window !== "undefined" &&
+    (window as Window & { __HUSHH_SHARED_DEV_SIMULATOR__?: boolean }).__HUSHH_SHARED_DEV_SIMULATOR__ === true;
+}
+
 export function resolveAppEnvironment(): AppEnvironment {
   const explicit = normalizeEnvironment(process.env.NEXT_PUBLIC_APP_ENV);
   if (explicit) return explicit;

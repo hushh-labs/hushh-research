@@ -1,4 +1,6 @@
-export const MAIN_CHAT_LOCATION_ENABLED = process.env.NEXT_PUBLIC_ONE_MAIN_CHAT_LOCATION_ENABLED === "true";
+import { isSharedDevIosSimulator } from "@/lib/app-env";
+
+export const MAIN_CHAT_LOCATION_ENABLED = process.env.NEXT_PUBLIC_ONE_MAIN_CHAT_LOCATION_ENABLED === "true" || isSharedDevIosSimulator();
 
 const actions = [
   "share_options", "share_private", "share_public",

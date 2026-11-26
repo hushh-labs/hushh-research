@@ -42,11 +42,13 @@ vi.mock("@/components/agent/location-chat-action/location-chat-action-card", () 
 test("a restored chat card follows the workspace’s new expiry for the same grant", async () => {
   render(<LocationChatActionPanel proposal={{ id: "proposal-1", action: "share_live" }} ownerId="owner" token="owner-token" allowReview onUnlock={() => {}} />);
   await screen.findByText("2090-01-01T11:00:00.000Z");
+  await waitFor(() => expect(location.change).toBeTypeOf("function"));
 
   location.expiry = "2090-01-01T11:30:00.000Z";
   act(() => location.change?.({ userId: "another-owner" }));
   expect(location.stateLoads).toBe(1);
   act(() => location.change?.({ userId: "owner" }));
+  expect(location.stateLoads).toBe(2);
   await screen.findByText("2090-01-01T11:30:00.000Z");
   expect(screen.queryByText("2090-01-01T11:00:00.000Z")).not.toBeInTheDocument();
 });

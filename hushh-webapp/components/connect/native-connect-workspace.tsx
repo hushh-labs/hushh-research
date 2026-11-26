@@ -2,7 +2,7 @@
 
 import { createNativeWorkspaceHandles, useNativeWorkspaceHandoff } from "@/lib/capacitor/use-native-workspace-handoff";
 
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
@@ -33,7 +33,7 @@ export type NativeConnectPerson = {
 export type NativeConnectModel = {
   confirmation?: { title: string; description: string; confirm: NativeConnectAction; cancel: () => void };
   editor?: WorkspaceEditor<NativeWorkspaceCircleDraft>; page?: NativeWorkspaceProjection["page"]; task?: boolean;
-  variant?: "circles"; frameRef?: RefObject<HTMLDivElement | null>;
+  variant?: "circles";
   owner: string | null; current: () => boolean;
   surface: "all" | "circles"; selectSurface: (surface: "all" | "circles") => void;
   view: string; setView: (view: "connections" | "discover") => void;
@@ -47,12 +47,12 @@ export type NativeConnectModel = {
 
 /** The route still owns every query, relationship and operation. This maps
  * values and callbacks, using the same admission and rich-child handoff as Feed. */
-export function NativeConnectWorkspace(props: { model: NativeConnectModel; fallback: ReactNode }) {
-  if (!customNativePresentationEnabled()) return props.fallback;
+export function NativeConnectWorkspace(props: { model: NativeConnectModel; renderFallback: () => ReactNode }) {
+  if (!customNativePresentationEnabled()) return props.renderFallback();
   return <NativeConnectPresentation {...props} />;
 }
 
-function NativeConnectPresentation({ model, fallback }: { model: NativeConnectModel; fallback: ReactNode }) {
+function NativeConnectPresentation({ model, renderFallback }: { model: NativeConnectModel; renderFallback: () => ReactNode }) {
   const presentation = useNativeWorkspacePresentation();
   const { isVaultUnlocked } = useVault();
   const handoff = useNativeWorkspaceHandoff(presentation.retireForWeb, model.owner);
@@ -74,7 +74,7 @@ function NativeConnectPresentation({ model, fallback }: { model: NativeConnectMo
   };
   const failed = presentation.status.phase === "web" && (presentation.status.reason === "unsupported" || presentation.status.reason === "failure");
   if (!model.owner || !isVaultUnlocked || model.webOnly || model.webChildOpen || child || failed || model.people.some(person => person.actions.length > 6 || person.actions.filter(action => action.portrait).length > 1))
-    return presentation.status.held ? <div aria-busy="true" /> : fallback;
+    return presentation.status.held ? <div aria-busy="true" /> : renderFallback();
   return <NativeConnectBody model={model} presentation={presentation} runWeb={runWeb} activationRevision={handoff.activationRevision}
     selected={selected} setSelected={setSelected} page={page} setPage={setPage} />;
 }
@@ -85,8 +85,7 @@ function NativeConnectBody({ model, presentation, runWeb, activationRevision, se
   selected: string | null; setSelected: (key: string | null) => void; page: number; setPage: (page: number) => void;
 }) {
   const pathname = normalizeStaticExportPathname(usePathname() ?? "/");
-  const localFrame = useRef<HTMLDivElement>(null), mounted = useRef(false), running = useRef(false);
-  const contentFrame = model.frameRef ?? localFrame;
+  const contentFrame = useRef<HTMLDivElement>(null), mounted = useRef(false), running = useRef(false);
   const [busy, setBusy] = useState(false);
   const latest = useRef({ model, pathname });
   useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -195,7 +194,6 @@ function NativeConnectBody({ model, presentation, runWeb, activationRevision, se
       ...(!model.variant ? { secondaryTabs: { label: "Connection views", options: secondaryTabs } } : {}) } : {}),
     ...(!person && !model.editor && !model.confirmation ? { search: { id: searchId, query: model.query, label: model.searchLabel, live: true } } : {}),
   }, actions, current, back, editor: model.editor, contentFrame, active: pathname === "/one/connect", presentationOwner: presentation.owner, activationRevision });
-  if (model.frameRef) return <div aria-busy={phase !== "native"} data-native-connect-workspace={phase} />;
   return <AppPageShell as="main" ref={contentFrame} className={styles.workspace} width="reading" aria-busy={phase !== "native"} data-native-connect-workspace={phase}
     nativeTest={{ routeId: "/one/connect", marker: phase === "native" ? "native-route-connect" : "native-connect-admission", authState: "authenticated",
       dataState: phase === "blocked" ? "error" : phase !== "native" ? "booting" : model.loading ? "loading" : model.people.length ? "loaded" : "empty-valid" }} />;

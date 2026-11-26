@@ -88,8 +88,11 @@ if [ "${CLEAN:-0}" = "1" ]; then
   rm -rf .next out
 fi
 
+shared_dev=$(node --input-type=module -e 'import { isSharedDevSimulatorBuild } from "./scripts/native/native-build-environment.mjs"; process.stdout.write(String(isSharedDevSimulatorBuild(process.env)));')
+say "Shared Dev simulator features (Chat Location and Scheduled runs): $shared_dev"
 say "Building web bundle (cap:build) for the selected profile"
 export NEXT_PUBLIC_BACKEND_URL="$BACKEND"
+export NEXT_DIST_DIR="${NEXT_DIST_DIR:-out}"
 NODE_OPTIONS=--max-old-space-size=8192 npm run cap:build
 
 # --- 4. Sync into the native shell ------------------------------------------
@@ -127,6 +130,7 @@ xcodebuild \
   -destination "id=$UDID" \
   -derivedDataPath "$DERIVED_DATA" \
   -sdk iphonesimulator \
+  "HUSHH_SHARED_DEV_SIMULATOR=$shared_dev" \
   build
 
 APP_PATH="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/App.app"
