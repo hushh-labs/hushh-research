@@ -65,6 +65,24 @@ describe("LocationBus.ensure", () => {
     expect(b).toEqual(c);
   });
 
+  it("releases a silent permission request and ignores its fix after a successful retry", async () => {
+    vi.useFakeTimers();
+    try {
+      let finishFirst!: (point: typeof POINT) => void;
+      mockLocation.getCurrentPosition.mockImplementationOnce(() => new Promise(resolve => { finishFirst = resolve; }));
+      const first = LocationBus.ensure({ maxAgeMs: 0 });
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(await first).toBeNull();
+      await LocationBus.ensure({ maxAgeMs: 0 });
+      finishFirst({ ...POINT, latitude: 15 });
+      await Promise.resolve();
+      expect(mockLocation.getCurrentPosition).toHaveBeenCalledTimes(2);
+      expect(LocationBus.getState().snapshot?.latitude).toBe(POINT.latitude);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reuses a fresh fix instead of re-hitting the GPS", async () => {
     await LocationBus.ensure();
     await LocationBus.ensure();

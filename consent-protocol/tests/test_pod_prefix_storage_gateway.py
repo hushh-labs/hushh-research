@@ -373,3 +373,64 @@ def test_prefix_store_bounded_timeouts_single_get_retry_and_no_put_retry(
     with pytest.raises(PodMultiCloudStorageError):
         store_transport.get_with_generation_blocking("wiki/overview.json")
     assert connect_attempts == 2
+
+
+def test_storage_gateway_reuses_gcs_store_and_maps_backing_errors_to_503(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import api.routes.one.pod_prefix_storage_gateway as gw
+
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "true")
+    monkeypatch.setenv(BROKER_SEAL_SECRET_ENV, "33" * 32)
+    monkeypatch.setenv("HUSSH_POD_STORAGE_GATEWAY_GCS_BUCKET", "hussh-hosted-pods-uat")
+    monkeypatch.setenv("HUSSH_POD_STORAGE_GATEWAY_GCS_PREFIX", "hub")
+
+    set_storage_gateway_overrides_for_tests()
+    try:
+        first = gw._resolve_store()
+        second = gw._resolve_store()
+        assert first is not None and first is second
+
+        monkeypatch.setenv("HUSSH_POD_STORAGE_GATEWAY_GCS_PREFIX", "hub-v2")
+        third = gw._resolve_store()
+        assert third is not None and third is not first
+    finally:
+        set_storage_gateway_overrides_for_tests()
+
+    class _FailingStore:
+        async def get_with_generation(self, _key: str):
+            raise RuntimeError("pod storage metadata unavailable")
+
+        async def put_if_generation(self, _key: str, _data: bytes, _expected: str):
+            raise RuntimeError("pod storage write unconfirmed")
+
+    registry = _FakeRegistry(
+        {"hushh_id": "ha1_err_01", "user_id": "owner-err-01", "placement_epoch": 1}
+    )
+    set_storage_gateway_overrides_for_tests(
+        store_factory=_FailingStore,
+        registry_factory=lambda: registry,
+    )
+    try:
+        app = FastAPI()
+        app.include_router(gateway_router)
+        client = TestClient(app)
+        token, _ = mint_prefix_gateway_token(
+            owner_id="owner-err-01",
+            hushh_id="ha1_err_01",
+            placement_epoch=1,
+            ttl_seconds=300,
+        )
+        headers = {"Authorization": f"Bearer {token}"}
+        get_resp = client.get(
+            "/api/one/pod/storage-gateway/pods/ha1_err_01/head.json", headers=headers
+        )
+        put_resp = client.put(
+            "/api/one/pod/storage-gateway/pods/ha1_err_01/head.json",
+            headers=headers,
+            content=b"{}",
+        )
+        assert get_resp.status_code == 503
+        assert put_resp.status_code == 503
+    finally:
+        set_storage_gateway_overrides_for_tests()

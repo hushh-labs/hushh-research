@@ -12,7 +12,8 @@ type Review = Parameters<NonNullable<AgentChatStreamHandlers["onMcpReview"]>>[0]
 
 export async function recoverMcpReviews(input: Pick<ChatInput,
   "userId" | "vaultOwnerToken" | "vaultKey" | "loadConnectorConfigurations"
-> & { conversationId: string; isCurrent: () => boolean; handlers: AgentChatStreamHandlers }): Promise<Review[]> {
+> & { conversationId: string; transport?: "native-adk-v1";
+  isCurrent: () => boolean; handlers: AgentChatStreamHandlers }): Promise<Review[]> {
   const owner = snapshotValidatedAuthSessionOwner();
   const epoch = snapshotVaultSessionEpoch();
   const current = () => Boolean(owner?.userId === input.userId &&
@@ -32,6 +33,8 @@ export async function recoverMcpReviews(input: Pick<ChatInput,
       toolConfirmation: { confirmed: false, payload: item.reference },
     });
     if (!reference || Date.parse(reference.expiresAt) <= serverNow()) return [];
+    const transport = item.transport === "native-adk-v1" || input.transport === "native-adk-v1"
+      ? "native-adk-v1" : undefined;
     let attempted = false;
     return [{ reference, chatKey, conversationId: input.conversationId, isCurrent: current,
       loadConfiguration: input.loadConnectorConfigurations ? async () => {
@@ -45,7 +48,7 @@ export async function recoverMcpReviews(input: Pick<ChatInput,
         if (attempted || !current() || signal?.aborted) throw new Error("This review is no longer active.");
         attempted = true;
         await streamAgentChat({ ...input, message: "", signal, handlers: handlers ?? input.handlers,
-          resumeMcpReview: { interruptId: item.interruptId, reference, approval },
+          resumeMcpReview: { interruptId: item.interruptId, reference, approval, ...(transport ? { transport } : {}) },
         });
         if (!current()) throw new Error("The connector session changed.");
       },

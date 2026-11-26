@@ -10,7 +10,11 @@ export interface ParseSSEBlocksResult {
  * unterminated tail forward via `remainder` so fragmented frames are
  * correctly reassembled across reads.
  */
-export function parseSSEBlocks(chunk: string, remainder = ""): ParseSSEBlocksResult {
+export function parseSSEBlocks(
+  chunk: string,
+  remainder = "",
+  defaultEvent?: string,
+): ParseSSEBlocksResult {
   const normalized = (remainder + chunk).replace(/\r\n/g, "\n");
   const blocks = normalized.split("\n\n");
   const nextRemainder = blocks.pop() ?? "";
@@ -19,7 +23,7 @@ export function parseSSEBlocks(chunk: string, remainder = ""): ParseSSEBlocksRes
   for (const rawBlock of blocks) {
     if (!rawBlock.trim()) continue;
 
-    let eventName: string | undefined;
+    let eventName = defaultEvent;
     let eventId: string | undefined;
     const dataLines: string[] = [];
 

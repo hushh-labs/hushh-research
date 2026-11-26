@@ -431,6 +431,28 @@ describe("LocationPickerMap", () => {
     }
   });
 
+  it("offers capture recovery for missing tiles and preserves a late address for the original point", async () => {
+    vi.useFakeTimers();
+    try {
+      const props = {
+        compact: true, embedded: true, initialLatitude: 28.6139, initialLongitude: 77.209,
+        onRecapture: vi.fn(), onConfirm: vi.fn(), onCancel: vi.fn(), onSelectionChange: vi.fn(),
+      };
+      const view = render(<LocationPickerMap {...props} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      expect(screen.getByText(/Map preview unavailable/)).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Retry location capture" }));
+      expect(props.onRecapture).toHaveBeenCalledOnce();
+      expect(props.onSelectionChange).not.toHaveBeenCalled();
+      view.rerender(<LocationPickerMap {...props} initialAddress="15 Lake Road" />);
+      expect(props.onSelectionChange).not.toHaveBeenCalled();
+      act(() => { listeners.get("tilesloaded")?.(); });
+      expect(screen.queryByText(/Map preview unavailable/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("lets the owner continue manually when the provider map is unavailable", () => {
     mapsStatus.current = "error";
     const onConfirm = vi.fn();

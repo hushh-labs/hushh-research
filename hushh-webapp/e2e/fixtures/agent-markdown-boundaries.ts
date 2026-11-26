@@ -38,7 +38,10 @@ export async function fetchPuppyStatus() {
 }
 export const PUPPY_ONE_INSTALL_URL = "https://github.com/hushh-labs/hussh-one-hermes";
 export async function fetchPuppyChatStream(): Promise<Response> {
-  throw new Error("The typography fixture supplies HttpAgent events, never a live transport.");
+  const event = { author: "one", partial: true, content: { parts: [{ text: PUPPY_TYPOGRAPHY_ANSWER }] } };
+  return new Response(`data: ${JSON.stringify(event)}\n\nevent: done\ndata: {}\n\n`, {
+    headers: { "Content-Type": "text/event-stream" },
+  });
 }
 export function PuppyModelPicker() { return null; }
 export function PuppyMachineSheet() { return null; }
@@ -46,9 +49,3 @@ export function PrivatePuppyInferencePanel() {
   throw new Error("Remote pod inference is outside the localhost chat typography fixture.");
 }
 export const PUPPY_TYPOGRAPHY_ANSWER = "Your local answer.\n\nA second paragraph with **emphasis**.\n\n- First item\n- Second item";
-export class HttpAgent {
-  abortRun() {}
-  async runAgent(_params: unknown, handlers: { onTextMessageContentEvent: (value: { event: { delta: string } }) => void }) {
-    handlers.onTextMessageContentEvent({ event: { delta: PUPPY_TYPOGRAPHY_ANSWER } });
-  }
-}

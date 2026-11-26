@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { HoldingsSurfaceSpecimen } from "./holdings-surface-specimen";
 import {
   ArrowUpRight,
   Cloud,
@@ -195,6 +196,14 @@ export function ReferenceStorybook() {
           ) : null}
 
           <div className={cn("space-y-10", frameClass, surfaceThemeClass)}>
+            <SpecimenSection
+              eyebrow="A2UI"
+              title="Holdings"
+              description="A read-only portfolio card with rows updated through the A2UI data model."
+            >
+              <HoldingsSurfaceSpecimen />
+            </SpecimenSection>
+
             {/* Specimen 1: Global Button Density & Hairline Geometry */}
             <SpecimenSection
               eyebrow="01 · Controls & Density"

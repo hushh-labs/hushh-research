@@ -4188,10 +4188,12 @@ export class ApiService {
     vaultKey: string;
     limit?: number;
     before?: string;
+    transport?: "native-adk-v1";
   }): Promise<Response> {
     const query = new URLSearchParams();
     if (data.limit) query.set("limit", String(data.limit));
     if (data.before) query.set("before", data.before);
+    if (data.transport) query.set("transport", data.transport);
     const suffix = query.toString() ? `?${query.toString()}` : "";
     return ApiService.agentChatRequest(
       `/api/one/agent-chat/history/${encodeURIComponent(data.conversationId)}${suffix}`,
