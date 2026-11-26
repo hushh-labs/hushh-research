@@ -11,6 +11,7 @@ type Component =
   | { id: string; component: "TextBlock"; text: string | Binding; emphasis?: "title" | "body" | "muted" }
   | { id: string; component: "DataTable"; label: string; columns: string[]; rows: TableCell[][] | Binding; previewRows?: number }
   | { id: string; component: "PortfolioAllocation" | "PortfolioPerformance" | "PortfolioSources"; snapshot: Binding }
+  | { id: string; component: "SavedPortfolio"; section: "holdings" | "allocation" | "performance" | "sources" }
   | { id: string; component: "FinanceShareProposal"; audience: "connection" | "verified_advisor" };
 
 export type A2uiSurface = Readonly<{
@@ -119,6 +120,13 @@ function parseComponent(value: unknown): Component | null {
         (value.audience === "connection" || value.audience === "verified_advisor")
         ? { id, component, audience: value.audience }
         : null;
+    case "SavedPortfolio": {
+      const { section } = value;
+      return id === "root" && keys(value, ["id", "component", "section"]) &&
+        (section === "holdings" || section === "allocation" || section === "performance" || section === "sources")
+        ? { id, component, section }
+        : null;
+    }
     default:
       return null;
   }

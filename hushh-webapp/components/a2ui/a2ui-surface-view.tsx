@@ -13,6 +13,9 @@ const A2uiPortfolioRead = dynamic(() => import("./a2ui-portfolio-read"));
 const FinanceShareProposal = dynamic(() =>
   import("@/components/agent/finance-share-proposal").then(module => module.FinanceShareProposal),
 );
+const FinancePortfolioCard = dynamic(() =>
+  import("@/components/agent/finance-portfolio-card").then(module => module.FinancePortfolioCard),
+);
 
 function SurfaceTable({
   label, columns, rows, previewRows,
@@ -56,8 +59,8 @@ function SurfaceTable({
   );
 }
 
-function SurfaceNode({ surface, id, allowFinanceShare }: {
-  surface: A2uiSurface; id: string; allowFinanceShare: boolean;
+function SurfaceNode({ surface, id, allowFinanceShare, portfolioConversationId }: {
+  surface: A2uiSurface; id: string; allowFinanceShare: boolean; portfolioConversationId?: string;
 }) {
   const node = surface.components.get(id);
   if (!node) return null;
@@ -88,11 +91,16 @@ function SurfaceNode({ surface, id, allowFinanceShare }: {
       return allowFinanceShare
         ? <FinanceShareProposal audience={node.audience} />
         : <p className="ui-text-row-description">Portfolio sharing was proposed.</p>;
+    case "SavedPortfolio":
+      return portfolioConversationId
+        ? <FinancePortfolioCard section={node.section} conversationId={portfolioConversationId} />
+        : <p className="ui-text-row-description">Saved portfolio requested.</p>;
   }
 }
 
-export function A2uiSurfaceView({ surface, allowFinanceShare = false }: {
-  surface: A2uiSurface; allowFinanceShare?: boolean;
+export function A2uiSurfaceView({ surface, allowFinanceShare = false, portfolioConversationId }: {
+  surface: A2uiSurface; allowFinanceShare?: boolean; portfolioConversationId?: string;
 }) {
-  return <SurfaceNode surface={surface} id="root" allowFinanceShare={allowFinanceShare} />;
+  return <SurfaceNode surface={surface} id="root" allowFinanceShare={allowFinanceShare}
+    portfolioConversationId={portfolioConversationId} />;
 }

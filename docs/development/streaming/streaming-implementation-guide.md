@@ -461,6 +461,11 @@ review reads the current saved portfolio again before encrypting for the
 chosen recipient, keeps amounts hidden by default, and keeps recipient model
 processing off. Restored proposals are inactive.
 
+The Saved Portfolio component lets an admitted live turn render the active
+portfolio through the app's existing vault-protected Finance card. The
+component names a section and leaves source selection and amounts to the app.
+This view does not supply structured holdings to the model's native runtime.
+
 ## 4.1 UI Stream Mapping
 
 The canonical app stream surface is `hushh-webapp/components/app-ui/stream-progress-panel.tsx`. Portfolio import and Agent Chat both use that primitive so progress, optional thinking, and answer text stay visually and semantically consistent.
