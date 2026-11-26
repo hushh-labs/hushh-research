@@ -1503,7 +1503,7 @@ jobs:
           # The deploy step reuses it, so the build and deploy cannot disagree.
           build_substitutions="_APP_ENV=uat,_DEPLOY_ENV=uat,_IMAGE_TAG=${image_tag},_ONE_WALLET_CARD_ENABLED=true,_ONE_LOCATION_NEARBY_CHECK_IN=true,_LOCATION_MAP_DEMO=false"
           # Selected application SHAs can predate the Location build contract.
-          if [[ "$UAT_SOURCE_BRANCH" == "uat" ]] &&
+          if [[ "${UAT_SOURCE_BRANCH:-}" == "uat" ]] &&
              grep -q '^[[:space:]]*_ONE_MAIN_CHAT_LOCATION_ENABLED:' deploy/frontend.cloudbuild.yaml &&
              grep -q '^[[:space:]]*_ONE_MAIN_CHAT_LOCATION_ENABLED:' deploy/frontend-image.cloudbuild.yaml &&
              grep -qx 'ARG NEXT_PUBLIC_ONE_MAIN_CHAT_LOCATION_ENABLED' hushh-webapp/Dockerfile; then
@@ -2156,7 +2156,7 @@ jobs:
           SUBSTITUTIONS="${SUBSTITUTIONS}##_VPC_CONNECTOR=${{ vars.UAT_VPC_CONNECTOR || '' }}"
           # The packaged profile owns every managed AI surface.
           SUBSTITUTIONS="${SUBSTITUTIONS}##$(python3 scripts/ops/managed_ai_config.py --environment uat --format substitutions)"
-          if [[ "$UAT_SOURCE_BRANCH" == "uat" ]] &&
+          if [[ "${UAT_SOURCE_BRANCH:-}" == "uat" ]] &&
              grep -q '^[[:space:]]*_ONE_MAIN_CHAT_LOCATION_ENABLED:' deploy/backend.cloudbuild.yaml &&
              [[ -f consent-protocol/hushh_mcp/one_adk/location_chat_proposal.py ]]; then
             SUBSTITUTIONS="${SUBSTITUTIONS}##_ONE_MAIN_CHAT_LOCATION_ENABLED=true"
