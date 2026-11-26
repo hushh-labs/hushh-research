@@ -30,6 +30,38 @@ class _StubClaimClient:
         return None
 
 
+def test_schedule_worker_requires_owner_bound_oidc_before_lease_claim(monkeypatch):
+    from hushh_mcp.services import scheduler_identity
+
+    edge = "https://sandbox-edge.example.test"
+    worker = "sandbox-schedule@hushh-pda-dev.iam.gserviceaccount.com"
+    manager = SandboxEdgeGatewayManager(
+        claim_client=_StubClaimClient(),
+        master_seed=b"m" * 32,
+        deploy_env="dev",
+        pod_url_base=edge,
+        schedule_worker_email=worker,
+    )
+    wake = AsyncMock(side_effect=TimeoutError)
+    monkeypatch.setattr(manager, "ensure_owner_lease", wake)
+
+    def verify(_token, audience):
+        if audience != f"{edge}/u/owner-a":
+            raise ValueError("wrong audience")
+        return {"email": worker, "email_verified": True}
+
+    monkeypatch.setattr(scheduler_identity, "_verify_google_id_token", verify)
+    app = create_sandbox_edge_gateway_app(manager, enable_reaper=False)
+    route = "/api/one/pod/tasks/worker"
+    with TestClient(app) as client:
+        assert client.post(f"/u/owner-a{route}").status_code == 403
+        headers = {"Authorization": "Bearer synthetic"}
+        assert client.post(f"/u/owner-b{route}", headers=headers).status_code == 403
+        wake.assert_not_awaited()
+        assert client.post(f"/u/owner-a{route}", headers=headers).status_code == 503
+        wake.assert_awaited_once_with("owner-a")
+
+
 def test_edge_gateway_deduplicates_upstream_lowercase_cors_headers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
