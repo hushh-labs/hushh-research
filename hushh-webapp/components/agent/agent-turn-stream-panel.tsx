@@ -528,7 +528,7 @@ export function AgentTurnStreamPanel({
                 key={id}
                 experience={experience}
                 conversationId={conversationId}
-                  allowPortfolioUpload={!isStreaming && !isError}
+                  allowPortfolioChanges={!isStreaming && !isError}
                 allowFinancePreviewStart={allowFinancePreviewStart && !isStreaming && !isError}
                 onConfirmFinanceAnalysis={onConfirmFinanceAnalysis}
                 onOpenConnections={onOpenConnections}

@@ -106,6 +106,7 @@ import {
   readPortfolioContext,
   type PortfolioContextRequest,
 } from "@/lib/kai/portfolio-chat-context";
+import { PORTFOLIO_SWITCH_CONTRACT } from "@/lib/agent/finance-chat-experiences";
 import type { ReceiptCanonicalIndex } from "@/lib/profile/gmail-receipt-memory-index";
 import { RECEIPT_FUNCTIONS, RECEIPT_TOOL_DECLARATIONS, type ReceiptAnalysisRequest, type ReceiptFunction } from "@/lib/mail/receipt-analysis";
 import { receiptCallRequest, receiptCallRunner, settleReceiptCalls, type ReceiptSetupState } from "./agent-chat-receipt-calls";
@@ -2943,7 +2944,10 @@ async function streamAgentChatAttempt(input: {
         ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}),
         // The mail draft envelope version this client reads. The server reads it per request, so resumed runs send it too.
         emailDraftContract: 2, emailAgentContract: 1, calendarReviewContract: 1, emailReadReceiptContract: 2,
-        ...(portfolioContextEnabled ? { portfolioContextContract: PORTFOLIO_CONTEXT_CONTRACT } : {}),
+        ...(portfolioContextEnabled ? {
+          portfolioContextContract: PORTFOLIO_CONTEXT_CONTRACT,
+          portfolioSwitchContract: PORTFOLIO_SWITCH_CONTRACT,
+        } : {}),
         ...(sharedWikiSession ? { wikiClientReady: true } : {}),
         ...(turnWiki.wikiHotDigest ? { wikiHotDigest: turnWiki.wikiHotDigest } : {}),
         ...(accountContextEnabled ? { accountContextContract: ACCOUNT_CONTEXT_CONTRACT } : {}),
