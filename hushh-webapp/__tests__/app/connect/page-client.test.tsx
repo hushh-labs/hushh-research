@@ -3537,7 +3537,7 @@ describe("Connect — Circles", () => {
   it("keeps one native presenter as the Circle list loads and a newer tab supersedes it", async () => {
     const presentation = await import("@/lib/capacitor/native-presentation-policy");
     const native = await import("@/lib/capacitor/use-native-workspace");
-    const { VaultContext, useVault } = await import("@/lib/vault/vault-context");
+    const { VaultContext } = await import("@/lib/vault/vault-context");
     const { OneLocationService } = await import("@/lib/one-location/service");
     const automation = await import("@/lib/testing/native-test");
     const pending = deferred<Awaited<ReturnType<typeof OneLocationService.listCircleWorkspace>>>();
@@ -3545,7 +3545,7 @@ describe("Connect — Circles", () => {
     const optedIn = vi.spyOn(presentation, "customNativePresentationEnabled").mockReturnValue(true);
     const skipWrites = vi.spyOn(automation, "shouldSkipReviewerBackgroundWritesForAutomation").mockReturnValue(true);
     const workspace = vi.spyOn(native, "useNativeWorkspace").mockReturnValue("native");
-    const vault = { isVaultUnlocked: true, vaultOwnerToken: "fixture-token" } as ReturnType<typeof useVault>;
+    const vault = { isVaultUnlocked: true, vaultOwnerToken: "fixture-token" } as NonNullable<React.ContextType<typeof VaultContext>>;
     const current = () => workspace.mock.lastCall![0];
     const select = async (label: string) => {
       const { content, actions } = current();
