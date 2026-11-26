@@ -197,7 +197,6 @@ def test_main_review_record_admits_only_the_exact_uat_signing_inputs(tmp_path, m
     monkeypatch.chdir(tmp_path)
     verifier = runpy.run_path(str(SIGNING_INPUTS_CHECK))
     record = verifier["review_record"](
-        candidate,
         verifier["build_file_changes"](authority, candidate),
         verifier["build_manifest"](authority),
         verifier["build_manifest"](candidate),
@@ -215,9 +214,16 @@ def test_main_review_record_admits_only_the_exact_uat_signing_inputs(tmp_path, m
     assert _check_signing_inputs(tmp_path, reviewed_main, candidate, "uat-isolated").returncode == 1
 
     _git(tmp_path, "checkout", "--detach", candidate)
-    _git(tmp_path, "commit", "--allow-empty", "-m", "Another UAT commit with the same tree")
+    _git(
+        tmp_path, "commit", "--allow-empty", "-m", "Another UAT commit with the same signing inputs"
+    )
     other_candidate = _git(tmp_path, "rev-parse", "HEAD")
-    assert _check_signing_inputs(tmp_path, reviewed_main, other_candidate).returncode == 1
+    assert _check_signing_inputs(tmp_path, reviewed_main, other_candidate).returncode == 0
+
+    lockfile.write_text('{"name":"changed-uat"}\n')
+    _git(tmp_path, "commit", "-am", "Change UAT signing inputs without Main review")
+    unreviewed_uat = _git(tmp_path, "rev-parse", "HEAD")
+    assert _check_signing_inputs(tmp_path, reviewed_main, unreviewed_uat).returncode == 1
 
     _git(tmp_path, "checkout", "--detach", reviewed_main)
     lockfile.write_text('{"name":"updated-main"}\n')

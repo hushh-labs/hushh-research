@@ -192,10 +192,12 @@ and SHA using exact UAT CI. Set `verify_candidate_before_promotion=true` on the
 traffic changes. The Ubuntu preflight verifies the current successful UAT
 deployment attempt, the retained acceptance artifact, and the revision and image
 serving all backend traffic. Signing inputs normally match the Main dispatch
-commit. Pipeline owners can review a differing input set for one exact `uat`
-commit in `scripts/ci/uat-native-release-input-review.json`. The Main workflow
-checks the commit, tree, and fingerprints of the signing inputs before the archive
-can start. Changes to either set of signing inputs require a fresh review.
+commit. Pipeline owners can review a differing native signing-input set for `uat`
+in `scripts/ci/uat-native-release-input-review.json`. The Main workflow checks
+the cryptographic digests of the native signing inputs and build manifests before
+the archive can start, without pinning a single moving `uat` branch commit so
+ordinary web and backend UAT release trains do not invalidate TestFlight readiness.
+Changes to either Main or UAT native signing inputs require a fresh review.
 The archive uses the selected application SHA and the accepted CI graph verifier,
 then checks the serving revision again before export. This mode supports the
 standard build with `require_hardware=false`.

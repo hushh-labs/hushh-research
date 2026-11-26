@@ -203,6 +203,10 @@ fi
 if [[ -n "${_PLAID_SECRET_SECRET}" ]]; then
   secrets="${secrets},PLAID_SECRET=$(commerce_secret_name "${_PLAID_SECRET_SECRET}"):latest"
 fi
+if [[ -z "${commerce_preview_prefix:-}" ]]; then
+  append_optional_secret PLAID_SANDBOX_SECRET PLAID_SANDBOX_SECRET
+  append_optional_secret PLAID_PRODUCTION_SECRET PLAID_PRODUCTION_SECRET
+fi
 if [[ -n "${_PLAID_ACCESS_TOKEN_KEY_SECRET}" ]]; then
   secrets="${secrets},PLAID_ACCESS_TOKEN_KEY=$(commerce_secret_name "${_PLAID_ACCESS_TOKEN_KEY_SECRET}"):latest"
 fi

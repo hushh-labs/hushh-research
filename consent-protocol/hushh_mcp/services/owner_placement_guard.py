@@ -44,7 +44,11 @@ ModeResolver = Callable[[str], Awaitable[str]]
 AccountLifecycleCheck = Callable[[str], None]
 
 SHARED_MODE = "shared"
-PRIVATE_MODES = frozenset({"byoc", "pending", "hussh_pods", "unplaced"})
+ADMITTED_HUB_MODES = frozenset({SHARED_MODE, "hussh_pods"})
+SHARED_ONLY_HUB_SURFACES = frozenset(
+    {"agent_chat", "adk_live", "adk_relay_session", "live_courier"}
+)
+PRIVATE_MODES = frozenset({"byoc", "pending", "unplaced"})
 PRIVATE_RUNTIME_REQUIRED = "AGENT_PRIVATE_RUNTIME_REQUIRED"
 HOSTING_UNAVAILABLE = "AGENT_HOSTING_UNAVAILABLE"
 INLINE_GUARD_ATTRIBUTE = "__hub_content_guard__"
@@ -108,11 +112,14 @@ async def admit_hub_content(
     lifecycle_check = assert_account_active or _assert_account_not_deleted
     await settle_cleanup_database_call(lifecycle_check, owner)
     mode = await _read_mode(owner, resolve_mode)
-    if mode == SHARED_MODE:
+    admitted_modes = (
+        frozenset({SHARED_MODE}) if surface in SHARED_ONLY_HUB_SURFACES else ADMITTED_HUB_MODES
+    )
+    if mode in admitted_modes:
         logger.info("hub_content_admission.admitted surface=%s mode=%s", surface, mode)
         return mode
     logger.info("hub_content_admission.refused surface=%s mode=%s", surface, mode)
-    if mode in PRIVATE_MODES:
+    if mode in PRIVATE_MODES or mode == "hussh_pods":
         raise private_runtime_required(mode)
     raise hosting_unavailable()
 

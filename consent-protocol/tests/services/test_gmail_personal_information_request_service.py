@@ -85,9 +85,12 @@ async def test_scheduled_monitor_admits_each_owner_before_reading_content(monkey
     monkeypatch.setattr(service, "_finish_scan_lease", finish)
     monkeypatch.setattr(service, "_purge_expired_metadata", purge)
     result = await service.scan_enabled_users()
-    assert scanned == ["shared-owner"], "private or unknown placement must never read content"
-    assert finished == {owner: owner == "shared-owner" for owner in [*modes, ""]}
-    assert result["completed_users"] == 1 and result["failed_users"] == len(modes)
+    admitted = {"shared-owner", "hosted-owner"}
+    assert scanned == ["shared-owner", "hosted-owner"], (
+        "external BYOC or unknown placement must never read content"
+    )
+    assert finished == {owner: owner in admitted for owner in [*modes, ""]}
+    assert result["completed_users"] == 2 and result["failed_users"] == len(modes) - 1
 
 
 def _message(*, body: str = "Please provide your passport number.") -> dict[str, object]:
