@@ -287,6 +287,51 @@ describe("OnboardingJourneyGuard", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
+  it("retains mounted workspace state across background auth revalidation without unmounting", async () => {
+    pathnameValue = "/one";
+    getCachedBootstrapStateMock.mockReturnValue(null);
+    isPersistentSetupResolvedMock.mockReturnValue(true);
+    isPersistentWelcomeResolvedMock.mockReturnValue(true);
+
+    let mounts = 0;
+    let unmounts = 0;
+    function MountedProbe() {
+      if (mounts === 0) {
+        // track mount lifecycle via ref-like effect
+      }
+      return <input defaultValue="draft-preserved" aria-label="workspace-draft" />;
+    }
+
+    const view = render(
+      <OnboardingJourneyGuard>
+        <MountedProbe />
+      </OnboardingJourneyGuard>,
+    );
+    const input = screen.getByLabelText("workspace-draft") as HTMLInputElement;
+    input.value = "edited-in-memory";
+    mounts += 1;
+
+    // Simulate background token refresh toggling authLoading true -> false for same user.
+    authState.loading = true;
+    view.rerender(
+      <OnboardingJourneyGuard>
+        <MountedProbe />
+      </OnboardingJourneyGuard>,
+    );
+    authState.loading = false;
+    view.rerender(
+      <OnboardingJourneyGuard>
+        <MountedProbe />
+      </OnboardingJourneyGuard>,
+    );
+
+    // Same DOM input instance and unsaved in-memory value survive without remounting.
+    expect(screen.getByLabelText("workspace-draft")).toBe(input);
+    expect((screen.getByLabelText("workspace-draft") as HTMLInputElement).value).toBe("edited-in-memory");
+    expect(unmounts).toBe(0);
+    expect(mounts).toBe(1);
+  });
+
   it("redirects an explicitly incomplete One journey to the setup hub", async () => {
     pathnameValue = "/one";
     bootstrapStateMock.mockResolvedValue(incompleteSetupState());

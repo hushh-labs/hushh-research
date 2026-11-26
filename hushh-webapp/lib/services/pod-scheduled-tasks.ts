@@ -28,7 +28,7 @@ export function scheduledTaskHref(taskId?: string): string {
 
 /** Product availability only; the pod still enforces execution authority. */
 export function areScheduledTasksAvailable(): boolean {
-  return resolveAppEnvironment() === "development";
+  return resolveAppEnvironment() !== "production";
 }
 
 const SCHEDULE_REPEATS = ["once", "daily", "weekly", "monthly"] as const;
