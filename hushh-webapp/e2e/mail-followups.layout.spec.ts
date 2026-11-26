@@ -14,13 +14,13 @@ async function open(page: Page, width: number, journey: string) {
   await page.clock.install({ time: new Date("2026-11-22T08:00:00Z") });
   await page.route("http://localhost/followups", (route) =>
     route.fulfill({
-      contentType: "text/html",
+      contentType: "text/html; charset=utf-8",
       body: `<html data-journey="${journey}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${fixture.css}</style></head><body><main id="root"></main><script src="/fixture.js"></script></body></html>`,
     }),
   );
   await page.route("http://localhost/fixture.js", (route) =>
     route.fulfill({
-      contentType: "application/javascript",
+      contentType: "application/javascript; charset=utf-8",
       body: fixture.script,
     }),
   );
