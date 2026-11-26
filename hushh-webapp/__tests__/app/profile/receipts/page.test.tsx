@@ -2302,7 +2302,10 @@ describe("ProfileReceiptsPage", () => {
   it("offers no way into KYC from Follow-ups", async () => {
     render(<ProfileReceiptsPage />);
     fireEvent.click(screen.getByRole("tab", { name: "Follow-ups" }));
+    // The tab opens the tracked board; the attention list is one tap away.
+    fireEvent.click(await screen.findByRole("button", { name: "View Overview follow-ups" }));
     expect(await screen.findByTestId("mail-followups")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Open tracked conversations" })).toBeVisible();
     expect(screen.queryByTestId("open-kyc")).toBeNull();
     expect(screen.queryByText("Requests for your details")).toBeNull();
     expect(screen.queryByRole("button", { name: /review requests/i })).toBeNull();
@@ -2332,6 +2335,7 @@ describe("ProfileReceiptsPage", () => {
     render(<ProfileReceiptsPage />);
 
     expect(screen.getByRole("tab", { name: "Follow-ups" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(await screen.findByRole("button", { name: "View Overview follow-ups" }));
     expect(await screen.findByTestId("mail-followups")).toBeVisible();
     // The mailbox the person was in is still the one shown.
     expect(screen.getByTestId("mail-account-chip")).toHaveTextContent("akshat@example.com");

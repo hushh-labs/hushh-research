@@ -49,6 +49,7 @@ import { MailOverview } from "@/components/gmail/mail-overview";
 import { MailBriefPanel } from "@/components/gmail/mail-brief-panel";
 import { MailWhySheet, type WhyTarget } from "@/components/gmail/mail-brief-why";
 import type { DraftRequest } from "@/components/gmail/mail-brief";
+import { MailFollowupsEntry } from "@/components/gmail/mail-followups-entry";
 import { MailFollowups } from "@/components/gmail/mail-followups";
 import { MailHeader } from "@/components/gmail/mail-header";
 import briefStyles from "@/components/gmail/mail-brief.module.css";
@@ -757,6 +758,7 @@ export default function GmailReceiptsPage({
   const draftInFlight = useRef(false);
   const [whyTarget, setWhyTarget] = useState<WhyTarget | null>(null);
   const [findingRequest, setFindingRequest] = useState<{ id: string; nonce: number } | null>(null);
+  const [trackedBoardOpen, setTrackedBoardOpen] = useState(true);
   const [toolsOpen, setToolsOpen] = useState(false);
   // A different owner or mailbox never inherits the last one's open sheet or draft state.
   useEffect(() => { setWhyTarget(null); setDraftFailure(null); setToolsOpen(false); }, [userId, receiptAccountKey]);
@@ -2141,7 +2143,7 @@ export default function GmailReceiptsPage({
         evidence: [{ sourceId: item.sourceId, from: "You", on: item.sentAt.slice(0, 10), direction: "sent", quote: "" }],
         openFirst: true,
       }),
-    onOpenFollowups: () => setWorkspace("followups"),
+    onOpenFollowups: () => { setTrackedBoardOpen(false); setWorkspace("followups"); },
     onRetry: mailBrief.refresh,
     onReconnect: () => void handleConnectGmail(),
     onUnlock: () => setShowVaultUnlock(true),
@@ -2379,6 +2381,15 @@ export default function GmailReceiptsPage({
                   <>
                     {!isConnected ? mailStatusPanel : null}
                     {isConnected ? (
+                      trackedBoardOpen ? <>
+                        <Button onClick={() => setTrackedBoardOpen(false)}>View Overview follow-ups</Button>
+                        {userId && isVaultUnlocked && vaultKey && vaultOwnerToken ?
+                          <MailFollowupsEntry key={JSON.stringify([userId,receiptAccountKey,snapshotVaultSessionEpoch()])}
+                            session={{userId,vaultKey,vaultOwnerToken}} confirmTransition={confirmTransition}
+                            onBack={() => setWorkspace("overview")}/> :
+                          <Button onClick={() => setShowVaultUnlock(true)}>Unlock to track conversations</Button>}
+                      </> : <>
+                        <Button onClick={() => setTrackedBoardOpen(true)}>Open tracked conversations</Button>
                       <MailFollowups
                         brief={mailBrief.brief}
                         ownerInitial={briefProps.ownerInitial}
@@ -2390,6 +2401,7 @@ export default function GmailReceiptsPage({
                         onReconnect={() => void handleConnectGmail()}
                         onUnlock={() => setShowVaultUnlock(true)}
                       />
+                      </>
                     ) : null}
                   </>
                 ),
@@ -2474,7 +2486,7 @@ export default function GmailReceiptsPage({
   );
   // The KYC screen has no native presentation of its own: with no owner the native layer stays off and the web screen shows.
   return <NativeMailRoute frame={nativeFrame} model={{ owner: standaloneKyc ? null : userId, onboarding: journeyVariant === "onboarding", view: workspace,
-    selectView: setWorkspace, connected: isConnected, rootOnly: showDisconnectConfirm || workspace === "overview" || workspace === "followups" || workspace === "kyc" && !isConnected || workspace === "receipts" && !(hasSealedReceiptAccess && (hasVerifiedReceiptSnapshot || visibleReceipts.length > 0 || Boolean(visibleSavedRows?.length))), webChild: showVaultUnlock || nativeReceiptDetails || nativeHistory, root: nativeRoot,
+    selectView: setWorkspace, connected: isConnected, rootOnly: showDisconnectConfirm || workspace === "overview" || workspace === "followups" || workspace === "kyc" && !isConnected || workspace === "receipts" && !(hasSealedReceiptAccess && (hasVerifiedReceiptSnapshot || visibleReceipts.length > 0 || Boolean(visibleSavedRows?.length))), webChild: (workspace === "followups" && trackedBoardOpen) || showVaultUnlock || nativeReceiptDetails || nativeHistory, root: nativeRoot,
     confirmation: showDisconnectConfirm ? { title: "Disconnect Mail?", description: "Stops Mail access and receipt sync, and deletes Mail receipts and summaries from Hussh. Information saved to private memory stays.",
       confirm: { key: "disconnect-confirm", label: "Disconnect", destructive: true, enabled: gmailActionBusy !== "disconnect", pending: gmailActionBusy === "disconnect", run: handleDisconnectGmail },
       cancelLabel: "Keep connected", cancel: () => setShowDisconnectConfirm(false) } : undefined }}>{content}</NativeMailRoute>;
