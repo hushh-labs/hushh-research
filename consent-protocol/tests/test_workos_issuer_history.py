@@ -540,6 +540,139 @@ def test_v2_update_service_template_restore_is_qualified(closed_workos):
     }
 
 
+@pytest.mark.parametrize("defect", [None, "open_flag", "later_request", "activity_log"])
+def test_retired_v2_update_service_template_restore_qualifies_via_system_event_completion(
+    closed_workos, defect
+):
+    from workos_history import service_completion_filter
+    from workos_recovery_bridge import COMPLETION_LOG, contract
+
+    authority = contract()
+    sha = "a" * 40
+    revision = "consent-protocol-00328-gib"
+    query = service_completion_filter(
+        "hushh-pda",
+        "consent-protocol",
+        closed_workos.HISTORY_START,
+        "2026-11-26T20:00:00Z",
+        [revision],
+    )
+    assert 'protoPayload.methodName="/Services.UpdateService"' in query
+
+    birth_req = {
+        "timestamp": "2026-11-16T17:30:01Z",
+        "resource": {"labels": {"service_name": "consent-protocol"}},
+        "logName": "projects/hushh-pda/logs/cloudaudit.googleapis.com%2Factivity",
+        "protoPayload": {
+            "serviceName": "run.googleapis.com",
+            "methodName": "google.cloud.run.v1.Services.ReplaceService",
+            "request": {
+                "service": {
+                    "spec": {
+                        "template": {
+                            "metadata": {"name": revision, "labels": {"deploy-sha": sha}},
+                            "spec": {"containers": [{"env": []}]},
+                        }
+                    }
+                }
+            },
+        },
+    }
+    v2_restore_req = {
+        "timestamp": (
+            "2026-11-24T13:37:26.104877Z"
+            if defect != "later_request"
+            else "2026-11-24T13:37:28.000000Z"
+        ),
+        "resource": {"labels": {"service_name": "consent-protocol"}},
+        "logName": "projects/hushh-pda/logs/cloudaudit.googleapis.com%2Factivity",
+        "protoPayload": {
+            "serviceName": "run.googleapis.com",
+            "methodName": "google.cloud.run.v2.Services.UpdateService",
+            "request": {
+                "@type": "type.googleapis.com/google.cloud.run.v2.UpdateServiceRequest",
+                "updateMask": "template",
+                "service": {
+                    "name": "projects/hushh-pda/locations/us-central1/services/consent-protocol",
+                    "template": {
+                        "revision": revision,
+                        "labels": {"deploy-sha": sha},
+                        "containers": [{"name": "consent-protocol", "env": []}],
+                    },
+                },
+            },
+            "response": {},
+        },
+    }
+    flag_val = "true" if defect == "open_flag" else "false"
+
+    def sys_completion(insert_id, ts, method, gen):
+        return {
+            "insertId": insert_id,
+            "timestamp": ts,
+            "logName": (
+                "projects/hushh-pda/logs/cloudaudit.googleapis.com%2Factivity"
+                if defect == "activity_log" and method == "/Services.UpdateService"
+                else COMPLETION_LOG
+            ),
+            "resource": {
+                "labels": {
+                    "project_id": "hushh-pda",
+                    "location": "us-central1",
+                    "service_name": "consent-protocol",
+                }
+            },
+            "protoPayload": {
+                "serviceName": "run.googleapis.com",
+                "methodName": method,
+                "resourceName": "namespaces/hushh-pda/services/consent-protocol",
+                "response": {
+                    "kind": "Service",
+                    "metadata": {
+                        "name": "consent-protocol",
+                        "uid": authority["BACKEND_SERVICE_UID"],
+                        "generation": gen,
+                    },
+                    "status": {"latestCreatedRevisionName": revision},
+                    "spec": {
+                        "template": {
+                            "metadata": {"name": revision, "labels": {"deploy-sha": sha}},
+                            "spec": {
+                                "containers": [
+                                    {
+                                        "name": "consent-protocol",
+                                        "env": [{"name": "WORKOS_SSO_ENABLED", "value": flag_val}],
+                                    }
+                                ]
+                            },
+                        }
+                    },
+                },
+            },
+        }
+
+    service_completions = [
+        sys_completion("comp-330", "2026-11-16T17:30:03.376937Z", "/Services.ReplaceService", 330),
+        sys_completion("comp-333", "2026-11-24T13:37:26.668546Z", "/Services.UpdateService", 333),
+    ]
+    kwargs = dict(
+        project="hushh-pda",
+        until="2026-11-26T20:00:00Z",
+        check=lambda _: True,
+        service_completions=service_completions,
+    )
+    if defect:
+        expected = (
+            "workos_service_completion_unqualified"
+            if defect == "activity_log"
+            else "workos_historical_issuer_not_proven_closed"
+        )
+        with pytest.raises(ValueError, match=expected):
+            closed_workos.review_history([birth_req, v2_restore_req], {}, **kwargs)
+    else:
+        assert closed_workos.review_history([birth_req, v2_restore_req], {}, **kwargs) == 2
+
+
 def test_published_emergency_branch_shas_reads_packed_and_loose_refs(tmp_path):
     import emergency_admission
 
