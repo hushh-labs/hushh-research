@@ -33,7 +33,7 @@ def encode_native_chat_output(event: Event) -> bytes:
     if event.author != "one" or event.content is None:
         return b""
 
-    parts = []
+    parts: list[dict[str, Any]] = []
     for part in event.content.parts or []:
         if part.thought:
             continue

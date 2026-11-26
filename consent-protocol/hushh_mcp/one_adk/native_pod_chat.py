@@ -83,7 +83,6 @@ async def run_native_pod_chat(
         configurations = consume_turn_configurations(
             turn.state, owner_id=owner.owner, conversation_id=turn.thread_id
         )
-        session_key = {"app_name": app.name, "user_id": owner.owner, "session_id": turn.thread_id}
         invocation_id = None
         expected_handle = None
         with owner.runtime_scope():
@@ -98,8 +97,15 @@ async def run_native_pod_chat(
                 if turn.decision is None:
                     await supersede_unanswered_reviews(owner.owner, turn.thread_id)
                     await prepare_memory(turn)
-                    if await owner.sessions.get_session(**session_key) is None:
-                        await owner.sessions.create_session(**session_key)
+                    if (
+                        await owner.sessions.get_session(
+                            app_name=app.name, user_id=owner.owner, session_id=turn.thread_id
+                        )
+                        is None
+                    ):
+                        await owner.sessions.create_session(
+                            app_name=app.name, user_id=owner.owner, session_id=turn.thread_id
+                        )
                     message = types.Content(role="user", parts=[types.Part(text=turn.text)])
                 else:
                     (review,) = await resolve_pending_mcp_reviews(

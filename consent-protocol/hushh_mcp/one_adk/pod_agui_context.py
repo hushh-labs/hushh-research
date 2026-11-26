@@ -329,7 +329,11 @@ class PodChatContext:
             runtime_mode=mode,
             runtime_credential=options.runtime_credential,
             puppy_device_id=options.puppy_device_id,
-            runtime_credential_transport=options.runtime_credential_transport,
+            runtime_credential_transport=(
+                "vertex_api_key"
+                if options.runtime_credential_transport == "vertex_api_key"
+                else "developer_api"
+            ),
             runtime_vertex_project=options.vertex_project,
             runtime_vertex_location=options.vertex_location,
         )

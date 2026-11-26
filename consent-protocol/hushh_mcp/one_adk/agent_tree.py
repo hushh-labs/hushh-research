@@ -986,7 +986,11 @@ def _compose_one_instruction_parts(
         and state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
         and state_getter(STATE_USER_ID)
     )
-    if typed_finance_chat and state_getter(STATE_NATIVE_VISUAL_CHAT) is True:
+    if (
+        callable(state_getter)
+        and typed_finance_chat
+        and state_getter(STATE_NATIVE_VISUAL_CHAT) is True
+    ):
         identity_instruction += (
             "\n\nFINANCE IN CHAT: For an interactive view of the active saved portfolio, use "
             "the visual tool with a SavedPortfolio root and the requested section. The app "
@@ -1002,7 +1006,7 @@ def _compose_one_instruction_parts(
             "chooses the source in the app. To connect or refresh a linked bank, offer "
             "FinancePlaidConnection. Do not claim that an offer executed."
         )
-    elif typed_finance_chat:
+    elif callable(state_getter) and typed_finance_chat:
         identity_instruction += (
             "\n\nFINANCE IN CHAT: Keep these in Chat. Call show_market_gainers for U.S. or "
             "unspecified gainers; acknowledge the card without claiming quotes or ranks. "

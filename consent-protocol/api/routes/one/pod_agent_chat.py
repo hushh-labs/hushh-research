@@ -399,6 +399,10 @@ PodChatRequest = Annotated[
 async def chat(input: PodChatRequest, owner: PodChatContext = Depends(context)):
     if isinstance(input, NativePodChatRequest):
         return await _native_chat(input, owner)
+    return await _legacy_chat(input, owner)
+
+
+async def _legacy_chat(input: RunAgentInput, owner: PodChatContext) -> EventSourceResponse:
     try:
         from hushh_mcp.one_adk.pod_mcp_restore import restore_resume
 
