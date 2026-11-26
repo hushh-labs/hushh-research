@@ -27,6 +27,9 @@ export function OnboardingPlaceScreen({
   capturing,
   saved,
   error,
+  saveFailed,
+  locationAccessBlocked,
+  onOpenLocationSettings,
   onBack,
   onRequestLocation,
   onSave,
@@ -45,8 +48,11 @@ export function OnboardingPlaceScreen({
   capturing: boolean;
   saved: boolean;
   error: string | null;
+  saveFailed: boolean;
+  locationAccessBlocked: boolean;
+  onOpenLocationSettings?: () => void;
   onBack: () => void;
-  onRequestLocation: () => void;
+  onRequestLocation?: () => void;
   onSave: () => void;
   onLater: () => void;
 }) {
@@ -72,11 +78,11 @@ export function OnboardingPlaceScreen({
         "grid min-h-0 flex-1 grid-rows-[minmax(136px,1fr)_auto] gap-3 md:grid-rows-1",
         COMPACT_ONBOARDING_COLUMNS_CLASSNAME,
       )}>
-        <div className="relative min-h-0 overflow-hidden rounded-[20px]" data-testid="onboarding-place-map">
-          {hasPoint ? map : (
+        <div inert={busy && !capturing} className="relative min-h-0 overflow-hidden rounded-[20px]" data-testid="onboarding-place-map">
+          {hasPoint && !capturing ? map : (
             <div role="status" aria-live="polite" className="flex h-full min-h-0 flex-col items-center justify-center gap-2 rounded-[20px] bg-[color:var(--app-secondary-surface)] px-5 text-center text-muted-foreground">
               {capturing ? <Loader2 className="h-7 w-7 animate-spin" aria-hidden /> : <MapPin className="h-7 w-7" aria-hidden />}
-              <p data-location-type-role="row-description">{capturing ? "Finding your location…" : "Choose a starting point. Nothing is shared."}</p>
+              <p data-location-type-role="row-description">{capturing ? "Finding your location…" : "Allow location access to find your place."}</p>
             </div>
           )}
         </div>
@@ -101,18 +107,23 @@ export function OnboardingPlaceScreen({
           {!saved ? categoryPicker : null}
           {saved ? <p data-location-type-role="row-description" className="text-center text-muted-foreground">Place saved.</p> : null}
           {error ? <p role="status" data-location-type-role="status" className="text-center text-[color:var(--app-destructive)]">{error}</p> : null}
+          {locationAccessBlocked && (onOpenLocationSettings ? (
+            <button type="button" onClick={onOpenLocationSettings} disabled={busy} className="min-h-11 text-[color:var(--app-accent)]">Open location settings</button>
+          ) : (
+            <p data-location-type-role="helper" className="text-center text-muted-foreground">Allow Location in your browser’s site settings and turn on device Location, then retry.</p>
+          ))}
           <footer className="shrink-0 pt-1">
             <Button
               type="button"
               size="prominent"
               data-location-type-role="primary-action"
               onClick={!hasPoint ? onRequestLocation : onSave}
-              disabled={busy || (hasPoint && !saved && !canSave)}
+              disabled={busy || (!hasPoint && !onRequestLocation) || (hasPoint && !saved && !canSave)}
               aria-busy={busy || undefined}
               className="mx-auto flex w-full max-w-[244px]"
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
-              {capturing ? "Finding location…" : busy ? "Saving…" : saved ? "Continue" : !hasPoint ? (error ? "Try again" : "Use my location") : error ? "Try saving again" : "Save & continue"}
+              {capturing ? "Finding location…" : busy ? "Saving…" : saved ? "Continue" : !hasPoint ? (error ? "Retry location capture" : "Use my location") : saveFailed ? "Try saving again" : "Save & continue"}
             </Button>
             <button type="button" onClick={onLater} disabled={busy} data-location-type-role="utility-action" className="mx-auto block min-h-11 px-5 text-[color:var(--app-accent)] disabled:opacity-50">Set up later</button>
           </footer>

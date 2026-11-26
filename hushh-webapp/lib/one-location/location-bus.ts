@@ -33,6 +33,7 @@ import {
   rememberLocationGrant,
 } from "@/lib/one-location/location-grant-memory";
 import { isLocationPermissionDeniedError } from "@/lib/one-location/location-readiness";
+import { withDeadline } from "@/lib/utils/with-deadline";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
 
 export type LocationSnapshot = {
@@ -257,11 +258,13 @@ function recordFix(point: {
 
 async function capture(generation: number, fastNetworkFallback?: boolean): Promise<LocationSnapshot | null> {
   try {
-    const point = await HushhLocation.getCurrentPosition({
+    // The bridge's GPS timeout may only start after the permission sheet
+    // closes. Bound the shared read so retries can replace a silent bridge.
+    const point = await withDeadline(HushhLocation.getCurrentPosition({
       enableHighAccuracy: true,
       timeoutMs: 15_000,
       ...(fastNetworkFallback ? { fastNetworkFallback: true } : {}),
-    });
+    }), Date.now() + 30_000);
     if (generation !== accountGeneration) return null;
     const snapshot = toSnapshot(point);
     lastCaptureError = null;
