@@ -325,7 +325,7 @@ async def run_connector_get(
 
     browser = {}
     if connector_id == "gmail" and hosted_ace_runtime() and os.getenv("HUSHH_DEPLOY_ENV") == "uat":
-        browser["browserClientId"] = google.native_client_id("hussh_uat_mail_web") or None
+        browser["browserClientId"] = await google.ready_mail_web_client()
     return {
         "connectorId": connector_id,
         "status": held.status if held else store.STATUS_ABSENT,

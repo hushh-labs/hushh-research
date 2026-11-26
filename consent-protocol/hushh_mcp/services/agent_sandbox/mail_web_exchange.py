@@ -16,6 +16,14 @@ from hushh_mcp.services.pod_google_oauth import TOKEN_URL, UAT_MAIL_ORIGIN
 app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
 
 
+@app.get("/ready")
+def ready() -> JSONResponse:
+    client = os.getenv("GOOGLE_UAT_MAIL_WEB_CLIENT_ID")
+    if not client or not os.getenv("GOOGLE_UAT_MAIL_WEB_CLIENT_SECRET"):
+        return JSONResponse({}, status_code=503)
+    return JSONResponse({"clientId": client}, headers={"Cache-Control": "no-store"})
+
+
 @app.post("/exchange")
 async def exchange(request: Request) -> JSONResponse:
     from hushh_mcp.services.pod_connector_credential_seal import allowed_scopes  # noqa: PLC0415

@@ -128,6 +128,23 @@ async def http_post(url: str, form: Mapping[str, str]) -> tuple[int, Optional[di
     return response.status_code, body if isinstance(body, dict) else None
 
 
+async def ready_mail_web_client() -> Optional[str]:
+    """Check the sibling process before asking the owner to transition existing grants."""
+    import httpx  # noqa: PLC0415
+
+    expected = native_client_id("hussh_uat_mail_web")
+    if not expected:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=1, trust_env=False, follow_redirects=False) as http:
+            response = await http.get("http://127.0.0.1:8764/ready")
+        if response.status_code == 200 and response.json() == {"clientId": expected}:
+            return expected
+    except (httpx.HTTPError, ValueError):
+        pass
+    return None
+
+
 async def hosted_mail_exchange(
     url: str, form: Mapping[str, str]
 ) -> tuple[int, Optional[dict[str, Any]]]:
