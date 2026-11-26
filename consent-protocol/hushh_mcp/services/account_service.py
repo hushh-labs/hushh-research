@@ -480,6 +480,10 @@ class AccountService:
             "kai_receipt_memory_artifacts": text(
                 "DELETE FROM kai_receipt_memory_artifacts WHERE user_id = :user_id"
             ),
+            "one_location_chat_plans": text(
+                """DELETE FROM one_location_chat_plans
+                WHERE user_id = :user_id OR person_user_id = :user_id"""
+            ),
             "one_location_access_requests": text(
                 """
                 DELETE FROM one_location_access_requests

@@ -72,6 +72,7 @@ def _family_tools() -> tuple[ToolSpec, ...]:
         account_lifecycle,
         calendar,
         circles,
+        location_chat_review,
         location_state,
         mail,
         mail_compose,
@@ -89,6 +90,7 @@ def _family_tools() -> tuple[ToolSpec, ...]:
         session,
         people,
         location_state,
+        location_chat_review,
         sharing,
         circles,
         sos,
@@ -131,13 +133,16 @@ def declarations() -> list[dict[str, Any]]:
     return [tool.declaration() for tool in all_tools()] + list(SESSION_TOOL_DECLARATIONS)
 
 
-def runtime_declarations(*, mail_review_supported: bool) -> list[dict[str, Any]]:
+def runtime_declarations(
+    *, mail_review_supported: bool, location_chat_review_supported: bool = False
+) -> list[dict[str, Any]]:
     """Expose only the compose path this client's review surface can complete.
 
     The static catalog remains the projection source. This selection is based on
     an authenticated client capability, never on words in a transcript.
     """
     from hushh_mcp.one_voice.config import OneVoiceMailAdmission
+    from hushh_mcp.one_voice.tools.location_chat_review import REPLACED_TOOLS, TOOL_NAME
 
     admission = OneVoiceMailAdmission()
     excluded = (
@@ -157,6 +162,10 @@ def runtime_declarations(*, mail_review_supported: bool) -> list[dict[str, Any]]
         excluded.add("schedule_mail")
     if not (admission.mail_schedule_send_enabled() or admission.mail_scheduled_drain_enabled()):
         excluded.update({"list_scheduled_mail", "cancel_scheduled_mail"})
+    if location_chat_review_supported:
+        excluded.update(REPLACED_TOOLS)
+    else:
+        excluded.add(TOOL_NAME)
     return [tool.declaration() for tool in all_tools() if tool.name not in excluded] + list(
         SESSION_TOOL_DECLARATIONS
     )

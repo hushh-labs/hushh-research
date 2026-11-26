@@ -165,6 +165,14 @@ from hushh_mcp.one_adk.follow_up_suggestions import follow_up_instruction, sugge
 from hushh_mcp.one_adk.legacy_navigation import APP_ROUTES as APP_ROUTES
 from hushh_mcp.one_adk.legacy_navigation import CRM_PRODUCT_AVAILABLE as _CRM_PRODUCT_AVAILABLE
 from hushh_mcp.one_adk.legacy_navigation import open_screen
+from hushh_mcp.one_adk.location_chat_proposal import (
+    LOCATION_CHAT_INSTRUCTION,
+    STATE_LOCATION_CHAT_REVIEW,
+    propose_location_action,
+)
+from hushh_mcp.one_adk.location_chat_proposal import (
+    TOOL_NAME as LOCATION_CHAT_TOOL_NAME,
+)
 from hushh_mcp.one_adk.mail_instruction import (
     legacy_draft_addressing,
     mail_admission_instruction,
@@ -1098,6 +1106,8 @@ def _compose_one_instruction_parts(
     static_prefix = (
         identity_instruction + mail_core_instruction + drive_instruction + pod_files_instruction
     )
+    if callable(state_getter) and state_getter(STATE_LOCATION_CHAT_REVIEW) is True:
+        static_prefix += "\n\nLOCATION IN CHAT: " + LOCATION_CHAT_INSTRUCTION
     selected_drive_ref = (
         state_getter(STATE_DRIVE_SEARCH_SELECTION) if callable(state_getter) else None
     )
@@ -2953,7 +2963,7 @@ def _one_roster_tools(
     if allow_planning_review:
         from hushh_mcp.one_adk.goal_plan_proposal import propose_goal_plan
 
-        tools.append(propose_goal_plan)
+        tools.extend((propose_goal_plan, propose_location_action))
     if pod_mode() and os.getenv("POD_FILES_ENABLED", "").lower() in {"1", "true"}:
         from hushh_mcp.one_adk.files_agent import build_files_agent
         from hushh_mcp.one_adk.wiki_recall_tools import pod_wiki_recall_tools
@@ -3012,6 +3022,42 @@ def build_one_root_agent(
     return build_one_text_agent(model=model or specialist_model)
 
 
+_LOCATION_CHAT_REPLACED_READS = frozenset(
+    {
+        "list_my_location_shares",
+        "list_location_shared_with_me",
+        "list_pending_location_requests",
+        "list_my_outgoing_location_requests",
+    }
+)
+
+
+def _scope_location_chat_review(callback_context: Any, llm_request: Any) -> None:
+    config = getattr(llm_request, "config", None)
+    if config is None or not config.tools:
+        return
+    state = getattr(callback_context, "state", None)
+    excluded = (
+        _LOCATION_CHAT_REPLACED_READS
+        if state is not None and state.get(STATE_LOCATION_CHAT_REVIEW) is True
+        else {LOCATION_CHAT_TOOL_NAME}
+    )
+    tools = []
+    for tool in config.tools:
+        declarations = getattr(tool, "function_declarations", None)
+        if not declarations:
+            tools.append(tool)
+            continue
+        kept = [declaration for declaration in declarations if declaration.name not in excluded]
+        if kept:
+            tools.append(
+                tool
+                if len(kept) == len(declarations)
+                else tool.model_copy(update={"function_declarations": kept})
+            )
+    config.tools = tools
+
+
 def _before_one_tool(tool: Any, args: dict, tool_context: Any) -> dict | None:
     """One's tool gate: a consent answer or feed-attention turn runs no tools; then the read boundary.
 
@@ -3027,6 +3073,12 @@ def _before_one_tool(tool: Any, args: dict, tool_context: Any) -> dict | None:
         tool_context.state.get(STATE_RECEIPT_PRIVATE) or []
     ):
         return {"status": "unavailable", "code": "receipt_result_turn_is_read_only"}
+    name = getattr(tool, "name", None)
+    location_review = tool_context.state.get(STATE_LOCATION_CHAT_REVIEW) is True
+    if name == LOCATION_CHAT_TOOL_NAME and not location_review:
+        return {"status": "unavailable", "code": "location_chat_review_unavailable"}
+    if name in _LOCATION_CHAT_REPLACED_READS and location_review:
+        return {"status": "chat_review_required", "next_tool": LOCATION_CHAT_TOOL_NAME}
     follow_ups = getattr(tool, "func", None) is suggest_follow_ups
     if follow_ups and is_consent_answer_turn(tool_context):
         return None
@@ -3158,6 +3210,7 @@ def build_one_text_agent(
             document_period_before_model,
             email_memory_before_model,
             guest_before_model,
+            _scope_location_chat_review,
             scope_leaf_tools_before_model,
             compact_horizon_before_model,
             timed_one_before_model,

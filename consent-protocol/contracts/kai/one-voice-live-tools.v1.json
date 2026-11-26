@@ -2240,6 +2240,114 @@
     },
     {
       "circle_args": [],
+      "description": "Offer Location sharing, request, or view review in this Chat. Reads and changes nothing.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.chat.turn",
+      "name": "propose_location_action",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "share_options",
+              "share_public",
+              "share_live",
+              "share_pin",
+              "ask",
+              "view",
+              "list_shares",
+              "list_requests",
+              "stop",
+              "set_duration",
+              "extend",
+              "ask_extension",
+              "approve",
+              "decline"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "circles": {
+            "description": "Named existing Circles",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5,
+            "title": "Circles",
+            "type": "array"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "enum": [
+                  "incoming",
+                  "outgoing",
+                  "all"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Direction"
+          },
+          "durationHours": {
+            "anyOf": [
+              {
+                "maximum": 24.0,
+                "minimum": 0.25,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Durationhours"
+          },
+          "durationMode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "timed",
+                  "until_stopped"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Durationmode"
+          },
+          "people": {
+            "description": "Named people",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "People",
+            "type": "array"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "proposal_ready"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
       "description": "Read Calendar events, offered detail, calendars, busy time, or openings. Use more to continue; omit filters. Use owner-local windows and shown positions. Screen holds details; model sees counts. No writes.",
       "firebase_plane": false,
       "gateway_action_id": "calendar.read",

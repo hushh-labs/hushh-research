@@ -13,6 +13,7 @@ import { CalendarVoiceChatBridge } from "@/components/calendar/calendar-voice-ch
 import { OneVoiceMailDraftBridge } from "@/components/one-voice/one-voice-mail-draft-bridge";
 import { useOneVoiceLiveEnabled, useOneVoiceCommandsEnabled } from "@/lib/one-voice/readiness";
 import { dispatchAgentConversationAfterRoute } from "@/lib/agent/agent-voice-settings";
+import { MAIN_CHAT_LOCATION_ENABLED } from "@/lib/agent/main-chat-location";
 
 /**
  * Exactly one microphone owner at a time.
@@ -39,9 +40,9 @@ export function AgentOwnerGate({ children }: { children: ReactNode }) {
       <VoiceSessionProvider enabled={live}>
         <OneVoiceMailDraftBridge />
         <CalendarVoiceChatBridge />
+        {live || MAIN_CHAT_LOCATION_ENABLED ? <LocationPublisherBridge pathname={pathname} /> : null}
         {live ? (
           <>
-            <LocationPublisherBridge />
             <LocationUpdatesStepBridge />
             <RequestReviewStepBridge />
           </>

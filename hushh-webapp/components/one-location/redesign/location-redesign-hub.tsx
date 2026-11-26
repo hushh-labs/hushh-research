@@ -491,6 +491,7 @@ export type LocationHubViewModel = {
   onLoadMoreRecipients: () => void | Promise<void>;
   visibleShareRecipients: OneLocationRecipient[];
   activeOwnerGrants: OneLocationGrant[];
+  activeOwnerPins?: OneLocationGrant[];
   /** Expiry-reconciled snapshot shared with the Now banner. */
   manageSharingGrants?: OneLocationGrant[];
   /**
@@ -2123,6 +2124,15 @@ function NowHub({
   const activityRows = [
     {
       leading: <LocationMenuListIcon name="pin" />,
+      title: "Sent pins",
+      value: vm.activeOwnerPins?.length ?? 0,
+      ariaLabel: "Sent pins",
+      onClick: onOpenActiveShares,
+      voiceControlId: "one-location-action-sent-pins",
+      voiceActionId: "location.open_active_shares",
+    },
+    {
+      leading: <LocationMenuListIcon name="pin" />,
       title: "Sharing with you",
       value: vm.receivedGrants.length,
       ariaLabel: "Sharing with you",
@@ -2818,14 +2828,14 @@ function LocationDetailFlow({
     const rows: NativeWorkspaceSurfaceSection["rows"] = ownerGrantGroups.flatMap(group => group.grants.filter(grant => isSmsTriggeredGrant(grant) === sms).map(grant => {
       const end = grant.durationMode === "until_stopped" ? null : parseTimestamp(grant.expiresAt);
       const start = parseTimestamp(grant.createdAt);
-      return { key: grant.id, label: vm.grantRecipientLabel(grant), locationShare: { count: 1, singleGrant: true,
+      return { key: grant.id, label: vm.grantRecipientLabel(grant), detail: grant.shareKind === "pin" ? "Current location pin" : undefined, locationShare: { count: 1, singleGrant: true,
         ...(start === null ? {} : { startedAt: start }), ...(end === null ? {} : { endsAt: end }),
         footer: end === null ? "Until you stop" : `Ends ${formatShareEndsAt(end)}`,
         people: [{ name: vm.grantRecipientLabel(grant), photoUrl: grant.recipientPhotoUrl }],
       }, inlineActions: [
         { key: `${grant.id}:stop`, label: sms ? "Stop SMS" : "Stop", tone: "danger" as const,
           enabled: vm.revokingGrantId !== grant.id, pending: vm.revokingGrantId === grant.id, run: () => vm.onStopGrant(grant.id) },
-        ...(!sms ? [{ key: `${grant.id}:duration`, label: end === null ? "Set end time" : "Change time", tone: "ghost" as const,
+        ...(!sms && grant.shareKind !== "pin" ? [{ key: `${grant.id}:duration`, label: end === null ? "Set end time" : "Change time", tone: "ghost" as const,
           enabled: vm.revokingGrantId !== grant.id, run: () => vm.onEditLiveShareDurationStart(grant.id) }] : []),
       ] };
     }));
@@ -2835,7 +2845,7 @@ function LocationDetailFlow({
     const point = vm.decryptedPoints[grant.id], address = addressByGrant[grant.id];
     const expanded = Boolean(point) && !collapsedGrantIds.has(grant.id);
     const end = grant.durationMode === "until_stopped" ? null : parseTimestamp(grant.expiresAt);
-    return { key: grant.id, label: isSmsTriggeredGrant(grant) ? "SMS location share" : "Location share",
+    return { key: grant.id, label: isSmsTriggeredGrant(grant) ? "SMS location share" : grantLaneLabel(grant),
       detail: [end === null ? "Until stopped" : `Ends ${vm.formatDateTime(grant.expiresAt)}`, point?.checkIn?.message ?? grant.shareMessage, address?.status === "done" ? address.text : address?.status === "loading" ? "Finding address…" : point ? `${point.latitude.toFixed(5)}, ${point.longitude.toFixed(5)}` : vm.grantViewStatuses?.[grant.id]].filter(Boolean).join(" · "),
       person: { name: vm.grantOwnerLabel(grant), photoUrl: grant.ownerPhotoUrl },
       inlineActions: [
@@ -2940,7 +2950,9 @@ function LocationDetailFlow({
                     photoUrl={grant.ownerPhotoUrl}
                     statusLine={
                       multiLane ? (
-                        `${group.grants.length} live shares`
+                        `${group.grants.length} ${group.grants.some((row) => row.shareKind === "pin") ? "shares" : "live shares"}`
+                      ) : grant.shareKind === "pin" ? (
+                        "Current location pin"
                       ) : (
                         <ActiveShareMetadata
                           grant={grant}

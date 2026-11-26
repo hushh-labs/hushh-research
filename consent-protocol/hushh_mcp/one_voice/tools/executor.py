@@ -263,6 +263,19 @@ class ToolExecutor:
                     spoken_facts=["I can't do that here."],
                 )
             )
+        from hushh_mcp.one_voice.tools.location_chat_review import (
+            REPLACED_TOOLS,
+            VOICE_LOCATION_CHAT_FEATURE,
+        )
+
+        if name in REPLACED_TOOLS and ctx.services.get(VOICE_LOCATION_CHAT_FEATURE) is True:
+            return ToolCallOutcome(
+                result=Rejected(
+                    reason_code="location_chat_review_required",
+                    spoken_facts=["Prepare this action for review in the current conversation."],
+                ),
+                spec=spec,
+            )
         if name == "send_mail" and getattr(
             ctx.services.get("mail_compose"), "review_supported", False
         ):

@@ -1,4 +1,7 @@
 "use client";
+import dynamic from "next/dynamic";
+import { MAIN_CHAT_LOCATION_ENABLED, parseMainLocationProposal } from "@/lib/agent/main-chat-location";
+import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import { calendarProposalReviewError, calendarProposalReviewExtras, legacyCalendarProposalPayload } from "@/lib/agent/calendar-proposal-review";
 import { useChatMemory } from "@/lib/agent/use-chat-memory";
 import { AgentPromptSuggestions, AgentWelcomePanel } from "./agent-welcome-panel";
@@ -621,6 +624,7 @@ export {
 };
 
 const SOURCE_MAIL_REF_PATTERN = /^rs1\.[A-Za-z0-9_-]{32,2048}$/;
+const LocationChatActionPanel = dynamic(() => import("@/components/agent/location-chat-action-panel").then((module) => module.LocationChatActionPanel));
 
 export function getGmailReplyDraftPayload(
   event: AgentChatToolEvent | null,
@@ -2760,6 +2764,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   };
 
   const appendMessage = appendWorkspaceMessage;
+  const receivedVoiceLocationProposals = useRef(new Set<string>());
+  useVoiceToolEffects({
+    onToolResult: (tool, result) => {
+      if (!MAIN_CHAT_LOCATION_ENABLED || !isCanonicalChatRoute || isPuppySurface || tool !== "propose_location_action") return;
+      const proposal = parseMainLocationProposal(result);
+      if (!proposal || receivedVoiceLocationProposals.current.has(proposal.id)) return;
+      receivedVoiceLocationProposals.current.add(proposal.id);
+      appendMessage({
+        id: `location-voice-${proposal.id}`, role: "assistant", text: "",
+        ...stampNow(), status: "done", locationChatProposal: proposal,
+      });
+    },
+  });
 
   const closeEmailDraft = () => {
     // A retry can start before effects flush. Do not pass the retired draft to it.
@@ -6647,6 +6664,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           };
         })() as unknown as Record<string, unknown>,
         mainChat: isMainChatTurn,
+        locationChatReview: MAIN_CHAT_LOCATION_ENABLED && isMainChatTurn,
         signal: streamAbortController.signal,
         handlers: {
           onContextUsage: (usage) => {
@@ -6894,6 +6912,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   })();
                 }
               }
+            }
+            if (MAIN_CHAT_LOCATION_ENABLED && isMainChatTurn && toolEvent.raw?.toolName === "propose_location_action") {
+              const proposal = parseMainLocationProposal(toolEvent.raw.result);
+              if (proposal && isTurnSessionActive()) {
+                updateMessage(assistantMessageId, (message) => ({ ...message, locationChatProposal: proposal }));
+              }
+              return;
             }
             if (toolEvent.raw?.toolName === "propose_file_schedule") {
               const proposal = readFileScheduleProposal(toolEvent.raw.toolName, toolEvent.raw.result);
@@ -9130,7 +9155,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         message.role === "assistant" &&
         !message.text.trim() &&
         // An ended answer arrives with empty text and renders "Access ended".
-        !message.consentAccessEnded
+        !message.consentAccessEnded && !message.locationChatProposal
       ) {
         return false;
       }
@@ -9138,6 +9163,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     }),
   );
   const visibleMessageIds = visibleMessages.map((message) => message.id);
+  const latestLocationProposalMessageId = visibleMessages.findLast((message) => message.locationChatProposal)?.id;
   const renderChatOnboarding = (slot: Parameters<typeof ChatOnboardingTurns>[0]["slot"]) => (
     <ChatOnboardingTurns
       controller={chatOnboarding}
@@ -10983,6 +11009,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     disabled={recoveryInspectionPending || isVoiceConnecting || voiceActive || isChatLoading || isStreaming}
                     onSelect={submitSuggestedPrompt}
                   />
+                  {MAIN_CHAT_LOCATION_ENABLED && isCanonicalChatRoute && message.locationChatProposal ? (
+                    <LocationChatActionPanel
+                      key={`${applicationOwnerId}:${vaultSessionEpoch}:${message.locationChatProposal.id}`}
+                      ownerId={applicationOwnerId}
+                      token={isVaultUnlocked ? vaultOwnerToken ?? null : null}
+                      proposal={message.locationChatProposal}
+                      onUnlock={() => setVaultDialogOpen(true)}
+                      allowReview={message.id === latestLocationProposalMessageId}
+                    />
+                  ) : null}
                   {calendarConnectDirective && message.id === calendarConnectAnchorId
                     ? renderCalendarConnectCard(calendarConnectDirective)
                     : null}

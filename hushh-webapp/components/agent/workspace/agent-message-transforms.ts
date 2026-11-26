@@ -61,7 +61,10 @@ import type { KeptSecretRef } from "@/components/secrets/secret-capture-card";
 export const AGENT_PKM_CAPTURE_DEADLINE_MS = 4 * 60_000;
 export const AGENT_PKM_EXPLICIT_SAVE_DEADLINE_MS = 8 * 60_000;
 
+import type { MainLocationProposal } from "@/lib/agent/main-chat-location";
+
 export type AgentMessage = {
+  locationChatProposal?: MainLocationProposal;
   id: string;
   calendarMeeting?: MeetingSelection;
   presentation?: "calendar";

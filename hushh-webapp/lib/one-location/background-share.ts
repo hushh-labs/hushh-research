@@ -25,7 +25,7 @@ export function buildBackgroundShareSession(params: {
 }): BackgroundShareSession {
   const grants: BackgroundShareGrant[] = [];
   for (const grant of params.activeGrants) {
-    if (grant.status !== "active") continue;
+    if (grant.status !== "active" || grant.shareKind === "pin") continue;
     const expiresAtMs = grant.expiresAt ? Date.parse(grant.expiresAt) : undefined;
     if (expiresAtMs !== undefined && (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now())) continue;
     const recipient = params.recipients.find(

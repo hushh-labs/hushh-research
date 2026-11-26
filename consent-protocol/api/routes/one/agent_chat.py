@@ -128,6 +128,10 @@ from hushh_mcp.one_adk.history_projection import (
     _safe_workspace_connector_setup_descriptor as _safe_workspace_connector_setup_descriptor,
 )
 from hushh_mcp.one_adk.information_request_submission import RecordInformationRequestSubmission
+from hushh_mcp.one_adk.location_chat_proposal import (
+    STATE_LOCATION_CHAT_REVIEW,
+    admit_location_chat_review,
+)
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
 from hushh_mcp.one_adk.nws_turn_context import STATE_NWS_REPORT, admit_nws_report
@@ -673,6 +677,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     owner_display_name = await _owner_display_name_for_turn(user_id) if token and user_id else ""
     return {
         STATE_EXECUTION_SURFACE: "typed_chat",
+        STATE_LOCATION_CHAT_REVIEW: admit_location_chat_review(
+            forwarded, owner_admitted=bool(token and user_id)
+        ),
         "temp:one_calendar_review_contract": type(forwarded.get("calendarReviewContract")) is int
         and forwarded.get("calendarReviewContract") == 1,
         "temp:one_email_review_contract": type(forwarded.get("emailAgentContract")) is int
