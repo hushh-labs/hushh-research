@@ -599,6 +599,18 @@ for (const width of [393, 1024, 1440]) {
     expect(geometry.border).toBe("1px");
     expect(geometry.radius).toBe("999px");
     expect(geometry.background).not.toBe("rgba(0, 0, 0, 0)");
+    await page.route("http://localhost/location-reference", route => route.fulfill({
+      contentType: "text/html; charset=utf-8",
+      body: `<!doctype html><html class="light" data-reference="location"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>`,
+    }));
+    await page.goto("http://localhost/location-reference");
+    for (const reference of [page.getByRole("tablist"), page.getByTestId("one-location-share-row")]) {
+      await expect(reference).toBeVisible();
+      const box = (await reference.boundingBox())!;
+      expect(box.x).toBeCloseTo(left, 0);
+      expect(box.x + box.width).toBeCloseTo(width - left, 0);
+    }
+
   });
 
   test(`Mail KYC request ${width}px keeps review and selection roles`, async ({ page }) => {

@@ -1,3 +1,7 @@
+import { AppPageShell, AppPageContentRegion } from '@/components/app-ui/app-page-shell';
+import { TopShellTabs } from '@/components/app-ui/top-shell-tabs';
+import { TOP_SHELL_TAB_REGISTRY } from '@/lib/navigation/top-shell-tabs';
+import { LocationPrimaryShareCard } from '@/components/one-location/redesign/location-hub-summary';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { Navbar } from '@/components/navbar';
@@ -56,12 +60,15 @@ publishValidatedAuthSessionPrincipal({ firebaseUid: 'synthetic-owner', ownerId: 
 primeCachedGmailReceipts({ userId: 'synthetic-owner', accountKey: 'synthetic-account', response: { items: syntheticReceipts, page: 1, total: syntheticReceipts.length, has_more: false } });
 function Fixture() {
  const workspace = (document.documentElement.dataset.workspace || 'overview') as 'overview'|'followups'|'kyc'|'receipts'|'setup'|'intro'|'skeleton'|'skeleton-hidden'|'callback'|'callback-loading'|'callback-cloud-loading';
- const route = workspace === 'setup' || workspace === 'intro' ? '/one/setup/gmail' : workspace.startsWith('callback') ? '/one/profile/gmail/oauth/return' : workspace === 'kyc' ? '/one/kyc' : '/one/gmail';
+ const reference = document.documentElement.dataset.reference === 'location';
+ const route = reference ? '/one/location' : workspace === 'setup' || workspace === 'intro' ? '/one/setup/gmail' : workspace.startsWith('callback') ? '/one/profile/gmail/oauth/return' : workspace === 'kyc' ? '/one/kyc' : '/one/gmail';
  const style = {...resolveSignedInShellContentOffset({shellVisible:true, routeLayoutMode:'standard'}).style,...resolveTopShellGeometryStyle({hasTabs:false})} as React.CSSProperties;
  return <div data-app-shell-root="true" style={style}>
   <div data-app-scroll-root="true" style={{position:'fixed',inset:0,overflowY:'auto',paddingBottom:'120px'}}>
    <div data-app-shell-top-spacer="true" aria-hidden="true" />
-   <div data-app-shell-content="true">{workspace === 'skeleton' || workspace === 'skeleton-hidden' ? <GmailWorkspaceSkeleton titleVisuallyHidden={workspace === 'skeleton-hidden'} /> : workspace.startsWith('callback')
+   <div data-app-shell-content="true">{reference ? <AppPageShell width="reading" fitContent data-location-page headerContentSpacing="compact">
+     <AppPageContentRegion className="min-w-0 space-y-4 overflow-x-hidden"><TopShellTabs tabSet={{...TOP_SHELL_TAB_REGISTRY.location, activeValue: 'now'}}/><LocationPrimaryShareCard onClick={() => {}}/></AppPageContentRegion>
+    </AppPageShell> : workspace === 'skeleton' || workspace === 'skeleton-hidden' ? <GmailWorkspaceSkeleton titleVisuallyHidden={workspace === 'skeleton-hidden'} /> : workspace.startsWith('callback')
     ? <ProfileGmailOAuthReturnPageClient initialCode="" initialState={workspace === 'callback-cloud-loading' ? 'byoc.synthetic' : ''} initialError={workspace === 'callback' ? 'access_denied' : ''} initialErrorDescription={workspace === 'callback' ? 'Google sign-in was cancelled.' : ''} />
     : workspace === 'intro'
     ? <CapabilityCinematicIntroGate capabilityId="gmail"><GmailReceiptsPage journeyVariant="onboarding" onFinishSetup={() => {}} onSkipSetup={() => {}} /></CapabilityCinematicIntroGate>
