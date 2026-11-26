@@ -1785,6 +1785,11 @@ export class AuthService {
     if (message.includes("invalid-app-credential"))
       return "invalid-app-credential";
     if (message.includes("captcha-check-failed")) return "captcha-check-failed";
+    if (message.includes("unauthorized-domain")) return "unauthorized-domain";
+    if (message.includes("app-not-authorized")) return "app-not-authorized";
+    if (message.includes("missing-client-identifier")) return "missing-client-identifier";
+    if (message.includes("quota-exceeded")) return "quota-exceeded";
+    if (message.includes("billing-not-enabled")) return "billing-not-enabled";
     if (message.includes("too-many-requests")) return "too-many-requests";
     if (message.includes("operation-not-allowed")) return "operation-not-allowed";
     if (message.includes("sms-region-not-allowed")) return "sms-region-not-allowed";
