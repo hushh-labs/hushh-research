@@ -170,6 +170,8 @@ const DEFAULT_REFERRAL_SHARE: ContactSyncShareCopy = {
 
 export type UseContactSyncOptions = {
   accountEmail?: string | null;
+  /** Optional owner/card lifetime for a surface that may close without leaving its route. */
+  getSessionSignal?: () => AbortSignal | undefined;
   /** Which surface offered the sync. Reaches analytics and nothing else. */
   routeId: RouteId;
   /**
@@ -524,7 +526,8 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
    * system cannot serve: no link yet, or the summary call fails. Better a share
    * that works and is not counted than a dead control.
    */
-  const prepareInvite = useCallback(async () => {
+  const prepareInvite = useCallback(async (signal?: AbortSignal) => {
+    if (signal?.aborted) return null;
     const { getIdToken, onInviteShareStarted, referralShare } =
       optionsRef.current;
     onInviteShareStarted?.();
@@ -532,7 +535,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     let referralLink = "";
     try {
       const idToken = await getIdToken?.();
-      if (idToken) {
+      if (idToken && !signal?.aborted) {
         const summary = await ReferralService.getSummary({ idToken });
         referralLink = String(summary?.link || "").trim();
       }
@@ -541,6 +544,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
       // share. Fall through to the generic invite.
     }
 
+    if (signal?.aborted) return null;
     const copy = referralShare ?? DEFAULT_REFERRAL_SHARE;
     const share = referralLink
       ? {
@@ -555,12 +559,15 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
   }, []);
 
   const invite = useCallback(async () => {
+    const signal = optionsRef.current.getSessionSignal?.();
+    if (signal?.aborted) return;
     if (invitations.enabled && invitations.candidates.length) {
       setResultsOpen(true);
-      await openInvitations(prepareInvite);
+      await openInvitations(() => prepareInvite(signal));
       return;
     }
-    const share = await prepareInvite();
+    const share = await prepareInvite(signal);
+    if (signal?.aborted) return;
     if (!share) {
       // No referral link AND no shareable origin -- the same condition that
       // hides the Connect invite row entirely rather than offering a link that
@@ -570,24 +577,29 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     }
 
     try {
-      const delivery = await shareLink(share);
+      const delivery = await shareLink(share, () => !signal?.aborted);
+      if (signal?.aborted) return;
       if (delivery === "copied") {
         toast.success("Invite link copied.");
       }
     } catch (error) {
-      if (isShareCancellationError(error)) return;
+      if (signal?.aborted || isShareCancellationError(error)) return;
       toast.error("Could not open the share sheet.");
     }
   }, [invitations.enabled, invitations.candidates.length, prepareInvite, setResultsOpen, openInvitations, toast]);
 
   const requestConnection = useCallback(async (addresseeUserId: string) => {
-    const { getIdToken, userId } = optionsRef.current;
+    const { getIdToken, userId, getSessionSignal } = optionsRef.current;
+    const signal = getSessionSignal?.();
+    signal?.throwIfAborted();
     const idToken = await getIdToken?.();
+    signal?.throwIfAborted();
     if (!idToken) throw new Error("Sign in to send a connection request.");
     await ConnectionsService.sendRequest({
       idToken,
       addresseeUserId,
       message: CONTACT_MATCH_REQUEST_MESSAGE,
+      ...(signal ? { signal } : {}),
     });
     if (userId) {
       CacheSyncService.onConnectionCapabilityMutated(userId);
@@ -601,6 +613,8 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     const { getIdToken, routeId, userId } =
       optionsRef.current;
     const initiatingUserId = userId ?? null;
+    const sessionSignal = optionsRef.current.getSessionSignal?.();
+    if (sessionSignal?.aborted) return;
     const resolveLatestAccountPhoneNumber =
       createContactSyncAccountPhoneResolver({
         initiatingUserId,
@@ -640,12 +654,13 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
         accountPhoneNumber: optionsRef.current.accountPhoneNumber,
         resolveAccountPhoneNumber: resolveLatestAccountPhoneNumber,
         beginInvites: beginInviteSync,
+        sessionSignal,
       });
       return;
     }
     inFlightRef.current = true;
     const syncGeneration = ++syncGenerationRef.current;
-    const syncIsCurrent = () => syncGenerationRef.current === syncGeneration &&
+    const syncIsCurrent = () => !sessionSignal?.aborted && syncGenerationRef.current === syncGeneration &&
       (optionsRef.current.userId ?? null) === initiatingUserId;
     const onInviteCandidates = beginInviteSync();
 
@@ -659,6 +674,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
 
       const syncResult = await syncOneLocationContactSignals({
         ...(onInviteCandidates ? { onInviteCandidates } : {}),
+        signal: sessionSignal,
         accountEmail: optionsRef.current.accountEmail,
         // The source must run while the original tap still owns transient
         // browser activation. Token/identity network work is deliberately
@@ -824,8 +840,10 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
    * leave the watcher armed forever.
    */
   const openContactSettingsAndWatch = useCallback(async () => {
+    const signal = optionsRef.current.getSessionSignal?.();
+    if (signal?.aborted) return;
     const opened = await openContactPermissionSettings();
-    if (!opened) return;
+    if (!opened || signal?.aborted) return;
     markAwaitingContactSettings(true);
     // Said before they leave, because after they leave there is no surface of
     // ours to say it on. Names the switch AND the way back, which is the part

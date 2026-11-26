@@ -113,6 +113,7 @@ import {
   NEARBY_PRIVATE_RESUME_PARAM,
 } from "@/lib/one-location/nearby-private-navigation";
 import { OneLocationService } from "@/lib/one-location/service";
+import { isFixedLocationGrant } from "@/lib/one-location/notifications";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { subscribeToOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
 import { publishOneLocationMapPreferences } from "@/lib/one-location/use-one-location-map-preferences";
@@ -3472,7 +3473,7 @@ export function LocationImmersiveMap({
         ]),
       );
       const grants = state.ownerGrants.filter(
-        (grant) => grant.status === "active" && !!grant.id,
+        (grant) => grant.status === "active" && !!grant.id && !isFixedLocationGrant(grant),
       );
       // Keep the on-map "Sharing with N" status in sync off this same fetch.
       if (mountedRef.current) {

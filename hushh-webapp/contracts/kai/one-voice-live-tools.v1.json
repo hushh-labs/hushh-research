@@ -2240,7 +2240,7 @@
     },
     {
       "circle_args": [],
-      "description": "Offer Location sharing, request, or view review in this Chat. Reads and changes nothing.",
+      "description": "Open an inline Location review for sharing, device and account settings, check-in, Circles, links, or Save My Soul. The tool does not read or change Location.",
       "firebase_plane": false,
       "gateway_action_id": "location.chat.turn",
       "name": "propose_location_action",
@@ -2263,7 +2263,23 @@
               "extend",
               "ask_extension",
               "approve",
-              "decline"
+              "decline",
+              "setup_location",
+              "enable_location",
+              "enable_device_location",
+              "resume_updates",
+              "sos_review",
+              "sos_stop",
+              "sms_contacts",
+              "manage_circles",
+              "manage_places",
+              "manage_ratings",
+              "manage_contacts",
+              "manage_settings",
+              "manage_links",
+              "check_in",
+              "nearby_check_in",
+              "view_self"
             ],
             "title": "Action",
             "type": "string"
