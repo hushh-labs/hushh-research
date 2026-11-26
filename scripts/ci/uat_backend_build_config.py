@@ -28,6 +28,7 @@ SHARED_SUBSTITUTIONS = {
     "_GITHUB_RUN_ID",
     "_GITHUB_RUN_ATTEMPT",
 }
+LOCATION_CHAT_FLAG = "_ONE_MAIN_CHAT_LOCATION_ENABLED"
 CUSTOM_SUBSTITUTION = re.compile(r"(?<!\$)\$\{(_[A-Z0-9_]+)\}")
 
 
@@ -148,9 +149,22 @@ def frontend_parallel_config(
         raise ValueError("Parallel frontend requires an exact image build ID")
     _validate_frontend_release(values, backend, pending=pending)
     _validate_frontend_template(config, frontend, values, frontend_values)
-    names = {
-        key: key if key in SHARED_SUBSTITUTIONS else "_WEB_" + key[1:] for key in values
-    }
+    if backend.get("_SECRET_PREFIX") != values["_SECRET_PREFIX"]:
+        raise ValueError(
+            "Parallel UAT requires matching frontend and backend secret prefixes"
+        )
+    shared = SHARED_SUBSTITUTIONS | {"_SECRET_PREFIX"}
+    location_enabled = values.get(LOCATION_CHAT_FLAG, "false")
+    if location_enabled not in {"true", "false"} or location_enabled != backend.get(
+        LOCATION_CHAT_FLAG, "false"
+    ):
+        raise ValueError(
+            "Parallel UAT Location Chat requires matching frontend and backend flags"
+        )
+    if LOCATION_CHAT_FLAG in values and LOCATION_CHAT_FLAG in backend:
+        # Both steps consume the same reviewed flag; one slot covers both templates.
+        shared = shared | {LOCATION_CHAT_FLAG}
+    names = {key: key if key in shared else "_WEB_" + key[1:] for key in values}
     # These templates use braced custom substitutions. Refuse a future syntax
     # change instead of accidentally sharing an unnamespaced backend setting.
     if re.search(r"(?<!\$)\$_[A-Z0-9_]+", json.dumps(frontend)):
@@ -180,7 +194,7 @@ def frontend_parallel_config(
             # The guarded workspace pin supplies this value at execution time.
             # Keep manual-build substitution matching strict: no unused key.
             continue
-        if key not in SHARED_SUBSTITUTIONS:
+        if key not in shared:
             if names[key] in config["substitutions"]:
                 raise ValueError("Frontend substitution namespace collision")
             config["substitutions"][names[key]] = value
