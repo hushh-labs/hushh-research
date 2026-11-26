@@ -592,3 +592,75 @@ def test_the_sweep_uses_the_rotation_aware_collector_entry() -> None:
         "the sweep must use the rotation-aware entry; the raw collector's default "
         "refuses to rebind a restarted pod's new key"
     )
+
+
+# -- generation-scoped owner resolution before Firebase orphan checks ---------------
+
+
+async def test_owner_exists_resolves_reenrolled_generation_owner_to_firebase_uid(
+    wired, monkeypatch
+):
+    """A re-enrolled user owns rows under `acct_<32-hex>`, not their Firebase UID.
+    Passing `acct_<32-hex>` straight into `firebase_auth.get_user` raised
+    `UserNotFoundError` and wiped active accounts every two passes."""
+    from firebase_admin import auth as firebase_auth
+
+    owner_id = "acct_0123456789abcdef0123456789abcdef"
+    firebase_uid = "ecK605d0cBZBbPg9vFy0EhI4zfj1"
+    looked_up: list[str] = []
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_generation_service.AccountGenerationService."
+        "firebase_identity_for_owner",
+        staticmethod(lambda candidate: firebase_uid if candidate == owner_id else candidate),
+    )
+    monkeypatch.setattr("api.utils.firebase_admin.get_firebase_auth_app", lambda: "app")
+
+    def _get_user(uid, *, app=None):  # noqa: ARG001
+        looked_up.append(uid)
+        if uid != firebase_uid:
+            raise firebase_auth.UserNotFoundError("no such user")
+        return object()
+
+    monkeypatch.setattr(firebase_auth, "get_user", _get_user)
+
+    assert await wired["owner_exists"](owner_id) is True
+    assert looked_up == [firebase_uid]
+
+
+async def test_owner_exists_marks_retired_generation_absent_and_db_outage_unknown(
+    wired, monkeypatch
+):
+    """Explicit retirement is False; transient schema/DB errors return None so an
+    outage never starts the orphan erasure timer."""
+    from hushh_mcp.services.account_generation_service import AccountGenerationRefused
+
+    def _retired(_owner_id: str) -> str:
+        raise AccountGenerationRefused("account_retired")
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_generation_service.AccountGenerationService."
+        "firebase_identity_for_owner",
+        staticmethod(_retired),
+    )
+    assert await wired["owner_exists"]("acct_0123456789abcdef0123456789abcdef") is False
+
+    def _schema_unavailable(_owner_id: str) -> str:
+        raise AccountGenerationRefused("generation_schema_unavailable")
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_generation_service.AccountGenerationService."
+        "firebase_identity_for_owner",
+        staticmethod(_schema_unavailable),
+    )
+    assert await wired["owner_exists"]("acct_0123456789abcdef0123456789abcdef") is None
+
+    def _db_down(_owner_id: str) -> str:
+        raise RuntimeError("pool exhausted")
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_generation_service.AccountGenerationService."
+        "firebase_identity_for_owner",
+        staticmethod(_db_down),
+    )
+    assert await wired["owner_exists"]("acct_0123456789abcdef0123456789abcdef") is None

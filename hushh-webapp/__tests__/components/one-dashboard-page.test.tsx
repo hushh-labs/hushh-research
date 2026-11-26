@@ -46,11 +46,11 @@ describe("Scheduled tasks placement", () => {
     expect(schedule.hosting).not.toHaveBeenCalled();
     expect(schedule.status).not.toHaveBeenCalled();
   });
-  it("hides Goals and Scheduled tasks on the UAT dashboard", () => {
+  it("hides Goals while keeping Scheduled tasks available on the UAT dashboard", () => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
     render(<OneDashboardPage userId="owner" />);
     expect(screen.queryByRole("link", { name: "Open Goals" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Scheduled tasks" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Scheduled tasks" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open Location" })).toBeInTheDocument();
     expect(schedule.status).not.toHaveBeenCalled();
   });

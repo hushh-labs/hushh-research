@@ -1473,17 +1473,49 @@ async def startup_personal_agent_reconcile_worker() -> None:
             ]
 
         async def owner_exists(user_id: str):
-            # True / False / None. Only Firebase's own "no such user" is a False;
-            # a timeout, an outage or a credential problem is None, and the worker
-            # never acts on None. Same lookup shape as account_deletion_lifecycle.
+            # True / False / None. Only Firebase's own "no such user" (or an
+            # explicitly retired/unbacked replacement generation) is a False; a
+            # timeout, an outage, a DB/schema problem or a credential problem is
+            # None, and the worker never acts on None. Re-enrolled accounts carry
+            # an application owner_id (`acct_<32-hex>`) mapped via
+            # AccountGenerationService.firebase_identity_for_owner; querying
+            # Firebase directly with `acct_...` falsely treated live owners as
+            # deleted orphans.
             from firebase_admin import auth as firebase_auth
 
             from api.utils.firebase_admin import get_firebase_auth_app
+            from hushh_mcp.services.account_generation_service import (
+                AccountGenerationRefused,
+                AccountGenerationService,
+            )
+
+            try:
+                firebase_uid = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        AccountGenerationService.firebase_identity_for_owner,
+                        user_id,
+                    ),
+                    timeout=5.0,
+                )
+            except AccountGenerationRefused as refused:
+                if str(refused) in {"account_retired", "generation_binding_missing"}:
+                    return False
+                logger.warning(
+                    "personal_agent_reconcile.owner_generation_unavailable reason=%s",
+                    str(refused),
+                )
+                return None
+            except Exception as exc:  # noqa: BLE001 - unknown is a first-class answer here
+                logger.warning(
+                    "personal_agent_reconcile.owner_generation_lookup_failed error=%s",
+                    type(exc).__name__,
+                )
+                return None
 
             try:
                 firebase_app = get_firebase_auth_app()
                 await asyncio.wait_for(
-                    asyncio.to_thread(firebase_auth.get_user, user_id, app=firebase_app),
+                    asyncio.to_thread(firebase_auth.get_user, firebase_uid, app=firebase_app),
                     timeout=3.0,
                 )
                 return True

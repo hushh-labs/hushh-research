@@ -88,3 +88,103 @@ class GcpScheduledDelivery:
             raise ScheduleRefused("SCHEDULE_DELIVERY_UNCONFIRMED") from None
         if response.status_code not in {200, 201, 409}:
             raise ScheduleRefused("SCHEDULE_DELIVERY_FAILED")
+
+
+class ResidentScheduledDelivery:
+    """In-sandbox timer delivery for persistent Confidential Sandbox (`ace`) microVMs.
+
+    Durability, CAS claiming, execution leases, and turn admission remain owned by
+    `ScheduledTaskJournal` and `ScheduledTaskRunner` in the sealed pod log; this
+    adapter only replaces the external Cloud Tasks wake callback on resident VMs.
+    """
+
+    def __init__(self, *, clock=time.time, runner=None):
+        self.clock = clock
+        self._runner = runner
+        self._timers: dict[tuple[str, int, str], asyncio.Task] = {}
+        self._rehydrating: asyncio.Task | None = None
+        self._rehydrated = False
+
+    def bind_runner(self, runner) -> None:
+        self._runner = runner
+
+    def require_ready(self) -> None:
+        from hushh_mcp.services import pod_owner_cloud
+        from hushh_mcp.services.pod_platform import workload_platform
+
+        hosted_ace = getattr(pod_owner_cloud, "hosted_ace_runtime", lambda: False)()
+        if workload_platform() != "ace" and not hosted_ace:
+            raise ScheduleRefused("SCHEDULE_CLOUD_DELIVERY_UNQUALIFIED")
+
+    async def offer(self, schedule_id: str, revision: int, occurrence_id: str, due_at: int) -> None:
+        self.require_ready()
+        if (
+            not re.fullmatch(r"schedule_[a-f0-9]{32}", schedule_id)
+            or not re.fullmatch(r"[a-f0-9]{32}", occurrence_id)
+            or type(revision) is not int
+            or revision < 1
+        ):
+            raise ScheduleRefused("SCHEDULE_DELIVERY_REFUSED")
+        self._arm(schedule_id, revision, occurrence_id, due_at)
+
+    def _arm(self, schedule_id: str, revision: int, occurrence_id: str, due_at: int) -> None:
+        key = (schedule_id, revision, occurrence_id)
+        existing = self._timers.get(key)
+        if existing is not None and not existing.done():
+            return
+        task = asyncio.create_task(
+            self._wait_and_run(schedule_id, revision, occurrence_id, due_at),
+            name=f"pod-schedule-{occurrence_id[:12]}",
+        )
+        self._timers[key] = task
+        task.add_done_callback(
+            lambda done, k=key: self._timers.pop(k, None) if self._timers.get(k) is done else None
+        )
+
+    async def _wait_and_run(
+        self, schedule_id: str, revision: int, occurrence_id: str, due_at: int
+    ) -> None:
+        try:
+            while True:
+                remaining = float(due_at) - float(self.clock())
+                if remaining <= 0:
+                    break
+                await asyncio.sleep(min(remaining, 3600.0))
+            runner = self._runner
+            if runner is None:
+                from hushh_mcp.services.pod_scheduled_runtime import active_scheduled_tasks
+
+                runner = active_scheduled_tasks().run
+            await runner(schedule_id, revision, occurrence_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Transient or refused execution leaves state in the sealed journal for
+            # inspection/recovery; never surface private details on background tasks.
+            return
+
+    def ensure_rehydrated(self, runtime) -> None:
+        if self._rehydrated or (self._rehydrating is not None and not self._rehydrating.done()):
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._rehydrating = loop.create_task(
+            self._rehydrate(runtime), name="pod-schedule-rehydrate"
+        )
+
+    async def _rehydrate(self, runtime) -> None:
+        from hushh_mcp.services.pod_scheduled_contracts import occurrence_id as make_occurrence_id
+
+        try:
+            rows, _ = await runtime.journal.snapshot()
+            for row in rows.values():
+                if row.get("state") == "scheduled" and isinstance(row.get("next_run_at"), int):
+                    occ = make_occurrence_id(
+                        row["id"], int(row["revision"]), int(row["next_run_at"])
+                    )
+                    self._arm(row["id"], int(row["revision"]), occ, int(row["next_run_at"]))
+            self._rehydrated = True
+        except Exception:
+            return

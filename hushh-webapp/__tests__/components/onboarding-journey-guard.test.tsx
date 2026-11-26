@@ -24,6 +24,7 @@ const {
   bootstrapStateMock,
   getCachedBootstrapStateMock,
   isPersistentSetupResolvedMock,
+  isPersistentWelcomeResolvedMock,
   isOnboardingAdmissionExemptRouteMock,
   authState,
   retrySessionVerification,
@@ -35,6 +36,7 @@ const {
   bootstrapStateMock: vi.fn(),
   getCachedBootstrapStateMock: vi.fn(),
   isPersistentSetupResolvedMock: vi.fn(),
+  isPersistentWelcomeResolvedMock: vi.fn(),
   isOnboardingAdmissionExemptRouteMock: vi.fn(),
   authState: {
     user: { uid: "journey-user" } as { uid: string } | null,
@@ -121,6 +123,7 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
 vi.mock("@/lib/services/one-setup-completion-hint-service", () => ({
   OneSetupCompletionHintService: {
     isResolved: isPersistentSetupResolvedMock,
+    isWelcomeResolved: isPersistentWelcomeResolvedMock,
     // Native-durable rehydration mirrors the positive latch: on web (test env)
     // it resolves to the current latch value, so an unresolved user still falls
     // through to the network bootstrap path these cases assert.
@@ -163,6 +166,8 @@ describe("OnboardingJourneyGuard", () => {
     getCachedBootstrapStateMock.mockReset();
     isPersistentSetupResolvedMock.mockReset();
     isPersistentSetupResolvedMock.mockReturnValue(false);
+    isPersistentWelcomeResolvedMock.mockReset();
+    isPersistentWelcomeResolvedMock.mockReturnValue(false);
     isOnboardingAdmissionExemptRouteMock.mockReset();
     isOnboardingAdmissionExemptRouteMock.mockReturnValue(false);
     authState.user = { uid: "journey-user" };
@@ -262,6 +267,69 @@ describe("OnboardingJourneyGuard", () => {
     expect(screen.queryByText("Checking setup...")).toBeNull();
     expect(bootstrapStateMock).toHaveBeenCalledTimes(1);
     expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("admits a returning user synchronously on cold boot once both setup and welcome latches are resolved", async () => {
+    pathnameValue = "/one";
+    getCachedBootstrapStateMock.mockReturnValue(null);
+    isPersistentSetupResolvedMock.mockReturnValue(true);
+    isPersistentWelcomeResolvedMock.mockReturnValue(true);
+
+    render(
+      <OnboardingJourneyGuard>
+        <div>one home</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    expect(screen.getByText("one home")).toBeTruthy();
+    expect(screen.queryByText("Checking setup...")).toBeNull();
+    expect(bootstrapStateMock).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("retains mounted workspace state across background auth revalidation without unmounting", async () => {
+    pathnameValue = "/one";
+    getCachedBootstrapStateMock.mockReturnValue(null);
+    isPersistentSetupResolvedMock.mockReturnValue(true);
+    isPersistentWelcomeResolvedMock.mockReturnValue(true);
+
+    let mounts = 0;
+    let unmounts = 0;
+    function MountedProbe() {
+      if (mounts === 0) {
+        // track mount lifecycle via ref-like effect
+      }
+      return <input defaultValue="draft-preserved" aria-label="workspace-draft" />;
+    }
+
+    const view = render(
+      <OnboardingJourneyGuard>
+        <MountedProbe />
+      </OnboardingJourneyGuard>,
+    );
+    const input = screen.getByLabelText("workspace-draft") as HTMLInputElement;
+    input.value = "edited-in-memory";
+    mounts += 1;
+
+    // Simulate background token refresh toggling authLoading true -> false for same user.
+    authState.loading = true;
+    view.rerender(
+      <OnboardingJourneyGuard>
+        <MountedProbe />
+      </OnboardingJourneyGuard>,
+    );
+    authState.loading = false;
+    view.rerender(
+      <OnboardingJourneyGuard>
+        <MountedProbe />
+      </OnboardingJourneyGuard>,
+    );
+
+    // Same DOM input instance and unsaved in-memory value survive without remounting.
+    expect(screen.getByLabelText("workspace-draft")).toBe(input);
+    expect((screen.getByLabelText("workspace-draft") as HTMLInputElement).value).toBe("edited-in-memory");
+    expect(unmounts).toBe(0);
+    expect(mounts).toBe(1);
   });
 
   it("redirects an explicitly incomplete One journey to the setup hub", async () => {

@@ -8,10 +8,14 @@ from hushh_mcp.services.pod_scheduled_tasks import ScheduleAccess, ScheduledTask
 def active_scheduled_tasks() -> ScheduledTasks:
     from hushh_mcp.services.pod_memory_service import _resolve_log
     from hushh_mcp.services.pod_owner_cloud import hosted_ace_runtime
+    from hushh_mcp.services.pod_platform import workload_platform
     from hushh_mcp.services.pod_role import require_serving_role
     from hushh_mcp.services.pod_sandbox_scheduled_delivery import SandboxScheduledDelivery
     from hushh_mcp.services.pod_scheduled_authority import ScheduledGrantAuthority
-    from hushh_mcp.services.pod_scheduled_delivery import GcpScheduledDelivery
+    from hushh_mcp.services.pod_scheduled_delivery import (
+        GcpScheduledDelivery,
+        ResidentScheduledDelivery,
+    )
     from hushh_mcp.services.pod_scheduled_files import ScheduledFileOrganization
     from hushh_mcp.services.pod_scheduled_mail import CAPABILITY, ScheduledMailFollowup
     from hushh_mcp.services.pod_scheduled_one import ScheduledOneTask
@@ -19,10 +23,16 @@ def active_scheduled_tasks() -> ScheduledTasks:
     from hushh_mcp.services.pod_upgrade_admission import ADMISSION, pod_incarnation
 
     authority, log = active_session_authority(), _resolve_log()
-    if authority is None or log is None or authority.environment not in {"dev", "development"}:
+    if (
+        authority is None
+        or log is None
+        or authority.environment not in {"dev", "development", "uat"}
+    ):
         raise ScheduleRefused("SCHEDULE_AUTHORITY_UNAVAILABLE")
     existing = getattr(authority, "scheduled_tasks", None)
     if existing is not None:
+        if isinstance(existing.delivery, ResidentScheduledDelivery):
+            existing.delivery.ensure_rehydrated(existing)
         return existing
     owners = {
         r.binding.get("user_id") for r in authority.store.trusted_subjects() if r.role == "app"
@@ -39,7 +49,19 @@ def active_scheduled_tasks() -> ScheduledTasks:
         await authority.require_held()
 
     grants = ScheduledGrantAuthority(authority, owner, check)
-    sandbox = hosted_ace_runtime()
+    sandbox = hosted_ace_runtime() or workload_platform() == "ace"
+    resident_delivery: ResidentScheduledDelivery | None = None
+    if sandbox:
+        external = SandboxScheduledDelivery()
+        try:
+            external.require_ready()
+            delivery = external
+        except ScheduleRefused:
+            resident_delivery = ResidentScheduledDelivery()
+            delivery = resident_delivery
+    else:
+        delivery = GcpScheduledDelivery(log._store)
+
     runtime = ScheduledTasks(
         access=ScheduleAccess(owner, authority.hushh_id, incarnation, check),
         log=log,
@@ -50,9 +72,12 @@ def active_scheduled_tasks() -> ScheduledTasks:
             ),
             "agent_one.execute_task.v1": ScheduledOneTask(grants, log, check),
         },
-        delivery=SandboxScheduledDelivery() if sandbox else GcpScheduledDelivery(log._store),
+        delivery=delivery,
         admission=ADMISSION,
         check_grant=grants.check_grant,
     )
+    if resident_delivery is not None:
+        resident_delivery.bind_runner(runtime.run)
+        resident_delivery.ensure_rehydrated(runtime)
     authority.scheduled_tasks = runtime
     return runtime
