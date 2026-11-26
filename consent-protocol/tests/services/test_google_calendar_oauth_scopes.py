@@ -469,3 +469,109 @@ def test_mail_scopes_are_requested_only_when_the_start_asks_for_them(
     scopes = _web_attempt_scopes(monkeypatch, include_meeting_files=True)
     assert not [scope for scope in scopes if "gmail" in scope]
     assert not [scope for scope in _web_attempt_scopes(monkeypatch) if "gmail" in scope]
+
+
+def test_production_omits_meeting_file_scopes_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from urllib.parse import parse_qs, urlparse
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("CALENDAR_MEETING_FILE_SCOPES_ENABLED", raising=False)
+    service = GoogleConnectionService(db=_Db())
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    monkeypatch.setattr(service, "_client_id", lambda: "test-client.apps.googleusercontent.com")
+    monkeypatch.setattr(
+        service,
+        "_redirect_uri",
+        lambda uri: uri or "https://one.hussh.ai/one/profile/google/oauth/return",
+    )
+    monkeypatch.setattr(service, "_signed_state", lambda _: "test-state")
+    monkeypatch.setattr(
+        service,
+        "_encrypt",
+        lambda *_args, **_kwargs: {"ciphertext": "test", "iv": "test", "tag": "aad-gcm-v1"},
+    )
+    web = asyncio.run(
+        service.start(
+            user_id="user-1",
+            service="calendar",
+            access_level="manage",
+            redirect_uri="https://one.hussh.ai/one/profile/google/oauth/return",
+            login_hint=None,
+            include_meeting_files=True,
+            include_mail_access=True,
+        )
+    )
+    native = asyncio.run(
+        service.start_native(
+            user_id="user-1",
+            service="calendar",
+            access_level="manage",
+            include_calendar_list=True,
+            include_meeting_files=True,
+        )
+    )
+    requested = set(parse_qs(urlparse(web["authorize_url"]).query)["scope"][0].split())
+    assert not requested & {
+        CALENDAR_MEET_READ_SCOPE,
+        CALENDAR_MEET_DRIVE_READ_SCOPE,
+        "https://www.googleapis.com/auth/drive.metadata.readonly",
+    }
+    assert requested >= {
+        "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/calendar.freebusy",
+        CALENDAR_LIST_READ_SCOPE,
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.send",
+    }
+    assert "include_meeting_files" not in native
+    assert native["include_calendar_list"] is True
+
+
+def test_production_includes_meeting_file_scopes_when_explicitly_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from urllib.parse import parse_qs, urlparse
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("CALENDAR_MEETING_FILE_SCOPES_ENABLED", "true")
+    service = GoogleConnectionService(db=_Db())
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    monkeypatch.setattr(service, "_client_id", lambda: "test-client.apps.googleusercontent.com")
+    monkeypatch.setattr(
+        service,
+        "_redirect_uri",
+        lambda uri: uri or "https://one.hussh.ai/one/profile/google/oauth/return",
+    )
+    monkeypatch.setattr(service, "_signed_state", lambda _: "test-state")
+    monkeypatch.setattr(
+        service,
+        "_encrypt",
+        lambda *_args, **_kwargs: {"ciphertext": "test", "iv": "test", "tag": "aad-gcm-v1"},
+    )
+    web = asyncio.run(
+        service.start(
+            user_id="user-1",
+            service="calendar",
+            access_level="manage",
+            redirect_uri="https://one.hussh.ai/one/profile/google/oauth/return",
+            login_hint=None,
+            include_meeting_files=True,
+        )
+    )
+    native = asyncio.run(
+        service.start_native(
+            user_id="user-1",
+            service="calendar",
+            access_level="manage",
+            include_meeting_files=True,
+        )
+    )
+    requested = set(parse_qs(urlparse(web["authorize_url"]).query)["scope"][0].split())
+    assert requested >= {
+        CALENDAR_MEET_READ_SCOPE,
+        CALENDAR_MEET_DRIVE_READ_SCOPE,
+        "https://www.googleapis.com/auth/drive.metadata.readonly",
+    }
+    assert native["include_meeting_files"] is True

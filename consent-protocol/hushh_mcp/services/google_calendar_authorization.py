@@ -24,6 +24,7 @@ docs/architecture/identity/gmail-google-verification-readiness.md.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterable
 from dataclasses import dataclass
 
@@ -59,10 +60,24 @@ class MailGrant:
         return "granted" if self.read else "declined"
 
 
+def meeting_file_scopes_enabled() -> bool:
+    """Gate optional Meet and Drive-metadata scopes until verified in Console."""
+    explicit = str(os.getenv("CALENDAR_MEETING_FILE_SCOPES_ENABLED") or "").strip().lower()
+    if explicit in {"1", "true", "yes", "on"}:
+        return True
+    if explicit in {"0", "false", "no", "off"}:
+        return False
+    deploy_env = (
+        str(os.getenv("ENVIRONMENT") or os.getenv("HUSHH_DEPLOY_ENV") or "").strip().lower()
+    )
+    return deploy_env != "production"
+
+
 def optional_scopes(*, include_meeting_files: bool, include_mail_access: bool) -> tuple[str, ...]:
     """Optional scopes beyond Calendar itself, in a stable order."""
+    allow_meeting_files = bool(include_meeting_files and meeting_file_scopes_enabled())
     return (
-        *(MEETING_FILE_SCOPES if include_meeting_files else ()),
+        *(MEETING_FILE_SCOPES if allow_meeting_files else ()),
         *(MAIL_SCOPES if include_mail_access else ()),
     )
 
