@@ -6,7 +6,6 @@ import {
   resolveRequestId,
   withRequestIdJson,
 } from "@/app/api/_utils/request-id";
-import { validateFirebaseToken } from "@/lib/auth/validate";
 import { devAuthBypassAllowed } from "@/lib/config";
 import {
   isRequestTimeoutError,
@@ -34,16 +33,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (authHeader) {
-      const validation = await validateFirebaseToken(authHeader);
-      if (!validation.valid && !devAuthBypassAllowed()) {
-        return withRequestIdJson(
-          requestId,
-          { error: `Authentication failed: ${validation.error}`, code: "AUTH_INVALID" },
-          { status: 401 }
-        );
-      }
-    }
+    // Python `/db/vault/bootstrap-state` enforces `require_firebase_auth` and
+    // `verify_user_id_match` authoritatively; skipping a redundant Node-side
+    // Firebase token verification saves a cold-boot round-trip on the critical path.
 
     // Setup admission is mutable security state. A process-local cache cannot
     // be invalidated reliably across server instances, so it must never answer

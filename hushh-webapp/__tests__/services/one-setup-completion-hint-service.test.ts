@@ -24,11 +24,15 @@ describe("OneSetupCompletionHintService", () => {
 
   it("clears the completion signal without affecting another user", () => {
     OneSetupCompletionHintService.markResolved("user-a");
+    OneSetupCompletionHintService.markWelcomeResolved("user-a");
     OneSetupCompletionHintService.markResolved("user-b");
+    OneSetupCompletionHintService.markWelcomeResolved("user-b");
 
     OneSetupCompletionHintService.clear("user-a");
 
     expect(OneSetupCompletionHintService.isResolved("user-a")).toBe(false);
+    expect(OneSetupCompletionHintService.isWelcomeResolved("user-a")).toBe(false);
     expect(OneSetupCompletionHintService.isResolved("user-b")).toBe(true);
+    expect(OneSetupCompletionHintService.isWelcomeResolved("user-b")).toBe(true);
   });
 });
