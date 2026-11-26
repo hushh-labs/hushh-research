@@ -47,11 +47,6 @@
   font-size: 14px;
   line-height: 21px;
 }
-.workspace {
-  --app-shell-reading: 728px;
-  --page-inline-gutter-standard: 24px;
-  max-width: 728px;
-}
 .typography :global([data-slot="page-header-description"]),
 .typography :global([data-slot="settings-row-description"]),
 .typography :global(p.text-muted-foreground),
@@ -167,13 +162,11 @@
 .action:active .pill { background: var(--app-accent-tint); }
 .action:disabled { opacity: 0.6; }
 @media (max-width: 620px) {
-  .workspace { --page-inline-gutter-standard: 20px; }
   .typography { --type-input-value-size: 16px; }
   .pill { min-width: 78px; padding-inline: 11px; }
   .utilityAction { --type-compact-button-label-size: 12px; font-size: 12px; }
 }
 @media (max-width: 350px) {
-  .workspace { --page-inline-gutter-standard: 16px; }
   .pill { min-width: 72px; padding-inline: 9px; }
 }
 

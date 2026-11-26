@@ -67,6 +67,25 @@ def _refused(envelope, code: str, **overrides) -> None:
     assert CODE not in str(refused.value) and refused.value.args == (code,)
 
 
+def test_mail_intent_is_authenticated_and_closed_to_gmail():
+    intent = {
+        "mode": "reconnect",
+        "accountId": "a" * 32,
+        "credentialId": VECTOR["aad"]["credentialId"],
+    }
+    plaintext = {**VECTOR["plaintext"], "mailAccount": intent}
+    assert _open(_sealed(plaintext=plaintext)).mail_account == intent
+    for invalid in [
+        {"mode": "replace"},
+        {"mode": "add", "accountId": "a" * 32},
+        {**intent, "accountId": "../gmail"},
+    ]:
+        _refused(_sealed(plaintext={**plaintext, "mailAccount": invalid}), core.BAD_ENVELOPE)
+    _refused(
+        _sealed(plaintext=plaintext, connectorId="drive"), core.BAD_ENVELOPE, connector_id="drive"
+    )
+
+
 def test_the_vector_seals_byte_identically_and_opens_to_its_plaintext():
     envelope = seal.seal_connector_credential(
         VECTOR["plaintext"],

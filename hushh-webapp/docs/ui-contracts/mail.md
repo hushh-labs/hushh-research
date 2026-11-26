@@ -1532,3 +1532,29 @@ Owners: [header and list](../../components/gmail/receipts), [All receipts](../..
 - **Storage.** Tracked bills, skipped dates, review choices, reviewed insights and the last mailbox check's findings (with sealed keys that reopen their emails) are encrypted with the vault key and stored on this device beside the saved receipts. They are bound to the owner and the connected mailbox, so switching mailbox or account never shows another's choices, and Reset removes them. They do not sync to other devices. A failed save keeps the screen as it was and says so; a failed read shows **Try again** and never blocks the receipts.
 - **Filters.** The unsupported Due filter is removed; an earlier saved selection (including `due`) resolves to **All**. Overdue stays, from each receipt's own evidence.
 - **Back.** On Recurring, Back returns to All receipts, then follows the existing Mail Back hierarchy. Sheets close first.
+
+## Tracked conversations
+
+In Dev, Open Follow-ups on the connected Overview opens the board. The mailbox
+picker starts on the existing default connection. All Mail combines verified
+connections and sends each evidence or draft action back to its source mailbox.
+
+Tracking records one obligation in the encrypted shared Tasks collection.
+The source link opens the email containing the promise. An opted-in watch checks
+on vault unlock and about once a minute while One is visible, on any page. It
+checks each watched task against its own mailbox and connection. A matching
+reply completes the encrypted task and clears its watch. Locking the vault or
+hiding One pauses checks. Returning to an unlocked One checks again. Review of a
+received document requires opening the attachment and confirming review before preparing
+the next draft. An exact approved send uses the private agent's qualified
+one-time scheduler where available. Its final check can suppress delivery, and
+only a confirmed provider receipt enables the sent-email link.
+
+In a tracked conversation, **Remind me in One** lets the owner choose a local date
+and time. **Save reminder** stores that instant on the encrypted Task and turns on
+its reply watch. The owner can change the time or cancel the personal reminder.
+One checks the watched thread before showing a due reminder while the app is
+visible and the vault is unlocked. It checks overdue reminders on return. Matching
+evidence completes the Task and cancels its pending reminder in the same saved
+change. This action sends no email. An independently approved outgoing follow-up
+has its own schedule and controls.
