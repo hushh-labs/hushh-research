@@ -58,6 +58,7 @@ const titles: Record<MainLocationAction, string> = {
   setup_location: "Set up Location", enable_location: "Turn on Location sharing", enable_device_location: "Enable device location",
   resume_updates: "Resume location updates", sos_review: "Save My Soul", sos_stop: "Stop Save My Soul", sms_contacts: "Emergency contacts",
   manage_circles: "Location Circles", manage_places: "Saved places", manage_ratings: "Place ratings", manage_contacts: "Find contacts", manage_settings: "Location settings", manage_links: "Public location links",
+  enable_auto_approve: "Turn on automatic approval", disable_auto_approve: "Turn off automatic approval",
   check_in: "Private check-in", nearby_check_in: "Nearby check-in",
   view_self: "Your current location",
 };
@@ -275,7 +276,7 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
     void (async () => {
       try {
         if (proposal.action === "view_self") { setStage(allowReview ? "self-location" : "cancelled"); return; }
-        if (["manage_circles", "manage_places", "manage_ratings", "manage_contacts", "manage_settings"].includes(proposal.action)) {
+        if (["manage_circles", "manage_places", "manage_ratings", "manage_contacts", "manage_settings", "enable_auto_approve", "disable_auto_approve"].includes(proposal.action)) {
           setStage(allowReview ? "workspace" : "cancelled");
           return;
         }
@@ -664,6 +665,8 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
     mode={proposal.action === "manage_circles" ? "circles" : proposal.action === "manage_places" ? "saved_places"
       : proposal.action === "manage_ratings" ? "ratings" : proposal.action === "manage_contacts" ? "contacts" : "settings"}
     ownerId={ownerId} token={token} vaultKey={vaultKey} onBack={dismiss} onChanged={announce}
+    autoApprovalIntent={proposal.action === "enable_auto_approve" ? "enable" : proposal.action === "disable_auto_approve" ? "disable" : undefined}
+    suggestedAutoApprovalCircles={proposal.action === "enable_auto_approve" ? proposal.circles : undefined}
     suggestedCircleName={proposal.circles?.[0]} suggestedPersonName={proposal.people?.[0]} /> :
     <UnlockLocationCard onUnlock={onUnlock} />;
   if (stage === "links" && allowReview) return <LocationChatPublicLinks

@@ -14,6 +14,7 @@ from google.adk.runners import Runner
 from google.genai import types
 
 from hushh_mcp.one_adk import queued_input
+from hushh_mcp.one_adk.location_chat_proposal import STATE_LOCATION_CHAT_REVIEW
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, supersede_unanswered_reviews
 from hushh_mcp.one_adk.mcp_pending_call import current_pending_handle, pending_resume_scope
 from hushh_mcp.one_adk.mcp_turn_scope import (
@@ -166,6 +167,7 @@ async def run_native_pod_chat(
             admission=admission,
             incarnation=incarnation,
             announce_start=True,
+            location_chat_review=turn.state.get(STATE_LOCATION_CHAT_REVIEW) is True,
         )
     ) as frames:
         async for frame in frames:

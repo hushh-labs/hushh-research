@@ -16,7 +16,7 @@ type Mode = "circles" | "saved_places" | "ratings" | "contacts" | "settings";
 const TITLES: Record<Mode, string> = { circles: "Circles", saved_places: "Saved places", ratings: "Place ratings", contacts: "Find contacts", settings: "Location settings" };
 
 export function LocationChatWorkspace({
-  mode, token, ownerId, vaultKey, suggestedCircleName, suggestedPersonName, onBack, onChanged,
+  mode, token, ownerId, vaultKey, suggestedCircleName, suggestedPersonName, autoApprovalIntent, suggestedAutoApprovalCircles, onBack, onChanged,
 }: {
   mode: Mode;
   token: string;
@@ -24,6 +24,8 @@ export function LocationChatWorkspace({
   vaultKey: string;
   suggestedCircleName?: string;
   suggestedPersonName?: string;
+  autoApprovalIntent?: "enable" | "disable";
+  suggestedAutoApprovalCircles?: readonly string[];
   onBack: () => void;
   onChanged?: () => void;
 }) {
@@ -38,7 +40,7 @@ export function LocationChatWorkspace({
   return (
     <SurfaceCard role="region" aria-labelledby={titleId} className="w-full min-w-0">
       <SurfaceCardHeader className="flex items-center justify-between gap-3 space-y-0">
-        <CardTitle as="h3" id={titleId}>{TITLES[mode]}</CardTitle>
+        <CardTitle as="h3" id={titleId}>{autoApprovalIntent ? "Automatic Location approval" : TITLES[mode]}</CardTitle>
         <Button size="sm" variant="outline" onClick={onBack}>Done</Button>
       </SurfaceCardHeader>
       <SurfaceCardContent>
@@ -49,7 +51,8 @@ export function LocationChatWorkspace({
         ) : mode === "ratings" ? (
           <PlaceRatings embeddedInChat />
         ) : (
-          <LocationChatSettings token={token} ownerId={ownerId} onChanged={onChanged} />
+          <LocationChatSettings token={token} ownerId={ownerId} onChanged={onChanged}
+            autoApprovalIntent={autoApprovalIntent} suggestedCircles={suggestedAutoApprovalCircles} onClose={onBack} />
         )}
       </SurfaceCardContent>
     </SurfaceCard>

@@ -71,7 +71,7 @@ def test_receipt_tools_have_an_explicit_authenticated_protocol_advertisement():
     assert "pkm.add" in response.json()["admittedActionIds"]
 
 
-def test_native_cloud_request_only_passes_server_admitted_state():
+def test_native_cloud_request_only_passes_server_admitted_state(monkeypatch):
     client = _client()
     owner = _owner()
     owner.require_access = AsyncMock()
@@ -109,6 +109,15 @@ def test_native_cloud_request_only_passes_server_admitted_state():
     forged["state"] = {"hussh:user_id": "owner-b"}
     assert client.post(path, json=forged).status_code == 422
     assert len(turns) == 1
+
+    from hushh_mcp.one_adk.location_chat_proposal import STATE_LOCATION_CHAT_REVIEW
+
+    monkeypatch.setenv("ONE_MAIN_CHAT_LOCATION_ENABLED", "true")
+    regular_chat = {"screenContext": {"route": {"pathname": "/"}}, "locationChatReview": True}
+    location = {**body, "message": "Request Kushal's location", "forwardedProps": regular_chat}
+    assert client.post(path, json=location).status_code == 200
+    assert turns[-1][1].state[STATE_LOCATION_CHAT_REVIEW] is True
+    assert "hussh:thread_title" not in turns[-1][1].state
 
 
 def test_queue_joins_only_the_session_owners_running_turn(registry):
