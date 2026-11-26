@@ -87,10 +87,19 @@ def test_ready_frontend_overlaps_providers_without_replacing_any_gate_or_backend
     )
     assert config["substitutions"]["_WEB_CLOUD_RUN_MIN_INSTANCES"] == "2"
     assert config["substitutions"]["_WEB_IMAGE_REFERENCE"] == release["_IMAGE_REFERENCE"]
+    assert config["substitutions"][module.LOCATION_CHAT_FLAG] == "false"
+    assert "_WEB_" + module.LOCATION_CHAT_FLAG[1:] not in config["substitutions"]
+    assert len(config["substitutions"]) <= 200
+    with pytest.raises(ValueError, match="matching frontend and backend flags"):
+        module.frontend_parallel_config(
+            backend, frontend, backend_values | {module.LOCATION_CHAT_FLAG: "true"}, release
+        )
     # The original three steps, including secret/configuration checks, are
     # preserved. Only custom substitution names and explicit ordering change.
     remap = {
-        key: key if key in module.SHARED_SUBSTITUTIONS else "_WEB_" + key[1:]
+        key: key
+        if key in module.SHARED_SUBSTITUTIONS | {module.LOCATION_CHAT_FLAG, "_SECRET_PREFIX"}
+        else "_WEB_" + key[1:]
         for key in frontend["substitutions"]
     }
 
