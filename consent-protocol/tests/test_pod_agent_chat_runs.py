@@ -71,22 +71,25 @@ def test_receipt_tools_have_an_explicit_authenticated_protocol_advertisement():
     assert "pkm.add" in response.json()["admittedActionIds"]
 
 
-def test_native_capability_is_not_advertised_without_visual_processor(monkeypatch):
+@pytest.mark.parametrize("missing_module", ["a2ui.inference_formats", "a2ui.processor"])
+def test_native_capability_is_not_advertised_without_visual_processor(monkeypatch, missing_module):
     import builtins
     from types import SimpleNamespace
 
     original_import = builtins.__import__
-    checked_processor = False
+    checked_missing_module = False
 
     def unavailable_processor(name, *args, **kwargs):
-        nonlocal checked_processor
+        nonlocal checked_missing_module
+        if name == missing_module:
+            checked_missing_module = True
+            raise ImportError("visual runtime dependency unavailable")
         if name == "a2ui.adk":
             return SimpleNamespace(SendA2uiToClientToolset=object)
         if name == "a2ui.inference_formats":
             return SimpleNamespace(DirectJsonFormatFactory=object)
         if name == "a2ui.processor":
-            checked_processor = True
-            raise ImportError("processor unavailable")
+            return SimpleNamespace(A2uiRequestProcessor=object, CatalogConfig=object)
         return original_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", unavailable_processor)
@@ -94,7 +97,7 @@ def test_native_capability_is_not_advertised_without_visual_processor(monkeypatc
     client.app.dependency_overrides[pod_agent_chat.context] = lambda: _owner()
     response = client.get("/api/one/pod/agent-chat/capabilities")
     assert response.status_code == 200
-    assert checked_processor
+    assert checked_missing_module
     assert "nativeAdkChatVersion" not in response.json()
 
 
