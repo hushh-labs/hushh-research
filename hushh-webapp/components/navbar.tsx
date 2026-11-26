@@ -25,7 +25,7 @@ import {
 import { clearFeedSearch } from "@/lib/feed/feed-search-memory";
 import { resetFeedSearchView } from "@/lib/feed/feed-search-events";
 import { useAuth } from "@/hooks/use-auth";
-import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
+import { prefetchInternalRoute, requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
 import { useFeedUnreadCount } from "@/lib/feed/use-feed-unread-count";
@@ -301,7 +301,7 @@ export const Navbar = ({
     const run = () => {
       for (const href of pending) {
         prefetchedTabHrefs.add(href);
-        router.prefetch(href, { kind: "full" as never });
+        prefetchInternalRoute(router, href);
       }
     };
     const idle = (window as Window & {

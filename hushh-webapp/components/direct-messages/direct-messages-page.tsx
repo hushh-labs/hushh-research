@@ -538,6 +538,14 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     editFocus.current = null;
   }, []);
   const pageRef = useRef<HTMLElement | null>(null);
+  const bindPage = useCallback((node: HTMLElement | null) => {
+    pageRef.current = node;
+    // The mounted palette is also the root-attribute signal consumed by native
+    // appearance. Check after detachment so overlapping route visits share it.
+    if (node) document.documentElement.classList.add("direct-messages-palette");
+    else queueMicrotask(() => document.documentElement.classList.toggle(
+      "direct-messages-palette", document.querySelector("[data-direct-message-page]") !== null));
+  }, []);
   const dockFrame = useAgentDockFrame();
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
@@ -1863,7 +1871,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   return (
     <AppPageShell width="expanded" fitContent={false} nativeTest={nativeTest} className={styles.shell}>
       <section
-        ref={pageRef}
+        ref={bindPage}
         className={styles.page}
         data-one-chat-surface
         data-direct-message-page="true"

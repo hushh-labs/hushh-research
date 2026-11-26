@@ -160,6 +160,101 @@ describe("TodoListPage row actions", () => {
     });
   });
 
+  it("binds native completion, confirmed deletion and successful draft save to the existing services", async () => {
+    mocks.native = true;
+    mocks.events = [];
+    const task = buildTodo({ title: "Synthetic native task", type: "manual", date: null, time: null, notes: null });
+    const remaining = buildTodo({ id: "pending-other", title: "Other pending task" });
+    vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [task, remaining] });
+    vi.spyOn(TodoListPkmService, "setStatus").mockResolvedValue({ success: true, saveState: "saved", fullBlob: {} });
+    const create = vi.spyOn(todoService, "createTodo")
+      .mockRejectedValueOnce(new Error("Synthetic save failure"))
+      .mockResolvedValue({ task: { ...task, id: "created" }, result: { success: true, saveState: "saved", fullBlob: {} } });
+    render(<TodoListPage />);
+    const tap = async (label: string) => {
+      const state = mocks.workspace!;
+      const row = state.content.sections.flatMap(section => section.rows).find(row => row.label === label);
+      expect(row, label).toBeDefined();
+      await act(async () => { await state.actions.get(row!.id)!({} as never); });
+    };
+    await waitFor(() => expect(mocks.workspace?.content.sections.flatMap(section => section.rows).some(row => row.label === task.title)).toBe(true));
+    await tap(task.title);
+    await tap("Mark as completed");
+    expect(TodoListPkmService.setStatus).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ task, status: "done" }));
+    await tap("Completed");
+    await tap(task.title);
+    await tap("Delete item");
+    await tap("Cancel");
+    expect(TodoListPkmService.remove).not.toHaveBeenCalled();
+    await tap("Delete item");
+    await tap("Delete");
+    expect(TodoListPkmService.remove).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ task: expect.objectContaining({ id: task.id }) }));
+    await waitFor(() => expect(mocks.workspace!.content.sections.flatMap(section => section.rows).some(row => row.label === remaining.title)).toBe(true));
+    await tap("Add item");
+    await act(async () => { expect(mocks.workspace!.editor!.changeDraft({ title: " Native draft ", date: "2026-11-05", time: "09:15", notes: " detail " } as never)).toBe(true); });
+    await act(async () => { expect(await mocks.workspace!.editor!.save()).toBe(false); });
+    expect(mocks.workspace!.editor!.current()).toBe(true);
+    await act(async () => { const editor = mocks.workspace!.editor!; expect(await editor.save()).toBe(true); editor.onSaved(); });
+    expect(create).toHaveBeenLastCalledWith({ title: "Native draft", type: "manual", date: "2026-11-05", time: "09:15", notes: "detail" }, expect.any(Object));
+    expect(mocks.workspace!.editor).toBeUndefined();
+  });
+
+  it("preserves the native draft in complete React fallback and rejects late edits after Cancel", async () => {
+    mocks.native = true;
+    mocks.events = [];
+    const view = render(<TodoListPage />);
+    await waitFor(() => expect(mocks.workspace?.content.sections.flatMap(section => section.rows).find(row => row.label === "Add item")?.enabled).toBe(true));
+    const row = mocks.workspace!.content.sections.flatMap(section => section.rows).find(row => row.label === "Add item")!;
+    await act(async () => { await mocks.workspace!.actions.get(row.id)!({} as never); });
+    const editor = mocks.workspace!.editor!;
+    const draft = { title: "Retained native draft", date: "2026-11-05", time: "09:15", notes: "Retained notes" };
+    await act(async () => { expect(editor.changeDraft(draft as never)).toBe(true); });
+    mocks.nativeFailed = true;
+    view.rerender(<TodoListPage />);
+    expect(await screen.findByPlaceholderText("What do you want to do?")).toHaveValue(draft.title);
+    expect(screen.getByLabelText("Date")).toHaveValue(draft.date);
+    expect(screen.getByLabelText("Time")).toHaveValue(draft.time);
+    expect(screen.getByLabelText("Notes")).toHaveValue(draft.notes);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(editor.current()).toBe(false);
+    expect(editor.changeDraft({ ...draft, title: "Late old editor" } as never)).toBe(false);
+  });
+
+  it("rejects duplicate native writes while allowing an independent draft", async () => {
+    mocks.native = true;
+    mocks.events = [];
+    const task = buildTodo({ id: "native-duplicate", title: "Native duplicate" });
+    vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [task] });
+    const write = deferredWrite();
+    vi.spyOn(TodoListPkmService, "setStatus").mockReturnValue(write.promise);
+    render(<TodoListPage />);
+    await waitFor(() => expect(mocks.workspace?.content.sections.flatMap(section => section.rows).some(row => row.label === task.title)).toBe(true));
+    const taskRow = mocks.workspace!.content.sections.flatMap(section => section.rows).find(row => row.label === task.title)!;
+    await act(async () => { await mocks.workspace!.actions.get(taskRow.id)!({} as never); });
+    const detail = mocks.workspace!;
+    const done = detail.content.sections.flatMap(section => section.rows).find(row => row.label === "Mark as completed")!;
+    act(() => { expect(detail.actions.get(done.id)!({} as never)).toBeUndefined(); expect(detail.actions.get(done.id)!({} as never)).toBeUndefined(); });
+    expect(TodoListPkmService.setStatus).toHaveBeenCalledTimes(1);
+    const add = mocks.workspace!.content.sections.flatMap(section => section.rows).find(row => row.label === "Add item")!;
+    expect(add.enabled).toBe(true);
+    await act(async () => { await mocks.workspace!.actions.get(add.id)!({} as never); });
+    await act(async () => { expect(mocks.workspace!.editor!.changeDraft({ title: "Independent draft", date: "", time: "", notes: "" } as never)).toBe(true); });
+    await act(async () => { write.resolve({ success: true, saveState: "saved", fullBlob: {} }); });
+  });
+
+  it("allows native manual input while an optional provider read remains pending", async () => {
+    mocks.native = true;
+    mocks.events = [];
+    mocks.feedLoading = true;
+    render(<TodoListPage />);
+    await waitFor(() => expect(mocks.workspace?.content.sections.flatMap(section => section.rows).some(row => row.label === "Loading your list…")).toBe(true));
+    const state = mocks.workspace!;
+    const add = state.content.sections.flatMap(section => section.rows).find(row => row.label === "Add item")!;
+    expect(add.enabled).toBe(true);
+    await act(async () => { await state.actions.get(add.id)!({} as never); });
+    expect(mocks.workspace!.editor).toBeDefined();
+  });
+
   it.each(["wallet", "messages", "ria", "pkm"] as const)("reports unavailable selected %s reads instead of claiming no pending work", async capability => {
     mocks.events = [];
     vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [], selectedCapabilities: [capability] });

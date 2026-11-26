@@ -163,7 +163,7 @@ export default function WorldModelInvitePage() {
   return (
     <AppPageShell
       width="reading"
-      className="py-6"
+      className="pt-[calc(1.5rem+var(--app-safe-area-top-effective,0px))] pb-[calc(1.5rem+var(--app-safe-area-bottom-effective,0px))]"
       style={{ maxWidth: "30rem" }}
     >
       <NativeTestBeacon

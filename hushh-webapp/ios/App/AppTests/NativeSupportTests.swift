@@ -541,12 +541,31 @@ final class NativeSupportTests: XCTestCase {
         host.view.addSubview(webView)
         let target = DelegateProbe()
         let committed = expectation(description: "committed page observed")
-        let forwarder = HushhMainFrameNavigationDelegate(target: target) { _ in committed.fulfill() }
+        var commitCount = 0
+        var onCommit = { committed.fulfill() }
+        let forwarder = HushhMainFrameNavigationDelegate(target: target) { _ in
+            commitCount += 1
+            onCommit()
+        }
         webView.navigationDelegate = forwarder
         webView.loadHTMLString("<html><body>public fixture</body></html>", baseURL: nil)
         wait(for: [committed], timeout: 20)
         XCTAssertTrue(target.didStart)
         XCTAssertTrue(target.didCommit)
+
+        let sameDocument = expectation(description: "React-style history update")
+        webView.evaluateJavaScript("history.pushState({}, '', '#retained')") { _, error in
+            XCTAssertNil(error)
+            sameDocument.fulfill()
+        }
+        wait(for: [sameDocument], timeout: 5)
+        XCTAssertEqual(commitCount, 1, "Same-document navigation must retain its native owner")
+
+        let replaced = expectation(description: "Web-only replacement observed")
+        onCommit = { replaced.fulfill() }
+        webView.loadHTMLString("<html><body>Web-only replacement</body></html>", baseURL: nil)
+        wait(for: [replaced], timeout: 20)
+        XCTAssertEqual(commitCount, 2)
     }
     @MainActor
     func testEditorMenuKeepsItsDelegateUntilDismissalCompletes() {
@@ -1335,6 +1354,71 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(try projection().valid)
     }
 
+    #if DEBUG
+    @available(iOS 26.0, *)
+    @MainActor
+    func testRetainedWorkspaceSettlesWithOneLayoutAndWaitsForEditorDismissal() throws {
+        func projection(_ sequence: Int, revision: Int = 1, height: Int = 500, editing: Bool = false) throws -> NativeWorkspaceProjection {
+            var object: [String: Any] = [
+                "documentId": "public-document", "ownerEpoch": "public-owner", "ownerGeneration": 1,
+                "revision": 1, "workspace": "location", "updateSequence": sequence,
+                "privacyGeneration": 0, "isolationGeneration": 0, "appearance": "light",
+                "accentHex": "#007aff", "foregroundHex": "#111111", "canvasHex": "#ffffff",
+                "frame": ["x": 0, "y": 100, "width": 390, "height": height, "viewportWidth": 390, "viewportHeight": 844, "layoutRevision": revision],
+                "page": "overview", "title": "Location", "enabled": true, "backEnabled": false,
+                "navigation": ["id": "location-note", "depth": 1], "sections": []
+            ]
+            if editing {
+                object["textEditor"] = ["destinationId": "visit", "draft": ["text": "Synthetic note"], "draftRevision": 0,
+                    "acknowledgedEditRevision": 0, "canSave": true, "busy": false, "error": NSNull(), "label": "Message",
+                    "placeholder": "Optional", "maximum": 120, "submitLabel": "Done", "cancelLabel": "Cancel"] as [String: Any]
+            }
+            let state = try JSONDecoder().decode(NativeWorkspaceProjection.self, from: JSONSerialization.data(withJSONObject: object))
+            XCTAssertTrue(state.valid)
+            return state
+        }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene), parent = UIViewController()
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let container = NativePresentationContainer(webView: web, basePresentation: .coherentDrawers)
+        parent.view = container
+        window.rootViewController = parent
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
+        let presentation = try XCTUnwrap(NativeWorkspacePresentation(try projection(1), parent: parent, container: container))
+        let host = try XCTUnwrap(parent.children.first)
+        var settled = 0
+        func settle(_ ready: Bool) { XCTAssertTrue(ready); settled += 1 }
+        presentation.prepare(completion: settle)
+        let before = presentation.layoutPassCount
+        XCTAssertTrue(presentation.update(try projection(2)))
+        presentation.prepare(completion: settle)
+        XCTAssertEqual(presentation.layoutPassCount - before, 1)
+        XCTAssertEqual(settled, 2)
+
+        let resized = try projection(3, revision: 2, height: 385, editing: true)
+        XCTAssertFalse(presentation.update(try projection(3, height: 385)))
+        XCTAssertTrue(presentation.update(resized))
+        presentation.prepare { ready in
+            XCTAssertEqual(host.view.frame, resized.frame.rect)
+            settle(ready)
+        }
+        let editor = try XCTUnwrap(presentation.model.textEditor?.model)
+        let field = UITextField()
+        editor.editMenuPresented(field)
+        let token = try XCTUnwrap(editor.beginEditorMenuDismissal(field))
+        XCTAssertTrue(presentation.update(try projection(4, revision: 3)))
+        presentation.prepare(completion: settle)
+        XCTAssertTrue(presentation.model.hasRetiringEditorPresentations)
+        XCTAssertEqual(editor.projection.draft.text, "")
+        XCTAssertEqual(settled, 3)
+        editor.editMenuDismissed(field, token: token)
+        XCTAssertEqual(settled, 4)
+        XCTAssertTrue(parent.children.first === host)
+    }
+    #endif
+
     @MainActor
     func testRouteWorkspaceRetirementReleasesCoverageBeforeReceipt() throws {
         guard #available(iOS 26.0, *) else { throw XCTSkip("Native workspace requires iOS 26") }
@@ -2010,6 +2094,17 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(control.isUserInteractionEnabled, "Observing a withdrawn lease must not restore its actions")
     }
     #endif
+
+    func testNativeLauncherAcceptsAuthoredLabelOnlyMetrics() throws {
+        let agent = NativeWorkspaceAgent(id: "goals", label: "Goals", description: "Goals and tasks",
+            metricValue: "", metricLabel: "Goals and tasks", artworkId: "roster-goals", iconHex: "#DFF7E7")
+        XCTAssertTrue(agent.valid)
+        XCTAssertEqual(agent.metricText, "Goals and tasks")
+        XCTAssertNotNil(NativeProfileArtwork.resolve("roster-goals"))
+        let unlabeled = NativeWorkspaceAgent(id: "goals", label: "Goals", description: "Goals and tasks",
+            metricValue: "", metricLabel: "", artworkId: "roster-goals", iconHex: "#DFF7E7")
+        XCTAssertFalse(unlabeled.valid)
+    }
 
     func testNativeProfileUsesTheBundledWebArtworkAndRejectsUnknownIds() throws {
         XCTAssertFalse(NativeProfileArtwork.ids.isEmpty)
@@ -5717,14 +5812,27 @@ final class NativeSupportTests: XCTestCase {
         var documents = HushhSessionPrivacyDocumentState()
         documents.commit("document-a")
         XCTAssertTrue(documents.isCommitted("document-a"))
+        documents.retire("document-a")
+        XCTAssertFalse(documents.isCommitted("document-a"))
+        XCTAssertFalse(documents.accepts("document-a"), "The outgoing document is revoked before the successor identity resolves")
+        documents.observe("document-a")
+        documents.commit("document-a")
+        XCTAssertFalse(documents.accepts("document-a"), "Late bridge traffic cannot revive the outgoing document")
         documents.observe("document-b")
         XCTAssertFalse(documents.isCommitted("document-b"))
-        documents.commit("document-b")
-        XCTAssertTrue(documents.isCommitted("document-b"))
+        documents.retire("document-b")
+        documents.observe("document-b")
+        XCTAssertFalse(documents.accepts("document-b"), "An intermediate owner is revoked when another commit overtakes its identity read")
+        documents.observe("replacement-b")
+        XCTAssertFalse(documents.isCommitted("replacement-b"))
+        documents.commit("replacement-b")
+        XCTAssertTrue(documents.isCommitted("replacement-b"))
         XCTAssertFalse(documents.accepts("document-a"))
+        documents.retire("document-a")
+        XCTAssertTrue(documents.isCommitted("replacement-b"), "Late retirement cannot revoke the successor")
         documents.commit("document-c")
         XCTAssertTrue(documents.isCommitted("document-c"))
-        XCTAssertFalse(documents.isCommitted("document-b"))
+        XCTAssertFalse(documents.isCommitted("replacement-b"))
         documents.restart()
         XCTAssertFalse(documents.isCommitted("document-c"))
         XCTAssertFalse(documents.accepts("document-c"))

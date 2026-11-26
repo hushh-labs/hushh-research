@@ -1660,7 +1660,7 @@
         "stream patch latency through route_refresh_completed"
       ],
       "realtime_policy": "cached shell/data renders first; stream patches active view state and cache through service-layer adapters only",
-      "reviewer_fixture": "/login?redirect=%2Fconnect",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fconnect",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -7426,5 +7426,5 @@
       ]
     }
   ],
-  "content_sha256": "25d4598c8baab15a28a9ba32ef2fa5ff9e1cebb1b92476a35ddf361f2c274aea"
+  "content_sha256": "17134ffdc61820e0127320edfc8a9b96cc828063e0143245ca0ef619824832fb"
 }

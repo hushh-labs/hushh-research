@@ -50,12 +50,16 @@ The cold audit resets native app state and signs in the governed reviewer fixtur
 
 ## Route Classification Policy
 
-Every visible page in the canonical app route contract must be classified in the parity docs as one of:
+The inventory assigns each visible page a required functional or callback check,
+a web-only or compatibility exemption, or a conditional handoff. A conditional
+handoff names its environment, device, entry and return in the route ledger.
 
-- native-supported and required
-- intentionally web-only and explicitly exempt
+On the packaged iPhone, check the first tab tap after an ordinary vault unlock.
+Confirm the committed path and visible destination together. A tab can highlight
+while the old page is still visible. Warm packaged routes using their exported
+segments. Full server prefetch requires a server that serves route data.
 
-Current policy keeps the full visible app surface in scope, including:
+The visible app surface includes
 
 - product routes
 - `/developers`
@@ -68,9 +72,12 @@ browser/deep-link return. The Calendar workspace content remains React-owned;
 native controls, nested states, operation outcomes and return paths still need
 current-candidate qualification under the adoption guide.
 
-Files is also initially web-only: `/one/files` requires native acceptance for
-streaming transfers, file-picker behavior, owner key continuity, and direct-pod
-admission. Its web surface is not evidence of iOS or Android parity.
+Eligible nonproduction accounts can open the existing Files workspace from One
+on iPhone. Its handoff check covers entry, using the available controls, and
+authored return. Record the hosting connection state alongside that result.
+Native encrypted transfer, the system picker, owner key continuity and direct-pod
+admission have separate device checks. The conditional handoff stays outside the
+unconditional cross-platform route sweep.
 
 Current inventory policy:
 

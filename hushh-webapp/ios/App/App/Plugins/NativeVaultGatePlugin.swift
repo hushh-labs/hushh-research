@@ -537,6 +537,9 @@ final class NativeVaultGatePlugin: CAPPlugin, CAPBridgedPlugin {
             call.getInt("updateSequence") == scene.projection.updateSequence &&
             call.getInt("privacyGeneration") == scene.projection.privacyGeneration
     }
+    @MainActor func mainFrameDocumentCommitPendingIdentity() {
+        retireForInvalidation()
+    }
     @MainActor func mainFrameDocumentDidCommit(_ documentId: String) {
         guard let scene = model, scene.projection.identity.documentId != documentId else { return }
         retire(scene, notify: true)

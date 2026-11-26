@@ -267,9 +267,11 @@ export function RiaCompatibilityState({
   title,
   description,
   nativeTest,
+  standalone = false,
 }: {
   title: string;
   description: string;
+  standalone?: boolean;
   nativeTest?: {
     routeId: string;
     marker: string;
@@ -277,7 +279,7 @@ export function RiaCompatibilityState({
     dataState: NativeTestDataState;
   };
 }) {
-  return (
+  const content = (
     <section className="space-y-3">
       {nativeTest ? <NativeTestBeacon {...nativeTest} /> : null}
       <SectionHeader
@@ -293,6 +295,9 @@ export function RiaCompatibilityState({
       </RiaSurface>
     </section>
   );
+  return standalone
+    ? <AppPageShell width="agent" fitContent><AppPageContentRegion>{content}</AppPageContentRegion></AppPageShell>
+    : content;
 }
 
 export function MetricTile({

@@ -5783,8 +5783,8 @@ final class AppUITests: XCTestCase {
         let oneClose = app.buttons["Close One profile"].firstMatch
         guard waitForAdmittedControl(oneClose) else { XCTFail("ONE_NATIVE_PROFILE_UNAVAILABLE"); return }
         let oneTab = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Profile")).firstMatch
-        let feedTab = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Feed")).firstMatch
-        guard waitForAdmittedControl(oneTab), waitForAdmittedControl(feedTab) else { XCTFail("ONE_PROFILE_TABS_UNAVAILABLE"); return }
+        let activityTab = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Activity")).firstMatch
+        guard waitForAdmittedControl(oneTab), waitForAdmittedControl(activityTab) else { XCTFail("ONE_PROFILE_TABS_UNAVAILABLE"); return }
         oneTab.tap()
         let memory = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Open Memory")).firstMatch
         // The shared Live Mirror may contain enough source/conflict rows to
@@ -5792,7 +5792,7 @@ final class AppUITests: XCTestCase {
         // never replace the person's information with an empty fixture.
         for _ in 0..<8 {
             if memory.exists && memory.isHittable { break }
-            let top = max(oneTab.frame.maxY, feedTab.frame.maxY) + 20
+            let top = max(oneTab.frame.maxY, activityTab.frame.maxY) + 20
             let bottom = web.frame.maxY - 24
             guard bottom > top + 32 else { break }
             let origin = web.coordinate(withNormalizedOffset: .zero)
@@ -5802,7 +5802,7 @@ final class AppUITests: XCTestCase {
         print("ONE_PROFILE_MEMORY present=\(memory.exists) hittable=\(memory.exists && memory.isHittable)")
         XCTAssertTrue(waitForAdmittedControl(memory), "ONE_PROFILE_SHARED_CONTENT_UNAVAILABLE")
         XCTAssertTrue(waitForAdmittedControl(app.buttons["Back to Chat"].firstMatch))
-        feedTab.tap()
+        activityTab.tap()
         XCTAssertTrue(waitForAdmittedControl(oneClose))
         oneClose.tap()
         XCTAssertTrue(waitForAdmittedControl(editor))

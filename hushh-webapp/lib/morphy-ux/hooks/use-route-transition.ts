@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { prefetchInternalRoute } from "@/lib/utils/browser-navigation";
 import { appHaptic } from "@/lib/capacitor/app-haptics";
 import {
   appInteractionCoordinator,
@@ -587,7 +588,7 @@ export function useRouteTransition() {
       const href = internalHref(anchor);
       if (!href || prefetchedInternalHrefs.has(href)) return;
       prefetchedInternalHrefs.add(href);
-      router.prefetch(href, { kind: "full" as never });
+      prefetchInternalRoute(router, href);
     }
 
     function onPointerIntent(event: Event) {
@@ -675,7 +676,7 @@ export function useRouteTransition() {
         const href = internalHref(anchor);
         if (!href || prefetchedInternalHrefs.has(href)) continue;
         prefetchedInternalHrefs.add(href);
-        router.prefetch(href, { kind: "full" as never });
+        prefetchInternalRoute(router, href);
         warmed += 1;
       }
     };

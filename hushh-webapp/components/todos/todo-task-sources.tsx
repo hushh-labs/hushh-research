@@ -12,13 +12,15 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { TodoListPkmService, type TodoWriteParams } from "@/lib/services/todo-list-pkm-service";
 import { taskCapabilities, type TaskCapability, type TaskCoverage } from "@/lib/todos/task-suggestion-model";
 
-export function TodoTaskSources({ persistence, selected, coverage, loading, disabled, isCurrent, onChange, presentation = "sheet", onOpenChange, onBackChange }: {
+export function TodoTaskSources({ open: controlledOpen, persistence, selected, coverage, loading, disabled, isCurrent, onChange, presentation = "sheet", onOpenChange, onBackChange }: {
+  open?: boolean;
   presentation?: "sheet" | "pane"; onOpenChange?: (open: boolean) => void; onBackChange?: (handler: (() => boolean) | null) => void;
   persistence: TodoWriteParams; selected: readonly TaskCapability[];
   coverage: TaskCoverage[]; loading: boolean; disabled: boolean;
   isCurrent: () => boolean; onChange: (selected: TaskCapability[]) => void;
 }) {
-  const [open, setOpen] = useState(false), [saving, setSaving] = useState(false), [error, setError] = useState(false);
+  const [localOpen, setOpen] = useState(false), [saving, setSaving] = useState(false), [error, setError] = useState(false);
+  const open = controlledOpen ?? localOpen;
   const pending = useRef(false);
   const pathname = usePathname() ?? "/one/todos";
   const setVisible = useCallback((next: boolean) => { if (!pending.current) { setOpen(next); onOpenChange?.(next); } }, [onOpenChange]);
@@ -52,7 +54,7 @@ export function TodoTaskSources({ persistence, selected, coverage, loading, disa
     <Sheet open={open} onOpenChange={setVisible}>
       <SheetContent side="bottom" className="mx-auto max-h-[85dvh] sm:max-w-lg overflow-y-auto rounded-t-3xl">
         <SheetHeader><SheetTitle>Task sources</SheetTitle><SheetDescription>Choose what contributes to your tasks.</SheetDescription></SheetHeader>
-        <div className="divide-y">
+        <div className="divide-y px-4 pb-4">
           {taskCapabilities().map(source => {
             const id = source.id as TaskCapability, checked = selected.includes(id);
             const status = coverage.find(row => row.capability === id);

@@ -29,6 +29,16 @@ it.each(["", "isolated-export", "absolute"])("writes fresh artifacts to the sele
   if (selection) expect(existsSync(join(root, "out"))).toBe(false);
 });
 
+it("reads saved native output from the selected artifact root", () => {
+  const root = mkdtempSync(join(tmpdir(), "native-artifact-env-"));
+  roots.push(root);
+  vi.stubEnv("NEXT_DIST_DIR", "");
+  writeFileSync(join(root, ".env.native.ios.local"), "NEXT_DIST_DIR=fixture-export\n");
+  const manifest = writeNativeUiFlowsManifest({ repoRoot: root });
+  expect(manifest.flowsPublicPath).toBe(join(root, "fixture-export/native-ui-flows.json"));
+  expect(process.env.NEXT_DIST_DIR).toBe("fixture-export");
+});
+
 const sandboxOrigin = "https://scope-commerce-preview-123.us-central1.run.app";
 const fingerprint = Array(32).fill("AB").join(":");
 const sandboxOptions = () => {

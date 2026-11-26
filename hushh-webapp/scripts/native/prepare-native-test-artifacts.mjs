@@ -31,7 +31,7 @@ const repoRoot = path.resolve(__dirname, "..", "..");
  * Resolved exactly as capacitor.config.ts:7 resolves it, so the two cannot
  * disagree again.
  */
-function webAssetDir() {
+function webAssetDir(root) {
   // NEXT_DIST_DIR is NOT in this process's environment. with-ios-native-env.mjs
   // injects it only into the child it spawns (the Next build and cap sync), so
   // the parent that writes these artifacts never sees it and a plain
@@ -39,7 +39,7 @@ function webAssetDir() {
   // this function exists to prevent. Read the same file that script reads.
   const fromEnv = process.env.NEXT_DIST_DIR?.trim();
   if (fromEnv) return fromEnv;
-  const nativeEnvPath = path.join(repoRoot, ".env.native.ios.local");
+  const nativeEnvPath = path.join(root, ".env.native.ios.local");
   if (fs.existsSync(nativeEnvPath)) {
     const fromFile = parseEnvFile(nativeEnvPath)?.NEXT_DIST_DIR?.trim();
     if (fromFile) return fromFile;
@@ -47,8 +47,8 @@ function webAssetDir() {
   return "out";
 }
 
-function ensureWebAssetDirEnvironment() {
-  const assetDir = webAssetDir();
+function ensureWebAssetDirEnvironment(root) {
+  const assetDir = webAssetDir(root);
   // `prepareNativeTestArtifacts` runs in the parent process while `cap sync`
   // runs afterward as a child. Keep Capacitor pointed at the same directory
   // that received the manifest and runner instead of silently falling back to
@@ -67,7 +67,7 @@ export function writeNativeUiFlowsManifest({
   const flows = filterUiFlows({ flowFilter, routeFilter });
   const flowsPublicPath = path.resolve(
     root,
-    ensureWebAssetDirEnvironment(),
+    ensureWebAssetDirEnvironment(root),
     "native-ui-flows.json",
   );
   const nativeAuditManifest = createNativeUiAuditManifest(flows);
@@ -108,7 +108,7 @@ export function copyNativeImportE2eAsset({
   const relativeAssetPath = KAI_IMPORT_E2E_ASSET_PATH.replace(/^\/+/, "");
   const destination = path.resolve(
     root,
-    ensureWebAssetDirEnvironment(),
+    ensureWebAssetDirEnvironment(root),
     relativeAssetPath,
   );
   fs.mkdirSync(path.dirname(destination), { recursive: true });
@@ -123,7 +123,7 @@ export function syncNativeUiTestRunner({ repoRoot: root = repoRoot } = {}) {
   const sourcePath = path.join(root, "scripts/native/native-ui-test-runner-source.js");
   const publicRunnerPath = path.resolve(
     root,
-    ensureWebAssetDirEnvironment(),
+    ensureWebAssetDirEnvironment(root),
     "native-ui-test-runner.js",
   );
   fs.mkdirSync(path.dirname(publicRunnerPath), { recursive: true });

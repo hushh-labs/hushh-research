@@ -622,7 +622,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": "native-route-getting-started"
+      "native_surface_id": "native-route-login"
     },
     {
       "route_pattern": "/gmail",

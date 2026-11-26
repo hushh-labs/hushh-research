@@ -20,12 +20,18 @@ describe("Profile account identity contract", () => {
       'import { DisplayNameEditor } from "@/components/profile/display-name-editor";',
     );
     expect(profilePageSource).toContain('data-testid="profile-account-display-name-editor"');
-    expect(profilePageSource).toContain(
-      "onClick={() => { closeDisplayNameEditor(); if (!editingDisplayName) setEditingDisplayName(true); }}",
+    const nameAt = profilePageSource.indexOf('title="Display name"');
+    const nameRow = profilePageSource.slice(
+      profilePageSource.lastIndexOf("<SettingsRow", nameAt),
+      profilePageSource.indexOf("<SettingsRow", nameAt),
     );
-    expect(profilePageSource).toContain(
-      "onSaved={() => { closeDisplayNameEditor(); setChatNameDraft(null); }}",
-    );
+    expect(nameAt).toBeGreaterThan(-1);
+    expect(nameRow).toContain("closeDisplayNameEditor(); if (!editingDisplayName) setEditingDisplayName(true);");
+    expect(nameRow).toContain("{editingDisplayName ? (");
+    expect(nameRow).toContain("ownerId={applicationOwnerId}");
+    expect(nameRow).toContain("isValidatedAuthSessionOwnerCurrent(chatNameDraft.owner)");
+    expect(nameRow).toMatch(/onSaved=\{\(\) => \{ closeDisplayNameEditor\(\);/);
+    expect(nameRow).toMatch(/onCancel=\{\(\) => \{ closeDisplayNameEditor\(\);/);
     // Still one editor: no second name form was invented.
     expect(profilePageSource.match(/<DisplayNameEditor\b/g)?.length).toBe(1);
   });

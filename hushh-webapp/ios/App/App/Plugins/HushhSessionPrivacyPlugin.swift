@@ -107,6 +107,12 @@ struct HushhSessionPrivacyDocumentState {
         committed = nil
     }
 
+    mutating func retire(_ documentId: String) {
+        retired.insert(documentId)
+        observed.remove(documentId)
+        if committed == documentId { committed = nil }
+    }
+
     func accepts(_ documentId: String) -> Bool {
         observed.contains(documentId) && !retired.contains(documentId)
     }
@@ -334,6 +340,11 @@ final class HushhSessionPrivacyShield: NSObject {
     func commitDocument(_ documentId: String) {
         dispatchPrecondition(condition: .onQueue(.main))
         documents.commit(documentId)
+    }
+
+    func retireDocument(_ documentId: String) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        documents.retire(documentId)
     }
 
     func acceptsDocument(_ documentId: String) -> Bool {

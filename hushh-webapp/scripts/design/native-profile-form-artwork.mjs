@@ -11,9 +11,13 @@ export async function loadNativeProfileFormArtwork(profileLoader) {
   const { NATIVE_ACTION_ARTWORK } = await profileLoader.ssrLoadModule("/lib/capacitor/native-action-artwork.ts");
   const { OneRosterAgentIcon } = await profileLoader.ssrLoadModule("/components/icons/agents/one-roster-agent-icon.tsx");
   const { AGENT_ICON_MAP } = await profileLoader.ssrLoadModule("/components/icons/agents/agent-icons.tsx");
+  const { ONE_CAPABILITIES } = await profileLoader.ssrLoadModule("/lib/onboarding/one-capabilities.ts");
+  const goals = ONE_CAPABILITIES.find(capability => capability.id === "goals");
+  if (goals?.icon.kind !== "custom") throw new Error("Goals requires its authored capability glyph");
   return [
     ...[...Object.keys(AGENT_ICON_MAP), "default"].map(agentId => ({ id: `roster-${agentId}`, size: 36,
       icon: props => createElement(OneRosterAgentIcon, { ...props, agentId }) })),
+    { id: "roster-goals", size: 36, icon: goals.icon.component },
     ...[...NATIVE_ACTION_ARTWORK].map(([icon, id]) => ({ id, icon })),
     { id: "ai-connection", icon: Brain },
     { id: "style-name", icon: rows.PreferredNameRowIcon },

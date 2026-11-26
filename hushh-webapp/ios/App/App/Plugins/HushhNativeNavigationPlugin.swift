@@ -197,6 +197,17 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     private var presentationProbe: NativeTestStatusLabel?
     #endif
 
+    func mainFrameDocumentCommitPendingIdentity() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard let document = state.documentId else { return }
+        HushhSessionPrivacyShield.shared.retireDocument(document)
+        state.retireDocument()
+        confirmedSequence = tapSequence
+        scrollFollowing = false
+        invalidateScroll(snap: true)
+        updatePresentation()
+    }
+
     override func load() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }

@@ -218,9 +218,10 @@ struct NativeCalendarWeek: Codable, Equatable {
 }
 struct NativeWorkspaceAgent: Codable {
     let id: String; let label: String; let description: String; let metricValue: String; let metricLabel: String; let artworkId: String; let iconHex: String
+    var metricText: String { metricValue.isEmpty ? metricLabel : "\(metricValue) \(metricLabel)" }
     var valid: Bool {
         NativeDrawerIdentity.identifier(id) && NativeDrawerProjection.text(label, 64) && NativeDrawerProjection.text(description, 1024) &&
-        NativeDrawerProjection.text(metricValue, 64) && NativeDrawerProjection.text(metricLabel, 64) &&
+        (metricValue.isEmpty || NativeDrawerProjection.text(metricValue, 64)) && NativeDrawerProjection.text(metricLabel, 64) &&
         artworkId.hasPrefix("roster-") && NativeProfileArtwork.resolve(artworkId) != nil && iconHex.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil
     }
 }
@@ -1467,20 +1468,20 @@ struct NativeWorkspaceTabStrip: View {
                     VStack(spacing: 8) {
                         icon(agent).frame(width: 36, height: 36).frame(width: 60, height: 60)
                         Text(agent.label).font(.subheadline.weight(.medium)).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-                        Text("\(agent.metricValue) \(agent.metricLabel)").font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                        Text(agent.metricText).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
                     }.frame(maxWidth: .infinity).frame(minHeight: 108, alignment: .top)
                 } else {
                     HStack(spacing: 12) {
                         icon(agent).frame(width: 28, height: 28).frame(width: 40, height: 40)
                         Text(agent.label).font(.body).fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 8)
-                        Text("\(agent.metricValue) \(agent.metricLabel)").font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
+                        Text(agent.metricText).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
                         Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                     }.padding(12).frame(minHeight: 56)
                 }
             }.foregroundStyle(Color(uiColor: .label)).contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityElement(children: .ignore)
-            .accessibilityLabel("Open \(agent.label)").accessibilityValue("\(agent.metricValue) \(agent.metricLabel)")
+            .accessibilityLabel("Open \(agent.label)").accessibilityValue(agent.metricText)
             .accessibilityAddTraits(.isButton)
             .accessibilityHint(agent.description).accessibilityIdentifier("native-launcher-agent-\(agent.id)")
     }
@@ -1805,6 +1806,13 @@ enum NativeCircleCodeSelection {
     }
     var permitsWalletForm: Bool { walletFormParent != nil }
     func setExternalCoverage(_ covered: Bool) { walletPanel?.setExternalCoverage(covered) }
+    func update(_ next: NativeWorkspaceProjection) -> Bool {
+        guard model.update(next) else { return false }
+        // prepare() lays out synchronously unless an outgoing editor still owns a menu.
+        // Apply the new frame and interaction coverage immediately while it dismisses.
+        if model.hasRetiringEditorPresentations { refresh() }
+        return true
+    }
     func prepare(completion: @escaping (Bool) -> Void) {
         model.afterEditorRetirement { [weak self] in
             guard let self else { completion(false); return }; self.refresh()
@@ -1844,9 +1852,15 @@ enum NativeCircleCodeSelection {
         model.editorRetirementChanged = { [weak self] in self?.coverage?() }
         refresh()
     }
+    #if DEBUG
+    private(set) var layoutPassCount = 0
+    #endif
     func refresh() {
         host.overrideUserInterfaceStyle = model.state.appearance == "dark" ? .dark : .light
         host.view.backgroundColor = model.canvasColor
+        #if DEBUG
+        layoutPassCount += 1
+        #endif
         host.view.frame = model.state.frame.rect; host.view.setNeedsLayout(); host.view.layoutIfNeeded()
         container?.setAdmission(Self.installationID, admitted: model.state.enabled && container?.isolationGeneration == model.state.isolationGeneration)
         model.textEditor?.model.setPresentationEnabled(model.state.enabled && model.canInteract?() == true)

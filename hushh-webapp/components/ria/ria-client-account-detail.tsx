@@ -107,7 +107,7 @@ export function RiaClientAccountDetail({
 
   if (riaCapability === "setup") {
     return (
-      <RiaCompatibilityState
+      <RiaCompatibilityState standalone
         title="Complete Advisor onboarding"
         description="Finish onboarding before opening account detail routes."
         nativeTest={{
@@ -122,7 +122,7 @@ export function RiaClientAccountDetail({
 
   if (iamUnavailable) {
     return (
-      <RiaCompatibilityState
+      <RiaCompatibilityState standalone
         title="Account detail is unavailable in this environment"
         description="IAM setup is required here."
         nativeTest={{

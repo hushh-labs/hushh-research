@@ -1,5 +1,9 @@
 "use client";
 
+import type { useRouter } from "next/navigation";
+import { PrefetchKind } from "next/dist/client/components/router-reducer/router-reducer-types";
+import { isIOS } from "@/lib/capacitor/platform";
+
 export const INTERNAL_APP_NAVIGATION_REQUEST_EVENT =
   "app-internal-navigation-requested";
 
@@ -16,6 +20,16 @@ export type InternalAppNavigationRequest = {
 // listener on a terminated-app launch. Keep only the latest intent in memory;
 // it contains route metadata, never credentials or decrypted information.
 let pendingInternalNavigation: InternalAppNavigationRequest | null = null;
+
+/** The packaged iOS app serves static route segments. A full server prefetch
+ * can cache the HTML shell as route data before the first tab is pressed. */
+export function prefetchInternalRoute(router: Pick<ReturnType<typeof useRouter>, "prefetch">, href: string): void {
+  if (isIOS()) {
+    router.prefetch(href);
+    return;
+  }
+  router.prefetch(href, { kind: PrefetchKind.FULL });
+}
 
 function canUseWindow(): boolean {
   return typeof window !== "undefined";
