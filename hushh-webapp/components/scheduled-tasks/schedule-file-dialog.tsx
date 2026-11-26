@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Link from "next/link";
+import type { FileScheduleRepeat } from "@/lib/agent/file-schedule-proposal";
 import {
   Dialog,
   DialogContent,
@@ -36,6 +37,7 @@ export function ScheduleFileDialog({
   onOpenChange,
   route = ROUTES.ONE_FILES,
   initialTime = "",
+  initialRepeat,
   reviewedClient,
   beforeConfirm,
   onScheduled,
@@ -45,13 +47,16 @@ export function ScheduleFileDialog({
   onOpenChange: (open: boolean) => void;
   route?: string;
   initialTime?: string;
+  initialRepeat?: FileScheduleRepeat;
   reviewedClient?: PodScheduledTasksClient;
   beforeConfirm?: (signal: AbortSignal) => Promise<void>;
   onScheduled?: (task: ScheduledTask) => void;
 }) {
   const [when, setWhen] = useState(initialTime);
   const repeatId = useId();
-  const [repeat, setRepeat] = useState<ScheduleRepeat | "selected-weekdays">("once");
+  const [repeat, setRepeat] = useState<ScheduleRepeat | "selected-weekdays">(
+    initialRepeat === "weekdays" ? "selected-weekdays" : initialRepeat ?? "once",
+  );
   const [weekdays, setWeekdays] = useState([0, 1, 2, 3, 4]);
   const [ends, setEnds] = useState("");
   const [busy, setBusy] = useState(false);
@@ -91,6 +96,8 @@ export function ScheduleFileDialog({
   };
   useBackLayer(route, open ? 3 : 0, close);
   const available = status?.available && status.templates.includes(FILE_ORGANIZATION_TEMPLATE);
+  const recurrenceAvailable = status?.repeat_modes?.includes("monthly") === true;
+  const canConfirm = available && (repeat === "once" || recurrenceAvailable);
 
   const schedule = async () => {
     const owner = snapshotValidatedAuthSessionOwner();
@@ -122,7 +129,7 @@ export function ScheduleFileDialog({
       return;
     }
     if (
-      !available ||
+      !canConfirm ||
       !status.authorization_limit_at ||
       expiresAt > status.authorization_limit_at
     ) {
@@ -194,7 +201,7 @@ export function ScheduleFileDialog({
             }}
           />
         </label>
-        {available && status.repeat_modes?.includes("monthly") && (
+        {available && recurrenceAvailable && (
           <div className="space-y-3">
             <div className="flex flex-col gap-[var(--app-form-field-gap)] text-sm">
               <label htmlFor={repeatId}>Repeat</label>
@@ -238,6 +245,9 @@ export function ScheduleFileDialog({
             {repeat === "monthly" && <p className="text-xs text-muted-foreground">Months without the selected date are skipped.</p>}
           </div>
         )}
+        {available && repeat !== "once" && !recurrenceAvailable && (
+          <p role="status" className="text-sm text-muted-foreground">This private agent supports one-time schedules. Update it to repeat work.</p>
+        )}
         <p className="text-xs text-muted-foreground">
           {available && status.authorization_limit_at
             ? `Time zone: ${approved.current?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone}. Approved access ends ${new Date(status.authorization_limit_at * 1000).toLocaleString()}.${repeat === "once" ? " This task expires 24 hours after its scheduled time." : " Only upcoming runs are scheduled after a pause."}`
@@ -256,7 +266,7 @@ export function ScheduleFileDialog({
             {unconfirmed ? "Close" : "Cancel"}
           </Button>
           <Button
-            disabled={busy || !when || !available || (repeat !== "once" && !ends)}
+            disabled={busy || !when || !canConfirm || (repeat !== "once" && !ends)}
             onClick={() => void schedule()}
           >
             {busy ? "Scheduling…" : unconfirmed ? "Retry same request" : "Confirm schedule"}

@@ -74,6 +74,21 @@ describe("private Files schedule review in Chat", () => {
     expect(confirm).toBeDisabled();
   });
 
+  it("carries an explicit weekday proposal into review without approving any run", async () => {
+    const proposal = readFileScheduleProposal("propose_file_schedule", {
+      status: "proposal_ready", type: "files.schedule_organization", run_at: null, repeat: "weekdays",
+    });
+    expect(proposal).toEqual({ runAt: null, repeat: "weekdays" });
+    const organize = vi.spyOn(PodScheduledTasksClient.prototype, "organizeFile");
+    render(<ChatFileScheduleCard proposal={proposal!} credentials={credentials} onDismiss={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Choose file" }));
+    fireEvent.click(await screen.findByRole("button", { name: file.name }));
+    expect(await screen.findByRole("checkbox", { name: "Monday" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Saturday" })).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Confirm schedule" })).toBeDisabled();
+    expect(organize).not.toHaveBeenCalled();
+  });
+
   it("does not list Shared files or offer confirmation", async () => {
     mocks.hosting = "shared";
     render(<ChatFileScheduleCard proposal={{ runAt: null }} credentials={credentials} onDismiss={vi.fn()} />);

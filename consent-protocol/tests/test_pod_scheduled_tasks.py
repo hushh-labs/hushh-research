@@ -16,6 +16,12 @@ def test_chat_file_schedule_review_only_returns_normalized_time():
     }
     for unresolved in ("2030-02-01T09:30:00", "2030-02-32T09:30:00+00:00", "tomorrow"):
         assert propose_file_schedule(unresolved)["run_at"] is None
+    assert propose_file_schedule(repeat="weekdays") == {
+        "status": "proposal_ready",
+        "type": "files.schedule_organization",
+        "run_at": None,
+        "repeat": "weekdays",
+    }
 
 
 @pytest.mark.parametrize("scopes", [(), ("files.manage",), ("pod.act", "pod.act")])
