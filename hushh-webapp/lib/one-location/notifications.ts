@@ -606,6 +606,11 @@ export function isSmsTriggeredGrant(grant: {
   return normalizeOneLocationShareKind(grant.shareKind) === "sos";
 }
 
+/** A pin or check-in shares only the position its owner reviewed. */
+export function isFixedLocationGrant(grant: { shareKind?: string | null }): boolean {
+  return grant.shareKind === "pin" || normalizeOneLocationShareKind(grant.shareKind) === "check_in";
+}
+
 /** Short, human tag per share kind for badges/labels (SMS / Check-In / Share). */
 export function oneLocationShareKindLabel(kind?: string | null): string {
   switch (normalizeOneLocationShareKind(kind)) {

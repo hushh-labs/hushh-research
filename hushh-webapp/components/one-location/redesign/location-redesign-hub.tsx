@@ -354,27 +354,8 @@ function waitingResponsesLabel(count: number): string {
   return `Waiting for ${count} ${count === 1 ? "response" : "responses"}`;
 }
 
-export type PrivateCheckInResult = {
-  succeededRecipientIds: string[];
-  failedRecipientIds: string[];
-};
-
-export type PrivateCheckInRequest = {
-  commandDirectiveId?: string;
-  /** Consented owner snapshot from the draft, including Circle recipients. */
-  recipientSnapshots?: OneLocationRecipient[];
-  recipientIds: string[];
-  durationHours: string;
-  message?: string;
-  point: PlainLocationPoint;
-  clientOperationId: string;
-  commandOperationId?: string;
-  commandSignal?: AbortSignal;
-  commandOwner?: string;
-  confirmedAt: string;
-  /** Named-Circle provenance when the check-in was targeted at a Circle. */
-  sourceCircleId?: string | null;
-};
+import type { PrivateCheckInRequest, PrivateCheckInResult } from "@/lib/one-location/command-private-check-in";
+export type { PrivateCheckInRequest, PrivateCheckInResult } from "@/lib/one-location/command-private-check-in";
 
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import {

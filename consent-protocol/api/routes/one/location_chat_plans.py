@@ -60,15 +60,15 @@ def list_location_chat_plans(
     origin_id: UUID,
     response: Response,
     token_data: dict = Depends(require_vault_owner_token),
+    cursor: UUID | None = None,
 ):
     try:
         response.headers["Cache-Control"] = "private, no-store"
-        return {
-            "plans": LocationChatPlanService(_service()).for_origin(
-                user_id=_user_id(token_data),
-                origin_id=str(origin_id),
-            )
-        }
+        return LocationChatPlanService(_service()).for_origin_page(
+            user_id=_user_id(token_data),
+            origin_id=str(origin_id),
+            cursor=str(cursor) if cursor else None,
+        )
     except Exception as exc:
         raise _handle_error(exc) from exc
 

@@ -113,7 +113,7 @@ function formatDate(value: string | null | undefined): string | null {
   }).format(new Date(time));
 }
 
-export function PlaceRatings() {
+export function PlaceRatings({ embeddedInChat = false }: { embeddedInChat?: boolean } = {}) {
   const { userId } = useAuth();
   const { vaultOwnerToken } = useVault();
   const buildAllows = isOneLocationNearbyCheckInAvailable();
@@ -146,7 +146,7 @@ export function PlaceRatings() {
   }, []);
 
   usePublishVoiceSurfaceMetadata(
-    userId
+    userId && !embeddedInChat
       ? {
           screenId: SCREEN_ID,
           title: "Ratings",

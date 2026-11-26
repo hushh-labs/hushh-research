@@ -217,6 +217,35 @@ it("keeps invite rows outside sync results and clears them on dismissal without 
   expect(share).not.toHaveBeenCalled();
 });
 
+it("keeps a Chat invite independent of scanning and retires it with the card", async () => {
+  type Summary = Awaited<ReturnType<typeof ReferralService.getSummary>>;
+  const session = new AbortController();
+  const share = vi.spyOn(invitationSharing, "shareLink").mockResolvedValue("copied");
+  const referral = vi.spyOn(ReferralService, "getSummary");
+  referral.mockResolvedValueOnce({ link: "https://hushh.ai/r/example" } as Summary);
+  const { result } = setup({ routeId: "chat", getSessionSignal: () => session.signal });
+
+  await act(async () => { await result.current.invite(); });
+
+  expect(mocks.syncSignals).not.toHaveBeenCalled();
+  expect(share).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ url: "https://hushh.ai/r/example" }),
+    expect.any(Function),
+  );
+
+  let finish!: (summary: Summary) => void;
+  referral.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  await act(async () => {
+    const preparing = result.current.invite();
+    await waitFor(() => expect(referral).toHaveBeenCalledTimes(2));
+    session.abort();
+    finish({ link: "https://hushh.ai/r/retired" } as Summary);
+    await preparing;
+  });
+
+  expect(share).toHaveBeenCalledTimes(1);
+});
+
 describe("useContactSync — which source it reads", () => {
   it.each(["web", "ios", "android", "google"] as const)(
     "finishes %s sync when signup identity has no hydrated phone payload",

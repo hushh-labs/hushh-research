@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { LocationChatActionCard } from "./location-chat-action-card";
+import { chatLocationPermissionIssue, LocationChatPermissionRecovery, type ChatLocationPermissionIssue } from "./location-chat-permission";
 import { useCoarseClock } from "@/lib/perf/use-periodic-task";
 import { subscribeToOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
 import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
@@ -15,7 +16,7 @@ function activeLink(state: OneLocationState, ownerId: string) {
     Boolean(entry.expiresAt && Date.parse(entry.expiresAt) > Date.now())) ?? null;
 }
 
-export function LocationChatPublicShare({ token, ownerId, initialHours, loadState, capture, renderPoint, messageForError, onChanged, onBack }: {
+export function LocationChatPublicShare({ token, ownerId, initialHours, loadState, capture, renderPoint, messageForError, onChanged, onBack, onDurationChange }: {
   token: string;
   ownerId: string;
   initialHours?: number;
@@ -25,6 +26,7 @@ export function LocationChatPublicShare({ token, ownerId, initialHours, loadStat
   messageForError: (error: unknown) => string;
   onChanged: () => void;
   onBack: () => void;
+  onDurationChange?: (minutes: number) => void;
 }) {
   const now = useCoarseClock(15_000);
   const [invite, setInvite] = useState<OneLocationPublicInvite | null>(null);
@@ -33,6 +35,7 @@ export function LocationChatPublicShare({ token, ownerId, initialHours, loadStat
   const [minutes, setMinutes] = useState<number>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [permissionIssue, setPermissionIssue] = useState<ChatLocationPermissionIssue>(null);
   const [feedback, setFeedback] = useState<string>();
   const inFlight = useRef(false);
   const runVersion = useRef(0);
@@ -67,10 +70,15 @@ export function LocationChatPublicShare({ token, ownerId, initialHours, loadStat
     setBusy(true);
     setError(undefined);
     setFeedback(undefined);
+    setPermissionIssue(null);
     const version = runVersion.current;
     const isCurrent = () => version === runVersion.current;
     try { await effect(isCurrent); }
-    catch (caught) { if (isCurrent()) setError(messageForError(caught)); }
+    catch (caught) {
+      if (!isCurrent()) return;
+      setError(messageForError(caught));
+      setPermissionIssue(chatLocationPermissionIssue(caught));
+    }
     finally {
       inFlight.current = false;
       if (isCurrent()) setBusy(false);
@@ -120,7 +128,7 @@ export function LocationChatPublicShare({ token, ownerId, initialHours, loadStat
   }} />;
   const defaultMinutes = initialHours ? Math.round(initialHours * 60) : 60;
   const validDefault = defaultMinutes >= 15 && defaultMinutes <= 120 ? defaultMinutes : 60;
-  return <LocationChatActionCard model={{
+  return <><LocationChatActionCard model={{
     phase: "review", title: "Public location link", mode: "current",
     description: feedback ?? "Anyone with the link can see this location until it expires. You can stop access at any time.",
     dismissLabel: "Back", confirmLabel: point ? "Create public link" : "Preview current location",
@@ -131,8 +139,10 @@ export function LocationChatPublicShare({ token, ownerId, initialHours, loadStat
     if (!event.nativeEvent.isTrusted) return;
     void run(async (isCurrent) => {
       if (!point) {
+        const requestedMinutes = input.durationMinutes ?? validDefault;
+        onDurationChange?.(requestedMinutes);
         const position = await capture();
-        if (isCurrent()) { setMinutes(input.durationMinutes ?? validDefault); setPoint(position); }
+        if (isCurrent()) { setMinutes(requestedMinutes); setPoint(position); }
         return;
       }
       if (Date.now() - Date.parse(point.capturedAt) > 55_000) {
@@ -150,5 +160,5 @@ export function LocationChatPublicShare({ token, ownerId, initialHours, loadStat
       setInvite({ ...created.invite, publicUrl: created.publicUrl });
       setPoint(null);
     });
-  }} />;
+  }} /><LocationChatPermissionRecovery issue={permissionIssue} /></>;
 }
