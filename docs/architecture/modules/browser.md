@@ -52,9 +52,19 @@ An ambiguous match requires owner selection. Unsaved logins, passkeys and CAPTCH
 retain manual takeover. Autonomous network authority covers only the exact
 verified native sign-in POST and its observed same-origin GET redirects.
 Other submissions retain their existing review requirements. Unsupported forms
-return to owner control. Passwords and TOTP values never enter model arguments,
-observations, previews or task transcripts. The private entry fence ends only
-after verified field cleanup and a fresh safe observation.
+return to owner control. The private hand keeps passwords and TOTP values out of
+model arguments and task transcripts. Protected entry suppresses model
+observations and previews. Before the private hand resumes model observation, it
+verifies field cleanup and refuses exact secret echoes in native DOM text, live
+form values and open shadow roots. Closed shadow roots and embedded documents are
+refused because this guard cannot inspect their complete rendered content.
+
+Manual Resume uses the owner's explicit handback, its existing field-clear check
+and a fresh observation.
+
+This check does not attest arbitrary canvas or image pixels, or script changes
+after observation resumes. Those limits remain part of the pending qualification;
+the source candidate's readiness flags remain closed.
 
 The owner selects a custody access duration when saving, may renew it, and can
 remove or rotate a record. Source revisions, record generations, recipient keys,

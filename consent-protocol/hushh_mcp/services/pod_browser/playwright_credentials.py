@@ -39,18 +39,36 @@ def totp(secret: bytearray, *, now: float | None = None) -> bytearray:
         key[:] = b"\0" * len(key)
 
 
-async def require_clear_inputs(page, *, cdp=None, frame_id=None) -> None:
-    from .playwright_secret_cleanup import trusted_boolean
+async def require_clear_inputs(
+    page, *, cdp=None, frame_id=None, private_entry: bool = False
+) -> None:
+    from .playwright_secret_cleanup import require_verifiable_shadow_roots, trusted_boolean
 
+    # Explicit owner handback retains its existing top-document clear-field
+    # check. Automatic private entry additionally attests its supported DOM.
+    if private_entry:
+        await require_verifiable_shadow_roots(cdp)
     if not await trusted_boolean(
         cdp,
         frame_id,
-        """() => {
+        """privateEntry => {
         const getter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').get;
-        return [...document.querySelectorAll('input[type="password"],input[autocomplete="one-time-code"]')]
-          .every(input => getter.call(input).length === 0);
+        const shadow = Object.getOwnPropertyDescriptor(Element.prototype, 'shadowRoot').get;
+        const roots = [document];
+        for (let index = 0; index < roots.length; index++) {
+          for (const el of roots[index].querySelectorAll('*')) {
+            if (el instanceof HTMLInputElement &&
+                (el.type === 'password' || el.autocomplete === 'one-time-code') &&
+                getter.call(el).length !== 0) return false;
+            if (privateEntry) {
+              const nested = shadow.call(el);
+              if (nested) roots.push(nested);
+            }
+          }
+        }
+        return true;
     }""",
-        None,
+        private_entry,
     ):
         raise BrowserRefused("BROWSER_SECRET_FIELDS_NOT_CLEARED")
 
@@ -179,7 +197,14 @@ class PrivateEntryTargets:
         self.original_cleared = True
 
     async def reject_echo(self, lease: CredentialLease) -> None:
+        from .playwright_secret_cleanup import require_verifiable_shadow_roots
+
         # Exact-value refusal is a disclosure guard, never a login classifier.
+        # Live values and shadow trees are absent from light DOM serialization.
+        # This does not attest pixel content or future script mutations.
+        await require_verifiable_shadow_roots(
+            self.navigation_cleanup.cdp if self.navigation_cleanup else None
+        )
         values = [lease.password.decode("utf-8")]
         if self._otp_code is not None:
             values.append(self._otp_code.decode("ascii"))
@@ -189,6 +214,22 @@ class PrivateEntryTargets:
                 const documentText = document.documentElement;
                 const texts = [documentText?.outerHTML || '', documentText?.textContent || '', location.href];
                 try { texts.push(decodeURIComponent(location.href)); } catch {}
+                const shadow = Object.getOwnPropertyDescriptor(Element.prototype, 'shadowRoot').get;
+                const input = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').get;
+                const textarea = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').get;
+                const select = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').get;
+                const roots = [document];
+                for (let index = 0; index < roots.length; index++) {
+                  const root = roots[index];
+                  if (root !== document) texts.push(root.innerHTML, root.textContent || '');
+                  for (const el of root.querySelectorAll('*')) {
+                    if (el instanceof HTMLInputElement) texts.push(input.call(el));
+                    else if (el instanceof HTMLTextAreaElement) texts.push(textarea.call(el));
+                    else if (el instanceof HTMLSelectElement) texts.push(select.call(el));
+                    const nested = shadow.call(el);
+                    if (nested) roots.push(nested);
+                  }
+                }
                 return values.every(value => texts.every(text => !text.includes(value)));
             }""",
                 values,
@@ -206,6 +247,7 @@ class PrivateEntryTargets:
                 self.page,
                 cdp=self.navigation_cleanup.cdp if self.navigation_cleanup else None,
                 frame_id=self.navigation_cleanup.frame_id if self.navigation_cleanup else None,
+                private_entry=True,
             )
             self.cleared = True
         finally:

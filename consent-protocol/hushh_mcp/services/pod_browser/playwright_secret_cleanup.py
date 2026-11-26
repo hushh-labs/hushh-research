@@ -59,6 +59,36 @@ async def trusted_boolean(cdp, frame_id, script, arguments):
     return await trusted_value(cdp, frame_id, script, arguments) is True
 
 
+async def require_verifiable_shadow_roots(cdp) -> None:
+    """Closed roots and embedded documents cannot be attested by this guard.
+
+    CDP reports their existence independently of page-controlled JavaScript.
+    Native user-agent roots remain covered through their host's native value
+    getter; an absent/malformed discovery result is never evidence of safety.
+    """
+    try:
+        result = await cdp.send("DOM.getDocument", {"depth": -1, "pierce": True})
+        root = result["root"]
+        if root.get("nodeType") != 9:
+            raise ValueError()
+        pending = [root]
+        while pending:
+            node = pending.pop()
+            if node.get("nodeName", "").upper() in ("IFRAME", "FRAME", "OBJECT", "EMBED"):
+                raise ValueError()
+            if node.get("shadowRootType") not in (None, "open", "user-agent"):
+                raise ValueError()
+            for key in ("children", "shadowRoots"):
+                children = node.get(key, [])
+                if not isinstance(children, list):
+                    raise ValueError()
+                pending.extend(children)
+            if node.get("contentDocument") is not None:
+                raise ValueError()
+    except Exception:
+        raise BrowserRefused("BROWSER_SECRET_OBSERVATION_UNVERIFIABLE") from None
+
+
 class SerializedFormCleanup:
     def __init__(self, cdp, frame_id: str, *, expected_target=None) -> None:
         self.cdp, self.frame_id = cdp, frame_id

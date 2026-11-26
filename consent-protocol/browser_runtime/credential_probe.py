@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import json
 import tempfile
 import time
@@ -50,7 +51,54 @@ HTML = b"""<!doctype html><head><link rel="icon" href="data:,"></head><form meth
 </form>"""
 
 
-async def probe(executable: Path) -> dict:
+ECHO_CASES = (
+    "light_dom",
+    "input_value",
+    "textarea_value",
+    "open_shadow_text",
+    "open_shadow_value",
+    "closed_shadow",
+    "iframe_value",
+)
+
+
+def echoed_document(kind: str) -> bytes:
+    encoded = base64.b64encode(b"synthetic-private-password").decode("ascii")
+    if kind == "light_dom":
+        script = "document.querySelector('#echo').textContent=atob(encoded);"
+    elif kind in ("input_value", "textarea_value"):
+        tag = "input" if kind == "input_value" else "textarea"
+        script = (
+            f"const field=document.createElement('{tag}'); document.body.append(field);"
+            "field.value=atob(encoded);"
+            "Object.defineProperty(field,'value',{get:()=>''});"
+        )
+    elif kind == "iframe_value":
+        script = (
+            "const frame=document.createElement('iframe');frame.sandbox='allow-scripts';"
+            "frame.srcdoc='<input id=field><script>document.querySelector(\"#field\").value=atob(\"'+encoded+'\")<\\/script>';"
+            "document.body.append(frame);"
+        )
+    else:
+        mode = "closed" if kind == "closed_shadow" else "open"
+        script = f"const root=document.querySelector('#echo').attachShadow({{mode:'{mode}'}});"
+        script += (
+            "root.textContent=atob(encoded);"
+            if kind == "open_shadow_text"
+            else "const field=document.createElement('input');root.append(field);field.value=atob(encoded);"
+        )
+    # No decoded canary exists in response markup or ordinary textContent.
+    return (
+        "<head><link rel=icon href='data:,'></head><body><div id=echo></div><script>"
+        f"const encoded='{encoded}';"
+        + script
+        + "Object.defineProperties(document.documentElement,{outerHTML:{get:()=>''},textContent:{get:()=>''}})</script>"
+    ).encode()
+
+
+async def probe(
+    executable: Path, *, echo_case: str = "light_dom", manual_control: bool = False
+) -> dict:
     import httpcore
     from playwright.async_api import BrowserType
 
@@ -155,7 +203,7 @@ async def probe(executable: Path) -> dict:
                 body = (
                     b'<head><link rel="icon" href="data:,"></head><p>Signed in</p>'
                     if not state["echo"]
-                    else b"<head><link rel=icon href='data:,'></head><p>synthetic-private-password</p><script>Object.defineProperties(document.documentElement,{outerHTML:{get:()=>''},textContent:{get:()=>''}})</script>"
+                    else echoed_document(echo_case)
                 )
             elif path == "/login":
                 body = HTML
@@ -301,11 +349,59 @@ async def probe(executable: Path) -> dict:
             raise BrowserRefused("BROWSER_CREDENTIAL_PROBE_FAILED")
         if state["reviews"] != ["disclose"]:
             raise BrowserRefused("BROWSER_CREDENTIAL_PROBE_FAILED")
+        if manual_control:
+            from hushh_mcp.services.pod_browser.playwright_credentials import require_clear_inputs
+
+            for surface in ("closed_shadow", "iframe"):
+                await control.take_control()
+                await driver._page.evaluate(
+                    """surface => {
+                    document.body.replaceChildren();
+                    const host = document.createElement('div'); document.body.append(host);
+                    if (surface === 'closed_shadow') host.attachShadow({mode:'closed'}).textContent='Owner content';
+                    else { const frame=document.createElement('iframe');frame.srcdoc='Owner content';host.append(frame); }
+                    for (const kind of ['password','otp']) {
+                      const field=document.createElement('input');field.id=kind;
+                      if (kind === 'password') field.type='password'; else field.autocomplete='one-time-code';
+                      document.body.append(field);
+                    }
+                }""",
+                    surface,
+                )
+                try:
+                    await require_clear_inputs(
+                        driver._page,
+                        cdp=driver._cdp,
+                        frame_id=driver._main_frame_id,
+                        private_entry=True,
+                    )
+                except BrowserRefused as exc:
+                    if exc.code != "BROWSER_SECRET_OBSERVATION_UNVERIFIABLE":
+                        raise
+                else:
+                    raise AssertionError("BROWSER_PROBE_PRIVATE_SURFACE_REFUSAL_FAILED")
+                for kind in ("password", "otp"):
+                    await driver._page.evaluate(
+                        "kind => document.getElementById(kind).value='synthetic-uncleared'", kind
+                    )
+                    try:
+                        await control.resume_agent()
+                    except BrowserRefused as exc:
+                        if exc.code != "BROWSER_SECRET_FIELDS_NOT_CLEARED":
+                            raise
+                    else:
+                        raise AssertionError("BROWSER_PROBE_MANUAL_CLEAR_CHECK_FAILED")
+                    await driver._page.evaluate(
+                        "kind => document.getElementById(kind).value=''", kind
+                    )
+                await control.resume_agent()
+                if await control.require_model_observation() != control.control_epoch:
+                    raise BrowserRefused("BROWSER_CREDENTIAL_PROBE_FAILED")
         await control.execute(
             BrowserAction(
                 operation="navigate",
                 sequence=control.next_sequence,
-                control_epoch=2,
+                control_epoch=control.control_epoch,
                 url=ORIGIN + "/login",
             )
         )
@@ -313,7 +409,10 @@ async def probe(executable: Path) -> dict:
         try:
             await port.use(
                 request.model_copy(
-                    update={"operation_id": "credential_probe_echo", "control_epoch": 2}
+                    update={
+                        "operation_id": "credential_probe_echo",
+                        "control_epoch": control.control_epoch,
+                    }
                 )
             )
         except BrowserRefused:
@@ -334,6 +433,8 @@ async def probe(executable: Path) -> dict:
             "navigation_cleanup": "passed",
             "model_observation_fence": "passed",
             "dom_echo_refusal": "passed",
+            "rendered_echo_case": echo_case,
+            "explicit_manual_handback": "passed" if manual_control else "not_run",
             "mutable_buffers_scrubbed": "passed",
             "direct_totp_entry": "passed",
             "autonomous_without_owner_review": "passed",
@@ -352,8 +453,28 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--executable", type=Path, required=True)
     args = parser.parse_args()
+
+    async def all_cases():
+        results = [
+            await probe(args.executable, echo_case=case, manual_control=index == 0)
+            for index, case in enumerate(ECHO_CASES)
+        ]
+        return {
+            **results[0],
+            "rendered_echo_refusals": [result["rendered_echo_case"] for result in results],
+            "post_submissions": sum(result["post_submissions"] for result in results),
+            "host_observed_auth_redirects": sum(
+                result["host_observed_auth_redirects"] for result in results
+            ),
+            "limits": [
+                "pixel_content_unattested",
+                "future_script_mutations_unattested",
+                "renderer_heap_zeroization_unattested",
+            ],
+        }
+
     try:
-        result = asyncio.run(probe(args.executable))
+        result = asyncio.run(all_cases())
     except BaseException:
         # Browser diagnostics may contain private document state. Fixed code only.
         print(

@@ -628,6 +628,119 @@ def _credential_fixture(policy="autonomous"):
 
 
 @pytest.mark.parametrize(
+    "termination,pending_stage",
+    [
+        ("stop", "lease"),
+        ("expiry", "lease"),
+        ("update_drain", "lease"),
+        ("stop", "refusal_cleanup"),
+    ],
+)
+async def test_credential_cancellation_joins_teardown_and_releases_admission(
+    monkeypatch, termination, pending_stage
+):
+    from hushh_mcp.services.pod_browser.credential_use import BrowserCredentialUse
+    from tests.helpers.pod_browser import shared_readiness
+
+    sensitive = _credential_fixture()
+    fixture = task_runtime_fixture(
+        monkeypatch,
+        ready=shared_readiness(
+            credential_entry_verified=True,
+            credential_cleanup_verified=True,
+            credential_isolation_verified=True,
+        ),
+    )
+    started = await approved_task(fixture)
+    task = fixture.runtime._tasks[started.binding.task_id]
+    control = task.control
+    for method in ("verify_credential_targets", "fill_credentials", "require_clear_secret_inputs"):
+        monkeypatch.setattr(
+            fixture.driver, method, getattr(sensitive.driver, method), raising=False
+        )
+    if pending_stage == "refusal_cleanup":
+
+        async def manual_required(request):
+            raise BrowserRefused("BROWSER_CREDENTIAL_MANUAL_REQUIRED")
+
+        monkeypatch.setattr(fixture.driver, "verify_credential_targets", manual_required)
+        fixture.driver.entered.clear()
+        fixture.driver.release = asyncio.Event()
+    control.credentials = BrowserCredentialUse(
+        control, sensitive.source, task.consent, allowed_origins=[sensitive.request.origin]
+    )
+    control.credentials.selection = sensitive.request.model_copy(
+        update={"control_epoch": control.control_epoch}
+    )
+    closing_entered, release_close = asyncio.Event(), asyncio.Event()
+    original_close = fixture.driver.close
+    worker = shutdown = None
+
+    async def close():
+        closing_entered.set()
+        await release_close.wait()
+        await original_close()
+
+    try:
+        await fixture.runtime.use_credential(
+            fixture.owner,
+            task.binding.task_id,
+            handle=sensitive.request.handle,
+            operation_id=sensitive.request.operation_id,
+            control_epoch=control.control_epoch,
+        )
+        worker = task.credential_worker
+        entered = sensitive.entered if pending_stage == "lease" else fixture.driver.entered
+        await asyncio.wait_for(entered.wait(), 1)
+        monkeypatch.setattr(fixture.driver, "close", close)
+        if termination == "stop":
+            shutdown = asyncio.create_task(
+                fixture.runtime.control(
+                    fixture.owner, task.binding.task_id, "cancel", control.control_epoch
+                )
+            )
+        elif termination == "update_drain":
+            shutdown = asyncio.create_task(fixture.runtime.drain())
+        else:
+            monkeypatch.setattr(
+                fixture.runtime._lifecycle, "_clock", lambda: task.binding.expires_at
+            )
+            shutdown = asyncio.create_task(task.finished.wait())
+        await asyncio.wait_for(closing_entered.wait(), 2)
+        assert fixture.admission._states["epoch"].active == 1
+        assert not task.finished.is_set()
+        release_close.set()
+        done, _ = await asyncio.wait({shutdown}, timeout=2)
+        assert shutdown in done, "credential cancellation must not join its own lifecycle close"
+        await shutdown
+        assert worker.cancelled()
+        assert task.closed and task.finished.is_set()
+        assert fixture.admission._states["epoch"].active == 0
+        assert fixture.driver.calls.count("close") >= 1
+        assert sensitive.driver.fills == 0
+        assert bool(sensitive.leases) == (pending_stage == "lease")
+        assert all(
+            not any(lease.password) and not any(lease.username) for lease in sensitive.leases
+        )
+    finally:
+        sensitive.release.set()
+        release_close.set()
+        if fixture.driver.release is not None:
+            fixture.driver.release.set()
+        # A regression leaves the worker joining close while close joins it.
+        # A second cancellation breaks only this synthetic task's cycle so a
+        # failing negative control cannot retain test workers or admission.
+        if worker is not None and not worker.done():
+            worker.cancel()
+        if worker is not None:
+            await asyncio.gather(worker, return_exceptions=True)
+        pending = [job for job in (shutdown, task.closing) if job is not None]
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        await fixture.runtime.drain()
+
+
+@pytest.mark.parametrize(
     "policy,fault",
     [
         ("autonomous", None),

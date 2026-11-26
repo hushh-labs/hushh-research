@@ -454,3 +454,43 @@ async def test_private_entry_bridge_scrubs_worker_buffers_and_rechecks_before_ne
         lease.clear()
         await host.close()
         await asyncio.wait_for(serving, 1)
+
+
+@pytest.mark.parametrize(
+    "shadow_kind",
+    ["open", "user-agent", "closed", "unknown", "missing", "iframe", "embedded_document"],
+)
+async def test_private_entry_observation_refuses_unverifiable_shadow_roots(shadow_kind):
+    from hushh_mcp.services.pod_browser.playwright_credentials import require_clear_inputs
+
+    class CDP:
+        async def send(self, method, params):
+            if method == "DOM.getDocument":
+                assert params == {"depth": -1, "pierce": True}
+                if shadow_kind == "missing":
+                    return {}
+                if shadow_kind == "iframe":
+                    return {"root": {"nodeType": 9, "children": [{"nodeName": "IFRAME"}]}}
+                if shadow_kind == "embedded_document":
+                    return {
+                        "root": {"nodeType": 9, "children": [{"contentDocument": {"nodeType": 9}}]}
+                    }
+                return {
+                    "root": {
+                        "nodeType": 9,
+                        "children": [{"shadowRoots": [{"shadowRootType": shadow_kind}]}],
+                    }
+                }
+            if method == "Page.createIsolatedWorld":
+                return {"executionContextId": 1}
+            assert method == "Runtime.evaluate"
+            return {"result": {"value": True}}
+
+    if shadow_kind in ("open", "user-agent"):
+        await require_clear_inputs(None, cdp=CDP(), frame_id="top", private_entry=True)
+    else:
+        # A page-world traversal returning true cannot attest closed/unknown roots.
+        with pytest.raises(BrowserRefused, match="SECRET_OBSERVATION_UNVERIFIABLE"):
+            await require_clear_inputs(None, cdp=CDP(), frame_id="top", private_entry=True)
+    # The same clear-field page remains eligible for explicit owner handback.
+    await require_clear_inputs(None, cdp=CDP(), frame_id="top")

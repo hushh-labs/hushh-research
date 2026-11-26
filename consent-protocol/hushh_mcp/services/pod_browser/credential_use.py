@@ -211,8 +211,10 @@ class BrowserCredentialUse:
                     try:
                         async with control._lock:
                             await control.finish_secret_entry(epoch)
-                    except BaseException:
+                    except BaseException as cleanup_error:
                         await asyncio.shield(control.abort_secret_entry(uncertain=False))
+                        if isinstance(cleanup_error, asyncio.CancelledError):
+                            raise
                         raise exc from None
                     self.owner_pending = True
                     if self.pending:
@@ -221,4 +223,7 @@ class BrowserCredentialUse:
                 # Never release an observation fence over possibly populated
                 # fields or retry an uncertain form transmission.
                 await asyncio.shield(control.abort_secret_entry(uncertain=not submitted))
+                # Teardown may be joining this worker; do not re-enter it as a refusal.
+                if isinstance(exc, asyncio.CancelledError):
+                    raise
                 raise BrowserRefused("BROWSER_OUTCOME_UNCERTAIN") from None
