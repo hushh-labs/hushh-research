@@ -22,8 +22,14 @@ export function resolvePhoneFailureMessage(error: unknown, fallback: string, bac
   if (code === "PHONE_TRANSFER_REAL_SMS_REQUIRED") return "A shared test code cannot transfer a number. Use fresh real SMS verification.";
   if (code === "PHONE_ALREADY_VERIFIED" || code === "PHONE_TEST_NUMBER_IN_USE") return "This phone number is verified for another account. Sign in to that account or use a different number.";
   if (code === "PHONE_VERIFICATION_CHANGED" || code === "phone-verification-required") return "Request a new verification code before trying again.";
-  if (["IDENTITY_PROVIDER_UNAVAILABLE", "PHONE_IDENTITY_SAVE_FAILED", "DATABASE_UNAVAILABLE"].includes(code)) return "Phone verification is temporarily unavailable. Wait a moment and retry.";
+  if (["IDENTITY_PROVIDER_UNAVAILABLE", "PHONE_IDENTITY_SAVE_FAILED", "DATABASE_UNAVAILABLE", "PHONE_TEST_START_UNAVAILABLE"].includes(code)) return "Phone verification is temporarily unavailable. Wait a moment and retry.";
   if (["credential-already-in-use", "phone-number-already-exists"].includes(code)) return PHONE_CONFLICT_COPY.inApp;
+  if (code === "phone-already-linked-to-current-user") return "This phone number is already linked to your account.";
+  if (code === "phone-replace-required") return "Use Change phone number to replace the current number.";
+  if (code === "session_changed" || code === "PHONE_VERIFICATION_ACCOUNT_CHANGED") return "Your signed-in account changed. Start phone verification again.";
+  if (code === "network-request-failed") return "Phone verification could not reach the network. Check your connection and try again.";
+  if (["captcha-check-failed", "invalid-app-credential", "unauthorized-domain", "app-not-authorized", "missing-client-identifier"].includes(code)) return "Browser security verification could not complete for this domain. Refresh the page and try again.";
+  if (code === "quota-exceeded" || code === "billing-not-enabled") return "SMS verification has reached its temporary limit right now. Wait a bit or use an approved test number.";
   if (code === "code-expired") return "This verification code has expired. Please request a new code.";
   if (code === "invalid-verification-code" || code === "UAT_PHONE_TEST_INVALID_CODE") return "That code isn't right. Check it and try again.";
   if (code === "invalid-phone-number") return "Enter a valid phone number with your country code and try again.";

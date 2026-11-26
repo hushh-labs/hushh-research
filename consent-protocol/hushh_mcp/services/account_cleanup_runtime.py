@@ -15,6 +15,7 @@ def wake_cleanup_worker() -> None:
 
 
 async def _account_deletion_cleanup_loop(interval_seconds: float) -> None:
+    from db.connection import DedicatedConnectionCapacityError
     from hushh_mcp.services.account_deletion_lifecycle_service import (
         drain_account_deletion_cleanup_intents,
     )
@@ -27,6 +28,8 @@ async def _account_deletion_cleanup_loop(interval_seconds: float) -> None:
             await drain_account_deletion_cleanup_intents()
         except asyncio.CancelledError:
             return
+        except DedicatedConnectionCapacityError:
+            logger.info("account_deletion.cleanup_deferred_db_busy")
         except Exception:
             logger.exception("account_deletion.cleanup_loop_failed")
         try:
