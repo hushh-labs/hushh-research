@@ -112,7 +112,7 @@ it("submits the current card without a bank or design chooser so the service can
 
 vi.mock("@/lib/wallet/card-scan-image", async importOriginal => ({ ...await importOriginal<typeof import("@/lib/wallet/card-scan-image")>(), validateCardImage: vi.fn().mockResolvedValue(undefined) }));
 const reading = (fields: { pan?: string; cardholderName?: string; expiry?: string }) => ({ fields, states: { pan: fields.pan ? "recognized" : "missing", cardholderName: fields.cardholderName ? "recognized" : "missing", expiry: fields.expiry ? "recognized" : "missing" } });
-async function selectPhoto() { fireEvent.change(screen.getByLabelText("Choose a card photo"), { target: { files: [new File(["synthetic"], "card.jpg", { type: "image/jpeg" })] } }); await waitFor(() => expect(screen.getByRole("button", { name: "Read card" })).not.toBeDisabled()); fireEvent.click(screen.getByRole("button", { name: "Read card" })); }
+async function selectPhoto() { const take = screen.queryByRole("button", { name: "Take photo", exact: true }); if (take?.getAttribute("aria-expanded") === "false") fireEvent.click(take); fireEvent.change(screen.getByLabelText("Choose a card photo"), { target: { files: [new File(["synthetic"], "card.jpg", { type: "image/jpeg" })] } }); await waitFor(() => expect(screen.getByRole("button", { name: "Read card" })).not.toBeDisabled()); fireEvent.click(screen.getByRole("button", { name: "Read card" })); }
 
 it("offers camera and gallery, links validation errors, and has no security-code controls", () => {
   render(<SecureCardAddForm onSubmit={vi.fn()} />);
@@ -135,7 +135,10 @@ it("submits once, preserves retry identity and clears details after success", as
 it("fills readable scan details only after crop confirmation and never saves automatically", async () => {
   scan.read.mockResolvedValue(reading({ pan: "5555555555554444", cardholderName: "Scanned Owner", expiry: "11/99" }));
   const save = vi.fn(); render(<SecureCardAddForm onSubmit={save} scanInToolbar />);
-  expect(screen.getByRole("button", { name: "Scan card" }).querySelector("img")).not.toBeNull();
+  expect(screen.queryByRole("button", { name: "Scan card" })).toBeNull();
+  await selectPhoto();
+  await screen.findByText("2 of 2 · Back of card");
+  expect(screen.getByLabelText("Card number")).toHaveValue("");
   await selectPhoto(); await waitFor(() => expect(screen.getByLabelText("Card number")).toHaveValue("5555 5555 5555 4444"));
   expect(screen.getByLabelText("Name on card")).toHaveValue("SCANNED OWNER"); expect(screen.getByLabelText("Expiry (MM/YY)")).toHaveValue("11/99"); expect(save).not.toHaveBeenCalled();
   expect(scan.read).toHaveBeenCalledWith(expect.any(Blob), expect.any(AbortSignal), { corners: expect.any(Array) });
@@ -147,15 +150,20 @@ it("preserves manual corrections and partial scan fields during rescans", async 
   expect(screen.getByLabelText("Name on card")).toHaveValue("CORRECT OWNER"); expect(screen.getByLabelText("Card number")).toHaveValue("");
 });
 it.each([{}, { expiry: "11/99" }])("keeps toolbar scanning reachable after an unclear reading %j", async fields => {
-  scan.read.mockResolvedValueOnce(reading(fields)).mockResolvedValueOnce(reading({ pan: "5555555555554444", expiry: "11/99", cardholderName: "Scanned Owner" }));
+  scan.read.mockResolvedValueOnce(reading(fields)).mockResolvedValueOnce(reading({})).mockResolvedValue(reading({ pan: "5555555555554444", expiry: "11/99", cardholderName: "Scanned Owner" }));
   scan.native.mockReturnValue(true);
   scan.pick.mockResolvedValue(new Blob(["synthetic photo"], { type: "image/jpeg" }));
   const save = vi.fn(); render(<SecureCardAddForm onSubmit={save} scanInToolbar />);
   await selectPhoto();
+  await screen.findByText("2 of 2 · Back of card");
+  await selectPhoto();
   await waitFor(() => expect(screen.getByTestId("wallet-scan-field-status")).toBeInTheDocument());
   fireEvent.click(screen.getByRole("button", { name: "Take photo", exact: true }));
+  fireEvent.click(screen.getByRole("button", { name: "Scan card", exact: true }));
   await waitFor(() => expect(screen.getByRole("button", { name: "Read card", exact: true })).not.toBeDisabled());
   fireEvent.click(screen.getByRole("button", { name: "Read card", exact: true }));
+  await screen.findByText("2 of 2 · Back of card");
+  await selectPhoto();
   await waitFor(() => expect(screen.getByLabelText("Card number")).toHaveValue("5555 5555 5555 4444"));
   expect(scan.pick).toHaveBeenCalledWith("camera", expect.any(AbortSignal));
   expect(screen.getByRole("button", { name: "Choose from photos", exact: true })).toBeEnabled();
@@ -336,4 +344,45 @@ it.each([
   await waitFor(() => expect(screen.getByTestId("secure-card-save")).toBeEnabled());
   fireEvent.click(screen.getByTestId("secure-card-save"));
   await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ pan, brand, expiryMonth: 12, expiryYear: 2030 })));
+});
+
+it("merges front and back into editable fields and only saves after explicit submission", async () => {
+  scan.read.mockResolvedValueOnce(reading({ pan: "5555555555554444" }))
+    .mockResolvedValueOnce(reading({ cardholderName: "Scanned Owner", expiry: "11/99" }));
+  const save = vi.fn().mockResolvedValue(undefined);
+  render(<SecureCardAddForm onSubmit={save} scanInToolbar />);
+  fireEvent.change(screen.getByLabelText("Name on card"), { target: { value: "Correct Owner" } });
+  await selectPhoto();
+  await screen.findByText("2 of 2 · Back of card");
+  expect(screen.getByLabelText("Card number")).toHaveValue("");
+  await selectPhoto();
+  await waitFor(() => expect(screen.getByLabelText("Card number")).toHaveValue("5555 5555 5555 4444"));
+  expect(screen.getByLabelText("Name on card")).toHaveValue("CORRECT OWNER");
+  expect(screen.getByLabelText("Expiry (MM/YY)")).toHaveValue("11/99");
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText("Expiry (MM/YY)"), { target: { value: "12/99" } });
+  await waitFor(() => expect(screen.getByTestId("secure-card-save")).toBeEnabled());
+  submit();
+  await waitFor(() => expect(save).toHaveBeenCalledOnce());
+  expect(save.mock.calls[0][0]).toMatchObject({ pan: "5555555555554444", cardholderName: "CORRECT OWNER", expiryMonth: 12, expiryYear: 2099 });
+});
+it("clears a cancelled front reading before starting another front/back scan", async () => {
+  scan.read.mockResolvedValueOnce(reading({ pan: "5555555555554444" }))
+    .mockResolvedValueOnce(reading({ pan: "4242424242424242" }))
+    .mockResolvedValueOnce(reading({ expiry: "11/99" }));
+  render(<SecureCardAddForm onSubmit={vi.fn()} scanInToolbar />);
+  await selectPhoto(); await screen.findByText("2 of 2 · Back of card");
+  fireEvent.click(screen.getByRole("button", { name: "Close scanner" }));
+  expect(screen.queryByRole("button", { name: "Scan card" })).toBeNull();
+  await selectPhoto(); await screen.findByText("2 of 2 · Back of card"); await selectPhoto();
+  await waitFor(() => expect(screen.getByLabelText("Card number")).toHaveValue("4242 4242 4242 4242"));
+});
+it("Back closes the front/back panel without filling or submitting the form", async () => {
+  scan.read.mockResolvedValueOnce(reading({ pan: "5555555555554444" }));
+  const save = vi.fn(); render(<SecureCardAddForm backRoute="/one/wallet" onSubmit={save} scanInToolbar />);
+  await selectPhoto(); await screen.findByText("2 of 2 · Back of card");
+  act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
+  expect(screen.getByLabelText("Card number")).toHaveValue("");
+  expect(screen.queryByRole("button", { name: "Scan card" })).toBeNull();
+  expect(save).not.toHaveBeenCalled();
 });

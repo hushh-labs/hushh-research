@@ -264,7 +264,7 @@ function WalletScanHandoff({ source, ownerId, form, backRoute, onReturn }: {
     style={{ visibility: ready ? "visible" : "hidden" }} role="dialog" aria-modal="true" aria-label="Scan card">
     <div className="mx-auto flex max-w-lg flex-col gap-5">
       <header className="flex min-h-11 items-center justify-between"><h2>Scan card</h2><Button variant="ghost" onClick={onReturn}>Cancel</Button></header>
-      <WalletCardScanner active={ready} disabled={false} backRoute={backRoute} initialSource={source}
+      <WalletCardScanner twoSided active={ready} disabled={false} backRoute={backRoute} initialSource={source}
         onExit={onReturn} onRead={form.readScan} onBusyChange={form.setScanning} />
     </div>
   </div>, document.body);
