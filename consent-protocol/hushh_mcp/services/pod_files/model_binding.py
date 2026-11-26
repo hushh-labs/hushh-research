@@ -29,14 +29,34 @@ class AzureOrganizationBinding:
         )
 
 
-def organization_model_binding() -> ManagedGeminiRuntimeBinding | AzureOrganizationBinding:
+@dataclass(frozen=True)
+class SentinelOrganizationBinding:
+    project: str
+
+    def build_adk_model(self, manifest_model: str) -> Any:
+        from hushh_mcp.runtime_providers.sentinel_gemini import build_sentinel_gemini_adk_model
+
+        return build_sentinel_gemini_adk_model(manifest_model)
+
+
+def organization_model_binding() -> (
+    ManagedGeminiRuntimeBinding | AzureOrganizationBinding | SentinelOrganizationBinding
+):
     """Never infer queue ownership from the model's billing project.
 
     A dev bridge is an explicit pod configuration, carried by the approved
     capability plan. A generic Gemini project override does not authorize it.
     Credentials remain with the attached runtime identity and ADC.
     """
-    if workload_platform() == "azure":
+    platform = workload_platform()
+    if platform == "ace":
+        sentinel_enabled = getattr(runtime_settings, "pod_sentinel_model_enabled", None)
+        if not callable(sentinel_enabled) or not sentinel_enabled():
+            raise FilesRefused("FILES_MODEL_UNAVAILABLE", 503)
+        from hushh_mcp.runtime_providers.sentinel_gemini import sentinel_vertex_project
+
+        return SentinelOrganizationBinding(sentinel_vertex_project())
+    if platform == "azure":
         from hushh_mcp.runtime_providers.azure_openai import azure_openai_topology
 
         from .azure_queue import queue_url
@@ -91,6 +111,11 @@ def organization_model_status() -> dict:
         return {
             "backgroundAvailable": True,
             "backgroundProvider": "Azure OpenAI through your pod's managed identity",
+        }
+    if isinstance(binding, SentinelOrganizationBinding):
+        return {
+            "backgroundAvailable": True,
+            "backgroundProvider": "Google Vertex AI through your Confidential Sandbox gateway",
         }
     bridge = (
         os.getenv("HUSHH_DEPLOY_ENV") == "dev"
