@@ -3,7 +3,7 @@
 import { useVault } from '@/lib/vault/vault-context';
 import { snapshotVaultSessionEpoch } from '@/lib/vault/session-epoch';
 import { useGoogleConnectorTransitionReview } from '@/components/connections/google-connector-transition-review';
-import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
+import { ownerRequiresByocIsolation } from '@/lib/one/byoc-isolation';
 import { connectGoogleConnector, connectRefusalMessage } from '@/lib/one/google-native-connect';
 import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-intent';
 
@@ -326,7 +326,7 @@ export function CalendarAgentPage({
     const activity = captureProductAttempt("calendar.connection.connect", operationOwnerId);
     activity.started();
     try {
-      const privateAgent = await ownerContentIsPrivate();
+      const privateAgent = await ownerRequiresByocIsolation();
       if (activeOwnerIdRef.current !== operationOwnerId) { popup?.close(); return; }
       if (privateAgent) {
         popup?.close();

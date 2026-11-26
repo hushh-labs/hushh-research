@@ -108,8 +108,8 @@ async def _require_shared_specialist_owner(owner_id: str) -> None:
     from hushh_mcp.services.personal_agent_hosting import get_owner_hosting_mode
 
     mode = await get_owner_hosting_mode(owner_id)
-    if mode != "shared":
-        if mode in {"byoc", "pending", "unplaced", "hussh_pods"}:
+    if mode not in {"shared", "hussh_pods"}:
+        if mode in {"byoc", "pending", "unplaced"}:
             raise HTTPException(404, detail="not found")
         raise HTTPException(503, detail={"code": "AGENT_HOSTING_UNAVAILABLE"})
 
