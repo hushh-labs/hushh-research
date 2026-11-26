@@ -1,5 +1,5 @@
 import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
-import { privateGoogleStatus, disconnectPrivateGoogle, PrivateGoogleUnsupportedError } from './private-google-connections';
+import { notifyMailGrantsChanged, privateGoogleStatus, disconnectPrivateGoogle, PrivateGoogleUnsupportedError } from './private-google-connections';
 import { trackEvent } from "@/lib/observability/client";
 import { ApiService } from "@/lib/services/api-service";
 import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
@@ -800,7 +800,11 @@ async function privateReceiptRead(mailbox: PrivateReceiptMailbox, owner: string,
     method: "POST", cache: "no-store", signal, headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ...body, credential_id: mailbox.credentialId }),
   }, false, undefined, undefined, current);
-  if (!response.ok) throw await extractLiveReceiptError(response, "Your private agent could not read the selected mailbox.");
+  if (!response.ok) {
+    const error = await extractLiveReceiptError(response, "Your private agent could not read the selected mailbox.");
+    if (current() && (error.code === "GMAIL_CONNECTION_CHANGED" || isReceiptConnectionLostError(error))) notifyMailGrantsChanged();
+    throw error;
+  }
   const result: unknown = await response.json();
   if (!current()) throw new Error("Mail session changed.");
   return result;

@@ -1,5 +1,6 @@
 import { parseMailBrief } from "@/lib/mail/mail-brief-client";
 import { z } from "zod";
+import { notifyMailGrantsChanged } from "./private-google-connections";
 import { ApiService } from "./api-service";
 import {
   evidenceSchema,
@@ -34,6 +35,10 @@ function mailFollowupsClient() {
       () => !signal.aborted,
     );
     if (!response.ok) {
+      if (response.status === 409) {
+        const error = await response.json().catch(() => null);
+        if (!signal.aborted && error?.detail?.code === "MAIL_CONNECTION_CHANGED") notifyMailGrantsChanged();
+      }
       if (response.status === 422)
         throw new Error(
           "The selected email does not establish that promise. Choose another message or describe the request more precisely.",
