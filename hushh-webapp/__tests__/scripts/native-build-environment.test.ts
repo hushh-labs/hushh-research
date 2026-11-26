@@ -3,9 +3,21 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { verifyPrebuiltNativeEnvironment, nativeProfileMetadata, resolveNativeBuildEnvironment } from "../../scripts/native/native-build-environment.mjs";
+import { verifyPrebuiltNativeEnvironment, isSharedDevSimulatorBuild, nativeProfileMetadata, resolveNativeBuildEnvironment } from "../../scripts/native/native-build-environment.mjs";
 
 const directories: string[] = [];
+it("enables the shared Dev simulator features only for the ordinary app on the pinned backend", () => {
+  const build = { APP_RUNTIME_PROFILE: "dev", NEXT_PUBLIC_BACKEND_URL: "https://consent-protocol-621416509462.us-central1.run.app" };
+  expect(isSharedDevSimulatorBuild(build)).toBe(true);
+  for (const override of [
+    { APP_RUNTIME_PROFILE: "uat" }, { APP_RUNTIME_PROFILE: "prod" },
+    { NEXT_PUBLIC_BACKEND_URL: "https://sandbox.example" },
+    { NEXT_PUBLIC_BACKEND_URL: build.NEXT_PUBLIC_BACKEND_URL + "/other" },
+    { NEXT_PUBLIC_SCOPE_COMMERCE_SANDBOX_ORIGIN: "https://sandbox.example" },
+    { NEXT_PUBLIC_IOS_BUNDLE_ID: "com.hushh.app.scopecommerce.sandbox" },
+  ]) expect(isSharedDevSimulatorBuild({ ...build, ...override })).toBe(false);
+});
+
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "native-profile-fixture-"));
   directories.push(directory);

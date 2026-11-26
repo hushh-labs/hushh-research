@@ -3,7 +3,7 @@
 import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
-import { NativeConnectWorkspace, type NativeConnectPerson } from "@/components/connect/native-connect-workspace";
+import { NativeConnectWorkspace, type NativeConnectModel, type NativeConnectPerson } from "@/components/connect/native-connect-workspace";
 import { navigateDirectMessage } from "@/lib/direct-messages/navigate-direct-message";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -608,7 +608,13 @@ export default function ConnectPageClient() {
   );
   const [surface, setSurface] = useState<ConnectSurface>(routeSurface);
   const requestedSurfaceRef = useRef<ConnectSurface | null>(null);
-  useEffect(() => { setSurface(routeSurface); requestedSurfaceRef.current = null; }, [routeSurface]);
+  useEffect(() => {
+    if (customNativePresentationEnabled() && routeSurface !== readConnectSurface(
+      new URLSearchParams(window.location.search).get(CONNECT_SURFACE_PARAM),
+    )) return;
+    setSurface(routeSurface);
+    requestedSurfaceRef.current = null;
+  }, [routeSurface]);
   const mutualPersonRef = surface === "all" ? searchParams.get(CONNECT_MUTUALS_PARAM)?.trim() || null : null;
   /** Which Circle flow, if any, the URL is asking for. Part of the scroll key
    *  below, because opening one is a new screen even though the path is not. */
@@ -692,7 +698,7 @@ export default function ConnectPageClient() {
     EMPTY_CIRCLES_SNAPSHOT,
   );
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const nativeConnectFrame = useRef<HTMLDivElement | null>(null);
+  const nativeInterface = customNativePresentationEnabled();
   const connectStackRef = useRef<HTMLDivElement | null>(null);
   const [stickyHeader, setStickyHeader] = useState<HTMLDivElement | null>(null);
   const [viewTabsNode, setViewTabsNode] = useState<HTMLDivElement | null>(null);
@@ -1633,7 +1639,13 @@ export default function ConnectPageClient() {
         setPendingRemoveTarget(null);
       }
       const href = `${ROUTES.CONNECT}?${params.toString()}`;
-      beginRouteTransition(href, () => router.push(href, { scroll: false }), "programmatic", "contextual");
+      if (customNativePresentationEnabled()) {
+        // Both tabs are views of this document. Commit the URL with the
+        // selection so a delayed router transition cannot undo the next tap.
+        window.history.pushState(null, "", href);
+      } else {
+        beginRouteTransition(href, () => router.push(href, { scroll: false }), "programmatic", "contextual");
+      }
     },
     [router, searchParams, surface],
   );
@@ -3297,9 +3309,8 @@ export default function ConnectPageClient() {
   );
   };
 
-  const fallback = (
+  const renderPage = (circleBody?: React.ReactNode) => (
     <AppPageShell
-      ref={nativeConnectFrame}
       as="main"
       data-connect-page=""
       // Connect owns its role scale; Profile typography stays scoped to Profile.
@@ -3347,21 +3358,17 @@ export default function ConnectPageClient() {
       }}
     >
       <SettingsPresentationProvider density="compact">
-        {isFocusedCircleTask || (surface === "circles" && customNativePresentationEnabled()) ? (
+        {isFocusedCircleTask || (surface === "circles" && nativeInterface) ? (
           <AppPageContentRegion className={CONNECT_PAGE_CONTENT_CLASSNAME}>
             <div className={cn("mx-auto w-full", circleFlowAction !== "circle-detail" && "max-w-[560px]")}>
-              <ConnectCirclesTab
-                nativePresentation={{ frameRef: nativeConnectFrame, selectSurface, ideas: circleIdeas,
-                  fallbackTabs: !isFocusedCircleTask ? <TopShellTabs tabSet={{ ...CONNECT_SURFACE_TAB_DEFINITION, activeValue: surface }} onValueChange={commitSurface} /> : undefined,
-                  includeIdeas: !isFocusedCircleTask,
-                }}
+              {circleBody ?? <ConnectCirclesTab
                 onStateChange={setCirclesState}
                 currentUserId={userId}
                 isActive={surface === "circles"}
                 onRequestConnection={sendConnectRequest}
                 onCancelConnectionRequest={cancelConnectionRequest}
                 refreshToken={circleRefreshToken}
-              />
+              />}
             </div>
           </AppPageContentRegion>
         ) : (
@@ -4096,8 +4103,7 @@ export default function ConnectPageClient() {
                       className={cn(CONNECT_SWIPE_PANE_INSET_CLASSNAME, "space-y-3 sm:space-y-4")}
                     >
 
-                      <ConnectCirclesTab
-                nativePresentation={{ frameRef: nativeConnectFrame, selectSurface, ideas: circleIdeas }}
+                      {circleBody ?? <ConnectCirclesTab
                         onSearchActiveChange={setCircleSearchActive}
                         createDialogOpen={createCircleDialogOpen}
                         onCreateDialogOpenChange={setCreateCircleDialogOpen}
@@ -4108,7 +4114,7 @@ export default function ConnectPageClient() {
                         onRequestConnection={sendConnectRequest}
                         onCancelConnectionRequest={cancelConnectionRequest}
                         refreshToken={circleRefreshToken}
-                      />
+                      />}
                       <div hidden={circleSearchActive}><CircleDiscoveryCardBody model={circleIdeas} /></div>
                     </div>
                   </SwipeViews>
@@ -4439,6 +4445,8 @@ export default function ConnectPageClient() {
       </SettingsPresentationProvider>
     </AppPageShell>
   );
+  if (!nativeInterface) return renderPage();
+
   const roster = connectionView === "connections";
   const nativePeople: NativeConnectPerson[] = roster ? sortedConnections.map(connection => ({
     key: `connection:${connection.connectionId}`, label: connectPersonName(connection),
@@ -4481,7 +4489,7 @@ export default function ConnectPageClient() {
       ],
     };
   });
-  return <NativeConnectWorkspace fallback={fallback} model={{
+  const connectionsModel: NativeConnectModel = {
     ...(pendingRemoveConnection ? { confirmation: {
       title: "Remove connection", description: `Remove ${connectPersonName(pendingRemoveConnection)} from your connections?`,
       confirm: { key: `remove-confirm:${pendingRemoveConnection.connectionId}`, label: busyId === pendingRemoveId ? "Removing…" : "Remove", enabled: !busyId, destructive: true, run: () => handleRemove(pendingRemoveConnection) },
@@ -4510,8 +4518,29 @@ export default function ConnectPageClient() {
     ],
     selectionMode: isSelectionMode, selectionCount: selectedPeople.size, selectionLimit: MAX_BULK_CONNECTION_REQUESTS,
     cancelSelection: () => { setIsSelectionMode(false); setSelectedPeople(new Map()); setShowLimitBanner(false); },
-    webOnly: surface === "circles" || (connectionView === "discover" && tab === "nearby"),
+    webOnly: connectionView === "discover" && tab === "nearby",
     webChildOpen: batchConnectDraft !== null || contactSync.resultsOpen || contactSync.discoverabilityConsentDialogProps.open || createCircleDialogOpen,
-  }} />;
+  };
 
+  return <ConnectCirclesTab
+    currentUserId={userId}
+    isActive={surface === "circles"}
+    onStateChange={setCirclesState}
+    onSearchActiveChange={setCircleSearchActive}
+    onRequestConnection={sendConnectRequest}
+    onCancelConnectionRequest={cancelConnectionRequest}
+    createDialogOpen={createCircleDialogOpen}
+    onCreateDialogOpenChange={setCreateCircleDialogOpen}
+    refreshToken={circleRefreshToken}
+    nativePresentation={{
+      selectSurface, ideas: circleIdeas, includeIdeas: !isFocusedCircleTask,
+      fallbackTabs: surface === "circles" && !isFocusedCircleTask
+        ? <TopShellTabs tabSet={{ ...CONNECT_SURFACE_TAB_DEFINITION, activeValue: surface }} onValueChange={commitSurface} />
+        : undefined,
+      render: (circleModel, circleBody) => <NativeConnectWorkspace
+        model={circleModel ?? connectionsModel}
+        renderFallback={() => renderPage(circleBody)}
+      />,
+    }}
+  />;
 }

@@ -13,7 +13,6 @@ import { useBackLayer } from "@/lib/navigation/back-layers";
 import { normalizeStaticExportPathname, ROUTES } from "@/lib/navigation/routes";
 import { TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
 import { groupByDate, type DueReceiptItem } from "./todo-list-presentation";
-import { preferredScheduledTasks, scheduledRunSummary, scheduledTaskLabels, type useScheduledTasksModel } from "@/components/scheduled-tasks/scheduled-tasks-panel";
 
 export type NativeTodoModel = {
   owner: string | null; current: () => boolean; ready: boolean; loading: boolean; canAdd: boolean;
@@ -24,7 +23,7 @@ export type NativeTodoModel = {
   openEditor: () => void; closeEditor: () => void;
   busy: boolean; savingTaskIds: ReadonlySet<string>; doneToday: number; totalToday: number;
   errors: readonly { label: string; retry: () => void }[];
-  webChildOpen?: boolean;
+  webChildOpen?: boolean; openSchedules?: () => void;
   openSources?: () => void; sourcesEnabled?: boolean; calendarIncomplete?: boolean;
   overflowHref: string | null;
   save: (draft: { title: string; date: string | null; time: string | null; notes: string | null }) => Promise<boolean>;
@@ -34,16 +33,14 @@ export type NativeTodoModel = {
 
 /** Feature values and callbacks only. Admission, retirement, feedback and draft
  * ordering belong to the same workspace boundary as Memory and Wallet. */
-type ScheduledRuns = { schedules?: ReturnType<typeof useScheduledTasksModel>; selectedSchedule?: string | null };
-
-export function NativeTodoWorkspace({ model, fallback, schedules, selectedSchedule }: ScheduledRuns & { model: NativeTodoModel; fallback: ReactNode }) {
+export function NativeTodoWorkspace({ model, fallback }: { model: NativeTodoModel; fallback: ReactNode }) {
   const presentation = useNativeWorkspacePresentation();
   const failed = presentation.status.phase === "web" && (presentation.status.reason === "unsupported" || presentation.status.reason === "failure");
   if (!customNativePresentationEnabled() || !model.owner || !model.ready || failed) return presentation.status.held ? <div aria-busy="true" /> : fallback;
-  return <NativeTodoBody model={model} presentation={presentation} schedules={schedules} selectedSchedule={selectedSchedule} fallback={fallback} />;
+  return <NativeTodoBody model={model} presentation={presentation} fallback={fallback} />;
 }
 
-function NativeTodoBody({ model, presentation, schedules, selectedSchedule, fallback }: ScheduledRuns & { model: NativeTodoModel; presentation: ReturnType<typeof useNativeWorkspacePresentation>; fallback: ReactNode }) {
+function NativeTodoBody({ model, presentation, fallback }: { model: NativeTodoModel; presentation: ReturnType<typeof useNativeWorkspacePresentation>; fallback: ReactNode }) {
   const router = useRouter();
   const pathname = normalizeStaticExportPathname(usePathname() ?? "/");
   const contentFrame = useRef<HTMLDivElement>(null);
@@ -63,7 +60,6 @@ function NativeTodoBody({ model, presentation, schedules, selectedSchedule, fall
   const closeEditor = () => { if (!saving.current) latest.current.model.closeEditor(); };
   const back = () => {
     if (saving.current || latest.current.model.busy) return true;
-    if (schedules?.open) return schedules.close();
     if (confirmDelete) { setConfirmDelete(false); return true; }
     if (editing) { closeEditor(); return true; }
     if (selection) { setSelection(null); return true; }
@@ -81,25 +77,7 @@ function NativeTodoBody({ model, presentation, schedules, selectedSchedule, fall
   const selected = [...model.pending, ...model.completed].find(task => task.id === selection);
   const open = (href: string) => { if (href.startsWith("/")) router.push(href); else window.open(href, "_blank", "noopener,noreferrer"); };
   let title = "Your tasks";
-  if (schedules?.open) {
-    title = "Scheduled runs";
-    const { status, checking, placementMessage, message } = schedules;
-    const rows = preferredScheduledTasks(status?.tasks ?? [], selectedSchedule);
-    if (placementMessage || message) section("schedule-message", [read("schedule-message", placementMessage || message)]);
-    else if (checking) section("schedule-loading", [read("schedule-loading", "Checking your private agent…")]);
-    else if (status && !status.available) section("schedule-unavailable", [read("schedule-unavailable", "Scheduling is unavailable on this Pod.")]);
-    else if (status && rows.length === 0) section("schedule-empty", [read("schedule-empty", "No scheduled tasks")]);
-    if (selectedSchedule && status && !rows.some(task => task.id === selectedSchedule)) {
-      section("schedule-not-found", [read("schedule-not-found", "This schedule wasn’t found on your current Pod.")]);
-    }
-    section("scheduled-runs", rows.map(task => read(`schedule:${task.id}`, task.title,
-      `${scheduledTaskLabels[task.state]} · ${scheduledRunSummary(task)}`)));
-    section("schedule-actions", [
-      action("schedule-refresh", "Refresh", schedules.refresh, { enabled: !checking }),
-      action("schedule-files", "Open Files", () => open(ROUTES.ONE_FILES), { chevron: true }),
-      action("schedule-close", "Close", schedules.close),
-    ]);
-  } else if (editing) title = "Add item";
+  if (editing) title = "Add item";
   else if (selected) {
     title = confirmDelete ? "Delete item?" : "Task";
     section("detail", [read("title", selected.title, [selected.date, selected.time, selected.sourceAgent && TODO_SOURCE_LABELS[selected.sourceAgent]].filter(Boolean).join(" · ")),
@@ -118,7 +96,9 @@ function NativeTodoBody({ model, presentation, schedules, selectedSchedule, fall
       ...(model.openSources ? [action("sources", "Task sources", () => handoff(current,
         () => latest.current.model.sourcesEnabled === true, () => latest.current.model.openSources?.()),
         { enabled: model.sourcesEnabled === true, chevron: true })] : []),
-      ...(schedules ? [action("scheduled", "Scheduled runs", () => schedules.changeOpen(true), { chevron: true })] : []),
+      ...(model.openSchedules ? [action("scheduled", "Scheduled runs", () => handoff(current,
+        () => Boolean(latest.current.model.openSchedules), () => latest.current.model.openSchedules?.()),
+        { chevron: true })] : []),
       ...(model.totalToday > 0 ? [read("today", `${model.doneToday} of ${model.totalToday} done today`)] : [])]);
     section("errors", model.errors.flatMap((error, i) => [read(`error-${i}`, error.label), action(`retry-${i}`, "Retry", error.retry)]));
     if (model.calendarIncomplete) section("calendar-incomplete", [read("calendar-incomplete", "Some Calendar events aren’t shown."),

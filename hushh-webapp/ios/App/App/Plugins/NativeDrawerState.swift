@@ -70,6 +70,12 @@ struct NativeWorkspaceInlineAction: Codable, Identifiable {
             ["primary", "ghost", "danger", "success"].contains(tone) && (symbol == nil || NativeDrawerIdentity.identifier(symbol!)) && (avatar == nil || avatar!.valid) && (placement == nil || placement == "menu")
     }
 }
+struct NativeHistoryTopic: Codable {
+    let label: String
+    let custom: Bool
+    let actionId: String?
+}
+
 struct NativeDrawerRow: Codable, Identifiable {
     let id: String
     let label: String
@@ -82,6 +88,7 @@ struct NativeDrawerRow: Codable, Identifiable {
     let pending: Bool?
     var readOnly: Bool? = nil
     var artworkId: String? = nil
+    var historyTopic: NativeHistoryTopic? = nil
     var renameActionId: String? = nil
     var deleteActionId: String? = nil
     var iconHex: String? = nil
@@ -231,6 +238,7 @@ struct NativeDrawerProjection: Codable {
     let enabled: Bool
     let backEnabled: Bool
     var navigationLocked: Bool? = nil
+    var historyCategories: [String]? = nil
     var searchable: Bool? = nil
     var loading: Bool? = nil
     /// Profile menu visibility is distinct from its enclosing drawer lifetime.
@@ -245,7 +253,7 @@ struct NativeDrawerProjection: Codable {
     }
     static func hasClosedShape(_ options: [String: Any]) -> Bool {
         let keys: Set<String> = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "updateSequence", "privacyGeneration",
-            "appearance", "accentHex", "foregroundHex", "title", "sections", "open", "enabled", "backEnabled", "navigationLocked", "searchable", "loading", "surfaceOpen", "profileStack", "profileDestinationId", "profileSupportDestinationId"]
+            "appearance", "accentHex", "foregroundHex", "title", "sections", "open", "enabled", "backEnabled", "navigationLocked", "searchable", "loading", "historyCategories", "surfaceOpen", "profileStack", "profileDestinationId", "profileSupportDestinationId"]
         guard Set(options.keys).isSubset(of: keys.union(["profilePreparation"])), let sections = options["sections"] as? [[String: Any]] else { return false }
         if let preparation = options["profilePreparation"] {
             guard let preparation = preparation as? [String: Any], Set(preparation.keys) == ["visitId", "formScene"] else { return false }
@@ -267,7 +275,10 @@ struct NativeDrawerProjection: Codable {
         for section in allSections {
             guard Set(section.keys).isSubset(of: ["id", "title", "rows"]), let rows = section["rows"] as? [[String: Any]] else { return false }
             for row in rows {
-                guard Set(row.keys).isSubset(of: ["id", "label", "detail", "symbol", "iconHex", "chevron", "trailing", "progress", "options", "toggle", "enabled", "destructive", "selected", "pending", "renameActionId", "deleteActionId", "readOnly", "artworkId", "portrait", "portraitData"]) else { return false }
+                guard Set(row.keys).isSubset(of: ["id", "label", "detail", "symbol", "iconHex", "chevron", "trailing", "progress", "options", "toggle", "enabled", "destructive", "selected", "pending", "renameActionId", "deleteActionId", "historyTopic", "readOnly", "artworkId", "portrait", "portraitData"]) else { return false }
+                if let topic = row["historyTopic"] {
+                    guard let topic = topic as? [String: Any], Set(topic.keys).isSubset(of: ["label", "custom", "actionId"]) else { return false }
+                }
                 if let progress = row["progress"] {
                     guard let progress = progress as? [String: Any], Set(progress.keys) == ["value", "total"] else { return false }
                 }
@@ -325,6 +336,11 @@ struct NativeDrawerProjection: Codable {
             guard family == "profile", open, surfaceOpen == true, profileStack?.isEmpty == true,
                   profileDestinationId == nil, NativeDrawerIdentity.identifier(id) else { return false }
         }
+        let topics = Set(historyCategories ?? [])
+        if let categories = historyCategories {
+            guard family == "history", categories.count <= 504, topics.count == categories.count,
+                  categories.allSatisfy({ Self.text($0, 32) }) else { return false }
+        }
         var ids = Set<String>()
         var count = 0
         for section in sections + (profileStack?.flatMap(\.sections) ?? []) {
@@ -350,7 +366,10 @@ struct NativeDrawerProjection: Codable {
                     guard row.portrait == true, image.utf16.count <= 100_000,
                           image.range(of: "^data:image/jpeg;base64,[A-Za-z0-9+/]+=*$", options: .regularExpression) != nil else { return false }
                 }
-                for action in [row.renameActionId, row.deleteActionId].compactMap({ $0 }) {
+                if let topic = row.historyTopic {
+                    guard topics.contains(topic.label), row.renameActionId != nil else { return false }
+                }
+                for action in [row.renameActionId, row.deleteActionId, row.historyTopic?.actionId].compactMap({ $0 }) {
                     guard NativeDrawerIdentity.identifier(action), ids.insert(action).inserted else { return false }
                 }
                 if let options = row.options {
@@ -448,6 +467,10 @@ struct NativeDrawerProjection: Codable {
         if text == nil, profileStack?.last?.legalDocument?.actionIds.contains(row) == true { return true }
         return activeSections.contains { $0.rows.contains {
             guard $0.enabled, $0.readOnly != true, $0.pending != true else { return false }
+            if let topic = $0.historyTopic, topic.actionId == row {
+                guard let text else { return topic.custom }
+                return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && text.utf16.count <= 32
+            }
             if $0.renameActionId == row {
                 return text.map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.utf16.count <= 160 } == true
             }

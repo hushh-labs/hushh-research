@@ -91,6 +91,7 @@ test("a restored chat card follows the workspace’s new expiry for the same gra
   act(() => location.change?.({ userId: "another-owner" }));
   expect(location.stateLoads).toBe(1);
   act(() => location.change?.({ userId: "owner" }));
+  expect(location.stateLoads).toBe(2);
   await screen.findByText("2090-01-01T11:30:00.000Z");
   expect(screen.queryByText("2090-01-01T11:00:00.000Z")).not.toBeInTheDocument();
 });

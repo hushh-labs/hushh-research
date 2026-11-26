@@ -73,6 +73,14 @@ export function resolveNativeBuildEnvironment({ appRoot, env = process.env, audi
   return resolved;
 }
 
+/** Simulator Debug uses the ordinary app against the same backend as hosted Dev. */
+export function isSharedDevSimulatorBuild(env) {
+  if (env.APP_RUNTIME_PROFILE !== "dev" || env.NEXT_PUBLIC_SCOPE_COMMERCE_SANDBOX_ORIGIN ||
+      (env.NEXT_PUBLIC_IOS_BUNDLE_ID && env.NEXT_PUBLIC_IOS_BUNDLE_ID !== "com.hushh.app")) return false;
+  const contract = parseEnvFile(fileURLToPath(new URL("../../.env.dev.local.example", import.meta.url)));
+  return String(env.NEXT_PUBLIC_BACKEND_URL ?? "").replace(/\/$/, "") === contract.NEXT_PUBLIC_BACKEND_URL;
+}
+
 export function applyNativeAuditBuildEnvironment(appRoot) {
   const resolved = resolveNativeBuildEnvironment({ appRoot, audit: true });
   Object.assign(process.env, buildValues(resolved));

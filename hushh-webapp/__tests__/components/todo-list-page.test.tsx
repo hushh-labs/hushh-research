@@ -8,6 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Capacitor } from "@capacitor/core";
 import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { FILE_ORGANIZATION_TEMPLATE, PodScheduledTasksClient } from "@/lib/services/pod-scheduled-tasks";
@@ -22,7 +23,7 @@ import {
   type TodoItem,
 } from "@/lib/services/todo-list-pkm-service";
 import { useTodoLiveTasks } from "@/lib/todos/use-todo-live-tasks";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import * as todoService from "@/lib/services/todo-list-pkm-service";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
 import type { RedactedCalendarEvent } from "@/lib/calendar/use-calendar-upcoming-events";
@@ -62,7 +63,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/capacitor/native-presentation-policy", () => ({ customNativePresentationEnabled: () => mocks.native }));
 vi.mock("@/lib/capacitor/use-native-workspace", () => ({
-  useNativeWorkspace: (options: typeof mocks.workspace) => { mocks.workspace = options; return "native"; },
+  useNativeWorkspace: (options: typeof mocks.workspace) => { mocks.workspace = options; return options?.active === false ? "web" : "native"; },
   useNativeWorkspacePresentation: () => ({ owner: {}, status: { phase: mocks.nativeFailed ? "web" : "native", reason: mocks.nativeFailed ? "failure" : "active", held: false } }),
 }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/one/tasks", useRouter: () => ({ push: vi.fn() }), useSearchParams: () => new URLSearchParams(mocks.search) }));
@@ -137,7 +138,7 @@ describe("TodoListPage row actions", () => {
     mocks.workspace = null;
     mocks.unlocked = true;
     mocks.user.uid = "todo-owner";
-    publishValidatedAuthSessionOwner(mocks.user.uid);
+    publishValidatedAuthSessionPrincipal({ ownerId: mocks.user.uid, firebaseUid: mocks.user.uid, accountGeneration: 1 });
     mocks.actionables = [];
     mocks.feedError = null;
     mocks.feedLoading = false;
@@ -163,12 +164,14 @@ describe("TodoListPage row actions", () => {
     });
   });
 
-  it("opens a Chat schedule link inside Tasks and shows the recorded history", async () => {
+  it.each([false, true])("opens a Chat schedule link in the complete panel with native=%s", async native => {
+    mocks.native = native;
     const id = `schedule_${"a".repeat(32)}`;
     mocks.search = `scheduled=${id}`;
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
     try {
-      vi.spyOn(AuthService, "getCurrentUser").mockReturnValue(mocks.user as ReturnType<typeof AuthService.getCurrentUser>);
+      vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(native);
+      vi.spyOn(AuthService, "getCurrentUser").mockReturnValue(native ? null : mocks.user as ReturnType<typeof AuthService.getCurrentUser>);
       vi.spyOn(ApiService, "getPersonalAgentStatus").mockResolvedValue({ hostingMode: "hussh_pods" } as Awaited<ReturnType<typeof ApiService.getPersonalAgentStatus>>);
       const run = { id: "b".repeat(32), state: "completed", started_at: 1100, finished_at: 1150 };
       vi.spyOn(PodScheduledTasksClient.prototype, "status").mockResolvedValue({
@@ -195,6 +198,24 @@ describe("TodoListPage row actions", () => {
       fireEvent.click(within(panel).getByRole("button", { name: "Run now" }));
       expect(await within(panel).findByText(/^Run requested/)).toBeVisible();
       expect(control).toHaveBeenCalledWith(expect.objectContaining({ id, revision: 3 }), "run_now", expect.any(AbortSignal));
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("does not read private schedules for a conflicting native Firebase session", async () => {
+    mocks.native = true;
+    mocks.search = "scheduled=1";
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    try {
+      vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
+      vi.spyOn(AuthService, "getCurrentUser").mockReturnValue({ uid: "different-account" } as NonNullable<ReturnType<typeof AuthService.getCurrentUser>>);
+      const hosting = vi.spyOn(ApiService, "getPersonalAgentStatus").mockResolvedValue({ hostingMode: "hussh_pods" } as Awaited<ReturnType<typeof ApiService.getPersonalAgentStatus>>);
+      const schedules = vi.spyOn(PodScheduledTasksClient.prototype, "status");
+      render(<TodoListPage />);
+      await screen.findByRole("dialog", { name: "Scheduled runs" });
+      await waitFor(() => expect(hosting).toHaveBeenCalled());
+      expect(schedules).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllEnvs();
     }

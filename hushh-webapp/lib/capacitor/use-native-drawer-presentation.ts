@@ -19,7 +19,7 @@ export type NativeDrawerPort = {
   onPresented?: (state: NativeDrawerProjection) => void;
   onHidden?: (state: NativeDrawerProjection) => void;
   onAbsenceConfirmed?: (privacyGeneration: number) => void;
-  project: (handles: Map<string, string>) => { sections: NativeDrawerSection[]; navigationLocked?: boolean; profileStack?: readonly NativeProfilePage[]; profileDestinationId?: string; profileSupportDestinationId?: string; actions: NativeDrawerActions };
+  project: (handles: Map<string, string>) => { sections: NativeDrawerSection[]; historyCategories?: readonly string[]; navigationLocked?: boolean; profileStack?: readonly NativeProfilePage[]; profileDestinationId?: string; profileSupportDestinationId?: string; actions: NativeDrawerActions };
 };
 
 /** Both drawer families share one owner/privacy admission path. Only authored
@@ -63,6 +63,7 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
       searchable: nextPort.searchable, loading: nextPort.loading, sections: next.sections,
       ...(preparationSupported.current && nextPort.family === "profile" && nextPort.open && nextPort.preparation
         ? { profilePreparation: nextPort.preparation } : {}),
+      ...(next.historyCategories ? { historyCategories: next.historyCategories } : {}),
       ...(next.navigationLocked === undefined ? {} : { navigationLocked: next.navigationLocked }),
       ...(next.profileStack ? { profileStack: next.profileStack, profileDestinationId: next.profileDestinationId,
         profileSupportDestinationId: next.profileSupportDestinationId } : {}) };
