@@ -4,7 +4,7 @@ import type {
   OneLocationAccessRequest, OneLocationEncryptedEnvelope, OneLocationGrant, OneLocationState,
 } from "@/lib/one-location/types";
 
-import type { MainLocationAction, MainLocationProposal } from "./main-chat-location-contract";
+import type { LocationRecoveryAction, LocationSafetyAction, LocationWorkspaceAction, MainLocationAction, MainLocationProposal } from "./main-chat-location-contract";
 
 export type { MainLocationAction, MainLocationContinuation, MainLocationProposal } from "./main-chat-location-contract";
 
@@ -23,7 +23,7 @@ export type MainLocationChoice = { label: string; targets: MainLocationTarget[];
 export type MainLocationPlan = {
   planId: string;
   attemptId?: string | null;
-  action: Exclude<MainLocationAction, "list_shares" | "list_requests" | "share_options" | "share_private" | "share_public">;
+  action: Exclude<MainLocationAction, LocationRecoveryAction | LocationSafetyAction | LocationWorkspaceAction | "list_shares" | "list_requests" | "share_options" | "share_private" | "share_public">;
   personUserId?: string | null;
   personDisplayLabel?: string | null;
   grantId?: string | null;
@@ -120,7 +120,7 @@ export async function resolveMainLocationChoices(params: {
 }): Promise<MainLocationChoice[]> {
   const { proposal, loadState, token, ownerId } = params;
   const names = proposal.people ?? [];
-  const circles = proposal.action === "ask" ? [] : proposal.circles ?? [];
+  const circles = proposal.circles ?? [];
   if (["share_live", "share_pin", "ask"].includes(proposal.action)) {
     const lookup = async (name?: string) => {
       const result = await OneLocationService.listRecipientsPage({ vaultOwnerToken: token, page: 1, limit: 50, query: name });

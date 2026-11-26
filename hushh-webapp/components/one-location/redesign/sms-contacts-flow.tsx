@@ -53,6 +53,7 @@ const TABS: ReadonlyArray<{ value: SmsContactsTab; label: string }> = [
 ];
 
 type SmsContactsFlowProps = {
+  embeddedInChat?: boolean;
   recipients: OneLocationRecipient[];
   circles: OneLocationCircleSummary[];
   selectedUserIds: string[];
@@ -91,6 +92,7 @@ type SmsContactsFlowProps = {
  * "added" and not "selected".
  */
 export function SmsContactsFlow({
+  embeddedInChat = false,
   recipients,
   circles,
   selectedUserIds,
@@ -191,7 +193,9 @@ export function SmsContactsFlow({
   );
 
   const native = useNativeLocationEnabled();
-  useBackLayer(ROUTES.ONE_LOCATION, native && (pendingRemoval || reviewOpen || expandedCircleId) ? 3 : 0, () => {
+  const nativeBackDepth = native && (pendingRemoval || reviewOpen || expandedCircleId) ? 3 : 0;
+  const chatBackDepth = expandedCircleId ? 2 : 0;
+  useBackLayer(embeddedInChat ? ROUTES.HOME : ROUTES.ONE_LOCATION, embeddedInChat ? chatBackDepth : nativeBackDepth, () => {
     if (removing) return true;
     if (pendingRemoval) setPendingRemoval(null);
     else if (reviewOpen) setReviewOpen(false);

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -13,6 +14,8 @@ import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts-flow";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import { ROUTES } from "@/lib/navigation/routes";
 import { isSosShareReadyRecipient } from "@/lib/one-location/sos-trigger";
 import type { CircleRecipientSelection } from "@/lib/one-location/circle-recipient-selection";
 import type {
@@ -312,6 +315,18 @@ describe("SmsContactsFlow", () => {
       expect(
         within(list).getByLabelText("Connected from your contacts"),
       ).toBeInTheDocument();
+    });
+
+    it("collapses an open Circle before leaving emergency contacts in Chat", async () => {
+      render(<SmsContactsFlow {...baseProps} embeddedInChat />);
+      fireEvent.click(screen.getByRole("button", { name: "Choose people from Family" }));
+      expect(await screen.findByTestId("circle-members-circle-1")).toBeInTheDocument();
+
+      act(() => { expect(unwindBackLayer(ROUTES.HOME)).toBe(true); });
+
+      expect(screen.queryByTestId("circle-members-circle-1")).not.toBeInTheDocument();
+      expect(screen.getByTestId("sms-contacts-screen")).toBeInTheDocument();
+      expect(unwindBackLayer(ROUTES.HOME)).toBe(false);
     });
 
     it("resolves the roster only when the Circle is opened", async () => {

@@ -31,6 +31,35 @@ REPLACED_TOOLS = frozenset(
         "list_shares",
         "stop_share",
         "change_share_duration",
+        "create_check_in",
+        "revoke_public_link",
+        "trigger_save_my_soul",
+        "stop_save_my_soul",
+        "add_emergency_contact",
+        "remove_emergency_contact",
+        "turn_sharing_on",
+        "turn_sharing_off",
+        "set_precision",
+        "set_auto_approve",
+        "hide_on_map",
+        "show_on_map",
+        "resume_device_location_updates",
+        "pause_device_location_updates",
+        "start_location_setup",
+        "accept_location_setup_consent",
+        "advance_location_setup",
+        "create_circle",
+        "rename_circle",
+        "set_circle_kind",
+        "delete_circle",
+        "add_circle_member",
+        "add_circle_members",
+        "add_all_connections",
+        "remove_circle_member",
+        "leave_circle",
+        "respond_circle_invite",
+        "cancel_circle_invite",
+        "create_circle_invite_link",
     }
 )
 
@@ -67,7 +96,8 @@ TOOLS = (
         input_model=ReviewLocationInput,
         output_model=ReviewLocationResult,
         description=(
-            "Offer Location sharing, request, or view review in this Chat. Reads and changes nothing."
+            "Open an inline Location review for sharing, device and account settings, "
+            "check-in, Circles, links, or Save My Soul. The tool does not read or change Location."
         ),
         handler=review_location,
     ),
