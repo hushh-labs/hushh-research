@@ -1391,6 +1391,7 @@ jobs:
           UAT_CURATED_MCP_CONNECTORS: ${{ vars.CURATED_MCP_CONNECTORS_UAT || 'false' }}
           UAT_CONNECTOR_INTERNAL_OWNER_COHORT: ${{ vars.CONNECTOR_INTERNAL_OWNER_COHORT_UAT || '' }}
           UAT_CONNECTOR_ALL_USERS: ${{ vars.CONNECTOR_UAT_ALL_USERS_UAT || 'false' }}
+          UAT_PLAID_ENV: ${{ vars.PLAID_ENV_UAT || 'sandbox' }}
         run: |
           set -euo pipefail
           email_auth_args=()
@@ -1428,7 +1429,7 @@ jobs:
             --remote-mcp-enabled "true" \
             --cors-allowed-origins "${{ env.APP_FRONTEND_ORIGIN }}" \
             --obs-data-stale-ratio-threshold "0.25" \
-            --plaid-env "production" \
+            --plaid-env "${UAT_PLAID_ENV:-sandbox}" \
             --plaid-client-name "Hushh Kai" \
             --plaid-country-codes "US" \
             --plaid-webhook-url "${{ env.APP_FRONTEND_ORIGIN }}/api/kai/plaid/webhook" \
@@ -1502,6 +1503,13 @@ jobs:
           # The single definition of every value compiled into the web image.
           # The deploy step reuses it, so the build and deploy cannot disagree.
           build_substitutions="_APP_ENV=uat,_DEPLOY_ENV=uat,_IMAGE_TAG=${image_tag},_ONE_WALLET_CARD_ENABLED=true,_ONE_LOCATION_NEARBY_CHECK_IN=true,_LOCATION_MAP_DEMO=false"
+          # Selected application SHAs can predate the Location build contract.
+          if [[ "${UAT_SOURCE_BRANCH:-}" == "uat" ]] &&
+             grep -q '^[[:space:]]*_ONE_MAIN_CHAT_LOCATION_ENABLED:' deploy/frontend.cloudbuild.yaml &&
+             grep -q '^[[:space:]]*_ONE_MAIN_CHAT_LOCATION_ENABLED:' deploy/frontend-image.cloudbuild.yaml &&
+             grep -qx 'ARG NEXT_PUBLIC_ONE_MAIN_CHAT_LOCATION_ENABLED' hushh-webapp/Dockerfile; then
+            build_substitutions="${build_substitutions},_ONE_MAIN_CHAT_LOCATION_ENABLED=true"
+          fi
           # Older deployment SHAs do not declare this substitution in both builds.
           if grep -q '^[[:space:]]*_WORKOS_SSO_ENABLED:' deploy/frontend.cloudbuild.yaml \
             && grep -q '^[[:space:]]*_WORKOS_SSO_ENABLED:' deploy/frontend-image.cloudbuild.yaml; then
@@ -2149,6 +2157,11 @@ jobs:
           SUBSTITUTIONS="${SUBSTITUTIONS}##_VPC_CONNECTOR=${{ vars.UAT_VPC_CONNECTOR || '' }}"
           # The packaged profile owns every managed AI surface.
           SUBSTITUTIONS="${SUBSTITUTIONS}##$(python3 scripts/ops/managed_ai_config.py --environment uat --format substitutions)"
+          if [[ "${UAT_SOURCE_BRANCH:-}" == "uat" ]] &&
+             grep -q '^[[:space:]]*_ONE_MAIN_CHAT_LOCATION_ENABLED:' deploy/backend.cloudbuild.yaml &&
+             [[ -f consent-protocol/hushh_mcp/one_adk/location_chat_proposal.py ]]; then
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_ONE_MAIN_CHAT_LOCATION_ENABLED=true"
+          fi
           # Durable Kai analyze-run store ON in UAT: exercises the migration-125
           # persist/replay path against real Cloud SQL before prod flips it on.
           SUBSTITUTIONS="${SUBSTITUTIONS}##_KAI_ANALYZE_DURABLE_RUN_STORE=true"
