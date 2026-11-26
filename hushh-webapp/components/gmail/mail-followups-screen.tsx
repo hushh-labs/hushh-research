@@ -10,7 +10,7 @@ import {
   evidenceSchema,
   sourceListSchema,
 } from "@/lib/mail/mail-followup-model";
-import { MailFollowupsService as mail } from "@/lib/services/mail-followups-service";
+import { MailFollowupsService } from "@/lib/services/mail-followups-service";
 import {
   TodoListPkmService as tasks,
   type TodoItem,
@@ -62,8 +62,10 @@ export function MailFollowupsScreen({
   account,
   connection,
   handoff,
+  mail = MailFollowupsService,
   onBack,
 }: {
+  mail?: typeof MailFollowupsService;
   handoff?: { key: string; action: "evidence" | "plan" };
   session: TodoWriteParams;
   account: string;

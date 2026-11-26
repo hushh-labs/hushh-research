@@ -49,7 +49,7 @@ import { MailOverview } from "@/components/gmail/mail-overview";
 import { MailBriefPanel } from "@/components/gmail/mail-brief-panel";
 import { MailWhySheet, type WhyTarget } from "@/components/gmail/mail-brief-why";
 import type { DraftRequest } from "@/components/gmail/mail-brief";
-import { MailFollowupsWorkspace } from "@/components/gmail/mail-followups-workspace";
+import { MailFollowupsEntry } from "@/components/gmail/mail-followups-entry";
 import { MailFollowups } from "@/components/gmail/mail-followups";
 import { MailHeader } from "@/components/gmail/mail-header";
 import briefStyles from "@/components/gmail/mail-brief.module.css";
@@ -2384,7 +2384,7 @@ export default function GmailReceiptsPage({
                       trackedBoardOpen ? <>
                         <Button onClick={() => setTrackedBoardOpen(false)}>View Overview follow-ups</Button>
                         {userId && isVaultUnlocked && vaultKey && vaultOwnerToken ?
-                          <MailFollowupsWorkspace key={JSON.stringify([userId,receiptAccountKey,snapshotVaultSessionEpoch()])}
+                          <MailFollowupsEntry expectedAccount={gmail.status?.google_sub} key={JSON.stringify([userId,receiptAccountKey,snapshotVaultSessionEpoch()])}
                             session={{userId,vaultKey,vaultOwnerToken}} confirmTransition={confirmTransition}
                             onBack={() => setWorkspace("overview")}/> :
                           <Button onClick={() => setShowVaultUnlock(true)}>Unlock to track conversations</Button>}

@@ -238,20 +238,47 @@ async def run_mail(operation, selection, *, owner, check, consent_token, model_f
             expose_message_links=True,
         )
 
+    return await assess_mail(
+        operation,
+        selection,
+        owner=owner,
+        new_reader=new_reader,
+        credential_id=held.credential_id,
+        key_resolver=resolve_pod_log_key,
+        owner_address=lambda: connection._email,
+        consent_token=consent_token,
+        model_factory=model_factory,
+        delivery_context=(connection, held),
+    )
+
+
+async def assess_mail(
+    operation,
+    selection,
+    *,
+    owner,
+    new_reader,
+    credential_id,
+    key_resolver,
+    owner_address,
+    consent_token,
+    model_factory,
+    delivery_context=None,
+):
     reader = new_reader()
     if operation == "account":
         profile = await reader.get_profile_and_history()
         return {
             "account": selection.account,
-            "connection": held.credential_id,
+            "connection": credential_id,
             "address": profile["email_address"],
         }
 
-    key = await asyncio.to_thread(resolve_pod_log_key)
+    key = await asyncio.to_thread(key_resolver)
 
     def source_ref(identity):
         return seal_source_id(
-            key=key, owner_user_id=owner, account=held.credential_id, message_id=identity
+            key=key, owner_user_id=owner, account=credential_id, message_id=identity
         )
 
     if operation == "search":
@@ -260,7 +287,7 @@ async def run_mail(operation, selection, *, owner, check, consent_token, model_f
         )
     else:
         source = open_source_id(selection.source, owner_user_id=owner, key=key)
-        if source.account != held.credential_id:
+        if source.account != credential_id:
             raise _refuse(409, "MAIL_ACCOUNT_CHANGED")
         if operation == "document":
             result = await reader.get_attachment_bytes(
@@ -359,13 +386,13 @@ async def run_mail(operation, selection, *, owner, check, consent_token, model_f
         envelope = reply_source_from_message(
             message=message,
             account=reader.account,
-            owner_email=connection._email,
+            owner_email=owner_address(),
             followup_to_sent=True,
             fingerprint_key=key,
         )
         if operation == "envelope":
             await reader.require_current()
-            return envelope, connection, held
+            return envelope, *delivery_context
         answer = await run_email_gene(
             gene_id="agent_email_draft",
             prompt=json.dumps(
