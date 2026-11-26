@@ -29,7 +29,7 @@ import { describe, expect, it } from "vitest";
 const WEBAPP_ROOT = path.resolve(__dirname, "../../..");
 
 function read(relativePath: string) {
-  return fs.readFileSync(path.join(WEBAPP_ROOT, relativePath), "utf8");
+  return fs.readFileSync(path.join(WEBAPP_ROOT, relativePath), "utf8").replace(/\r\n/g, "\n");
 }
 
 function parse(relativePath: string) {
@@ -164,8 +164,22 @@ describe("One Location CTA latency contract", () => {
     const source = page();
     // One recipient throwing must not starve the others — with stable grant
     // ordering, a shared catch starved everyone after the failure on EVERY tick.
-    expect(source).not.toContain("for (const grant of activeOwnerGrants) {");
-    expect(source).toContain("activeOwnerGrants.map(async (grant) => {");
+    expect(source).not.toMatch(/for \(const grant of (?:activeOwnerGrants|continuousOwnerGrants)\) \{/);
+    // Pins and check-ins stay fixed; both continuous loops still isolate recipients.
+    expect(source).toContain("activeOwnerGrants.filter((grant) => !isFixedLocationGrant(grant))");
+    const publishers = nodes(parse("app/one/location/page.tsx"), ts.isCallExpression)
+      .filter(call => ts.isPropertyAccessExpression(call.expression) &&
+        call.expression.name.text === "map" && call.expression.expression.getText() === "continuousOwnerGrants");
+    expect(publishers).toHaveLength(2);
+    for (const publisher of publishers) {
+      expect(ts.isCallExpression(publisher.parent)).toBe(true);
+      const aggregate = publisher.parent as ts.CallExpression;
+      expect(aggregate.expression.getText()).toBe("Promise.all");
+      const callback = publisher.arguments[0]!;
+      expect(ts.isArrowFunction(callback)).toBe(true);
+      expect(nodes(callback, ts.isTryStatement).some(statement => statement.catchClause &&
+        nodes(statement.tryBlock, ts.isCallExpression).some(call => call.expression.getText() === "publishEnvelopeWithRetry"))).toBe(true);
+    }
   });
 
   it("the review queue warms the position before Approve is pressed", () => {
