@@ -54,6 +54,11 @@ The inventory assigns each visible page a required functional or callback check,
 a web-only or compatibility exemption, or a conditional handoff. A conditional
 handoff names its environment, device, entry and return in the route ledger.
 
+On the packaged iPhone, check the first tab tap after an ordinary vault unlock.
+Confirm the committed path and visible destination together. A tab can highlight
+while the old page is still visible. Warm packaged routes using their exported
+segments. Full server prefetch requires a server that serves route data.
+
 The visible app surface includes
 
 - product routes
