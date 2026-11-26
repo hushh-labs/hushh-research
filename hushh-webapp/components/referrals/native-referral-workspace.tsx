@@ -1,5 +1,6 @@
 "use client";
 
+import { referralDisplayName } from "@/lib/referral/leaderboard-presentation";
 import { useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import type { ReferralDashboardModel } from "./referral-dashboard-page";
@@ -140,7 +141,7 @@ function NativeReferralBody({ model, token, presentation }: { model: ReferralDas
       if (model.board === "individual") {
         section("ranking", resource("ranking", "standings", model.leaderboardRes, model.reloadLeaderboard, () => {
           const data = ranking.data; if (!data) return [read("ranking-loading", "Loading standings…")];
-          const rows = data.entries.map(entry => read(`rank:${data.snapshot_id}:${entry.rank}`, `#${entry.rank} ${entry.display_name ?? entry.handle}`, `${entry.points} coins${entry.is_viewer ? " · You" : ""}`));
+          const rows = data.entries.map(entry => read(`rank:${data.snapshot_id}:${entry.rank}`, `#${entry.rank} ${referralDisplayName(entry)}`, `${entry.points} coins${entry.is_viewer ? " · You" : ""}`));
           if (!rows.length) rows.push(read("ranking-empty", data.stale ? "Standings are unavailable." : "No entries yet."));
           if (ranking.viewer && !data.entries.some(entry => entry.is_viewer)) rows.push(action("ranking-me", `Your rank #${ranking.viewer.rank}`, () => ranking.loadPage(Math.floor((ranking.viewer!.rank - 1) / 10) * 10), { enabled: !ranking.busy }));
           if (ranking.failedCursor !== null) rows.push(action("ranking-retry", "Could not load that page. Try again", () => ranking.loadPage(ranking.failedCursor!), { enabled: !ranking.busy }));
