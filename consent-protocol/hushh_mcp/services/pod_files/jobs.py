@@ -19,14 +19,31 @@ from hushh_mcp.services.pod_files.runtime import files_access, operation
 from hushh_mcp.services.pod_object_version import ABSENT
 from hushh_mcp.services.pod_platform import workload_platform
 
+_resident_tasks: set[asyncio.Task[Any]] = set()
+
 
 def require_background_delivery() -> None:
-    if workload_platform() == "azure":
+    platform = workload_platform()
+    if platform == "ace":
+        return
+    if platform == "azure":
         from .azure_queue import queue_url
 
         queue_url()
     elif not os.getenv("POD_FILES_TASK_QUEUE") or not os.getenv("POD_FILES_WORKER_SERVICE_ACCOUNT"):
         raise FilesRefused("FILES_BACKGROUND_NOT_CONFIGURED", 503)
+
+
+def _schedule_resident_job(job_id: str, delivery: str) -> None:
+    async def _execute() -> None:
+        try:
+            await run_job(job_id, delivery)
+        except Exception:
+            return
+
+    task = asyncio.create_task(_execute(), name=f"pod-files-job-{delivery[:12]}")
+    _resident_tasks.add(task)
+    task.add_done_callback(_resident_tasks.discard)
 
 
 class OrganizationResult(BaseModel):
@@ -145,7 +162,8 @@ async def deliver(library: Any, job: dict[str, Any]) -> dict[str, Any]:
     path = f"jobs/{job_id}.bin"
     require_background_delivery()
     await library.check()
-    if workload_platform() == "azure":
+    platform = workload_platform()
+    if platform == "azure":
         from .azure_queue import FilesAzureQueue
 
         sender = FilesAzureQueue()
@@ -153,12 +171,14 @@ async def deliver(library: Any, job: dict[str, Any]) -> dict[str, Any]:
             await sender.send(job_id, job["delivery"])
         finally:
             sender.session.close()
-    else:
+    elif platform != "ace":
         await _deliver_google(library, job)
     latest, generation = await library._read(path)
     if latest["delivery"] == job["delivery"] and latest["state"] == "pending_delivery":
         latest["state"] = "queued"
         await library._write(path, latest, generation)
+        if platform == "ace":
+            _schedule_resident_job(job_id, job["delivery"])
     return {"id": job_id, "state": latest["state"]}
 
 

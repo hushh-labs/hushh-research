@@ -10,9 +10,14 @@ import {
 } from "@/lib/utils/session-storage";
 
 const STORAGE_PREFIX = "hushh.one_setup_complete.v1.";
+const WELCOME_STORAGE_PREFIX = "hushh.one_welcome_complete.v1.";
 
 function storageKey(userId: string): string {
   return `${STORAGE_PREFIX}${userId}`;
+}
+
+function welcomeStorageKey(userId: string): string {
+  return `${WELCOME_STORAGE_PREFIX}${userId}`;
 }
 
 /**
@@ -40,13 +45,32 @@ export class OneSetupCompletionHintService {
   static markResolved(userId: string): void {
     if (!userId) return;
     setLocalItem(storageKey(userId), "1");
-    void this.persistNative(userId, "1");
+    void this.persistNativeKey(storageKey(userId), "1");
+  }
+
+  static isWelcomeResolved(userId: string): boolean {
+    if (!userId) return false;
+    return getLocalItem(welcomeStorageKey(userId)) === "1";
+  }
+
+  static markWelcomeResolved(userId: string): void {
+    if (!userId) return;
+    setLocalItem(welcomeStorageKey(userId), "1");
+    void this.persistNativeKey(welcomeStorageKey(userId), "1");
+  }
+
+  static clearWelcomeResolved(userId: string): void {
+    if (!userId) return;
+    removeLocalItem(welcomeStorageKey(userId));
+    void this.persistNativeKey(welcomeStorageKey(userId), null);
   }
 
   static clear(userId: string): void {
     if (!userId) return;
     removeLocalItem(storageKey(userId));
-    void this.persistNative(userId, null);
+    removeLocalItem(welcomeStorageKey(userId));
+    void this.persistNativeKey(storageKey(userId), null);
+    void this.persistNativeKey(welcomeStorageKey(userId), null);
   }
 
   /**
@@ -57,9 +81,15 @@ export class OneSetupCompletionHintService {
    */
   static async hydrateFromNative(userId: string): Promise<boolean> {
     if (!userId) return false;
-    if (this.isResolved(userId)) return true;
-    if (!Capacitor.isNativePlatform()) return false;
+    if (!Capacitor.isNativePlatform()) return this.isResolved(userId);
     try {
+      if (!this.isWelcomeResolved(userId)) {
+        const welcome = await Preferences.get({ key: welcomeStorageKey(userId) });
+        if (welcome.value === "1") {
+          setLocalItem(welcomeStorageKey(userId), "1");
+        }
+      }
+      if (this.isResolved(userId)) return true;
       const { value } = await Preferences.get({ key: storageKey(userId) });
       if (value === "1") {
         setLocalItem(storageKey(userId), "1");
@@ -69,19 +99,19 @@ export class OneSetupCompletionHintService {
       // Best-effort: a failed native read simply falls back to the network
       // bootstrap admission path.
     }
-    return false;
+    return this.isResolved(userId);
   }
 
-  private static async persistNative(
-    userId: string,
+  private static async persistNativeKey(
+    key: string,
     value: "1" | null,
   ): Promise<void> {
     if (!Capacitor.isNativePlatform()) return;
     try {
       if (value === null) {
-        await Preferences.remove({ key: storageKey(userId) });
+        await Preferences.remove({ key });
       } else {
-        await Preferences.set({ key: storageKey(userId), value });
+        await Preferences.set({ key, value });
       }
     } catch {
       // Best-effort durable mirror; localStorage remains the source of truth
