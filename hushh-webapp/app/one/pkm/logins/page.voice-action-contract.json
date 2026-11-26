@@ -1,0 +1,325 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "pkm_logins",
+  "surface_title": "Website logins",
+  "defaults": {
+    "reachability": {
+      "routes": [
+        "/one/pkm/logins"
+      ],
+      "screens": [
+        "pkm_logins"
+      ],
+      "hidden_navigable": false
+    },
+    "guard_ids": [
+      "auth_signed_in",
+      "vault_unlocked"
+    ]
+  },
+  "actions": [
+    {
+      "action_id": "route.one_pkm_logins",
+      "label": "Open website logins",
+      "meaning": "Open the owner encrypted website login settings. This navigation never reveals, saves, uses or shares a credential.",
+      "aliases": [
+        "open website logins",
+        "manage saved website passwords"
+      ],
+      "search_keywords": [
+        "website",
+        "login",
+        "password",
+        "credentials"
+      ],
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/pkm/logins"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "goal": {
+        "workflow_steps": [
+          {
+            "type": "navigate",
+            "label": "Open secure website login settings",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/pkm/logins",
+              "screen": "pkm_logins"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "action_id": "credentials.add",
+      "label": "Add a website login",
+      "meaning": "Add a website login through the secure owner controls. Secrets and credential field values never enter chat or action arguments.",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-add"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "credentials.edit",
+      "label": "Edit a website login privately",
+      "meaning": "Edit a website login privately through the secure owner controls. Secrets and credential field values never enter chat or action arguments.",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-edit"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "credentials.save",
+      "label": "Save a website login",
+      "meaning": "Save a website login through the secure owner controls. Secrets and credential field values never enter chat or action arguments.",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-save"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "credentials.cancel",
+      "label": "Cancel the current website login edit",
+      "meaning": "Cancel the current website login edit through the secure owner controls. Secrets and credential field values never enter chat or action arguments.",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-cancel"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "credentials.remove",
+      "label": "Remove a saved website login",
+      "meaning": "Remove a saved website login through the secure owner controls. Secrets and credential field values never enter chat or action arguments.",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-remove",
+        "website-login-remove-confirm"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "credentials.refresh",
+      "label": "Refresh saved website logins",
+      "meaning": "Refresh saved website logins through the secure owner controls. Secrets and credential field values never enter chat or action arguments.",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-refresh"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "credentials.renew",
+      "label": "Renew saved login access",
+      "meaning": "Renew saved login access through the secure owner controls. Exact recipient and item selection and current vault authority remain in the owner UI; credential values never enter chat or action arguments.",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-renew"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "credentials.share",
+      "label": "Review sharing a selected website login",
+      "meaning": "Review sharing a selected website login through the secure owner controls. Exact recipient and item selection and current vault authority remain in the owner UI; credential values never enter chat or action arguments.",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-share",
+        "website-login-share-review"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "credentials.share_confirm",
+      "label": "Approve sharing a selected website login",
+      "meaning": "Approve sharing a selected website login through the secure owner controls. Exact recipient and item selection and current vault authority remain in the owner UI; credential values never enter chat or action arguments.",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-share-confirm"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "credentials.share_cancel",
+      "label": "Cancel website login sharing",
+      "meaning": "Cancel website login sharing through the secure owner controls. Exact recipient and item selection and current vault authority remain in the owner UI; credential values never enter chat or action arguments.",
+      "aliases": [],
+      "search_keywords": [
+        "website",
+        "login"
+      ],
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The secure owner UI retains current vault, exact record revision and private field entry.",
+        "intended_handler": "CredentialsVaultService"
+      },
+      "control_ids": [
+        "website-login-share-cancel"
+      ],
+      "state_exposure": []
+    }
+  ],
+  "search": {}
+}

@@ -7,7 +7,10 @@ import pytest
 from tests.helpers.pod_browser import task_runtime_fixture
 
 
-async def test_browser_hub_approval_separates_owner_and_signed_machine_authority(monkeypatch):
+@pytest.mark.parametrize("purpose", ["model_process", "credential_fill"])
+async def test_browser_hub_approval_separates_owner_and_signed_machine_authority(
+    monkeypatch, purpose
+):
     import time
     from unittest.mock import AsyncMock
 
@@ -46,7 +49,7 @@ async def test_browser_hub_approval_separates_owner_and_signed_machine_authority
             "environment": "development",
             "expires_at": int(time.time()) + 600,
         },
-        "purpose": "model_process",
+        "purpose": purpose,
         "commitment": "a" * 64,
         "pod_key_id": "key",
         "environment": "dev",
@@ -128,6 +131,7 @@ async def test_browser_routes_default_closed_and_input_validation_never_echoes_s
             "public_research_only": False,
             "code": "BROWSER_CLOUD_GATE_UNAVAILABLE",
             "remembered_sessions_available": False,
+            "saved_logins_available": False,
             "owner_id": "owner",
             "pod_id": "pod",
             "incarnation": "epoch",
@@ -157,6 +161,28 @@ async def test_browser_routes_default_closed_and_input_validation_never_echoes_s
         )
         assert invalid.status_code == 422
         assert "owner-password" not in invalid.text and "owner-secret" not in invalid.text
+        for suffix in ("credentials/use", "credentials/transient"):
+            invalid_private = await client.post(
+                path + "/tasks/task/" + suffix,
+                headers={**headers, "X-Browser-Pod-Incarnation": "epoch"},
+                json={
+                    "operation_id": "owner-password",
+                    "handle": "owner-secret",
+                    "control_epoch": "owner-secret",
+                },
+            )
+            assert invalid_private.status_code == 422
+            assert (
+                "owner-password" not in invalid_private.text
+                and "owner-secret" not in invalid_private.text
+            )
+        scopes.remove("browser.control")
+        catalog_denied = await client.get(
+            path + "/tasks/task/credentials?origin=https://example.com",
+            headers={**headers, "X-Browser-Pod-Incarnation": "epoch"},
+        )
+        assert catalog_denied.status_code == 403
+        scopes.add("browser.control")
         fixture = task_runtime_fixture(monkeypatch)
         app.state.browser_task_runtime = fixture.runtime
         accepted = await client.post(

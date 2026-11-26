@@ -102,6 +102,20 @@ describe("runDomainUpgrade", () => {
     );
   });
 
+  it.each([0, 1, 4])("preserves historical credentials at domain version %i without converting them into website login records", (currentVersion) => {
+    const historical = {
+      saved_sites: [{ website: "https://example.test", account_hint: "historical account" }],
+      notes: { text: "Keep this historical dynamic information", enabled: false, visits: 0 },
+    };
+    const result = runDomainUpgrade({ domain: "credentials", domainData: historical, currentVersion });
+
+    expect(currentDomainContractVersion("credentials")).toBe(4);
+    expect(result.newDomainContractVersion).toBe(4);
+    expect(result.domainData).toEqual(historical);
+    expect(result.losslessValidation.preserved).toBe(true);
+    expect(result.reservedMigration).toBeUndefined();
+  });
+
   it("compares semantic versions without decimal-number traps", () => {
     expect(comparePkmSemanticVersions("4.10.0", "4.2.0")).toBe(1);
     expect(comparePkmSemanticVersions("4.1.0", "4.1.0")).toBe(0);

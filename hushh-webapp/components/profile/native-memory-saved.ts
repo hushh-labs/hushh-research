@@ -73,6 +73,9 @@ export function nativeMemorySaved({ model, commerce, handle, handoff, openPaymen
     ),
   ], "Wiki");
 
+  group("website-logins", [row("website-logins-open", "Website logins", "Private sign-in for approved Browser tasks.",
+    hand("navigation", () => model.navigate(ROUTES.PKM_LOGINS)), { chevron: true })], "Private sign-in");
+
   group("core-docs", CORE_AGENT_MARKDOWN_IDS.map((docId) => {
     const meta = CORE_AGENT_MARKDOWN_META[docId];
     const warm = model.ownerId ? peekCoreAgentMarkdownFile(model.ownerId, docId) : null;

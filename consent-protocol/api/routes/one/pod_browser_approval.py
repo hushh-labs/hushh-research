@@ -149,6 +149,61 @@ async def selected_information(
         raise HTTPException(409, detail={"code": "BROWSER_INFORMATION_UNAVAILABLE"}) from None
 
 
+@router.post("/export/current")
+async def current_credential_export_selection(
+    request: Request, body: BrowserExportSelection, authorization: str | None = Header(None)
+):
+    """Advance only a credential's existing, live grant revision cursor.
+
+    The ordinary export admission below rechecks signer, owner, current key,
+    exact grant/scope, ciphertext envelope and current PKM source revisions.
+    No new scope, grant, credential record or expiry is created here.
+    """
+    from hushh_mcp.consent.pkm_scope_policy import is_owner_item_grant_scope
+    from hushh_mcp.services.consent_db import ConsentDBService
+
+    # Authenticate before any lookup, including malformed/non-credential scopes.
+    principal = await verify_pod_request(request, authorization, owner_bound=True)
+    if (
+        principal is None
+        or not principal.signed
+        or principal.standby
+        or principal.hushh_id != body.pod_id
+    ):
+        raise HTTPException(401, detail={"code": "BROWSER_POD_IDENTITY_REQUIRED"})
+    if (
+        body.field.domain != "credentials"
+        or not is_owner_item_grant_scope(body.field.scope)
+        or not body.field.grant_ref
+    ):
+        raise HTTPException(409, detail={"code": "BROWSER_INFORMATION_UNAVAILABLE"})
+    try:
+        from api.routes.one.pod_owner_feed import _resolve_owner
+        from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+        original = await _resolve_owner(principal, PersonalAgentRegistryRepo())
+        if original[0] != body.owner_id or original[2] != body.pod_key_id:
+            raise ValueError("current_export_refused")
+        row = await ConsentDBService().get_consent_export_by_grant(
+            body.field.grant_ref, app_id="agent_one"
+        )
+        if not row or row.get("scope") != body.field.scope or row.get("user_id") != body.owner_id:
+            raise ValueError("current_export_refused")
+        updates = {
+            "export_revision": row["export_revision"],
+            "source_content_revision": row["source_content_revision"],
+            "source_manifest_revision": row["source_manifest_revision"],
+        }
+        current_field = type(body.field).model_validate({**body.field.model_dump(), **updates})
+        current = body.model_copy(update={"field": current_field})
+        await selected_information(request, current, authorization)
+        return current.model_dump(mode="json")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(409, detail={"code": "BROWSER_INFORMATION_UNAVAILABLE"}) from None
+
+
 class OwnerConfirmation(BrowserHubMutation):
     confirmed: bool = Field(strict=True)
 

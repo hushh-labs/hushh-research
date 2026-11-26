@@ -147,6 +147,24 @@ class PodBrowserComposition:
             await access.check()
             await selected.require_current()
             store = resolve_pod_object_store()
+            from hushh_mcp.services.pod_self_registration import pod_keypair
+            from hushh_mcp.services.website_credentials import (
+                browser_credential_source,
+                production_credential_store,
+            )
+
+            credential_source = browser_credential_source(
+                store=production_credential_store(
+                    log=self._log,
+                    owner_id=owner_id,
+                    pod_id=access.pod_id,
+                    pod_key_id=self._authority.pod_key_id,
+                    environment=access.environment,
+                    incarnation=access.incarnation,
+                    check=self._held,
+                ),
+                private_key=pod_keypair().private_key,
+            )
 
             def sessions(consent):
                 return BrowserSessions(
@@ -178,6 +196,7 @@ class PodBrowserComposition:
                 sessions_factory=sessions,
                 public_research_only=not self._deployment.public_policy.interactive,
                 delivery=self._delivery,
+                credential_source=credential_source,
                 environment=(
                     "uat" if getattr(self._authority, "environment", "") == "uat" else "development"
                 ),

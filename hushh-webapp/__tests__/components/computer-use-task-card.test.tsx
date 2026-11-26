@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ComputerUseCredentials } from "@/components/computer-use/computer-use-credentials";
 import { ComputerUseTaskCard } from "@/components/computer-use/computer-use-task-card";
 import { type ComputerUseBinding, type ComputerUseSnapshot, type ComputerUseTransport } from "@/lib/computer-use/contracts";
 import { ComputerUseTaskController } from "@/lib/computer-use/task-controller";
@@ -17,7 +18,7 @@ import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { areScheduledTasksAvailable, PodScheduledTasksClient } from "@/lib/services/pod-scheduled-tasks";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
-const api = vi.hoisted(() => ({ getComputerUseAdmission: vi.fn(), ownerPodRequest: vi.fn(), apiFetch: vi.fn(), owner: "owner" }));
+const api = vi.hoisted(() => ({ getComputerUseAdmission: vi.fn(), ownerCredentialSealContext: vi.fn(), ownerPodRequest: vi.fn(), apiFetch: vi.fn(), owner: "owner" }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: api }));
 vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getCurrentUser: () => ({ uid: api.owner }) } }));
 
@@ -25,6 +26,11 @@ vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({
   morphyToast: { promise: (promise: Promise<unknown>) => promise, error: vi.fn(), info: vi.fn() },
 }));
+
+const credentials = vi.hoisted(() => ({ list: vi.fn(), seal: vi.fn(), recipient: vi.fn() }));
+vi.mock("@/lib/pkm/credentials-vault-service", () => ({ CredentialsVaultService: { list: credentials.list }, sealTransientCredentialUse: credentials.seal }));
+vi.mock("@/lib/one/ai-selection-recipient", () => ({ agentRecipientFromBinding: credentials.recipient }));
+vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-vault-owner" }) }));
 
 const binding: ComputerUseBinding = {
   ownerId: "owner", podId: "pod", incarnation: "incarnation", taskId: "task", environment: "development",
@@ -889,4 +895,48 @@ it("accepts matching uat admission while refusing production and cross-environme
     code: "BROWSER_QUALIFIED",
     publicResearchOnly: false,
   });
+});
+
+
+it.each(["owner", "selection"])("fences a saved-login choice when its %s changes", async (fault) => {
+  const wire = transport();
+  const selection = { operationId: "credential_operation", handle: "owner_selection", origin: "https://example.com" };
+  const pending = snapshot({ phase: "needs_owner", savedLoginsAvailable: true, credentialRequest: selection });
+  vi.mocked(wire.read).mockResolvedValue(pending);
+  wire.credentials = vi.fn().mockResolvedValue([{ handle: "cred_" + "a".repeat(32), origin: selection.origin }]);
+  wire.useCredential = vi.fn().mockResolvedValue(snapshot());
+  credentials.list.mockResolvedValue([{ id: "cred_" + "a".repeat(32), label: "Synthetic account", usernameHint: "s…", boundOrigins: [selection.origin], autonomyPolicy: "autonomous" }]);
+  const controller = new ComputerUseTaskController(binding, wire);
+  await controller.refresh();
+  const view = render(<ComputerUseCredentials controller={controller} snapshot={pending} route="/one" pending={false} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Use saved login" }));
+  const choose = await screen.findByRole("button", { name: "Synthetic account · s…" });
+  if (fault === "owner") {
+    publishValidatedAuthSessionOwner(null);
+    publishValidatedAuthSessionOwner("owner");
+  } else {
+    const replacement = { ...pending, revision: 2, controlEpoch: 2,
+      credentialRequest: { ...selection, operationId: "credential_replacement" } };
+    vi.mocked(wire.read).mockResolvedValue(replacement);
+    await act(() => controller.refresh());
+    view.rerender(<ComputerUseCredentials controller={controller} snapshot={replacement} route="/one" pending={false} />);
+  }
+  fireEvent.click(choose);
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(wire.useCredential).not.toHaveBeenCalled();
+  expect(credentials.seal).not.toHaveBeenCalled();
+  controller.dispose();
+});
+
+it("keeps protected-entry status live while stopping all preview frames", async () => {
+  const wire = transport();
+  vi.mocked(wire.read).mockResolvedValue(snapshot({ credentialEntryActive: true, inputPending: true }));
+  const view = render(<ComputerUseTaskCard binding={binding} transport={wire} />);
+  await screen.findByText("Signing in privately. AI screen viewing is paused.");
+  expect(wire.watchFrames).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "View browser" })).toBeDisabled();
+  vi.mocked(wire.read).mockResolvedValue(snapshot({ revision: 2, credentialEntryActive: false, code: "BROWSER_CREDENTIAL_SUBMITTED" }));
+  fireEvent(document, new Event("visibilitychange"));
+  await waitFor(() => expect(screen.getByRole("button", { name: "View browser" })).toBeEnabled());
+  view.unmount();
 });

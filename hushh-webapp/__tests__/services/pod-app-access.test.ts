@@ -390,3 +390,23 @@ it("admits status, config, and circle-rules routes only with app role and exact 
   await expect(ownerPodRequest("circle-rules/not-a-valid-id", { method: "DELETE" }, ports)).rejects.toThrow("POD_APP_ROUTE_REFUSED");
   expect(fetch).toHaveBeenCalledTimes(7);
 });
+
+
+it("keeps exact credential catalog and use routes behind browser.control", async () => {
+  const fetch = vi.fn(async () => Response.json({ accepted: true }));
+  const ports = { transport: async () => ({}), fetch } as Parameters<typeof ownerPodRequest>[2];
+  const root = `browser/tasks/browser_${"a".repeat(32)}/credentials`;
+  const connection = { endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app" },
+    session: { session: "synthetic-session", role: "app", scopes: ["browser.observe"] } };
+  pod.currentPodConnection.mockResolvedValue(connection);
+  for (const [route, method] of [[root, "GET"], [root + "/use", "POST"], [root + "/transient", "POST"]]) {
+    await expect(ownerPodRequest(route, { method, body: method === "POST" ? "{}" : undefined }, ports)).rejects.toThrow("POD_BROWSER_REQUEST_REFUSED");
+  }
+  expect(fetch).not.toHaveBeenCalled();
+  connection.session.scopes = ["browser.control"];
+  for (const [route, method] of [[root + "?origin=https%3A%2F%2Fexample.com", "GET"], [root + "/use", "POST"], [root + "/transient", "POST"]]) {
+    expect((await ownerPodRequest(route, { method, body: method === "POST" ? "{}" : undefined }, ports)).ok).toBe(true);
+  }
+  expect(fetch).toHaveBeenCalledTimes(3);
+  await expect(ownerPodRequest(root + "/unreviewed", { method: "POST", body: "{}" }, ports)).rejects.toThrow("POD_APP_ROUTE_REFUSED");
+});

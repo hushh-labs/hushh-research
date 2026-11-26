@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-11-25",
-  "total_routes": 149,
-  "native_required_routes": 119,
+  "generated_at": "2026-11-26",
+  "total_routes": 150,
+  "native_required_routes": 120,
   "excluded_routes": 30,
   "routes": [
     {
@@ -736,6 +736,20 @@
       "initialRoute": "/login?redirect=%2Fone%2Fpkm%2Frecent",
       "expectedMarker": "native-route-pkm-recent",
       "expectedRoute": "/one/pkm/recent",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/pkm/logins",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fpkm%2Flogins",
+      "expectedMarker": "native-route-pkm-logins",
+      "expectedRoute": "/one/pkm/logins",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [

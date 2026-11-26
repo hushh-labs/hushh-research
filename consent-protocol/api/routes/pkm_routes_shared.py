@@ -45,6 +45,7 @@ from hushh_mcp.consent.reserved_branches import (
 from hushh_mcp.consent.reserved_branches import (
     entries as reserved_entries,
 )
+from hushh_mcp.services.credentials_domain_validation import validate_credentials_write_sidecars
 from hushh_mcp.services.domain_contracts import (
     canonical_top_level_domain,
     domain_registry_payload,
@@ -685,17 +686,28 @@ def _enforce_secrets_write_policy(request: "StoreDomainRequest", canonical_domai
     is the one place a faulty client could put a secret or its label onto the
     server in plaintext, and that is refused outright.
     """
-    if canonical_domain != "secrets":
+    if canonical_domain not in {"secrets", "credentials"}:
         return
     try:
-        validate_secrets_summary_envelope(request.summary)
+        if canonical_domain == "credentials":
+            manifest = getattr(request, "manifest", None)
+            decision = getattr(request, "structure_decision", None)
+            validate_credentials_write_sidecars(
+                request.summary,
+                manifest=manifest.model_dump() if manifest is not None else None,
+                structure_decision=decision.model_dump() if decision is not None else None,
+            )
+        else:
+            validate_secrets_summary_envelope(request.summary)
     except ValueError as exc:
         logger.warning("[PKM] secrets write refused: envelope reason=%s", exc)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
-                "code": "SECRETS_SUMMARY_ENVELOPE_INVALID",
-                "message": "The Secrets summary may carry bookkeeping only.",
+                "code": "CREDENTIALS_SUMMARY_ENVELOPE_INVALID"
+                if canonical_domain == "credentials"
+                else "SECRETS_SUMMARY_ENVELOPE_INVALID",
+                "message": "The encrypted domain summary may carry bookkeeping only.",
                 "reason": str(exc),
             },
         ) from exc

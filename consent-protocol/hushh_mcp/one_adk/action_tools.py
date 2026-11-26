@@ -2064,7 +2064,7 @@ async def list_my_connections(tool_context: ToolContext) -> dict[str, Any]:
 # X" that should ever resolve to it. Kept separate from the general domain
 # registry rather than filtered ad hoc, so a new sensitive domain has one
 # obvious place to be added.
-_VOICE_UNREADABLE_PKM_DOMAINS = frozenset({"runtime_secrets"})
+_VOICE_UNREADABLE_PKM_DOMAINS = frozenset({"runtime_secrets", "credentials"})
 
 _PKM_READABLE_DOMAIN_KEYS = tuple(
     entry.domain_key
