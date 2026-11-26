@@ -905,7 +905,7 @@ async def test_limit_and_deadline_bound_a_run(harness):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode", ["byoc", "pending", "hussh_pods", "unplaced", "unknown"])
+@pytest.mark.parametrize("mode", ["byoc", "pending", "unplaced", "unknown"])
 async def test_private_or_unknown_scheduled_owner_never_opens_mail(harness, monkeypatch, mode):
     from unittest.mock import Mock
 

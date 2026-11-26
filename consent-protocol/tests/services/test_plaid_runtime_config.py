@@ -11,6 +11,9 @@ def _clear_plaid_env(monkeypatch) -> None:
         "PLAID_ENVIRONMENT",
         "PLAID_CLIENT_ID",
         "PLAID_SECRET",
+        "PLAID_SANDBOX_SECRET",
+        "PLAID_PRODUCTION_SECRET",
+        "PLAID_LOCAL_PRODUCTION_SECRET",
         "PLAID_COUNTRY_CODES",
         "PLAID_LANGUAGE",
         "PLAID_CLIENT_NAME",
@@ -198,3 +201,23 @@ def test_apply_link_platform_android_sends_package_name_and_never_redirect_uri(m
 
     assert sent is None
     assert payload == {"android_package_name": "com.hussh.app"}
+
+
+def test_from_env_switches_between_dedicated_sandbox_and_production_secrets(monkeypatch):
+    _clear_plaid_env(monkeypatch)
+    monkeypatch.setenv("PLAID_CLIENT_ID", "client-shared")
+    monkeypatch.setenv("PLAID_SECRET", "legacy-fallback")
+    monkeypatch.setenv("PLAID_SANDBOX_SECRET", "sandbox-dedicated")
+    monkeypatch.setenv("PLAID_PRODUCTION_SECRET", "prod-dedicated")
+
+    monkeypatch.setenv("PLAID_ENV", "sandbox")
+    sandbox_cfg = PlaidRuntimeConfig.from_env()
+    assert sandbox_cfg.environment == "sandbox"
+    assert sandbox_cfg.base_url == "https://sandbox.plaid.com"
+    assert sandbox_cfg.secret == "sandbox-dedicated"
+
+    monkeypatch.setenv("PLAID_ENV", "production")
+    prod_cfg = PlaidRuntimeConfig.from_env()
+    assert prod_cfg.environment == "production"
+    assert prod_cfg.base_url == "https://production.plaid.com"
+    assert prod_cfg.secret == "prod-dedicated"

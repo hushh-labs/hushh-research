@@ -11,8 +11,8 @@ export class PrivateGoogleUnsupportedError extends Error {
 
 /** Old shared-client exchanges cannot handle a public native PKCE code. */
 export async function requireSharedGoogleExchange(): Promise<void> {
-  const { ownerContentIsPrivate } = await import('./private-agent-specialist-chat');
-  if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('This shared Google connection flow');
+  const { ownerRequiresByocIsolation } = await import('@/lib/one/byoc-isolation');
+  if (await ownerRequiresByocIsolation()) throw new PrivateGoogleUnsupportedError('This shared Google connection flow');
 }
 
 export type PrivateGoogleStatus = {

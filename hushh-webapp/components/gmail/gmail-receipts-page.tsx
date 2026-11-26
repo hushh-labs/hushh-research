@@ -1,6 +1,6 @@
 "use client";
 
-import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
+import { ownerRequiresByocIsolation } from '@/lib/one/byoc-isolation';
 import { connectGoogleConnector, connectRefusalMessage } from '@/lib/one/google-native-connect';
 import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-intent';
 import { useGoogleConnectorTransitionReview } from '@/components/connections/google-connector-transition-review';
@@ -933,7 +933,7 @@ export default function GmailReceiptsPage({
     if (!user || !userId || gmailActionBusy !== null) return Promise.resolve(false);
     const operationOwner = userId;
     const privateConnect = async (): Promise<boolean | null> => {
-      const privateAgent = await ownerContentIsPrivate();
+      const privateAgent = await ownerRequiresByocIsolation();
       if (gmailOwnerIdRef.current !== operationOwner) return false;
       if (!privateAgent) return null;
       if (!vaultKey || !vaultOwnerToken || !isVaultUnlocked) { toast.error('Unlock your vault to connect Google.'); return false; }
@@ -1060,7 +1060,7 @@ export default function GmailReceiptsPage({
 
     return (async () => {
       try {
-        if (await ownerContentIsPrivate()) {
+        if (await ownerRequiresByocIsolation()) {
           popup?.close();
           gmailPopupRef.current = null; setGmailPopupAttempt(null);
           clearGmailOAuthPopupAttempt();
