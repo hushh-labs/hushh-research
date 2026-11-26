@@ -2259,12 +2259,17 @@ final class NativeSupportTests: XCTestCase {
         var state = privateDrawerState(family: "history")
         var row = state.sections[0].rows[0]
         row.renameActionId = "rename"; row.deleteActionId = "delete"
+        state.historyCategories = ["Finance"]
+        row.historyTopic = NativeHistoryTopic(label: "Finance", custom: true, actionId: "topic")
         let options = try JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as! [String: Any]
         var rewritten = options
         rewritten["sections"] = [["id": "history", "rows": [try JSONSerialization.jsonObject(with: JSONEncoder().encode(row))]]]
         state = try JSONDecoder().decode(NativeDrawerProjection.self, from: JSONSerialization.data(withJSONObject: rewritten))
         var lease = NativeDrawerLease()
         XCTAssertTrue(lease.apply(state))
+        XCTAssertTrue(state.allows(action: "row", row: "topic", text: "New topic"))
+        XCTAssertTrue(state.allows(action: "row", row: "topic"))
+        XCTAssertFalse(state.allows(action: "row", row: "topic", text: String(repeating: "a", count: 33)))
         XCTAssertNil(lease.emit(action: "row", row: "rename", state: state, text: " "))
         XCTAssertNil(lease.emit(action: "row", row: "rename", state: state, text: String(repeating: "a", count: 161)))
         XCTAssertNil(lease.emit(action: "row", row: "delete", state: state, text: "not admitted"))
@@ -2298,16 +2303,16 @@ final class NativeSupportTests: XCTestCase {
     func testPrivateDrawerRefreshCannotInferOperationCompletionOrClearANewerDraft() {
         let state = privateDrawerState(family: "history")
         let model = NativeDrawerModel(state)
-        model.detailRow = "row-handle"; model.detailMode = "rename"; model.renameDraft = "Public title"
+        model.detailRow = "row-handle"; model.detailMode = "rename"; model.editDraft = "Public title"
         model.pendingSequence = 1; model.choicePending = true
         model.update(privateDrawerState(family: "history", update: 2, appearance: "dark"))
         XCTAssertTrue(model.choicePending)
-        XCTAssertEqual(model.renameDraft, "Public title")
+        XCTAssertEqual(model.editDraft, "Public title")
         model.settle(sequence: 2, success: true)
         XCTAssertTrue(model.choicePending, "An obsolete settlement cannot close another editor")
         model.settle(sequence: 1, success: false)
         XCTAssertFalse(model.choicePending)
-        XCTAssertEqual(model.renameDraft, "Public title", "Confirmed failure preserves a retryable draft")
+        XCTAssertEqual(model.editDraft, "Public title", "Confirmed failure preserves a retryable draft")
         model.pendingSequence = 3; model.choicePending = true
         model.settle(sequence: 1, success: true)
         XCTAssertTrue(model.choicePending)

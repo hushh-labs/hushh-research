@@ -147,6 +147,22 @@ export function isPinnedOneStreamConversation(
   return normalizeTitle(conversation.title).toLowerCase() === "one";
 }
 
+export function focusedHistory(conversations: readonly AgentChatConversation[], pinnedId: string | null, showsOne: boolean) {
+  return showsOne ? conversations.filter(item => item.id !== pinnedId && !isPinnedOneStreamConversation(item)) : conversations;
+}
+
+export function historyCategories(conversations: readonly AgentChatConversation[]) {
+  const counts = new Map<string, number>();
+  for (const conversation of conversations) {
+    const category = resolveConversationCategory(conversation);
+    counts.set(category, (counts.get(category) ?? 0) + 1);
+  }
+  const standard = new Set<string>(STANDARD_CHAT_CATEGORIES);
+  const customNames = [...counts.keys()].filter(category => !standard.has(category)).sort((a, b) => a.localeCompare(b));
+  const ordered = [...STANDARD_CHAT_CATEGORIES.filter(category => counts.has(category)), ...customNames];
+  return { counts, ordered, customNames };
+}
+
 function conversationLabel(conversation: AgentChatConversation): string {
   const title = normalizeTitle(conversation.title);
   return title || "New chat";
@@ -282,36 +298,11 @@ export function AgentHistorySidebar({
 
   const trimmedQuery = searchQuery.trim().toLowerCase();
 
-  const chatConversations = useMemo(() => {
-    if (!showPinnedOneStream) return conversations;
-    return conversations.filter(
-      (conversation) =>
-        conversation.id !== pinnedOneConversationId &&
-        !isPinnedOneStreamConversation(conversation),
-    );
-  }, [conversations, pinnedOneConversationId, showPinnedOneStream]);
-
-  const categorySummary = useMemo(() => {
-    const counts = new Map<string, number>();
-    const customNames: string[] = [];
-    for (const conversation of chatConversations) {
-      const cat = resolveConversationCategory(conversation);
-      counts.set(cat, (counts.get(cat) ?? 0) + 1);
-      if (
-        !STANDARD_CHAT_CATEGORIES.includes(
-          cat as (typeof STANDARD_CHAT_CATEGORIES)[number],
-        ) &&
-        !customNames.includes(cat)
-      ) {
-        customNames.push(cat);
-      }
-    }
-    const ordered = [
-      ...STANDARD_CHAT_CATEGORIES.filter((cat) => (counts.get(cat) ?? 0) > 0),
-      ...customNames.sort((a, b) => a.localeCompare(b)),
-    ];
-    return { counts, ordered, customNames };
-  }, [chatConversations]);
+  const chatConversations = useMemo(
+    () => focusedHistory(conversations, pinnedOneConversationId, showPinnedOneStream),
+    [conversations, pinnedOneConversationId, showPinnedOneStream],
+  );
+  const categorySummary = useMemo(() => historyCategories(chatConversations), [chatConversations]);
 
   const effectiveActiveCategory =
     activeCategory === "All" || categorySummary.counts.has(activeCategory)

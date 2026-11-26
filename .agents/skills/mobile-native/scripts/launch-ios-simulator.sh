@@ -3,7 +3,7 @@
 # Build the hushh One webapp, sync it into the native iOS shell, and launch it on
 # an iPhone simulator with the selected native profile, without desktop focus.
 #
-# Usage: launch.sh [SIMULATOR_UDID]
+# Usage: launch.sh [--latest-dev] [SIMULATOR_UDID]
 #
 set -euo pipefail
 
@@ -39,6 +39,11 @@ print((booted or phones)[-1]["udid"])
 '
 }
 
+latest_dev=false
+if [ "${1:-}" = "--latest-dev" ]; then
+  latest_dev=true
+  shift
+fi
 UDID="${1:-}"
 if [ -z "$UDID" ]; then
   UDID="$(pick_simulator || true)"
@@ -58,6 +63,22 @@ PROJECT="$WEBAPP/ios/App/App.xcodeproj"
 
 say() { printf '\n\033[1;34m▸ %s\033[0m\n' "$1"; }
 die() { printf '\n\033[1;31m✗ %s\033[0m\n' "$1" >&2; exit 1; }
+
+# Shared Dev reviews pin the remote base and the source before starting the export.
+# An explicit device keeps a second booted environment out of this installation.
+dev_tip() {
+  git -C "$REPO_ROOT" ls-remote --exit-code origin refs/heads/dev | awk 'NR == 1 { print $1 }'
+}
+if "$latest_dev"; then
+  [ "${APP_RUNTIME_PROFILE:-}" = dev ] || die "--latest-dev requires the Dev runtime profile"
+  [ -n "${1:-}" ] || die "Pass the Dev simulator UDID with --latest-dev"
+  [ -z "$(git -C "$REPO_ROOT" status --porcelain)" ] || die "Commit the reviewed source before a latest-Dev build"
+  source_head="$(git -C "$REPO_ROOT" rev-parse HEAD)"
+  base_head="$(dev_tip)" || die "Could not resolve origin/dev"
+  git -C "$REPO_ROOT" merge-base --is-ancestor "$base_head" "$source_head" 2>/dev/null ||
+    die "This checkout does not include Dev $base_head. Sync the named branch before building."
+  say "Dev base $base_head; source $source_head; simulator $UDID; SDK $(xcrun --sdk iphonesimulator --show-sdk-version)"
+fi
 
 # --- 1. Node 22 (required for cap sync) -------------------------------------
 say "Selecting Node 22"
@@ -142,6 +163,27 @@ BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/I
 [ -n "$BUNDLE_ID" ] || die "Built app has no bundle identifier"
 
 say "Installing and launching the verified bundle in the background"
+if "$latest_dev"; then
+  [ "$(git -C "$REPO_ROOT" rev-parse HEAD)" = "$source_head" ] && [ "$(dev_tip)" = "$base_head" ] ||
+    die "Dev or the checkout changed during this build. The existing install is intact."
+  if previous="$(xcrun simctl get_app_container "$UDID" "$BUNDLE_ID" app 2>/dev/null)"; then
+    project_key='Print :PROJECT_ID'
+    previous_project="$(/usr/libexec/PlistBuddy -c "$project_key" "$previous/GoogleService-Info.plist")"
+    build_project="$(/usr/libexec/PlistBuddy -c "$project_key" "$APP_PATH/GoogleService-Info.plist")"
+    [ "$previous_project" = "$build_project" ] || die "This simulator has a different environment installed. Select the Dev device."
+  fi
+  diff -qr "$WEBAPP/ios/App/App/public" "$APP_PATH/public" >/dev/null || die "Built web assets differ from Capacitor sync"
+fi
 xcrun simctl install "$UDID" "$APP_PATH"
+if "$latest_dev"; then
+  installed="$(xcrun simctl get_app_container "$UDID" "$BUNDLE_ID" app)"
+  diff -qr "$APP_PATH/public" "$installed/public" >/dev/null || die "Installed web assets differ from the build"
+  executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP_PATH/Info.plist")"
+  cmp -s "$APP_PATH/$executable" "$installed/$executable" || die "Installed executable differs from the build"
+  if [ -f "$APP_PATH/$executable.debug.dylib" ]; then
+    cmp -s "$APP_PATH/$executable.debug.dylib" "$installed/$executable.debug.dylib" || die "Installed Debug library differs from the build"
+  fi
+  say "Verified installed source $source_head, Dev base $base_head, SDK $(/usr/libexec/PlistBuddy -c 'Print :DTSDKName' "$installed/Info.plist")"
+fi
 xcrun simctl launch "$UDID" "$BUNDLE_ID"
 printf '\nApp launched on %s. Bundled backend verified; authenticated journeys remain separate.\n' "$UDID"

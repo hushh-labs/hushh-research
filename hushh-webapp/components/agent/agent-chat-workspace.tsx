@@ -9767,7 +9767,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setOpen: handleHistoryDrawerOpenChange,
     openConnectors: openHistoryConnectors,
     openDriveReview: () => { setDriveActivityPage({ owner: renderedWorkspaceOwnerId, epoch: vaultSessionEpoch, open: true }); },
-    openTodoList: () => { handleHistoryDrawerOpenChange(false); router.push(ROUTES.ONE_TASKS); },
+    pinnedOne: isPuppySurface ? undefined : {
+      id: pinnedOneConversationId, selected: isOneStreamActive, waiting: pendingOneActionCount, select: handleSidebarSelectOneStream,
+    },
+    categorize: isPuppySurface ? undefined : handleCategorizeConversation,
   });
   const getEmailDeliveryAuth = async (scope = emailScopeRef.current) => {
     const isCurrent = () => emailScopeRef.current === scope &&
