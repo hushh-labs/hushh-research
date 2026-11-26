@@ -394,6 +394,9 @@ export type SaveLocationModalProps = {
   compactOnboarding?: boolean;
   onboardingRouteId?: string;
   onRequestLocation?: () => void;
+  captureRevision?: number;
+  locationAccessBlocked?: boolean;
+  onOpenLocationSettings?: () => void;
   requestingLocation?: boolean;
   locationError?: string | null;
   onboardingPlaceSaved?: boolean;
@@ -559,6 +562,9 @@ export function SaveLocationModal({
   compactOnboarding = false,
   onboardingRouteId,
   onRequestLocation,
+  captureRevision = 0,
+  locationAccessBlocked = false,
+  onOpenLocationSettings,
   requestingLocation = false,
   locationError = null,
   onboardingPlaceSaved = false,
@@ -590,6 +596,7 @@ export function SaveLocationModal({
   const [flowStep, setFlowStep] = useState<SaveLocationFlowStep>("summary");
   const [pickedLocation, setPickedLocation] = useState<PickedLocation | null>(null);
   const pickedLocationRef = useRef<PickedLocation | null>(null);
+  const pickedCaptureRevisionRef = useRef(captureRevision);
   const [addressDetails, setAddressDetails] =
     useState<SavedLocationAddressDetails>(EMPTY_SAVED_LOCATION_ADDRESS_DETAILS);
   const [placeQuery, setPlaceQuery] = useState("");
@@ -804,7 +811,9 @@ export function SaveLocationModal({
   const normalizedAddressDetails =
     normalizeSavedLocationAddressDetails(addressDetails);
   const detectedAddress = (
-    pickedLocation ? stripPlusCodeSegment(pickedLocation.address) : resolvedAddress
+    pickedLocation && pickedCaptureRevisionRef.current === captureRevision
+      ? stripPlusCodeSegment(pickedLocation.address)
+      : resolvedAddress
   ) || "";
   /**
    * The Address line box tracks the detected address until the person types
@@ -1013,7 +1022,7 @@ export function SaveLocationModal({
   const startingLongitude = mapInitial?.longitude;
   const updateUnifiedPickedLocation = useCallback(
     (picked: PickedLocation) => {
-      const lastPick = pickedLocationRef.current;
+      const lastPick = pickedCaptureRevisionRef.current === captureRevision ? pickedLocationRef.current : null;
       if (
         lastPick &&
         lastPick.latitude === picked.latitude &&
@@ -1028,6 +1037,7 @@ export function SaveLocationModal({
           { lat: picked.latitude, lng: picked.longitude },
         ) > 1;
       onPickExactLocation?.(picked);
+      pickedCaptureRevisionRef.current = captureRevision;
       pickedLocationRef.current = picked;
       setPickedLocation(picked);
       setAddressDetails((current) => detectedAddressDetails(
@@ -1036,7 +1046,7 @@ export function SaveLocationModal({
         houseOrFlatEditedRef.current,
       ));
     },
-    [startingLatitude, startingLongitude, onPickExactLocation],
+    [startingLatitude, startingLongitude, onPickExactLocation, captureRevision],
   );
 
   const handleConfirmMapPick = (picked: PickedLocation) => {
@@ -1195,9 +1205,11 @@ export function SaveLocationModal({
               <OnboardingLiveMap point={mapInitial ? { lat: mapInitial.latitude, lng: mapInitial.longitude } : null} emptyLabel="Place saved." className="absolute inset-0" />
             ) : canPickOnMap ? (
               <LocationPickerMap
+                key={captureRevision}
                 ref={mapPickerRef}
                 embedded
                 compact
+                onRecapture={onRequestLocation}
                 initialLatitude={mapInitial!.latitude}
                 initialLongitude={mapInitial!.longitude}
                 initialAddress={detectedAddress || null}
@@ -1221,9 +1233,12 @@ export function SaveLocationModal({
             busy={interactionBusy}
             capturing={requestingLocation}
             saved={onboardingPlaceSaved}
-            error={unifiedSaveError || locationError}
+            error={locationError || unifiedSaveError}
+            saveFailed={Boolean(unifiedSaveError)}
+            locationAccessBlocked={Boolean(locationError && locationAccessBlocked)}
+            onOpenLocationSettings={onOpenLocationSettings}
             onBack={onBack ?? onSkip}
-            onRequestLocation={onRequestLocation ?? (() => undefined)}
+            onRequestLocation={onRequestLocation}
             onSave={onboardingPlaceSaved ? (onContinue ?? onSkip) : handleSave}
             onLater={onSkip}
           />

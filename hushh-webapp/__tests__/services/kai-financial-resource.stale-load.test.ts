@@ -20,9 +20,11 @@ vi.mock("@/lib/cache/request-audit-log", () => ({ logRequestAudit: vi.fn() }));
 
 import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
 import { KaiFinancialResourceService } from "@/lib/kai/kai-financial-resource";
+import { applyConnectionLink, applySnapshot } from "@/lib/kai/plaid-vault/projection";
 import { activePortfolioChatView, readPortfolioContext, rememberPortfolioCard } from "@/lib/kai/portfolio-chat-context";
 import { CacheService } from "@/lib/services/cache-service";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { firstPlatypusSnapshot, FIRST_PLATYPUS, NOW } from "../lib/plaid-vault/fixtures";
 
 const PARAMS = { userId: "owner", vaultOwnerToken: "vot", vaultKey: "vk" };
 const BEFORE = { portfolio: { holdings: [{ symbol: "OLD", name: "Old Shares", quantity: 1, market_value: 1 }] } };
@@ -147,6 +149,53 @@ describe("a Kai finance read that races a write", () => {
     });
     expect(mocks.prepareDomainWriteContext).toHaveBeenCalledTimes(4);
     expect(mocks.secureWrite).not.toHaveBeenCalled();
+  });
+
+  it("uses the selected 52-row statement for its card and follow-up when Plaid is also linked", async () => {
+    const connection = applyConnectionLink(null, {
+      item_id: "sample", access_token: "fixture-only", institution: FIRST_PLATYPUS, products: ["investments"],
+    }, NOW);
+    const linked = applySnapshot(connection, "sample", firstPlatypusSnapshot("sample", "sample"), NOW);
+    const statement = {
+      id: "selected",
+      canonical_v2: {
+        account_info: { currency: "USD" },
+        holdings: Array.from({ length: 52 }, (_, index) => ({
+          symbol: `HOLD${index + 1}`,
+          name: `Test holding ${index + 1}`,
+          identifier_type: "ticker",
+          quantity: 1,
+          market_value: 52 - index,
+        })),
+      },
+    };
+    const domain = (activeSnapshotId: string) => ({
+      ...linked,
+      sources: {
+        active_source: "statement",
+        statement: { active_snapshot_id: activeSnapshotId, snapshots: [statement] },
+      },
+    });
+    const load = (activeSnapshotId: string) => mocks.prepareDomainWriteContext.mockResolvedValueOnce({
+      domainData: domain(activeSnapshotId), baseFullBlob: {},
+    });
+    const request = { source: "active", section: "holdings" } as const;
+    const session = { ...PARAMS, threadId: "finance" };
+    load("selected");
+    const read = await KaiFinancialResourceService.readForAnswer(PARAMS, () => true);
+    expect(read?.resource.plaidPortfolio?.holdings?.length).toBeGreaterThan(0);
+    expect(read?.resource.activeSource).toBe("statement");
+    expect(activePortfolioChatView(read!.resource)?.positions).toHaveLength(52);
+    load("selected");
+    await expect(readPortfolioContext(session, { ...request, ticker: "HOLD52" }, () => true)).resolves.toMatchObject({
+      status: "ok", source: "statement", holdings: { total_count: 52, matched_count: 1,
+        positions: [{ ticker: "HOLD52", market_value: 1 }] },
+    });
+    load("deleted");
+    await expect(readPortfolioContext(session, request, () => true)).resolves.toEqual({
+      status: "unavailable", reason: "source_unavailable",
+    });
+    expect(KaiFinancialResourceService.activeSavedSource(PARAMS.userId, domain("deleted"))).toBeNull();
   });
 
   it("uses saved currency and treats missing prices and positions as unknown", async () => {

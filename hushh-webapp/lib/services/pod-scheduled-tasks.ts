@@ -72,6 +72,7 @@ export type ScheduledTasksStatus = {
   templates: string[];
   repeat_modes?: ScheduleRepeat[];
   run_now_available?: boolean;
+  files_via_schedule?: boolean;
   tasks: ScheduledTask[];
   authorization_limit_at: number | null;
 };
@@ -271,6 +272,7 @@ export class PodScheduledTasksClient {
       !Array.isArray(body.templates) ||
       body.templates.some((value) => !isScheduledCapability(value)) ||
       (body.run_now_available !== undefined && typeof body.run_now_available !== "boolean") ||
+      (body.files_via_schedule !== undefined && typeof body.files_via_schedule !== "boolean") ||
       (body.repeat_modes !== undefined && (!Array.isArray(body.repeat_modes) ||
         body.repeat_modes.length > SCHEDULE_REPEATS.length ||
         body.repeat_modes.some(mode => !SCHEDULE_REPEATS.includes(mode)))) ||
@@ -284,6 +286,7 @@ export class PodScheduledTasksClient {
       templates: body.templates,
       ...(body.repeat_modes !== undefined ? { repeat_modes: body.repeat_modes } : {}),
       ...(body.run_now_available !== undefined ? { run_now_available: body.run_now_available } : {}),
+      ...(body.files_via_schedule !== undefined ? { files_via_schedule: body.files_via_schedule } : {}),
       tasks,
       authorization_limit_at: body.authorization_limit_at,
     };

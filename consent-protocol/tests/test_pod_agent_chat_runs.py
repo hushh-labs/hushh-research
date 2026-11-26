@@ -71,6 +71,46 @@ def test_receipt_tools_have_an_explicit_authenticated_protocol_advertisement():
     assert "pkm.add" in response.json()["admittedActionIds"]
 
 
+def test_native_cloud_request_only_passes_server_admitted_state():
+    client = _client()
+    owner = _owner()
+    owner.require_access = AsyncMock()
+    turns = []
+
+    async def stream_native(options, turn):
+        turns.append((options, turn))
+        yield b'data: {"author":"one"}\n\n'
+        yield b"event: done\ndata: {}\n\n"
+
+    owner.stream_native = stream_native
+    client.app.dependency_overrides[pod_agent_chat.context] = lambda: owner
+    path = "/api/one/pod/agent-chat"
+    body = {
+        "transport": "native-adk-v1",
+        "threadId": "conv-1",
+        "runId": "native-1",
+        "message": "How many holdings are in my active portfolio?",
+        "forwardedProps": {"specialistFocus": "finance"},
+    }
+    response = client.post(path, json=body)
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert response.content.endswith(b"event: done\ndata: {}\n\n")
+    ((options, turn),) = turns
+    assert options.conversation_id == turn.thread_id == "conv-1"
+    assert turn.text == body["message"]
+    assert turn.state["hussh:user_id"] == "owner-a"
+    assert turn.state[STATE_SPECIALIST_FOCUS] == "finance"
+    owner.require_access.assert_awaited_once()
+
+    # Supplying legacy fields must not route a marked native turn through
+    # the old client-tool admission path.
+    forged = {**body, **_turn().model_dump(by_alias=True)}
+    forged["state"] = {"hussh:user_id": "owner-b"}
+    assert client.post(path, json=forged).status_code == 422
+    assert len(turns) == 1
+
+
 def test_queue_joins_only_the_session_owners_running_turn(registry):
     registry.open_run("owner-a", "conv-1", "run-1", accepting=True)
     queued = _client("owner-a").post(
@@ -364,7 +404,8 @@ async def test_history_preparation_reconnect_is_pending_only_for_exact_owner(
     from contextlib import nullcontext, suppress
 
     from hushh_mcp.one_adk import pod_agui_lifetime as pod
-    from hushh_mcp.one_adk import pod_chat_stream as transport
+    from hushh_mcp.one_adk import pod_chat_transport as transport
+    from hushh_mcp.one_adk.pod_chat_stream import pod_chat_events
     from tests.helpers.agui_lifetime import THREAD_ID, USER_ID, _bridge_agent, _owner_input
 
     entered, release = asyncio.Event(), asyncio.Event()
@@ -382,7 +423,7 @@ async def test_history_preparation_reconnect_is_pending_only_for_exact_owner(
     session = SimpleNamespace(events=[], state={}) if session_exists else None
     sessions = SimpleNamespace(get_session=AsyncMock(return_value=session))
     owner = SimpleNamespace(owner=USER_ID, sessions=sessions, require_access=AsyncMock())
-    stream = transport.pod_chat_events(agent, _owner_input(), owner_id=USER_ID)
+    stream = pod_chat_events(agent, _owner_input(), owner_id=USER_ID)
     reader = asyncio.create_task(anext(stream))
     try:
         await asyncio.wait_for(entered.wait(), 1)

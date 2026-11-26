@@ -237,7 +237,8 @@ async def test_private_transport_detach_retains_turn_key_and_finishes_existing_r
     from unittest.mock import AsyncMock
 
     from hushh_mcp.one_adk import pod_agui_lifetime as pod
-    from hushh_mcp.one_adk.pod_chat_stream import _PRODUCERS, pod_chat_events
+    from hushh_mcp.one_adk.pod_chat_stream import pod_chat_events
+    from hushh_mcp.one_adk.pod_chat_transport import _PRODUCERS
     from hushh_mcp.services.chat_key import (
         RequestChatKey,
         bind_request_chat_key,
@@ -282,7 +283,8 @@ async def test_private_transport_detach_retains_turn_key_and_finishes_existing_r
 
 @pytest.mark.parametrize("expires", [False, True])
 async def test_private_transport_full_buffer_unblocks_or_original_key_expires(monkeypatch, expires):
-    from hushh_mcp.one_adk import pod_chat_stream as transport
+    from hushh_mcp.one_adk import pod_chat_transport as transport
+    from hushh_mcp.one_adk.pod_chat_stream import pod_chat_events
     from hushh_mcp.services.chat_key import RequestChatKey, bind_request_chat_key
 
     monkeypatch.setattr(transport, "_MAX_FRAMES", 1)
@@ -303,7 +305,7 @@ async def test_private_transport_full_buffer_unblocks_or_original_key_expires(mo
         max_seconds=0.05 if expires else 2,
     )
     with bind_request_chat_key(holder):
-        stream = transport.pod_chat_events(Producer(), _input(), owner_id=USER_ID)
+        stream = pod_chat_events(Producer(), _input(), owner_id=USER_ID)
         await anext(stream)
         await asyncio.wait_for(full.wait(), 1)
         if expires:

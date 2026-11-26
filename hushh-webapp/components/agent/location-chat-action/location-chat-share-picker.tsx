@@ -9,14 +9,15 @@ import { OneLocationService } from "@/lib/one-location/service";
 import type { OneLocationCircleSummary, OneLocationRecipientPage } from "@/lib/one-location/types";
 import { cn } from "@/lib/utils";
 
-type PrivateMode = "share_live" | "share_pin";
+type PrivateMode = "share_live" | "share_pin" | "ask";
 export type PrivateLocationSelection = { mode: PrivateMode; targets: MainLocationTarget[] };
 const normalized = (label: string) => label.normalize("NFKC").trim().toLocaleLowerCase();
 
-export function LocationChatSharePicker({ token, ownerId, initialMode = "share_live", busy, error, suggestedPeople, suggestedCircles, onSelectionChange, onContinue, onBack }: {
+export function LocationChatSharePicker({ token, ownerId, initialMode = "share_live", checkIn = false, busy, error, suggestedPeople, suggestedCircles, onSelectionChange, onContinue, onBack }: {
   token: string;
   ownerId: string;
   initialMode?: PrivateMode;
+  checkIn?: boolean;
   busy: boolean;
   error?: string;
   suggestedPeople?: string[];
@@ -26,6 +27,7 @@ export function LocationChatSharePicker({ token, ownerId, initialMode = "share_l
   onBack: () => void;
 }) {
   const [mode, setMode] = useState<PrivateMode>(initialMode);
+  const requesting = initialMode === "ask";
   const modeInputName = useId();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
@@ -54,7 +56,7 @@ export function LocationChatSharePicker({ token, ownerId, initialMode = "share_l
         return displayName === requestedName || (singleName && displayName.startsWith(`${requestedName} `));
       });
       const person = !hasMore && matches.length === 1 ? matches[0] : undefined;
-      return person?.canReceiveLocation
+      return person && (requesting || person.canReceiveLocation)
         ? [`person:${person.userId}`, { label: person.displayName, personUserId: person.userId }] as const : null;
     });
     void Promise.allSettled(people).then((results) => {
@@ -68,7 +70,7 @@ export function LocationChatSharePicker({ token, ownerId, initialMode = "share_l
       if (ready.length) setSelected((previous) => ({ ...previous, ...Object.fromEntries(ready) }));
     });
     return () => { current = false; };
-  }, [ownerId, suggestedPeople, token]);
+  }, [ownerId, requesting, suggestedPeople, token]);
 
   useEffect(() => {
     if (!circles || !suggestedCircles?.length) return;
@@ -149,12 +151,12 @@ export function LocationChatSharePicker({ token, ownerId, initialMode = "share_l
     </button>;
   }
 
-  return <section aria-label="Choose who can see your location" className="space-y-3 rounded-2xl border bg-card p-4 text-card-foreground">
+  return <section aria-label={requesting ? "Choose whose location to request" : "Choose who can see your location"} className="space-y-3 rounded-2xl border bg-card p-4 text-card-foreground">
     <div>
-      <h3 className="text-base font-semibold">Share privately</h3>
-      <p className="text-sm text-muted-foreground">Choose people or Circles, then review who can see your location.</p>
+      <h3 className="text-base font-semibold">{requesting ? "Ask for location" : checkIn ? "Private check-in" : "Share privately"}</h3>
+      <p className="text-sm text-muted-foreground">{requesting ? "Choose people or Circles, then review your request. Each person decides whether to share." : checkIn ? "Choose who gets your check-in." : "Choose people or Circles, then review who can see your location."}</p>
     </div>
-    <fieldset disabled={busy} className="grid gap-2 sm:grid-cols-2">
+    {!checkIn && !requesting ? <fieldset disabled={busy} className="grid gap-2 sm:grid-cols-2">
       <legend className="sr-only">Location type</legend>
       {([["share_live", "Live location"], ["share_pin", "Current pin"]] as const).map(([value, label]) => (
         <label key={value} className={cn("flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border px-3 text-sm", mode === value && "border-primary/50 bg-primary/5")}>
@@ -162,7 +164,7 @@ export function LocationChatSharePicker({ token, ownerId, initialMode = "share_l
           {label}
         </label>
       ))}
-    </fieldset>
+    </fieldset> : null}
     <Input type="search" value={query} aria-label="Search connections and Circles" placeholder="Search connections and Circles"
       onChange={(event) => search(event.target.value)} />
     {unresolvedNames.length ? <div className="flex flex-wrap gap-1.5" aria-label="Names to review">
@@ -179,7 +181,7 @@ export function LocationChatSharePicker({ token, ownerId, initialMode = "share_l
       <section aria-label="Connections" aria-busy={loading}>
         <h4 className="px-2 text-xs font-semibold text-muted-foreground">Connections</h4>
         {people.map((person) => audienceButton(`person:${person.userId}`, { label: person.displayName, personUserId: person.userId },
-          person.canReceiveLocation ? person.maskedPhone ?? undefined : "Location setup needed", !person.canReceiveLocation))}
+          requesting || person.canReceiveLocation ? person.maskedPhone ?? undefined : "Location setup needed", !requesting && !person.canReceiveLocation))}
         {loading ? <p role="status" className="px-2 py-1 text-sm text-muted-foreground">Loading connections…</p> : null}
         {!loading && !failedDirectory && !people.length ? <p className="px-2 py-1 text-sm text-muted-foreground">No matching connections.</p> : null}
         {failedDirectory ? <Button variant="ghost" onClick={() => setDirectoryRetry((count) => count + 1)}>Retry connections</Button> : null}

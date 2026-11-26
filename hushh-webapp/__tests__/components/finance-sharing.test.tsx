@@ -2,13 +2,14 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
-const mocks = vi.hoisted(() => ({ mobile: false, activeRecipientRefs: vi.fn(), recipient: vi.fn(), ownerConfig: vi.fn(), capture: vi.fn(), recipients: vi.fn(), prepare: vi.fn(), publish: vi.fn(), history: vi.fn(), stop: vi.fn(), view: vi.fn(), decrypt: vi.fn(), review: vi.fn(), saved: vi.fn() }));
+const mocks = vi.hoisted(() => ({ mobile: false, activeRecipientRefs: vi.fn(), recipient: vi.fn(), ownerConfig: vi.fn(), capture: vi.fn(), recipients: vi.fn(), prepare: vi.fn(), publish: vi.fn(), history: vi.fn(), stop: vi.fn(), view: vi.fn(), decrypt: vi.fn(), review: vi.fn(), saved: vi.fn(), readForAnswer: vi.fn() }));
 const context = { userId: "owner", vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-consent", getIdToken: async () => "synthetic-token", isCurrent: () => true };
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => mocks.mobile }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/one/kai", useSearchParams: () => new URLSearchParams("tab=portfolio") }));
 vi.mock("@/lib/finance-sharing/use-finance-share-context", () => ({ useFinanceShareContext: () => ({ capture: mocks.capture, session: "owner:1", ready: true }) }));
 vi.mock("@/lib/services/finance-sharing-service", () => ({ FinanceSharingService: mocks, pendingFinanceShare: () => null }));
 vi.mock("@/lib/finance-sharing/saved-source", () => ({ readSavedFinance: mocks.saved }));
+vi.mock("@/lib/kai/kai-financial-resource", () => ({ KaiFinancialResourceService: { readForAnswer: mocks.readForAnswer } }));
 vi.mock("@/components/app-ui/kai-control-surface", () => ({ KaiControlSurface: ({ open, title, children, footer }: { open: boolean; title: string; children: ReactNode; footer?: ReactNode }) => open ? <section role="dialog" aria-label={title}><h1>{title}</h1>{children}{footer}</section> : null }));
 vi.mock("@/components/app-ui/shell-action-surface", () => ({ ShellActionSurface: ({ children, onClick, disabled }: { children: ReactNode; onClick?: () => void; disabled?: boolean }) => <button disabled={disabled} onClick={onClick}>{children}</button> }));
 vi.mock("@/components/kai/sharing/finance-sharing-preview", () => ({ FinanceSharingPreview: ({ projection, section }: { projection: unknown; section?: string }) => !section || section === "portfolio" ? <pre>{JSON.stringify(projection)}</pre> : null }));
@@ -16,6 +17,8 @@ import { FinanceShareFlow } from "@/components/kai/sharing/finance-share-flow";
 import { FinancePortfolioSharing } from "@/components/kai/sharing/finance-portfolio-sharing";
 import { FinanceSharedDetail } from "@/components/kai/sharing/finance-shared-detail";
 import { FinanceSharingManager } from "@/components/kai/sharing/finance-sharing-manager";
+import { A2uiSurfaceView } from "@/components/a2ui/a2ui-surface-view";
+import { applyA2uiMessage, ONE_A2UI_CATALOG } from "@/lib/a2ui/surface-store";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { PERSON_PROFILE_PREVIEW_EVENT } from "@/lib/connections/person-profile-preview";
 
@@ -152,6 +155,59 @@ it("supports a custom connection duration and blocks invalid values before previ
   fireEvent.change(screen.getByLabelText("Duration unit"), { target: { value: "3600" } });
   fireEvent.click(screen.getByRole("button", { name: "Preview", exact: true }));
   expect(await screen.findByText("After 3 hours")).toBeTruthy();
+});
+
+it("keeps the Chat advisor flow on verified policy even with finite access", async () => {
+  const advisor = { userId: "advisor", publicPersonRef: "a", keyId: "key", publicKeyJwk: {},
+    displayName: "Synthetic advisor", isFinanceAdvisor: true };
+  const connection = { ...advisor, userId: "connection", publicPersonRef: "c",
+    displayName: "Synthetic connection", isFinanceAdvisor: false };
+  mocks.recipients.mockResolvedValue({ items: [advisor, connection], hasMore: false });
+  mocks.prepare.mockResolvedValue({ requestId: "request" });
+  mocks.publish.mockResolvedValue({ items: [{ requestId: "request", status: "active" }] });
+  render(<FinanceShareFlow open onOpenChange={vi.fn()} model={model} source={source}
+    requireActiveSource verifiedAdvisorsOnly />);
+  fireEvent.click(await screen.findByRole("checkbox", { name: /^Synthetic advisor/ }));
+  expect(screen.queryByRole("checkbox", { name: /^Synthetic connection/ })).toBeNull();
+  openPreview();
+  const send = await screen.findByRole("button", { name: "Share with 1 person" });
+  expect(mocks.prepare).not.toHaveBeenCalled();
+  fireEvent.click(send);
+  await waitFor(() => expect(mocks.publish).toHaveBeenCalledOnce());
+  expect(mocks.saved).toHaveBeenCalledTimes(2);
+  expect(mocks.saved.mock.calls.every(call => call[3]?.requireActiveSource === true)).toBe(true);
+  expect(mocks.prepare.mock.calls[0][3]).toMatchObject({
+    version: 3, purpose: "verified_ria_share", durationSeconds: 86400, showAmounts: false,
+    model_processing: { allowed: false },
+  });
+});
+
+it("opens the fixed sharing review from a live native proposal only after a click", async () => {
+  const surface = applyA2uiMessage(new Map(), {
+    version: "1.0",
+    createSurface: {
+      surfaceId: "finance_share", catalogId: ONE_A2UI_CATALOG,
+      components: [{ id: "root", component: "FinanceShareProposal", audience: "connection" }],
+    },
+  }).get("finance_share")!;
+  mocks.readForAnswer.mockResolvedValue({
+    isCurrent: () => true,
+    resource: {
+      activeSource: "statement", activeStatementSnapshotId: source.snapshotId,
+      activePortfolio: { holdings: [{ symbol: "AAPL", name: "Apple", quantity: 10, market_value: 10000 }] },
+    },
+  });
+  const view = render(<A2uiSurfaceView surface={surface} />);
+  expect(screen.queryByRole("button", { name: "Choose connections" })).toBeNull();
+  view.rerender(<A2uiSurfaceView surface={surface} allowFinanceShare />);
+  const entry = await screen.findByRole("button", { name: "Choose connections" });
+  expect(mocks.readForAnswer).not.toHaveBeenCalled();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  fireEvent.click(entry);
+  const dialog = await screen.findByRole("dialog", { name: "Share Finance" });
+  expect(await within(dialog).findByRole("checkbox", { name: "Synthetic connection" })).toBeVisible();
+  expect(mocks.prepare).not.toHaveBeenCalled();
+  expect(mocks.publish).not.toHaveBeenCalled();
 });
 
 it("does not report an ended confirmation as active sharing", async () => {

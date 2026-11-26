@@ -240,6 +240,8 @@ export const AgentBubble = memo(function AgentBubble({
   pendingPhase = "thinking",
   pendingLabel = null,
   conversationId,
+  nativeSurfaces,
+  allowNativeFinanceActions,
   allowFinancePreviewStart = false,
   onConfirmFinanceAnalysis,
   onMailQuickAction,
@@ -288,6 +290,8 @@ export const AgentBubble = memo(function AgentBubble({
   pendingPhase?: OneTurnPendingPhase;
   pendingLabel?: string | null;
   conversationId?: string | null;
+  nativeSurfaces?: import("@/lib/a2ui/surface-store").A2uiSurfaces;
+  allowNativeFinanceActions?: boolean;
   allowFinancePreviewStart?: boolean;
   onConfirmFinanceAnalysis?: (confirmation: string) => Promise<void>;
   onMailQuickAction?: (prompt: string) => void;
@@ -335,7 +339,7 @@ export const AgentBubble = memo(function AgentBubble({
     isStreaming ||
     streamEvents.length > 0 ||
     Boolean(message.sources?.length) ||
-    structuredExperiences.length > 0;
+    structuredExperiences.length > 0 || Boolean(nativeSurfaces?.size);
   const shouldRenderStreamPanel =
     !isUser && !isError && hasStreamContent && !message.renderAsPlainAssistantMessage;
   const animated = useAnimatedAssistantText(
@@ -588,6 +592,9 @@ export const AgentBubble = memo(function AgentBubble({
           ) : shouldRenderStreamPanel ? (
             <AgentTurnStreamPanel
               conversationId={conversationId}
+              nativeSurfaces={nativeSurfaces}
+              allowNativePortfolioRead={Boolean(nativeSurfaces?.size)}
+              nativeFinanceActionMessageId={allowNativeFinanceActions ? message.id : undefined}
               allowFinancePreviewStart={allowFinancePreviewStart}
               onConfirmFinanceAnalysis={onConfirmFinanceAnalysis}
               onMailQuickAction={onMailQuickAction}

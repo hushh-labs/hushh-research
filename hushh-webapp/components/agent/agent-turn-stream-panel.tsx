@@ -5,6 +5,7 @@ export { onePerPersonSharedCard } from "@/lib/agent/structured-experience-order"
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
+import { A2uiSurfaceView } from "@/components/a2ui/a2ui-surface-view";
 import {
   AppStreamPanel,
   type AppStreamProgressItem,
@@ -22,6 +23,7 @@ import {
 } from "@/lib/agent/drive-batch-progress";
 import { driveOwnerCompileKey, type DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
 import type { AgentChatToolEvent, AgentSource } from "@/lib/services/agent-chat-client";
+import type { A2uiSurfaces } from "@/lib/a2ui/surface-store";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
 import { resolveProductionTurnGoogleNote } from "@/lib/agent/production-visitor-posture";
 import { ConnectorBrandMark, connectorBrandFor, type ConnectorBrand } from "@/components/agent/connector-brand-mark";
@@ -223,6 +225,11 @@ export type AgentTurnStreamPanelProps = {
     id: string;
     experience: AgentStructuredExperienceWithPresentation;
   }>;
+  /** Turn-local surfaces from an admitted stream. Keep these out of saved history. */
+  nativeSurfaces?: A2uiSurfaces;
+  /** The live assistant message that may offer owner-controlled Finance actions. */
+  nativeFinanceActionMessageId?: string;
+  allowNativePortfolioRead?: boolean;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
   onInformationRequestSubmitted?: (activityId: string, receipt: InformationRequestSubmissionReceipt) => Promise<void>;
   onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
@@ -406,6 +413,9 @@ export function AgentTurnStreamPanel({
   sources = [],
   structuredExperience = null,
   structuredExperiences = [],
+  nativeSurfaces,
+  nativeFinanceActionMessageId,
+  allowNativePortfolioRead = false,
   onOpenConnections,
   onInformationRequestSubmitted,
   onCompileDriveNotes,
@@ -516,8 +526,17 @@ export function AgentTurnStreamPanel({
       responseText={responseText}
       response={response}
       structuredContent={
-        experienceItems.length > 0 ? (
+        experienceItems.length > 0 || nativeSurfaces?.size ? (
           <div className="space-y-3">
+            {nativeSurfaces && [...nativeSurfaces].map(([id, surface]) => (
+              <A2uiSurfaceView key={id} surface={surface}
+                allowFinanceShare={Boolean(nativeFinanceActionMessageId) && !isStreaming && !isError}
+                financeActionOfferId={nativeFinanceActionMessageId && !isStreaming && !isError
+                  ? JSON.stringify([nativeFinanceActionMessageId, id]) : undefined}
+                onConfirmFinanceAnalysis={nativeFinanceActionMessageId && !isStreaming && !isError
+                  ? onConfirmFinanceAnalysis : undefined}
+                portfolioConversationId={allowNativePortfolioRead && !isError ? conversationId ?? undefined : undefined} />
+            ))}
             {experienceItems.map(({ id, experience }) => {
               const scopedCompilation = experience.type === "one.connector_read.v1" &&
                 experience.connector === "drive" && experience.ownerCompileQuery &&

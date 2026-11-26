@@ -6045,6 +6045,35 @@ def test_until_stopped_is_rejected_for_check_in_grants() -> None:
     assert exc.value.code == "LOCATION_DURATION_MODE_NOT_ALLOWED"
 
 
+def test_check_in_allows_original_envelope_replay_but_blocks_movement() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "x", "y": "y"},
+    )
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+        share_kind="check_in",
+        reason="check_in",
+    )
+    # Older rows carry the check-in reason without a separate share_kind field.
+    service.grants[grant["id"]]["metadata"].pop("share_kind", None)
+    args = {"owner_user_id": "user_a", "grant_id": grant["id"]}
+    first = encrypted_envelope("key-user_b")
+    stored = service.store_encrypted_envelope(**args, envelope=first)
+    assert service.store_encrypted_envelope(**args, envelope=first)["id"] == stored["id"]
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.store_encrypted_envelope(
+            **args, envelope=encrypted_envelope("key-user_b", "movement")
+        )
+    assert exc.value.code == "LOCATION_CHECK_IN_IMMUTABLE"
+    assert len(service.envelopes) == 1
+
+
 def test_public_invite_is_request_only_and_token_hash_only() -> None:
     service = FourUserMemoryService()
     service.register_recipient_key(

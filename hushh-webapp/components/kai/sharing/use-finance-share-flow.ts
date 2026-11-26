@@ -40,6 +40,8 @@ export type FinanceShareFlowProps = {
   model: DashboardViewModel;
   source: FinanceSource;
   initialShare?: FinanceShareUpdate;
+  requireActiveSource?: boolean;
+  verifiedAdvisorsOnly?: boolean;
 };
 export function useFinanceShareFlow({
   open,
@@ -47,6 +49,8 @@ export function useFinanceShareFlow({
   model,
   source,
   initialShare,
+  requireActiveSource = false,
+  verifiedAdvisorsOnly = false,
 }: FinanceShareFlowProps) {
   const { capture, session, ready } = useFinanceShareContext();
   const [step, setStep] = useState<"edit" | "review" | "sent">("edit");
@@ -222,8 +226,8 @@ export function useFinanceShareFlow({
           if (disposed || !context.isCurrent()) return;
           const items = result.items.filter(
             (person) =>
-              !person.publicPersonRef ||
-              !alreadyShared.has(person.publicPersonRef),
+              (!verifiedAdvisorsOnly || person.isFinanceAdvisor === true) &&
+              (!person.publicPersonRef || !alreadyShared.has(person.publicPersonRef)),
           );
           setPeople((previous) =>
             page === 1
@@ -251,7 +255,7 @@ export function useFinanceShareFlow({
       disposed = true;
       window.clearTimeout(timer);
     };
-  }, [capture, initialShare, open, page, query, ready, session, step]);
+  }, [capture, initialShare, open, page, query, ready, session, step, verifiedAdvisorsOnly]);
   const choices = useMemo(
     () => [
       ...new Map(
@@ -308,13 +312,14 @@ export function useFinanceShareFlow({
     setError(null);
     try {
       if (!selected.length) throw new Error("Choose at least one connection.");
+      if (verifiedAdvisorsOnly && !allAdvisors) throw new Error("Choose a verified advisor.");
       if (!selection.sections.length)
         throw new Error("Choose at least one section to share.");
       if (!durationValid || !expiryAllowed)
         throw new Error(
           "Choose an access duration from 1 minute to 7 days, or Always for verified advisors.",
         );
-      const saved = await readSavedFinance(context, source);
+      const saved = await readSavedFinance(context, source, false, { requireActiveSource });
       const next = projectFinance(saved.model, selection, source);
       if (!context.isCurrent() || requestGeneration.current !== generation)
         return;
@@ -350,7 +355,8 @@ export function useFinanceShareFlow({
     setError(null);
     try {
       if (!prepared.current) {
-        const saved = await readSavedFinance(context, cfg.source);
+        if (verifiedAdvisorsOnly && !allAdvisors) throw new Error("Choose a verified advisor.");
+        const saved = await readSavedFinance(context, cfg.source, false, { requireActiveSource });
         const current = projectFinance(saved.model, cfg.selection, cfg.source);
         if (
           saved.sourceFence !== cfg.sourceFence ||
@@ -364,7 +370,7 @@ export function useFinanceShareFlow({
           cfg,
           proposed,
           {
-            ...(allAdvisors && duration === null
+            ...(allAdvisors && (verifiedAdvisorsOnly || duration === null)
               ? { version: 3 as const, purpose: "verified_ria_share" as const }
               : { version: 1 as const }),
             mode,

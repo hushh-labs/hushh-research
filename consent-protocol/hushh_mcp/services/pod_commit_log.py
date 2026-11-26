@@ -460,6 +460,10 @@ class GcsObjectStore:
     # Statuses that mean "this credential is not accepted", whatever the cache
     # believes about its remaining life.
     _CREDENTIAL_REFUSED = (401, 403)
+    # GCS enforces a 1-mutation/second per-object rate limit (429) on hot pointers
+    # such as head.json and hot.md.enc; retrying with ifGenerationMatch preserves CAS.
+    _WRITE_RETRYABLE_STATUSES = (429, 500, 502, 503)
+    _WRITE_RETRY_BACKOFF_SECONDS = (0.25, 0.55, 1.1)
 
     def __init__(
         self,
@@ -749,25 +753,36 @@ class GcsObjectStore:
 
     def _put_if_generation(self, key: str, data: bytes, expected: int) -> Optional[ObjectVersion]:
         name = self._key(key)
-        response = self._authorized(
-            lambda headers: self._session.post(
-                self._upload_api_url(),
-                params={
-                    "uploadType": "media",
-                    "name": name,
-                    "ifGenerationMatch": str(expected),
-                },
-                headers={**headers, "Content-Type": "application/octet-stream"},
-                data=data,
-                timeout=60,
-                allow_redirects=False,
+        max_attempts = len(self._WRITE_RETRY_BACKOFF_SECONDS) + 1
+        response: Any = None
+        for attempt in range(max_attempts):
+            response = self._authorized(
+                lambda headers: self._session.post(
+                    self._upload_api_url(),
+                    params={
+                        "uploadType": "media",
+                        "name": name,
+                        "ifGenerationMatch": str(expected),
+                    },
+                    headers={**headers, "Content-Type": "application/octet-stream"},
+                    data=data,
+                    timeout=60,
+                    allow_redirects=False,
+                )
             )
-        )
-        if getattr(response, "status_code", 0) == 412:
-            return None  # lost the race; the caller retries from a fresh pointer
-        if response.status_code not in (200, 201):
-            raise RuntimeError("pod storage write unconfirmed")
-        return decimal_version(self._generation(response.json()))
+            status = getattr(response, "status_code", 0)
+            if status == 412:
+                return None  # lost the race; the caller retries from a fresh pointer
+            if status in (200, 201):
+                return decimal_version(self._generation(response.json()))
+            if status in self._WRITE_RETRYABLE_STATUSES and attempt + 1 < max_attempts:
+                close = getattr(response, "close", None)
+                if callable(close):
+                    close()
+                time.sleep(self._WRITE_RETRY_BACKOFF_SECONDS[attempt])
+                continue
+            break
+        raise RuntimeError("pod storage write unconfirmed")
 
     async def delete(self, key: str) -> bool:
         quoted = urllib.parse.quote(self._key(key), safe="")
