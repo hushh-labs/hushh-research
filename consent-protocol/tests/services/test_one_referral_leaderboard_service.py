@@ -3,8 +3,7 @@
 Pins the two contracts that matter most here:
 
   * a referrer with no chosen handle renders as the anonymous placeholder,
-    never under any other name -- this is the direct fix for the privacy gap
-    the PR1 audit flagged before any leaderboard existed;
+    while a separate display_name may contain a profile permitted to the viewer;
   * the viewer's own row is included even when it falls outside the
     requested page, and is never duplicated when it IS on the page.
 """
@@ -28,6 +27,10 @@ def snapshot_publication(monkeypatch):
 
     monkeypatch.setattr(one_referral_scoring_service, "publish_leaderboard_snapshot", lambda: None)
     monkeypatch.setattr(leaderboard_service, "get_leaderboard_profiles", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        leaderboard_service, "active_directory_user_ids", lambda ids, **kwargs: set(ids)
+    )
+    monkeypatch.setattr(leaderboard_service, "_current_name_owners", lambda ids: set(ids))
 
 
 SNAPSHOT_ID = "33333333-3333-3333-3333-333333333333"
@@ -380,3 +383,77 @@ def test_featured_reward_uses_joined_threshold_even_when_entitlements_lag(joined
     ) == threshold
     if threshold:
         assert result["next_milestone"]["progress"] == joined
+
+
+@pytest.mark.parametrize("provider_failed", [False, True])
+def test_inactive_or_unverifiable_aliases_cannot_masquerade_as_current_members(
+    monkeypatch, provider_failed
+):
+    rows = [SimpleNamespace(user_id="old-owner", cumulative_points=500, rank=1)]
+    conn = MagicMock()
+
+    def execute(query, params=None):
+        sql = str(query)
+        if "FROM one_referral_leaderboard_snapshots" in sql:
+            return _Result([SimpleNamespace(snapshot_id=SNAPSHOT_ID, generated_at=GENERATED_AT)])
+        if "rank >" in sql:
+            return _Result(rows)
+        if "user_id = :uid" in sql:
+            return _Result([])
+        raise AssertionError(sql)
+
+    conn.execute.side_effect = execute
+    lifecycle = MagicMock(return_value=set())
+    if provider_failed:
+        lifecycle.side_effect = leaderboard_service.DirectoryIdentityUnavailableError()
+    monkeypatch.setattr(leaderboard_service, "active_directory_user_ids", lifecycle)
+    aliases = MagicMock(side_effect=lambda ids: {uid: "Old public alias" for uid in ids})
+    profiles = MagicMock(return_value={})
+    monkeypatch.setattr(leaderboard_service, "get_display_handles", aliases)
+    monkeypatch.setattr(leaderboard_service, "get_leaderboard_profiles", profiles)
+    with patch.object(leaderboard_service, "get_db_connection", side_effect=lambda: _db(conn)):
+        result = leaderboard_service.get_individual_leaderboard(viewer_user_id="viewer")
+    lifecycle.assert_called_once_with(["old-owner"], use_cache=False, notify_connections=False)
+    aliases.assert_called_once_with([])
+    profiles.assert_called_once_with([], viewer_user_id="viewer")
+    assert result["entries"][0]["rank"] == 1
+    assert result["entries"][0]["points"] == 500
+    assert result["entries"][0]["handle"] == leaderboard_service.ANONYMOUS_PLACEHOLDER
+    assert result["entries"][0]["display_name"] is None
+
+
+@pytest.mark.parametrize("alias,remaining", [("Old alias", {"viewer"}), (None, {"member"})])
+def test_names_are_masked_if_member_or_viewer_retires_during_the_provider_read(
+    monkeypatch, alias, remaining
+):
+    conn = MagicMock()
+
+    def execute(query, params=None):
+        sql = str(query)
+        if "FROM one_referral_leaderboard_snapshots" in sql:
+            return _Result([SimpleNamespace(snapshot_id=SNAPSHOT_ID, generated_at=GENERATED_AT)])
+        if "rank >" in sql:
+            return _Result([SimpleNamespace(user_id="member", cumulative_points=500, rank=1)])
+        if "user_id = :uid" in sql:
+            return _Result([])
+        raise AssertionError(sql)
+
+    conn.execute.side_effect = execute
+    monkeypatch.setattr(
+        leaderboard_service, "get_display_handles", lambda ids: {"member": alias} if alias else {}
+    )
+    monkeypatch.setattr(
+        leaderboard_service,
+        "get_leaderboard_profiles",
+        lambda *args, **kwargs: {
+            "member": {"display_name": "Previously visible", "photo_url": None}
+        },
+    )
+    recheck = MagicMock(return_value=remaining)
+    monkeypatch.setattr(leaderboard_service, "_current_name_owners", recheck)
+    with patch.object(leaderboard_service, "get_db_connection", side_effect=lambda: _db(conn)):
+        result = leaderboard_service.get_individual_leaderboard(viewer_user_id="viewer")
+    recheck.assert_called_once_with(["member", "viewer"])
+    assert result["entries"][0]["handle"] == leaderboard_service.ANONYMOUS_PLACEHOLDER
+    assert result["entries"][0]["display_name"] is None
+    assert result["entries"][0]["points"] == 500

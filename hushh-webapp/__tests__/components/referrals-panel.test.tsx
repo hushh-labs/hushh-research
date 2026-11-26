@@ -433,13 +433,14 @@ describe("ReferralsPanel gamification", () => {
     );
   });
 
-  it("never renders a real name on the leaderboard -- only chosen handles", async () => {
+  it("uses public aliases first and only renders profile names returned by the server", async () => {
     mockSummary();
     vi.spyOn(ReferralService, "getLeaderboard").mockResolvedValue({
       snapshot_generated_at: "2026-11-09T00:00:00Z",
       entries: [
-        { rank: 1, handle: "top-dog", points: 500, is_viewer: false },
-        { rank: 2, handle: "Anonymous referrer", points: 300, is_viewer: false },
+        { rank: 1, handle: "top-dog", display_name: "Alias owner profile", points: 500, is_viewer: false },
+        { rank: 2, handle: "Anonymous referrer", display_name: "Permitted Member", points: 300, is_viewer: false },
+        { rank: 3, handle: "Anonymous referrer", display_name: null, points: 200, is_viewer: false },
       ],
       viewer: null,
       stale: false,
@@ -447,6 +448,10 @@ describe("ReferralsPanel gamification", () => {
 
     const { container } = render(<ReferralsPanel />);
     await waitFor(() => expect(screen.getByText(/top-dog/)).toBeTruthy());
+    expect(screen.getByText("#2 Permitted Member")).toBeTruthy();
+    expect(screen.getByText("#3 Name unavailable")).toBeTruthy();
+    expect(screen.queryByText(/Alias owner profile/)).toBeNull();
+    expect(screen.queryByText(/Anonymous referrer/)).toBeNull();
 
     const rendered = container.textContent || "";
     for (const leak of ["@", "+91", "user_", "uid"]) {
