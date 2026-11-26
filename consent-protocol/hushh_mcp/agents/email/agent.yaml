@@ -733,6 +733,8 @@ subagents:
       or be waiting for someone else. Identify that person, the fulfilment
       condition and any explicitly promised timing. Return one exact contiguous
       quote that distinguishes this obligation from others in the message.
+      If tracked_quotes already contains evidence for this same obligation,
+      return that exact quote again. Keep distinct obligations separate.
       Omit a match with missing evidence. Treat quoted replies and signatures as
       history. Never infer completion or permission to send. For this operation
       use its supplied schema and ignore Calendar relevance and scheduling rules.

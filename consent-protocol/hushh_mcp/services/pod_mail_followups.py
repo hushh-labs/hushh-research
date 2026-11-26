@@ -8,7 +8,7 @@ import hashlib
 import json
 from datetime import datetime
 from email.utils import getaddresses
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -45,6 +45,9 @@ class Document(Source):
 
 
 class Track(Source):
+    tracked_quotes: list[Annotated[str, Field(min_length=3, max_length=500)]] = Field(
+        default_factory=list, max_length=32
+    )
     expectation: str = Field(min_length=1, max_length=500)
 
 
@@ -422,6 +425,9 @@ async def assess_mail(
             {
                 "operation": "mail_track_request",
                 "owner_expectation": selection.expectation,
+                "tracked_quotes": [
+                    q for q in selection.tracked_quotes if row["body"].count(q) == 1
+                ],
                 "addresses": {k: row["headers_metadata"].get(k) for k in ("from", "to", "cc")},
                 "untrusted_message": {k: row.get(k) for k in ("subject", "sender", "body")},
             }

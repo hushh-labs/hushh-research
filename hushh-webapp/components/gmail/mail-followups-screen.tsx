@@ -684,7 +684,19 @@ export function MailFollowupsScreen({
                 event.preventDefault();
                 void run(
                   (signal) =>
-                    mail.track(box, source, expectation.trim(), signal),
+                    mail.track(
+                      box,
+                      source,
+                      expectation.trim(),
+                      signal,
+                      items.flatMap((task) => {
+                        const prior = task.mailFollowup;
+                        return prior?.source === source &&
+                          prior.connection === box.connection
+                          ? [prior.quote]
+                          : [];
+                      }),
+                    ),
                   (finding) => {
                     if (
                       finding.account === box.account &&

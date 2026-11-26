@@ -120,10 +120,16 @@ export function mailFollowupsClient(vaultToken?: string) {
       source: string,
       expectation: string,
       signal: AbortSignal,
+      trackedQuotes: string[] = [],
     ) =>
       read(
         "track",
-        { ...selection(box), source, expectation },
+        {
+          ...selection(box),
+          source,
+          expectation,
+          tracked_quotes: trackedQuotes,
+        },
         followupSchema,
         signal,
       ),
