@@ -6,7 +6,8 @@ import { getLocationAccountSettings, updateLocationAccountSettings } from "@/lib
 import { parseMainLocationProposal } from "@/lib/agent/main-chat-location-contract";
 import { loadChatSosReview, sendChatSos } from "@/lib/one-location/chat-sos";
 import { OneLocationService } from "@/lib/one-location/service";
-import { ApiError } from "@/lib/services/api-client";
+import { ApiError, apiJson } from "@/lib/services/api-client";
+import { settleMainLocationBatch } from "@/lib/agent/main-chat-location-batch";
 import type { OneLocationGrant } from "@/lib/one-location/types";
 import { LocationChatActionPanel } from "../location-chat-action-panel";
 
@@ -15,6 +16,10 @@ const location = vi.hoisted(() => ({
   change: null as null | ((detail: { userId: string }) => void),
   stateLoads: 0,
   receivedGrants: [] as OneLocationGrant[],
+}));
+
+vi.mock("@/lib/services/api-client", async (original) => ({
+  ...await original<typeof import("@/lib/services/api-client")>(), apiJson: vi.fn(),
 }));
 
 vi.mock("@/lib/agent/main-chat-location", () => ({
@@ -205,4 +210,33 @@ test("untargeted requests open the searchable paged audience picker in Chat with
   expect(screen.getByRole("searchbox", { name: "Search connections and Circles" })).toBeVisible();
   expect(prepareMainLocationPlan).not.toHaveBeenCalled();
   expect(OneLocationService.captureCurrentPosition).not.toHaveBeenCalled();
+});
+
+test("large Circle batches bound server work and keep every success and retry in recipient order", async () => {
+  let active = 0;
+  let peak = 0;
+  const audience = Array.from({ length: 198 }, (_, index) => index);
+  const results = await settleMainLocationBatch(audience, async (recipient) => {
+    peak = Math.max(peak, ++active);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    active -= 1;
+    if (recipient === 100) throw new Error("Retry this recipient");
+    return recipient;
+  });
+  expect(peak).toBeLessThanOrEqual(4);
+  expect(results).toHaveLength(audience.length);
+  expect(results[100]).toMatchObject({ status: "rejected" });
+  expect(results.filter((result) => result.status === "fulfilled").map((result) => result.value))
+    .toEqual(audience.filter((recipient) => recipient !== 100));
+});
+
+test("restoration reads every page, including an empty key-rotated page, and refuses cursor loops", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/agent/main-chat-location")>("@/lib/agent/main-chat-location");
+  vi.mocked(apiJson).mockResolvedValueOnce({ plans: [{ planId: "one" }], nextCursor: "page-two" })
+    .mockResolvedValueOnce({ plans: [], nextCursor: "page-three" })
+    .mockResolvedValueOnce({ plans: [{ planId: "two" }], nextCursor: null });
+  expect(await actual.restoreMainLocationPlans("token", "origin")).toEqual([{ planId: "one" }, { planId: "two" }]);
+  expect(apiJson).toHaveBeenLastCalledWith("/api/one/location/chat-plans/origin/origin?cursor=page-three", expect.anything());
+  vi.mocked(apiJson).mockResolvedValue({ plans: [], nextCursor: "repeated" });
+  await expect(actual.restoreMainLocationPlans("token", "origin")).rejects.toThrow("fully restored");
 });

@@ -53,8 +53,18 @@ function request<T>(token: string, path: string, body?: object) {
 }
 
 export async function restoreMainLocationPlans(token: string, originId: string): Promise<MainLocationPlan[]> {
-  const result = await request<{ plans: MainLocationPlan[] }>(token, `${PATH}/origin/${encodeURIComponent(originId)}`);
-  return result.plans ?? [];
+  const plans: MainLocationPlan[] = [];
+  const seen = new Set<string>();
+  let cursor: string | undefined;
+  do {
+    const path = `${PATH}/origin/${encodeURIComponent(originId)}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`;
+    const result = await request<{ plans: MainLocationPlan[]; nextCursor?: string | null }>(token, path);
+    plans.push(...result.plans ?? []);
+    cursor = result.nextCursor ?? undefined;
+    if (cursor && seen.has(cursor)) throw new Error("The Location review could not be fully restored. Try again.");
+    if (cursor) seen.add(cursor);
+  } while (cursor);
+  return [...new Map(plans.map((plan) => [plan.planId, plan])).values()];
 }
 
 export function prepareMainLocationPlan(token: string, proposal: MainLocationProposal, target: MainLocationTarget) {

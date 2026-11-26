@@ -31,6 +31,7 @@ import {
   type MainLocationContinuation, type MainLocationProposal, type MainLocationTarget,
 } from "@/lib/agent/main-chat-location";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
+import { settleMainLocationBatch } from "@/lib/agent/main-chat-location-batch";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
 
@@ -431,7 +432,13 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
       setStage("device-paused");
       return;
     }
-    const expanded = (await Promise.all(targets.map((item) => expandMainLocationTarget(token, ownerId, item)))).flat();
+    const expansion = await settleMainLocationBatch(targets, async (item) => {
+      if (!stillCurrent(version)) throw new Error("The chat changed before this audience could be reviewed.");
+      return expandMainLocationTarget(token, ownerId, item);
+    });
+    const expansionFailure = expansion.find((result) => result.status === "rejected");
+    if (expansionFailure?.status === "rejected") throw expansionFailure.reason;
+    const expanded = expansion.flatMap((result) => result.status === "fulfilled" ? result.value : []);
     const distinct = [...new Map(expanded.map((item) => [
       item.grantId || item.requestId || item.personUserId, item,
     ])).values()];
@@ -458,10 +465,12 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
           setStage("choose");
           return;
         }
-        const opened = await Promise.allSettled(incoming.map(async (target) => {
+        const opened = await settleMainLocationBatch(incoming, async (target) => {
+          if (!stillCurrent(version)) throw new Error("The chat changed before this share could be opened.");
           const plan = await prepareMainLocationPlan(token, view, target);
+          if (!stillCurrent(version)) throw new Error("The chat changed before this share could be opened.");
           return executeMainLocationPlan(token, plan.planId);
-        }));
+        });
         if (!stillCurrent(version)) return;
         const records = opened.flatMap((item) => item.status === "fulfilled" ? [item.value] : []);
         setSettled((prior) => [...prior.filter((record) => !records.some((row) => row.planId === record.planId)), ...records]);
@@ -480,7 +489,10 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
       }
     }
     if (!stillCurrent(version)) return;
-    const outcomes = await Promise.allSettled(workingTargets.map((item) => prepareMainLocationPlan(token, next, item)));
+    const outcomes = await settleMainLocationBatch(workingTargets, async (item) => {
+      if (!stillCurrent(version)) throw new Error("The chat changed before this audience could be reviewed.");
+      return prepareMainLocationPlan(token, next, item);
+    });
     if (!stillCurrent(version)) return;
     const prepared = outcomes.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
     if (!prepared.length) {
@@ -490,8 +502,16 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
     setFailedLabels(outcomes.flatMap((result, index) => result.status === "rejected" ? [workingTargets[index]?.label ?? "Recipient"] : []));
     setIntent(next);
     if (next.action === "view") {
-      const opened = await Promise.all(prepared.map((plan) => executeMainLocationPlan(token, plan.planId)));
+      const results = await settleMainLocationBatch(prepared, async (plan) => {
+        if (!stillCurrent(version)) throw new Error("The chat changed before this share could be opened.");
+        return executeMainLocationPlan(token, plan.planId);
+      });
       if (!stillCurrent(version)) return;
+      const opened = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+      if (!opened.length) {
+        const failure = results.find((result) => result.status === "rejected");
+        throw failure?.reason ?? new Error("The shares could not be opened.");
+      }
       setSettled((prior) => [...prior, ...opened]);
       setStage("settled");
       refresh();
@@ -542,7 +562,8 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
       }
     }
     if (!stillCurrent(version)) return;
-    const results = await Promise.allSettled(pending.map(async (plan) => {
+    const results = await settleMainLocationBatch(pending, async (plan) => {
+      if (!stillCurrent(version)) throw new Error("The chat changed before this action could be sent.");
       let envelope = encryptedAttempts.current.get(plan.planId);
       if (!envelope && isPublish(plan.action)) {
         if (!point || !plan.recipientKey) throw new Error("The recipient’s secure location key is unavailable.");
@@ -555,7 +576,7 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
       }
       if (!stillCurrent(version)) throw new Error("The chat changed before this action could be sent.");
       return executeMainLocationPlan(token, plan.planId, envelope);
-    }));
+    });
     const delivered = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
     if (delivered.length) announce();
     if (!stillCurrent(version)) return;
@@ -584,10 +605,11 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
       if (cancelled || running || !navigator.onLine || document.visibilityState === "hidden") return;
       running = true;
       try {
-        const next = await Promise.allSettled(ids.map(async (id) => {
+        const next = await settleMainLocationBatch(ids, async (id) => {
+          if (cancelled) throw new Error("The Location view was closed.");
           const response = await OneLocationService.viewEnvelope({ vaultOwnerToken: token!, grantId: id });
           return [id, response.envelope ? await decryptLocationEnvelope({ userId: ownerId!, envelope: response.envelope }) : null] as const;
-        }));
+        });
         if (!cancelled) setPoints((previous) => Object.fromEntries(next.flatMap((result, index) => {
           if (result.status === "fulfilled") return result.value[1] ? [[result.value[0], result.value[1]]] : [];
           if (result.reason instanceof ApiError && [401, 403, 404, 410].includes(result.reason.status)) return [];
