@@ -1742,6 +1742,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return;
       }
 
+      // Re-emissions for an already-admitted user preserve the in-memory vault
+      // principal across transient wake/network hiccups while keeping explicit
+      // session-loading and deletion-in-progress fences intact.
+      const sameAdmittedOwner = Boolean(
+        principalRef.current?.firebaseUid === firebaseUser.uid &&
+          userRef.current?.uid === firebaseUser.uid,
+      );
       webAuthObserverPendingRef.current = true;
       setLoading(true);
       if (userRef.current?.uid !== firebaseUser.uid) applyAuthUser(firebaseUser, null);
@@ -1771,8 +1778,28 @@ export function AuthProvider({ children }: AuthProviderProps) {
             return;
           }
           retainCleanupStatus(firebaseUser.uid, validation);
-          setSessionVerificationRequired(validation.outcome === "unavailable");
-          applyAuthUser(firebaseUser, validation.outcome === "active" ? validation.principal : null);
+          if (validation.outcome === "unavailable") {
+            const expectedOwnerId = owner?.userId ?? firebaseUser.uid;
+            const authoritativeUnavailable = Boolean(
+              validation.registration ||
+                validation.cleanup ||
+                validation.departure ||
+                validation.confirmedCleanup ||
+                observedDeletionOwnerRef.current?.userId === expectedOwnerId,
+            );
+            if (authoritativeUnavailable) {
+              setSessionVerificationRequired(true);
+              applyAuthUser(firebaseUser, null);
+            } else if (sameAdmittedOwner && principalRef.current?.firebaseUid === firebaseUser.uid) {
+              applyAuthUser(firebaseUser, principalRef.current);
+            } else {
+              setSessionVerificationRequired(true);
+              applyAuthUser(firebaseUser, null);
+            }
+          } else {
+            setSessionVerificationRequired(false);
+            applyAuthUser(firebaseUser, validation.principal);
+          }
           webAuthObserverPendingRef.current = false;
           if (
             !signOutPromiseRef.current &&
@@ -1792,9 +1819,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
             return;
           }
           // The validator is intentionally fail-soft for untyped availability
-          // errors. Preserve the persisted identity and let API calls retry.
-          setSessionVerificationRequired(true);
-          applyAuthUser(firebaseUser, null);
+          // errors. Preserve an already-admitted principal across wake blips.
+          if (sameAdmittedOwner && principalRef.current?.firebaseUid === firebaseUser.uid) {
+            applyAuthUser(firebaseUser, principalRef.current);
+          } else {
+            setSessionVerificationRequired(true);
+            applyAuthUser(firebaseUser, null);
+          }
           webAuthObserverPendingRef.current = false;
           if (
             !signOutPromiseRef.current &&

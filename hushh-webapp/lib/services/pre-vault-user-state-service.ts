@@ -292,6 +292,11 @@ function normalizeResponse(
 function syncSetupCompletionHint(state: PreVaultUserState): void {
   if (state.setupCompleted === true) {
     OneSetupCompletionHintService.markResolved(state.userId);
+    if (state.initialContactsWelcomeAcknowledged === false) {
+      OneSetupCompletionHintService.clearWelcomeResolved?.(state.userId);
+    } else {
+      OneSetupCompletionHintService.markWelcomeResolved?.(state.userId);
+    }
   }
   // Do NOT clear the latch on a `false`/null read. The completion latch is a
   // sticky, monotonic "onboarding dismissed" signal. Clearing it on routine or

@@ -110,7 +110,7 @@ if [ "${CLEAN:-0}" = "1" ]; then
 fi
 
 shared_dev=$(node --input-type=module -e 'import { isSharedDevSimulatorBuild } from "./scripts/native/native-build-environment.mjs"; process.stdout.write(String(isSharedDevSimulatorBuild(process.env)));')
-say "Shared Dev simulator features (Chat Location and Scheduled runs): $shared_dev"
+say "Shared Dev simulator Chat Location: $shared_dev"
 say "Building web bundle (cap:build) for the selected profile"
 export NEXT_PUBLIC_BACKEND_URL="$BACKEND"
 export NEXT_DIST_DIR="${NEXT_DIST_DIR:-out}"

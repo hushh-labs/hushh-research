@@ -1,4 +1,4 @@
-import { isSharedDevIosSimulator, resolveAppEnvironment } from "@/lib/app-env";
+import { resolveAppEnvironment } from "@/lib/app-env";
 import { ApiService } from "./api-service";
 import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -28,7 +28,7 @@ export function scheduledTaskHref(taskId?: string): string {
 
 /** Product availability only; the pod still enforces execution authority. */
 export function areScheduledTasksAvailable(): boolean {
-  return resolveAppEnvironment() === "development" || isSharedDevIosSimulator();
+  return resolveAppEnvironment() !== "production";
 }
 
 const SCHEDULE_REPEATS = ["once", "daily", "weekly", "monthly"] as const;
