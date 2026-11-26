@@ -716,6 +716,11 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Checking the location request.",
     activity: "Checking location",
   },
+  propose_location_action: {
+    label: "Location review",
+    message: "Preparing the location action for review.",
+    activity: "Preparing location review",
+  },
   list_my_location_circles: {
     label: "Location circles",
     message: "Checking your circles.",

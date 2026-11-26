@@ -48,3 +48,5 @@ CREATE INDEX IF NOT EXISTS idx_one_location_chat_plans_party
   ON public.one_location_chat_plans (person_user_id);
 CREATE INDEX IF NOT EXISTS idx_one_location_chat_plans_owner
   ON public.one_location_chat_plans (user_id);
+
+SELECT public.install_account_deletion_write_guards();

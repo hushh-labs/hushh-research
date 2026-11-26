@@ -261,6 +261,10 @@ POST /api/one/location/circle-codes/join
 POST /api/one/location/circle-codes/preview
 POST /api/one/location/circle-codes/public-preview
 POST /api/one/location/circle-codes/resolve
+GET /api/one/location/chat-plans/origin/{origin_id}
+POST /api/one/location/chat-plans/prepare
+GET /api/one/location/chat-plans/{plan_id}
+POST /api/one/location/chat-plans/{plan_id}/execute
 POST /api/one/location/circle-invites
 DELETE /api/one/location/circle-invites/{invite_id}
 GET /api/one/location/circle-invites/{public_token}
