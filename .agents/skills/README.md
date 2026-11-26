@@ -39,5 +39,4 @@ authorize a new design system, dependencies, invented claims, or extra deliverab
 
 Governed owner/spoke discovery: `./bin/hushh agents scan section skills`.
 
-Additional reviewed practices: [Profile typography](profile-ui/SKILL.md) and
-[concise interface copy](less-text-karma-ji/SKILL.md).
+Additional reviewed practice: [Profile typography](profile-ui/SKILL.md).
