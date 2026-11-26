@@ -1,6 +1,6 @@
 "use client";
 import dynamic from "next/dynamic";
-import { MAIN_CHAT_LOCATION_ENABLED, parseMainLocationProposal, type MainLocationContinuation } from "@/lib/agent/main-chat-location-contract";
+import { locationReviewActionForLegacyDirective, MAIN_CHAT_LOCATION_ENABLED, parseMainLocationProposal, type MainLocationContinuation } from "@/lib/agent/main-chat-location-contract";
 import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import { calendarProposalReviewError, calendarProposalReviewExtras, legacyCalendarProposalPayload } from "@/lib/agent/calendar-proposal-review";
 import { useChatMemory } from "@/lib/agent/use-chat-memory";
@@ -6120,6 +6120,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           busyOperations,
           setAnalysisParams,
           switchPersona,
+          ...(MAIN_CHAT_LOCATION_ENABLED && isMainChatTurn && isCanonicalChatRoute && !isPuppySurface ? {
+            openMainChatLocationReview: (proposal) => {
+              if (!isWorkspaceMountedRef.current || !isTurnSessionActive() || streamAbortController.signal.aborted ||
+                  workspaceOwnerIdRef.current !== userId || conversationIdRef.current !== turnConversationId) return false;
+              updateMessage(assistantMessageId, (message) => ({ ...message, locationChatProposal: proposal }));
+              return true;
+            },
+          } : {}),
         });
         if (result.routeAfter) {
           appInteractionCoordinator.updateActionRun(actionRun.id, {
@@ -9254,6 +9262,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     }),
   );
   const visibleMessageIds = visibleMessages.map((message) => message.id);
+  const legacyLocationReviewAction = MAIN_CHAT_LOCATION_ENABLED && isCanonicalChatRoute && !isPuppySurface &&
+    Boolean(conversationId ? conversationId === pinnedOneConversationId : isOneStreamDraft) && pendingSpecialistDirective
+    ? locationReviewActionForLegacyDirective(pendingSpecialistDirective) : null;
   const latestLocationProposalMessageId = visibleMessages.findLast((message) => message.locationChatProposal)?.id;
   const renderChatOnboarding = (slot: Parameters<typeof ChatOnboardingTurns>[0]["slot"]) => (
     <ChatOnboardingTurns
@@ -11177,6 +11188,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       key={`${applicationOwnerId}:${vaultSessionEpoch}:${message.locationChatProposal.id}`}
                       ownerId={applicationOwnerId}
                       token={isVaultUnlocked ? vaultOwnerToken ?? null : null}
+                      vaultKey={isVaultUnlocked ? vaultKey ?? null : null}
                       proposal={message.locationChatProposal}
                       onUnlock={() => setVaultDialogOpen(true)}
                       allowReview={message.id === latestLocationProposalMessageId}
@@ -12076,7 +12088,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       ).summary ?? pendingSpecialistDirective.message,
                     )}
                     confirmLabel={
-                      (
+                      legacyLocationReviewAction === "sos_review" ? "Review alert" :
+                      legacyLocationReviewAction === "enable_device_location" ? "Review device location" : (
                         pendingSpecialistDirective.directive.payload as Record<
                           string,
                           unknown
@@ -12093,6 +12106,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     busy={specialistBusy}
                     onConfirm={async () => {
                       const directive = pendingSpecialistDirective;
+                      if (legacyLocationReviewAction) {
+                        if (!applicationOwnerId || workspaceOwnerIdRef.current !== applicationOwnerId ||
+                            !isVaultSessionEpochCurrent(vaultSessionEpoch) ||
+                            conversationIdRef.current !== conversationId) return;
+                        const proposal = { id: crypto.randomUUID(), action: legacyLocationReviewAction };
+                        updateMessage(directive.sourceAssistantMessageId, (message) => ({ ...message, locationChatProposal: proposal }));
+                        setPendingSpecialistDirective((current) => current === directive ? null : current);
+                        return;
+                      }
                       setSpecialistBusy(true);
                       const directivePayloadType = String(
                         (directive.directive.payload as Record<string, unknown>)

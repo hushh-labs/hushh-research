@@ -7369,10 +7369,11 @@ class OneLocationAgentService:
                 "LOCATION_GRANT_NOT_ACTIVE", "Location share is not active.", status_code=409
             )
         _grant_meta = _loads_json(grant_row.get("metadata"))
+        grant_meta = _grant_meta if isinstance(_grant_meta, dict) else {}
         grant_share_kind = (
-            str((_grant_meta if isinstance(_grant_meta, dict) else {}).get("share_kind") or "")
+            str(grant_meta.get("share_kind") or "")
             or str(grant_row.get("share_kind") or "")
-            or _classify_share_kind(grant_row.get("reason"))
+            or _classify_share_kind(grant_meta.get("reason") or grant_row.get("reason"))
         )
         if grant_share_kind == "pin":
             raise OneLocationAgentError(
@@ -7403,6 +7404,38 @@ class OneLocationAgentService:
             envelope,
             recipient_key_id=recipient_key_id,
         )
+        if grant_share_kind in {"check_in", "checkin"} and not is_first_envelope:
+            # A legacy two-step check-in may retry its first store after losing the response.
+            # The pair writer lock protects this lookup and the initial insert below.
+            original = self._envelope_payload(
+                self._execute_one(
+                    """
+                    SELECT * FROM one_location_envelopes
+                    WHERE id = CAST(:envelope_id AS UUID) AND grant_id = CAST(:grant_id AS UUID)
+                      AND owner_user_id = :owner_user_id AND recipient_user_id = :recipient_user_id
+                    """,
+                    {
+                        "envelope_id": grant_row["latest_envelope_id"],
+                        "grant_id": grant_id,
+                        "owner_user_id": owner_user_id,
+                        "recipient_user_id": grant_row["recipient_user_id"],
+                    },
+                )
+            )
+            if original:
+                stored = _validated_envelope_fields(original, recipient_key_id=recipient_key_id)
+                # JSONB does not preserve the order of the original metadata keys.
+                if (
+                    _loads_json(stored.pop("metadata_json"))
+                    == _loads_json(envelope_fields.pop("metadata_json"))
+                    and stored == envelope_fields
+                ):
+                    return original
+            raise OneLocationAgentError(
+                "LOCATION_CHECK_IN_IMMUTABLE",
+                "A shared check-in cannot be updated.",
+                status_code=409,
+            )
         row = self._execute_one(
             """
             INSERT INTO one_location_envelopes (
