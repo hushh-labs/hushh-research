@@ -13,6 +13,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   type ClipboardEvent as ReactClipboardEvent,
@@ -111,6 +112,7 @@ import { useFeedAttentionTurn } from "@/lib/agent/use-feed-attention-turn";
 import {
   AudioLines,
   ChevronDown,
+  ChevronLeft,
   Cloud,
   Cpu,
   FileText,
@@ -381,8 +383,26 @@ import { CalendarInvitationChat } from "@/components/calendar/calendar-invitatio
 import { attendanceResultMessage } from "@/components/calendar/calendar-invitation-actions";
 import { runCalendarDirective } from "@/lib/agent/calendar-directive-runtime";
 import { runGmailTodoDirective } from "@/lib/agent/gmail-todo-directive-runtime";
-import { createSourceBoundEmailReply, openPreparedEmailReview } from "@/lib/chat/email-draft-review";
+import {
+  createSourceBoundEmailReply,
+  hasUnsentMailText,
+  mailHandoffCard,
+  openPreparedEmailReview,
+} from "@/lib/chat/email-draft-review";
 import { buildPendingEmailDraftContext } from "@/lib/chat/email-agent-contract";
+import { MailOverviewError } from "@/lib/mail/mail-overview-client";
+import { createMailReplyBindings } from "@/lib/mail/mail-reply-binding";
+import { useMailReplyRenewal } from "@/lib/mail/use-mail-reply-renewal";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { commitEmailMemorySave, parseEmailMemorySaveDirective, projectEmailMemoryMdFromRam, type EmailMemoryCommitReceipt } from "@/lib/chat/email-memory-bridge";
 import {
   GMAIL_MAILBOX_ACTION_COPY,
@@ -1314,6 +1334,30 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [gmailKycEmailDraftEnvelope, setGmailKycEmailDraftEnvelope] = useState<
     { to: string; subject: string } | null
   >(null);
+  // True only while a draft that Mail's Overview opened is on screen: it is
+  // what offers the way back to the Overview.
+  const [mailReturn, setMailReturn] = useState(false);
+  // Asked before Back to Mail throws away words the person has written.
+  const [leaveMailPrompt, setLeaveMailPrompt] = useState(false);
+  useEffect(() => {
+    if (!emailDraftOpen) {
+      setMailReturn(false);
+      setLeaveMailPrompt(false);
+    }
+  }, [emailDraftOpen]);
+  // Keeps a reply that Mail's Overview opened on the exact original email while
+  // it is written. Its reference is short-lived; the stable source id renews it
+  // without touching what the person typed. Memory only, dropped with the owner.
+  const [mailReplyBindings] = useState(() => createMailReplyBindings());
+  const [, refreshMailReply] = useReducer((count: number) => count + 1, 0);
+  useEffect(() => () => mailReplyBindings.clear(), [applicationOwnerId, mailReplyBindings]);
+  useMailReplyRenewal({
+    bindings: mailReplyBindings,
+    reference: emailDraftOpen ? (emailDraftInitialValue?.sourceMailRef ?? null) : null,
+    ownerId: applicationOwnerId ?? null,
+    vaultOwnerToken: vaultOwnerToken ?? null,
+    onRenewed: refreshMailReply,
+  });
   // The open draft card's current value, read when a chat turn actually runs
   // so a follow-up ("add Priya to cc") revises what is on screen right now.
   // Refs, not state: a keystroke in the card must not re-render the workspace.
@@ -3321,6 +3365,36 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       consumeHandoff(handoff.id);
       return;
     }
+    if (handoff.reason === "user_requested" && handoff.mailCompose) {
+      if (!hasChatAccess) {
+        consumedHandoffIdRef.current = null;
+        if (user) setVaultDialogOpen(true);
+        else router.push(ROUTES.LOGIN);
+        return;
+      }
+      const card = mailHandoffCard(handoff.mailCompose, applicationOwnerId);
+      if (!card) {
+        consumeHandoff(handoff.id);
+        return;
+      }
+      const shouldSkipInitialHistoryLoad = historyLoadKeyRef.current === null;
+      handleCreateNewChat();
+      skipInitialHistoryLoadRef.current = shouldSkipInitialHistoryLoad;
+      // Straight into the existing reviewed card. Nothing here can send.
+      setGmailKycReplyRequest(null);
+      setGmailKycEmailDraftWorkflowId(null);
+      setGmailKycEmailDraftEnvelope(null);
+      if (card.binding) mailReplyBindings.register(card.binding);
+      setEmailDraftInstruction(card.instruction);
+      setEmailDraftInitialValue(card.draft);
+      setEmailDraftAutoDraft(false);
+      setEmailDraftGmailSend(null);
+      setEmailDraftAnchorMessageId(null);
+      setMailReturn(true);
+      setEmailDraftOpen(true);
+      consumeHandoff(handoff.id);
+      return;
+    }
     const transcript = handoff.transcript?.trim();
     const emailDraftInstruction = handoff.emailDraftInstruction?.trim();
     const assistantText = handoff.assistantText?.trim();
@@ -3432,6 +3506,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     recoveryCheckedForUid,
     handleCreateNewChat,
     hasChatAccess,
+    mailReplyBindings,
     router,
     localCrmEnabled,
     user,
@@ -6610,6 +6685,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               emailDraftCardValueRef.current,
               pendingEmailDraftFrameRef.current.envelope,
               pendingEmailDraftFrameRef.current.sourceBound,
+              // A renewed reply reference, so a follow-up turn never carries an expired one.
+              (ref) => mailReplyBindings.resolve(ref)?.envelope.sourceMailRef ?? ref,
             )
           : null,
         screenContext: (() => {
@@ -9220,10 +9297,44 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       visibleMessages.some(
         (message) => message.id === emailDraftAnchorMessageId),
   );
+  // A reply that came from Mail's Overview resolves to its newest reference and
+  // envelope; the text the person has written lives in the card, untouched. A
+  // renewal never changes the recipient the person reviewed unless they are told.
+  const emailDraftReply = (() => {
+    const heldRef = emailDraftInitialValue?.sourceMailRef;
+    const mailReply = heldRef ? mailReplyBindings.resolve(heldRef) : null;
+    const envelope: EmailDraft | null =
+      mailReply && emailDraftInitialValue
+        ? {
+            ...emailDraftInitialValue,
+            to: mailReply.envelope.to,
+            subject: mailReply.envelope.subject,
+            sourceMailRef: mailReply.envelope.sourceMailRef,
+          }
+        : emailDraftInitialValue;
+    return {
+      sourceMailRef: mailReply?.envelope.sourceMailRef ?? heldRef,
+      envelope,
+      renewal:
+        heldRef && mailReply
+          ? {
+              renew: async (token: string) => {
+                const owner = workspaceOwnerIdRef.current;
+                if (!owner) throw new MailOverviewError("auth_missing");
+                return mailReplyBindings.renew(heldRef, {
+                  ownerId: owner,
+                  vaultOwnerToken: token,
+                  adoptChanged: true,
+                });
+              },
+            }
+          : undefined,
+    };
+  })();
   const renderEmailDraftCard = () => {
     if (!emailDraftOpen) return null;
     const workflowId = gmailKycEmailDraftWorkflowId;
-    const sourceMailRef = emailDraftInitialValue?.sourceMailRef;
+    const { sourceMailRef, envelope: replyEnvelope, renewal: replyRenewal } = emailDraftReply;
     const draftOwnerId = workspaceOwnerIdRef.current;
     const draftScope = emailScopeRef.current;
     const isDraftScopeCurrent = () => emailScopeRef.current === draftScope &&
@@ -9253,18 +9364,56 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onDeliveryPrepared={(actionId, attemptId) => {
             if (isDraftScopeCurrent()) handleEmailDeliveryPrepared(actionId, attemptId);
           }}
-          sourceBoundEnvelope={sourceMailRef ? emailDraftInitialValue : gmailKycEmailDraftEnvelope}
+          sourceBoundEnvelope={sourceMailRef ? replyEnvelope : gmailKycEmailDraftEnvelope}
           onDraftChange={handleEmailDraftChange}
           onDraftingChange={setIsEmailDrafting}
           onOpenConnections={openConnectorSurface}
           gmailSend={workflowId || sourceMailRef ? null : emailDraftGmailSend}
           onEnableGmailSend={() => handleEnableGmailSend()}
           enablingGmailSend={gmailSendConnect.pending?.key === "gmail_send"}
-          sourceBoundReply={createSourceBoundEmailReply({ workflowId, sourceMailRef, envelope: emailDraftInitialValue })}
+          sourceBoundReply={createSourceBoundEmailReply({
+            workflowId, sourceMailRef, envelope: replyEnvelope, renewal: replyRenewal,
+          })}
         />
       </div>
     );
   };
+  // Offered only while a draft that Mail's Overview opened is on screen.
+  const renderMailReturn = () =>
+    mailReturn && emailDraftOpen ? (
+      <div className="pt-2">
+        <button
+          type="button"
+          onClick={() =>
+            hasUnsentMailText(
+              emailDraftCardValueRef.current,
+              // What the card opened with is not the person's words until they change it.
+              emailDraftInitialValue?.body ?? (emailDraftAutoDraft ? "" : emailDraftInstruction),
+            )
+              ? setLeaveMailPrompt(true)
+              : router.push(ROUTES.GMAIL)
+          }
+          className="inline-flex min-h-11 items-center gap-1 text-sm font-medium text-[color:var(--app-accent)] focus-visible:rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--app-accent)]"
+        >
+          <ChevronLeft aria-hidden="true" className="size-4" />
+          Back to Mail
+        </button>
+        <AlertDialog open={leaveMailPrompt} onOpenChange={setLeaveMailPrompt}>
+          <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-md">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Leave this reply?</AlertDialogTitle>
+              <AlertDialogDescription>
+                It hasn&apos;t been sent, and what you&apos;ve written won&apos;t be saved.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep writing</AlertDialogCancel>
+              <AlertDialogAction onClick={() => router.push(ROUTES.GMAIL)}>Leave</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    ) : null;
   const latestRetryableAssistantId =
     [...visibleMessages]
       .reverse()
@@ -11997,6 +12146,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   />
                 </Fragment>
               ))}
+              {!emailDraftIsAnchored ? renderMailReturn() : null}
               {!emailDraftIsAnchored ? renderEmailDraftCard() : null}
               {emailDeliveryTimeline.trailingItems.map((item) => (
                 <EmailDeliveryHistoryCard

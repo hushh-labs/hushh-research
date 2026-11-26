@@ -51,6 +51,8 @@ export function buildPendingEmailDraftContext(
   draft: EmailDraft | null,
   sourceBoundEnvelope: { to: string; subject: string } | null,
   sourceBound: boolean,
+  /** Maps a reply reference to its newest renewal, if Mail has renewed it. */
+  currentSourceMailRef: (ref: string) => string = (ref) => ref,
 ): PendingEmailDraftContext | null {
   if (!draft) return null;
   // Never downgrade a malformed or doubly bound reply into an ordinary compose
@@ -66,7 +68,7 @@ export function buildPendingEmailDraftContext(
     body: draft.body.trim(),
     sourceBound,
   };
-  if (sourceBound && draft.sourceMailRef) context.sourceMailRef = draft.sourceMailRef;
+  if (sourceBound && draft.sourceMailRef) context.sourceMailRef = currentSourceMailRef(draft.sourceMailRef);
   if (!sourceBound && draft.driveFileId) context.driveFileId = draft.driveFileId;
   return context.body || context.to || context.subject ? context : null;
 }

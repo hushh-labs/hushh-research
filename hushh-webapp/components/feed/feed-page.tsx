@@ -437,7 +437,7 @@ function FeedPageSession({
   const openKycRequest = useCallback((workflowId: string) => {
     if (!userId) return;
     selectKycRequestFromFeed(userId, workflowId);
-    openFeedResult(router, `${ROUTES.GMAIL}?workspace=kyc`);
+    openFeedResult(router, ROUTES.ONE_KYC);
   }, [router, userId]);
 
   const briefingActionables = useMemo<FeedActionable[]>(() => {

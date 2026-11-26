@@ -52,6 +52,7 @@ export function getRouteScope(pathname: string): RouteScope {
     isRoute(pathname, ROUTES.CONNECTED_SYSTEMS) ||
     isRoute(pathname, ROUTES.LEGACY_CONNECTED_SYSTEMS) ||
     isRoute(pathname, ROUTES.ONE_KYC) ||
+    isRoute(pathname, ROUTES.EMAIL_AGENT) ||
     isRoute(pathname, ROUTES.ONE_LOCATION) ||
     isRoute(pathname, ROUTES.PROFILE) ||
     isRoute(pathname, ROUTES.CONNECT) ||

@@ -291,6 +291,7 @@ export function GmailRecentReceipts({
   showOverview = false,
   nativePresentation = true,
   openRequest = null,
+  reviewRequest = null,
   showInsights = true,
 }: {
   accountKey: string | null | undefined;
@@ -301,6 +302,8 @@ export function GmailRecentReceipts({
   nativePresentation?: boolean;
   /** Opens one receipt's detail, for example from a recurring bill's evidence. */
   openRequest?: { key: string; nonce: number } | null;
+  /** Opens one finding's review, for example from the Overview's "Open in Receipts". Handled once per request. */
+  reviewRequest?: { id: string; nonce: number } | null;
   /** Earlier saved history belongs to another Mail account, so it never raises current insights. */
   showInsights?: boolean;
   receipts: readonly ReceiptListItem[];
@@ -392,6 +395,16 @@ export function GmailRecentReceipts({
     setSelectedReceiptKey(sourceKeyAliases?.[receiptKey] ?? receiptKey);
   }, [rows, sourceKeyAliases]);
   useEffect(() => { if (openRequest) openReceipt(openRequest.key); }, [openRequest]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The finding may not be loaded yet when the request arrives, so this waits for it and then opens it once.
+  const handledReview = useRef<number | null>(null);
+  useEffect(() => {
+    if (!reviewRequest || handledReview.current === reviewRequest.nonce) return;
+    const match = insights.find((insight) => insight.id === reviewRequest.id);
+    if (!match) return;
+    handledReview.current = reviewRequest.nonce;
+    setInsightsOpen(false);
+    setReviewing(match);
+  }, [reviewRequest, insights]);
   const pageCount = Math.max(1, Math.ceil(filteredRows.length / 10));
   const requestedPage = Math.min(displayPage, pageCount);
   const scope = `${search}\u0000${selection.date}:${selection.type}\u0000${requestedPage}\u0000${pageNavigation.revision}`;

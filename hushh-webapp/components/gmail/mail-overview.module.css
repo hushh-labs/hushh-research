@@ -1,67 +1,217 @@
-.stack {
-  --card-step: 76px;
-  --card-tilt: 3deg;
-  position: relative;
-  isolation: isolate;
-  height: 224px;
+/*
+ * Mail Overview: a compact message list on the workspace's own tokens and gutters.
+ * Rows are the content; there is no artwork, statistic or second launcher.
+ */
+.overview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-block: 16px;
 }
 
-.card {
-  position: absolute;
-  inset: 0 0 auto;
-  z-index: calc(3 - var(--card-index));
-  transform: translateY(calc(var(--card-index) * var(--card-step)))
-    rotate(calc((var(--card-index) - 1) * var(--card-tilt)));
-  transform-origin: center;
+.searchRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.searchRow > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
-@media (min-width: 640px) {
-  .stack {
-    --card-step: 94px;
-    height: 280px;
-  }
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+}
+.headerRow > :first-child {
+  min-width: 0;
 }
 
-@media (min-width: 1024px) {
-  .stack {
-    --card-step: 66px;
-    --card-tilt: 2deg;
-    height: 200px;
-  }
+.scope {
+  margin-top: -8px;
+  overflow-wrap: anywhere;
+  color: var(--app-secondary-label);
 }
 
-/* Desktop placement only; the existing mobile stack and card motion stay intact. */
-@media (min-width: 768px) {
-  section.overview {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 300px);
-    column-gap: 32px;
-  }
-
-  .copy { grid-column: 1; grid-row: 1; align-self: end; }
-  .chat { grid-column: 1; grid-row: 2; align-self: start; }
-
-  .preview {
-    grid-column: 2;
-    grid-row: 1 / 3;
-    width: 100%;
-    align-self: center;
-    justify-self: end;
-  }
+.freshness {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 12px;
+  margin-top: -10px;
 }
 
-/* Touch and reduced-motion users always see all three cards. */
-@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
-  .card {
-    transform: translateY(calc(46px + var(--card-index) * 22px))
-      rotate(calc(-6deg + var(--card-index) * 6deg))
-      scale(calc(1 - var(--card-index) * 0.04));
-    transition: transform var(--motion-duration-xl) var(--motion-ease-decelerate);
-    transition-delay: calc(var(--card-index) * var(--motion-duration-xs));
-  }
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--app-separator);
+}
+.list > li {
+  border-bottom: 1px solid var(--app-separator);
+}
 
-  .stack:hover .card {
-    transform: translateY(calc(var(--card-index) * var(--card-step)))
-      rotate(calc((var(--card-index) - 1) * var(--card-tilt)));
-  }
+.row {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  min-height: 64px;
+  padding: 10px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.row:active {
+  background: var(--app-accent-tint);
+}
+.row:focus-visible,
+.backLink:focus-visible,
+.textAction:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+
+.rowTop {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.unreadDot {
+  flex: none;
+  align-self: center;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--app-accent);
+}
+.sender {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 550;
+  line-height: 21px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.time {
+  flex: none;
+  color: var(--app-secondary-label);
+  font-size: 12px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.subject {
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 21px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.preview {
+  overflow: hidden;
+  color: var(--app-secondary-label);
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A field the message did not carry is named as missing, in a quieter voice. */
+.missing {
+  color: var(--app-secondary-label);
+  font-style: italic;
+  font-weight: 400;
+}
+
+.note {
+  margin: 0;
+  color: var(--app-secondary-label);
+  overflow-wrap: anywhere;
+}
+.status {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.state {
+  display: grid;
+  gap: 8px;
+  padding-block: 8px;
+}
+.stateActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.backLink,
+.textAction {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 4px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--app-accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 21px;
+}
+.backLink:active,
+.textAction:active {
+  opacity: 0.6;
+}
+.textAction:disabled {
+  opacity: 0.5;
+}
+
+.message {
+  display: grid;
+  gap: 12px;
+}
+.messageHeader {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.messageHeader:focus {
+  outline: none;
+}
+.messageSubject {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 24px;
+}
+.messageMeta {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--app-secondary-label);
+  font-size: 12px;
+  line-height: 18px;
+}
+/* Mail text is shown as text and never interpreted: no markup, images or links. */
+.messageBody {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 22px;
+}
+.messageActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }

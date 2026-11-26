@@ -283,7 +283,7 @@ later read/reopen reconciles returned queued status. Owners:
 
 | Surface / CTA | Current behavior |
 | --- | --- |
-| Information request ready to review · Review | Private KYC briefing; selected Mail workspace `/one/gmail?workspace=kyc`. Nothing is shared just by opening it. |
+| Information request ready to review · Review | Private KYC briefing; the KYC screen `/one/kyc`. Nothing is shared just by opening it. |
 | A message needs your reply · Open Mail | Count-sensitive briefing; `/one/gmail`. |
 | Calendar event row | Reads next 24 hours, sorted ascending, displays at most three. Row opens `/one/calendar`; title/date/all-day wording comes from the account. |
 | Join Meet | Only with conference URL, valid times, and now between 15 minutes before start and event end. Opens external meeting URL. |
@@ -349,7 +349,7 @@ actionable.
 | Connected-system action/status | `/one/connected-systems`; CRM visibility guard applies to the relevant families. |
 | Calendar status/action | Calendar. |
 | Mail status/mailbox action | Mail. |
-| Mail information-request/delivery | Mail KYC workspace. |
+| Mail information-request/delivery | KYC screen. |
 | Receipt import/manual sync | Mail Receipts workspace. |
 | Drive search/share/trash/bulk outcome | Chat; partial, unavailable and unknown writes retain their distinct wording. |
 | Drive bulk received | Profile Memory pane over One. |
@@ -763,7 +763,7 @@ use N/P; generic fallback titles below replace Someone when unnamed.
 | mail_connected | `Mail connected` / `Your Mail connection is ready in One.` | `/one/gmail` |
 | mail_reconnect_required | `Mail connection needs attention` / `Open Mail to check your connection.` | same |
 | mail_disconnected | `Mail disconnected` / `One no longer has access to your mailbox.` | same |
-| mail_information_request_detected | `Information request detected` / `Review a new request in Mail before sharing anything.` | `/one/gmail?workspace=kyc` |
+| mail_information_request_detected | `Information request detected` / `Review a new request in KYC before sharing anything.` | `/one/kyc` |
 | mail_receipts_imported | `New receipts found` / `Your Mail receipts are ready to review.` | `/one/gmail?workspace=receipts` |
 | mail_sync_completed | `Mail is up to date` / `Your manual sync finished without new receipts.` | receipts |
 | mail_sync_failed | `Mail sync interrupted` / `Open Mail for the current status; One may retry automatically.` | receipts |

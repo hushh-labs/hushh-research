@@ -49,6 +49,8 @@ function renderedEmailDraft(input: {
     closeEmailDraft: vi.fn(), handleEmailSendStarted: vi.fn(), handleEmailDraftChange: vi.fn(),
     setIsEmailDrafting: vi.fn(), openConnectorSurface: vi.fn(), emailDraftGmailSend: null,
     gmailSendConnect: { pending: null }, createSourceBoundEmailReply,
+    // What the workspace resolves before rendering: unrenewed, the draft as opened.
+    emailDraftReply: { sourceMailRef: input.draft.sourceMailRef, envelope: input.draft, renewal: undefined },
   };
   const tree = new Function(...Object.keys(deps), compiled)(...Object.values(deps)) as {
     children: { props: ComponentProps<typeof EmailDraftCard> }[];

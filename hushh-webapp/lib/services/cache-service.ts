@@ -205,6 +205,7 @@ class CacheService {
 
     for (const key of this.cache.keys()) {
       if (
+        key.startsWith(`mail_overview_${userId}_`) ||
         key.startsWith(`mail_kyc_display_${userId}_`) ||
         key.startsWith(`mail_kyc_intake_${userId}_`) ||
         key.startsWith(`pkm_domain_resource_${userId}_`) ||

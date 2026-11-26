@@ -1,6 +1,12 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { Navbar } from '@/components/navbar';
+import { AppBottomShell } from '@/components/app-ui/app-bottom-shell';
+import { AgentDockProvider } from '@/components/agent/agent-dock';
+import { LocationCommandProvider } from '@/components/agent/location-command-provider';
+import { applyNoticeCheck, loadTracking, saveTracking } from '@/lib/mail/receipt-tracking';
+import { parseNoticeResponse } from '@/lib/mail/receipt-notice';
+import { useOneConversationSession } from '@/lib/agent/one-conversation-session';
 import GmailReceiptsPage from '@/components/gmail/gmail-receipts-page';
 import { GmailWorkspaceSkeleton } from '@/components/gmail/gmail-workspace-skeleton';
 import { CapabilityCinematicIntroGate } from '@/components/onboarding/setup/capability-cinematic-intro';
@@ -49,8 +55,8 @@ const syntheticReceipts = document.documentElement.dataset.stress === 'receipts-
 publishValidatedAuthSessionPrincipal({ firebaseUid: 'synthetic-owner', ownerId: 'synthetic-owner', accountGeneration: 0 });
 primeCachedGmailReceipts({ userId: 'synthetic-owner', accountKey: 'synthetic-account', response: { items: syntheticReceipts, page: 1, total: syntheticReceipts.length, has_more: false } });
 function Fixture() {
- const workspace = (document.documentElement.dataset.workspace || 'overview') as 'overview'|'kyc'|'receipts'|'setup'|'intro'|'skeleton'|'skeleton-hidden'|'callback'|'callback-loading'|'callback-cloud-loading';
- const route = workspace === 'setup' || workspace === 'intro' ? '/one/setup/gmail' : workspace.startsWith('callback') ? '/one/profile/gmail/oauth/return' : '/one/gmail';
+ const workspace = (document.documentElement.dataset.workspace || 'overview') as 'overview'|'followups'|'kyc'|'receipts'|'setup'|'intro'|'skeleton'|'skeleton-hidden'|'callback'|'callback-loading'|'callback-cloud-loading';
+ const route = workspace === 'setup' || workspace === 'intro' ? '/one/setup/gmail' : workspace.startsWith('callback') ? '/one/profile/gmail/oauth/return' : workspace === 'kyc' ? '/one/kyc' : '/one/gmail';
  const style = {...resolveSignedInShellContentOffset({shellVisible:true, routeLayoutMode:'standard'}).style,...resolveTopShellGeometryStyle({hasTabs:false})} as React.CSSProperties;
  return <div data-app-shell-root="true" style={style}>
   <div data-app-scroll-root="true" style={{position:'fixed',inset:0,overflowY:'auto',paddingBottom:'120px'}}>
@@ -61,16 +67,44 @@ function Fixture() {
     ? <CapabilityCinematicIntroGate capabilityId="gmail"><GmailReceiptsPage journeyVariant="onboarding" onFinishSetup={() => {}} onSkipSetup={() => {}} /></CapabilityCinematicIntroGate>
     : workspace === 'setup'
     ? <GmailReceiptsPage journeyVariant="onboarding" onFinishSetup={() => {}} onSkipSetup={() => {}} />
+    : workspace === 'kyc'
+    ? <GmailReceiptsPage surface="kyc" />
     : <GmailReceiptsPage initialWorkspace={workspace} forceWorkspace={workspace} />}</div>
   </div>
-  <Navbar/>
+  {shell ? <AppBottomShell model={{ navigationHidden: false, agentBarHidden: false, includeComposerHeight: false }} /> : <Navbar/>}
   <AppTopShell model={resolveTopShellRouteProfile(route).model}/>
  </div>;
+}
+// data-shell="1": the production bottom chrome, "Talk to One" bar and navigation pill included, as providers.tsx mounts it.
+const shell = document.documentElement.dataset.shell === '1';
+// Lets a test read what the Overview handed to One's reviewed draft card, and that nothing else happened.
+(window as unknown as { __mailHandoff: () => unknown }).__mailHandoff = () => useOneConversationSession.getState().pendingHandoff?.mailCompose ?? null;
+// data-brief-rise="1": Receipts already holds a saved price-rise finding from an earlier mailbox check, so the Overview can list it.
+const sealed = (seed: string) => `grs1_${seed.padEnd(44, 'x')}`;
+async function seedPriceRise() {
+ const session = { userId: 'synthetic-owner', vaultKey: '12'.repeat(32), vaultOwnerToken: 'synthetic-owner-token' };
+ const loaded = await loadTracking(session, 'synthetic-account');
+ const check = parseNoticeResponse({
+  account_key: 'synthetic-account', generated_at: new Date().toISOString(), model: 'fixture', coverage: { providers: 1, messages: 4 }, resolved: [], cancellations: [], none_reason: '',
+  findings: [{
+   id: 'nf_price_fixture', kind: 'price_rise', headline: 'Your plan is going up', reason: 'The provider announced a new price for your renewal.', strength: 'clear',
+   provider: null, action: { id: 'review_bill', label: 'Review bill' }, attribution: null, score: 60, generated_at: new Date().toISOString(),
+   evidence: [
+    { evidence_id: 'ev_ann_fixture1', open_key: sealed('announce'), role: 'announcement', quote: 'your new price will be ₹1,800', on: '2026-11-10', subject: 'Price change', from: 'Provider', domain: 'provider.example' },
+    { evidence_id: 'ev_paid_fixture', open_key: sealed('paid'), role: 'paid', quote: 'Total ₹1,200.00 paid', on: '2026-11-02', subject: 'Your payment receipt', from: 'Provider', domain: 'provider.example' },
+   ],
+   plans: [], facts: { currency: 'INR', last_paid_minor: 120000, new_minor: 180000, new_is_announced: true, base_minor: 120000, base_kind: 'median_of_last_three', percent: '50.0', effective_on: '2026-11-26' },
+  }],
+ }, 'synthetic-account');
+ let n = 0;
+ await saveTracking(session, 'synthetic-account', applyNoticeCheck(loaded.doc, check, 'd1_fixture', { now: new Date(), id: () => `fx${++n}` }), loaded.version);
 }
 void captureReceiptSnapshot(syntheticReceipts, 'synthetic-account', {
  partial: false, truncated: false, source_count: syntheticReceipts.length,
  window_from: null, window_to: null, source: 'gmail_live',
-}).then(snapshot => {
+}).then(async snapshot => {
  MailReceiptResourceService.prime(snapshot);
- createRoot(document.getElementById('root')!).render(<Fixture/>);
+ if (document.documentElement.dataset.briefRise === '1') await seedPriceRise();
+ const root = createRoot(document.getElementById('root')!);
+ root.render(shell ? <LocationCommandProvider enabled={false}><AgentDockProvider><Fixture/></AgentDockProvider></LocationCommandProvider> : <Fixture/>);
 });

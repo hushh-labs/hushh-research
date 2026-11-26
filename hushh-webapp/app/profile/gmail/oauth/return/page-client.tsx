@@ -28,6 +28,10 @@ import {
 } from "@/lib/profile/gmail-connector-store";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 import {
+  clearGmailConnectReturn,
+  readGmailConnectReturn,
+} from "@/lib/profile/gmail-connect-return";
+import {
   clearOnboardingConnectorIntent,
   type OnboardingConnectorIntent,
   readOnboardingConnectorIntent,
@@ -220,6 +224,7 @@ export default function ProfileGmailOAuthReturnPageClient({
   const [stage, setStage] = useState<CompleteStage>("loading");
   const [error, setError] = useState<string | null>(null);
   const [returnToSetup, setReturnToSetup] = useState(false);
+  const [returnToKyc, setReturnToKyc] = useState(false);
 
   useEffect(() => {
     if (loading || startedRef.current) return;
@@ -235,6 +240,17 @@ export default function ProfileGmailOAuthReturnPageClient({
     const oauthError = liveError || initialError;
     const onboardingIntent = readOnboardingConnectorIntent();
     setReturnToSetup(Boolean(onboardingIntent));
+    // A connection started from the KYC screen comes back to it. Mail and setup
+    // keep the return they always had, and setup is never overridden.
+    const afterConnect: string =
+      !onboardingIntent && readGmailConnectReturn(userId) === ROUTES.ONE_KYC
+        ? ROUTES.ONE_KYC
+        : ROUTES.GMAIL;
+    setReturnToKyc(afterConnect === ROUTES.ONE_KYC);
+    const goAfterConnect = () => {
+      clearGmailConnectReturn();
+      router.replace(afterConnect);
+    };
 
     const persistEarlyCallbackOutcome = async (
       callbackState: "cancelled" | "failed",
@@ -389,7 +405,7 @@ export default function ProfileGmailOAuthReturnPageClient({
       // Preserve code/state only in this in-flight closure. Putting either in
       // the Gmail URL or storage would make the faster handoff less safe.
       beginGmailOAuthCompletion(userId);
-      router.replace(ROUTES.GMAIL);
+      goAfterConnect();
     } else {
       // The main Gmail window already has its shell mounted. Bring it forward
       // while this popup safely finishes the exchange, rather than leaving the
@@ -477,7 +493,7 @@ export default function ProfileGmailOAuthReturnPageClient({
         }
 
         void settleSuccessfulSetupInBackground();
-        if (!completesInBackground) router.replace(ROUTES.GMAIL);
+        if (!completesInBackground) goAfterConnect();
       } catch (completeError) {
         if (completeError instanceof GmailOAuthCompletionPendingError) {
           const status = await reconcileGmailConnection(
@@ -499,7 +515,7 @@ export default function ProfileGmailOAuthReturnPageClient({
               if (settlePopupOpener({ outcome: "succeeded" })) return;
             }
             void settleSuccessfulSetupInBackground();
-            if (!completesInBackground) router.replace(ROUTES.GMAIL);
+            if (!completesInBackground) goAfterConnect();
             return;
           }
         }
@@ -526,7 +542,7 @@ export default function ProfileGmailOAuthReturnPageClient({
               }
 
               void settleSuccessfulSetupInBackground();
-              if (!completesInBackground) router.replace(ROUTES.GMAIL);
+              if (!completesInBackground) goAfterConnect();
               return;
             }
           } catch {
@@ -643,10 +659,19 @@ export default function ProfileGmailOAuthReturnPageClient({
           </h1>
           <p className={`mt-2 text-muted-foreground ${calendar ? calendarType.support : "text-sm"}`}>{error}</p>
           <Button
-            onClick={() => router.replace(returnToSetup ? ROUTES.ONE_SETUP : buildProfileGmailReturnPath())}
+            onClick={() => {
+              clearGmailConnectReturn();
+              router.replace(
+                returnToSetup
+                  ? ROUTES.ONE_SETUP
+                  : returnToKyc
+                    ? ROUTES.ONE_KYC
+                    : buildProfileGmailReturnPath(),
+              );
+            }}
             className="mt-4 w-full"
           >
-            {returnToSetup ? "Back to setup" : "Back to Mail"}
+            {returnToSetup ? "Back to setup" : returnToKyc ? "Back to KYC" : "Back to Mail"}
           </Button>
         </div>
       </AppPageContentRegion>

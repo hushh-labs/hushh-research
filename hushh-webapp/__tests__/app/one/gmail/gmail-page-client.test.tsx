@@ -55,10 +55,21 @@ describe("OneGmailPageClient", () => {
     await waitFor(() => expect(replace).not.toHaveBeenCalled());
   });
 
-  it.each(["kyc", "receipts"])("opens the %s workspace from a Feed link", (workspace) => {
+  it.each(["followups", "receipts"])("opens the %s tab from a link", (workspace) => {
     workspaceQuery = new URLSearchParams(`workspace=${workspace}`);
     render(<OneGmailPageClient />);
     expect(screen.getByText(`Gmail workspace: ${workspace}`)).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("forwards an older workspace=kyc link to the KYC screen, replacing the entry, and mounts no Mail tab", async () => {
+    workspaceQuery = new URLSearchParams("workspace=kyc");
+    render(<OneGmailPageClient />);
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/one/kyc"));
+    expect(replace).toHaveBeenCalledTimes(1);
+    // Mail itself is never mounted for it, so no Mail tab can open and no Mail read can start.
+    expect(screen.queryByText(/Gmail workspace:/)).toBeNull();
+    expect(screen.queryByTestId("gmail-vault-prerequisite")).toBeNull();
   });
 
   it("ignores an unsupported workspace query", () => {

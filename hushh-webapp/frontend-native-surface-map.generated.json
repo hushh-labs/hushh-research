@@ -3509,6 +3509,7 @@
         "profile.gmail.restore_saved_receipts",
         "profile.gmail.sync_now",
         "profile.gmail.visit_merchant",
+        "route.kyc_requests",
         "route.one_gmail_kyc",
         "route.profile_receipts"
       ],
@@ -4586,6 +4587,130 @@
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/kyc",
+      "page_file": "app/one/kyc/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/gmail/gmail-receipts-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.kyc",
+          "purpose": "Review KYC information requests and manage the identity details used in replies, with every reply reviewed before it is sent.",
+          "screen": "gmail",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/kyc",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fkyc",
+        "expectedMarker": "native-route-one-kyc",
+        "expectedRoute": "/one/kyc",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [
+        {
+          "service_file": "lib/services/one-kyc-service.ts",
+          "service_methods": [
+            "listWorkflows",
+            "refreshWorkflow",
+            "selectScopes",
+            "getWorkflowConsentExports",
+            "sendApprovedReply",
+            "rejectDraft",
+            "redraft",
+            "writebackComplete",
+            "getClientConnector",
+            "registerClientConnector"
+          ],
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "backend_endpoint_family": "/one/kyc/*",
+          "native_transport": "CapacitorHttp direct backend via ApiService.apiFetch on native"
+        },
+        {
+          "service_file": "lib/services/account-service.ts",
+          "service_methods": [
+            "listEmailAliases",
+            "startEmailAliasVerification",
+            "confirmEmailAliasVerification"
+          ],
+          "nextjs_api_route": "/api/account/{path*}",
+          "nextjs_proxy_file": "app/api/account/[...path]/route.ts",
+          "backend_endpoint_family": "/account/*",
+          "native_transport": "CapacitorHttp direct backend via ApiService.apiFetch on native"
+        },
+        {
+          "service_file": "lib/services/kyc-pkm-write-service.ts",
+          "service_methods": [
+            "writeWorkflowArtifact"
+          ],
+          "nextjs_api_route": "/api/pkm/{path*}",
+          "nextjs_proxy_file": "app/api/pkm/[...path]/route.ts",
+          "backend_endpoint_family": "/pkm/*",
+          "native_transport": "CapacitorHttp direct backend plus client vault/PKM services"
+        }
+      ],
+      "native_plugin_dependencies": [
+        {
+          "js_name": "HushhVault",
+          "reason": "Vault unlock and client-held KYC connector key material stay outside the Next.js server."
+        },
+        {
+          "js_name": "HushhConsent",
+          "reason": "Consent status and export authorization must preserve the native consent boundary."
+        }
+      ],
+      "thread_and_consent_contract": {
+        "original_thread_required": true,
+        "approved_send_requires_workflow_scopes": true,
+        "approved_body_transport": "transient send-approved-reply request only",
+        "local_plaintext_cleanup": "drop local draft/export payloads after terminal or non-ready workflow states"
+      }
     },
     {
       "route": "/one/location",
@@ -11466,5 +11591,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "124c1ab1db92341469aa0d09847d482fafb88be07d34fb57f73635868a03cadc"
+  "content_sha256": "607fa4797e7ad5df02c81840c1cdf475c01d652adab31560ce534ec3c1958d04"
 }

@@ -39,9 +39,9 @@ describe("Mail presentation contract", () => {
     expect(state.active).toBe(true);
     expect(validNativeWorkspace(content)).toBe(true);
     expect(screen.getByText("Complete React Mail")).not.toBeVisible();
-    const kyc = content.tabs!.options.find(option => option.label === "KYC")!;
-    await act(async () => { await state.actions.get(kyc.id)!(); });
-    expect(state.select).toHaveBeenCalledWith("kyc");
+    const followups = content.tabs!.options.find(option => option.label === "Follow-ups")!;
+    await act(async () => { await state.actions.get(followups.id)!(); });
+    expect(state.select).toHaveBeenCalledWith("followups");
     expect(state.mounted).toBe(1);
     expect(state.unmounted).toBe(0);
     view.unmount();

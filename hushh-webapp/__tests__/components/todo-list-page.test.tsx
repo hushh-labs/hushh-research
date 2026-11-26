@@ -337,7 +337,7 @@ describe("TodoListPage row actions", () => {
     const view = render(<TodoListPage />);
     await screen.findByText("Completed");
     expect(screen.queryByText("Review refresh")).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open Review 2 information requests" })).toHaveAttribute("href", "/one/gmail?workspace=kyc");
+    expect(screen.getByRole("link", { name: "Open Review 2 information requests" })).toHaveAttribute("href", "/one/kyc");
     mocks.actionables = [{ ...item, todo: { ...item.todo!, key: "task:refresh:run-2" } }];
     view.rerender(<TodoListPage />);
     expect(await screen.findByRole("checkbox", { name: "Mark Review refresh as completed" })).toBeVisible();

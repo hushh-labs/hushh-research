@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -415,7 +415,14 @@ describe("One setup hub terminal action contract", () => {
       "utf8",
     );
     expect(emailSetupSource).toContain("CapabilityVaultPrerequisite");
-    expect(existsSync(join(process.cwd(), "app/one/kyc/page.tsx"))).toBe(false);
+    // The retired mailbox workflow page stays retired. /one/kyc is a thin route to the personal Mail KYC flow.
+    const kycPage = readFileSync(join(process.cwd(), "app/one/kyc/page.tsx"), "utf8");
+    expect(kycPage.split("\n").length).toBeLessThan(20);
+    expect(kycPage).toContain("kyc-page-client");
+    const kycClient = readFileSync(join(process.cwd(), "app/one/kyc/kyc-page-client.tsx"), "utf8");
+    expect(kycClient).toContain("CapabilityVaultPrerequisite");
+    expect(kycClient).toContain('<GmailReceiptsPage surface="kyc" />');
+    expect(kycClient).not.toMatch(/one-kyc-service|OneKycService|one\/email\/|mailbox/i);
 
     const existingVaultOnlySurfaces = [
       "app/one/setup/kai/page.tsx",

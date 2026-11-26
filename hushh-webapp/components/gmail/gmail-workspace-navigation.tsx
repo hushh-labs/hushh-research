@@ -5,14 +5,25 @@ import type { ReactNode } from "react";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 
-export type GmailWorkspace = "overview" | "kyc" | "receipts";
+/**
+ * Overview, Follow-ups and Receipts are the three Mail tabs. `kyc` is not one of
+ * them: it names the KYC request-and-review screen, which is its own route and
+ * is never offered here.
+ */
+export type GmailWorkspace = "overview" | "followups" | "receipts" | "kyc";
+export type GmailWorkspaceTab = Exclude<GmailWorkspace, "kyc">;
 
 const OPTIONS = [
   { value: "overview", label: "Overview" },
-  { value: "kyc", label: "KYC" },
+  { value: "followups", label: "Follow-ups" },
   { value: "receipts", label: "Receipts" },
 ] as const;
 const TAB_SET_ID = "gmail-workspace";
+
+/** The Mail tab a value selects; `kyc` is not a tab, so it falls back to Overview. */
+export function gmailWorkspaceTab(workspace: GmailWorkspace): GmailWorkspaceTab {
+  return workspace === "kyc" ? "overview" : workspace;
+}
 
 export function GmailWorkspaceNavigation({
   value,
@@ -24,7 +35,7 @@ export function GmailWorkspaceNavigation({
   return (
     <div className="flex h-[var(--top-tabs-h)] w-full items-center">
       <SegmentedTabs
-        value={value}
+        value={gmailWorkspaceTab(value)}
         onValueChange={(next) => onValueChange(next as GmailWorkspace)}
         options={[...OPTIONS]}
         mobileColumns={3}
@@ -46,13 +57,13 @@ export function GmailWorkspacePanels({
 }: {
   value: GmailWorkspace;
   onValueChange: (workspace: GmailWorkspace) => void;
-  panels: Record<GmailWorkspace, ReactNode>;
+  panels: Record<GmailWorkspaceTab, ReactNode>;
 }) {
   return (
     <SwipeViews
       options={OPTIONS}
       tabSetId={TAB_SET_ID}
-      activeValue={value}
+      activeValue={gmailWorkspaceTab(value)}
       onSelectionChange={(next) => onValueChange(next as GmailWorkspace)}
       panelInset="none"
       viewportMinHeight="fill"

@@ -1191,7 +1191,18 @@ describe("top shell title slot", () => {
   });
 });
 
-// The retired ONE_KYC alias shares this live Mail entry URL.
+// KYC is its own screen, not the Mail entry: the two no longer share a URL.
+it("labels the KYC screen KYC, with One (or where it was opened from) as its parent", () => {
+  expect(ROUTES.ONE_KYC).toBe("/one/kyc");
+  expect(ROUTES.ONE_KYC).not.toBe(ROUTES.EMAIL_AGENT);
+  const crumb = resolveTopShellBreadcrumb(ROUTES.ONE_KYC, new URLSearchParams());
+  expect(crumb?.items?.map(item => item.label)).toEqual(["One", "KYC"]);
+  expect(crumb?.backHref).toBe(ROUTES.ONE_HOME);
+  const profile = resolveTopShellBreadcrumb(ROUTES.ONE_KYC, new URLSearchParams({ from: ROUTES.PROFILE }));
+  expect(profile?.items?.map(item => item.label)).toEqual(["Profile", "KYC"]);
+  expect(profile?.backHref).toBe(ROUTES.PROFILE);
+});
+
 it("labels the Mail entry by its rendered purpose and preserves its authored parent", () => {
   const crumb = resolveTopShellBreadcrumb(ROUTES.EMAIL_AGENT, new URLSearchParams());
   expect(crumb?.items?.at(-1)?.label).toBe("Mail Agent");

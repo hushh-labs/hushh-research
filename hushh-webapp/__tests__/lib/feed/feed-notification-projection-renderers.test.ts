@@ -453,13 +453,13 @@ describe("notification-backed Feed projection renderers", () => {
     ["mail_connected", "Mail", "/one/gmail"],
     ["mail_reconnect_required", "Mail", "/one/gmail"],
     ["mail_disconnected", "Mail", "/one/gmail"],
-    ["mail_information_request_detected", "Mail", "/one/gmail?workspace=kyc"],
+    ["mail_information_request_detected", "Mail", "/one/kyc"],
     ["mail_receipts_imported", "Mail", "/one/gmail?workspace=receipts"],
     ["mail_sync_completed", "Mail", "/one/gmail?workspace=receipts"],
     ["mail_sync_failed", "Mail", "/one/gmail?workspace=receipts"],
-    ["mail_message_sent", "Mail", "/one/gmail?workspace=kyc"],
-    ["mail_message_failed", "Mail", "/one/gmail?workspace=kyc"],
-    ["mail_delivery_unconfirmed", "Mail", "/one/gmail?workspace=kyc"],
+    ["mail_message_sent", "Mail", "/one/kyc"],
+    ["mail_message_failed", "Mail", "/one/kyc"],
+    ["mail_delivery_unconfirmed", "Mail", "/one/kyc"],
   ])("renders %s as safe, actionable Feed history", (eventType, domain, href) => {
     const sensitive = "private-subject@example.com";
     const presented = presentFeedItem(

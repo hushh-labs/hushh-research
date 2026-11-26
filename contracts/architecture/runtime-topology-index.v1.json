@@ -3972,6 +3972,7 @@
       ],
       "voice": {
         "action_ids": [
+          "route.kyc_requests",
           "route.one_gmail_kyc",
           "route.profile_receipts"
         ],
@@ -4474,6 +4475,76 @@
         ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.kai.portfolio.sources"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [
+        {
+          "backend_endpoint_family": "/one/kyc/*",
+          "native_transport": "CapacitorHttp direct backend via ApiService.apiFetch on native",
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "service_file": "lib/services/one-kyc-service.ts",
+          "service_methods": [
+            "listWorkflows",
+            "refreshWorkflow",
+            "selectScopes",
+            "getWorkflowConsentExports",
+            "sendApprovedReply",
+            "rejectDraft",
+            "redraft",
+            "writebackComplete",
+            "getClientConnector",
+            "registerClientConnector"
+          ]
+        },
+        {
+          "backend_endpoint_family": "/account/*",
+          "native_transport": "CapacitorHttp direct backend via ApiService.apiFetch on native",
+          "nextjs_api_route": "/api/account/{path*}",
+          "nextjs_proxy_file": "app/api/account/[...path]/route.ts",
+          "service_file": "lib/services/account-service.ts",
+          "service_methods": [
+            "listEmailAliases",
+            "startEmailAliasVerification",
+            "confirmEmailAliasVerification"
+          ]
+        },
+        {
+          "backend_endpoint_family": "/pkm/*",
+          "native_transport": "CapacitorHttp direct backend plus client vault/PKM services",
+          "nextjs_api_route": "/api/pkm/{path*}",
+          "nextjs_proxy_file": "app/api/pkm/[...path]/route.ts",
+          "service_file": "lib/services/kyc-pkm-write-service.ts",
+          "service_methods": [
+            "writeWorkflowArtifact"
+          ]
+        }
+      ],
+      "cache": {
+        "policy": "secure-resource",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "pkm_projection",
+          "consent_list"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-kyc",
+      "page_file": "app/one/kyc/page.tsx",
+      "pathname": "/one/kyc",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.kyc_requests",
+          "route.one_gmail_kyc",
+          "route.profile_receipts"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.kyc"
       }
     },
     {
@@ -7425,27 +7496,27 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
-    "action_gateway": "6ee22c0dfe499186bf893099fc6207157cb382faac86fbe93aac969a3f8d8e70",
-    "agent_registry": "d097d71cd6665bbb0347693712846f530c04a94e8c9ad660ea7a05bf11a9fabf",
-    "cache_manifest": "7346b95662ec5d232310f8cd5df9f423245441d410ab16963e6eb19baee7fc5e",
+    "action_gateway": "d5a44a8f2ef52a6dc7b4055494054d944941cf1a33b74766f0f0c4203ba7ab51",
+    "agent_registry": "d7ebf5370540b8ddc5c62f4833fb7a992f73302ef3b2ccd2fb5e5c24b1c4ede2",
+    "cache_manifest": "6876c2145bc5465a4ab0aaa78cb5f7ada3415afcd954d9e72009ae166ede46ac",
     "data_plane": "80f3365bd25e7a5067f868967fb35c4edc9a993d6ef27a8201ce8729b8b05b77",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "1af4badea5099908aa16463d04147aa7a97a195b5de530ed318ef76161dbadbf",
-    "route_index": "b3adb3da01a0bf0544e373a067a31f9ee5ca1824659c1db0b3122bc685554d12",
-    "route_layout": "b2471f36c5086347100cbb20e774f864b691bd180cb4b0a47355de70ca2b3b6e",
-    "surface_map": "f6d12911be9da082889ccc8cce4b2da2fdcf80116d4b523237f2ebffb55b0dbc",
+    "route_index": "6a45733ad16ba8ae4122777b7b1a2b966e3fc41cc7bebd610430a0d401e8c0cb",
+    "route_layout": "c545516b7eac257601872ed99564bf481911258790519acd49522d3dfbd2e644",
+    "surface_map": "dec42a8a828fe6302d2034104c1f36be03445970ca84ceab97c0e631433c069b",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 347,
+    "actions": 348,
     "agents": 23,
     "aliases": 4,
     "decision_required": 2,
     "in_process_specialists": 7,
     "one_specialist_tools": 6,
-    "physical_routes": 165,
+    "physical_routes": 166,
     "semantic_routes": 17,
     "table_families": 146
   }

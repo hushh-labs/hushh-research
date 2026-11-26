@@ -38,6 +38,43 @@ export type GmailInformationRequestHandoff = Pick<
   | "attachment_review_required"
 >;
 
+/**
+ * A Mail compose or reply opened from the Mail Overview. Metadata only: no
+ * message body and no Gmail id travel here. A reply carries the envelope the
+ * server derived from the exact original and its short-lived source
+ * reference; the existing reviewed card re-derives recipient and thread from
+ * that reference on every prepare and send, so only the body is the person's.
+ */
+export type MailComposeHandoff = {
+  /** The signed-in owner. A draft for one owner's mailbox never opens for another. */
+  ownerId: string;
+  /** The Google account the screen was showing. */
+  accountKey: string;
+  accountEmail: string | null;
+  /** The connected Google account's id, so a renewed reply can only come from it. */
+  expectedAccount: string | null;
+  intent: "compose" | "reply";
+  reply?: {
+    to: string;
+    subject: string;
+    sourceMailRef: string;
+    recipientLabel: string | null;
+    /**
+     * The stable, owner- and account-bound id of the exact original email. It
+     * renews the short-lived reference without ever naming a Gmail message.
+     */
+    sourceId: string;
+    expiresInSeconds: number;
+    /** When the reference was issued, on this device's clock. */
+    issuedAtMs: number;
+    /**
+     * An optional starting text the server verified against the thread. It is only
+     * a first draft: the person edits it, and nothing sends without their Send.
+     */
+    body?: string | null;
+  };
+};
+
 export type AgentChatHandoff = {
   id: string;
   reason: AgentChatHandoffReason;
@@ -48,6 +85,8 @@ export type AgentChatHandoff = {
   calendarRequest?: { ownerId: string; request: string; timeZone?: string; meeting?: { calendar_id: string; event_id: string; expected_account_email: string } };
   /** A user-initiated Gmail draft request. It never authorizes delivery. */
   emailDraftInstruction?: string | null;
+  /** Opens the existing reviewed draft card directly; it never authorizes delivery. */
+  mailCompose?: MailComposeHandoff | null;
   /**
    * An active personal-Gmail KYC workflow that must retain its original
    * reply context. This is metadata only; private PKM values and Gmail bodies

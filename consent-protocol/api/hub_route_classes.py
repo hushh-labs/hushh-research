@@ -214,6 +214,12 @@ POST /api/one/transcriptions
 POST /api/one/u/{hushh_id}/conversation/{conversation_id}/close
 POST /api/one/u/{hushh_id}/turn
 WS /api/one/voice/live
+POST /api/one/mail/overview/recent
+POST /api/one/mail/overview/search
+POST /api/one/mail/overview/open
+POST /api/one/mail/overview/reply-source
+POST /api/one/mail/overview/brief
+POST /api/one/mail/overview/completed
 POST /api/one/voice/mail/open
 GET /api/one/voice/pending-actions
 POST /api/one/voice/pending-actions/{pending_action_id}/cancel

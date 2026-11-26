@@ -6,6 +6,7 @@ import { useCalendarUpcomingEvents, type RedactedCalendarEvent } from "@/lib/cal
 import { useFeedActionables, type FeedActionable } from "@/lib/feed/use-feed-actionables";
 import { useFeedBriefing, type FeedKycBriefing } from "@/lib/feed/use-feed-briefing";
 import { agentTodoInput, buildTodo, calendarTodoInput, calendarTodoSourceId, isLiveAgentTodo, openTodoItems, type TodoItem } from "@/lib/services/todo-list-pkm-service";
+import { ROUTES } from "@/lib/navigation/routes";
 import { taskSort } from "@/lib/todos/todo-list-model";
 import { useTodoCapabilitySources } from "./use-todo-capability-sources";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
@@ -125,7 +126,7 @@ function projectTodoTasks(
           pendingKyc.count > 1
             ? `Review ${pendingKyc.count} information requests`
             : "Review information request",
-        href: "/one/gmail?workspace=kyc",
+        href: ROUTES.ONE_KYC,
       });
       if (input) {
         const task = buildTodo(input);
