@@ -462,6 +462,23 @@ export function OnboardingJourneyGuard({
       (checking && !cachedAdmissionAllowsCurrentRoute) ||
       authLoading ||
       redirecting);
+  const [admittedUserId, setAdmittedUserId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!userId) {
+      setAdmittedUserId(null);
+      return;
+    }
+    if (!loaderActive && !sessionRecoveryActive && !error) {
+      setAdmittedUserId(userId);
+    }
+  }, [error, loaderActive, sessionRecoveryActive, userId]);
+  const retainMountedChildren = Boolean(
+    userId &&
+      admittedUserId === userId &&
+      cachedAdmissionAllowsCurrentRoute &&
+      !shouldEjectSetupSurface &&
+      !redirecting,
+  );
   // Suppress the persistent shell (top tabs/back + bottom nav) while the setup
   // admission check paints its loader, so the loader never leaks the page frame.
   useSessionChromeSuppression(loaderActive || sessionRecoveryActive);
@@ -475,32 +492,7 @@ export function OnboardingJourneyGuard({
     );
   }
   if (passThrough) return <>{children}</>;
-  if (loaderActive) {
-    return (
-      <HushhLoader
-        holdThroughNavigation={shouldEjectSetupSurface || redirecting}
-        stage={
-          shouldEjectSetupSurface
-            ? "workspace"
-            : redirecting
-              ? "setup"
-              : authLoading
-                ? "session"
-                : "setup"
-        }
-        label={
-          shouldEjectSetupSurface
-            ? "Opening One..."
-            : redirecting
-              ? "Returning to setup..."
-              : authLoading
-                ? "Checking secure session..."
-                : "Checking setup..."
-        }
-      />
-    );
-  }
-  if (error) {
+  if (error && !loaderActive) {
     return (
       <SessionVerificationRecovery
         onRetry={() => {
@@ -511,5 +503,40 @@ export function OnboardingJourneyGuard({
       />
     );
   }
-  return <>{children}</>;
+  return (
+    <>
+      {!loaderActive || retainMountedChildren ? (
+        <div
+          style={{ display: loaderActive ? "none" : "contents" }}
+          inert={loaderActive || undefined}
+          aria-hidden={loaderActive || undefined}
+        >
+          {children}
+        </div>
+      ) : null}
+      {loaderActive ? (
+        <HushhLoader
+          holdThroughNavigation={shouldEjectSetupSurface || redirecting}
+          stage={
+            shouldEjectSetupSurface
+              ? "workspace"
+              : redirecting
+                ? "setup"
+                : authLoading
+                  ? "session"
+                  : "setup"
+          }
+          label={
+            shouldEjectSetupSurface
+              ? "Opening One..."
+              : redirecting
+                ? "Returning to setup..."
+                : authLoading
+                  ? "Checking secure session..."
+                  : "Checking setup..."
+          }
+        />
+      ) : null}
+    </>
+  );
 }

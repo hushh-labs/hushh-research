@@ -28,7 +28,7 @@ export function scheduledTaskHref(taskId?: string): string {
 
 /** Product availability only; the pod still enforces execution authority. */
 export function areScheduledTasksAvailable(): boolean {
-  return resolveAppEnvironment() === "development";
+  return resolveAppEnvironment() !== "production";
 }
 
 export type ScheduledTask = {
