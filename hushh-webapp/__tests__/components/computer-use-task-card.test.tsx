@@ -333,7 +333,7 @@ describe("private browser control", () => {
   it("keeps only schedule metadata and refuses a changed owner's late result", async () => {
     api.getComputerUseAdmission.mockResolvedValue({ ownerId: "owner", podId: "pod" });
     const row = { id: "schedule_" + "a".repeat(32), title: "Organize test", capability: "agent_files.organize_file.v1",
-      revision: 2, state: "scheduled", repeat: "once", timezone: "UTC", next_run_at: 2000,
+      revision: 2, state: "scheduled", repeat: "weekly", weekdays: [0, 4], timezone: "UTC", next_run_at: 2000,
       authorization_expires_at: 3000, last_run: null, terms: { private: "must-not-enter-view" } };
     const oneTask = { ...row, id: "schedule_" + "b".repeat(32), title: "Review updates", capability: "agent_one.execute_task.v1" };
     const templates = [row.capability, oneTask.capability];
@@ -342,7 +342,11 @@ describe("private browser control", () => {
     const status = await client.status();
     expect(status.templates).toEqual(templates);
     expect(status.tasks.map(({ capability }) => capability)).toEqual(templates);
+    expect(status.tasks[0]?.weekdays).toEqual([0, 4]);
     expect(JSON.stringify(status)).not.toContain("must-not-enter-view");
+    api.ownerPodRequest.mockResolvedValueOnce(Response.json({ available: true, code: null,
+      authorization_limit_at: 1000000, templates, tasks: [{ ...row, weekdays: [0, 0] }] }));
+    await expect(client.status()).rejects.toThrow("SCHEDULE_RESPONSE_REFUSED");
     api.ownerPodRequest.mockImplementation(async () => { api.owner = "other"; publishValidatedAuthSessionOwner("other"); return Response.json(row); });
     await expect(client.organizeFile({ id: "b".repeat(32), name: "test" }, 2000, "request-id")).rejects.toThrow("SCHEDULE_RESPONSE_REFUSED");
   });

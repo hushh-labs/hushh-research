@@ -16,6 +16,12 @@ def test_chat_file_schedule_review_only_returns_normalized_time():
     }
     for unresolved in ("2030-02-01T09:30:00", "2030-02-32T09:30:00+00:00", "tomorrow"):
         assert propose_file_schedule(unresolved)["run_at"] is None
+    assert propose_file_schedule(repeat="weekdays") == {
+        "status": "proposal_ready",
+        "type": "files.schedule_organization",
+        "run_at": None,
+        "repeat": "weekdays",
+    }
 
 
 @pytest.mark.parametrize("scopes", [(), ("files.manage",), ("pod.act", "pod.act")])
@@ -265,6 +271,166 @@ def test_schedule_calendar_coalesces_dst_and_missed_runs():
         next_run_after(before, "daily", "America/Los_Angeles", after + 3 * 86400)
         > after + 3 * 86400
     )
+
+
+@pytest.mark.parametrize(
+    ("repeat", "first", "weekdays", "following"),
+    [
+        ("weekly", "1970-01-02T09:00:00+00:00", [0, 4], "1970-01-05T09:00:00+00:00"),
+        ("monthly", "1970-01-31T09:00:00+00:00", None, "1970-03-31T09:00:00+00:00"),
+    ],
+)
+async def test_recurring_schedule_retains_its_calendar_after_recovery(
+    scheduled_tasks, repeat, first, weekdays, following
+):
+    from datetime import datetime
+
+    first_at = int(datetime.fromisoformat(first).timestamp())
+    following_at = int(datetime.fromisoformat(following).timestamp())
+    world = scheduled_tasks
+    world.clock[0] = first_at - 3600
+    request = schedule_request(
+        repeat=repeat,
+        weekdays=weekdays,
+        timezone="UTC",
+        first_run_at=first_at,
+        authorization_expires_at=following_at + 3600,
+    )
+    task = await world.runtime.create(request, grant={"subject_id": "browser", "version": 1})
+    delivery = world.delivery.offer.await_args.args
+    world.clock[0] = first_at
+    result = await world.build().run(*delivery[:3])
+    assert result["last_run"]["state"] == "completed"
+    assert result["state"] == "scheduled"
+    assert result["next_run_at"] == following_at
+    assert result.get("weekdays") == weekdays
+    assert world.delivery.offer.await_args.args[-1] == following_at
+    world.capability.run.assert_awaited_once()
+    assert task["id"] == result["id"]
+    following_delivery = world.delivery.offer.await_args.args
+    world.clock[0] = following_at
+    await world.build().run(*following_delivery[:3])
+    [recovered] = await world.build().list()
+    assert recovered["state"] == "completed"
+    assert recovered["recent_runs"] == [
+        {
+            "id": following_delivery[2],
+            "state": "completed",
+            "started_at": following_at,
+            "finished_at": following_at,
+        },
+        {"id": delivery[2], "state": "completed", "started_at": first_at, "finished_at": first_at},
+    ]
+
+
+def test_selected_weekdays_reject_an_unapproved_first_run():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="Invalid schedule terms"):
+        schedule_request(repeat="weekly", weekdays=[0], timezone="UTC")
+
+
+async def test_skip_next_fences_previous_delivery_and_preserves_the_series(scheduled_tasks):
+    world = scheduled_tasks
+    grant = {"subject_id": "browser", "version": 1}
+    task = await world.runtime.create(
+        schedule_request(repeat="daily", authorization_expires_at=200000), grant=grant
+    )
+    skipped = world.delivery.offer.await_args.args
+    result = await world.runtime.control(
+        task["id"], task["revision"], "skip_next", confirmed=True, caller_grant=grant
+    )
+    next_delivery = world.delivery.offer.await_args.args
+    assert next_delivery[-1] == skipped[-1] + 86400
+    assert result["id"] == task["id"] and result["state"] == "scheduled"
+    world.clock[0] = skipped[-1]
+    await world.build().run(*skipped[:3])
+    world.capability.run.assert_not_awaited()
+    world.clock[0] = next_delivery[-1]
+    await world.build().run(*next_delivery[:3])
+    world.capability.run.assert_awaited_once()
+
+
+async def test_run_now_claims_a_distinct_occurrence_and_keeps_regular_due_time(scheduled_tasks):
+    world = scheduled_tasks
+    task = await world.runtime.create(
+        schedule_request(repeat="daily", authorization_expires_at=200000),
+        grant={"subject_id": "browser", "version": 1},
+    )
+    regular = world.delivery.offer.await_args.args
+    requested = await world.runtime.control(task["id"], task["revision"], "run_now", confirmed=True)
+    manual = world.delivery.offer.await_args.args
+    assert requested["run_now_pending"] and manual[-1] == world.clock[0]
+    assert manual[2] != regular[2]
+
+    await world.build().run(*regular[:3])
+    world.capability.run.assert_not_awaited()
+    restored = await world.build().run(*manual[:3])
+    assert restored["state"] == "scheduled" and not restored["run_now_pending"]
+    assert restored["next_run_at"] == regular[-1]
+    next_delivery = world.delivery.offer.await_args.args
+    assert next_delivery[2] != regular[2] and next_delivery[-1] == regular[-1]
+
+    await world.build().run(*manual[:3])
+    world.capability.run.assert_awaited_once()
+    world.clock[0] = regular[-1]
+    await world.build().run(*next_delivery[:3])
+    assert world.capability.run.await_count == 2
+
+
+async def test_session_only_lockdown_pauses_due_work_after_runtime_recovery(scheduled_tasks):
+    from hushh_mcp.services.pod_config import POD_CONFIG_RECORD_KIND
+
+    world = scheduled_tasks
+    task = await world.runtime.create(
+        schedule_request(), grant={"subject_id": "browser", "version": 1}
+    )
+    due = world.delivery.offer.await_args.args
+    await world.log.append(
+        POD_CONFIG_RECORD_KIND,
+        {"hushh_id": "pod", "config": {"session_only_lockdown": True}},
+    )
+    world.clock[0] = due[-1]
+    paused = await world.build().run(*due[:3])
+    assert paused["state"] == "paused" and paused["last_run"] is None
+    world.capability.run.assert_not_awaited()
+
+    await world.log.append(
+        POD_CONFIG_RECORD_KIND,
+        {"hushh_id": "pod", "config": {"session_only_lockdown": False}},
+    )
+    await world.build().run(*due[:3])
+    world.capability.run.assert_not_awaited()
+    await world.runtime.control(task["id"], paused["revision"], "resume", confirmed=True)
+    resumed = world.delivery.offer.await_args.args
+    world.clock[0] = resumed[-1]
+    assert (await world.build().run(*resumed[:3]))["state"] == "completed"
+    world.capability.run.assert_awaited_once()
+
+
+async def test_session_only_lockdown_fences_an_active_offline_claim(scheduled_tasks):
+    from hushh_mcp.services.pod_config import POD_CONFIG_RECORD_KIND
+    from hushh_mcp.services.pod_scheduled_tasks import ScheduleRefused
+
+    world = scheduled_tasks
+    await world.runtime.create(schedule_request(), grant={"subject_id": "browser", "version": 1})
+    due = world.delivery.offer.await_args.args
+    world.clock[0] = due[-1]
+
+    async def lock_during_run(_terms, _occurrence, check):
+        await world.log.append(
+            POD_CONFIG_RECORD_KIND,
+            {"hushh_id": "pod", "config": {"session_only_lockdown": True}},
+        )
+        await check()
+        pytest.fail("The claimed execution continued after lockdown")
+
+    world.capability.run.side_effect = lock_during_run
+    with pytest.raises(ScheduleRefused, match="SCHEDULE_LOCKDOWN_PAUSED"):
+        await world.runtime.run(*due[:3])
+    [task] = await world.build().list()
+    assert task["state"] == "needs_review"
+    assert task["last_run"]["state"] == "outcome_uncertain"
 
 
 @pytest.mark.asyncio

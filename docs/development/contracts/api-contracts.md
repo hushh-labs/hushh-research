@@ -333,6 +333,33 @@ No silent success is emitted on terminal failures.
 
 ---
 
+## Private-agent scheduled tasks
+
+`POST /api/one/pod/tasks` accepts `once`, `daily`, `weekly`, and `monthly` in
+`repeat`. Weekly schedules may include `weekdays`, a sorted list of distinct
+integers from Monday (`0`) to Sunday (`6`). The first run must fall on one of
+the selected days in the schedule timezone. Omitting `weekdays` preserves the
+weekly cadence anchored at the first run. Monthly schedules use the first run's
+local date and skip months that lack that date. Each recurring schedule has an
+explicit authorization end time. Recurring schedules skip elapsed runs on resume.
+An owner can confirm `skip_next` on a scheduled recurring task via
+`POST /api/one/pod/tasks/control`. The new delivery revision fences the skipped
+occurrence before the next eligible run is offered.
+`run_now` confirms a distinct due-now occurrence while retaining the recurring
+schedule's regular due time. It requires at least one minute before the next
+regular run. Clients use `run_now_available` and `run_now_pending` to display
+the action and the delivery state.
+
+`GET /api/one/pod/tasks` advertises `repeat_modes` when scheduling is available.
+Its task records include an optional `weekdays` selection and up to
+five `recent_runs` per task, newest first, from the sealed schedule journal.
+Each history row contains an occurrence identifier, state, and timestamps.
+The date views show the next recorded scheduled occurrence for each task.
+Task terms, grants, and worker credentials remain private to the agent.
+Session-only lockdown pauses a due offline occurrence before its claim. An
+interrupted active claim requires review. The owner can explicitly resume a
+paused schedule after turning off lockdown.
+
 ## Response Format
 
 ### Circle member chat

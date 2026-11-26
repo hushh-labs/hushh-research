@@ -76,7 +76,11 @@ class ScheduledTasks:
         await authorize(
             {"grant": grant, "authorization_expires_at": request.authorization_expires_at}
         )
-        fingerprint = hashlib.sha256(request.model_dump_json().encode()).hexdigest()
+        # Requests persisted before weekday selection keep their exact retry identity.
+        fingerprint_exclude = {"weekdays"} if request.weekdays is None else None
+        fingerprint = hashlib.sha256(
+            request.model_dump_json(exclude=fingerprint_exclude).encode()
+        ).hexdigest()
         schedule_id = (
             "schedule_" + uuid5(NAMESPACE_URL, self.access.owner_id + ":" + request.request_id).hex
         )
@@ -115,6 +119,7 @@ class ScheduledTasks:
                 "terms": terms,
                 "grant": grant,
                 "repeat": request.repeat,
+                **({"weekdays": request.weekdays} if request.weekdays is not None else {}),
                 "timezone": request.timezone,
                 "first_run_at": request.first_run_at,
                 "next_run_at": request.first_run_at,
@@ -182,9 +187,10 @@ class ScheduledTasks:
         caller_check: Callable[[], Awaitable[None]] | None = None,
         caller_grant: dict | None = None,
     ) -> dict:
-        if operation not in {"pause", "resume", "cancel"}:
+        if operation not in {"pause", "resume", "cancel", "skip_next", "run_now"}:
             raise ScheduleRefused("SCHEDULE_CONTROL_REFUSED")
-        if operation == "resume":
+        needs_delivery = operation in {"resume", "skip_next", "run_now"}
+        if needs_delivery:
             self.delivery.require_ready()
             if not confirmed:
                 raise ScheduleRefused("SCHEDULE_APPROVAL_REQUIRED")
@@ -199,6 +205,47 @@ class ScheduledTasks:
                 raise ScheduleRefused("SCHEDULE_CANCELLATION_PENDING")
             if operation == "pause" and row["state"] == "running":
                 raise ScheduleRefused("SCHEDULE_ACTIVE_PAUSE_REFUSED")
+            if operation == "run_now":
+                if row["state"] != "scheduled" or row.get("regular_run_at") is not None:
+                    raise ScheduleRefused("SCHEDULE_RUN_NOW_REFUSED")
+                if row["incarnation"] != self.access.incarnation:
+                    raise ScheduleRefused("SCHEDULE_NEW_APPROVAL_REQUIRED")
+                now = int(self.clock())
+                if row["next_run_at"] < now + 60:
+                    raise ScheduleRefused("SCHEDULE_RUN_NOW_TOO_CLOSE")
+                next_revision = row["revision"] + 1
+                row.update(
+                    regular_run_at=row["next_run_at"],
+                    next_run_at=now,
+                    state="pending_delivery",
+                    revision=next_revision,
+                    delivery_revision=next_revision,
+                )
+                return row
+            if operation == "skip_next":
+                if (
+                    row["state"] != "scheduled"
+                    or row["repeat"] == "once"
+                    or row.get("regular_run_at") is not None
+                ):
+                    raise ScheduleRefused("SCHEDULE_SKIP_REFUSED")
+                if row["incarnation"] != self.access.incarnation:
+                    raise ScheduleRefused("SCHEDULE_NEW_APPROVAL_REQUIRED")
+                following = next_run_after(
+                    row["next_run_at"],
+                    row["repeat"],
+                    row["timezone"],
+                    int(self.clock()),
+                    anchor_at=row["first_run_at"],
+                    weekdays=row.get("weekdays"),
+                )
+                row["revision"] += 1
+                row["delivery_revision"] = row["revision"]
+                if following is not None and following < row["authorization_expires_at"]:
+                    row.update(next_run_at=following, state="pending_delivery")
+                else:
+                    row["state"] = "completed"
+                return row
             if operation == "resume":
                 if row.get("checkpoint") is not None:
                     raise ScheduleRefused("SCHEDULE_EXACT_CONTINUATION_REQUIRED")
@@ -210,7 +257,26 @@ class ScheduledTasks:
                 last_run = row.get("last_run")
                 if last_run and last_run["state"] in {"running", "outcome_uncertain"}:
                     raise ScheduleRefused("SCHEDULE_OUTCOME_UNCERTAIN")
-                row["next_run_at"] = max(row["next_run_at"], int(self.clock()) + 60)
+                earliest = int(self.clock()) + 60
+                next_run = row.pop("regular_run_at", None) or row["next_run_at"]
+                if next_run < earliest:
+                    next_run = (
+                        earliest
+                        if row["repeat"] == "once"
+                        else next_run_after(
+                            next_run,
+                            row["repeat"],
+                            row["timezone"],
+                            earliest - 1,
+                            anchor_at=row["first_run_at"],
+                            weekdays=row.get("weekdays"),
+                        )
+                    )
+                if next_run is None or next_run >= row["authorization_expires_at"]:
+                    raise ScheduleRefused("SCHEDULE_NEW_APPROVAL_REQUIRED")
+                row["next_run_at"] = next_run
+            if operation == "pause" and row["state"] in {"scheduled", "pending_delivery"}:
+                row["next_run_at"] = row.pop("regular_run_at", None) or row["next_run_at"]
             row["state"] = (
                 "cancelling"
                 if operation == "cancel" and row["state"] == "running"
@@ -226,7 +292,7 @@ class ScheduledTasks:
         async def authorize(row):
             if caller_check is not None:
                 await caller_check()
-            if operation == "resume":
+            if needs_delivery:
                 await self._check_horizon(row)
                 if caller_grant is not None:
                     await self.check_grant(
@@ -237,7 +303,7 @@ class ScheduledTasks:
                     )
 
         row = await self._change(edit, authorize=authorize)
-        if operation == "resume":
+        if needs_delivery and row["state"] == "pending_delivery":
             await self._offer(row, caller_check=caller_check)
         return await self.get(row["id"])
 

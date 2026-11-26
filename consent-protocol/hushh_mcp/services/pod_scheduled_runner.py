@@ -13,7 +13,7 @@ from hushh_mcp.services.pod_scheduled_contracts import (
     next_run_after,
     occurrence_id,
 )
-from hushh_mcp.services.pod_scheduled_journal import ScheduledTaskJournal
+from hushh_mcp.services.pod_scheduled_journal import LOCKDOWN_PAUSED, ScheduledTaskJournal
 from hushh_mcp.services.pod_scheduled_lease import LEASE_SECONDS, ScheduledExecutionLease
 
 
@@ -86,8 +86,13 @@ class ScheduledTaskRunner:
         permit = await self.admission.acquire_turn(incarnation=self.access.incarnation)
         lease = None
         try:
-            claimed = await self._claim(schedule_id, revision, occurrence, limit)
-            lease = ScheduledExecutionLease(self.journal, claimed)
+            try:
+                claimed = await self._claim(schedule_id, revision, occurrence, limit)
+            except ScheduleRefused as exc:
+                if exc.code != LOCKDOWN_PAUSED:
+                    raise
+                return await self._pause_locked_occurrence(schedule_id, revision)
+            lease = ScheduledExecutionLease(self.journal, claimed, background=True)
             return await self._execute(claimed, capability, lease)
         finally:
             await self._finish_permit(lease, permit)
@@ -188,7 +193,27 @@ class ScheduledTaskRunner:
             )
             return row
 
-        return await self.journal.change(claim, authorize=self.journal.check_horizon)
+        return await self.journal.change(
+            claim, authorize=self.journal.check_horizon, background=True
+        )
+
+    async def _pause_locked_occurrence(self, schedule_id: str, revision: int) -> dict:
+        def pause(rows):
+            row = rows[schedule_id]
+            if row["delivery_revision"] != revision or row["state"] not in {
+                "scheduled",
+                "pending_delivery",
+            }:
+                raise ExistingSchedule(row)
+            row["next_run_at"] = row.pop("regular_run_at", None) or row["next_run_at"]
+            row.update(state="paused", revision=row["revision"] + 1)
+            return row
+
+        try:
+            await self.journal.change(pause)
+        except ExistingSchedule:
+            pass
+        return await self.journal.get(schedule_id)
 
     async def _execute(
         self,
@@ -233,17 +258,22 @@ class ScheduledTaskRunner:
                 raise ExistingSchedule(row)
             row["last_run"].update(state=outcome, finished_at=int(self.clock()))
             if row["state"] == "running":
-                following = (
-                    next_run_after(
-                        row["next_run_at"],
-                        row["repeat"],
-                        row["timezone"],
-                        int(self.clock()),
-                        anchor_at=row["first_run_at"],
+                following = None
+                if outcome == "completed" and row["repeat"] != "once":
+                    regular = row.pop("regular_run_at", None)
+                    now = int(self.clock())
+                    following = (
+                        regular
+                        if regular is not None and regular > now
+                        else next_run_after(
+                            regular or row["next_run_at"],
+                            row["repeat"],
+                            row["timezone"],
+                            now,
+                            anchor_at=row["first_run_at"],
+                            weekdays=row.get("weekdays"),
+                        )
                     )
-                    if outcome == "completed"
-                    else None
-                )
                 row["state"] = (
                     "pending_delivery"
                     if following and following < row["authorization_expires_at"]
@@ -256,6 +286,8 @@ class ScheduledTaskRunner:
                     row["next_run_at"] = following
             elif row["state"] == "cancelling":
                 row["state"] = "cancelled"
+            if row["state"] in {"completed", "cancelled"}:
+                row.pop("regular_run_at", None)
             row["revision"] += 1
             if row["state"] == "pending_delivery":
                 # A completed occurrence's continuation is retained in history,

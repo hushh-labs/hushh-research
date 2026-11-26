@@ -19,8 +19,9 @@ CLEANUP_SECONDS = 15
 
 
 class ScheduledExecutionLease:
-    def __init__(self, journal: ScheduledTaskJournal, claimed: dict):
+    def __init__(self, journal: ScheduledTaskJournal, claimed: dict, *, background: bool = False):
         self.journal, self.claimed = journal, claimed
+        self.background = background
         self.quiescent = True
         self.settled = False
         self.tasks: set[asyncio.Task] = set()
@@ -64,7 +65,7 @@ class ScheduledExecutionLease:
         return row
 
     async def check(self) -> None:
-        rows, _ = await self.journal.snapshot()
+        rows, _ = await self.journal.snapshot(background=self.background)
         await self.journal.check_horizon(self._current(rows))
 
     async def _renew(self) -> None:
@@ -80,7 +81,9 @@ class ScheduledExecutionLease:
                 row["revision"] += 1
                 return row
 
-            await self.journal.change(edit, authorize=self.journal.check_horizon)
+            await self.journal.change(
+                edit, authorize=self.journal.check_horizon, background=self.background
+            )
 
     async def execute(
         self, capability: ScheduledCapability, continuation: ScheduledContinuation | None = None

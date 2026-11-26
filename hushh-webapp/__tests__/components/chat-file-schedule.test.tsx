@@ -25,7 +25,7 @@ describe("private Files schedule review in Chat", () => {
     mocks.entry.mockReset().mockResolvedValue(file);
     vi.spyOn(PodScheduledTasksClient.prototype, "status").mockResolvedValue({
       available: true, code: null, authorization_limit_at: Math.floor(Date.now() / 1000) + 172800,
-      templates: [FILE_ORGANIZATION_TEMPLATE], tasks: [],
+      templates: [FILE_ORGANIZATION_TEMPLATE], repeat_modes: ["once", "daily", "weekly", "monthly"], tasks: [],
     });
   });
 
@@ -63,6 +63,29 @@ describe("private Files schedule review in Chat", () => {
     mocks.entry.mockResolvedValueOnce({ ...file, revision: 4 });
     fireEvent.click(await openReview());
     expect(await screen.findByRole("alert")).toHaveTextContent("selected file or its permission changed");
+    expect(organize).not.toHaveBeenCalled();
+  });
+
+  it("requires an explicit end time for a recurring Files schedule", async () => {
+    const confirm = await openReview();
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Repeat" }), { key: "Enter" });
+    fireEvent.click(await screen.findByRole("option", { name: "Daily" }));
+    expect(screen.getByLabelText("End at")).toBeVisible();
+    expect(confirm).toBeDisabled();
+  });
+
+  it("carries an explicit weekday proposal into review without approving any run", async () => {
+    const proposal = readFileScheduleProposal("propose_file_schedule", {
+      status: "proposal_ready", type: "files.schedule_organization", run_at: null, repeat: "weekdays",
+    });
+    expect(proposal).toEqual({ runAt: null, repeat: "weekdays" });
+    const organize = vi.spyOn(PodScheduledTasksClient.prototype, "organizeFile");
+    render(<ChatFileScheduleCard proposal={proposal!} credentials={credentials} onDismiss={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Choose file" }));
+    fireEvent.click(await screen.findByRole("button", { name: file.name }));
+    expect(await screen.findByRole("checkbox", { name: "Monday" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Saturday" })).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Confirm schedule" })).toBeDisabled();
     expect(organize).not.toHaveBeenCalled();
   });
 

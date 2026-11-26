@@ -31,6 +31,18 @@ export function areScheduledTasksAvailable(): boolean {
   return resolveAppEnvironment() === "development";
 }
 
+const SCHEDULE_REPEATS = ["once", "daily", "weekly", "monthly"] as const;
+export const SCHEDULE_WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
+export type ScheduleRepeat = (typeof SCHEDULE_REPEATS)[number];
+export type ScheduleRecurrence = {
+  repeat: Exclude<ScheduleRepeat, "once">;
+  weekdays?: number[];
+  endsAt: number;
+};
+export type ScheduledRun = { state: string; started_at: number; finished_at?: number };
+type RecentScheduledRun = ScheduledRun & { id: string };
+export type ScheduleControl = "pause" | "resume" | "cancel" | "skip_next" | "run_now";
+
 export type ScheduledTask = {
   id: string;
   title: string;
@@ -45,19 +57,40 @@ export type ScheduledTask = {
     | "cancelled"
     | "completed"
     | "needs_review";
-  repeat: "once" | "daily" | "weekly";
+  repeat: ScheduleRepeat;
+  weekdays?: number[];
   timezone: string;
   next_run_at: number;
+  run_now_pending?: boolean;
   authorization_expires_at: number;
-  last_run: { state: string; started_at: number; finished_at?: number; sent_source?: string } | null;
+  last_run: (ScheduledRun & { sent_source?: string }) | null;
+  recent_runs?: RecentScheduledRun[];
 };
 export type ScheduledTasksStatus = {
   available: boolean;
   code: string | null;
   templates: string[];
+  repeat_modes?: ScheduleRepeat[];
+  run_now_available?: boolean;
   tasks: ScheduledTask[];
   authorization_limit_at: number | null;
 };
+
+function parseRun(value: unknown): ScheduledRun {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("SCHEDULE_RESPONSE_REFUSED");
+  const run = value as ScheduledRun;
+  if (
+    !["running", "completed", "failed", "needs_review", "cancelled", "outcome_uncertain"].includes(run.state) ||
+    !Number.isSafeInteger(run.started_at) || run.started_at < 1 ||
+    (run.finished_at != null && (!Number.isSafeInteger(run.finished_at) || run.finished_at < 1))
+  ) throw new Error("SCHEDULE_RESPONSE_REFUSED");
+  return {
+    state: run.state,
+    started_at: run.started_at,
+    ...(run.finished_at ? { finished_at: run.finished_at } : {}),
+  };
+}
 
 function parseTask(value: unknown): ScheduledTask {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -81,31 +114,33 @@ function parseTask(value: unknown): ScheduledTask {
       "completed",
       "needs_review",
     ].includes(row.state) ||
-    !["once", "daily", "weekly"].includes(row.repeat) ||
+    !SCHEDULE_REPEATS.includes(row.repeat) ||
+    (row.weekdays !== undefined && (
+      row.repeat !== "weekly" || !Array.isArray(row.weekdays) ||
+      row.weekdays.length < 1 || row.weekdays.length > 7 ||
+      row.weekdays.some((day, index, days) =>
+        !Number.isInteger(day) || day < 0 || day > 6 || day <= (days[index - 1] ?? -1),
+      )
+    )) ||
     typeof row.timezone !== "string" ||
     !row.timezone ||
     row.timezone.length > 64 ||
     !Number.isSafeInteger(row.next_run_at) ||
     row.next_run_at < 1 ||
+    row.next_run_at > 253_402_300_799 ||
+    (row.run_now_pending !== undefined && typeof row.run_now_pending !== "boolean") ||
     !Number.isSafeInteger(row.authorization_expires_at) ||
     row.authorization_expires_at < 1 ||
-    (row.last_run !== null &&
-      (!row.last_run ||
-        ![
-          "running",
-          "completed",
-          "failed",
-          "needs_review",
-          "cancelled",
-          "outcome_uncertain",
-        ].includes(row.last_run.state) ||
-        !Number.isSafeInteger(row.last_run.started_at) ||
-        row.last_run.started_at < 1 ||
-        (row.last_run.finished_at !== undefined &&
-          row.last_run.finished_at !== null &&
-          (!Number.isSafeInteger(row.last_run.finished_at) ||
-            row.last_run.finished_at < 1))))
+    (row.recent_runs !== undefined && (!Array.isArray(row.recent_runs) || row.recent_runs.length > 5))
   )
+    throw new Error("SCHEDULE_RESPONSE_REFUSED");
+  const recentRuns = row.recent_runs?.map((run) => {
+    const parsed = parseRun(run);
+    if (typeof run.id !== "string" || !/^[a-f0-9]{32}$/.test(run.id) || parsed.state === "running")
+      throw new Error("SCHEDULE_RESPONSE_REFUSED");
+    return { ...parsed, id: run.id };
+  });
+  if (recentRuns && new Set(recentRuns.map((run) => run.id)).size !== recentRuns.length)
     throw new Error("SCHEDULE_RESPONSE_REFUSED");
   // Keep only display metadata; private terms/grants are never frontend state.
   return {
@@ -115,19 +150,19 @@ function parseTask(value: unknown): ScheduledTask {
     revision: row.revision,
     state: row.state,
     repeat: row.repeat,
+    ...(row.weekdays ? { weekdays: row.weekdays } : {}),
     timezone: row.timezone,
     next_run_at: row.next_run_at,
+    ...(row.run_now_pending !== undefined ? { run_now_pending: row.run_now_pending } : {}),
     authorization_expires_at: row.authorization_expires_at,
-    last_run: row.last_run && {
-      state: row.last_run.state,
-      started_at: row.last_run.started_at,
-      ...(row.capability === MAIL_FOLLOWUP_TEMPLATE && row.state === "completed" && row.last_run.state === "completed" &&
-        typeof row.last_run.sent_source === "string" && /^ms1\.[A-Za-z0-9_-]{16,2044}$/.test(row.last_run.sent_source)
-        ? {sent_source:row.last_run.sent_source} : {}),
-      ...(row.last_run.finished_at
-        ? { finished_at: row.last_run.finished_at }
-        : {}),
+    last_run: row.last_run === null ? null : {
+      ...parseRun(row.last_run),
+      ...(row.capability === MAIL_FOLLOWUP_TEMPLATE && row.state === "completed" &&
+          row.last_run.state === "completed" && typeof row.last_run.sent_source === "string" &&
+          /^ms1\.[A-Za-z0-9_-]{16,2044}$/.test(row.last_run.sent_source)
+        ? { sent_source: row.last_run.sent_source } : {}),
     },
+    ...(recentRuns ? { recent_runs: recentRuns } : {}),
   };
 }
 
@@ -235,6 +270,10 @@ export class PodScheduledTasksClient {
       new Set(tasks.map((row) => row.id)).size !== tasks.length ||
       !Array.isArray(body.templates) ||
       body.templates.some((value) => !isScheduledCapability(value)) ||
+      (body.run_now_available !== undefined && typeof body.run_now_available !== "boolean") ||
+      (body.repeat_modes !== undefined && (!Array.isArray(body.repeat_modes) ||
+        body.repeat_modes.length > SCHEDULE_REPEATS.length ||
+        body.repeat_modes.some(mode => !SCHEDULE_REPEATS.includes(mode)))) ||
       (body.code !== null &&
         (typeof body.code !== "string" || !/^[A-Z_]{1,128}$/.test(body.code)))
     )
@@ -243,6 +282,8 @@ export class PodScheduledTasksClient {
       available: body.available,
       code: body.code,
       templates: body.templates,
+      ...(body.repeat_modes !== undefined ? { repeat_modes: body.repeat_modes } : {}),
+      ...(body.run_now_available !== undefined ? { run_now_available: body.run_now_available } : {}),
       tasks,
       authorization_limit_at: body.authorization_limit_at,
     };
@@ -250,7 +291,7 @@ export class PodScheduledTasksClient {
 
   async control(
     task: ScheduledTask,
-    operation: "pause" | "resume" | "cancel",
+    operation: ScheduleControl,
     signal?: AbortSignal,
   ): Promise<ScheduledTask> {
     const updated = parseTask(
@@ -263,7 +304,7 @@ export class PodScheduledTasksClient {
             schedule_id: task.id,
             revision: task.revision,
             operation,
-            confirmed: operation === "resume",
+            confirmed: operation === "resume" || operation === "skip_next" || operation === "run_now",
           }),
         },
         signal,
@@ -297,6 +338,7 @@ export class PodScheduledTasksClient {
     requestId: string,
     signal?: AbortSignal,
     timezone = Intl.DateTimeFormat().resolvedOptions().timeZone,
+    recurrence?: ScheduleRecurrence,
   ): Promise<ScheduledTask> {
     const task = parseTask(
       await this.request(
@@ -312,9 +354,10 @@ export class PodScheduledTasksClient {
               expected_file_revision: file.revision, expected_analysis_revision: file.analysisRevision,
             } : {}) },
             first_run_at: runAt,
-            repeat: "once",
+            repeat: recurrence?.repeat ?? "once",
+            ...(recurrence?.weekdays ? { weekdays: recurrence.weekdays } : {}),
             timezone,
-            authorization_expires_at: runAt + 86_400,
+            authorization_expires_at: recurrence?.endsAt ?? runAt + 86_400,
             confirmed: true,
           }),
         },

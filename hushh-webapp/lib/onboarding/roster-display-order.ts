@@ -4,7 +4,6 @@ const ROSTER_DISPLAY_ORDER: readonly string[] = [
   "gmail",
   "calendar",
   "finance",
-  "goals",
   "ria",
   "wallet",
   "consent",
@@ -18,6 +17,7 @@ export function compareOneRosterDisplayOrder(
   right: { id: string },
 ): number {
   const rank = (id: string) => {
+    if (id === "goals") return ROSTER_DISPLAY_ORDER.length + 1;
     const index = ROSTER_DISPLAY_ORDER.indexOf(id);
     return index < 0 ? ROSTER_DISPLAY_ORDER.length : index;
   };

@@ -102,6 +102,8 @@ async def list_tasks(response: Response, authorization: str | None = Header(defa
             "available": code is None,
             "code": code,
             "templates": sorted(runtime.capabilities) if code is None else [],
+            "repeat_modes": ["once", "daily", "weekly", "monthly"] if code is None else [],
+            "run_now_available": code is None,
             "authorization_limit_at": authorization_limit_at,
             "tasks": tasks,
         }
@@ -130,7 +132,7 @@ async def create_task(
 class Control(StrictContract):
     schedule_id: str = Field(pattern=r"^schedule_[a-f0-9]{32}$")
     revision: int = Field(ge=1)
-    operation: Literal["pause", "resume", "cancel"]
+    operation: Literal["pause", "resume", "cancel", "skip_next", "run_now"]
     confirmed: bool = False
 
 

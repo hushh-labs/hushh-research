@@ -90,7 +90,9 @@ export function ChatFileScheduleCard({ proposal, credentials, onDismiss }: {
         </>
       ) : (
         <>
-          <p className="text-sm text-muted-foreground">Choose a file and confirm when your private agent should organize it.</p>
+          <p className="text-sm text-muted-foreground">{proposal.repeat
+            ? `Choose a file and review the ${proposal.repeat === "weekdays" ? "weekday" : proposal.repeat} schedule.`
+            : "Choose a file and confirm when your private agent should organize it."}</p>
           <div className="flex flex-wrap gap-2">
             <Button onClick={() => setChoosing(true)}>Choose file</Button>
             <Button variant="ghost" onClick={onDismiss}>Dismiss</Button>
@@ -122,7 +124,8 @@ export function ChatFileScheduleCard({ proposal, credentials, onDismiss }: {
         </DialogContent>
       </Dialog>
       {selection ? <ScheduleFileDialog file={selection} route={ROUTES.HOME} open
-        initialTime={localScheduleInput(proposal.runAt)} reviewedClient={client} beforeConfirm={verifySelection}
+        initialTime={localScheduleInput(proposal.runAt)} initialRepeat={proposal.repeat}
+        reviewedClient={client} beforeConfirm={verifySelection}
         onOpenChange={open => { if (!open) setSelection(null); }} onScheduled={setResult} /> : null}
     </SurfaceCard>
   );
