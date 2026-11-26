@@ -128,6 +128,7 @@ export function storedMessageToAgentMessage(
     id: message.id,
     role: message.role,
     text: displayText,
+    ...(message.metadata?.locationChatProposal ? { locationChatProposal: message.metadata.locationChatProposal } : {}),
     ...(attachments.length ? { attachments } : {}),
     structuredExperience: connectorRead,
     timestamp:

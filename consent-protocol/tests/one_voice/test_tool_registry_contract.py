@@ -110,6 +110,49 @@ def test_destructive_tools_require_a_tap():
         assert required in tap_tools, required
 
 
+async def test_location_review_routes_main_chat_to_a_non_successful_handoff():
+    from hushh_mcp.one_voice import protocol
+    from hushh_mcp.one_voice.tools.base import EntityContext, ScreenContext, ToolContext
+    from hushh_mcp.one_voice.tools.executor import ToolExecutor
+
+    legacy = registry.runtime_declarations(mail_review_supported=True)
+    main_chat = registry.runtime_declarations(
+        mail_review_supported=True, location_chat_review_supported=True
+    )
+    assert "propose_location_action" not in {tool["name"] for tool in legacy}
+    main_names = {tool["name"] for tool in main_chat}
+    assert "propose_location_action" in main_names
+    assert "share_with" not in main_names
+
+    ctx = ToolContext(
+        user_id="owner",
+        conversation_id="c" * 36,
+        entities=EntityContext(),
+        screen=ScreenContext(),
+        vault_owner_token="vault-token",  # noqa: S106 - test fixture, not a secret
+    )
+    executor = ToolExecutor()
+    args = {"action": "share_live", "people": ["Maya"], "circles": ["Family"], "durationHours": 2}
+    unadmitted = await executor.call(ctx, "propose_location_action", args)
+    assert unadmitted.result.reason_code == "location_chat_review_unavailable"
+    ctx.services["location_chat_review"] = True
+    blocked = await executor.call(ctx, "share_with", {})
+    assert blocked.result.reason_code == "location_chat_review_required"
+    invalid = await executor.call(ctx, "propose_location_action", {**args, "confirmed": True})
+    assert invalid.result.reason_code == "invalid_arguments"
+    outcome = await executor.call(ctx, "propose_location_action", args)
+    assert outcome.pending is None
+    public = outcome.result.public()
+    assert public["proposal"]["people"] == ["Maya"]
+    assert public["proposal"]["circles"] == ["Family"]
+    assert public["proposal"]["durationHours"] == 2
+    assert "proposal" not in outcome.result.model_public()
+    frame = protocol.tool_result(
+        call_id="call", tool="propose_location_action", result_public=public
+    )
+    assert frame["ok"] is False
+
+
 # --- device Location updates tools: statuses, alias independence ------------
 
 

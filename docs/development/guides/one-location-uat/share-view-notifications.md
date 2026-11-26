@@ -35,6 +35,66 @@ Expected:
 - User B can view the map inline.
 - Consent notification routes to shield/Access Manager, not the bell.
 
+## Main Chat Location Acceptance
+
+Apply database migration `464_one_location_chat_plans` before enabling
+`ONE_MAIN_CHAT_LOCATION_ENABLED=true` on the backend. Build the web and
+native web bundles with `NEXT_PUBLIC_ONE_MAIN_CHAT_LOCATION_ENABLED=true`.
+Use signed-in test accounts with vault access and registered Location recipient
+keys. Use a named Circle with at least two participants.
+
+Start by typing “Share my location” in the main Chat. Verify that it offers
+private sharing and a temporary public link. In private sharing, search and
+select both a connection and a Circle. Check the audience on the review card.
+Then choose a public link, preview the position, and confirm. Open the link as
+a visitor, and verify that stopping it from Chat or Location ends access.
+
+Repeat from typed Chat using “Private with Maya and Family” followed by “Make
+it 30 minutes.” Check that the review carries the chosen audience forward and
+that a typed yes leaves confirmation on the card. Try an ambiguous contact
+name and resolve it from the picker. Check that Location support requests,
+Circle membership questions, and map navigation still use their existing
+tools, and that a subsequent Mail or Calendar request resumes its own flow.
+
+1. In ONE’s main Chat, type a request to share your current location with a
+   named person. Confirm the recipient, preview the point, and tap to send.
+   The same pin appears under Location → Sent pins and under the recipient’s
+   Shared with me. Move the publishing device and verify the original point
+   stays fixed. Verify that the pin becomes unavailable at its one-hour expiry
+   or immediately after a connected stop. The view must offer no duration edit.
+2. Use typed Chat and One Live to propose a timed live share to one person and
+   to the named Circle. Verify the reviewed audience and expiry before tapping
+   Start. On an eligible recipient’s device, open the share and verify that a
+   new published point reaches it. Check that a non-member and an ineligible
+   member cannot read the Location data. Rotate a recipient key or change Circle
+   membership between review and confirmation and verify the affected share asks
+   for a fresh review.
+3. Change the live end time in Location, then confirm the original Chat card
+   and recipient reflect it. Add time from Chat and check the same grant in
+   Location. Send a request for extra time as the recipient, approve from either
+   surface, and verify the exact active grant keeps its ID. Run the reverse
+   direction for a new request and for a decline. Check that asking someone
+   already sharing opens their existing share without issuing another request.
+4. Retry a confirmation after a lost response, refresh an executed typed card,
+   and repeat with two tabs. Verify that the operation has one visible result.
+   Verify that an offline stop pauses local publishing, syncs after reconnect,
+   and becomes terminal for the recipient. Repeat with sign-out, vault lock,
+   expired grants, no initial fix, and a declined permission prompt.
+5. Repeat on responsive web and physical Android and iOS devices. Cover
+   foreground, background, return to app, approximate permission, revoked
+   permission and OS-killed app. Record platform, build, permission level and
+   network for each run. Measure median and 95th-percentile time from proposal
+   to review, confirmation to receipt, and publish to recipient update. Check
+   that stale UI reports waiting or the last verified update time.
+
+One Live proposals require a tap on the review. The proposal is shown in the
+active voice session. Completed actions remain visible in Location. Web
+continuity depends on page visibility and permission. Native background
+continuity depends on OS permission and the existing publisher in the installed
+app build. [Web geolocation](https://www.w3.org/TR/geolocation/),
+[Android background location](https://developer.android.com/develop/sensors-and-location/location/permissions/background),
+and [iOS background location](https://developer.apple.com/documentation/corelocation/handling-location-updates-in-the-background).
+
 ## Duplicate Notification Guard
 
 For each share, request, revoke, deny, and expiry:
