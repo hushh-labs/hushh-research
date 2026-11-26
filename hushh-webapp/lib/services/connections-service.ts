@@ -586,12 +586,14 @@ export class ConnectionsService {
     message?: string;
     requestedScopeHandles?: string[];
     offeredScopeHandles?: string[];
+    signal?: AbortSignal;
   }): Promise<ConnectionRequest> {
     const activityOwner = snapshotLiveActivityOwner();
     const response = await ApiService.apiFetch(
       "/api/one/connections/requests",
       {
         method: "POST",
+        ...(opts.signal ? { signal: opts.signal } : {}),
         headers: authHeaders(opts.idToken),
         body: JSON.stringify({
           addressee_user_id: opts.addresseeUserId,

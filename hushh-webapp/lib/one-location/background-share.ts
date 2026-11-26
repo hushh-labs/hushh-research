@@ -6,6 +6,7 @@ import type {
   OneLocationGrant,
   OneLocationRecipient,
 } from "@/lib/one-location/types";
+import { isFixedLocationGrant } from "@/lib/one-location/notifications";
 
 /**
  * Build the native background-share session from the owner's active grants and
@@ -25,7 +26,7 @@ export function buildBackgroundShareSession(params: {
 }): BackgroundShareSession {
   const grants: BackgroundShareGrant[] = [];
   for (const grant of params.activeGrants) {
-    if (grant.status !== "active" || grant.shareKind === "pin") continue;
+    if (grant.status !== "active" || isFixedLocationGrant(grant)) continue;
     const expiresAtMs = grant.expiresAt ? Date.parse(grant.expiresAt) : undefined;
     if (expiresAtMs !== undefined && (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now())) continue;
     const recipient = params.recipients.find(
