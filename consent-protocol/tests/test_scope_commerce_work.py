@@ -229,3 +229,60 @@ async def test_provider_observation_requires_current_environment_receipt():
     assert observed["provider_available_micro_usd"] == 500000
     assert observed["provider_observed_timestamp"] > 0
     assert observed["provider_observation_verified"] == 1
+
+
+@pytest.mark.asyncio
+async def test_weekly_batch_excludes_tombstoned_owners_and_skips_retired_generation_guards():
+    from hushh_mcp.services.scope_commerce.provider_reconciliation import WithdrawalRecovery
+
+    captured_queries: list[str] = []
+    reviewed_users: list[str] = []
+
+    class RetiredGenerationGuardError(Exception):
+        constraint_name = "account_retired_generation_update_guard"
+
+    class UnrelatedConstraintError(Exception):
+        constraint_name = "scope_commerce_balanced_check"
+
+    class Connection:
+        async def fetchval(self, sql: str):
+            assert "account_deletion_tombstones" in sql
+            return True
+
+        async def fetch(self, sql: str, limit: int):
+            captured_queries.append(sql)
+            assert limit == 20
+            return [{"user_id": "retired_owner"}, {"user_id": "active_owner"}]
+
+        async def execute(self, sql: str, user_id: str):
+            reviewed_users.append(user_id)
+
+    class Store:
+        async def _transaction(self, callback):
+            return await callback(Connection())
+
+    class Coordinator(WithdrawalRecovery):
+        def __init__(self):
+            self.store = Store()
+
+        async def preview_withdrawal(self, user_id: str):
+            if user_id == "retired_owner":
+                raise RetiredGenerationGuardError("account generation is retired")
+            return {"eligible": True}
+
+        async def request_withdrawal(self, *, user_id: str, operation_id: str, scheduled: bool):
+            assert user_id == "active_owner"
+            assert scheduled is True
+
+    coordinator = Coordinator()
+    completed = await coordinator._weekly_batch(limit=20)
+    assert completed == 1
+    assert any("account_deletion_tombstones" in sql for sql in captured_queries)
+    assert reviewed_users == ["active_owner"]
+
+    class BrokenCoordinator(Coordinator):
+        async def preview_withdrawal(self, user_id: str):
+            raise UnrelatedConstraintError("unexpected check violation")
+
+    with pytest.raises(UnrelatedConstraintError):
+        await BrokenCoordinator()._weekly_batch(limit=20)
