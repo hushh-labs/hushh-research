@@ -36,7 +36,8 @@ def service_completion_filter(project, service, start, until, names):
         'protoPayload.serviceName="run.googleapis.com" '
         f'resource.labels.service_name="{service}" '
         '(protoPayload.methodName="/Services.ReplaceService" '
-        'OR protoPayload.methodName="/Services.CreateService") '
+        'OR protoPayload.methodName="/Services.CreateService" '
+        'OR protoPayload.methodName="/Services.UpdateService") '
         f'protoPayload.response.kind="Service" ({clause}) '
         f'timestamp>="{start}" timestamp<="{until}"'
     )
@@ -99,7 +100,11 @@ def _valid_completion_envelope(event, project, region, service, start, until, in
         or labels.get("service_name") != service
         or payload.get("serviceName") != "run.googleapis.com"
         or payload.get("methodName")
-        not in {"/Services.CreateService", "/Services.ReplaceService"}
+        not in {
+            "/Services.CreateService",
+            "/Services.ReplaceService",
+            "/Services.UpdateService",
+        }
         or payload.get("resourceName") != f"namespaces/{project}/services/{service}"
         or bool((payload.get("status") or {}).get("code"))
         or bool(payload.get("request"))
