@@ -2014,6 +2014,10 @@ export default function GmailReceiptsPage({
     </ReceiptTrackingProvider>
   );
 
+  const openFollowups = () => {
+    setFollowupsOpen(true);
+    if (!isVaultUnlocked || !vaultOwnerToken || !vaultKey) requestVaultUnlock();
+  };
   const nativeRoot: MailNativeSection[] = [];
   if (!isConnected || journeyVariant === "onboarding") {
     nativeRoot.push({ key: "connection", rows: [
@@ -2032,7 +2036,7 @@ export default function GmailReceiptsPage({
     ] }, { key: "overview", title: "Draft with One.", rows: [
       { key: "drafts", label: "Instant drafts & replies" }, { key: "review", label: "Ready for your 1-tap review" },
       { key: "chat", label: "Chat with One", run: handleOpenOneChat },
-      { key: "followups", label: "Open Follow-ups", web: true, run: () => setFollowupsOpen(true) },
+      { key: "followups", label: "Open Follow-ups", web: true, run: openFollowups },
     ] });
   }
   if (workspace === "receipts") {
@@ -2081,7 +2085,7 @@ export default function GmailReceiptsPage({
       as="div"
       width="reading"
       headerContentSpacing="compact"
-      className={`${mailStyles.typography} ${journeyVariant === "workspace" ? mailStyles.workspace : mailStyles.fullPageTitle} pb-[calc(var(--app-bottom-fixed-ui,96px)+1.5rem)]`}
+      className={`${mailStyles.typography} ${followupsOpen && workspace === "overview" ? mailStyles.followupsFrame : ""} ${journeyVariant === "workspace" ? mailStyles.workspace : mailStyles.fullPageTitle} pb-[calc(var(--app-bottom-fixed-ui,96px)+1.5rem)]`}
       nativeTest={{
         routeId:
           journeyVariant === "workspace"
@@ -2232,7 +2236,7 @@ export default function GmailReceiptsPage({
                         )}
                         onOpenChat={handleOpenOneChat}
                       />
-                      <Button onClick={() => setFollowupsOpen(true)}>Open Follow-ups</Button></>
+                      <Button onClick={openFollowups}>Open Follow-ups</Button></>
                     ) : null}
                   </>
                 ),

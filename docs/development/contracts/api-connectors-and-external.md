@@ -1126,3 +1126,17 @@ Firebase UID cohort. Production and Supabase stay unchanged.
 Email, phone, Apple relay address, and provider identifiers are never mapping
 keys. Link and compatibility routes accept only the exact developer app with
 the `hushh_tech_client` tool group and no broader capability.
+
+### Mail Follow-ups in the private agent
+
+The Gmail Follow-ups routes bind the current owner app session, selected mailbox
+and credential ID before each provider read. Message references are sealed with
+the private agent's custody key. The shared encrypted Tasks domain stores each
+reviewed obligation and the source of any matching reply. The document check
+uses bounded attachment reads and the existing isolated parser for PDF and CSV.
+Unsupported or unreadable documents require owner review.
+
+The Dev scheduler adapter binds one occurrence to the obligation, exact draft,
+sender, recipient, source and approved time. It rechecks authority, model
+binding, the mailbox and the thread before calling Gmail delivery. Uncertain
+outcomes use the existing schedule recovery contract.

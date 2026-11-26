@@ -540,6 +540,7 @@ export const TodoListPkmService = {
 
   updateMail(persistence: TodoWriteParams, task: TodoItem, change:
     | { received: NonNullable<MailFollowup["received"]> }
+    | { scheduleId: string; watching: true }
     | { watching: true }
     | { reviewed: true }
     | { draft: NonNullable<MailFollowup["draft"]> }) {

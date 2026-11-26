@@ -1532,3 +1532,17 @@ Owners: [header and list](../../components/gmail/receipts), [All receipts](../..
 - **Storage.** Tracked bills, skipped dates, review choices, reviewed insights and the last mailbox check's findings (with sealed keys that reopen their emails) are encrypted with the vault key and stored on this device beside the saved receipts. They are bound to the owner and the connected mailbox, so switching mailbox or account never shows another's choices, and Reset removes them. They do not sync to other devices. A failed save keeps the screen as it was and says so; a failed read shows **Try again** and never blocks the receipts.
 - **Filters.** The unsupported Due filter is removed; an earlier saved selection (including `due`) resolves to **All**. Overdue stays, from each receipt's own evidence.
 - **Back.** On Recurring, Back returns to All receipts, then follows the existing Mail Back hierarchy. Sheets close first.
+
+## Tracked conversations
+
+In Dev, Open Follow-ups on the connected Overview opens the board. The mailbox
+picker starts on the existing default connection. All Mail combines verified
+connections and sends each evidence or draft action back to its source mailbox.
+
+Tracking records one obligation in the encrypted shared Tasks collection.
+The source link opens the email containing the promise. A watch checks while
+the unlocked board is open. Completion clears that watch. Review of a received
+document requires opening the attachment and confirming review before preparing
+the next draft. An exact approved send uses the private agent's qualified
+one-time scheduler where available. Its final check can suppress delivery, and
+only a confirmed provider receipt enables the sent-email link.

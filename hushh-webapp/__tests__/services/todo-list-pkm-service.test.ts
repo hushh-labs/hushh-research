@@ -585,3 +585,28 @@ describe("TodoListPkmService", () => {
     });
   });
 });
+
+it("reuses each mail obligation and stops only the fulfilled document watch", async () => {
+  vi.clearAllMocks();
+  const save = mockSuccessfulWrite();
+  const source = "ms1."+"x".repeat(32);
+  const first = {key:"a".repeat(64), source_kind:"mail_thread" as const, account:"mail-c", connection:"slot-c", thread:source, source,
+    title:"Get signed copy",participant:"Lab contact", debtor:"lab@example.test", waiting_on:"participant" as const,
+    fulfilment:"Signed agreement", quote:"I will send the signed agreement.",document:"Signed agreement",promised_wording:null};
+  const second = {...first, key:"b".repeat(64),title:"Get pricing",quote:"I will send pricing."};
+  let domain: Record<string,unknown> = {};
+  async function apply(write: Promise<unknown>) {
+    await write;
+    const plan = await save.mock.calls.at(-1)![0].build({...coordinatorContext,currentDomainData:domain});
+    domain = plan.domainData;
+    return readTodoListState(domain).tasks;
+  }
+  await apply(TodoListPkmService.trackMail(persistence,first));
+  await apply(TodoListPkmService.trackMail(persistence,second));
+  let rows=await apply(TodoListPkmService.trackMail(persistence,first));
+  expect(rows).toHaveLength(2);
+  rows=await apply(TodoListPkmService.updateMail(persistence,rows.find(r=>r.mailFollowup?.key===first.key)!,{watching:true}));
+  rows=await apply(TodoListPkmService.updateMail(persistence,rows.find(r=>r.mailFollowup?.key===first.key)!,{received:{source,filename:"signed.pdf"}}));
+  expect(rows.find(r=>r.mailFollowup?.key===first.key)).toMatchObject({status:"done",mailFollowup:{watching:false}});
+  expect(rows.find(r=>r.mailFollowup?.key===second.key)?.status).toBe("pending");
+});
