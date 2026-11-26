@@ -1124,6 +1124,9 @@ if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
     append_optional_secret "${connector_pin}" "${connector_pin}"
   done
 fi
+if [[ "${_DEPLOY_ENV}" == "uat" ]]; then
+  append_optional_secret "GOOGLE_UAT_MAIL_WEB_CLIENT_ID" "GOOGLE_UAT_MAIL_WEB_CLIENT_ID"
+fi
 # The other half of durable state. A SECRET, not an env literal: it derives every
 # managed pod's sealing keys, so it is the one value that must never appear in a
 # deploy log or a service description. append_optional_secret probes Secret Manager

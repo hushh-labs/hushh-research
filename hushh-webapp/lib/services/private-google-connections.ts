@@ -4,7 +4,7 @@ import type { GoogleConnector } from '@/lib/one/connector-credential-seal';
 // No grant or mailbox identifiers are exposed to other browser surfaces.
 export const PRIVATE_MAIL_GRANTS_CHANGED = 'one:private-mail-grants-changed';
 
-function notifyMailGrantsChanged() {
+export function notifyMailGrantsChanged() {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(PRIVATE_MAIL_GRANTS_CHANGED));
 }
 

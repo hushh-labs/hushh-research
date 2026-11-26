@@ -9,7 +9,7 @@
  * redeems the code with Google itself, so Hussh's hub never sees the code, the
  * token or anything the connector reads.
  *
- * On the web there is no native client, so the person finishes on their phone
+ * Hosted UAT Mail uses the Google browser code popup. Other web connectors finish on the phone
  * (a QR handoff). Native uses a separate public-client authorization adapter; the QR contains
  * only a connector intent.
  */
@@ -18,6 +18,8 @@ import { snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurre
 import { Capacitor } from "@capacitor/core";
 import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from '@/lib/services/auth-service';
+import { notifyMailGrantsChanged } from '@/lib/services/private-google-connections';
+import { requestMailBrowserCode, UAT_MAIL_ORIGIN } from './google-mail-browser-connect';
 import { openGoogleConnectorAuth } from './google-connector-auth';
 import { base64UrlEncode } from "./ai-selection-seal";
 import { googleConnectorTransition, type GoogleConnectorTransition, type AuthorizationCodePlaintext, type GoogleClientProfile, type GoogleConnector } from "./connector-credential-seal";
@@ -209,10 +211,11 @@ export async function connectGoogleConnector(
   deps: GoogleConnectorConnectOptions = {},
 ): Promise<ConnectOutcome> {
   const platform = deps.platform ?? Capacitor.getPlatform();
-  if (platform === 'web' && deps.mailAccount?.mode === 'reconnect') return { ok: false, code: 'MAIL_RECONNECT_ON_PHONE' };
-  if (platform === 'web') return { ok: false, code: "PHONE_HANDOFF_REQUIRED", handoff: phoneHandoff(connector, deps.includeOtherContacts, deps.includeCalendarList, deps.mailAccount?.mode === 'add') };
-  const client = nativeGoogleClient(platform);
-  if (!client) return { ok: false, code: platform === 'android' ? 'ANDROID_CONNECTOR_DEV_REQUIRED' : 'NATIVE_CLIENT_NOT_CONFIGURED' };
+  const browserMail = platform === "web" && connector === "gmail" && typeof window !== "undefined" && window.location.origin === UAT_MAIL_ORIGIN;
+  if (platform === 'web' && !browserMail && deps.mailAccount?.mode === 'reconnect') return { ok: false, code: 'MAIL_RECONNECT_ON_PHONE' };
+  if (platform === 'web' && !browserMail) return { ok: false, code: "PHONE_HANDOFF_REQUIRED", handoff: phoneHandoff(connector, deps.includeOtherContacts, deps.includeCalendarList, deps.mailAccount?.mode === 'add') };
+  let client = nativeGoogleClient(platform);
+  if (!client && !browserMail) return { ok: false, code: platform === 'android' ? 'ANDROID_CONNECTOR_DEV_REQUIRED' : 'NATIVE_CLIENT_NOT_CONFIGURED' };
   const vaultEpoch = snapshotVaultSessionEpoch();
   const principal = snapshotValidatedAuthSessionPrincipal();
   const firebaseUid = AuthService.getCurrentUser()?.uid;
@@ -230,8 +233,23 @@ export async function connectGoogleConnector(
   try {
     const ready = await ApiService.ownerPodRequest(`connectors/${connector}`, { method: 'GET' });
     if (!ready.ok) return { ok: false, code: refusalCode(await ready.json().catch(() => null), ready.status) };
+    if (browserMail) {
+      const status = await ready.json();
+      if (!current()) return { ok: false, code: changedCode() };
+      if (status?.connectorId === "gmail" && !deps.mailAccount && status.status === "connected" &&
+          status.capabilities?.manage === true && status.capabilities?.read === true) return { ok: true, status: "connected" };
+      if (status?.connectorId === "gmail" && !("browserClientId" in status)) {
+        if (deps.mailAccount?.mode === "reconnect") return { ok: false, code: "MAIL_RECONNECT_ON_PHONE" };
+        return { ok: false, code: "PHONE_HANDOFF_REQUIRED", handoff: phoneHandoff("gmail", false, false, deps.mailAccount?.mode === "add") };
+      }
+      if (status?.connectorId === "gmail" && typeof status.browserClientId === "string" &&
+          /^[0-9]{4,32}-[a-z0-9]{8,64}\.apps\.googleusercontent\.com$/.test(status.browserClientId)) {
+        client = { profile: "hussh_uat_mail_web", clientId: status.browserClientId, redirectUri: UAT_MAIL_ORIGIN };
+      }
+    }
   } catch { return { ok: false, code: 'AGENT_UNREACHABLE' }; }
   if (!current()) return { ok: false, code: changedCode() };
+  if (!client) return { ok: false, code: "MAIL_BROWSER_NOT_CONFIGURED" };
   let transition: GoogleConnectorTransition;
   try {
     let prepared = await prepareTransition(owner, client, capability, false);
@@ -249,17 +267,24 @@ export async function connectGoogleConnector(
   } catch (error) {
     return { ok: false, code: current() ? (error instanceof Error ? error.message : 'GOOGLE_TRANSITION_UNAVAILABLE') : changedCode() };
   }
-  const { verifier, challenge } = await createPkce();
-  if (!current()) return { ok: false, code: changedCode() };
-  const state = base64UrlEncode(globalThis.crypto.getRandomValues(new Uint8Array(16)));
+  let verifier: string | null = null;
   let code: string;
   try {
-    const redirect = await (deps.openAuthSession ?? openGoogleConnectorAuth)(
-      googleAuthorizationUrl({ client, connector, challenge, state, includeOtherContacts: deps.includeOtherContacts, includeCalendarList: deps.includeCalendarList }),
-      client.redirectUri,
-    );
     if (!current()) throw new Error(changedCode());
-    code = codeFromRedirect(redirect, state, client.redirectUri);
+    if (browserMail) {
+      code = await requestMailBrowserCode(client.clientId, connectorScopes(connector), current);
+    } else {
+      const pkce = await createPkce();
+      verifier = pkce.verifier;
+      if (!current()) throw new Error(changedCode());
+      const state = base64UrlEncode(globalThis.crypto.getRandomValues(new Uint8Array(16)));
+      const redirect = await (deps.openAuthSession ?? openGoogleConnectorAuth)(
+        googleAuthorizationUrl({ client, connector, challenge: pkce.challenge, state, includeOtherContacts: deps.includeOtherContacts, includeCalendarList: deps.includeCalendarList }),
+        client.redirectUri,
+      );
+      code = codeFromRedirect(redirect, state, client.redirectUri);
+    }
+    if (!current()) throw new Error(changedCode());
   } catch (error) {
     return { ok: false, code: error instanceof Error ? error.message : "SIGN_IN_INCOMPLETE" };
   }
@@ -274,12 +299,15 @@ export async function connectGoogleConnector(
     ...(deps.mailAccount ? { mailAccount: deps.mailAccount } : {}),
     transition,
   }, firebaseUid, current);
-  return current() ? delivered : { ok: false, code: changedCode() };
+  if (!current()) return { ok: false, code: changedCode() };
+  if (delivered.ok && browserMail) notifyMailGrantsChanged();
+  return delivered;
 }
 
 /** Plain words for every outcome the person can see. */
 export function connectRefusalMessage(code: string, connectorName: string): string {
   switch (code) {
+    case 'MAIL_BROWSER_NOT_CONFIGURED': return 'Browser sign-in is not configured on this private agent yet.';
     case 'MAIL_ACCOUNT_ALREADY_CONNECTED': return 'This mailbox is already connected. Choose another Google account.';
     case 'MAIL_ACCOUNT_MISMATCH': return 'Choose the same Google account to reconnect this mailbox.';
     case 'MAIL_ACCOUNT_CHANGED': return 'This mailbox changed. Refresh Mail before reconnecting.';

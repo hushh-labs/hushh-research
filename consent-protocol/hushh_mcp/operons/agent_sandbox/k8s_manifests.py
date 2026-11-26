@@ -71,6 +71,7 @@ def render_sandbox_template(
     sentinel_service_ip: str | None = None,
     command: list[str] | tuple[str, ...] | None = None,
     spot: bool = False,
+    uat_mail_browser: bool = False,
 ) -> dict[str, Any]:
     """Render a virgin hardened v1beta1 SandboxTemplate with zero owner state or SA tokens."""
     tpl_name = _require_dns_label(name, field_name="template name")
@@ -182,6 +183,58 @@ def render_sandbox_template(
             },
         ],
     }
+    if uat_mail_browser:
+        if not clean_image.startswith("us-central1-docker.pkg.dev/hushh-pda-uat/one-pod-release/"):
+            raise ValueError("Browser Mail requires the signed UAT pod image")
+        public_id = {
+            "name": "GOOGLE_UAT_MAIL_WEB_CLIENT_ID",
+            "valueFrom": {"secretKeyRef": {"name": "uat-private-mail-oauth", "key": "client-id"}},
+        }
+        env_list.append(public_id)
+        pod_spec["shareProcessNamespace"] = False
+        pod_spec["containers"].append(
+            {
+                "name": "mail-web-exchange",
+                "image": clean_image,
+                "command": [
+                    "/opt/venv/bin/python",
+                    "-m",
+                    "uvicorn",
+                    "hushh_mcp.services.agent_sandbox.mail_web_exchange:app",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    "8764",
+                    "--no-access-log",
+                    "--no-proxy-headers",
+                ],
+                "env": [
+                    public_id,
+                    {"name": "HTTPS_PROXY", "value": clean_proxy},
+                    {
+                        "name": "GOOGLE_UAT_MAIL_WEB_CLIENT_SECRET",
+                        "valueFrom": {
+                            "secretKeyRef": {
+                                "name": "uat-private-mail-oauth",
+                                "key": "client-secret",
+                            }
+                        },
+                    },
+                ],
+                "securityContext": {
+                    "runAsNonRoot": True,
+                    "runAsUser": 10002,
+                    "runAsGroup": 10002,
+                    "readOnlyRootFilesystem": True,
+                    "allowPrivilegeEscalation": False,
+                    "capabilities": {"drop": ["ALL"]},
+                },
+                "resources": {
+                    "requests": {"cpu": "50m", "memory": "96Mi"},
+                    "limits": {"cpu": "250m", "memory": "192Mi"},
+                },
+            }
+        )
     if host_aliases is not None:
         pod_spec["hostAliases"] = host_aliases
     if spot:

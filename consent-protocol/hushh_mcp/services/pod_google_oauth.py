@@ -37,7 +37,9 @@ PROVIDER_REFUSED = "PROVIDER_REFUSED"
 ACCOUNT_UNVERIFIED = "ACCOUNT_UNVERIFIED"
 CLIENT_PROFILE_UNSUPPORTED = "CLIENT_PROFILE_UNSUPPORTED"
 _CLIENT_ID = re.compile(r"^([0-9]{4,32})-[a-z0-9]{8,64}\.apps\.googleusercontent\.com$")
+UAT_MAIL_ORIGIN = "https://uat.one.hussh.ai"
 _NATIVE_CLIENT_ENV = {
+    "hussh_uat_mail_web": "GOOGLE_UAT_MAIL_WEB_CLIENT_ID",
     "hussh_ios": "GOOGLE_IOS_CONNECTOR_CLIENT_ID",
     "hussh_android": "GOOGLE_ANDROID_CONNECTOR_CLIENT_ID",
 }
@@ -71,7 +73,11 @@ def validate_native_client(
     reversed_id = (
         f"com.googleusercontent.apps.{configured.removesuffix('.apps.googleusercontent.com')}"
     )
-    if profile == "hussh_ios":
+    if profile == "hussh_uat_mail_web":
+        if os.getenv("HUSHH_DEPLOY_ENV") != "uat":
+            raise GoogleOAuthError(CLIENT_PROFILE_UNSUPPORTED)
+        expected = UAT_MAIL_ORIGIN
+    elif profile == "hussh_ios":
         expected = f"{reversed_id}:/oauth2redirect"
     else:
         environment = (os.getenv("HUSHH_DEPLOY_ENV") or os.getenv("ENVIRONMENT") or "").lower()
@@ -122,6 +128,21 @@ async def http_post(url: str, form: Mapping[str, str]) -> tuple[int, Optional[di
     return response.status_code, body if isinstance(body, dict) else None
 
 
+async def hosted_mail_exchange(
+    url: str, form: Mapping[str, str]
+) -> tuple[int, Optional[dict[str, Any]]]:
+    """The sidecar is reachable only inside this activated UAT pod."""
+    import httpx  # noqa: PLC0415
+
+    from hushh_mcp.services.pod_owner_cloud import hosted_ace_runtime  # noqa: PLC0415
+
+    if not hosted_ace_runtime() or os.getenv("HUSHH_DEPLOY_ENV") != "uat" or url != TOKEN_URL:
+        raise GoogleOAuthError(CLIENT_PROFILE_UNSUPPORTED)
+    async with httpx.AsyncClient(timeout=18, trust_env=False, follow_redirects=False) as http:
+        result = await http.post("http://127.0.0.1:8764/exchange", json=dict(form))
+    return result.status_code, result.json()
+
+
 async def _call(post: Optional[Post], url: str, form: Mapping[str, str]) -> tuple[int, dict]:
     try:
         status, body = await (post or http_post)(url, form)
@@ -166,9 +187,10 @@ async def redeem_code(
         "grant_type": "authorization_code",
         "client_id": client_id,
         "code": code,
-        "code_verifier": code_verifier,
         "redirect_uri": redirect_uri,
     }
+    if code_verifier:
+        form["code_verifier"] = code_verifier
     if client_secret:
         form["client_secret"] = client_secret
     return _grant(*await _call(post, TOKEN_URL, form))

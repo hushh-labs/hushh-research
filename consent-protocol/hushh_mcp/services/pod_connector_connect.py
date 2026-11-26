@@ -186,10 +186,14 @@ async def _redeem(
         grant = await google.redeem_code(
             client_id=client_id,
             code=str(opened.code),
-            code_verifier=str(opened.code_verifier),
+            code_verifier=opened.code_verifier or "",
             redirect_uri=str(opened.redirect_uri),
             client_secret=client_secret,
-            post=post,
+            post=(
+                google.hosted_mail_exchange
+                if opened.client_profile == "hussh_uat_mail_web"
+                else post
+            ),
         )
     except google.GoogleOAuthError as exc:
         unreachable = exc.code == google.PROVIDER_UNREACHABLE
