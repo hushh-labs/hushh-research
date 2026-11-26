@@ -44,7 +44,7 @@ import { MailConnectionStatus } from "@/components/gmail/mail-kyc-connect-entry"
 import { useMailSignInMeasurement } from "@/components/gmail/use-mail-sign-in-measurement";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { NativeMailRoute, NativeMailReactOnly, type MailNativeSection } from "@/components/gmail/native-mail-workspace";
-import { MailFollowupsWorkspace } from "./mail-followups-workspace";
+import { MailFollowupsEntry } from "./mail-followups-entry";
 import { MailOverview, MailConnectedAccount } from "@/components/gmail/mail-overview";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
@@ -2219,7 +2219,7 @@ export default function GmailReceiptsPage({
                     ) : null}
                     {isConnected ? (
                       followupsOpen && userId && vaultOwnerToken && vaultKey && isVaultUnlocked ?
-                        <MailFollowupsWorkspace key={JSON.stringify([userId, receiptAccountKey, snapshotVaultSessionEpoch()])}
+                        <MailFollowupsEntry expectedAccount={gmail.status?.google_sub} key={JSON.stringify([userId, receiptAccountKey, snapshotVaultSessionEpoch()])}
                           confirmTransition={confirmTransition} session={{ userId, vaultKey, vaultOwnerToken }} onBack={() => setFollowupsOpen(false)} /> :
                       <><MailOverview
                         fetching={overviewReceiptsFetching}

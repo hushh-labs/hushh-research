@@ -246,3 +246,40 @@ async def test_claim_checks_for_reply_before_confirmed_thread_delivery(
             ).account
             == "slot-c"
         )
+
+
+@pytest.mark.asyncio
+async def test_shared_route_refuses_changed_connection_before_provider_read(monkeypatch):
+    import json
+
+    from starlette.requests import Request
+
+    from api.routes.one import mail_followups as shared
+
+    row = {
+        "status": "connected",
+        "revoked": False,
+        "google_sub": "c",
+        "google_email": "c@example.test",
+        "followup_read_generation": "new",
+    }
+    provider = SimpleNamespace(_fetch_connection_row=lambda **_: row)
+    monkeypatch.setattr(shared, "get_gmail_receipts_service", lambda: provider)
+    monkeypatch.setattr(shared, "require_hub_content_current", AsyncMock())
+    read = AsyncMock()
+    monkeypatch.setattr(shared, "assess_mail", read)
+
+    async def receive():
+        return {
+            "type": "http.request",
+            "body": json.dumps({"account": "c", "connection": "old"}).encode(),
+        }
+
+    with pytest.raises(HTTPException) as refused:
+        await shared.shared_mail(
+            "account",
+            Request({"type": "http", "headers": []}, receive),
+            {"user_id": "owner", "token": "fixture"},
+        )
+    assert refused.value.status_code == 409
+    read.assert_not_awaited()

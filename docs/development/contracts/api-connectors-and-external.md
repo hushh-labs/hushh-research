@@ -1140,3 +1140,8 @@ The Dev scheduler adapter binds one occurrence to the obligation, exact draft,
 sender, recipient, source and approved time. It rechecks authority, model
 binding, the mailbox and the thread before calling Gmail delivery. Uncertain
 outcomes use the existing schedule recovery contract.
+
+Shared hosting uses its existing connected Gmail grant, vault-owner authorization
+and placement guard at every read. Reconnection changes the grant generation and
+invalidates prior message actions. Placement selects the transport before mail
+is opened. Shared hosting has no private-agent schedule execution authority.
