@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { MailActionButton } from "./mail-action-button";
 import { MailFollowupsBoard } from "./mail-followups-board";
@@ -150,7 +150,16 @@ export function MailFollowupsScreen({
       controller.abort();
       flight.current?.abort();
     };
-  }, [userId, vaultKey, vaultOwnerToken, epoch, revision, account, connection]);
+  }, [
+    userId,
+    vaultKey,
+    vaultOwnerToken,
+    epoch,
+    revision,
+    account,
+    connection,
+    mail,
+  ]);
 
   async function run<T>(
     read: (signal: AbortSignal) => Promise<T>,
@@ -186,6 +195,12 @@ export function MailFollowupsScreen({
     setEvidence(undefined);
     void run((signal) => mail.open(box, item.source, signal), setEvidence);
   }
+  const openHandoff = useEffectEvent(
+    (task: TodoItem, action: "plan" | "evidence") => {
+      if (action === "evidence") openEvidence(task.mailFollowup!);
+      else plan(task);
+    },
+  );
   const consumed = useRef(false);
   useEffect(() => {
     if (!box || !handoff || consumed.current) return;
@@ -199,8 +214,7 @@ export function MailFollowupsScreen({
       setError("The selected task changed. Choose it again.");
       return;
     }
-    if (handoff.action === "evidence") openEvidence(task.mailFollowup!);
-    else plan(task);
+    openHandoff(task, handoff.action);
   }, [box, handoff, items]);
   function plan(task: TodoItem) {
     cancel();
@@ -317,7 +331,17 @@ export function MailFollowupsScreen({
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [box, items, view, userId, vaultOwnerToken, vaultKey, epoch, scheduler]);
+  }, [
+    box,
+    items,
+    view,
+    userId,
+    vaultOwnerToken,
+    vaultKey,
+    epoch,
+    scheduler,
+    mail,
+  ]);
   function prepare(task: TodoItem) {
     const item = task.mailFollowup!;
     if (!box) return;
@@ -481,7 +505,7 @@ export function MailFollowupsScreen({
               busy ||
               Boolean(
                 activeTask.mailFollowup.received?.filename &&
-                  !activeTask.mailFollowup.reviewed,
+                !activeTask.mailFollowup.reviewed,
               )
             }
             onClick={() => prepare(activeTask)}

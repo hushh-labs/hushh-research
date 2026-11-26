@@ -62,6 +62,7 @@ function AllMailBoard({
     tasks: TodoItem[];
   }>();
   const [failed, setFailed] = useState(false);
+  const { userId, vaultKey, vaultOwnerToken } = session;
   useEffect(() => {
     const controller = new AbortController();
     const epoch = snapshotVaultSessionEpoch();
@@ -75,7 +76,7 @@ function AllMailBoard({
             mail.account(a.accountId, a.credentialId, controller.signal),
           ),
       ),
-      TodoListPkmService.load(session),
+      TodoListPkmService.load({ userId, vaultKey, vaultOwnerToken }),
     ])
       .then(([boxes, rows]) => {
         if (!controller.signal.aborted && isVaultSessionEpochCurrent(epoch))
@@ -85,13 +86,7 @@ function AllMailBoard({
         if (!controller.signal.aborted) setFailed(true);
       });
     return () => controller.abort();
-  }, [
-    mail,
-    accounts,
-    session.userId,
-    session.vaultKey,
-    session.vaultOwnerToken,
-  ]);
+  }, [mail, accounts, userId, vaultKey, vaultOwnerToken]);
   return (
     <>
       <MailActionButton onClick={onBack}>Back to Mail</MailActionButton>
