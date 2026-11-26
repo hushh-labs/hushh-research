@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "source_branch": "uat",
+  "application_sha": "f0a29a4b69955e572160f3b59e53f7a159ead705",
+  "application_tree": "87c4885dcdfac39530a4bbd41ff18d83a8a47c43",
+  "build_file_changes_sha256": "4f0f8ae1bd3d34da3619d3ce33b743a782125346f1a2395cf13abbf381412eb2",
+  "main_build_manifest_sha256": "404f5b1b0a5f8dc1b0443c1fc30fc3580cb49c3c4b5e0b87d8a8a9b9a0a417a8",
+  "uat_build_manifest_sha256": "b0d1ec0e7688e43f5df37acb743d67e6616b33160aa5a957f189c03910f85e1a"
+}
