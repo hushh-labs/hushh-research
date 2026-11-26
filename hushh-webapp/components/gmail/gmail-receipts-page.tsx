@@ -110,6 +110,10 @@ import {
   persistOnboardingConnectorIntentInStorage,
   readOnboardingConnectorIntent,
 } from "@/lib/onboarding/onboarding-connector-intent";
+import {
+  clearGmailConnectReturn,
+  rememberGmailConnectReturn,
+} from "@/lib/profile/gmail-connect-return";
 
 const GMAIL_OAUTH_POPUP_TIMEOUT_MS = 2 * 60 * 1000;
 const RECEIPT_SCAN_MAX_PAGES = 50;
@@ -1220,14 +1224,20 @@ export default function GmailReceiptsPage({
           }
         }
 
+        // A full-page sign-in comes back through the shared return page. The KYC screen
+        // says where it started so that return lands on KYC; Mail and setup start with
+        // nothing remembered, so they return exactly as before, and a stale mark is dropped.
+        clearGmailConnectReturn();
         if (popup) {
           navigateGmailOAuthPopup(popup, payload.authorize_url);
         } else {
+          if (standaloneKyc) rememberGmailConnectReturn(userId, ROUTES.ONE_KYC);
           assignWindowLocation(payload.authorize_url);
         }
         return true;
       } catch (error) {
         clearOnboardingConnectorIntent();
+        clearGmailConnectReturn();
         if (popup) {
           clearGmailOAuthPopupAttempt(popup);
           popup.close();
@@ -1247,7 +1257,7 @@ export default function GmailReceiptsPage({
         return false;
       }
     })();
-  }, [confirmTransition, gmailActionBusy, journeyVariant, preserveGmailModify, refreshGmailStatus, user, userId, vaultKey, vaultOwnerToken, isVaultUnlocked]);
+  }, [confirmTransition, gmailActionBusy, journeyVariant, preserveGmailModify, refreshGmailStatus, standaloneKyc, user, userId, vaultKey, vaultOwnerToken, isVaultUnlocked]);
 
   const handleEnableGmailSend = useCallback(() => {
     return handleConnectGmail("send");

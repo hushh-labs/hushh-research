@@ -554,6 +554,7 @@ import { GmailReceiptMemoryService } from "@/lib/services/gmail-receipt-memory-s
 import { loadReceiptSnapshot, writeReceiptSnapshot, receiptStoreVersion } from "@/lib/mail/receipt-store";
 import { mergeReceiptSnapshot } from "@/lib/mail/receipt-continuity";
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
+import { readGmailConnectReturn, rememberGmailConnectReturn } from "@/lib/profile/gmail-connect-return";
 
 function makeReceipt(id: number, merchant: string) {
   const timestamp = `2026-04-0${id}T00:00:00Z`;
@@ -2414,6 +2415,82 @@ describe("ProfileReceiptsPage", () => {
       (mocks.gmailOAuthPopup as { popup: typeof retainedPopup | null }).popup =
         retainedPopup;
     }
+  });
+
+  // A full-page sign-in comes back through the shared return page. Where it came from is remembered only
+  // for the KYC screen; Mail and setup start with nothing remembered, whatever was left behind.
+  async function startFullPageConnect(ui: React.ReactElement) {
+    const retainedPopup = mocks.gmailOAuthPopup.popup;
+    (mocks.gmailOAuthPopup as { popup: typeof retainedPopup | null }).popup = null;
+    try {
+      render(ui);
+      fireEvent.click(screen.getByRole("button", { name: /connect mail/i }));
+      await waitFor(() =>
+        expect(assignWindowLocation).toHaveBeenCalledWith("https://accounts.google.com/o/oauth2/v2/auth"),
+      );
+    } finally {
+      (mocks.gmailOAuthPopup as { popup: typeof retainedPopup | null }).popup = retainedPopup;
+    }
+  }
+
+  it("remembers that a full-page sign-in was started from the KYC screen", async () => {
+    window.sessionStorage.clear();
+    mocks.useGmailConnectorStatus.mockReturnValue(disconnectedKycView());
+
+    await startFullPageConnect(<ProfileReceiptsPage surface="kyc" />);
+
+    expect(readGmailConnectReturn("user-123")).toBe("/one/kyc");
+    expect(mocks.toast.error).not.toHaveBeenCalled();
+  });
+
+  it("remembers nothing for a full-page sign-in started from Mail, and drops a stale KYC mark", async () => {
+    window.sessionStorage.clear();
+    rememberGmailConnectReturn("user-123", "/one/kyc");
+    mocks.useGmailConnectorStatus.mockReturnValue(disconnectedKycView());
+
+    await startFullPageConnect(<ProfileReceiptsPage />);
+
+    expect(readGmailConnectReturn("user-123")).toBeNull();
+    expect(window.sessionStorage.getItem("hushh.gmail.connect_return.v1")).toBeNull();
+  });
+
+  it("keeps setup's own return for a full-page sign-in started from onboarding, and drops a stale KYC mark", async () => {
+    window.sessionStorage.clear();
+    rememberGmailConnectReturn("user-123", "/one/kyc");
+    mocks.useGmailConnectorStatus.mockReturnValue(disconnectedKycView());
+    mocks.preVaultUserStateService.bootstrapState.mockResolvedValue({
+      setupCompleted: false,
+      onboardingPhase: "capability_setup",
+      onboardingActiveCapability: "gmail",
+      onboardingJourneyUpdatedAt: 456,
+    });
+
+    await startFullPageConnect(<ProfileReceiptsPage journeyVariant="onboarding" />);
+
+    expect(mocks.preVaultUserStateService.syncOnboardingJourney).toHaveBeenCalledWith(
+      expect.objectContaining({ phase: "external_connector", activeCapability: "gmail", callbackState: "pending" }),
+    );
+    expect(window.sessionStorage.getItem("one_onboarding_connector_intent_v1")).not.toBeNull();
+    expect(readGmailConnectReturn("user-123")).toBeNull();
+  });
+
+  it("forgets the KYC mark when the sign-in could not be started", async () => {
+    window.sessionStorage.clear();
+    rememberGmailConnectReturn("user-123", "/one/kyc");
+    mocks.useGmailConnectorStatus.mockReturnValue(disconnectedKycView());
+    vi.mocked(GmailReceiptsService.startConnect).mockRejectedValueOnce(new Error("offline"));
+    const retainedPopup = mocks.gmailOAuthPopup.popup;
+    (mocks.gmailOAuthPopup as { popup: typeof retainedPopup | null }).popup = null;
+    try {
+      render(<ProfileReceiptsPage surface="kyc" />);
+      fireEvent.click(screen.getByRole("button", { name: /connect mail/i }));
+      await waitFor(() => expect(mocks.toast.error).toHaveBeenCalled());
+    } finally {
+      (mocks.gmailOAuthPopup as { popup: typeof retainedPopup | null }).popup = retainedPopup;
+    }
+
+    expect(assignWindowLocation).not.toHaveBeenCalled();
+    expect(readGmailConnectReturn("user-123")).toBeNull();
   });
 
   it("uses native Gmail OAuth without launching browser OAuth inside the native iOS shell", async () => {
