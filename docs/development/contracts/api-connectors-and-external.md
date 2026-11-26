@@ -1126,3 +1126,44 @@ Firebase UID cohort. Production and Supabase stay unchanged.
 Email, phone, Apple relay address, and provider identifiers are never mapping
 keys. Link and compatibility routes accept only the exact developer app with
 the `hushh_tech_client` tool group and no broader capability.
+
+### Mail Follow-ups in the private agent
+
+The Gmail Follow-ups routes bind the current owner app session, selected mailbox
+and credential ID before each provider read. Message references are sealed with
+the private agent's custody key. The shared encrypted Tasks domain stores each
+reviewed obligation and the source of any matching reply. The document check
+uses bounded attachment reads and the existing isolated parser for PDF and CSV.
+Unsupported or unreadable documents require owner review.
+
+The Dev scheduler adapter binds one occurrence to the obligation, exact draft,
+sender, recipient, source and approved time. It rechecks authority, model
+binding, the mailbox and the thread before calling Gmail delivery. Uncertain
+outcomes use the existing schedule recovery contract.
+
+Watch for a reply checks the selected mailbox while the board is visible and
+the owner vault is unlocked. Closing it stops those checks. The approved-send
+worker can cancel its own occurrence when it finds the expected document at
+send time. Its grant has `pod.act` and `pkm.read`. Completing the canonical
+`one_todos` row requires the owner vault key, owner write authorization and the
+current task revision. The worker has no scoped background writer for that
+collection. Closed-board settlement, including cancellation of the matching
+reminder on arrival, therefore requires a separately authorized Tasks capability.
+
+On Dev the private agent owns Follow-ups content reads and reasoning. Shared
+hosting shows the private-agent requirement. A verified promise's supported
+civil date is saved in the canonical Task's date field. A date-only promise
+retains its original wording and leaves the time field empty.
+
+Dev's shared Task row has date and time fields but no notification-reminder
+identifier or independent reminder settings. Scheduled Tasks manages separately
+approved capabilities. The Calendar reminder settings apply to Calendar follow-ups.
+Watching a Mail obligation authorizes no outgoing message.
+
+Closed-Mail settlement requires a capability to record fulfilment and cancel the
+linked reminder for **one** owner-approved task, mailbox grant generation and
+obligation, with replay protection and revision checks. The vault owner would
+need to authorize that limited operation; the Tasks and vault/consent maintainers
+would need to define its custody and recovery contract. The present
+`one_todos` policy exposes no requestable scopes. Session-only lockdown
+precludes unattended private access even with an approved schedule.
