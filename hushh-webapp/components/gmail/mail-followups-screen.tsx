@@ -4,6 +4,7 @@ import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { MailActionButton } from "./mail-action-button";
 import { MailTaskReminder } from "./mail-task-reminder";
+import { CacheService } from "@/lib/services/cache-service";
 import { MailFollowupsBoard } from "./mail-followups-board";
 import { checkMailFollowup, useSettledMailTasks } from "./mail-followups-session-watch";
 import {
@@ -21,6 +22,7 @@ import {
 import {
   isVaultSessionEpochCurrent,
   snapshotVaultSessionEpoch,
+  subscribeVaultSessionEpoch,
 } from "@/lib/vault/session-epoch";
 
 import {
@@ -32,10 +34,14 @@ import {
 type Rows = z.infer<typeof sourceListSchema>["items"];
 type Evidence = z.infer<typeof evidenceSchema>;
 
+const EDIT_PREFIX = "mail_followup_draft_edit:";
+subscribeVaultSessionEpoch(() => CacheService.getInstance().invalidatePattern(EDIT_PREFIX));
+
 export function MailFollowupsScreen({
   session,
   account,
   connection,
+  verifiedAddress,
   handoff,
   mail = MailFollowupsService,
   onBack,
@@ -45,6 +51,7 @@ export function MailFollowupsScreen({
   session: TodoWriteParams;
   account: string;
   connection: string;
+  verifiedAddress?: string;
   onBack: () => void;
 }) {
   const [view, setView] = useState<
@@ -103,7 +110,9 @@ export function MailFollowupsScreen({
     setItems([]);
     setError("");
     Promise.all([
-      mail.account(account, connection, controller.signal),
+      verifiedAddress
+        ? { account, connection, address: verifiedAddress }
+        : mail.account(account, connection, controller.signal),
       tasks.load({ userId, vaultOwnerToken, vaultKey }),
     ])
       .then(([mailbox, saved]) => {
@@ -133,6 +142,7 @@ export function MailFollowupsScreen({
     revision,
     account,
     connection,
+    verifiedAddress,
     mail,
   ]);
 
@@ -249,6 +259,16 @@ export function MailFollowupsScreen({
     setItems(rows);
     setActiveTask((previous) => previous && rows.find((row) => row.id === previous.id));
   });
+  function editKey(task: TodoItem, to: string) {
+    return EDIT_PREFIX + JSON.stringify([epoch, userId, account, connection, task.id, task.revision, to]);
+  }
+
+  function editDraft(next: NonNullable<MailFollowup["draft"]>) {
+    if (!activeTask || !isVaultSessionEpochCurrent(epoch)) return;
+    CacheService.getInstance().set(editKey(activeTask, next.to), { subject: next.subject, body: next.body });
+    setDraft(next);
+  }
+
   function prepare(task: TodoItem) {
     const item = task.mailFollowup!;
     if (!box) return;
@@ -278,7 +298,10 @@ export function MailFollowupsScreen({
           setView("board");
           setNotice("The requested reply arrived.");
         } else {
-          setDraft(result.draft);
+          const edits = CacheService.getInstance().peek<Pick<NonNullable<MailFollowup["draft"]>, "subject" | "body">>(
+            editKey(task, result.draft.to),
+          )?.data;
+          setDraft({ ...result.draft, ...edits });
           setView("draft");
         }
       },
@@ -479,7 +502,7 @@ export function MailFollowupsScreen({
               className="block w-full rounded border p-2"
               value={draft.subject}
               maxLength={998}
-              onChange={(e) => setDraft({ ...draft, subject: e.target.value })}
+              onChange={(e) => editDraft({ ...draft, subject: e.target.value })}
             />
           </label>
           <label>
@@ -489,7 +512,7 @@ export function MailFollowupsScreen({
               rows={6}
               maxLength={12000}
               value={draft.body}
-              onChange={(e) => setDraft({ ...draft, body: e.target.value })}
+              onChange={(e) => editDraft({ ...draft, body: e.target.value })}
             />
           </label>
           {scheduleMode && (
@@ -563,6 +586,7 @@ export function MailFollowupsScreen({
                 (saved) => {
                   setItems(saved.tasks);
                   setView("board");
+                  CacheService.getInstance().invalidate(editKey(activeTask, draft.to));
                   setNotice("Draft saved for review.");
                 },
               )

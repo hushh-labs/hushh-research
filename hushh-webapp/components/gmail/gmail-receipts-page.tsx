@@ -593,7 +593,10 @@ export default function GmailReceiptsPage({
       // A scanned row already carries this owner/account's validated
       // extraction and its source passages, so opening it reuses that answer
       // instead of re-reading and re-classifying the message.
-      const scanned = receiptEvidenceRef.current.find(
+      ensureCurrent();
+      const detailScope = `${detailOwnerId}\u0000${detailAccountKey ?? ""}`;
+      const evidence = displayedReceiptScopeRef.current === detailScope ? receiptEvidenceRef.current : [];
+      const scanned = evidence.find(
         (receipt) => (String(receipt.source_id || "").trim() === sourceId || receipt.event_id === sourceId),
       );
       if (scanned && Array.isArray(scanned.source_evidence)) {
@@ -604,7 +607,9 @@ export default function GmailReceiptsPage({
           source_evidence: scanned.source_evidence,
         };
       }
-      const detailSnapshot = receiptAccountKey ? MailReceiptResourceService.peek(detailOwnerId, receiptAccountKey).snapshot ?? savedReceiptSnapshotRef.current?.value : savedReceiptSnapshotRef.current?.value;
+      const restored = savedReceiptSnapshotRef.current;
+      const detailSnapshot = (detailAccountKey ? MailReceiptResourceService.peek(detailOwnerId, detailAccountKey).snapshot : null)
+        ?? (restored?.scope === detailScope ? restored.value : null);
       const saved = detailSnapshot?.rows.find(r => r.events.some(e => e.ref === sourceId));
       const event = saved?.events.find(e => e.ref === sourceId);
       const locator = event?.locator;

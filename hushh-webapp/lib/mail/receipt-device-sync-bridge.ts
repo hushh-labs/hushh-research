@@ -16,14 +16,14 @@ import { registerReceiptSyncAuth, startBackgroundReceiptSync } from "./receipt-d
  * sign-out and account reset end the sync; its late results are discarded.
  */
 export function ReceiptDeviceSyncBridge(): null {
-  const { user, userId } = useAuth();
-  const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
+  const { user, userId, isAuthenticated, loading, sessionVerificationRequired } = useAuth();
+  const { isVaultUnlocked, vaultKey, vaultOwnerToken, ownerTokenStatus } = useVault();
   const ownerId = userId ?? null;
-  const unlocked = Boolean(ownerId && isVaultUnlocked && vaultKey && vaultOwnerToken);
+  const unlocked = Boolean(!loading && isAuthenticated && !sessionVerificationRequired && ownerId && isVaultUnlocked && ownerTokenStatus === "valid" && vaultKey && vaultOwnerToken);
   const idTokenProvider = useCallback(() => user?.getIdToken?.() ?? Promise.resolve(""), [user]);
   const gmail = useGmailConnectorStatus({ userId: ownerId, enabled: unlocked, idTokenProvider: user ? idTokenProvider : null });
   const status = gmail.status;
-  const account = status?.connected === true && status.needs_reauth !== true && status.receipt_sync_available !== false
+  const account = status?.connected === true && !status.revoked && status.needs_reauth !== true && status.receipt_sync_available !== false
     ? status.google_sub || status.google_email || null : null;
   useEffect(() => (ownerId && user ? registerReceiptSyncAuth(ownerId, idTokenProvider) : undefined), [ownerId, user, idTokenProvider]);
   useEffect(() => {

@@ -46,6 +46,23 @@ describe("receipt sync on by default", () => {
     expect(scan).toHaveBeenCalledOnce();
   });
 
+  it.each(["switch", "revoke"])("discards the delayed mailbox scan after %s", async (change) => {
+    registerReceiptSyncAuth("owner", async () => "id-token");
+    let finish!: (page: GmailLiveReceiptScanResponse) => void;
+    vi.spyOn(GmailReceiptsService, "scanReceipts").mockImplementationOnce(
+      () => new Promise(resolve => { finish = resolve; }),
+    );
+    const pending = startBackgroundReceiptSync(session);
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    connector.status = change === "switch"
+      ? { ...connector.status, google_sub: "other-account" }
+      : { ...connector.status, revoked: true };
+    finish(emptyPage());
+    await expect(pending).resolves.toBe("failed");
+    expect(await loadReceiptSnapshot(session, "account")).toBeNull();
+    expect(await loadReceiptSnapshot(session, "other-account")).toBeNull();
+  });
+
   it("leaves the vault session free when a credential renewal ends a run before it finished", async () => {
     registerReceiptSyncAuth("owner", async () => "id-token");
     let active = true;

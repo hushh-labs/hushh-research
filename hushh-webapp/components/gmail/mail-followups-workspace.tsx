@@ -170,9 +170,8 @@ export function MailFollowupsWorkspace({
   const active = accounts?.filter((account) => account.capabilities.read);
   const all = choice === "all" && Boolean(active?.length);
   const selected =
-    active?.find((account) => account.accountId === choice) ??
-    active?.find((account) => account.isDefault) ??
-    active?.[0];
+    choice ? active?.find((account) => account.accountId === choice)
+      : active?.find((account) => account.isDefault) ?? active?.[0];
   async function add() {
     setBusy(true);
     try {
@@ -293,6 +292,7 @@ export function MailFollowupsWorkspace({
           key={selected.credentialId}
           account={selected.accountId}
           connection={selected.credentialId}
+          verifiedAddress={selected.email ?? undefined}
           session={session}
           onBack={onBack}
         />
@@ -302,7 +302,7 @@ export function MailFollowupsWorkspace({
           {!error && (
             <p role="status">
               {accounts
-                ? "Connect a mailbox to track a conversation."
+                ? active?.length ? "Choose a mailbox to continue." : "Connect a mailbox to track a conversation."
                 : "Loading mailboxes…"}
             </p>
           )}
