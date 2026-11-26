@@ -117,7 +117,7 @@ export function ReceiptNoticeProvider({
   const openSource = useCallback<ReceiptNoticeValue["openSource"]>(async (openKey) => {
     if (!userId || !vaultOwnerToken || !accountKey || !getIdToken) throw new Error("Open your vault to read this email.");
     return GmailReceiptsService.openNoticeSource({ privateMailbox, idToken: await getIdToken(), vaultOwnerToken, userId, accountKey, openKey });
-  }, [accountKey, getIdToken, userId, vaultOwnerToken]);
+  }, [accountKey, getIdToken, privateMailbox, userId, vaultOwnerToken]);
 
   const value = useMemo<ReceiptNoticeValue>(() => ({ status, error, retry, openSource }), [status, error, retry, openSource]);
   return <Context.Provider value={value}>{children}</Context.Provider>;

@@ -446,7 +446,7 @@ function MailPageContent({
         setLoadingReceipts(false); setReceiptScanProgress(null);
       }
     }
-  }, [isVaultUnlocked, user, userId, vaultOwnerToken, vaultKey]);
+  }, [isVaultUnlocked, privateMailbox, user, userId, vaultOwnerToken, vaultKey]);
 
   // Connected Mail starts automatically; saved collections catch up when stale.
   // A shared scan keeps running
@@ -498,6 +498,7 @@ function MailPageContent({
       revoked: false, auto_sync_enabled: false, scope_csv: "", last_sync_status: "idle" as const,
     } as NonNullable<typeof primaryGmail.status>,
   } : primaryGmail;
+  const disconnectGmail = gmail.disconnectGmail;
   const receiptAccountKey =
     gmail.status?.google_sub || gmail.status?.google_email || null;
   receiptSyncAllowedRef.current = gmail.status?.receipt_sync_available !== false;
@@ -665,7 +666,7 @@ function MailPageContent({
       }
       return detail;
     },
-    [isVaultUnlocked, receiptAccountKey, user, userId, vaultOwnerToken, gmail.presentation.isConnected],
+    [isVaultUnlocked, privateMailbox, receiptAccountKey, user, userId, vaultOwnerToken, gmail.presentation.isConnected],
   );
 
   const handleReceiptDetailLoaded = useCallback(
@@ -728,7 +729,7 @@ function MailPageContent({
     window.addEventListener("online", wake); document.addEventListener("visibilitychange", wake);
     return () => { active = false; unsubscribeLifecycle(); window.removeEventListener("online", wake); document.removeEventListener("visibilitychange", wake); };
   }, [loading, userId, vaultKey, vaultOwnerToken, hasSealedReceiptAccess, receiptsWorkspaceActive,
-    receiptAccountKey, receiptDisplayScope, gmail.loadingStatus, gmail.presentation.isConnected, gmail.status?.receipt_sync_available, journeyVariant, loadReceipts]);
+    receiptAccountKey, receiptDisplayScope, privateMail, mailSession?.resolving, gmail.loadingStatus, gmail.presentation.isConnected, gmail.status?.receipt_sync_available, journeyVariant, loadReceipts]);
 
   const retryReceiptRestore = useCallback(async () => {
     if (!historySession || !receiptAccountKey) return;
@@ -1402,7 +1403,7 @@ function MailPageContent({
           (async () => {
             const next = privateMailbox
               ? {connected: !(await withDeadline(disconnectPrivateMailAccount(privateMailbox.accountId, privateMailbox.credentialId), operationDeadline)).disconnected}
-              : await withDeadline(gmail.disconnectGmail(), operationDeadline);
+              : await withDeadline(disconnectGmail(), operationDeadline);
             if (!next || next.connected) {
               throw new Error("Mail could not be disconnected.");
             }
@@ -1442,7 +1443,7 @@ function MailPageContent({
     } finally {
       if (isCurrentOwner()) setGmailActionBusy(null);
     }
-  }, [privateMailbox, gmail, userId, receiptAccountKey]);
+  }, [privateMailbox, disconnectGmail, userId, receiptAccountKey]);
 
   const handleSyncNow = useCallback(async () => {
     if (!userId || !receiptSyncAvailable || receiptReadsClosedRef.current) return;
