@@ -374,6 +374,24 @@ pod through an old grant. The UI shows the verified access deadline. Changes to 
 file, permission, binding or pod require review; this is not a standing unlimited
 agent permission. Existing settings, Files jobs and owner resources are preserved.
 
+#### Dev Files schedule delivery
+
+- Use a dedicated Cloud Tasks queue in `hushh-pda-dev/us-central1`. Keep retries
+  bounded and let each task supply its target and OIDC settings.
+- Grant the Dev Hub's runtime service account enqueue access on that queue and
+  `iam.serviceAccounts.actAs` on the dedicated worker service account in the same
+  project. The worker identity is for the schedule endpoint.
+- Set `HUSSH_SANDBOX_TASK_QUEUE` to the full queue resource on the Dev Hub.
+  Configure the same `HUSSH_SANDBOX_TASK_WORKER_EMAIL` on the Hub and Edge Gateway.
+  Edge passes the worker identity to newly activated Sandbox leases. The Hub
+  and Edge use the same `HUSSH_SANDBOX_EDGE_PUBLIC_URL`. The standard Hub deploy
+  replaces its environment variables, so include both task settings in the
+  approved Dev release configuration and verify them on the serving revision.
+- Roll the qualified image into the existing Dev Edge Gateway and warm pool.
+  Verify that OIDC reaches the Edge with the exact owner URL as its audience,
+  then confirm one Files receipt after the original Sandbox lease is reclaimed.
+  Repeat with Session-only lockdown enabled and verify the occurrence pauses.
+
 ## Provisioning and on-demand operation
 
 New owner-selected Files setup requires the dev Files erasure contract (migration
