@@ -2219,7 +2219,7 @@ export default function GmailReceiptsPage({
                     ) : null}
                     {isConnected ? (
                       followupsOpen && userId && vaultOwnerToken && vaultKey && isVaultUnlocked ?
-                        <MailFollowupsEntry expectedAccount={gmail.status?.google_sub} key={JSON.stringify([userId, receiptAccountKey, snapshotVaultSessionEpoch()])}
+                        <MailFollowupsEntry key={JSON.stringify([userId, receiptAccountKey, snapshotVaultSessionEpoch()])}
                           confirmTransition={confirmTransition} session={{ userId, vaultKey, vaultOwnerToken }} onBack={() => setFollowupsOpen(false)} /> :
                       <><MailOverview
                         fetching={overviewReceiptsFetching}

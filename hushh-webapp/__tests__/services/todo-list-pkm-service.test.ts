@@ -591,8 +591,8 @@ it("reuses each mail obligation and stops only the fulfilled document watch", as
   const save = mockSuccessfulWrite();
   const source = "ms1."+"x".repeat(32);
   const first = {key:"a".repeat(64), source_kind:"mail_thread" as const, account:"mail-c", connection:"slot-c", thread:source, source,
-    title:"Get signed copy",participant:"Lab contact", debtor:"lab@example.test", waiting_on:"participant" as const,
-    fulfilment:"Signed agreement", quote:"I will send the signed agreement.",document:"Signed agreement",promised_wording:null};
+    title:"Get signed copy",participant:"Professor", debtor:"professor@example.test", waiting_on:"participant" as const,
+    fulfilment:"Signed agreement", quote:"I will send the signed agreement on the 29th.",document:"Signed agreement",promised_wording:"on the 29th",due_date:"2026-11-29"};
   const second = {...first, key:"b".repeat(64),title:"Get pricing",quote:"I will send pricing."};
   let domain: Record<string,unknown> = {};
   async function apply(write: Promise<unknown>) {
@@ -605,6 +605,7 @@ it("reuses each mail obligation and stops only the fulfilled document watch", as
   await apply(TodoListPkmService.trackMail(persistence,second));
   let rows=await apply(TodoListPkmService.trackMail(persistence,first));
   expect(rows).toHaveLength(2);
+  expect(rows.find(row => row.mailFollowup?.key === first.key)).toMatchObject({date:"2026-11-29", time:null, mailFollowup:{debtor:"professor@example.test",source,fulfilment:"Signed agreement",promised_wording:"on the 29th"}});
   rows=await apply(TodoListPkmService.updateMail(persistence,rows.find(r=>r.mailFollowup?.key===first.key)!,{watching:true}));
   rows=await apply(TodoListPkmService.updateMail(persistence,rows.find(r=>r.mailFollowup?.key===first.key)!,{received:{source,filename:"signed.pdf"}}));
   expect(rows.find(r=>r.mailFollowup?.key===first.key)).toMatchObject({status:"done",mailFollowup:{watching:false}});

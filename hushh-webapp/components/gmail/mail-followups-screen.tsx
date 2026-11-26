@@ -45,12 +45,12 @@ async function recordReply(
     );
     if (!scheduled)
       throw new Error("Could not verify the scheduled follow-up.");
-    if (
-      ["scheduled", "pending_delivery", "paused", "running"].includes(
-        scheduled.state,
-      )
-    ) {
-      await scheduler.control(scheduled, "cancel", signal);
+    if (scheduled.state === "cancelling")
+      throw new Error("Mail is waiting for cancellation to finish.");
+    if (scheduled.state !== "completed" && scheduled.state !== "cancelled") {
+      const updated = await scheduler.control(scheduled, "cancel", signal);
+      if (updated.state !== "cancelled")
+        throw new Error("Mail is waiting for cancellation to finish.");
     }
   }
   signal.throwIfAborted();
@@ -766,6 +766,18 @@ export function MailFollowupsScreen({
             {promise.waiting_on === "owner" ? "you" : promise.participant}
           </p>
           <p>{promise.fulfilment}</p>
+          {promise.promised_wording && (
+            <p>
+              Promised {promise.promised_wording}
+              {promise.due_date && (
+                <>
+                  {" "}
+                  · Task due {promise.due_date}
+                  {promise.due_time && " at " + promise.due_time}
+                </>
+              )}
+            </p>
+          )}
           <blockquote className="my-2 border-l-2 pl-3">
             {promise.quote}
           </blockquote>

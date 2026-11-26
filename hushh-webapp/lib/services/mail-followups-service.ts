@@ -9,7 +9,7 @@ import {
   type MailFollowup,
 } from "@/lib/mail/mail-followup-model";
 
-export function mailFollowupsClient(vaultToken?: string) {
+function mailFollowupsClient() {
   async function read<T>(
     path: string,
     body: object,
@@ -24,23 +24,14 @@ export function mailFollowupsClient(vaultToken?: string) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     };
-    const response = vaultToken
-      ? await ApiService.apiFetch("/api/one/mail/followups/" + path, {
-          ...init,
-          headers: {
-            ...init.headers,
-            ...ApiService.getAuthHeaders(vaultToken),
-          },
-          timeoutMs: 45000,
-        })
-      : await ApiService.ownerPodRequest(
-          "gmail/followups/" + path,
-          init,
-          false,
-          undefined,
-          undefined,
-          () => !signal.aborted,
-        );
+    const response = await ApiService.ownerPodRequest(
+      "gmail/followups/" + path,
+      init,
+      false,
+      undefined,
+      undefined,
+      () => !signal.aborted,
+    );
     if (!response.ok) {
       if (response.status === 422)
         throw new Error(
@@ -59,23 +50,6 @@ export function mailFollowupsClient(vaultToken?: string) {
     connection,
   });
   return {
-    inventory: (signal: AbortSignal) =>
-      read(
-        "inventory",
-        {},
-        z.object({
-          default: mailboxSchema.nullable(),
-          additional: z.array(mailboxSchema),
-        }),
-        signal,
-      ),
-    disconnectShared: (account: string, connection: string) =>
-      read(
-        "disconnect",
-        { account, connection },
-        z.object({ disconnected: z.boolean() }),
-        new AbortController().signal,
-      ),
     account: (account: string, connection: string, signal: AbortSignal) =>
       read("account", { account, connection }, mailboxSchema, signal),
     search: (box: FollowupMailbox, query: string, signal: AbortSignal) =>

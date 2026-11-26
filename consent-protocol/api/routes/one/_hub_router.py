@@ -47,7 +47,6 @@ from .location import router as location_router
 from .location_chat import router as location_chat_router
 from .location_chat_plans import router as location_chat_plans_router
 from .location_settings import router as location_settings_router
-from .mail_followups import router as mail_followups_router
 from .marketplace_catalog import router as marketplace_catalog_router
 from .marketplace_requests import router as marketplace_requests_router
 from .messages import router as messages_router
@@ -134,7 +133,6 @@ router.include_router(world_model_stream_router)
 router.include_router(models_router)
 router.include_router(agent_feedback_router)
 router.include_router(business_suggestions_router)
-router.include_router(mail_followups_router)
 router.include_router(todo_suggestions_router)
 router.include_router(location_router)
 router.include_router(public_location_router)

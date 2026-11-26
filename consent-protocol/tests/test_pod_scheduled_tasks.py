@@ -681,3 +681,18 @@ async def test_schedule_authority_loss_cancels_work_before_releasing_update_admi
     assert (await world.build().run(*delivery[:3]))["state"] == "needs_review"
     world.capability.run.assert_awaited_once()
     world.permit.release.assert_awaited_once()
+
+
+async def test_control_cannot_advance_an_exact_time_capability(scheduled_tasks):
+    from hushh_mcp.services.pod_scheduled_mail import ScheduledMailFollowup
+    from hushh_mcp.services.pod_scheduled_tasks import ScheduleRefused
+
+    world = scheduled_tasks
+    world.capability.allow_run_now = ScheduledMailFollowup.allow_run_now
+    row = await world.runtime.create(
+        schedule_request(), grant={"subject_id": "browser", "version": 1}
+    )
+    with pytest.raises(ScheduleRefused, match="SCHEDULE_RUN_NOW_REFUSED"):
+        await world.runtime.control(row["id"], row["revision"], "run_now", confirmed=True)
+    assert (await world.runtime.get(row["id"]))["next_run_at"] == 1100
+    world.capability.run.assert_not_awaited()

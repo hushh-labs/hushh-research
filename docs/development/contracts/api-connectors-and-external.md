@@ -1150,9 +1150,20 @@ current task revision. The worker has no scoped background writer for that
 collection. Closed-board settlement, including cancellation of the matching
 reminder on arrival, therefore requires a separately authorized Tasks capability.
 
-Shared hosting lists the primary Gmail grant and additional Google connections
-with explicit Mail read access. Each read checks vault-owner authorization,
-placement and the selected grant generation. Disconnect withdraws that
-additional account's Mail grant while preserving its Calendar access. Reconnection changes the grant generation and
-invalidates prior message actions. Placement selects the transport before mail
-is opened. Shared hosting has no private-agent schedule execution authority.
+On Dev the private agent owns Follow-ups content reads and reasoning. Shared
+hosting shows the private-agent requirement. A verified promise's supported
+civil date is saved in the canonical Task's date field. A date-only promise
+retains its original wording and leaves the time field empty.
+
+Dev's shared Task row has date and time fields but no notification-reminder
+identifier or independent reminder settings. Scheduled Tasks manages separately
+approved capabilities. The Calendar reminder settings apply to Calendar follow-ups.
+Watching a Mail obligation authorizes no outgoing message.
+
+Closed-Mail settlement requires a capability to record fulfilment and cancel the
+linked reminder for **one** owner-approved task, mailbox grant generation and
+obligation, with replay protection and revision checks. The vault owner would
+need to authorize that limited operation; the Tasks and vault/consent maintainers
+would need to define its custody and recovery contract. The present
+`one_todos` policy exposes no requestable scopes. Session-only lockdown
+precludes unattended private access even with an approved schedule.

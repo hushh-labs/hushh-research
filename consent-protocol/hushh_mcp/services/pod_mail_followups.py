@@ -18,6 +18,7 @@ from hushh_mcp.services import pod_connector_credentials as credentials
 from hushh_mcp.services.byoc_key_custody import resolve_pod_log_key
 from hushh_mcp.services.calendar_email_followup_relevance import quoted_or_signature_regions
 from hushh_mcp.services.gmail_metadata_reader import GmailMetadataReader
+from hushh_mcp.services.mail_promise_date import promise_deadline
 from hushh_mcp.services.mail_source_identity import open_source_id, seal_source_id
 from hushh_mcp.services.pod_gmail_local import PodGmailConnection
 
@@ -444,7 +445,10 @@ async def assess_mail(
     headers = row["headers_metadata"]
     addresses = {
         address.casefold()
-        for _, address in getaddresses([headers.get(k, "") for k in ("from", "to", "cc")])
+        for field in ("from", "to", "cc")
+        if headers.get(field)
+        for _, address in getaddresses([headers[field]])
+        if address
     }
     if promise.debtor.casefold() not in addresses:
         raise _refuse(422, "MAIL_DEBTOR_UNVERIFIED")
@@ -453,8 +457,13 @@ async def assess_mail(
         raise _refuse(409, "MAIL_SOURCE_CHANGED")
     thread = source_ref(threads[0])
     identity = obligation_key(selection.connection, selection.source, promise.quote)
+    due_date, due_time = promise_deadline(
+        promise.promised_wording, row.get("received_at", ""), headers.get("date_header", "")
+    )
     return {
         **promise.model_dump(),
+        "due_date": due_date,
+        "due_time": due_time,
         "source_kind": "mail_thread",
         "account": selection.account,
         "connection": selection.connection,

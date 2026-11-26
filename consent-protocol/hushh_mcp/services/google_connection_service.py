@@ -1846,7 +1846,9 @@ class GoogleConnectionService:
 
         if account_id != "default":
             if service == "gmail":
-                return await self.disconnect_mail_read_grant(user_id=user_id, account_id=account_id)
+                return await self._disconnect_additional_gmail_read_grant(
+                    user_id=user_id, account_id=account_id
+                )
             if service != "calendar":
                 raise GoogleConnectionError(
                     "This account only grants Calendar access", status_code=403
@@ -2022,8 +2024,8 @@ class GoogleConnectionService:
                 pass
         return await self.calendar_accounts_status(user_id=user_id)
 
-    async def disconnect_mail_read_grant(
-        self, *, user_id: str, account_id: str, expected_generation: str | None = None
+    async def _disconnect_additional_gmail_read_grant(
+        self, *, user_id: str, account_id: str
     ) -> dict[str, Any]:
         """Withdraw only the selected account's Mail read authority."""
 
@@ -2035,13 +2037,8 @@ class GoogleConnectionService:
                     gmail_read_enabled = FALSE, gmail_read_generation = gen_random_uuid(),
                     updated_at = clock_timestamp()
                     WHERE user_id=:user_id AND account_id=:account_id
-                      AND (CAST(:expected_generation AS text) IS NULL OR gmail_read_generation::text=:expected_generation)
                     RETURNING account_id"""),
-                    {
-                        "user_id": user_id,
-                        "account_id": account_id,
-                        "expected_generation": expected_generation,
-                    },
+                    {"user_id": user_id, "account_id": account_id},
                 ).first()
                 if not row:
                     raise GoogleConnectionError("Calendar account was not found", status_code=404)
