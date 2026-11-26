@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 
 from hushh_mcp.services import one_location_agent_service as location
 from hushh_mcp.services.account_service import AccountService
@@ -128,6 +128,12 @@ def test_erasure_removes_reviews_for_either_party(location_plans):
             ('other', 'third', repeat('c', 64), 'view', '{}', now() + INTERVAL '1 hour')
     """)
     with db.engine.begin() as connection:
+        connection.execute(
+            text(
+                """INSERT INTO public.account_deletion_tombstones (user_id_hash)
+                VALUES ('sha256:' || encode(digest('owner', 'sha256'), 'hex'))"""
+            )
+        )
         AccountService()._delete_user_rows_if_table_exists(
             connection,
             table_name="one_location_chat_plans",
@@ -137,6 +143,15 @@ def test_erasure_removes_reviews_for_either_party(location_plans):
     assert db.execute_raw("SELECT user_id, person_user_id FROM one_location_chat_plans").data == [
         {"user_id": "other", "person_user_id": "third"}
     ]
+    for owner, peer in (("owner", "other"), ("other", "owner")):
+        with pytest.raises(IntegrityError, match="account identity is deleted"):
+            db.execute_raw(
+                """INSERT INTO one_location_chat_plans (
+                    user_id, person_user_id, intent_hash, action, terms, expires_at
+                )
+                VALUES (:owner, :peer, repeat('d', 64), 'view', '{}', now() + INTERVAL '1 hour')""",
+                {"owner": owner, "peer": peer},
+            )
 
 
 @pytest.mark.asyncio
