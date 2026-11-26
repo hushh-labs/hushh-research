@@ -3,17 +3,27 @@ import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboa
 import { getStatementSnapshots } from "@/lib/kai/brokerage/financial-sources";
 import { resolveFinancePortfolio } from "@/lib/kai/brokerage/resolve-portfolio-source";
 import { loadFinancialForVault } from "@/lib/kai/plaid-vault/vault-sync";
+import { KaiFinancialResourceService } from "@/lib/kai/kai-financial-resource";
 import { financeDigest, type FinanceSource } from "./contract";
 import { assertAdvisorSourceIntegrity } from "./advisor-source-integrity";
 import { requireFinanceSession, type FinanceShareContext } from "@/lib/services/finance-sharing-service";
 
 export { resolveFinancePortfolio };
 
-export async function readSavedFinance(context: FinanceShareContext, source: FinanceSource, allowCashOnly = false) {
+export async function readSavedFinance(
+  context: FinanceShareContext, source: FinanceSource, allowCashOnly = false,
+  options?: { requireActiveSource: boolean },
+) {
   requireFinanceSession(context);
   const financial = await loadFinancialForVault(context);
   requireFinanceSession(context);
   if (!financial) throw new Error("This portfolio source is no longer available.");
+  if (options?.requireActiveSource) {
+    const active = KaiFinancialResourceService.activeSavedSource(context.userId, financial);
+    if (!active || active.kind !== source.kind || active.snapshotId !== source.snapshotId) {
+      throw new Error("Your active portfolio changed. Reopen the sharing card to review it again.");
+    }
+  }
   const resolvedSource: FinanceSource = String(financial.pkm_contract_version || "").startsWith("7.") && !source.representation
     ? { ...source, representation: "current-v7" } : source;
   const portfolio = resolveFinancePortfolio(financial, resolvedSource);

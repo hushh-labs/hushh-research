@@ -67,6 +67,7 @@ import {
   ratingsCohortFromCapabilities,
 } from "@/components/location/ratings/place-ratings";
 import { useVoiceSessionStore } from "@/lib/one-voice/session-store";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { ApiError } from "@/lib/services/api-client";
 
 const SOURCE = fs.readFileSync(
@@ -110,6 +111,20 @@ describe("PlaceRatings", () => {
     resource.readPresentation.mockReturnValue(null);
     service.listPlaceRatings.mockResolvedValue([rating()]);
     service.listRateableVisits.mockResolvedValue([]);
+  });
+
+  it("preserves Chat surface ownership when embedded and keeps standalone Ratings metadata", async () => {
+    const standalone = render(<PlaceRatings />);
+    await screen.findByText("Third Wave Coffee");
+    expect(usePublishVoiceSurfaceMetadata).toHaveBeenLastCalledWith(expect.objectContaining({ screenId: "one_location_ratings" }));
+    standalone.unmount();
+    vi.mocked(usePublishVoiceSurfaceMetadata).mockClear();
+
+    render(<PlaceRatings embeddedInChat />);
+    await screen.findByText("Third Wave Coffee");
+    expect(usePublishVoiceSurfaceMetadata).toHaveBeenLastCalledWith(null);
+    expect(service.ratePlace).not.toHaveBeenCalled();
+    expect(service.deletePlaceRating).not.toHaveBeenCalled();
   });
 
   it("hides ratings entirely when the build gate is off, without asking the server", async () => {

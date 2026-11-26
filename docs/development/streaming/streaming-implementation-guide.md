@@ -420,6 +420,61 @@ not native connector result bodies, while retaining earlier unrelated calls
 and fresh invocations; snapshot projection restarts that boundary at a new user
 message. Live model objects remain unchanged.
 
+### Native ADK and A2UI candidate
+
+The Holdings specimen on `/design-system` consumes data-only SSE frames with
+the standard SSE `message` event. The decoder accepts visual messages only from
+the top-level private agent's validated A2UI tool result. The renderer applies
+the Hussh catalog and rejects unknown components and bindings that could address
+object prototypes. Specimen holdings are synthetic.
+
+The native runner rehearsal passes ADK events through
+`native_chat_output.py`. That projection keeps visible text and the read-only
+Hussh surface messages. It drops private thought, provider state, tool
+arguments, unrelated tool results and renderer calls. The shared pod frame
+transport owns backpressure, owner-bound cancellation and request key expiry.
+The native app builder loads the installed Hussh catalog through the contract
+resolver and attaches Google's visual tool to the top-level private agent.
+An isolated SDK rehearsal verifies the catalog and the presenter boundary.
+After the owner session settles, the rehearsal emits `done` for completion or
+an empty `review` frame for an approval pause. Access failures use fixed error
+codes.
+The PostgreSQL MCP rehearsal exercises a native pause and resume across a
+reopened encrypted session. The review reference comes from the sealed pending
+call, and the existing action ledger consumes the owner's approval before the
+provider call runs. The browser recovers the native confirmation ID from
+owner-keyed history and sends that decision back to the same conversation.
+
+Encrypted history retains the A2UI call identity and redacted receipt.
+Raw layout arguments and rendered values stay in the admitted turn.
+The owner Cloud Chat candidate can select `native-adk-v1` before dispatch.
+The web build opts in with `NEXT_PUBLIC_ONE_NATIVE_ADK_CHAT=1` and verifies
+the signed-in pod advertises `nativeAdkChatVersion: 1`. Native turns send one
+message or a connector decision. Current Shared, intro, and unsupported
+continuation flows use the AG-UI adapter. An admitted native stream that ends
+without a terminal frame uses the existing conversation recovery before retrying.
+
+The local Puppy bridge projects its own provider stream into the native Chat
+envelope. It uses a named `start` event for the local session ID and
+`activity` for bounded tool labels. Text arrives as ADK-shaped partial
+parts. Tool arguments and provider progress stay server-side. An upstream
+disconnect before `done` leaves any received text visible and marks the turn
+failed.
+
+An A2UI Finance sharing proposal can name the connection or verified-advisor
+audience. Only the live app turn can enable the existing sharing review. This
+review reads the current saved portfolio again before encrypting for the
+chosen recipient, keeps amounts hidden by default, and keeps recipient model
+processing off. The same live-turn checks protect statement upload, the
+reviewed source picker, Plaid connection, and stock analysis. The app resolves
+recipients, saves, and confirmation receipts through the existing controllers.
+Restored proposals are inactive.
+
+The Saved Portfolio component lets an admitted live turn render the active
+portfolio through the app's existing vault-protected Finance card. The
+component names a section and leaves source selection and amounts to the app.
+This view does not supply structured holdings to the model's native runtime.
+
 ## 4.1 UI Stream Mapping
 
 The canonical app stream surface is `hushh-webapp/components/app-ui/stream-progress-panel.tsx`. Portfolio import and Agent Chat both use that primitive so progress, optional thinking, and answer text stay visually and semantically consistent.

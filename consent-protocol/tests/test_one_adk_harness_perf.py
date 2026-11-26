@@ -3,22 +3,30 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import nullcontext
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from ag_ui.core import RunFinishedEvent, TextMessageContentEvent
+from google.adk.agents.run_config import RunConfig, StreamingMode
+from google.adk.events import Event
+from google.adk.events.event_actions import EventActions
 from google.adk.models.google_llm import Gemini
 from google.adk.models.llm_request import LlmRequest
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
 from google.adk.tools.base_tool import BaseTool
 from google.genai import types as genai_types
 
 from hushh_mcp.one_adk import pod_agui_lifetime as pod
-from hushh_mcp.one_adk.agui_factory import _adk_context_cache_config
 from hushh_mcp.one_adk.agui_turn_timing import TimedADKAgent
+from hushh_mcp.one_adk.chat_adk_app import _adk_context_cache_config, build_chat_adk_app
+from hushh_mcp.one_adk.native_chat_output import encode_native_chat_output
+from hushh_mcp.one_adk.native_chat_stream import native_chat_frames
 from hushh_mcp.one_adk.tool_scoping import scope_leaf_tools_before_model
-from hushh_mcp.services.pod_upgrade_admission import PodUpgradeAdmission
-from tests.helpers.agui_lifetime import _input
+from hushh_mcp.services.pod_upgrade_admission import PodUpgradeAdmission, PodUpgradeInProgress
+from tests.helpers.agui_lifetime import DETACHED_ANSWER, _input, _slow_answer_agent
 
 
 async def test_stream_throttles_per_token_access_checks_but_checks_terminal_events(monkeypatch):
@@ -104,13 +112,207 @@ async def test_post_run_runs_in_settle_after_run_finished_while_holding_admissio
     assert (await admission.status(incarnation="synthetic"))["activeWork"] == 0
 
 
+async def test_native_runner_streams_and_settles_with_chat_app():
+    sessions = InMemorySessionService()
+    app = build_chat_adk_app(_slow_answer_agent(delay=0), app_name="one_native_probe")
+    session = await sessions.create_session(app_name=app.name, user_id="review_fixture")
+    runner = Runner(app=app, session_service=sessions)
+    require_access = AsyncMock()
+    admission = PodUpgradeAdmission(log_resolver=lambda: None)
+
+    async def save():
+        assert (await admission.status(incarnation="native-probe"))["activeWork"] == 1
+
+    snapshot = AsyncMock(side_effect=save)
+
+    def open_fixture():
+        return runner.run_async(
+            user_id=session.user_id,
+            session_id=session.id,
+            new_message=genai_types.Content(
+                role="user", parts=[genai_types.Part(text="Show my holdings")]
+            ),
+            run_config=RunConfig(streaming_mode=StreamingMode.SSE),
+        )
+
+    try:
+        stream = native_chat_frames(
+            open_fixture,
+            owner_id=session.user_id,
+            conversation_id=session.id,
+            require_access=require_access,
+            settle=snapshot,
+            admission=admission,
+            incarnation="native-probe",
+        )
+        events = []
+        async for frame in stream:
+            if frame.startswith(b"event: done"):
+                snapshot.assert_awaited_once()
+                break
+            events.append(json.loads(frame.removeprefix(b"data: ")))
+        else:
+            raise AssertionError("The native stream ended without a completion frame")
+        await stream.aclose()
+    finally:
+        await runner.close()
+    assert any(event["author"] == "one" and event.get("partial") for event in events)
+    settled = await sessions.get_session(
+        app_name=app.name, user_id=session.user_id, session_id=session.id
+    )
+    assert settled is not None
+    texts = [
+        part.text for event in settled.events if event.content for part in event.content.parts or []
+    ]
+    assert DETACHED_ANSWER in texts
+    assert "working" not in texts
+
+
+async def test_native_stream_refuses_to_complete_when_access_ends_before_settlement():
+    async def open_fixture():
+        yield Event(
+            author="one",
+            partial=True,
+            content=genai_types.Content(role="model", parts=[genai_types.Part(text="visible")]),
+        )
+
+    require_access = AsyncMock(side_effect=[None, None, PermissionError("private-refusal-detail")])
+    snapshot = AsyncMock()
+    frames = [
+        frame
+        async for frame in native_chat_frames(
+            open_fixture,
+            owner_id="fixture-owner",
+            conversation_id="fixture-turn",
+            require_access=require_access,
+            settle=snapshot,
+        )
+    ]
+    assert b"visible" in frames[0]
+    assert frames[1] == b'event: error\ndata: {"code":"AGENT_ERROR"}\n\n'
+    snapshot.assert_not_awaited()
+
+
+async def test_native_stream_cannot_start_while_the_private_runtime_is_updating(monkeypatch):
+    admission = PodUpgradeAdmission(log_resolver=lambda: None)
+    acquire = AsyncMock(side_effect=PodUpgradeInProgress("synthetic update"))
+    monkeypatch.setattr(admission, "acquire_turn", acquire)
+    source = AsyncMock()
+    snapshot = AsyncMock()
+    frames = [
+        frame
+        async for frame in native_chat_frames(
+            source,
+            owner_id="fixture-owner",
+            conversation_id="fixture-update",
+            require_access=AsyncMock(),
+            settle=snapshot,
+            admission=admission,
+            incarnation="native-update",
+        )
+    ]
+    assert frames == [b'event: error\ndata: {"code":"POD_CHAT_UPDATING"}\n\n']
+    source.assert_not_called()
+    snapshot.assert_not_awaited()
+
+
+async def test_native_stream_does_not_offer_review_for_an_unfinished_operation():
+    async def open_fixture():
+        yield Event(
+            author="one",
+            content=genai_types.Content(role="model", parts=[genai_types.Part(text="Working")]),
+        )
+        yield Event(author="one", long_running_tool_ids={"native-pending-work"})
+
+    snapshot = AsyncMock()
+    frames = [
+        frame
+        async for frame in native_chat_frames(
+            open_fixture,
+            owner_id="fixture-owner",
+            conversation_id="fixture-pending-work",
+            require_access=AsyncMock(),
+            settle=snapshot,
+        )
+    ]
+    assert frames[-1] == b'event: error\ndata: {"code":"AGENT_ERROR"}\n\n'
+    snapshot.assert_not_awaited()
+
+
+def test_native_output_only_projects_visible_one_parts_and_read_only_surfaces():
+    visual = {
+        "version": "1.0",
+        "createSurface": {
+            "surfaceId": "holdings",
+            "catalogId": "hussh.ai:morphy-one/v1",
+            "sendDataModel": False,
+        },
+    }
+    round_trip = {
+        **visual,
+        "createSurface": {**visual["createSurface"], "sendDataModel": True},
+    }
+    event = Event(
+        author="one",
+        actions=EventActions(state_delta={"private_snapshot": "internal-state"}),
+        content=genai_types.Content(
+            role="model",
+            parts=[
+                genai_types.Part(text="visible"),
+                genai_types.Part(
+                    text="private-thought", thought=True, thought_signature=b"signature"
+                ),
+                genai_types.Part.from_function_call(
+                    name="share", args={"topic": "private-argument"}
+                ),
+                genai_types.Part.from_function_response(
+                    name="read_portfolio_context",
+                    response={"holdings": "private-tool-result"},
+                ),
+                genai_types.Part.from_function_response(
+                    name="send_a2ui_json_to_client",
+                    response={"validated_a2ui_json": [visual], "private": "private-extra"},
+                ),
+                genai_types.Part.from_function_response(
+                    name="send_a2ui_json_to_client",
+                    response={
+                        "validated_a2ui_json": [
+                            {
+                                "version": "1.0",
+                                "callRendererFunction": {"callFunction": "disallowed"},
+                            },
+                            round_trip,
+                        ]
+                    },
+                ),
+                genai_types.Part.from_function_response(
+                    name="send_a2ui_json_to_client",
+                    response={"validated_a2ui_json": [round_trip]},
+                ),
+            ],
+        ),
+    )
+    frame = encode_native_chat_output(event)
+    assert json.loads(frame.removeprefix(b"data: "))["content"]["parts"] == [
+        {"text": "visible"},
+        {
+            "functionResponse": {
+                "name": "send_a2ui_json_to_client",
+                "response": {"validated_a2ui_json": [visual]},
+            }
+        },
+    ]
+    assert b"internal-state" not in frame
+    assert encode_native_chat_output(event.model_copy(update={"author": "finance"})) == b""
+
+
 def test_context_cache_config_targets_native_gemini_only(monkeypatch):
-    from hushh_mcp.one_adk import agui_factory
+    from hushh_mcp.one_adk import chat_adk_app
 
     monkeypatch.setenv("HUSHH_ADK_CONTEXT_CACHE_FORCE_TEST", "1")
     monkeypatch.delenv("HUSHH_ADK_CONTEXT_CACHE_DISABLED", raising=False)
 
-    if agui_factory.ContextCacheConfig is None or not agui_factory._APP_ACCEPTS_CONTEXT_CACHE:
+    if chat_adk_app.ContextCacheConfig is None or not chat_adk_app._APP_ACCEPTS_CONTEXT_CACHE:
         assert _adk_context_cache_config(SimpleNamespace(model="gemini-2.5-flash")) is None
         return
 

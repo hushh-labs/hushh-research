@@ -567,7 +567,7 @@ function CustomConnectorsCard({
   );
 }
 
-function PlaidConnectorChatCard({
+export function PlaidConnectorChatCard({
   onOpenConnections,
 }: {
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;

@@ -23,6 +23,7 @@ from hushh_mcp.one_adk.external_read_boundary import (
     STATE_MAIL_EMPTY_RETRIES,
     STATE_SELECTED_DRIVE_SHARE,
 )
+from hushh_mcp.one_adk.native_chat_output import A2UI_TOOL_NAME
 from hushh_mcp.one_adk.plaid_connector_tools import (
     PLAID_RESULT_STATUSES,
     PLAID_TOOL_NAMES,
@@ -224,12 +225,20 @@ def durable_external_read_projection(session: Session) -> Session:
         if (part.function_call and part.function_call.name in PLAID_TOOL_NAMES)
         or (part.function_response and part.function_response.name in PLAID_TOOL_NAMES)
     }
+    has_visual_payload = any(
+        (part.function_call and part.function_call.name == A2UI_TOOL_NAME)
+        or (part.function_response and part.function_response.name == A2UI_TOOL_NAME)
+        for event in session.events
+        if event.content
+        for part in event.content.parts or []
+    )
     if (
         not read_invocations
         and not receipt_invocations
         and not private_draft_invocations
         and not wiki_invocations
         and not plaid_invocations
+        and not has_visual_payload
         and not any(key in session.state for key in _EPHEMERAL)
         and not any(
             key in event.actions.state_delta for event in session.events for key in _EPHEMERAL
@@ -278,6 +287,10 @@ def durable_external_read_projection(session: Session) -> Session:
             # reviewed MCP calls or the redacted client-only draft may follow.
             if part.function_call and part.function_call.name in READ_TOOLS:
                 part.function_call.args = {}
+            if part.function_call and part.function_call.name == A2UI_TOOL_NAME:
+                part.function_call.args = {}
+            if part.function_response and part.function_response.name == A2UI_TOOL_NAME:
+                part.function_response.response = {"content_redacted": True}
             if part.thought and part.text:
                 part.text = None
             if part.function_response and part.function_response.name in READ_TOOLS:

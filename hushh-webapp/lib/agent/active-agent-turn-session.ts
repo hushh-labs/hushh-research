@@ -2,6 +2,7 @@
 
 import * as sessionOwnerModule from "@/lib/auth/session-owner";
 import * as vaultEpochModule from "@/lib/vault/session-epoch";
+import type { A2uiSurfaces } from "@/lib/a2ui/surface-store";
 
 export type ActiveAgentTurnSession<TMessage = unknown> = {
   ownerId: string;
@@ -9,6 +10,8 @@ export type ActiveAgentTurnSession<TMessage = unknown> = {
   turnToken: symbol;
   conversationId: string | null;
   messages: TMessage[];
+  /** Current browser turn only. History and device replicas never receive the surface payloads. */
+  nativeVisual?: { assistantMessageId: string; surfaces: A2uiSurfaces; complete: boolean };
   isChatLoading: boolean;
   isStreaming: boolean;
   stoppableTurn: boolean;

@@ -12,7 +12,7 @@ import httpx
 import pytest
 
 from hushh_mcp.one_adk import action_tools
-from hushh_mcp.one_adk.agui_factory import _adk_context_cache_config
+from hushh_mcp.one_adk.chat_adk_app import _adk_context_cache_config
 from hushh_mcp.services.agent_sandbox.edge_gateway_app import (
     SandboxEdgeGatewayManager,
     create_sandbox_edge_gateway_app,

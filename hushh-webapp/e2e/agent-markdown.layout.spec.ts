@@ -56,7 +56,6 @@ test.beforeAll(async () => {
           /^@\/lib\/firebase$/,
           /^@\/lib\/services\/auth-service$/,
           /^@\/lib\/services\/api-service$/,
-          /^@ag-ui\/client$/,
           /^@\/lib\/hermes\/use-puppy-link$/,
           /^@\/lib\/services\/puppy-one-service$/,
           /^@\/components\/agent\/puppy-model-picker$/,

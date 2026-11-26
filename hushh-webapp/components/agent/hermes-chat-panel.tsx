@@ -11,8 +11,7 @@ import {
 } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { HttpAgent } from "@ag-ui/client";
-import { publicAgentOutput } from "@/lib/services/agent-output-privacy";
+import { readNativeAdkTurn } from "@/lib/a2ui/native-adk-visual-stream";
 import { containsSecretSpan } from "@/lib/pkm/secret-patterns";
 import { Check, Copy, Loader2, Send, StopSquare } from "@/components/icons";
 
@@ -54,11 +53,7 @@ const ON_DEVICE_STORAGE_KEY = "hussh.puppy.on_device";
 /**
  * Chat with Puppy One, the agent running on the owner's own machine.
  *
- * Streams through AG-UI rather than awaiting a whole response: the server
- * route translates Hermes's own SSE vocabulary into AG-UI frames, so this
- * panel drives a stock HttpAgent and inherits the same token-delta and
- * tool-activity semantics the cloud agent uses, instead of growing a second
- * streaming stack that would drift from it.
+ * The server projects local text and activity onto the native chat stream.
  *
  * The loopback key never reaches this component. It talks only to our own
  * origin; a Next route handler on this machine holds the key.
@@ -147,20 +142,20 @@ export function HermesChatPanel({
   // region. `sending` is panel-wide and would re-announce older answers.
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const mountedRef = useRef(true);
-  const agentRef = useRef<HttpAgent | null>(null);
+  const turnRef = useRef<AbortController | null>(null);
   const cancelledRef = useRef(false);
   const [stopping, setStopping] = useState(false);
   const stop = () => {
-    if (!agentRef.current || cancelledRef.current) return;
+    if (!turnRef.current || cancelledRef.current) return;
     cancelledRef.current = true;
     setStopping(true);
-    agentRef.current.abortRun();
+    turnRef.current.abort();
   };
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      agentRef.current?.abortRun();
+      turnRef.current?.abort();
     };
   }, []);
 
@@ -272,17 +267,9 @@ export function HermesChatPanel({
     ]);
   }, [onDevice, setOnDevice]);
 
-  const appendDelta = useCallback((assistantId: string, delta: string) => {
-    setTurns((prior) =>
-      prior.map((turn) =>
-        turn.id === assistantId ? { ...turn, text: turn.text + delta } : turn,
-      ),
-    );
-  }, []);
-
   async function send(committedText = draft) {
     const message = committedText.trim();
-    if (!active || composerDisabled || !connected || !message || sending) return;
+    if (!active || composerDisabled || !connected || !message || turnRef.current) return;
     // A secret never reaches a model, on this device or in the cloud. Puppy
     // has no vault-backed Secrets writer, so it keeps the draft and says so;
     // One's composer is where a secret is kept (lib/pkm/secret-span-guard.ts).
@@ -295,6 +282,8 @@ export function HermesChatPanel({
     cancelledRef.current = false;
     setStopping(false);
     setSending(true);
+    const controller = new AbortController();
+    turnRef.current = controller;
 
     const assistantId = `a-${Date.now()}`;
     setStreamingId(assistantId);
@@ -305,46 +294,23 @@ export function HermesChatPanel({
     ]);
 
     try {
-      const agent = new HttpAgent({
-        url: "/api/hermes/chat/stream",
-        fetch: async (_url, init) => fetchPuppyChatStream(init),
-        initialMessages: [
-          { id: crypto.randomUUID(), role: "user", content: message },
-        ],
-      }).use(publicAgentOutput());
-      agentRef.current = agent;
-      await agent.runAgent(
-        { forwardedProps: { sessionId: sessionRef.current, onDevice } },
-        {
-          onTextMessageContentEvent: ({ event }) => {
-            appendDelta(assistantId, String(event.delta ?? ""));
-          },
-          onToolCallStartEvent: ({ event }) => {
-            const label = String(event.toolCallName ?? "tool");
-            setTurns((prior) =>
-              prior.map((turn) =>
-                turn.id === assistantId
-                  ? { ...turn, activity: [...(turn.activity ?? []), label] }
-                  : turn,
-              ),
-            );
-          },
-          onRunStartedEvent: ({ event }) => {
-            // Hermes uses the session id as the run id, so keeping it gives the
-            // next turn continuity in the same conversation.
-            const runId = String(
-              (event as unknown as { runId?: string }).runId ?? "",
-            );
-            if (runId) sessionRef.current = runId;
-          },
-          onRunErrorEvent: ({ event }) => {
-            if (cancelledRef.current) return;
-            setError(
-              String(event.message ?? "") || "Puppy One could not answer.",
-            );
-          },
-        },
-      );
+      const response = await fetchPuppyChatStream({
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+        body: JSON.stringify({ message, sessionId: sessionRef.current, onDevice }),
+        signal: controller.signal,
+      });
+      const output = await readNativeAdkTurn(response, (turn) => {
+        if (!mountedRef.current || controller.signal.aborted) return;
+        if (turn.sessionId) sessionRef.current = turn.sessionId;
+        setTurns((prior) => prior.map((entry) => entry.id === assistantId
+          ? { ...entry, text: turn.settledText + turn.partialText, activity: turn.activity }
+          : entry));
+      });
+      if (output.status !== "complete" && mountedRef.current && !controller.signal.aborted) {
+        const keyRefused = output.errorCode === "PUPPY_KEY_REFUSED";
+        setError(keyRefused ? "Puppy One rejected the local key." : "Puppy One could not complete that response.");
+      }
     } catch {
       // A real unmount (route change, workspace close) fails quietly rather
       // than writing into a dead tree. Being HIDDEN is not an unmount, so a
@@ -353,7 +319,7 @@ export function HermesChatPanel({
         setError("Puppy One is not answering on this machine.");
       }
     } finally {
-      agentRef.current = null;
+      turnRef.current = null;
       if (mountedRef.current) {
         setStopping(false);
         setSending(false);

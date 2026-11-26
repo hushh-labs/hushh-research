@@ -232,6 +232,8 @@ export type AgentSource = {
 };
 
 export type AgentChatStreamHandlers = {
+  /** Complete projection of one live native turn. Keep surface payloads out of history. */
+  onNativeOutput?: (output: import("@/lib/a2ui/native-adk-visual-stream").NativeAdkTurnOutput) => void;
   onGoalPlanProposal?: (proposal: GoalPlanInput) => void;
   /** Invocation metadata triggers owner-pod rediscovery, never private browser content. */
   onBrowserTaskCreated?: () => void;
@@ -1424,7 +1426,8 @@ async function streamAgentChatAttempt(input: {
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
   /** A keyed native interrupt recovered from the pod; never a new user turn. */
-  resumeMcpReview?: { interruptId: string; reference: McpCallReviewReference; approval: McpCallApproval | null };
+  resumeMcpReview?: { interruptId: string; reference: McpCallReviewReference; approval: McpCallApproval | null;
+    transport?: "native-adk-v1" };
 }, carriedAttempt?: ProductAttempt | null): Promise<{
   conversationId: string | null;
   model: string | null;
@@ -1499,6 +1502,88 @@ async function streamAgentChatAttempt(input: {
     for (const item of mcpConfigurations) connectorNames.set(item.connectorId, item.displayName);
     return { mcpConfigurations };
   };
+  const nativeResume = recovered?.transport === "native-adk-v1";
+  // Candidate rollout: existing placements and unsupported continuation types
+  // keep their current transport until their native contracts are available.
+  const nativeFreshTurn = process.env.NEXT_PUBLIC_ONE_NATIVE_ADK_CHAT === "1" &&
+    !recovered && !input.attachments?.length && !input.consentContinuation && !input.financeShare &&
+    !input.feedAttention && !input.personSelectionHandle && !input.gmailInformationRequestWorkflowId &&
+    !input.driveSearchSelection && !input.pendingEmailDraft && !input.emailMemoryProjection &&
+    !input.emailMemoryCommit && !input.locationChatContinuation;
+  if (nativeResume || nativeFreshTurn) {
+    const { admitsNativeCloudChat, streamNativeCloudChat, NATIVE_CLOUD_CHAT_TRANSPORT } =
+      await import("./native-cloud-chat");
+    const headers = { Authorization: `Bearer ${input.vaultOwnerToken}`, "Content-Type": "application/json",
+      ...(await oneChatKeyHeaders(input.vaultKey)) };
+    const admitted = await admitsNativeCloudChat(headers, turnSessionCurrent, input.signal).catch(() => false);
+    assertTurnSessionCurrent();
+    if (nativeResume && !admitted) throw new Error("Reconnect to resume the connector review.");
+    if (admitted) {
+      const [connectors, turnLocation] = await Promise.all([connectorProjection(), resolveTurnLocation()]);
+      assertTurnSessionCurrent();
+      const approval = recovered?.approval;
+      const body = JSON.stringify({
+        transport: NATIVE_CLOUD_CHAT_TRANSPORT,
+        threadId,
+        runId: crypto.randomUUID(),
+        ...(recovered ? { decision: { interruptId: recovered.interruptId, confirmed: Boolean(approval) } }
+          : { message: input.message }),
+        forwardedProps: {
+          ...connectors, timezone, turnLocation, communicationPreferences, screenContext: input.screenContext,
+          specialistFocus: input.specialistFocus, mainChat: input.mainChat,
+          ...(approval ? { mcpApproval: {
+            directiveId: approval.directiveId, connectorId: approval.connectorId, toolName: approval.toolName,
+            pendingHandle: approval.pendingHandle, receipt: approval.receipt,
+          } } : {}),
+        },
+      });
+      const begun = Date.now();
+      const transportAbort = new AbortController();
+      let detached = false;
+      const detach = () => { detached = true; transportAbort.abort(); };
+      const cancel = () => {
+        if (input.signal?.reason === AGENT_TURN_DETACH_REASON) detach();
+        else transportAbort.abort();
+      };
+      const unregister = registerAttachedAgentTurn({ ownerId: input.userId, conversationId: threadId, detach });
+      input.signal?.addEventListener("abort", cancel, { once: true });
+      const current = () => turnSessionCurrent() && !transportAbort.signal.aborted;
+      try {
+        const output = await streamNativeCloudChat({
+          request: { method: "POST", headers, body, signal: transportAbort.signal },
+          conversationId: threadId, isCurrent: current, handlers,
+        });
+        if (output.status === "error") throw new Error(formatAgentChatErrorMessage("", output.errorCode));
+        if (!handlers.onNativeOutput && output.settledText) handlers.onToken?.(output.settledText);
+        const interrupted = output.status === "awaiting_review";
+        if (interrupted) {
+          const { recoverMcpReviews } = await import("@/lib/agent/mcp-review-recovery");
+          const reviews = await recoverMcpReviews({
+            userId: input.userId, vaultOwnerToken: input.vaultOwnerToken, vaultKey: input.vaultKey,
+            loadConnectorConfigurations: input.loadConnectorConfigurations, conversationId: threadId,
+            transport: NATIVE_CLOUD_CHAT_TRANSPORT, handlers, isCurrent: current,
+          });
+          if (!current() || !reviews.length) throw new Error("Reconnect to restore the connector review.");
+          for (const review of reviews) handlers.onMcpReview?.(review);
+          handlers.onInterrupt?.({ conversationId: threadId });
+        } else {
+          handlers.onComplete?.({ conversationId: threadId });
+        }
+        return { conversationId: threadId, model: null, text: output.settledText, interrupted, detached: false };
+      } catch (error) {
+        if (detached) return { conversationId: threadId, model: null, text: "", interrupted: false, detached };
+        const refusal = error instanceof Error ? chatKeyRefusalCode(error.message) : null;
+        if (refusal) throw routeChatKeyRefusal(refusal, mcpVaultEpoch);
+        if (error instanceof Error && error.message === "AGENT_STREAM_INCOMPLETE") {
+          throw new AgentChatStreamLostError(threadId, begun);
+        }
+        throw error;
+      } finally {
+        input.signal?.removeEventListener("abort", cancel);
+        unregister();
+      }
+    }
+  }
   // Callers may have started their catalog read beside Soul preparation. For
   // other callers, overlap it with the derived key and optional location read.
   const initialConnectorProjection = connectorProjection();
