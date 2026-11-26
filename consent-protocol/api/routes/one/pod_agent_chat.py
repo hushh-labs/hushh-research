@@ -38,7 +38,9 @@ from hushh_mcp.one_adk.history_descriptors import (
 from hushh_mcp.one_adk.history_projection import _call_providers, project_conversation_history
 from hushh_mcp.one_adk.information_request_submission import RecordInformationRequestSubmission
 from hushh_mcp.one_adk.location_chat_proposal import (
+    STATE_LOCATION_CHAT_CONTINUATION,
     STATE_LOCATION_CHAT_REVIEW,
+    admit_location_chat_continuation,
     admit_location_chat_review,
 )
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
@@ -276,6 +278,9 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         owner_style.STATE_POD_STYLE_OWNER: owner.owner,
         STATE_TURN_LOCATION: admit_turn_location(forwarded),
         STATE_LOCATION_CHAT_REVIEW: admit_location_chat_review(forwarded, owner_admitted=True),
+        STATE_LOCATION_CHAT_CONTINUATION: admit_location_chat_continuation(
+            forwarded, owner_admitted=True
+        ),
         STATE_MCP_APPROVAL: admit_resume_receipt(
             forwarded, owner_id=owner.owner, conversation_id=input.thread_id
         ),

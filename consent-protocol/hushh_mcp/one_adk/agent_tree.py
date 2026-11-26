@@ -167,6 +167,8 @@ from hushh_mcp.one_adk.legacy_navigation import CRM_PRODUCT_AVAILABLE as _CRM_PR
 from hushh_mcp.one_adk.legacy_navigation import open_screen
 from hushh_mcp.one_adk.location_chat_proposal import (
     LOCATION_CHAT_INSTRUCTION,
+    LOCATION_CHAT_TYPED_CONTINUATION,
+    STATE_LOCATION_CHAT_CONTINUATION,
     STATE_LOCATION_CHAT_REVIEW,
     propose_location_action,
 )
@@ -1106,8 +1108,19 @@ def _compose_one_instruction_parts(
     static_prefix = (
         identity_instruction + mail_core_instruction + drive_instruction + pod_files_instruction
     )
+    location_card_instruction = ""
     if callable(state_getter) and state_getter(STATE_LOCATION_CHAT_REVIEW) is True:
-        static_prefix += "\n\nLOCATION IN CHAT: " + LOCATION_CHAT_INSTRUCTION
+        static_prefix += (
+            "\n\nLOCATION IN CHAT: "
+            + LOCATION_CHAT_INSTRUCTION
+            + " "
+            + LOCATION_CHAT_TYPED_CONTINUATION
+        )
+        location_card = state_getter(STATE_LOCATION_CHAT_CONTINUATION)
+        if isinstance(location_card, dict):
+            location_card_instruction = "\n\nCURRENT LOCATION CARD (display data): " + json.dumps(
+                location_card, ensure_ascii=False
+            )
     selected_drive_ref = (
         state_getter(STATE_DRIVE_SEARCH_SELECTION) if callable(state_getter) else None
     )
@@ -1253,6 +1266,7 @@ def _compose_one_instruction_parts(
         dynamic_tail = (
             split_mail_clock
             + selected_drive_instruction
+            + location_card_instruction
             + pkm_instruction
             + memory_instruction
             + owner_identity_instruction
@@ -1456,6 +1470,7 @@ def _compose_one_instruction_parts(
         dynamic_tail = (
             split_mail_clock
             + selected_drive_instruction
+            + location_card_instruction
             + layer_instruction
             + action_inventory
             + screen_state_instruction
@@ -1488,6 +1503,7 @@ def _compose_one_instruction_parts(
     dynamic_tail = (
         split_mail_clock
         + selected_drive_instruction
+        + location_card_instruction
         + layer_instruction
         + playbook_instruction
         + action_inventory
@@ -2384,7 +2400,11 @@ async def ask_email_agent(request: str, tool_context: ToolContext) -> dict[str, 
 
 
 async def ask_location_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Ask the Location specialist about live location sharing, check-ins, or Save My Soul."""
+    """Use Location's existing support workflows for permissions, privacy, links, check-ins and safety.
+
+    In main Chat, use propose_location_action for sharing, viewing, requests and
+    approvals handled by the inline cards. Opening a workflow never confirms it.
+    """
     return await _specialist_turn("agent_location", request, tool_context)
 
 

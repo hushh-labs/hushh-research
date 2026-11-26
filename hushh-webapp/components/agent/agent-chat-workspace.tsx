@@ -1,6 +1,6 @@
 "use client";
 import dynamic from "next/dynamic";
-import { MAIN_CHAT_LOCATION_ENABLED, parseMainLocationProposal } from "@/lib/agent/main-chat-location";
+import { MAIN_CHAT_LOCATION_ENABLED, parseMainLocationProposal, type MainLocationContinuation } from "@/lib/agent/main-chat-location";
 import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import { calendarProposalReviewError, calendarProposalReviewExtras, legacyCalendarProposalPayload } from "@/lib/agent/calendar-proposal-review";
 import { useChatMemory } from "@/lib/agent/use-chat-memory";
@@ -2765,6 +2765,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
   const appendMessage = appendWorkspaceMessage;
   const receivedVoiceLocationProposals = useRef(new Set<string>());
+  const locationChatContinuation = useRef<{ proposalId: string; context: MainLocationContinuation } | null>(null);
+  const rememberLocationContinuation = useCallback((proposalId: string, context: MainLocationContinuation | null) => {
+    if (context) locationChatContinuation.current = { proposalId, context };
+    else if (locationChatContinuation.current?.proposalId === proposalId) locationChatContinuation.current = null;
+  }, []);
   useVoiceToolEffects({
     onToolResult: (tool, result) => {
       if (!MAIN_CHAT_LOCATION_ENABLED || !isCanonicalChatRoute || isPuppySurface || tool !== "propose_location_action") return;
@@ -6665,6 +6670,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         })() as unknown as Record<string, unknown>,
         mainChat: isMainChatTurn,
         locationChatReview: MAIN_CHAT_LOCATION_ENABLED && isMainChatTurn,
+        locationChatContinuation: (() => {
+          const current = locationChatContinuation.current;
+          if (!isMainChatTurn || !isVaultUnlocked || !MAIN_CHAT_LOCATION_ENABLED || !current) return undefined;
+          const previousAnswer = messagesRef.current.findLast((message) =>
+            message.role === "assistant" && message.id !== assistantMessageId &&
+            (message.locationChatProposal || message.text.trim()),
+          );
+          return previousAnswer?.locationChatProposal?.id === current.proposalId ? current.context : undefined;
+        })(),
         signal: streamAbortController.signal,
         handlers: {
           onContextUsage: (usage) => {
@@ -11017,6 +11031,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       proposal={message.locationChatProposal}
                       onUnlock={() => setVaultDialogOpen(true)}
                       allowReview={message.id === latestLocationProposalMessageId}
+                      onContinuationChange={rememberLocationContinuation}
                     />
                   ) : null}
                   {calendarConnectDirective && message.id === calendarConnectAnchorId

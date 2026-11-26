@@ -10,7 +10,9 @@ from hushh_mcp.one_adk import agent_tree
 from hushh_mcp.one_adk.goal_plan_proposal import propose_goal_plan
 from hushh_mcp.one_adk.location_chat_proposal import (
     STATE_LOCATION_CHAT_REVIEW,
+    admit_location_chat_continuation,
     admit_location_chat_review,
+    legacy_location_chat_action,
     location_chat_proposal_from_result,
     propose_location_action,
 )
@@ -47,6 +49,8 @@ async def test_location_review_is_admitted_only_for_main_owner_chat(monkeypatch)
     )
     assert bypass["status"] == "chat_review_required"
     assert bypass["next_tool"] == "propose_location_action"
+    assert legacy_location_chat_action(context.state, "location.chat.turn") is None
+    assert legacy_location_chat_action(context.state, "location.open_settings") is None
     unavailable = agent_tree._before_one_tool(
         SimpleNamespace(name="propose_location_action"), {}, SimpleNamespace(state={})
     )
@@ -102,6 +106,36 @@ def test_location_proposal_restores_intent_without_execution_authority():
     )
     assert [message["id"] for message in restored["messages"]] == ["answer"]
     assert restored["messages"][0]["metadata"]["locationChatProposal"] == proposal
+
+
+def test_location_follow_up_only_carries_display_choices_in_main_owner_chat(monkeypatch):
+    monkeypatch.setenv("ONE_MAIN_CHAT_LOCATION_ENABLED", "true")
+    continuation = {
+        "action": "share_live",
+        "step": "review",
+        "people": [" Maya "],
+        "circles": ["Family"],
+        "durationHours": 0.5,
+    }
+    forwarded = {
+        "mainChat": True,
+        "locationChatReview": True,
+        "locationChatContinuation": continuation,
+    }
+    assert admit_location_chat_continuation(forwarded, owner_admitted=True) == {
+        **continuation,
+        "people": ["Maya"],
+    }
+    assert admit_location_chat_continuation(forwarded, owner_admitted=False) is None
+    assert (
+        admit_location_chat_continuation({**forwarded, "mainChat": False}, owner_admitted=True)
+        is None
+    )
+    forwarded["locationChatContinuation"] = {**continuation, "confirmed": True}
+    assert admit_location_chat_continuation(forwarded, owner_admitted=True) is None
+    private = propose_location_action("share_private", ["Maya"], ["Family"])
+    assert private["status"] == "proposal_ready"
+    assert private["people"] == ["Maya"] and private["circles"] == ["Family"]
 
 
 def test_chat_connection_guidance_is_authored_and_not_limited_to_voice():

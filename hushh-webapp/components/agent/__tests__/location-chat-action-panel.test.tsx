@@ -76,3 +76,19 @@ test("a first-time live share offers the existing consent and device setup insid
   await screen.findByText("Set up Location");
   await waitFor(() => expect(prepareMainLocationPlan).not.toHaveBeenCalled());
 });
+
+test("the pending visibility choice is exposed as a follow-up hint and cleared on unmount", async () => {
+  vi.mocked(restoreMainLocationPlans).mockResolvedValueOnce([]);
+  const onContinuationChange = vi.fn();
+  const view = render(<LocationChatActionPanel
+    proposal={{ id: "share-proposal", action: "share_options" }}
+    ownerId="owner" token="owner-token" allowReview onUnlock={() => {}}
+    onContinuationChange={onContinuationChange}
+  />);
+  await screen.findByText("Share your location");
+  await waitFor(() => expect(onContinuationChange).toHaveBeenLastCalledWith("share-proposal", expect.objectContaining({
+    step: "visibility", action: "share_options", people: [], circles: [],
+  })));
+  view.unmount();
+  expect(onContinuationChange).toHaveBeenLastCalledWith("share-proposal", null);
+});

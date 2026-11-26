@@ -2250,6 +2250,7 @@
           "action": {
             "enum": [
               "share_options",
+              "share_private",
               "share_public",
               "share_live",
               "share_pin",

@@ -7,7 +7,7 @@ import type {
 export const MAIN_CHAT_LOCATION_ENABLED = process.env.NEXT_PUBLIC_ONE_MAIN_CHAT_LOCATION_ENABLED === "true";
 const PATH = "/api/one/location/chat-plans";
 const actions = [
-  "share_options", "share_public",
+  "share_options", "share_private", "share_public",
   "share_live", "share_pin", "ask", "view", "list_shares", "list_requests", "stop", "set_duration",
   "extend", "ask_extension", "approve", "decline",
 ] as const;
@@ -33,10 +33,17 @@ export type MainLocationTarget = {
   request?: OneLocationAccessRequest;
 };
 export type MainLocationChoice = { label: string; targets: MainLocationTarget[]; requiresSelection?: boolean };
+export type MainLocationContinuation = {
+  step: "visibility" | "audience" | "duration" | "review" | "receipt";
+  action: MainLocationAction;
+  people: string[];
+  circles: string[];
+  durationHours?: number;
+};
 export type MainLocationPlan = {
   planId: string;
   attemptId?: string | null;
-  action: Exclude<MainLocationAction, "list_shares" | "list_requests" | "share_options" | "share_public">;
+  action: Exclude<MainLocationAction, "list_shares" | "list_requests" | "share_options" | "share_private" | "share_public">;
   personUserId?: string | null;
   personDisplayLabel?: string | null;
   grantId?: string | null;

@@ -4,7 +4,7 @@ import { Capacitor } from "@capacitor/core";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { LocationChatActionCard, type LocationChatActionModel } from "@/components/agent/location-chat-action/location-chat-action-card";
-import { LocationChatSharePicker } from "@/components/agent/location-chat-action/location-chat-share-picker";
+import { LocationChatSharePicker, type PrivateLocationSelection } from "@/components/agent/location-chat-action/location-chat-share-picker";
 import { LocationChatPublicShare } from "@/components/agent/location-chat-action/location-chat-public-share";
 import { MapRendererAccess } from "@/components/one-location/map-renderer-access";
 import { Button } from "@/components/ui/button";
@@ -22,12 +22,12 @@ import { GOOGLE_MAPS_RENDERER_CONSENT_VERSION } from "@/lib/one-location/map-ren
 import { subscribeToOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { OneLocationService } from "@/lib/one-location/service";
-import type { OneLocationAccessRequest, OneLocationEncryptedEnvelope, OneLocationState, PlainLocationPoint } from "@/lib/one-location/types";
+import type { OneLocationEncryptedEnvelope, OneLocationState, PlainLocationPoint } from "@/lib/one-location/types";
 import { publishOneLocationMapPreferences, useOneLocationMapPreferences } from "@/lib/one-location/use-one-location-map-preferences";
 import {
   executeMainLocationPlan, expandMainLocationTarget, prepareMainLocationPlan, resolveMainLocationChoices,
   restoreMainLocationPlans, type MainLocationAction, type MainLocationChoice, type MainLocationPlan,
-  type MainLocationProposal, type MainLocationTarget,
+  type MainLocationContinuation, type MainLocationProposal, type MainLocationTarget,
 } from "@/lib/agent/main-chat-location";
 import { ApiError } from "@/lib/services/api-client";
 
@@ -37,7 +37,7 @@ const LocationSetupFlow = dynamic(() => import("@/components/location/setup/loca
 });
 
 const titles: Record<MainLocationAction, string> = {
-  share_options: "Share your location", share_public: "Public location link",
+  share_options: "Share your location", share_private: "Share privately", share_public: "Public location link",
   share_live: "Share live location", share_pin: "Send current location", ask: "Ask for location",
   view: "View location", list_shares: "Location shares", list_requests: "Location requests",
   stop: "Stop sharing", set_duration: "Change end time", extend: "Add time",
@@ -113,6 +113,7 @@ type PanelProps = {
   token: string | null;
   onUnlock: () => void;
   allowReview: boolean;
+  onContinuationChange?: (proposalId: string, context: MainLocationContinuation | null) => void;
 };
 
 export function LocationChatActionPanel(props: PanelProps) {
@@ -134,13 +135,14 @@ export function LocationChatActionPanel(props: PanelProps) {
   return <div ref={node}>{activated ? <LocationChatActionContent {...props} nearViewport={nearViewport} /> : null}</div>;
 }
 
-function LocationChatActionContent({ proposal, ownerId, token, onUnlock, allowReview, nearViewport }: PanelProps & { nearViewport: boolean }) {
+function LocationChatActionContent({ proposal, ownerId, token, onUnlock, allowReview, onContinuationChange, nearViewport }: PanelProps & { nearViewport: boolean }) {
   const now = useCoarseClock(15_000);
   useSyncExternalStore(subscribeLocationStopQueue, locationStopQueueRevision, () => 0);
   const [intent, setIntent] = useState(proposal);
   const [state, setState] = useState<OneLocationState | null>(null);
   const [choices, setChoices] = useState<MainLocationChoice[] | null>(null);
   const [selected, setSelected] = useState<MainLocationTarget[]>([]);
+  const [pickerDraft, setPickerDraft] = useState<PrivateLocationSelection | null>(null);
   const [plans, setPlans] = useState<MainLocationPlan[] | null>(null);
   const [settled, setSettled] = useState<MainLocationPlan[]>([]);
   const [retryRevision, setRetryRevision] = useState(0);
@@ -249,7 +251,7 @@ function LocationChatActionContent({ proposal, ownerId, token, onUnlock, allowRe
         if (!allowReview) { setStage("cancelled"); return; }
         if (proposal.action === "share_options") { setStage("share-menu"); return; }
         if (proposal.action === "share_public") { setStage("public-share"); return; }
-        if (isPublish(proposal.action) && !proposal.people?.length && !proposal.circles?.length) {
+        if (proposal.action === "share_private" || (isPublish(proposal.action) && !proposal.people?.length && !proposal.circles?.length)) {
           setStage("private-picker");
           return;
         }
@@ -493,6 +495,29 @@ function LocationChatActionContent({ proposal, ownerId, token, onUnlock, allowRe
     return () => { cancelled = true; window.clearInterval(timer); window.removeEventListener("online", read); window.removeEventListener("focus", read); };
   }, [nearViewport, ownerId, token, viewIds]);
 
+  useEffect(() => {
+    if (!allowReview || !ownerId || !token || !onContinuationChange) return;
+    const step = stage === "share-menu" ? "visibility"
+      : stage === "private-picker" || stage === "choose" ? "audience"
+        : stage === "terms" ? "duration"
+          : stage === "public-share" || stage === "review" ? "review"
+            : stage === "settled" && settled.length ? "receipt" : null;
+    if (!step) return;
+    const usePicker = stage === "private-picker";
+    const action = usePicker ? pickerDraft?.mode ?? "share_private" : stage === "public-share" ? "share_public" : intent.action;
+    const audience = usePicker ? pickerDraft?.targets ?? [] : selected;
+    const people = audience.filter((target) => target.personUserId).map((target) => target.label);
+    const circles = audience.filter((target) => target.circleId && !target.personUserId).map((target) => target.label);
+    const lastPerson = settled.length === 1 ? settled[0]?.personDisplayLabel : undefined;
+    onContinuationChange(proposal.id, {
+      step, action,
+      people: (people.length ? people : intent.people ?? (step === "receipt" && lastPerson ? [lastPerson] : [])).slice(0, 20),
+      circles: (circles.length ? circles : intent.circles ?? []).slice(0, 5),
+      durationHours: action === "share_pin" ? undefined : intent.durationHours,
+    });
+    return () => onContinuationChange(proposal.id, null);
+  }, [allowReview, intent, onContinuationChange, ownerId, pickerDraft, proposal.id, selected, settled, stage, token]);
+
   function follow(action: MainLocationAction, target: MainLocationTarget) {
     const next = { id: proposal.id, attemptId: crypto.randomUUID(), action };
     void withPending((version) => start(next, [target], version));
@@ -510,8 +535,11 @@ function LocationChatActionContent({ proposal, ownerId, token, onUnlock, allowRe
     actions: [{ id: "retry", label: "Try again", variant: "primary" }],
   }} onRecover={() => setRetryRevision((value) => value + 1)} />;
 
-  function renderRecord(plan: MainLocationPlan) {
-    const { grant, request, id } = snapshotFor(state, plan);
+  function renderRecord(plan: MainLocationPlan, display?: MainLocationTarget) {
+    const snapshot = snapshotFor(state, plan);
+    const { id } = snapshot;
+    const grant = snapshot.grant ?? (!state ? display?.grant : undefined);
+    const request = snapshot.request ?? (!state ? display?.request : undefined);
     const label = plan.personDisplayLabel || (grant?.ownerUserId === ownerId ? grant?.recipientDisplayName : grant?.ownerDisplayName) || "Location";
     const incoming = grant?.recipientUserId === ownerId;
     const queued = Boolean(id && hasQueuedLocationStop(ownerId, id));
@@ -541,7 +569,7 @@ function LocationChatActionContent({ proposal, ownerId, token, onUnlock, allowRe
     const model: LocationChatActionModel = {
       phase: active && !queued && grant?.shareKind !== "pin" ? "active" : "result",
       mode: grant?.shareKind === "pin" || plan.action === "share_pin" ? "current" : grant ? "live" : undefined,
-      title: titles[plan.action],
+      title: display?.request ? "Location request" : titles[plan.action],
       subject: { label },
       status,
       endAt: grant?.expiresAt ?? plan.nextExpiresAt,
@@ -569,7 +597,7 @@ function LocationChatActionContent({ proposal, ownerId, token, onUnlock, allowRe
   }
 
   const dismiss = () => { setStage(settled.length ? "settled" : "cancelled"); setPreview(null); };
-  const results = settled.map(renderRecord);
+  const results = settled.map((plan) => renderRecord(plan));
   const backToSharing = () => {
     setError(undefined);
     setStage("share-menu");
@@ -579,6 +607,8 @@ function LocationChatActionContent({ proposal, ownerId, token, onUnlock, allowRe
     actions: [{ id: "private", label: "Share privately", variant: "primary" }, { id: "public", label: "Create a public link" }],
   }} onRecover={(action) => setStage(action === "private" ? "private-picker" : "public-share")} />;
   if (stage === "private-picker") return <LocationChatSharePicker token={token} ownerId={ownerId} busy={busy} error={error}
+    suggestedPeople={proposal.people} suggestedCircles={proposal.circles}
+    onSelectionChange={setPickerDraft}
     initialMode={proposal.action === "share_pin" ? "share_pin" : "share_live"} onBack={backToSharing}
     onContinue={(action, targets) => {
       void withPending((version) => start({
@@ -737,19 +767,22 @@ function LocationChatActionContent({ proposal, ownerId, token, onUnlock, allowRe
 
   if (isReadList(intent.action)) {
     const listed = choices?.[0]?.targets ?? [];
-    const single = listed.length === 1 ? listed[0] : undefined;
-    return <LocationChatActionCard model={{
-      phase: "active", title: titles[intent.action],
-      status: listed.length ? undefined : "Nothing to show yet.",
-      facts: listed.map((item) => {
-        const updatedRequest: OneLocationAccessRequest | undefined = state?.requests.find((row) => row.id === item.requestId);
-        const updatedGrant = state ? [...state.ownerGrants, ...state.receivedGrants].find((row) => row.id === item.grantId) : undefined;
-        return { label: item.label, value: updatedRequest?.status ?? (updatedGrant?.expiresAt
-          ? `${updatedGrant.status} · Until ${new Date(updatedGrant.expiresAt).toLocaleString()}` : updatedGrant?.status ?? item.detail ?? "Available") };
-      }),
-      actions: single?.request?.ownerUserId === ownerId && single?.request?.status === "pending"
-        ? [{ id: "approve", label: "Approve" }, { id: "decline", label: "Decline" }] : [],
-    }} onRecover={(action, event) => { if (single && event.nativeEvent.isTrusted) follow(action as MainLocationAction, single); }} />;
+    if (!listed.length) return <LocationChatActionCard model={{
+      phase: "result", title: titles[intent.action], status: "Nothing to show yet.",
+    }} />;
+    return <div aria-label={titles[intent.action]} className="space-y-2">
+      {listed.map((target) => {
+        const recordId = target.grantId ?? target.requestId;
+        if (!recordId) return null;
+        const action = target.request ? "ask"
+          : target.grant?.recipientUserId === ownerId ? "view"
+            : target.grant?.shareKind === "pin" ? "share_pin" : "share_live";
+        return renderRecord({
+          planId: recordId, status: "executed", action,
+          grantId: target.grantId, requestId: target.requestId, personDisplayLabel: target.label,
+        }, target);
+      })}
+    </div>;
   }
   return <>{results}{failedLabels.length ? <p role="status" className="text-sm text-muted-foreground">Couldn’t prepare for {failedLabels.join(", ")}.</p> : null}</>;
 }

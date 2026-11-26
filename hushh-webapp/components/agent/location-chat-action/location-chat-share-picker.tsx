@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { CheckIcon, CircleUserRoundIcon, UsersIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,13 +10,18 @@ import type { OneLocationCircleSummary, OneLocationRecipientPage } from "@/lib/o
 import { cn } from "@/lib/utils";
 
 type PrivateMode = "share_live" | "share_pin";
+export type PrivateLocationSelection = { mode: PrivateMode; targets: MainLocationTarget[] };
+const normalized = (label: string) => label.normalize("NFKC").trim().toLocaleLowerCase();
 
-export function LocationChatSharePicker({ token, ownerId, initialMode = "share_live", busy, error, onContinue, onBack }: {
+export function LocationChatSharePicker({ token, ownerId, initialMode = "share_live", busy, error, suggestedPeople, suggestedCircles, onSelectionChange, onContinue, onBack }: {
   token: string;
   ownerId: string;
   initialMode?: PrivateMode;
   busy: boolean;
   error?: string;
+  suggestedPeople?: string[];
+  suggestedCircles?: string[];
+  onSelectionChange?: (selection: PrivateLocationSelection) => void;
   onContinue: (mode: PrivateMode, targets: MainLocationTarget[]) => void;
   onBack: () => void;
 }) {
@@ -32,6 +37,49 @@ export function LocationChatSharePicker({ token, ownerId, initialMode = "share_l
   const [failedCircles, setFailedCircles] = useState(false);
   const [directoryRetry, setDirectoryRetry] = useState(0);
   const [circlesRetry, setCirclesRetry] = useState(0);
+  const [unresolvedPeople, setUnresolvedPeople] = useState<string[]>([]);
+  const [unresolvedCircles, setUnresolvedCircles] = useState<string[]>([]);
+  const edited = useRef(false);
+
+  useEffect(() => {
+    if (!suggestedPeople?.length) return;
+    let current = true;
+    const people = suggestedPeople.map(async (name) => {
+      const { items } = await OneLocationService.listRecipientsPage({ vaultOwnerToken: token, page: 1, limit: 40, query: name });
+      const exact = items.filter((item) => item.userId !== ownerId && normalized(item.displayName) === normalized(name));
+      const person = exact.length === 1 ? exact[0] : undefined;
+      return person?.canReceiveLocation
+        ? [`person:${person.userId}`, { label: person.displayName, personUserId: person.userId }] as const : null;
+    });
+    void Promise.allSettled(people).then((results) => {
+      if (!current) return;
+      setUnresolvedPeople(suggestedPeople.filter((_, index) => {
+        const result = results[index];
+        return result?.status !== "fulfilled" || !result.value;
+      }));
+      if (edited.current) return;
+      const ready = results.flatMap((result) => result.status === "fulfilled" && result.value ? [result.value] : []);
+      if (ready.length) setSelected((previous) => ({ ...previous, ...Object.fromEntries(ready) }));
+    });
+    return () => { current = false; };
+  }, [ownerId, suggestedPeople, token]);
+
+  useEffect(() => {
+    if (!circles || !suggestedCircles?.length) return;
+    const unresolved: string[] = [];
+    const ready = suggestedCircles.flatMap((name) => {
+      const exact = circles.filter((circle) => normalized(circle.name) === normalized(name));
+      const match = exact.length === 1 ? exact[0] : undefined;
+      if (!match) unresolved.push(name);
+      return match ? [[`circle:${match.id}`, { label: match.name, circleId: match.id }] as const] : [];
+    });
+    setUnresolvedCircles(unresolved);
+    if (!edited.current && ready.length) setSelected((previous) => ({ ...previous, ...Object.fromEntries(ready) }));
+  }, [circles, suggestedCircles]);
+
+  useEffect(() => {
+    onSelectionChange?.({ mode, targets: Object.values(selected) });
+  }, [mode, onSelectionChange, selected]);
 
   useEffect(() => {
     let current = true;
@@ -62,7 +110,15 @@ export function LocationChatSharePicker({ token, ownerId, initialMode = "share_l
   const selectedTargets = Object.values(selected);
   const people = directory?.items.filter((person) => person.userId !== ownerId) ?? [];
   const shownCircles = (circles ?? []).filter((circle) => circle.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  const unresolvedNames = [...new Set([...unresolvedPeople, ...unresolvedCircles])]
+    .filter((name) => !selectedTargets.some((target) => normalized(target.label) === normalized(name)));
+  function search(value: string) {
+    setQuery(value);
+    setPage(1);
+    if (value !== query) setDirectory(null);
+  }
   function toggle(id: string, target: MainLocationTarget) {
+    edited.current = true;
     setSelected((previous) => {
       const next = { ...previous };
       if (next[id]) delete next[id];
@@ -102,7 +158,11 @@ export function LocationChatSharePicker({ token, ownerId, initialMode = "share_l
       ))}
     </fieldset>
     <Input type="search" value={query} aria-label="Search connections and Circles" placeholder="Search connections and Circles"
-      onChange={(event) => { setQuery(event.target.value); setPage(1); setDirectory(null); }} />
+      onChange={(event) => search(event.target.value)} />
+    {unresolvedNames.length ? <div className="flex flex-wrap gap-1.5" aria-label="Names to review">
+      {unresolvedNames.map((name) => <Button key={name} type="button" size="sm" variant="outline"
+        disabled={busy} onClick={() => search(name)}>Find {name}</Button>)}
+    </div> : null}
     <div className="max-h-72 space-y-3 overflow-y-auto overscroll-contain">
       <section aria-label="Circles">
         <h4 className="px-2 text-xs font-semibold text-muted-foreground">Circles</h4>
@@ -120,7 +180,12 @@ export function LocationChatSharePicker({ token, ownerId, initialMode = "share_l
         {directory?.hasMore && !failedDirectory ? <Button variant="ghost" disabled={loading} onClick={() => setPage(directory.page + 1)}>Show more connections</Button> : null}
       </section>
     </div>
-    {selectedTargets.length ? <p role="status" className="text-sm text-muted-foreground">{selectedTargets.map((target) => target.label).join(", ")}</p> : null}
+    {selectedTargets.length ? <div className="flex flex-wrap gap-1.5" aria-label="Selected audience">
+      {Object.entries(selected).map(([id, target]) => <Button key={id} type="button" size="sm" variant="outline"
+        aria-label={`Remove ${target.label} from the audience`} disabled={busy} onClick={() => toggle(id, target)}>
+        {target.label}<span aria-hidden="true">×</span>
+      </Button>)}
+    </div> : null}
     {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     <div className="flex flex-wrap justify-end gap-2">
       <Button type="button" variant="ghost" disabled={busy} onClick={onBack}>Back</Button>

@@ -49,6 +49,13 @@ select both a connection and a Circle. Check the audience on the review card.
 Then choose a public link, preview the position, and confirm. Open the link as
 a visitor, and verify that stopping it from Chat or Location ends access.
 
+Repeat from typed Chat using “Private with Maya and Family” followed by “Make
+it 30 minutes.” Check that the review carries the chosen audience forward and
+that a typed yes leaves confirmation on the card. Try an ambiguous contact
+name and resolve it from the picker. Check that Location support requests,
+Circle membership questions, and map navigation still use their existing
+tools, and that a subsequent Mail or Calendar request resumes its own flow.
+
 1. In ONE’s main Chat, type a request to share your current location with a
    named person. Confirm the recipient, preview the point, and tap to send.
    The same pin appears under Location → Sent pins and under the recipient’s
