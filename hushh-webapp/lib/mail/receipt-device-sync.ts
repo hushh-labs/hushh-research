@@ -7,6 +7,7 @@
  */
 import { MailReceiptResourceService } from "@/lib/services/mail-receipt-resource-service";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import type { PrivateReceiptMailbox } from "@/lib/services/gmail-receipts-service";
 import type { ReceiptStoreSession } from "./receipt-store";
 
 /** `unavailable`: Mail isn't connected for sync here, so nothing was started. */
@@ -48,7 +49,9 @@ export async function syncReceiptsOnDevice(session: ReceiptStoreSession, onStart
   return syncMailbox(session, inputs, onStart, budgetMs);
 }
 
-async function syncMailbox(session: ReceiptStoreSession, inputs: NonNullable<Awaited<ReturnType<typeof syncInputs>>>,
+type SyncInputs = NonNullable<Awaited<ReturnType<typeof syncInputs>>> & { privateMailbox?: PrivateReceiptMailbox };
+
+async function syncMailbox(session: ReceiptStoreSession, inputs: SyncInputs,
   onStart?: () => void, budgetMs = RECEIPT_SYNC_BUDGET_MS): Promise<DeviceReceiptSync> {
   const isCurrent = () => inputs.isCurrent() && (session.isCurrent?.() ?? true);
   if (!isCurrent()) return "unavailable";
@@ -58,7 +61,7 @@ async function syncMailbox(session: ReceiptStoreSession, inputs: NonNullable<Awa
   const deadline = new Promise<"failed">(resolve => { timer = setTimeout(() => resolve("failed"), budgetMs); });
   try {
     return await Promise.race([
-      MailReceiptResourceService.refresh({ ...session, isCurrent }, inputs.account, inputs.getIdToken).then(() => "synced" as const, () => "failed" as const),
+      MailReceiptResourceService.refresh({ ...session, isCurrent }, inputs.account, inputs.getIdToken, ...(inputs.privateMailbox ? [{ privateMailbox: inputs.privateMailbox }] : [])).then(() => "synced" as const, () => "failed" as const),
       deadline,
     ]);
   } finally {
@@ -71,8 +74,8 @@ async function syncMailbox(session: ReceiptStoreSession, inputs: NonNullable<Awa
  * receipts, and sync only when none are saved, an earlier sync was interrupted,
  * or they are a day old. A restore that fails stays unknown and never starts a scan.
  */
-export async function startBackgroundReceiptSync(session: ReceiptStoreSession): Promise<DeviceReceiptSync | "skipped"> {
-  const inputs = await syncInputs(session.userId);
+export async function startBackgroundReceiptSync(session: ReceiptStoreSession, selected?: SyncInputs): Promise<DeviceReceiptSync | "skipped"> {
+  const inputs = selected ?? await syncInputs(session.userId);
   if (!inputs) return "unavailable";
   const epoch = snapshotVaultSessionEpoch();
   const key = JSON.stringify([session.userId, inputs.account]);

@@ -29,6 +29,7 @@ import { ContactInvitationSessionProvider } from "@/components/connections/conta
 import { AzureReturnBootRecovery } from "@/components/connections/azure-return-boot-recovery";
 
 import { InitialContactsBridge } from "@/components/onboarding/initial-contacts-bridge";
+import { PrivateMailSessionProvider } from "@/lib/mail/private-mail-session";
 import { ReceiptDeviceSyncBridge } from "@/lib/mail/receipt-device-sync-bridge";
 import { MailFollowupsVaultBridge } from "@/lib/mail/mail-followups-vault-bridge";
 import { VaultProvider } from "@/lib/vault/vault-context";
@@ -661,6 +662,7 @@ function AppShellFrame({ children }: ProvidersProps) {
       <PersonaProvider>
         <RiaSurfaceScopeSync />
         <VaultProvider>
+          <PrivateMailSessionProvider>
           <OneLocationInteractionSurfaceProvider>
             <AgentRuntimeStateProvider>
               <OneVoiceReadinessProvider>
@@ -872,6 +874,7 @@ function AppShellFrame({ children }: ProvidersProps) {
               <LiveActivityBridge />
             </AgentRuntimeStateProvider>
           </OneLocationInteractionSurfaceProvider>
+          </PrivateMailSessionProvider>
         </VaultProvider>
       </PersonaProvider>
     </CacheProvider>

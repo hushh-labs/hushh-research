@@ -1053,11 +1053,13 @@ class GmailLiveReceiptsService:
         transport: httpx.AsyncBaseTransport | None = None,
         source_secret: bytes | None = None,
         extractor: Extractor | None = None,
+        model: Any | None = None,
     ) -> None:
         self._gmail = gmail or get_gmail_receipts_service()
         self._transport = transport
         self._source_secret = source_secret
         self._extractor = extractor or self._run_extractor
+        self._model = model
         self._active_scans: dict[str, _ScanLease] = {}
         self._active_owners_guard = asyncio.Lock()
         self._scan_connections = asyncio.Semaphore(_SCAN_CONNECTIONS_PER_WORKER)
@@ -1247,6 +1249,7 @@ class GmailLiveReceiptsService:
                 output_schema=EMAIL_LIVE_RECEIPT_EXTRACTOR_SCHEMA,
                 timeout_seconds=_EXTRACTOR_TIMEOUT_SECONDS,
                 retry_on_failure=False,
+                **({"model": self._model} if self._model is not None else {}),
             )
         except TimeoutError:
             raise GmailApiError(

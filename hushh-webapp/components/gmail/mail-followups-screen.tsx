@@ -42,6 +42,7 @@ export function MailFollowupsScreen({
   account,
   connection,
   verifiedAddress,
+  savedTasks,
   handoff,
   mail = MailFollowupsService,
   onBack,
@@ -52,6 +53,7 @@ export function MailFollowupsScreen({
   account: string;
   connection: string;
   verifiedAddress?: string;
+  savedTasks?: ReturnType<typeof tasks.load>;
   onBack: () => void;
 }) {
   const [view, setView] = useState<
@@ -113,7 +115,7 @@ export function MailFollowupsScreen({
       verifiedAddress
         ? { account, connection, address: verifiedAddress }
         : mail.account(account, connection, controller.signal),
-      tasks.load({ userId, vaultOwnerToken, vaultKey }),
+      savedTasks ?? tasks.load({ userId, vaultOwnerToken, vaultKey }),
     ])
       .then(([mailbox, saved]) => {
         if (!controller.signal.aborted && isVaultSessionEpochCurrent(epoch)) {
@@ -143,6 +145,7 @@ export function MailFollowupsScreen({
     account,
     connection,
     verifiedAddress,
+    savedTasks,
     mail,
   ]);
 

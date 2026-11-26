@@ -1,3 +1,4 @@
+import { parseMailBrief } from "@/lib/mail/mail-brief-client";
 import { z } from "zod";
 import { ApiService } from "./api-service";
 import {
@@ -50,6 +51,13 @@ function mailFollowupsClient() {
     connection,
   });
   return {
+    brief: async (box: FollowupMailbox, signal: AbortSignal) => {
+      const result = parseMailBrief(await read("brief", selection(box), z.unknown(), signal));
+      if (result.account !== box.account) throw new Error("Mailbox changed.");
+      return result;
+    },
+    recent: (box: FollowupMailbox, signal: AbortSignal) =>
+      read("recent", selection(box), sourceListSchema, signal),
     account: (account: string, connection: string, signal: AbortSignal) =>
       read("account", { account, connection }, mailboxSchema, signal),
     search: (box: FollowupMailbox, query: string, signal: AbortSignal) =>
