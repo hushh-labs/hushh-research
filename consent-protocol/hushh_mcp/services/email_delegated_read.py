@@ -139,6 +139,7 @@ class MailReadOffer(BaseModel):
     account: str = Field(min_length=1, max_length=256)
     mailbox: Literal["inbox", "sent", "anywhere"]
     message_ids: list[str] = Field(min_length=1, max_length=25)
+    thread_ids: list[str] = Field(default_factory=list, max_length=25)
     created_at_ms: int = Field(ge=1)
     selected_ordinal: int | None = Field(default=None, ge=1, le=25)
 
@@ -152,11 +153,28 @@ class MailReadOffer(BaseModel):
             raise ValueError("invalid_mail_offer_ids")
         return values
 
+    @field_validator("thread_ids")
+    @classmethod
+    def valid_thread_ids(cls, values: list[str]) -> list[str]:
+        if any(
+            not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,200}", value)
+            for value in values
+        ):
+            raise ValueError("invalid_mail_offer_thread_ids")
+        return values
+
     def message_id_at(self, ordinal: int) -> str | None:
         if 1 <= ordinal <= len(self.message_ids):
             return self.message_ids[ordinal - 1]
         if len(self.message_ids) == 1 and ordinal == self.selected_ordinal:
             return self.message_ids[0]
+        return None
+
+    def thread_id_at(self, ordinal: int) -> str | None:
+        if 1 <= ordinal <= len(self.thread_ids):
+            return self.thread_ids[ordinal - 1]
+        if len(self.thread_ids) == 1 and ordinal == self.selected_ordinal:
+            return self.thread_ids[0]
         return None
 
 
@@ -185,21 +203,26 @@ def make_mail_read_offer(raw: Any, *, owner_id: str, conversation_id: str) -> di
 
     if not isinstance(raw, dict):
         return None
+    payload: dict[str, Any] = {
+        "owner_id": owner_id,
+        "conversation_id": conversation_id,
+        "account": raw.get("account"),
+        "mailbox": raw.get("mailbox"),
+        "message_ids": raw.get("message_ids"),
+        "created_at_ms": int(time.time() * 1000),
+        "selected_ordinal": raw.get("selected_ordinal"),
+    }
+    raw_threads = raw.get("thread_ids")
+    if isinstance(raw_threads, list) and raw_threads:
+        payload["thread_ids"] = raw_threads
     try:
-        offer = MailReadOffer.model_validate(
-            {
-                "owner_id": owner_id,
-                "conversation_id": conversation_id,
-                "account": raw.get("account"),
-                "mailbox": raw.get("mailbox"),
-                "message_ids": raw.get("message_ids"),
-                "created_at_ms": int(time.time() * 1000),
-                "selected_ordinal": raw.get("selected_ordinal"),
-            }
-        )
+        offer = MailReadOffer.model_validate(payload)
     except (ValidationError, TypeError, ValueError):
         return None
-    return offer.model_dump(mode="json")
+    dumped = offer.model_dump(mode="json")
+    if not dumped.get("thread_ids"):
+        dumped.pop("thread_ids", None)
+    return dumped
 
 
 class MailItemGist(BaseModel):

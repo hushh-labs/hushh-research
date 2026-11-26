@@ -40,6 +40,34 @@ function withinDeadline<T>(work: Promise<T>, ms: number): Promise<T | null> {
 export async function resolveTurnLocation(): Promise<TurnLocation> {
   const startedAt = Date.now();
   try {
+    // Zero-wait fast path: if LocationBus already knows permission and holds a
+    // fresh fix in memory, return immediately (0 ms) without blocking chat send.
+    const currentState = LocationBus.getState() as {
+      permission?: string | null;
+      snapshot?: { latitude: number; longitude: number; capturedAt: string } | null;
+    } | null;
+    const cachedPermission = currentState?.permission;
+    const cachedSnapshot = currentState?.snapshot;
+    if (
+      cachedPermission === "granted" &&
+      cachedSnapshot &&
+      isUsableFixAge(cachedSnapshot.capturedAt) &&
+      Number.isFinite(cachedSnapshot.latitude) &&
+      Number.isFinite(cachedSnapshot.longitude)
+    ) {
+      return {
+        status: "available",
+        latitude: coarse(cachedSnapshot.latitude),
+        longitude: coarse(cachedSnapshot.longitude),
+      };
+    }
+    if (cachedPermission === "denied" || cachedPermission === "restricted") {
+      return { status: "denied" };
+    }
+    if (cachedPermission === "prompt") {
+      return { status: "not_granted" };
+    }
+
     const permission = await withinDeadline(LocationBus.syncPermission(), FRESH_FIX_WAIT_MS);
     if (permission === "denied" || permission === "restricted") return { status: "denied" };
     if (permission === "prompt") return { status: "not_granted" };

@@ -32,6 +32,21 @@ describe("resolveTurnLocation", () => {
     expect(bus.ensure).not.toHaveBeenCalled();
   });
 
+  it("returns immediately from cached LocationBus state without awaiting syncPermission", async () => {
+    bus.getState.mockReturnValue({
+      permission: "granted",
+      snapshot: { ...PRECISE, capturedAt: new Date().toISOString() },
+    });
+
+    expect(await resolveTurnLocation()).toEqual({
+      status: "available",
+      latitude: 37.77,
+      longitude: -122.42,
+    });
+    expect(bus.syncPermission).not.toHaveBeenCalled();
+    expect(bus.ensure).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["denied", "denied"],
     ["restricted", "denied"],

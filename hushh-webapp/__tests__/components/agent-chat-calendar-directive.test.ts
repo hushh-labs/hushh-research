@@ -7,6 +7,7 @@ import {
   getCalendarDirectiveFromToolEvent,
   getGmailEmailDraftPayload,
   getGmailInformationRequestReplyPayload,
+  getGmailReplyDraftPayload,
 } from "@/components/agent/agent-chat-workspace";
 import type { AgentChatToolEvent } from "@/lib/services/agent-chat-client";
 
@@ -319,6 +320,51 @@ describe("getGmailInformationRequestReplyPayload", () => {
     expect(
       getGmailInformationRequestReplyPayload(
         makeToolEvent("open_gmail_email_draft", { status: "draft_opened" }, { body: "Nope" }),
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("getGmailReplyDraftPayload", () => {
+  const validRef = `rs1.${"A".repeat(48)}`;
+
+  it("extracts server-pinned source_mail_ref and envelope from open_gmail_reply_draft", () => {
+    const event = makeToolEvent(
+      "open_gmail_reply_draft",
+      {
+        status: "draft_opened",
+        source_mail_ref: validRef,
+        recipient_display: "Ravi Gupta <ravi@sequoia.example>",
+        subject: "Re: Term sheet catchup",
+      },
+      { ordinal: 1, body: "Tuesday 3pm works great!" },
+    );
+
+    expect(getGmailReplyDraftPayload(event)).toEqual({
+      sourceMailRef: validRef,
+      to: "Ravi Gupta <ravi@sequoia.example>",
+      subject: "Re: Term sheet catchup",
+      body: "Tuesday 3pm works great!",
+    });
+  });
+
+  it("refuses malformed or unsealed reply refs and non-opened statuses", () => {
+    expect(
+      getGmailReplyDraftPayload(
+        makeToolEvent(
+          "open_gmail_reply_draft",
+          { status: "draft_opened", source_mail_ref: "raw-provider-id" },
+          { ordinal: 1, body: "Hi" },
+        ),
+      ),
+    ).toBeNull();
+    expect(
+      getGmailReplyDraftPayload(
+        makeToolEvent(
+          "open_gmail_reply_draft",
+          { status: "source_changed", source_mail_ref: validRef },
+          { ordinal: 1, body: "Hi" },
+        ),
       ),
     ).toBeNull();
   });

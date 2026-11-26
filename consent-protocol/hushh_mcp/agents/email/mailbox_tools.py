@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from google.adk.tools.tool_context import ToolContext
 
+from hushh_mcp.services.email_delegated_read import current_mail_read_offer
 from hushh_mcp.services.gmail_mailbox_actions import (
     LABEL_ACTIONS,
     MAILBOX_ACTIONS,
@@ -25,7 +26,9 @@ from hushh_mcp.services.gmail_receipts_service import GmailApiError, get_gmail_r
 logger = logging.getLogger(__name__)
 
 _STATE_USER_ID = "hussh:user_id"
+_STATE_CONVERSATION_ID = "hussh:conversation_id"
 _STATE_EXECUTION_SURFACE = "temp:one_execution_surface"
+_STATE_MAIL_READ_OFFER = "hussh:mail_read_offer"
 # The app drains this key into the review card. Subjects and senders travel
 # only here, to the owner's card, and are never returned to the tool-bearing
 # model: untrusted mail text must not steer One's next tool call.
@@ -99,6 +102,84 @@ def _summary(action: str, label: str, preview: dict[str, Any]) -> tuple[str, str
     return f"{phrase.format(label=label)} {target}{more}?", verb
 
 
+def _resolve_offered_message_ids(
+    tool_context: ToolContext,
+    *,
+    user_id: str,
+    ordinals: list[int] | None,
+    max_items: int,
+) -> tuple[tuple[str, ...] | None, str | None, str | None, dict[str, Any] | None]:
+    """Resolve 1-based positions from server-minted ``STATE_MAIL_READ_OFFER``.
+
+    Returns ``(message_ids, account, mailbox, error_response)``. Never accepts
+    model-supplied provider IDs.
+    """
+    if not ordinals:
+        return None, None, None, None
+    if not isinstance(ordinals, list):
+        return (
+            None,
+            None,
+            None,
+            {
+                "status": "invalid_argument",
+                "message": "Choose email positions from the list shown in this chat.",
+            },
+        )
+    clean_ordinals: list[int] = []
+    for value in ordinals[:max_items]:
+        if type(value) is not int or not 1 <= value <= 25:
+            return (
+                None,
+                None,
+                None,
+                {
+                    "status": "invalid_argument",
+                    "message": "Choose email positions from the list shown in this chat.",
+                },
+            )
+        if value not in clean_ordinals:
+            clean_ordinals.append(value)
+    if not clean_ordinals:
+        return None, None, None, None
+
+    conversation_id = str(tool_context.state.get(_STATE_CONVERSATION_ID) or "").strip() or "chat"
+    offer = current_mail_read_offer(
+        tool_context.state.get(_STATE_MAIL_READ_OFFER),
+        owner_id=user_id,
+        conversation_id=conversation_id,
+    )
+    if offer is None:
+        return (
+            None,
+            None,
+            None,
+            {
+                "status": "source_changed",
+                "message": "That email list expired. Search for those emails again first.",
+            },
+        )
+    resolved: list[str] = []
+    for ordinal in clean_ordinals:
+        msg_id = offer.message_id_at(ordinal)
+        if not msg_id:
+            return (
+                None,
+                None,
+                None,
+                {
+                    "status": "invalid_argument",
+                    "message": (
+                        f"Only {len(offer.message_ids)} email(s) were shown. "
+                        "Choose positions from that list."
+                    ),
+                },
+            )
+        if msg_id not in resolved:
+            resolved.append(msg_id)
+    return tuple(resolved), offer.account, offer.mailbox, None
+
+
 async def propose_gmail_mailbox_change(
     tool_context: ToolContext,
     action: str,
@@ -106,15 +187,18 @@ async def propose_gmail_mailbox_change(
     mailbox: str = "inbox",
     limit: int = 10,
     label: str = "",
+    ordinals: list[int] | None = None,
 ) -> dict[str, Any]:
     """Prepare a Gmail mailbox change for the owner's review. Nothing changes until they confirm.
 
     action is one of archive, add_label, remove_label, mark_read, mark_unread or
-    trash (Gmail's recoverable Trash). query is a Gmail search built from the
-    person's description (sender, subject, words, unread, dates); leave it empty
-    only for their newest mail. mailbox is inbox, sent or anywhere. limit is how
-    many matching emails, 1 to 25. label is the label name for add_label and
-    remove_label only.
+    trash (Gmail's recoverable Trash). Use ``ordinals`` (e.g. ``[1, 3]``) when
+    the owner refers to emails by position from the list already shown in this
+    chat — the server resolves the exact offered message IDs without re-searching.
+    Otherwise pass ``query`` built from the person's description (sender, subject,
+    words, unread, dates); leave it empty only for their newest mail. mailbox is
+    inbox, sent or anywhere. limit is how many matching emails, 1 to 25. label is
+    the label name for add_label and remove_label only.
     """
     from hushh_mcp.one_adk.workspace_mcp_tools import _owner
 
@@ -126,21 +210,34 @@ async def propose_gmail_mailbox_change(
     if (action in LABEL_ACTIONS) != bool(str(label or "").strip()):
         return {"status": "invalid_label", "message": "Name the label for a label change only."}
 
+    offered_ids, offered_account, offered_mailbox, ordinal_error = _resolve_offered_message_ids(
+        tool_context,
+        user_id=user_id,
+        ordinals=ordinals,
+        max_items=25,
+    )
+    if ordinal_error is not None:
+        return ordinal_error
+
     async def require_access() -> None:
         if await _owner(tool_context, "gmail") != user_id:
             raise PermissionError("Mail owner authority is unavailable")
 
     try:
         await require_access()
-        proposal = await get_gmail_mailbox_actions().propose(
-            user_id=user_id,
-            action=action,
-            query=str(query or ""),
-            mailbox=str(mailbox or "inbox"),
-            limit=limit if type(limit) is int else 10,
-            label=str(label or ""),
-            require_access=require_access,
-        )
+        propose_kwargs: dict[str, Any] = {
+            "user_id": user_id,
+            "action": action,
+            "query": str(query or ""),
+            "mailbox": offered_mailbox or str(mailbox or "inbox"),
+            "limit": limit if type(limit) is int else 10,
+            "label": str(label or ""),
+            "require_access": require_access,
+        }
+        if offered_ids is not None:
+            propose_kwargs["message_ids"] = offered_ids
+            propose_kwargs["expect_account"] = offered_account
+        proposal = await get_gmail_mailbox_actions().propose(**propose_kwargs)
     except GmailApiError as exc:
         if exc.code == "GMAIL_MODIFY_PERMISSION_REQUIRED":
             return _connection_directive(tool_context)
@@ -201,13 +298,15 @@ async def propose_gmail_todo(
     query: str = "",
     mailbox: str = "inbox",
     limit: int = 10,
+    ordinals: list[int] | None = None,
 ) -> dict[str, Any]:
     """Prepare selected Gmail follow-ups for the owner's To-do list.
 
     Use only when the owner explicitly asks to add named email follow-ups to
-    their list. ``query`` is a Gmail search from the owner's description;
-    leave it empty only for their newest mail. No Gmail message is changed,
-    and an email's received time is never treated as a due date.
+    their list. Use ``ordinals`` (e.g. ``[2]``) when referring to emails shown
+    earlier in this chat; otherwise pass ``query`` built from the owner's
+    description (leave empty only for their newest mail). No Gmail message is
+    changed, and an email's received time is never treated as a due date.
     """
 
     from hushh_mcp.one_adk.workspace_mcp_tools import _owner
@@ -215,6 +314,15 @@ async def propose_gmail_todo(
     user_id = await _owner(tool_context, "gmail")
     if user_id is None:
         return {"status": "unavailable", "message": "Gmail follow-ups require an authorized chat."}
+
+    offered_ids, offered_account, offered_mailbox, ordinal_error = _resolve_offered_message_ids(
+        tool_context,
+        user_id=user_id,
+        ordinals=ordinals,
+        max_items=10,
+    )
+    if ordinal_error is not None:
+        return ordinal_error
 
     async def require_access() -> None:
         if await _owner(tool_context, "gmail") != user_id:
@@ -228,12 +336,25 @@ async def propose_gmail_todo(
     if operation == "search_inbox":
         arguments["query"] = normalized_query
     try:
-        reader = GmailMetadataReader(
-            gmail=get_gmail_receipts_service(),
-            user_id=user_id,
-            require_access=require_access,
-        )
-        preview = await reader.read(operation, arguments)
+        if offered_ids is not None:
+            reader = GmailMetadataReader(
+                gmail=get_gmail_receipts_service(),
+                user_id=user_id,
+                require_access=require_access,
+                expect_account=offered_account,
+            )
+            targets = await reader.resolve_targets_by_ids(
+                offered_ids,
+                mailbox=offered_mailbox or "anywhere",
+            )
+            preview = targets.preview
+        else:
+            reader = GmailMetadataReader(
+                gmail=get_gmail_receipts_service(),
+                user_id=user_id,
+                require_access=require_access,
+            )
+            preview = await reader.read(operation, arguments)
         await require_access()
     except GmailApiError as exc:
         return _todo_read_error(exc)
