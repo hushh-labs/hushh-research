@@ -6,6 +6,7 @@ import { applyNoticeCheck } from "@/lib/mail/receipt-tracking";
 import { type NoticeSource, noticeCheckDue, selectNoticeInput } from "@/lib/mail/receipt-notice";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 import type { RecentReceiptRow } from "@/lib/profile/gmail-receipt-presentation";
+import { usePrivateMailSession } from "@/lib/mail/private-mail-session";
 import { useReceiptTracking } from "./receipt-tracking-context";
 
 export type NoticeStatus = "idle" | "checking" | "failed";
@@ -48,6 +49,7 @@ export function ReceiptNoticeProvider({
   enabled: boolean;
   children: ReactNode;
 }) {
+  const privateMailbox = usePrivateMailSession()?.selected ?? undefined;
   const tracking = useReceiptTracking();
   const [status, setStatus] = useState<NoticeStatus>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -81,7 +83,7 @@ export function ReceiptNoticeProvider({
       void (async () => {
         try {
           const idToken = await getIdToken!();
-          const check = await GmailReceiptsService.checkReceiptNotice({
+          const check = await GmailReceiptsService.checkReceiptNotice({ privateMailbox,
             idToken, vaultOwnerToken: vaultOwnerToken!, userId: userId!, accountKey: accountKey!, receiptKeys: input.keys,
             prior: notice.findings.map((finding) => ({ id: finding.id, kind: finding.kind, provider: finding.provider?.name ?? "", headline: finding.headline })),
             signal: controller.signal,
@@ -114,8 +116,8 @@ export function ReceiptNoticeProvider({
   const retry = useCallback(() => { failedAt.current = null; force.current = true; setNonce((value) => value + 1); }, []);
   const openSource = useCallback<ReceiptNoticeValue["openSource"]>(async (openKey) => {
     if (!userId || !vaultOwnerToken || !accountKey || !getIdToken) throw new Error("Open your vault to read this email.");
-    return GmailReceiptsService.openNoticeSource({ idToken: await getIdToken(), vaultOwnerToken, userId, accountKey, openKey });
-  }, [accountKey, getIdToken, userId, vaultOwnerToken]);
+    return GmailReceiptsService.openNoticeSource({ privateMailbox, idToken: await getIdToken(), vaultOwnerToken, userId, accountKey, openKey });
+  }, [accountKey, getIdToken, privateMailbox, userId, vaultOwnerToken]);
 
   const value = useMemo<ReceiptNoticeValue>(() => ({ status, error, retry, openSource }), [status, error, retry, openSource]);
   return <Context.Provider value={value}>{children}</Context.Provider>;

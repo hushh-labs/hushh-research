@@ -341,7 +341,11 @@ def _safe_draft(value: Any, source_text: str) -> str | None:
 
 
 def _evidence_out(
-    messages: list[tuple[Message, str]], *, owner_user_id: str, account: str
+    messages: list[tuple[Message, str]],
+    *,
+    owner_user_id: str,
+    account: str,
+    seal: Callable[..., str] = seal_source_id,
 ) -> list[dict[str, Any]]:
     seen: set[str] = set()
     out: list[dict[str, Any]] = []
@@ -351,7 +355,7 @@ def _evidence_out(
         seen.add(message.ref)
         out.append(
             {
-                "source_id": seal_source_id(
+                "source_id": seal(
                     owner_user_id=owner_user_id, account=account, message_id=message.message_id
                 ),
                 "from": "You" if message.direction == "sent" else message.person,
@@ -371,7 +375,12 @@ def _day_label(value: date) -> str:
 
 
 def _verify_attention(
-    raw: Any, packet: Packet, *, owner_user_id: str, account: str
+    raw: Any,
+    packet: Packet,
+    *,
+    owner_user_id: str,
+    account: str,
+    seal: Callable[..., str] = seal_source_id,
 ) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise Reject("shape")
@@ -451,18 +460,27 @@ def _verify_attention(
         "term": term,
         "action": {
             "kind": "draft_reply" if kind == "reply" else "draft_followup",
-            "source_id": seal_source_id(
+            "source_id": seal(
                 owner_user_id=owner_user_id, account=account, message_id=primary.message_id
             ),
             "draft": draft,
         },
-        "evidence": _evidence_out(evidence, owner_user_id=owner_user_id, account=account),
+        "evidence": _evidence_out(
+            evidence, owner_user_id=owner_user_id, account=account, seal=seal
+        ),
         "_thread": thread,
         "_sort": (due_out["date"] if due_out else "9999-12-31", -primary.at.timestamp()),
     }
 
 
-def _verify_update(raw: Any, packet: Packet, *, owner_user_id: str, account: str) -> dict[str, Any]:
+def _verify_update(
+    raw: Any,
+    packet: Packet,
+    *,
+    owner_user_id: str,
+    account: str,
+    seal: Callable[..., str] = seal_source_id,
+) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise Reject("shape")
     kind = raw.get("kind")
@@ -502,7 +520,7 @@ def _verify_update(raw: Any, packet: Packet, *, owner_user_id: str, account: str
     if wants_thank:
         action = {
             "kind": "thank",
-            "source_id": seal_source_id(
+            "source_id": seal(
                 owner_user_id=owner_user_id, account=account, message_id=after.message_id
             ),
             "draft": _safe_draft(raw.get("draft"), "\n".join(m.text for m in members)),
@@ -518,7 +536,7 @@ def _verify_update(raw: Any, packet: Packet, *, owner_user_id: str, account: str
         "person": after.person,
         "on": after.at.date().isoformat(),
         "action": action,
-        "evidence": _evidence_out(pairs, owner_user_id=owner_user_id, account=account),
+        "evidence": _evidence_out(pairs, owner_user_id=owner_user_id, account=account, seal=seal),
         "_thread": thread,
     }
 
@@ -529,7 +547,12 @@ def _items(raw: dict[str, Any], key: str) -> list[Any]:
 
 
 def verify_brief(
-    raw: dict[str, Any], packet: Packet, *, owner_user_id: str, account: str
+    raw: dict[str, Any],
+    packet: Packet,
+    *,
+    owner_user_id: str,
+    account: str,
+    seal: Callable[..., str] = seal_source_id,
 ) -> dict[str, Any]:
     """Only items whose every claim is in the packet. Rejections are counted, never echoed."""
     rejected: dict[str, int] = {}
@@ -537,7 +560,9 @@ def verify_brief(
     seen_threads: set[str] = set()
     for item in _items(raw, "attention")[: MAX_ATTENTION * 2]:
         try:
-            checked = _verify_attention(item, packet, owner_user_id=owner_user_id, account=account)
+            checked = _verify_attention(
+                item, packet, owner_user_id=owner_user_id, account=account, seal=seal
+            )
         except Reject as exc:
             rejected[str(exc)] = rejected.get(str(exc), 0) + 1
             continue
@@ -552,7 +577,9 @@ def verify_brief(
     updates: list[dict[str, Any]] = []
     for item in _items(raw, "updates")[: MAX_UPDATES * 2]:
         try:
-            checked = _verify_update(item, packet, owner_user_id=owner_user_id, account=account)
+            checked = _verify_update(
+                item, packet, owner_user_id=owner_user_id, account=account, seal=seal
+            )
         except Reject as exc:
             rejected[str(exc)] = rejected.get(str(exc), 0) + 1
             continue
@@ -573,7 +600,9 @@ def verify_brief(
 # --- the model call ----------------------------------------------------------------
 
 
-async def _run_gene(prompt: str, user_id: str, consent_token: str) -> dict[str, Any]:
+async def _run_gene(
+    prompt: str, user_id: str, consent_token: str, *, model: Any | None = None
+) -> dict[str, Any]:
     try:
         async with asyncio.timeout(_BRIEF_DEADLINE_SECONDS):
             answer: dict[str, Any] = await run_email_gene(
@@ -582,6 +611,7 @@ async def _run_gene(prompt: str, user_id: str, consent_token: str) -> dict[str, 
                 user_id=user_id,
                 consent_token=consent_token,
                 output_schema=EMAIL_OVERVIEW_BRIEF_SCHEMA,
+                **({"model": model} if model is not None else {}),
                 timeout_seconds=_MODEL_TIMEOUT_SECONDS,
             )
         return answer

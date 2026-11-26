@@ -40,6 +40,17 @@ beforeEach(() => {
 });
 
 describe("google native connect", () => {
+  it("reuses a verified private Gmail grant before transition or Google consent", async () => {
+    ownerPodRequest.mockResolvedValueOnce(new Response(JSON.stringify({
+      connectorId: "gmail", status: "connected", capabilities: { read: true, manage: true },
+    })));
+    const openAuthSession = vi.fn();
+    await expect(connectGoogleConnector("gmail", {platform: "ios", vaultOwnerCapability: CAPABILITY, openAuthSession}))
+      .resolves.toEqual({ok: true, status: "connected"});
+    expect(apiFetch).not.toHaveBeenCalled();
+    expect(openAuthSession).not.toHaveBeenCalled();
+  });
+
   it("binds transition authority to the application owner and preserves Firebase proof identity", async () => {
     const ownerId = "acct_" + "f".repeat(32);
     publishValidatedAuthSessionPrincipal({ firebaseUid: owner.uid, ownerId, accountGeneration: 1 });
@@ -131,7 +142,7 @@ describe("google native connect", () => {
   });
 
   it("sends the code and verifier only to the agent's connector door", async () => {
-    ownerPodRequest.mockResolvedValue(new Response(JSON.stringify({ connectorId: "gmail", status: "connected" }), { status: 200 }));
+    ownerPodRequest.mockImplementation(async () => new Response(JSON.stringify({ connectorId: "gmail", status: "connected" }), { status: 200 }));
     const openAuthSession = vi.fn(async (authorizationUrl: string) => {
       const state = new URL(authorizationUrl).searchParams.get("state");
       return `${nativeGoogleClient('ios')!.redirectUri}?code=4/0Acode&state=${state}`;

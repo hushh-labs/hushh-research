@@ -235,6 +235,13 @@ export async function connectGoogleConnector(
     const ready = await ApiService.ownerPodRequest(`connectors/${connector}`, { method: 'GET' });
     if (browserMail && ready.ok) browserReady = ready.clone();
     if (!ready.ok) return { ok: false, code: refusalCode(await ready.json().catch(() => null), ready.status) };
+    if (connector === "gmail" && !deps.mailAccount) {
+      const existing = await ready.json().catch(() => null);
+      if (!current()) return { ok: false, code: changedCode() };
+      if (existing?.connectorId === "gmail" && existing.status === "connected" && existing.capabilities?.manage === true && existing.capabilities?.read === true) {
+        return { ok: true, status: "connected" };
+      }
+    }
   } catch { return { ok: false, code: 'AGENT_UNREACHABLE' }; }
   if (!current()) return { ok: false, code: changedCode() };
   if (browserReady) {

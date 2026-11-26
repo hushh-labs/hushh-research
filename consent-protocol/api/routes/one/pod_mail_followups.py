@@ -25,8 +25,12 @@ from hushh_mcp.services.pod_mail_followups import (
 router = APIRouter(prefix="/api/one/pod/gmail/followups", route_class=PrivateNoStoreRoute)
 
 
-MailOperation = Literal["account", "search", "open", "track", "check", "draft", "document"]
+MailOperation = Literal[
+    "brief", "recent", "account", "search", "open", "track", "check", "draft", "document"
+]
 REQUEST_TYPES: dict[MailOperation, type[Selection]] = {
+    "brief": Selection,
+    "recent": Selection,
     "account": Selection,
     "search": Search,
     "open": Source,

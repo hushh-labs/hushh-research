@@ -6,8 +6,9 @@ import asyncio
 import base64
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from email.utils import getaddresses
+from functools import partial
 from typing import Annotated, Literal
 
 from fastapi import HTTPException
@@ -234,7 +235,12 @@ async def run_mail(operation, selection, *, owner, check, consent_token, model_f
     connection = PodGmailConnection(owner, account_id=held.account_id)
 
     def new_reader():
-        return GmailMetadataReader(
+        from hushh_mcp.services.mail_overview import OverviewMailReader
+
+        reader_type = (
+            OverviewMailReader if operation in {"brief", "recent"} else GmailMetadataReader
+        )
+        return reader_type(
             gmail=connection,
             user_id=owner,
             require_access=current,
@@ -284,6 +290,59 @@ async def assess_mail(
         return seal_source_id(
             key=key, owner_user_id=owner, account=credential_id, message_id=identity
         )
+
+    if operation == "recent":
+        page = await reader.list_rows(query="", limit=12)
+        return {
+            "items": [
+                {
+                    "source": source_ref(row["message_id"]),
+                    "subject": row["subject"] or "",
+                    "sender": row["sender"] or "",
+                }
+                for row in page["rows"]
+            ]
+        }
+
+    if operation == "brief":
+        from hushh_mcp.services import mail_overview_brief as brief
+        from hushh_mcp.services.pod_ai_selection import ai_selection_revision
+
+        revision = ai_selection_revision()
+        rows = await reader.brief_window(
+            days=brief.BRIEF_WINDOW_DAYS, limit=brief.BRIEF_MAX_MESSAGES
+        )
+        now = datetime.now(timezone.utc)
+        packet = brief.build_packet(rows, now=now)
+        verified = {"attention": [], "updates": []}
+        if packet.messages:
+            model = model_factory()
+            if model is None:
+                raise _refuse(503, "PRIVATE_MAIL_MODEL_UNAVAILABLE")
+            raw = await brief._run_gene(
+                brief.model_prompt(packet), owner, consent_token, model=model
+            )
+            verified = brief.verify_brief(
+                raw,
+                packet,
+                owner_user_id=owner,
+                account=credential_id,
+                seal=partial(seal_source_id, key=key),
+            )
+        await reader.require_current()
+        if ai_selection_revision() != revision:
+            raise _refuse(409, "OWNER_AI_SELECTION_CHANGED")
+        return {
+            "account": selection.account,
+            "generated_at": now.isoformat(),
+            "coverage": {
+                "messages": len(packet.messages),
+                "window_days": brief.BRIEF_WINDOW_DAYS,
+                "may_be_partial": len(rows) == brief.BRIEF_MAX_MESSAGES,
+            },
+            "attention": verified["attention"],
+            "updates": verified["updates"],
+        }
 
     if operation == "search":
         page = await reader.read(
