@@ -139,9 +139,9 @@ async def test_unadmitted_caller_cannot_resume_another_valid_apps_schedule(
         snapshot = runtime.journal.snapshot
         revoked = False
 
-        async def interleaved_snapshot():
+        async def interleaved_snapshot(**kwargs):
             nonlocal revoked
-            rows = await snapshot()
+            rows = await snapshot(**kwargs)
             if not revoked and failure == "revoked":
                 revoked = True
                 await authority.revoke_subject(caller.subject_id)
