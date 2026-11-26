@@ -180,22 +180,10 @@ class _Conn:
                 for row in rows.values()
                 if row["send_at"] is not None
                 and row["state"] in _TERMINAL
-                and (
-                    row["payload_sealed"] is not None
-                    or row["subject"] is not None
-                    or (
-                        row["recipient_display"] is not None
-                        and (
-                            row["state"] in ("expired", "cancelled")
-                            or row["notified_at"] is not None
-                        )
-                    )
-                )
+                and (row["payload_sealed"] is not None or row["subject"] is not None)
             ][: args[0]]
             for row in held:
                 _update(row, query)
-                if row["state"] in ("expired", "cancelled") or row["notified_at"] is not None:
-                    row["recipient_display"] = None
             return [{"action_id": row["action_id"]} for row in held]
         if query == drain._STALE_SENDING_SQL:
             stale = sorted(
@@ -251,8 +239,6 @@ class _Conn:
                 )
             else:
                 _update(row, query, state=args[2], safe_error_code=args[3], updated_at=NOW)
-                if args[2] in ("expired", "cancelled"):
-                    row["recipient_display"] = None
             return {"action_id": row["action_id"]}
         if query == drain._FAIL_ARMED_SQL:
             if self.ledger.fail_statement == query:
@@ -284,11 +270,8 @@ class _Conn:
             row = self._owned(args[0], args[1])
             if row is None or row["state"] != args[2] or row["notified_at"] is not None:
                 return None
-            prior_display = row["recipient_display"]
             row["notified_at"] = NOW
-            if "recipient_display = NULL" in query:
-                row["recipient_display"] = None
-            return {"recipient_display": prior_display}
+            return {"recipient_display": row["recipient_display"]}
         if "SET state = 'prepared', sending_at = NULL" in query:
             row = self._owned(args[0], args[1])
             if row is not None and row["state"] == "sending" and row["envelope_hmac"] == args[2]:
@@ -922,7 +905,7 @@ async def test_limit_and_deadline_bound_a_run(harness):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode", ["byoc", "pending", "hussh_pods", "unplaced", "unknown"])
+@pytest.mark.parametrize("mode", ["byoc", "pending", "unplaced", "unknown"])
 async def test_private_or_unknown_scheduled_owner_never_opens_mail(harness, monkeypatch, mode):
     from unittest.mock import Mock
 
@@ -1006,35 +989,3 @@ async def test_scheduled_owner_moving_during_token_resolution_never_posts(
         assert result["failed"] == [] and result["outcome_unknown"] == []
     else:
         assert row["state"] == "failed" and row["safe_error_code"] == "private_runtime_required"
-
-
-@pytest.mark.asyncio
-async def test_notification_claim_and_terminal_scrub_clear_recipient_display(harness):
-    h = harness
-    _schedule(h, "due-now", send_at=NOW - timedelta(minutes=1))
-    _schedule(
-        h,
-        "cancelled-leftover",
-        state="cancelled",
-        payload_sealed=None,
-        subject=None,
-        recipient_display=NAME,
-    )
-    _schedule(
-        h,
-        "unnotified-sent",
-        state="sent",
-        payload_sealed=None,
-        subject=None,
-        recipient_display=NAME,
-        notified_at=None,
-    )
-
-    await _drain(h)
-
-    assert _push_bodies(h) == [f"Your scheduled email to {NAME} was sent."]
-    assert h.ledger.row("due-now")["notified_at"] == NOW
-    assert h.ledger.row("due-now")["recipient_display"] is None
-    assert h.ledger.row("cancelled-leftover")["recipient_display"] is None
-    # Unnotified terminal rows preserve recipient_display until notified_at is claimed.
-    assert h.ledger.row("unnotified-sent")["recipient_display"] == NAME

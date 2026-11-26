@@ -163,12 +163,25 @@ class PlaidRuntimeConfig:
             os.getenv("PLAID_ENV") or os.getenv("PLAID_ENVIRONMENT"),
             default="sandbox",
         ).lower()
-        secret = _clean_text(os.getenv("PLAID_SECRET"))
+        if environment == "sandbox":
+            secret = _clean_text(os.getenv("PLAID_SANDBOX_SECRET") or os.getenv("PLAID_SECRET"))
+        elif environment == "production":
+            secret = _clean_text(os.getenv("PLAID_PRODUCTION_SECRET") or os.getenv("PLAID_SECRET"))
+        else:
+            secret = _clean_text(os.getenv("PLAID_SECRET"))
         normalized_override = _clean_text(environment_override).lower() or None
         if is_local and normalized_override and normalized_override != environment:
-            override_secret = _clean_text(os.getenv("PLAID_LOCAL_PRODUCTION_SECRET"))
-            if normalized_override == "production" and override_secret:
-                environment = "production"
+            override_secret = _clean_text(
+                os.getenv("PLAID_LOCAL_PRODUCTION_SECRET")
+                or (
+                    os.getenv("PLAID_PRODUCTION_SECRET")
+                    if normalized_override == "production"
+                    else ""
+                )
+                or (os.getenv("PLAID_SANDBOX_SECRET") if normalized_override == "sandbox" else "")
+            )
+            if normalized_override in {"production", "sandbox"} and override_secret:
+                environment = normalized_override
                 secret = override_secret
             elif normalized_override in _PLAID_BASE_URLS:
                 logger.warning(

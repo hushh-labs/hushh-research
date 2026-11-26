@@ -1,6 +1,6 @@
 import { reviewBoardBooking, type CalendarBoardBookingInput, type CalendarBoardBookingReview, type CalendarExecution } from "@/lib/calendar/calendar-board-booking";
 export type { CalendarBoardBookingInput, CalendarBoardBookingReview, CalendarExecution } from "@/lib/calendar/calendar-board-booking";
-import { ownerContentIsPrivate } from './private-agent-specialist-chat';
+import { ownerRequiresByocIsolation } from '@/lib/one/byoc-isolation';
 import { privateGoogleStatus, disconnectPrivateGoogle, confirmPrivateGoogleAction, requireSharedGoogleExchange, PrivateGoogleUnsupportedError } from './private-google-connections';
 import { privateCalendarEvents } from "./private-google-task-sources";
 import { ApiService } from "@/lib/services/api-service";
@@ -106,7 +106,7 @@ export class GoogleCalendarService {
     idToken: string,
     userId: string,
   ): Promise<GoogleCalendarStatus> {
-    if (await ownerContentIsPrivate()) {
+    if (await ownerRequiresByocIsolation()) {
       const value = await privateGoogleStatus('calendar');
       return { configured: true, connected: value.status === 'connected' && value.capabilities.read, status: value.status === 'absent' ? 'disconnected' : value.status === 'connected' && !value.capabilities.read ? 'needs_reauth' : value.status, access_level: value.accessLevel, scope_csv: '' };
     }
@@ -256,7 +256,7 @@ export class GoogleCalendarService {
     userId: string,
     accountId = "default",
   ): Promise<GoogleCalendarStatus> {
-    if (await ownerContentIsPrivate()) {
+    if (await ownerRequiresByocIsolation()) {
       await disconnectPrivateGoogle('calendar');
       return this.status(idToken, userId);
     }
@@ -290,7 +290,7 @@ export class GoogleCalendarService {
     reviewContract?: 1;
     isEffectCurrent?: () => boolean;
   }): Promise<CalendarExecution> {
-    const privateOwner = await ownerContentIsPrivate();
+    const privateOwner = await ownerRequiresByocIsolation();
     if (params.isEffectCurrent?.() === false) {
       throw new DOMException("The Calendar account changed.", "AbortError");
     }
@@ -341,7 +341,7 @@ export class GoogleCalendarService {
     endAt: string;
     signal?: AbortSignal;
   }): Promise<CalendarEventsResponse> {
-    if (await ownerContentIsPrivate()) return privateCalendarEvents(params);
+    if (await ownerRequiresByocIsolation()) return privateCalendarEvents(params);
     const response = await ApiService.apiFetch("/api/one/calendar/events", {
       method: "POST",
       signal: params.signal,
@@ -391,7 +391,7 @@ export class GoogleCalendarService {
   }
 
   static async invitations(params: { firebaseIdToken: string; timeZone: string; accountId?: string; selectedCalendarId?: string; selectedEventId?: string; startAt?: string; endAt?: string; signal?: AbortSignal; isEffectCurrent?: () => boolean }): Promise<CalendarInvitationsResponse> {
-    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError("Calendar invitation review");
+    if (await ownerRequiresByocIsolation()) throw new PrivateGoogleUnsupportedError("Calendar invitation review");
     const result = await scheduleRead<CalendarInvitationsResponse>("invitations", { time_zone: params.timeZone, ...(params.accountId && params.accountId !== "default" ? { account_id: params.accountId } : {}), ...(params.selectedCalendarId ? { selected_calendar_id: params.selectedCalendarId } : {}), ...(params.selectedEventId ? { selected_event_id: params.selectedEventId } : {}), ...(params.startAt ? { start_at: params.startAt } : {}), ...(params.endAt ? { end_at: params.endAt } : {}) }, params);
     if (!result || !Array.isArray(result.events) || !Number.isInteger(result.pending_count) || !Array.isArray(result.unreadable_calendars) || result.events.some(event => !event.id || !event.calendar_id || !["needsAction", "accepted", "declined", "tentative"].includes(event.response_status))) throw new GoogleCalendarError("Invitations could not be checked.", "calendar_invalid_response", 502);
     return result;
