@@ -31,6 +31,7 @@ import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixture
 
 let script: string;
 let css: string;
+let fixtureDir: string | undefined;
 
 test.beforeAll(async () => {
   const root = process.cwd();
@@ -39,6 +40,7 @@ test.beforeAll(async () => {
   const scanner = new Scanner({});
   const candidates = new Set<string>();
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "referrals-panel-gamification-"));
+  fixtureDir = outDir;
 
   await build({
     configFile: false,
@@ -59,6 +61,9 @@ test.beforeAll(async () => {
         load(id: string) {
           const clean = path.normalize(id.split("?")[0]).toLowerCase();
           const authContext = path.normalize(path.join(root, "lib/firebase/auth-context.tsx")).toLowerCase();
+          if (clean === path.normalize(path.join(root, "lib/services/api-service.ts")).toLowerCase()) {
+            return `export { ApiService } from ${JSON.stringify(path.join(root, "e2e/fixtures/referrals-panel-gamification.auth-stub.tsx"))};`;
+          }
           if (clean === authContext) {
             return fs.readFileSync(
               path.join(root, "e2e/fixtures/referrals-panel-gamification.auth-stub.tsx"),
@@ -132,6 +137,8 @@ const FIXTURES: Record<string, unknown> = {
   "/api/one/referrals/summary": {
     slug: "fixture-slug",
     link: "https://one.hushh.ai/r/fixture-slug",
+    joined_count: 7,
+    total_count: 10,
     qualified_count: 7,
     in_progress_count: 2,
     under_review_count: 1,
@@ -161,21 +168,21 @@ const FIXTURES: Record<string, unknown> = {
   "/api/one/referrals/leaderboard": {
     snapshot_generated_at: "2026-10-04T12:00:00Z",
     entries: [
-      { rank: 1, handle: "fixture-top", points: 420, is_viewer: false },
-      { rank: 2, handle: "fixture-viewer", points: 310, is_viewer: true },
-      { rank: 3, handle: "fixture-third", points: 290, is_viewer: false },
+      { rank: 1, handle: "fixture-top", display_name: "Alias owner profile", points: 420, is_viewer: false },
+      { rank: 2, handle: "Anonymous referrer", display_name: "Fixture permitted member", points: 310, is_viewer: true },
+      { rank: 3, handle: "Anonymous referrer", display_name: null, points: 290, is_viewer: false },
     ],
-    viewer: { rank: 2, handle: "fixture-viewer", points: 310, is_viewer: true },
+    viewer: { rank: 2, handle: "Anonymous referrer", display_name: "Fixture permitted member", points: 310, is_viewer: true },
     stale: false,
   },
   "/api/one/referrals/circles/leaderboard": {
+    status: "preview", competition_active: false,
     teams: [
-      { circle_id: "circle-a", circle_name: "Fixture Circle A", contribution_count: 14 },
-      { circle_id: "circle-b", circle_name: "Fixture Circle B", contribution_count: 9 },
+
     ],
   },
   "/api/one/referrals/milestones": {
-    lifetime_qualified_count: 7,
+    joined_referral_count: 7,
     earned: [
       { milestone_key: "m5", reward: "Fixture reward tier 1", earned_at: "2026-09-15T00:00:00Z" },
     ],
@@ -185,7 +192,8 @@ const FIXTURES: Record<string, unknown> = {
     streak: { current_run_days: 3, run_length_days: 5 },
     flash: { active: true, ends_at: "2026-10-05T00:00:00Z" },
   },
-  "/api/one/referrals/circle": { circle_id: "circle-a", selected_at: "2026-09-10T00:00:00Z" },
+  "/api/one/referrals/circle": { status: "preview", competition_active: false, circle_id: null, selected_at: null },
+  "/api/one/referrals/points": { points: 310, coins: 310 },
   "/api/one/referrals/handle": { handle: "fixture-viewer" },
 };
 
@@ -270,25 +278,22 @@ for (const viewport of VIEWPORTS) {
 
     await expect(page.getByTestId("referral-milestone-progress")).toBeVisible({ timeout: 15_000 });
 
-    // Team leaderboard: assert the ACTUAL fixture team names/counts are
-    // visible, not just that the section header exists. A blank row under
-    // "Team leaderboard" would fail these, not pass silently.
-    // These are each SettingsRow's own `title` text -- the exact
-    // `circle_name` values from the FIXTURES map above. If the row were
-    // genuinely blank (not just cropped out of a screenshot), this text
-    // would not exist in the DOM at all, and this assertion would fail
-    // instead of silently passing.
-    const teamA = page.getByText("Fixture Circle A", { exact: true });
-    const teamB = page.getByText("Fixture Circle B", { exact: true });
-    await teamA.scrollIntoViewIfNeeded();
-    await expect(teamA).toBeVisible({ timeout: 15_000 });
-    await expect(teamB).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("#2 Fixture permitted member", { exact: true })).toBeVisible();
+    await expect(page.getByText("#3 Name unavailable", { exact: true })).toBeVisible();
+    await expect(page.getByText(/Alias owner profile/)).toHaveCount(0);
+    await expect(page.getByText(/Anonymous referrer/)).toHaveCount(0);
 
+    // Circle standings are gated by the current published product contract.
+    // The actual service rejects fabricated private-circle standings.
+    await expect(page.getByText("Team leaderboard", { exact: true })).toHaveCount(0);
+
+    await page.getByText("#2 Fixture permitted member", { exact: true }).scrollIntoViewIfNeeded();
+    await expect(page.getByText("#2 Fixture permitted member", { exact: true })).toBeInViewport();
     const outDir = path.join(process.cwd(), "test-results", "fixture-screenshots");
     fs.mkdirSync(outDir, { recursive: true });
     await page.screenshot({
-      path: path.join(outDir, `referrals-panel-gamification-${viewport.name}.png`),
-      fullPage: true,
+      path: path.join(outDir, `referrals-panel-gamification-${test.info().project.name}-${viewport.name}.png`),
+      fullPage: false,
     });
 
     expect(errors).toEqual([]);
@@ -297,3 +302,14 @@ for (const viewport of VIEWPORTS) {
     expect(violations).toEqual([]);
   });
 }
+
+
+test.afterAll(() => {
+  if (!fixtureDir) return;
+  const target = fs.realpathSync(fixtureDir);
+  if (path.dirname(target) !== fs.realpathSync(os.tmpdir()) || !path.basename(target).startsWith("referrals-panel-gamification-")) {
+    throw new Error("Unexpected referral fixture cleanup path");
+  }
+  fs.rmSync(target, { recursive: true, force: true });
+  fixtureDir = undefined;
+});
