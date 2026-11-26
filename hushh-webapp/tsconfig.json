@@ -52,7 +52,9 @@
     ".next-native-uat/types/**/*.ts",
     ".next-native-uat/dev/types/**/*.ts",
     ".next-local-fast/types/**/*.ts",
-    ".next-local-fast/dev/types/**/*.ts"
+    ".next-local-fast/dev/types/**/*.ts",
+    ".next-sandbox-prod/types/**/*.ts",
+    ".next-sandbox-prod/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
