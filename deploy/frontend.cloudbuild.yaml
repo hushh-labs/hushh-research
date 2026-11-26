@@ -304,9 +304,6 @@ steps:
         RECEIPT_LOGO_URL_TEMPLATE_VAL="$$(cat "$${receipt_logo_url_template_file}")"
         trap 'rm -f "$${google_contacts_client_id_file}" "$${google_sign_in_client_id_file}" "$${passkey_rp_id_file}" "$${receipt_logo_url_template_file}"; rm -rf "$${native_config_dir}"' EXIT
 
-        # Registry layer cache (buildx, mode=max): caches the npm ci + next build layers
-        # so an unchanged package-lock turns dependency install into a cache hit. First
-        # build after this lands is cold (seeds :buildcache); later builds are minutes.
         gcloud auth configure-docker gcr.io --quiet || true
         docker buildx create --use --name hushh-builder --driver docker-container \
           >/dev/null 2>&1 || docker buildx use hushh-builder
@@ -334,6 +331,7 @@ steps:
           --build-arg NEXT_PUBLIC_ONE_WALLET_CARD_ENABLED=${_ONE_WALLET_CARD_ENABLED} \
           --build-arg NEXT_PUBLIC_ONE_WALLET_ENABLED=${_ONE_WALLET_ENABLED} \
           --build-arg NEXT_PUBLIC_ONE_LOCATION_NEARBY_CHECK_IN=${_ONE_LOCATION_NEARBY_CHECK_IN} \
+          --build-arg NEXT_PUBLIC_ONE_MAIN_CHAT_LOCATION_ENABLED=${_ONE_MAIN_CHAT_LOCATION_ENABLED} \
           --build-arg NEXT_PUBLIC_LOCATION_MAP_DEMO=${_LOCATION_MAP_DEMO} \
           --build-arg NEXT_PUBLIC_WORKOS_SSO_ENABLED=${_WORKOS_SSO_ENABLED} \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_DEBUG=false \
@@ -363,6 +361,8 @@ steps:
       "NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY_VAL",
       "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY_VAL"
     ]
+    # Registry layer cache (buildx, mode=max) reuses npm ci and Next.js layers.
+    # The first build seeds the cache; unchanged dependency locks reuse it.
     id: "build-frontend-image"
 
   # Step 3: Deploy to Cloud Run
@@ -476,6 +476,7 @@ substitutions:
   # callers by cohort and this only avoids collecting a location for a flow that
   # would then be refused. Turning this on alone changes nothing server-side.
   _ONE_LOCATION_NEARBY_CHECK_IN: "false"
+  _ONE_MAIN_CHAT_LOCATION_ENABLED: "false"
   # Shows the operator preview of fifty fictional people on the location map
   # (`?demo=people`). Default off, and the UAT web lane is the only caller that
   # turns it on. `isLocationMapDemoAvailable()` keeps a hard production floor
