@@ -144,3 +144,17 @@
   margin: 0.5rem 0;
   padding: 0 0.85rem;
 }
+
+.people span {
+  background: color-mix(in srgb, var(--app-accent) 13%, var(--card));
+  border-color: var(--card);
+  color: var(--app-accent);
+}
+.people span:nth-child(2n) {
+  background: color-mix(in srgb, seagreen 14%, var(--card));
+  color: var(--foreground);
+}
+.board .plan {
+  padding-inline: 0.4rem;
+  font-size: 0.875rem;
+}

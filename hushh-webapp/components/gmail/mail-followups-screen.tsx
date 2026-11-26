@@ -392,9 +392,10 @@ export function MailFollowupsScreen({
           }}
           onEvidence={openEvidence}
           onAction={plan}
-          actionLabel={(task) =>
-            task.status === "done" ? "Review outcome" : "Plan follow-up"
-          }
+          onDraft={(task) => {
+            plan(task);
+            prepare(task);
+          }}
         />
       )}
       {notice && view === "board" && <p role="status">{notice}</p>}

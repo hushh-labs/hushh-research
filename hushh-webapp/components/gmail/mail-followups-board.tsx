@@ -16,14 +16,14 @@ export function MailFollowupsBoard({
   onTrack,
   onEvidence,
   onAction,
-  actionLabel,
+  onDraft,
 }: {
   tasks: readonly TodoItem[];
   mailboxes: readonly FollowupMailbox[];
   onTrack: () => void;
   onEvidence: (item: MailFollowup) => void;
   onAction: (task: TodoItem) => void;
-  actionLabel: (task: TodoItem) => string;
+  onDraft?: (task: TodoItem) => void;
 }) {
   const cards = mailboxTasks(tasks, mailboxes);
   const conversations = new Set(
@@ -106,10 +106,28 @@ export function MailFollowupsBoard({
                     {item.promised_wording && (
                       <small>Promised {item.promised_wording}</small>
                     )}
-                    <footer>
-                      <button onClick={() => onAction(task)}>
-                        {actionLabel(task)}
+                    {task.status === "pending" && (
+                      <button
+                        className={styles.plan}
+                        onClick={() => onAction(task)}
+                      >
+                        Plan follow-up
                       </button>
+                    )}
+                    <footer>
+                      {task.status === "done" ? (
+                        <button onClick={() => onAction(task)}>
+                          Review outcome
+                        </button>
+                      ) : item.waiting_on === "owner" && onDraft ? (
+                        <button onClick={() => onDraft(task)}>
+                          Draft follow-up
+                        </button>
+                      ) : (
+                        <button onClick={() => onEvidence(item)}>
+                          View conversation
+                        </button>
+                      )}
                       <button onClick={() => onEvidence(item)}>
                         Why this?
                       </button>

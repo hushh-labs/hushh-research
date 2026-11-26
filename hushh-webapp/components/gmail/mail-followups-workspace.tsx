@@ -86,9 +86,6 @@ function AllMailBoard({
           onAction={(task) =>
             onTask(task.mailFollowup!.key, "plan", task.mailFollowup!.account)
           }
-          actionLabel={(task) =>
-            task.status === "done" ? "Review outcome" : "Plan follow-up"
-          }
         />
       ) : (
         <p role="status">
