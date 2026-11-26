@@ -1,5 +1,6 @@
 "use client";
 
+import { referralDisplayName } from "@/lib/referral/leaderboard-presentation";
 import { useLayoutEffect, useState } from "react";
 import { nativeDrawers, nativeDrawerAcknowledged, type NativeDrawerChoice, type NativeDrawerRow, type NativeDrawerSection, type NativeProfilePage } from "@/lib/capacitor/native-drawers";
 import { NativeProfileTextEditor } from "./native-display-name-editor";
@@ -52,12 +53,12 @@ export function projectNativeReferrals(model: ReferralsPanelModel, editHandle: (
     if (g.engagement?.flash.active) engagement.push(read("referral-flash", "Flash bonus is live", "Referrals qualifying now earn the configured coin boost"));
     if (engagement.length) sections.push({ id: "referral-engagement", title: "Keep it going", rows: engagement });
     if (g.handle === null) sections.push({ id: "referral-handle", title: "Appear on the leaderboard", rows: [
-      read("referral-handle-description", "Choose a handle to show your rank to other referrers. Your real name is never shown."),
+      read("referral-handle-description", "Your handle is public. Profile names follow your privacy settings."),
       action("referral-handle-edit", "Your leaderboard handle", editHandle, { chevron: true, artworkId: "referral-people" })] });
     if (g.leaderboard?.entries.length) sections.push({ id: "referral-leaderboard", title: "Leaderboard", rows: [
       ...(g.leaderboard.snapshot_generated_at ? [read("referral-as-of", `As of ${new Date(g.leaderboard.snapshot_generated_at).toLocaleString()}`)] : []),
-      ...g.leaderboard.entries.map((entry, index) => read(`referral-rank-${index}`, `#${entry.rank} ${entry.handle}`, undefined, `${entry.points} coins`, entry.is_viewer ? "referral-success" : "referral-people")),
-      ...(g.leaderboard.viewer ? [read("referral-viewer", `#${g.leaderboard.viewer.rank} ${g.leaderboard.viewer.handle} (you)`, undefined, `${g.leaderboard.viewer.points} coins`)] : [])] });
+      ...g.leaderboard.entries.map((entry, index) => read(`referral-rank-${index}`, `#${entry.rank} ${referralDisplayName(entry)}`, undefined, `${entry.points} coins`, entry.is_viewer ? "referral-success" : "referral-people")),
+      ...(g.leaderboard.viewer ? [read("referral-viewer", `#${g.leaderboard.viewer.rank} ${referralDisplayName(g.leaderboard.viewer)} (you)`, undefined, `${g.leaderboard.viewer.points} coins`)] : [])] });
     if (g.circleLeaderboard?.length) sections.push({ id: "referral-team-leaderboard", title: "Team leaderboard",
       rows: g.circleLeaderboard.map((team, index) => read(`referral-team-${index}`, team.circle_name, undefined, String(team.contribution_count), "referral-people")) });
     sections.push({ id: "referral-counts", title: "Your referrals", rows: [
