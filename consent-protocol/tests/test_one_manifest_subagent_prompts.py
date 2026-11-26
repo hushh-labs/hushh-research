@@ -8,6 +8,14 @@ from google.adk.tools.google_search_tool import GoogleSearchTool
 
 from hushh_mcp.one_adk import agent_tree
 from hushh_mcp.one_adk.goal_plan_proposal import propose_goal_plan
+from hushh_mcp.one_adk.location_chat_proposal import (
+    STATE_LOCATION_CHAT_REVIEW,
+    admit_location_chat_continuation,
+    admit_location_chat_review,
+    legacy_location_chat_action,
+    location_chat_proposal_from_result,
+    propose_location_action,
+)
 
 
 def test_goal_plan_proposal_returns_review_fields_and_refuses_malformed_steps():
@@ -22,6 +30,120 @@ def test_goal_plan_proposal_returns_review_fields_and_refuses_malformed_steps():
     assert (
         propose_goal_plan("Plan launch", "Approval recorded", [""])["status"] == "invalid_proposal"
     )
+
+
+async def test_location_review_is_admitted_only_for_main_owner_chat(monkeypatch):
+    from google.genai import types
+
+    props = {"mainChat": True, "locationChatReview": True}
+    monkeypatch.delenv("ONE_MAIN_CHAT_LOCATION_ENABLED", raising=False)
+    assert not admit_location_chat_review(props, owner_admitted=True)
+    monkeypatch.setenv("ONE_MAIN_CHAT_LOCATION_ENABLED", "true")
+    assert not admit_location_chat_review(props, owner_admitted=False)
+    assert not admit_location_chat_review({**props, "mainChat": False}, owner_admitted=True)
+    assert admit_location_chat_review(props, owner_admitted=True)
+
+    context = SimpleNamespace(state={STATE_LOCATION_CHAT_REVIEW: True})
+    bypass = await agent_tree.run_app_action(
+        "location.share_selected", {"confirmed": True}, context
+    )
+    assert bypass["status"] == "chat_review_required"
+    assert bypass["next_tool"] == "propose_location_action"
+    assert legacy_location_chat_action(context.state, "location.chat.turn") is None
+    assert legacy_location_chat_action(context.state, "location.open_settings") is None
+    unavailable = agent_tree._before_one_tool(
+        SimpleNamespace(name="propose_location_action"), {}, SimpleNamespace(state={})
+    )
+    assert unavailable == {"status": "unavailable", "code": "location_chat_review_unavailable"}
+    declarations = [
+        types.FunctionDeclaration(name="propose_location_action"),
+        types.FunctionDeclaration(name="list_pending_location_requests"),
+        types.FunctionDeclaration(name="ask_email_agent"),
+        types.FunctionDeclaration(name="finance"),
+        types.FunctionDeclaration(name="calendar_summary"),
+    ]
+    for state, visible in (
+        ({}, "list_pending_location_requests"),
+        (context.state, "propose_location_action"),
+    ):
+        request = SimpleNamespace(
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(function_declarations=declarations)]
+            )
+        )
+        agent_tree._scope_location_chat_review(SimpleNamespace(state=state), request)
+        assert [item.name for item in request.config.tools[0].function_declarations] == [
+            visible,
+            "ask_email_agent",
+            "finance",
+            "calendar_summary",
+        ]
+
+
+def test_location_proposal_restores_intent_without_execution_authority():
+    from google.adk.events.event import Event
+    from google.genai import types
+
+    from hushh_mcp.one_adk.history_projection import project_conversation_history
+
+    proposal = propose_location_action("share_live", [" Maya ", "MAYA"], ["Family"], 2)
+    assert proposal["people"] == ["Maya"]
+    assert proposal["circles"] == ["Family"]
+    assert proposal["durationHours"] == 2
+    assert location_chat_proposal_from_result({**proposal, "grantId": proposal["id"]}) is None
+    assert propose_location_action("share_pin", ["Maya"], duration_hours=2)["status"] == (
+        "invalid_proposal"
+    )
+    assert propose_location_action("ask", [proposal["id"]])["status"] == "invalid_proposal"
+    trigger = Event(
+        id="location-proposal",
+        invocation_id="turn",
+        author="one",
+        content=types.Content(
+            parts=[
+                types.Part.from_function_response(name="propose_location_action", response=proposal)
+            ]
+        ),
+    )
+    answer = Event(id="answer", invocation_id="turn", author="one")
+    restored = project_conversation_history(
+        [trigger, answer],
+        "conversation",
+        2,
+        project_event=lambda event: ("You can review it here." if event is answer else "", None),
+    )
+    assert [message["id"] for message in restored["messages"]] == ["answer"]
+    assert restored["messages"][0]["metadata"]["locationChatProposal"] == proposal
+
+
+def test_location_follow_up_only_carries_display_choices_in_main_owner_chat(monkeypatch):
+    monkeypatch.setenv("ONE_MAIN_CHAT_LOCATION_ENABLED", "true")
+    continuation = {
+        "action": "share_live",
+        "step": "review",
+        "people": [" Maya "],
+        "circles": ["Family"],
+        "durationHours": 0.5,
+    }
+    forwarded = {
+        "mainChat": True,
+        "locationChatReview": True,
+        "locationChatContinuation": continuation,
+    }
+    assert admit_location_chat_continuation(forwarded, owner_admitted=True) == {
+        **continuation,
+        "people": ["Maya"],
+    }
+    assert admit_location_chat_continuation(forwarded, owner_admitted=False) is None
+    assert (
+        admit_location_chat_continuation({**forwarded, "mainChat": False}, owner_admitted=True)
+        is None
+    )
+    forwarded["locationChatContinuation"] = {**continuation, "confirmed": True}
+    assert admit_location_chat_continuation(forwarded, owner_admitted=True) is None
+    private = propose_location_action("share_private", ["Maya"], ["Family"])
+    assert private["status"] == "proposal_ready"
+    assert private["people"] == ["Maya"] and private["circles"] == ["Family"]
 
 
 def test_chat_connection_guidance_is_authored_and_not_limited_to_voice():

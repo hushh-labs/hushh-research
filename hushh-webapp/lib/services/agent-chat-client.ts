@@ -110,6 +110,8 @@ import type { ReceiptCanonicalIndex } from "@/lib/profile/gmail-receipt-memory-i
 import { RECEIPT_FUNCTIONS, RECEIPT_TOOL_DECLARATIONS, type ReceiptAnalysisRequest, type ReceiptFunction } from "@/lib/mail/receipt-analysis";
 import { receiptCallRequest, receiptCallRunner, settleReceiptCalls, type ReceiptSetupState } from "./agent-chat-receipt-calls";
 
+import { parseMainLocationProposal, type MainLocationContinuation, type MainLocationProposal } from "@/lib/agent/main-chat-location-contract";
+
 export type AgentChatMessage = {
   id: string;
   conversation_id: string;
@@ -122,6 +124,7 @@ export type AgentChatMessage = {
   metadata?: {
     kind?: string;
     display?: string;
+    locationChatProposal?: MainLocationProposal;
     structuredExperience?: {
       activityType?: string;
       content?: unknown;
@@ -1411,6 +1414,8 @@ async function streamAgentChatAttempt(input: {
   specialistFocus?: "email" | "location" | "information" | "finance";
   /** True when this turn belongs to the user's canonical rolling Main chat stream. */
   mainChat?: boolean;
+  locationChatReview?: boolean;
+  locationChatContinuation?: MainLocationContinuation;
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
   /** A keyed native interrupt recovered from the pod; never a new user turn. */
@@ -2949,7 +2954,10 @@ async function streamAgentChatAttempt(input: {
           receipt: input.resumeMcpReview.approval.receipt,
         } } : {}),
         ...(input.specialistFocus ? { specialistFocus: input.specialistFocus } : {}),
-        ...(input.mainChat ? { mainChat: true } : {}),
+        ...(input.mainChat ? {
+          mainChat: true,
+          ...(input.locationChatReview ? { locationChatReview: true, locationChatContinuation: input.locationChatContinuation } : {}),
+        } : {}),
         // Only the native app asks the server for a "One replied" push when it
         // stops reading; a web tab's closed stream must not wake a phone.
         notifyOnDetach: Capacitor.isNativePlatform(),
@@ -3298,6 +3306,7 @@ export async function getAgentChatHistory(input: {
       metadata?: {
         kind?: string;
         display?: string;
+        locationChatProposal?: unknown;
         structuredExperience?: {
           activityType?: string;
           content?: unknown;
@@ -3347,6 +3356,8 @@ export async function getAgentChatHistory(input: {
   const mapped: AgentChatHistoryList = payload.messages
     .filter((message) => ["user", "assistant", "system", "tool"].includes(message.role))
     .map((message) => {
+      const locationChatProposal = message.role === "assistant"
+        ? parseMainLocationProposal(message.metadata?.locationChatProposal) : null;
       const attachments = message.role === "user"
         ? parseStoredTextAttachments(message.metadata?.attachments)
         : [];
@@ -3366,6 +3377,7 @@ export async function getAgentChatHistory(input: {
           ? {
               kind: message.metadata.kind,
               display: message.metadata.display,
+              ...(locationChatProposal ? { locationChatProposal } : {}),
               structuredExperience: message.metadata.structuredExperience,
               structuredExperienceId: message.metadata.structuredExperienceId,
               structuredExperiences: message.metadata.structuredExperiences,

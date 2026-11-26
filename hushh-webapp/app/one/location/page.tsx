@@ -19,6 +19,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ComponentProps,
   type MutableRefObject,
   type ReactNode,
@@ -434,6 +435,9 @@ import {
 import { useVault } from "@/lib/vault/vault-context";
 import { cn } from "@/lib/utils";
 import { LiveMap } from "@/components/one-location/live-map";
+import {
+  hasQueuedLocationStop, locationStopQueueRevision, subscribeLocationStopQueue,
+} from "@/lib/location/pending-stops";
 import { buildBackgroundShareSession } from "@/lib/one-location/background-share";
 import { syncBackgroundShare } from "@/lib/one-location/background-share-runtime";
 import { BackgroundShareToggle } from "@/app/one/location/background-share-toggle";
@@ -3534,11 +3538,20 @@ export function OneLocationAgentPageContent({
       (grant) => !isOneLocationGrantUnwatched(auth.userId, grant.id),
     );
   }, [activeReceivedGrants, auth.userId, openedGrantTick, unwatchedTick]);
-  const activeOwnerGrants = useMemo(
-    () =>
-      (state?.ownerGrants ?? []).filter((grant) => grant.status === "active"),
-    [state?.ownerGrants],
-  );
+  const stopQueueRevision = useSyncExternalStore(subscribeLocationStopQueue, locationStopQueueRevision, () => 0);
+  const activeOwnerGrants = useMemo(() => {
+    // Pending stops come from the local queue, separately from the server grant state.
+    void stopQueueRevision;
+    return (state?.ownerGrants ?? []).filter((grant) =>
+      grant.status === "active" && grant.shareKind !== "pin" && !hasQueuedLocationStop(auth.userId, grant.id));
+  }, [auth.userId, state?.ownerGrants, stopQueueRevision]);
+  const activeOwnerPins = useMemo(() => {
+    void stopQueueRevision;
+    return (state?.ownerGrants ?? []).filter((grant) =>
+      grant.status === "active" && grant.shareKind === "pin" &&
+      Boolean(grant.expiresAt && Date.parse(grant.expiresAt) > nowMs) &&
+      !hasQueuedLocationStop(auth.userId, grant.id));
+  }, [auth.userId, nowMs, state?.ownerGrants, stopQueueRevision]);
   /**
    * Live Save My Soul shares the server holds for this owner, whichever
    * device or voice session armed them. The device incident record only knows
@@ -6740,7 +6753,7 @@ export function OneLocationAgentPageContent({
         // else ever updated again.
         await Promise.all(
           activeOwnerGrants.map(async (grant) => {
-            if (!automaticPrivatePublishingAllowedRef.current) return;
+            if (!automaticPrivatePublishingAllowedRef.current || hasQueuedLocationStop(auth.userId, grant.id)) return;
             const recipient = recipientForGrant(grant);
             if (!recipient?.keyId || !recipient.publicKeyJwk) {
               // The grant is frozen against one recipient key and the backend
@@ -6799,6 +6812,7 @@ export function OneLocationAgentPageContent({
     return () => window.clearInterval(interval);
   }, [
     activeOwnerGrants,
+    auth.userId,
     busy,
     locationControl.paused,
     permission?.state,
@@ -6979,7 +6993,7 @@ export function OneLocationAgentPageContent({
         // made the movement gate re-fire the same failing publish forever.
         await Promise.all(
           activeOwnerGrants.map(async (grant) => {
-            if (!automaticPrivatePublishingAllowedRef.current) return;
+            if (!automaticPrivatePublishingAllowedRef.current || hasQueuedLocationStop(auth.userId, grant.id)) return;
             const recipient = recipientForGrant(grant);
             if (!recipient?.keyId || !recipient.publicKeyJwk) return;
             try {
@@ -7036,6 +7050,7 @@ export function OneLocationAgentPageContent({
     };
   }, [
     activeOwnerGrants,
+    auth.userId,
     locationControl.paused,
     permission?.state,
     publishEnvelopeWithRetry,
@@ -14417,7 +14432,8 @@ export function OneLocationAgentPageContent({
       loadRecipientPage({ page: recipientPage + 1, append: true }),
     visibleShareRecipients,
     activeOwnerGrants,
-    manageSharingGrants: liveOwnerGrantsForDisplay,
+    activeOwnerPins,
+    manageSharingGrants: [...liveOwnerGrantsForDisplay, ...activeOwnerPins],
     liveShare: liveShareStatus,
     onLiveShareEnded: handleLiveShareEnded,
     // Received grants stay reachable in their focused detail view. Dismissing

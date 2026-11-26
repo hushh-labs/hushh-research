@@ -12,7 +12,7 @@ import secrets
 import threading
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
@@ -813,15 +813,20 @@ _SHARE_LANE_MATCH_SQL = """
                 ) = CAST(:is_sos_lane AS BOOLEAN)"""
 
 
-def _share_lane_match_sql(alias: str = "") -> str:
-    """The lane predicate, optionally qualified for an aliased UPDATE target."""
-    return _SHARE_LANE_MATCH_SQL.format(alias=f"{alias}." if alias else "")
+def _share_lane_match_sql(alias: str = "", *, pin: bool = False) -> str:
+    """Keep live, one-time pin, and emergency replacement lanes independent."""
+    qualifier = f"{alias}." if alias else ""
+    pin_operator = "=" if pin else "<>"
+    return (
+        _SHARE_LANE_MATCH_SQL.format(alias=qualifier)
+        + f" AND COALESCE({qualifier}metadata->>'share_kind', '') {pin_operator} 'pin'"
+    )
 
 
 def _is_sos_lane(share_kind: str | None) -> bool:
     """True when a grant belongs to the emergency replacement lane.
 
-    The lane split is `sos` vs everything-else -- NOT one lane per share kind.
+    Only SOS receives the emergency sharing exemptions.
     """
     return str(share_kind or "").strip() == "sos"
 
@@ -894,7 +899,7 @@ def _resolve_share_duration(
             status_code=422,
         ) from exc
     if _is_until_stopped_share(mode):
-        if share_kind in {"sos", "check_in"}:
+        if share_kind in {"sos", "check_in", "pin"}:
             raise OneLocationAgentError(
                 "LOCATION_DURATION_MODE_NOT_ALLOWED",
                 "Until I stop is only available for trusted live shares.",
@@ -1334,7 +1339,7 @@ class OneLocationAgentService:
         its deterministic IDs.
         """
 
-        with get_db_connection() as connection:
+        with self._joining_writer_connection() as connection:
             command = None
             prior = None
             from hushh_mcp.services.location_command_audience_receipts import (
@@ -1440,7 +1445,7 @@ class OneLocationAgentService:
                         text("""SELECT id,expires_at,duration_mode FROM one_location_share_grants
                     WHERE owner_user_id=:owner_user_id AND recipient_user_id=:recipient_user_id AND status='active'
                       AND (expires_at IS NULL OR expires_at>NOW())
-                      AND COALESCE(metadata->>'share_kind',CASE WHEN metadata->>'reason'='sos_panic' THEN 'sos' ELSE 'share' END)<>'sos'
+                      AND COALESCE(metadata->>'share_kind',CASE WHEN metadata->>'reason'='sos_panic' THEN 'sos' ELSE 'share' END) NOT IN ('sos','pin')
                     ORDER BY id FOR UPDATE"""),
                         params,
                     )
@@ -1517,6 +1522,38 @@ class OneLocationAgentService:
             return dict(row) if row is not None else None
 
     @contextmanager
+    def _joining_writer_connection(self) -> Iterator[Any]:
+        bound = getattr(self, "_key_writer_connection", None)
+        with get_db_connection() if bound is None else nullcontext(bound) as connection:
+            yield connection
+
+    @contextmanager
+    def location_plan_writer(self) -> Iterator[Any]:
+        """Commit a reviewed plan, its Location effect, and receipt together."""
+        after_commit: list[Callable[[], Any]] = []
+        with get_db_connection() as connection:
+            self._key_writer_connection = connection
+            self._key_writer_thread_state.after_commit = after_commit
+            try:
+                yield connection
+            finally:
+                del self._key_writer_thread_state.after_commit
+                del self._key_writer_connection
+        for callback in after_commit:
+            try:
+                callback()
+            except Exception:
+                logger.warning("one.location.chat_plan_post_commit_dispatch_failed")
+
+    def _after_location_commit(self, callback: Callable[[], Any]) -> Any:
+        state = self.__dict__.get("_key_writer_thread_state")
+        callbacks = getattr(state, "after_commit", None)
+        if callbacks is None:
+            return callback()
+        callbacks.append(callback)
+        return True
+
+    @contextmanager
     def _key_bound_writer_guard(
         self,
         *,
@@ -1527,7 +1564,7 @@ class OneLocationAgentService:
 
         key_lock = f"one-location-recipient-key:{recipient_user_id}"
         pair_lock = f"one-location-grant:{owner_user_id}:{recipient_user_id}"
-        with get_db_connection() as connection:
+        with self._joining_writer_connection() as connection:
             AccountDeletionLifecycleService.lock_user_writes_in_transaction(
                 connection, user_ids=(owner_user_id, recipient_user_id)
             )
@@ -1747,6 +1784,22 @@ class OneLocationAgentService:
         Save My Soul reports it separately from persisted location shares;
         delivery remains best-effort and can fail after this method returns.
         """
+        state = self.__dict__.get("_key_writer_thread_state")
+        if getattr(state, "after_commit", None) is not None:
+            return bool(
+                self._after_location_commit(
+                    lambda: self._send_metadata_notification(
+                        user_id=user_id,
+                        notification_type=notification_type,
+                        title=title,
+                        body=body,
+                        notification_tag=notification_tag,
+                        request_url=request_url,
+                        data=data,
+                        show_alert=show_alert,
+                    )
+                )
+            )
         safe_data = _notification_safe_data(data)
         if not user_id or _contains_plaintext_location_key(safe_data):
             return False
@@ -5921,6 +5974,9 @@ class OneLocationAgentService:
         elif resolved_kind == "pickup_enroute":
             notification_title = "Drive shared"
             notification_body = f"{owner_label} started sharing their drive and live ETA with you."
+        elif resolved_kind == "pin":
+            notification_title = "Location pin shared"
+            notification_body = f"{owner_label} shared a one-time location pin with you."
         elif resolved_kind == "check_in":
             notification_title = "Check-in shared"
             notification_body = (
@@ -6377,6 +6433,12 @@ class OneLocationAgentService:
         source: str | None = None,
         _key_writer_guarded: bool = False,
     ) -> dict[str, Any]:
+        if share_kind == "pin":
+            raise OneLocationAgentError(
+                "LOCATION_PIN_ENVELOPE_REQUIRED",
+                "A pin must be shared with its encrypted location.",
+                status_code=422,
+            )
         if owner_user_id == recipient_user_id:
             raise OneLocationAgentError(
                 "LOCATION_RECIPIENT_SELF",
@@ -6939,11 +7001,7 @@ class OneLocationAgentService:
               LIMIT 1
             ),
             revoked_grants AS (
-              -- Two-lane replacement, same invariant as the two non-atomic
-              -- create paths: replacement is scoped to the emergency lane, so
-              -- an SOS grant never supersedes a normal share and a normal share
-              -- never supersedes an SOS grant. Two lanes (`sos` vs
-              -- everything-else), NOT one lane per share kind.
+              -- Replace only the same lane (live, one-time pin, or SOS).
               UPDATE one_location_share_grants g
               SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
               WHERE g.owner_user_id = :owner_user_id
@@ -6952,7 +7010,7 @@ class OneLocationAgentService:
             # is a module-level constant of static SQL text with a fixed alias
             # substituted, and the lane itself is BOUND as `:is_sos_lane`; nothing
             # caller-supplied reaches this statement.
-            + _share_lane_match_sql("g")
+            + _share_lane_match_sql("g", pin=resolved_kind == "pin")
             + """
                 AND EXISTS (SELECT 1 FROM eligible_recipient)
                 AND NOT EXISTS (SELECT 1 FROM replayed_grant)
@@ -7199,13 +7257,15 @@ class OneLocationAgentService:
             not idempotent_replay
             and not command_operation_id
             and not row.get("_command_owned")
-            and resolved_kind in {"share", "check_in"}
+            and resolved_kind in {"share", "check_in", "pin"}
         ):
-            record_location_effect_sync(
-                user_id=owner_user_id,
-                kind="private_share",
-                source_id=str(grant["id"]),
-                generation=value_epoch,
+            self._after_location_commit(
+                lambda: record_location_effect_sync(
+                    user_id=owner_user_id,
+                    kind="private_share",
+                    source_id=str(grant["id"]),
+                    generation=value_epoch,
+                )
             )
         if not idempotent_replay:
             self._send_location_share_created_notification(
@@ -7312,6 +7372,12 @@ class OneLocationAgentService:
             or str(grant_row.get("share_kind") or "")
             or _classify_share_kind(grant_row.get("reason"))
         )
+        if grant_share_kind == "pin":
+            raise OneLocationAgentError(
+                "LOCATION_PIN_IMMUTABLE",
+                "A shared location pin cannot be updated.",
+                status_code=409,
+            )
         _assert_sharing_not_off(
             self._execute_one, owner_user_id=owner_user_id, share_kind=grant_share_kind
         )
@@ -10248,6 +10314,12 @@ class OneLocationAgentService:
                 """,
                 {"grant_id": grant_id, "owner_user_id": caller_user_id},
             )
+            if row and (_loads_json(row.get("metadata")) or {}).get("share_kind") == "pin":
+                raise OneLocationAgentError(
+                    "LOCATION_PIN_IMMUTABLE",
+                    "A shared location pin's expiry cannot be changed.",
+                    status_code=409,
+                )
             if not row:
                 raise OneLocationAgentError(
                     "LOCATION_GRANT_NOT_FOUND",
@@ -10411,6 +10483,8 @@ class OneLocationAgentService:
         duration_hours: float | None,
         duration_mode: str = TIMED_LOCATION_SHARE_DURATION_MODE,
         client_operation_id: str | None = None,
+        _reviewed_expires_at: datetime | None = None,
+        _notify: bool = True,
     ) -> dict[str, Any]:
         """Set a new end time on a share that is already running. Owner only.
 
@@ -10477,12 +10551,31 @@ class OneLocationAgentService:
                 except (TypeError, ValueError):
                     metadata = {}
             share_kind = str((metadata or {}).get("share_kind") or "") or "trusted"
-            duration, expires_at, resolved_mode = _resolve_share_duration(
-                duration_hours=duration_hours,
-                duration_mode=duration_mode,
-                share_kind=share_kind,
-                now=_utcnow(),
-            )
+            if share_kind == "pin":
+                raise OneLocationAgentError(
+                    "LOCATION_PIN_IMMUTABLE",
+                    "A shared location pin's expiry cannot be changed.",
+                    status_code=409,
+                )
+            now = _utcnow()
+            if _reviewed_expires_at is None:
+                duration, expires_at, resolved_mode = _resolve_share_duration(
+                    duration_hours=duration_hours,
+                    duration_mode=duration_mode,
+                    share_kind=share_kind,
+                    now=now,
+                )
+            else:
+                expires_at = _reviewed_expires_at
+                resolved_mode = TIMED_LOCATION_SHARE_DURATION_MODE
+                duration = round((expires_at - now).total_seconds() / 3600, 2)
+                if expires_at <= now or duration > MAX_LOCATION_SHARE_HOURS:
+                    raise OneLocationAgentError(
+                        "LOCATION_CHAT_PLAN_CHANGED",
+                        "This sharing time changed. Review it again.",
+                        status_code=409,
+                    )
+                duration = max(0.25, duration)
             updated_metadata = dict(metadata or {})
             updated_metadata["duration_mode"] = resolved_mode
             if duration is None:
@@ -10562,6 +10655,8 @@ class OneLocationAgentService:
                 },
                 required=True,
             )
+        if not _notify:
+            return self._grant_payload(updated) or {}
         self._send_metadata_notification(
             user_id=recipient_user_id or "",
             notification_type="location_share_duration_changed",
@@ -10604,6 +10699,8 @@ class OneLocationAgentService:
         _notification_outbox: list[_MetadataNotification] | None = None,
         _accounts_verified: bool = False,
         _expires_after_hours: float | None = LOCATION_REQUEST_EXPIRY_HOURS,
+        _reviewed_grant: dict[str, Any] | None = None,
+        _reviewed_circle_id: str | None = None,
     ) -> dict[str, Any]:
         """Ask an owner for location access -- optionally for a named duration.
 
@@ -10661,11 +10758,13 @@ class OneLocationAgentService:
         # extended was silently redirected onto the SOS grant by the mismatch
         # fallback below, and `remaining_label` then quoted the SOS grant's
         # hours back at them. Nobody may extend an emergency share by asking.
-        active_grant = self._active_grant_between(
-            owner_user_id=owner_user_id,
-            recipient_user_id=requester_user_id,
-            is_sos_lane=False,
-        )
+        active_grant = _reviewed_grant
+        if active_grant is None:
+            active_grant = self._active_grant_between(
+                owner_user_id=owner_user_id,
+                recipient_user_id=requester_user_id,
+                is_sos_lane=False,
+            )
         active_grant_id = str(active_grant.get("id") or "") if active_grant else ""
         requested_grant_id = str(extends_grant_id or "").strip()
         extends_grant_value = active_grant_id or None
@@ -10797,11 +10896,12 @@ class OneLocationAgentService:
                             connection,
                             owner_user_id=owner_user_id,
                             recipient_user_id=requester_user_id,
-                            requested_circle_id=None,
+                            requested_circle_id=_reviewed_circle_id,
                         )
                     except OneLocationAgentError as error:
                         if (
-                            error.code != "LOCATION_RECIPIENT_NOT_CONNECTED"
+                            _reviewed_circle_id is not None
+                            or error.code != "LOCATION_RECIPIENT_NOT_CONNECTED"
                             or not self._lock_active_normal_grant_authority(
                                 connection,
                                 grant_id=extends_grant_value,
@@ -11078,6 +11178,8 @@ class OneLocationAgentService:
         duration_mode: str | None = None,
         auto_approve_rule_version: int | None = None,
         expected_request_revision: int | None = None,
+        _reviewed_extension: tuple[str, datetime, datetime] | None = None,
+        _reviewed_circle_id: str | None = None,
     ) -> dict[str, Any]:
         """Grant the requested access and resolve the ask in one transaction.
 
@@ -11139,7 +11241,7 @@ class OneLocationAgentService:
             )
         request_identity = self._execute_one(
             """
-            SELECT requester_user_id, status, expires_at,
+            SELECT requester_user_id, status, expires_at, extends_grant_id, request_revision, metadata,
                    (expires_at IS NOT NULL AND expires_at <= clock_timestamp()) AS request_expired
             FROM one_location_access_requests
             WHERE id = CAST(:request_id AS UUID)
@@ -11171,10 +11273,61 @@ class OneLocationAgentService:
         expected_requester_user_id = str(request_identity.get("requester_user_id") or "")
         self._assert_location_accounts_active(owner_user_id, expected_requester_user_id)
 
+        request_binding = (_loads_json(request_identity.get("metadata")) or {}).get(
+            "chat_plan_binding"
+        ) or {}
+        initial_revision = int(request_identity.get("request_revision") or 1)
+        if request_binding.get("requestRevision") != initial_revision:
+            request_binding = {}
+        bound_circle_id = _reviewed_circle_id or request_binding.get("circleId")
+        if request_binding and expected_request_revision is None:
+            expected_request_revision = initial_revision
         with self._key_bound_writer_guard(
             owner_user_id=owner_user_id,
             recipient_user_id=expected_requester_user_id,
         ):
+            connection = getattr(self, "_key_writer_connection", None)
+            if bound_circle_id and connection is not None:
+                self._lock_circle_share_eligibility(
+                    connection,
+                    owner_user_id=owner_user_id,
+                    recipient_user_id=expected_requester_user_id,
+                    requested_circle_id=bound_circle_id,
+                )
+            # The primary Location screen sees chat requests in its existing
+            # inbox. When it approves a chat extension, hold the same grant
+            # row and exact expiry before locking the pending request.
+            chat_extension_id = str(request_identity.get("extends_grant_id") or "")
+            bound_expiry = request_binding.get("grantExpiresAt")
+            if _reviewed_extension is None and chat_extension_id and bound_expiry:
+                expected_expiry = _parse_datetime(bound_expiry, field_name="extendsGrantExpiresAt")
+                active = self._execute_one(
+                    """SELECT id FROM one_location_share_grants
+                    WHERE id = CAST(:grant_id AS UUID)
+                      AND owner_user_id = :owner AND recipient_user_id = :recipient
+                      AND status = 'active' AND expires_at = :expires_at
+                      AND expires_at > clock_timestamp()
+                      AND COALESCE(metadata->>'share_kind',
+                        CASE WHEN metadata->>'reason'='sos_panic' THEN 'sos' ELSE 'share' END
+                      ) NOT IN ('sos', 'pin')
+                    FOR UPDATE""",
+                    {
+                        "grant_id": chat_extension_id,
+                        "owner": owner_user_id,
+                        "recipient": expected_requester_user_id,
+                        "expires_at": expected_expiry,
+                    },
+                )
+                if not active:
+                    raise OneLocationAgentError(
+                        "LOCATION_CHAT_PLAN_CHANGED",
+                        "This share changed. Ask for the new terms before approving.",
+                        status_code=409,
+                    )
+                # The actual increment is resolved from the locked request.
+                workspace_extension = (chat_extension_id, expected_expiry)
+            else:
+                workspace_extension = None
             self._repair_legacy_direct_request_deadlines(owner_user_id)
             request_row = self._execute_one(
                 """
@@ -11218,7 +11371,21 @@ class OneLocationAgentService:
                     "This request changed. Review it again.",
                     status_code=409,
                 )
-            if expected_request_revision is not None and request_row.get("extends_grant_id"):
+            if _reviewed_extension is not None and (
+                automatic
+                or str(request_row.get("extends_grant_id") or "") != _reviewed_extension[0]
+            ):
+                raise OneLocationAgentError(
+                    "LOCATION_REQUEST_CHANGED",
+                    "This request changed. Review it again.",
+                    status_code=409,
+                )
+            if (
+                expected_request_revision is not None
+                and request_row.get("extends_grant_id")
+                and _reviewed_extension is None
+                and workspace_extension is None
+            ):
                 # Command receipts do not yet pin the mutable grant used by
                 # extension arithmetic. Keep those approvals on the authored
                 # review screen; never widen a confirmed timed command here.
@@ -11336,8 +11503,47 @@ class OneLocationAgentService:
             # hit. Lane-scoped to the ordinary lane for the same reason
             # `request_access` is -- nobody extends an emergency share by
             # asking, and an SOS grant's hours must never enter this sum.
+            if workspace_extension is not None:
+                if automatic or resolved_hours is None:
+                    raise OneLocationAgentError(
+                        "LOCATION_EXTENSION_REVIEW_REQUIRED",
+                        "Review this timed extension yourself.",
+                        status_code=409,
+                    )
+                target = workspace_extension[1] + timedelta(hours=resolved_hours)
+                if target > _utcnow() + timedelta(hours=MAX_LOCATION_SHARE_HOURS):
+                    raise OneLocationAgentError(
+                        "LOCATION_DURATION_INVALID",
+                        "Choose a new end time within 24 hours.",
+                        status_code=422,
+                    )
+                _reviewed_extension = (*workspace_extension, target)
             remaining_hours = 0.0
-            if was_extension and not _is_until_stopped_share(resolved_mode):
+            if _reviewed_extension is not None:
+                live_share = self._active_grant_between(
+                    owner_user_id=owner_user_id,
+                    recipient_user_id=requester_user_id,
+                    is_sos_lane=False,
+                )
+                now = _utcnow()
+                if (
+                    not live_share
+                    or str(live_share["id"]) != _reviewed_extension[0]
+                    or not live_share.get("expires_at")
+                    or _parse_datetime(live_share["expires_at"], field_name="expiresAt")
+                    != _reviewed_extension[1]
+                    or _reviewed_extension[1] <= now
+                    or _reviewed_extension[2] <= _reviewed_extension[1]
+                ):
+                    raise OneLocationAgentError(
+                        "LOCATION_CHAT_PLAN_CHANGED",
+                        "This share changed. Review it again.",
+                        status_code=409,
+                    )
+                remaining_hours = (
+                    _parse_datetime(live_share["expires_at"], field_name="expiresAt") - now
+                ).total_seconds() / 3600
+            elif was_extension and not _is_until_stopped_share(resolved_mode):
                 # Deliberately the UNLOCKED read, and deliberately the same one
                 # `request_access` used to tell the owner "They have 1 hour 50
                 # minutes left" -- so the promise and the arithmetic share a
@@ -11414,23 +11620,36 @@ class OneLocationAgentService:
                     "Approve ongoing access yourself.",
                     status_code=403,
                 )
-            grant = self.create_grant(
-                owner_user_id=owner_user_id,
-                recipient_user_id=requester_user_id,
-                recipient_key_id=None,
-                duration_hours=resolved_hours,
-                duration_mode=resolved_mode,
-                reason="request_approved",
-                source_circle_id=(
-                    automatic_circle_id if automatic_scope in {"circle", "circles"} else None
-                ),
-                require_recipient_phone_verified=False,
-                # Manual approval is explicit owner consent. A standing rule is
-                # narrower and must recheck its relationship under this same
-                # transaction before the grant is inserted.
-                enforce_connection=automatic_preference is not None,
-                require_owned_source_circle=automatic_scope in {"circle", "circles"},
-                _key_writer_guarded=True,
+            grant = (
+                self.set_grant_duration(
+                    owner_user_id=owner_user_id,
+                    grant_id=_reviewed_extension[0],
+                    duration_hours=resolved_hours,
+                    _reviewed_expires_at=_reviewed_extension[2],
+                    _notify=False,
+                )
+                if _reviewed_extension is not None
+                else self.create_grant(
+                    owner_user_id=owner_user_id,
+                    recipient_user_id=requester_user_id,
+                    recipient_key_id=None,
+                    duration_hours=resolved_hours,
+                    duration_mode=resolved_mode,
+                    reason="request_approved",
+                    source_circle_id=(
+                        automatic_circle_id
+                        if automatic_scope in {"circle", "circles"}
+                        else bound_circle_id
+                    ),
+                    require_recipient_phone_verified=False,
+                    # Manual approval is explicit owner consent. A standing rule is
+                    # narrower and must recheck its relationship under this same
+                    # transaction before the grant is inserted.
+                    enforce_connection=automatic_preference is not None
+                    or bound_circle_id is not None,
+                    require_owned_source_circle=automatic_scope in {"circle", "circles"},
+                    _key_writer_guarded=True,
+                )
             )
             approved_recipient = self._recipient_payload(
                 self._recipient_key_row(
@@ -11585,7 +11804,9 @@ class OneLocationAgentService:
             "recipient": approved_recipient,
         }
 
-    def deny_request(self, *, owner_user_id: str, request_id: str) -> dict[str, Any]:
+    def deny_request(
+        self, *, owner_user_id: str, request_id: str, _expected_request_revision: int | None = None
+    ) -> dict[str, Any]:
         with self._event_bound_writer():
             self._repair_legacy_direct_request_deadlines(owner_user_id)
             row = self._execute_one(
@@ -11595,15 +11816,21 @@ class OneLocationAgentService:
                 WHERE id = CAST(:request_id AS UUID)
                   AND owner_user_id = :owner_user_id
                   AND status = 'pending'
+                  AND (CAST(:expected_revision AS INTEGER) IS NULL
+                       OR request_revision = :expected_revision)
                   AND (expires_at IS NULL OR expires_at > clock_timestamp())
                 RETURNING *
                 """,
-                {"owner_user_id": owner_user_id, "request_id": request_id},
+                {
+                    "owner_user_id": owner_user_id,
+                    "request_id": request_id,
+                    "expected_revision": _expected_request_revision,
+                },
             )
             if not row:
                 existing = self._execute_one(
                     """
-                    SELECT status, expires_at,
+                    SELECT status, expires_at, request_revision,
                            (expires_at IS NOT NULL AND expires_at <= clock_timestamp()) AS request_expired
                     FROM one_location_access_requests
                     WHERE id = CAST(:request_id AS UUID)
@@ -11620,6 +11847,16 @@ class OneLocationAgentService:
                         "LOCATION_REQUEST_EXPIRED",
                         "This location request has expired.",
                         status_code=410,
+                    )
+                if (
+                    existing
+                    and existing["status"] == "pending"
+                    and _expected_request_revision is not None
+                ):
+                    raise OneLocationAgentError(
+                        "LOCATION_REQUEST_CHANGED",
+                        "This request changed. Review it again.",
+                        status_code=409,
                     )
                 raise OneLocationAgentError(
                     "LOCATION_REQUEST_NOT_FOUND",

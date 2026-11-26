@@ -44,6 +44,7 @@ from hushh_mcp.services.google_maps_service import (
     GoogleMapsService,
     NearbyPlaceCategory,
 )
+from hushh_mcp.services.location_chat_plans import LocationChatPlanService
 from hushh_mcp.services.location_onboarding_runtime import (
     get_location_onboarding_runtime_service,
 )
@@ -1066,6 +1067,15 @@ async def purge_location_retention(request: Request, older_than_hours: float = 1
         result = await run_in_threadpool(
             _service().purge_terminal_work, older_than_hours=older_than_hours
         )
+        if os.getenv("ONE_MAIN_CHAT_LOCATION_ENABLED", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            result["location_chat_reviews"] = await run_in_threadpool(
+                LocationChatPlanService().purge_expired_reviews
+            )
         result["nearby_presence"] = await run_in_threadpool(
             _nearby_presence_service().purge_terminal,
             older_than_hours=older_than_hours,

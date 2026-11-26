@@ -74,6 +74,7 @@ export type LiveClientAuth = {
   firebaseIdToken?: string | null;
   conversationId: string;
   client: VoiceClientKind;
+  locationChatReview?: boolean;
 };
 
 export type LiveClientStats = {
@@ -379,7 +380,7 @@ export class OneLiveClient {
             platform: auth.client,
             protocol_version: ONE_VOICE_PROTOCOL_VERSION,
             input_mime_type: INPUT_MIME,
-            features: ["mail_draft_review", "audio_playback"],
+            features: ["mail_draft_review", "audio_playback", ...(auth.locationChatReview ? ["location_chat_review"] : [])],
           },
           // Relative dates ("today", "this week") are the owner's, and only the
           // browser knows their zone. A hint: the server validates it and falls
