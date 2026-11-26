@@ -106,6 +106,7 @@ from hushh_mcp.services.message_feedback_service import MessageFeedbackError
 router = APIRouter(
     prefix="/api/one/pod/agent-chat", tags=["personal-agent"], route_class=PrivateConnectorRoute
 )
+_STATE_NATIVE_ADK_CHAT = "hussh:native_adk_chat"
 
 
 async def context(request: Request) -> PodChatContext:
@@ -207,8 +208,16 @@ async def capabilities(owner: PodChatContext = Depends(context)):
     # Discovery performs no model construction, turn admission or history write.
     from hushh_mcp.services.action_gateway import list_action_gateway_actions
 
+    try:
+        from a2ui.adk import SendA2uiToClientToolset  # noqa: F401
+    except ImportError:
+        native = {}
+    else:
+        native = {"nativeAdkChatVersion": 1}
+
     return {
         **_authenticated_capabilities,
+        **native,
         "podCommandCheckpointVersion": 1,
         "receiptToolVersion": 1,
         "plaidConnectorToolVersion": 1,
@@ -366,6 +375,7 @@ async def _native_chat(input: NativePodChatRequest, owner: PodChatContext) -> Ev
     if bool(state[STATE_MCP_APPROVAL]) != bool(decision and decision.confirmed):
         raise HTTPException(409, detail={"code": "MCP_REVIEW_CHANGED"})
     state["temp:hussh:split_dynamic_context"] = True
+    state[_STATE_NATIVE_ADK_CHAT] = True
     await owner.require_access()
     turn = AdmittedNativePodTurn(input.thread_id, input.run_id, state, input.message, decision)
     return _stream_response(owner.stream_native(options, turn))
@@ -545,9 +555,24 @@ async def history(
     result["consentAccessEnded"] = consent_ended
     from hushh_mcp.one_adk.pod_mcp_restore import pending_reviews
 
+    legacy_reviews = [] if transport else await pending_reviews(owner, session)
+    legacy_handles = {value["reference"]["pendingHandle"] for value in legacy_reviews}
+    native_reviews = (
+        await pending_reviews(owner, session, use_native_ids=True)
+        if transport or session.state.get(_STATE_NATIVE_ADK_CHAT) is True
+        else []
+    )
     result["mcpReviews"] = [
         {"interruptId": value["interruptId"], "reference": value["reference"]}
-        for value in await pending_reviews(owner, session, use_native_ids=transport is not None)
+        for value in legacy_reviews
+    ] + [
+        {
+            "interruptId": value["interruptId"],
+            "reference": value["reference"],
+            "transport": "native-adk-v1",
+        }
+        for value in native_reviews
+        if value["reference"]["pendingHandle"] not in legacy_handles
     ]
     return result
 

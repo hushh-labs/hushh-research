@@ -91,8 +91,26 @@ import {
   driveBatchProgressToVisibleStreamEvent,
 } from "@/components/agent/agent-turn-stream-panel";
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
+import { applyA2uiMessage, ONE_A2UI_CATALOG } from "@/lib/a2ui/surface-store";
 import { HoldingsSurfaceSpecimen } from "@/components/design-system/holdings-surface-specimen";
 import { driveOwnerCompileKey } from "@/lib/agent/connector-read-receipt";
+
+it("opens a native statement picker only for a live owner action message", async () => {
+  const nativeSurfaces = applyA2uiMessage(new Map(), {
+    version: "1.0", createSurface: {
+      catalogId: ONE_A2UI_CATALOG, surfaceId: "upload",
+      components: [{ id: "root", component: "FinancePortfolioUpload" }],
+    },
+  });
+  const props = { streamEvents: [], responseText: "", isStreaming: false, nativeSurfaces };
+  const view = render(<AgentTurnStreamPanel {...props} />);
+  expect(screen.getByText("Portfolio upload offered.")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Upload your portfolio" })).toBeNull();
+  view.rerender(<AgentTurnStreamPanel {...props} nativeFinanceActionMessageId="owner-message" />);
+  expect(await screen.findByRole("button", { name: "Upload your portfolio" })).toBeEnabled();
+  view.rerender(<AgentTurnStreamPanel {...props} />);
+  expect(screen.queryByRole("button", { name: "Upload your portfolio" })).toBeNull();
+});
 import type { AgentChatToolEvent } from "@/lib/services/agent-chat-client";
 
 function makeToolEvent(overrides: Partial<AgentChatToolEvent> = {}): AgentChatToolEvent {

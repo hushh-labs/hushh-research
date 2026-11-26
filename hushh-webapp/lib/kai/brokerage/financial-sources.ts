@@ -353,11 +353,16 @@ export function removeStatementSnapshot(
     if (!activeSnapshot) return null;
     const canonical = asRecord(activeSnapshot?.canonical_v2) ?? activeSnapshot;
     const normalized = normalizeStoredPortfolio(canonical, { preserveEntries: true }) as PortfolioData;
+    const keepPlaid = getActiveSource(financial) === "plaid" && Boolean(getPlaidPortfolio(financial));
     nextFinancial.sources = {
       ...nextSources,
-      active_source: "statement",
+      active_source: keepPlaid ? "plaid" : "statement",
       statement: buildStatementSource(financial, remainingSnapshots, nextActiveId, updatedAt),
     };
+    if (keepPlaid) {
+      nextFinancial.updated_at = updatedAt;
+      return nextFinancial;
+    }
     nextFinancial.portfolio = normalized;
     nextFinancial.analytics =
       getPortfolioAnalytics(activeSnapshot) ??

@@ -10,6 +10,7 @@ from google.adk.events import Event
 from hushh_mcp.services.chat_key import current_chat_key_markers
 
 A2UI_TOOL_NAME = "send_a2ui_json_to_client"
+STATE_NATIVE_VISUAL_CHAT = "temp:one_native_visual_chat"
 _CATALOG = "hussh.ai:morphy-one/v1"
 _VISUAL_UPDATES = ("updateComponents", "updateDataModel", "deleteSurface")
 

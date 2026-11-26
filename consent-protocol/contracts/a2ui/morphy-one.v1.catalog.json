@@ -157,6 +157,43 @@
       },
       "required": ["audience"]
     },
+    "FinancePortfolioUpload": {
+      "type": "object",
+      "description": "Offer to import a statement using the app's file picker. Only the owner chooses the file and the existing import workflow validates it before saving.",
+      "allowedParents": ["Surface"],
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "FinanceStockPreview": {
+      "type": "object",
+      "description": "Offer the app's review for one stock ticker. Only the owner may confirm and start analysis.",
+      "allowedParents": ["Surface"],
+      "additionalProperties": false,
+      "properties": { "ticker": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9.-]{0,15}$" } },
+      "required": ["ticker"]
+    },
+    "FinanceTopGainers": {
+      "type": "object",
+      "description": "Ask the app to show its public U.S. market gainers card.",
+      "allowedParents": ["Surface"],
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "FinancePortfolioPicker": {
+      "type": "object",
+      "description": "Open the app's source picker to switch portfolios or review deletion of a saved statement. The owner chooses the exact source and confirms deletion separately.",
+      "allowedParents": ["Surface"],
+      "additionalProperties": false,
+      "properties": { "mode": { "enum": ["switch", "delete"] } },
+      "required": ["mode"]
+    },
+    "FinancePlaidConnection": {
+      "type": "object",
+      "description": "Offer the app's Plaid card to connect or refresh linked accounts after a visible owner action.",
+      "allowedParents": ["Surface"],
+      "additionalProperties": false,
+      "properties": {}
+    },
     "SavedPortfolio": {
       "type": "object",
       "description": "Ask the app to display a section from the owner's active saved portfolio. The app selects and reads the portfolio through the unlocked vault.",

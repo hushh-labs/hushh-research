@@ -38,6 +38,7 @@ vi.mock("@/lib/services/api-service", () => ({
     apiFetch: vi.fn(),
     apiFetchStream: vi.fn(),
     agentChatRequest: vi.fn(),
+    ownerPodRequest: vi.fn(),
     listAgentChatConversations: vi.fn(),
     getAgentChatHistory: vi.fn(),
     renameAgentChatConversation: vi.fn(),
@@ -100,6 +101,66 @@ import {
 
 const TEST_VAULT_KEY = "0f".repeat(32);
 const TEST_CHAT_KEY = "hck1.0a3419cafc7896f9384d95ec76704bb30b272e913e80702075270f69a2feae8b";
+
+describe("native Cloud chat", () => {
+  const input = { vaultKey: TEST_VAULT_KEY, userId: "user-1", conversationId: "native-thread",
+    message: "Show my holdings", vaultOwnerToken: "owner-token" };
+
+  beforeEach(() => {
+    vi.stubEnv("NEXT_PUBLIC_ONE_NATIVE_ADK_CHAT", "1");
+    publishValidatedAuthSessionOwner("user-1");
+    mockTransport.runAgent.mockClear();
+    vi.mocked(ApiService.ownerPodRequest).mockReset().mockResolvedValueOnce(
+      new Response(JSON.stringify({ nativeAdkChatVersion: 1 })),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    publishValidatedAuthSessionOwner(null);
+  });
+
+  it("sends only the native body and delivers the saved-portfolio surface to the live turn", async () => {
+    const { ONE_A2UI_CATALOG } = await import("@/lib/a2ui/surface-store");
+    const surface = {
+      version: "1.0", createSurface: { catalogId: ONE_A2UI_CATALOG, surfaceId: "holdings",
+        components: [{ id: "root", component: "SavedPortfolio", section: "holdings" }] },
+    };
+    const event = { author: "one", content: { parts: [{ functionResponse: {
+      name: "send_a2ui_json_to_client", response: { validated_a2ui_json: [surface] },
+    } }] } };
+    vi.mocked(ApiService.ownerPodRequest).mockResolvedValueOnce(new Response(
+      `event: start\ndata: {"sessionId":"native-thread"}\n\ndata: ${JSON.stringify(event)}\n\nevent: done\ndata: {}\n\n`,
+      { headers: { "Content-Type": "text/event-stream" } },
+    ));
+    const onStart = vi.fn();
+    const onNativeOutput = vi.fn();
+    await expect(streamAgentChat({ ...input, handlers: { onStart, onNativeOutput } }))
+      .resolves.toMatchObject({ conversationId: "native-thread", interrupted: false });
+    const post = vi.mocked(ApiService.ownerPodRequest).mock.calls[1]!;
+    const sent = JSON.parse(String(post[1]?.body));
+    expect(sent).toMatchObject({ transport: "native-adk-v1", threadId: "native-thread", message: input.message });
+    expect(sent).not.toHaveProperty("tools");
+    expect(sent).not.toHaveProperty("messages");
+    expect(onStart).toHaveBeenCalledOnce();
+    expect(onNativeOutput.mock.lastCall?.[0].surfaces.get("holdings").components.get("root"))
+      .toMatchObject({ component: "SavedPortfolio", section: "holdings" });
+    expect(mockTransport.runAgent).not.toHaveBeenCalled();
+  });
+
+  it("preserves the original conversation for recovery when native streaming ends early", async () => {
+    vi.mocked(ApiService.ownerPodRequest).mockResolvedValueOnce(new Response(
+      `event: start\ndata: {"sessionId":"native-thread"}\n\n`,
+      { headers: { "Content-Type": "text/event-stream" } },
+    ));
+    await expect(streamAgentChat(input)).rejects.toMatchObject({
+      name: "AgentChatStreamLostError", conversationId: "native-thread",
+    });
+    expect(vi.mocked(ApiService.ownerPodRequest).mock.calls.filter(([path]) => path === "agent-chat"))
+      .toHaveLength(1);
+    expect(mockTransport.runAgent).not.toHaveBeenCalled();
+  });
+});
 
 describe("Shared wiki stays on its selected runtime", () => {
   it("opens Shared wiki only for explicit Shared hosting, never private or failed placement reads", async () => {

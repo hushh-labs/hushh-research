@@ -21,6 +21,7 @@ from hushh_mcp.one_adk.mcp_turn_scope import (
     consume_turn_configurations,
     private_chat_mcp_resources,
 )
+from hushh_mcp.one_adk.native_chat_output import STATE_NATIVE_VISUAL_CHAT
 from hushh_mcp.one_adk.native_chat_stream import native_chat_frames
 from hushh_mcp.one_adk.pod_mcp_restore import resolve_pending_mcp_reviews
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
@@ -78,6 +79,7 @@ async def run_native_pod_chat(
         if bool(approval) != (turn.decision is not None and turn.decision.confirmed):
             raise ActionDirectiveAuthorityError("Connector approval does not match this turn.")
         app, memory, prepare_memory = await prepare()
+        turn.state[STATE_NATIVE_VISUAL_CHAT] = True
         configurations = consume_turn_configurations(
             turn.state, owner_id=owner.owner, conversation_id=turn.thread_id
         )
@@ -157,6 +159,7 @@ async def run_native_pod_chat(
             settle=settle_owner_session,
             admission=admission,
             incarnation=incarnation,
+            announce_start=True,
         )
     ) as frames:
         async for frame in frames:

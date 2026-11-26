@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import aclosing
@@ -33,6 +34,7 @@ async def native_chat_frames(
     settle: Callable[[], Awaitable[None]],
     admission: PodUpgradeAdmission = ADMISSION,
     incarnation: str | None = None,
+    announce_start: bool = False,
 ) -> AsyncGenerator[bytes, None]:
     """Deliver read-only native output and report success after the session settles."""
 
@@ -42,6 +44,7 @@ async def native_chat_frames(
         visible = False
         awaiting_review = False
         unfinished_work = False
+        started = False
         async with aclosing(open_source()) as source:
             async for event in source:
                 if not event.partial or time.monotonic() - checked_at >= 1.5:
@@ -50,6 +53,11 @@ async def native_chat_frames(
                 if event.error_code or event.error_message:
                     yield _FAILED
                     return
+                if announce_start and not started:
+                    # The producer has entered the owner-bound run by its first event.
+                    started = True
+                    start = json.dumps({"sessionId": conversation_id}, separators=(",", ":"))
+                    yield f"event: start\ndata: {start}\n\n".encode()
                 if event.long_running_tool_ids:
                     unfinished_work = True
                 if event.actions.requested_tool_confirmations or any(

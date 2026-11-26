@@ -18,6 +18,7 @@ export type NativeAdkTurnOutput = {
   status: "streaming" | "complete" | "awaiting_review" | "error";
   errorCode?: NativeErrorCode;
   sessionId?: string;
+  serverMessageId?: string;
   activity?: string[];
 };
 
@@ -49,9 +50,12 @@ function applyNativeAdkEvent(output: NativeAdkTurnOutput, value: unknown): Nativ
     for (const message of messages) surfaces = applyA2uiMessage(surfaces, message);
   }
   if (!text && surfaces === output.surfaces) return output;
+  if (!text) return { ...output, surfaces };
   // ADK's settled text is the aggregate from the model call. Replace its
   // provisional chunks instead of appending the same answer twice.
-  return { ...output, surfaces, settledText: output.settledText + (text || output.partialText), partialText: "" };
+  const eventId = typeof event.id === "string" && /^[A-Za-z0-9_.:-]{1,160}$/.test(event.id)
+    ? event.id : undefined;
+  return { ...output, surfaces, settledText: output.settledText + text, partialText: "", serverMessageId: eventId };
 }
 
 export function consumeNativeAdkFrames(

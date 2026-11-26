@@ -227,8 +227,8 @@ export type AgentTurnStreamPanelProps = {
   }>;
   /** Turn-local surfaces from an admitted stream. Keep these out of saved history. */
   nativeSurfaces?: A2uiSurfaces;
-  /** Only the live, admitted turn owner may enable the app-authored sharing entry. */
-  allowNativeFinanceShare?: boolean;
+  /** The live assistant message that may offer owner-controlled Finance actions. */
+  nativeFinanceActionMessageId?: string;
   allowNativePortfolioRead?: boolean;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
   onInformationRequestSubmitted?: (activityId: string, receipt: InformationRequestSubmissionReceipt) => Promise<void>;
@@ -414,7 +414,7 @@ export function AgentTurnStreamPanel({
   structuredExperience = null,
   structuredExperiences = [],
   nativeSurfaces,
-  allowNativeFinanceShare = false,
+  nativeFinanceActionMessageId,
   allowNativePortfolioRead = false,
   onOpenConnections,
   onInformationRequestSubmitted,
@@ -530,7 +530,11 @@ export function AgentTurnStreamPanel({
           <div className="space-y-3">
             {nativeSurfaces && [...nativeSurfaces].map(([id, surface]) => (
               <A2uiSurfaceView key={id} surface={surface}
-                allowFinanceShare={allowNativeFinanceShare && !isStreaming && !isError}
+                allowFinanceShare={Boolean(nativeFinanceActionMessageId) && !isStreaming && !isError}
+                financeActionOfferId={nativeFinanceActionMessageId && !isStreaming && !isError
+                  ? JSON.stringify([nativeFinanceActionMessageId, id]) : undefined}
+                onConfirmFinanceAnalysis={nativeFinanceActionMessageId && !isStreaming && !isError
+                  ? onConfirmFinanceAnalysis : undefined}
                 portfolioConversationId={allowNativePortfolioRead && !isError ? conversationId ?? undefined : undefined} />
             ))}
             {experienceItems.map(({ id, experience }) => {

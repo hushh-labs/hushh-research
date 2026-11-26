@@ -25,7 +25,7 @@ import {
 } from "@/lib/kai/brokerage/portfolio-sources";
 import {
   buildFinancialDomainSummary,
-  getActiveSource as getStoredActiveSource,
+  getStoredActiveSource,
   getActiveStatementSnapshotId,
   getPlaidPortfolio,
   getStatementPortfolio,
@@ -38,6 +38,7 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
 import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
+import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import {
   buildVaultPlaidStatus,
@@ -57,15 +58,31 @@ interface UsePortfolioSourcesParams {
   vaultOwnerToken?: string | null;
   vaultKey?: string | null;
   initialStatementPortfolio?: PortfolioData | null;
+  trackPortfolioReady?: boolean;
+  requireCompatibleStoredSource?: boolean;
 }
 
 interface ReloadOptions {
   background?: boolean;
+  force?: boolean;
 }
 
 interface PlaidRefreshActionResult {
   refreshed: number;
   needsRelink: string[];
+}
+
+export interface StatementDeletionReview {
+  snapshotId: string;
+  revision: number;
+  statementLabel: string;
+  nextActiveLabel: string | null;
+}
+
+function reviewedStatementLabel(option: StatementSnapshotOption): string {
+  return option.fileName && option.statementPeriodEnd
+    ? `${option.fileName} (${option.statementPeriodEnd})`
+    : option.fileName || option.label;
 }
 
 export interface UsePortfolioSourcesResult {
@@ -90,7 +107,8 @@ export interface UsePortfolioSourcesResult {
   canChangePortfolioSource: boolean;
   changeActiveSource: (nextSource: PortfolioSource) => Promise<void>;
   changeActiveStatementSnapshot: (snapshotId: string) => Promise<void>;
-  deleteStatementSnapshot: (snapshotId: string) => Promise<void>;
+  reviewStatementDeletion: (snapshotId: string) => Promise<StatementDeletionReview>;
+  deleteStatementSnapshot: (snapshotId: string, reviewedRevision?: number) => Promise<void>;
   refreshPlaid: () => Promise<PlaidRefreshActionResult>;
   reload: (options?: ReloadOptions) => Promise<void>;
 }
@@ -127,11 +145,19 @@ function confirmationSurface(): "web" | "ios" | "android" {
 
 const REPLACE_FINANCIAL = { merge_mode: "replace_domain", target_domain: "financial" } as const;
 
+function supportsSourceMutation(financial: Record<string, unknown> | null) {
+  // The V7 sources contain artifact references, without a snapshot payload
+  // from which the legacy source mutation can rebuild the active V7 core.
+  return !String(financial?.pkm_contract_version ?? "").startsWith("7.");
+}
+
 export function usePortfolioSources({
   userId,
   vaultOwnerToken,
   vaultKey,
   initialStatementPortfolio = null,
+  trackPortfolioReady = true,
+  requireCompatibleStoredSource = false,
 }: UsePortfolioSourcesParams): UsePortfolioSourcesResult {
   const [statementPortfolio, setStatementPortfolio] = useState<PortfolioData | null>(
     initialStatementPortfolio
@@ -151,6 +177,7 @@ export function usePortfolioSources({
   const [statementSnapshots, setStatementSnapshots] = useState<StatementSnapshotOption[]>([]);
   const [activeStatementSnapshotId, setActiveStatementSnapshotId] = useState<string | null>(null);
   const [activeSource, setActiveSource] = useState<PortfolioSource>("statement");
+  const [sourceMutationSupported, setSourceMutationSupported] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isPlaidRefreshing, setIsPlaidRefreshing] = useState(false);
@@ -237,8 +264,8 @@ export function usePortfolioSources({
       const nextActiveSource = pickPreferredSource({
         preferred:
           params.preferredSource ??
-          params.plaidStatus?.source_preference ??
-          getStoredActiveSource(params.financial),
+          getStoredActiveSource(params.financial) ??
+          params.plaidStatus?.source_preference,
         availableSources: nextAvailableSources,
       });
 
@@ -255,6 +282,7 @@ export function usePortfolioSources({
         setPlaidStatus(params.plaidStatus);
         setPlaidPortfolio(loadedPlaidPortfolio);
         setActiveSource(nextActiveSource);
+        setSourceMutationSupported(supportsSourceMutation(params.financial));
       });
     },
     [initialStatementPortfolio, userId, vaultKey, vaultOwnerToken, vaultEpoch]
@@ -278,15 +306,20 @@ export function usePortfolioSources({
     }).catch(() => undefined);
   }, [userId, vaultKey, vaultOwnerToken]);
 
-  const reload = useCallback(async (options?: ReloadOptions) => {
+  const reload = useCallback(async function reload(options?: ReloadOptions): Promise<void> {
     if (!isVaultSessionEpochCurrent(vaultEpoch)) return;
     const isBackground = options?.background === true;
     const previous = reloadRef.current;
     const sameSession = previous?.ownerId === userId && previous?.epoch === vaultEpoch;
-    if (sameSession && previous.request) return previous.request;
+    if (sameSession && previous.request) {
+      if (!options?.force) return previous.request;
+      await previous.request;
+      if (reloadRef.current?.request) return reloadRef.current.request;
+      return reload(options);
+    }
     const now = Date.now();
     const minReloadGapMs = isBackground ? 2000 : 400;
-    if (sameSession && now - previous.startedAt < minReloadGapMs) return;
+    if (!options?.force && sameSession && now - previous.startedAt < minReloadGapMs) return;
 
     const request = (async () => {
       if (!userId || !vaultOwnerToken) {
@@ -377,7 +410,8 @@ export function usePortfolioSources({
     if (activeSource === "statement") return statementPortfolio;
     return plaidPortfolio;
   }, [activeSource, plaidPortfolio, statementPortfolio]);
-  const canChangePortfolioSource = Boolean(userId && vaultOwnerToken && vaultKey);
+  const canChangePortfolioSource = Boolean(userId && vaultOwnerToken && vaultKey &&
+    (!requireCompatibleStoredSource || sourceMutationSupported));
 
   /**
    * Saves an owner-confirmed change to the financial memory: the change is
@@ -390,22 +424,37 @@ export function usePortfolioSources({
       transform: (financial: Record<string, unknown>) => Record<string, unknown> | null;
       notReadyMessage: string;
       failureMessage: string;
+      reviewedRevision?: number;
     }) => {
       if (!userId || !vaultOwnerToken || !vaultKey) {
         throw new Error("Unlock your Vault before changing your portfolio.");
       }
+      const isCurrent = () => isVaultSessionEpochCurrent(vaultEpoch);
+      const requireCurrentVault = () => {
+        if (!isCurrent()) throw new Error("Unlock your Vault before changing your portfolio.");
+      };
+      requireCurrentVault();
       let notReady = false;
       const result = await PkmWriteCoordinator.saveMergedDomain({
         userId,
         domain: "financial",
         vaultKey,
         vaultOwnerToken,
+        beforeEffect: async () => requireCurrentVault(),
+        mayPublish: isCurrent,
         confirmation: {
           confirmedByUser: true,
           surface: confirmationSurface(),
           source: params.source,
         },
         build: (context) => {
+          if (requireCompatibleStoredSource && !supportsSourceMutation(context.currentDomainData)) {
+            throw new Error("This saved portfolio cannot be changed from Chat.");
+          }
+          const revision = context.currentEncryptedDomain?.dataVersion ?? context.expectedDataVersion;
+          if (params.reviewedRevision !== undefined && params.reviewedRevision !== revision) {
+            throw new Error("Your portfolio changed. Review the statement again.");
+          }
           const next = params.transform(context.currentDomainData);
           if (!next) {
             notReady = true;
@@ -413,6 +462,7 @@ export function usePortfolioSources({
               domainData: context.currentDomainData,
               summary: buildFinancialDomainSummary(context.currentDomainData),
               mergeDecision: REPLACE_FINANCIAL,
+              unchanged: true,
             };
           }
           return {
@@ -422,6 +472,7 @@ export function usePortfolioSources({
           };
         },
       });
+      requireCurrentVault();
       if (notReady) throw new Error(params.notReadyMessage);
       if (!result.success) {
         throw new Error(
@@ -430,11 +481,11 @@ export function usePortfolioSources({
       }
       return toFinancialDomain(result.fullBlob.financial);
     },
-    [userId, vaultKey, vaultOwnerToken]
+    [userId, vaultKey, vaultOwnerToken, vaultEpoch, requireCompatibleStoredSource]
   );
 
   useEffect(() => {
-    if (!userId || isLoading || !activePortfolio || !hasPortfolioHoldings(activePortfolio)) {
+    if (!trackPortfolioReady || !userId || isLoading || !activePortfolio || !hasPortfolioHoldings(activePortfolio)) {
       return;
     }
 
@@ -451,7 +502,7 @@ export function usePortfolioSources({
       dedupeKey: `growth:investor:portfolio_ready:${nextKey}`,
       dedupeWindowMs: 5_000,
     });
-  }, [activePortfolio, activeSource, availableSources, isLoading, userId]);
+  }, [activePortfolio, activeSource, availableSources, isLoading, trackPortfolioReady, userId]);
 
   const changeActiveSource = useCallback(
     async (nextSource: PortfolioSource) => {
@@ -587,8 +638,31 @@ export function usePortfolioSources({
     ]
   );
 
+  const reviewStatementDeletion = useCallback(async (snapshotId: string): Promise<StatementDeletionReview> => {
+    if (!userId || !vaultOwnerToken || !vaultKey || !isVaultSessionEpochCurrent(vaultEpoch)) {
+      throw new Error("Unlock your Vault to review this statement.");
+    }
+    const context = await PkmDomainResourceService.prepareDomainWriteContext({
+      userId, domain: "financial", vaultKey, vaultOwnerToken,
+    });
+    const revision = context.encryptedDomain?.dataVersion ?? context.expectedDataVersion;
+    const statement = getStatementSnapshotOptions(context.domainData).find(option => option.id === snapshotId);
+    const next = removeStatementSnapshot(context.domainData, snapshotId, new Date().toISOString());
+    if (!isVaultSessionEpochCurrent(vaultEpoch) || revision === undefined || !statement || !next) {
+      throw new Error("That statement is unavailable. Choose a saved statement to review.");
+    }
+    const nextId = getActiveStatementSnapshotId(next);
+    const nextStatement = getStatementSnapshotOptions(next).find(option => option.id === nextId);
+    return {
+      snapshotId, revision,
+      statementLabel: reviewedStatementLabel(statement),
+      nextActiveLabel: getStoredActiveSource(next) === "plaid" ? "Linked brokerage portfolio" :
+        nextStatement ? reviewedStatementLabel(nextStatement) : null,
+    };
+  }, [userId, vaultKey, vaultOwnerToken, vaultEpoch]);
+
   const deleteStatementSnapshot = useCallback(
-    async (snapshotId: string) => {
+    async (snapshotId: string, reviewedRevision?: number) => {
       if (!userId || !vaultOwnerToken || !vaultKey) {
         throw new Error("Unlock your Vault to delete this statement.");
       }
@@ -599,6 +673,7 @@ export function usePortfolioSources({
         source: "portfolio_statement_delete",
         notReadyMessage: "That statement snapshot is no longer available.",
         failureMessage: "Your saved statement could not be deleted. Please try again.",
+        reviewedRevision,
         transform: (financial) =>
           removeStatementSnapshot(financial, snapshotId, new Date().toISOString()),
       });
@@ -653,6 +728,7 @@ export function usePortfolioSources({
     changeActiveSource,
     changeActiveStatementSnapshot,
     deleteStatementSnapshot,
+    reviewStatementDeletion,
     refreshPlaid,
     reload,
     isPlaidRefreshing,

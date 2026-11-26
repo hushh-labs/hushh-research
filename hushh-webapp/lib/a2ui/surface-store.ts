@@ -12,6 +12,11 @@ type Component =
   | { id: string; component: "DataTable"; label: string; columns: string[]; rows: TableCell[][] | Binding; previewRows?: number }
   | { id: string; component: "PortfolioAllocation" | "PortfolioPerformance" | "PortfolioSources"; snapshot: Binding }
   | { id: string; component: "SavedPortfolio"; section: "holdings" | "allocation" | "performance" | "sources" }
+  | { id: string; component: "FinancePortfolioUpload" }
+  | { id: string; component: "FinanceStockPreview"; ticker: string }
+  | { id: string; component: "FinanceTopGainers" }
+  | { id: string; component: "FinancePlaidConnection" }
+  | { id: string; component: "FinancePortfolioPicker"; mode: "switch" | "delete" }
   | { id: string; component: "FinanceShareProposal"; audience: "connection" | "verified_advisor" };
 
 export type A2uiSurface = Readonly<{
@@ -120,6 +125,18 @@ function parseComponent(value: unknown): Component | null {
         (value.audience === "connection" || value.audience === "verified_advisor")
         ? { id, component, audience: value.audience }
         : null;
+    case "FinancePortfolioUpload":
+    case "FinanceTopGainers":
+    case "FinancePlaidConnection":
+      return id === "root" && keys(value, ["id", "component"]) ? { id, component } : null;
+    case "FinanceStockPreview":
+      return id === "root" && keys(value, ["id", "component", "ticker"]) &&
+        typeof value.ticker === "string" && /^[A-Z0-9][A-Z0-9.-]{0,15}$/.test(value.ticker)
+        ? { id, component, ticker: value.ticker } : null;
+    case "FinancePortfolioPicker":
+      return id === "root" && keys(value, ["id", "component", "mode"]) &&
+        (value.mode === "switch" || value.mode === "delete")
+        ? { id, component, mode: value.mode } : null;
     case "SavedPortfolio": {
       const { section } = value;
       return id === "root" && keys(value, ["id", "component", "section"]) &&

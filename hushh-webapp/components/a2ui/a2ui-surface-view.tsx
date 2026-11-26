@@ -16,6 +16,21 @@ const FinanceShareProposal = dynamic(() =>
 const FinancePortfolioCard = dynamic(() =>
   import("@/components/agent/finance-portfolio-card").then(module => module.FinancePortfolioCard),
 );
+const FinancePortfolioUploadCard = dynamic(() =>
+  import("@/components/agent/finance-portfolio-upload-card").then(module => module.FinancePortfolioUploadCard),
+);
+const FinanceStockPreviewCard = dynamic(() =>
+  import("@/components/agent/finance-stock-preview-card").then(module => module.FinanceStockPreviewCard),
+);
+const FinanceTopGainersCard = dynamic(() =>
+  import("@/components/agent/finance-top-gainers-card").then(module => module.FinanceTopGainersCard),
+);
+const FinancePortfolioSwitchCard = dynamic(() =>
+  import("@/components/agent/finance-portfolio-switch-card").then(module => module.FinancePortfolioSwitchCard),
+);
+const PlaidConnectorChatCard = dynamic(() =>
+  import("@/components/agent/connector-read-receipt").then(module => module.PlaidConnectorChatCard),
+);
 
 function SurfaceTable({
   label, columns, rows, previewRows,
@@ -59,8 +74,10 @@ function SurfaceTable({
   );
 }
 
-function SurfaceNode({ surface, id, allowFinanceShare, portfolioConversationId }: {
+function SurfaceNode({ surface, id, allowFinanceShare, portfolioConversationId, financeActionOfferId, onConfirmFinanceAnalysis }: {
   surface: A2uiSurface; id: string; allowFinanceShare: boolean; portfolioConversationId?: string;
+  financeActionOfferId?: string;
+  onConfirmFinanceAnalysis?: (confirmation: string) => Promise<void>;
 }) {
   const node = surface.components.get(id);
   if (!node) return null;
@@ -91,6 +108,20 @@ function SurfaceNode({ surface, id, allowFinanceShare, portfolioConversationId }
       return allowFinanceShare
         ? <FinanceShareProposal audience={node.audience} />
         : <p className="ui-text-row-description">Portfolio sharing was proposed.</p>;
+    case "FinancePortfolioUpload":
+      return financeActionOfferId
+        ? <FinancePortfolioUploadCard offerId={financeActionOfferId} allowUpload />
+        : <p className="ui-text-row-description">Portfolio upload offered.</p>;
+    case "FinanceStockPreview":
+      return <FinanceStockPreviewCard ticker={node.ticker} allowStart={Boolean(onConfirmFinanceAnalysis)}
+        onConfirm={onConfirmFinanceAnalysis} />;
+    case "FinanceTopGainers":
+      return <FinanceTopGainersCard historical={!portfolioConversationId} />;
+    case "FinancePortfolioPicker":
+      return <FinancePortfolioSwitchCard mode={node.mode} allowSwitch={Boolean(financeActionOfferId)} />;
+    case "FinancePlaidConnection":
+      return financeActionOfferId ? <PlaidConnectorChatCard /> :
+        <p className="ui-text-row-description">Plaid connection offered.</p>;
     case "SavedPortfolio":
       return portfolioConversationId
         ? <FinancePortfolioCard section={node.section} conversationId={portfolioConversationId} />
@@ -98,9 +129,12 @@ function SurfaceNode({ surface, id, allowFinanceShare, portfolioConversationId }
   }
 }
 
-export function A2uiSurfaceView({ surface, allowFinanceShare = false, portfolioConversationId }: {
+export function A2uiSurfaceView({ surface, allowFinanceShare = false, portfolioConversationId, financeActionOfferId, onConfirmFinanceAnalysis }: {
   surface: A2uiSurface; allowFinanceShare?: boolean; portfolioConversationId?: string;
+  financeActionOfferId?: string;
+  onConfirmFinanceAnalysis?: (confirmation: string) => Promise<void>;
 }) {
   return <SurfaceNode surface={surface} id="root" allowFinanceShare={allowFinanceShare}
-    portfolioConversationId={portfolioConversationId} />;
+    portfolioConversationId={portfolioConversationId} financeActionOfferId={financeActionOfferId}
+    onConfirmFinanceAnalysis={onConfirmFinanceAnalysis} />;
 }

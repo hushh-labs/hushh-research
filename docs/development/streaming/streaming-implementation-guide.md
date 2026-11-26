@@ -420,7 +420,7 @@ not native connector result bodies, while retaining earlier unrelated calls
 and fresh invocations; snapshot projection restarts that boundary at a new user
 message. Live model objects remain unchanged.
 
-### Native ADK and A2UI design specimen
+### Native ADK and A2UI candidate
 
 The Holdings specimen on `/design-system` consumes data-only SSE frames with
 the standard SSE `message` event. The decoder accepts visual messages only from
@@ -442,11 +442,17 @@ codes.
 The PostgreSQL MCP rehearsal exercises a native pause and resume across a
 reopened encrypted session. The review reference comes from the sealed pending
 call, and the existing action ledger consumes the owner's approval before the
-provider call runs. Native review is still a rehearsal boundary.
+provider call runs. The browser recovers the native confirmation ID from
+owner-keyed history and sends that decision back to the same conversation.
 
 Encrypted history retains the A2UI call identity and redacted receipt.
 Raw layout arguments and rendered values stay in the admitted turn.
-The serving Chat endpoint currently uses the AG-UI wire adapter.
+The owner Cloud Chat candidate can select `native-adk-v1` before dispatch.
+The web build opts in with `NEXT_PUBLIC_ONE_NATIVE_ADK_CHAT=1` and verifies
+the signed-in pod advertises `nativeAdkChatVersion: 1`. Native turns send one
+message or a connector decision. Current Shared, intro, and unsupported
+continuation flows use the AG-UI adapter. An admitted native stream that ends
+without a terminal frame uses the existing conversation recovery before retrying.
 
 The local Puppy bridge projects its own provider stream into the native Chat
 envelope. It uses a named `start` event for the local session ID and
@@ -459,7 +465,10 @@ An A2UI Finance sharing proposal can name the connection or verified-advisor
 audience. Only the live app turn can enable the existing sharing review. This
 review reads the current saved portfolio again before encrypting for the
 chosen recipient, keeps amounts hidden by default, and keeps recipient model
-processing off. Restored proposals are inactive.
+processing off. The same live-turn checks protect statement upload, the
+reviewed source picker, Plaid connection, and stock analysis. The app resolves
+recipients, saves, and confirmation receipts through the existing controllers.
+Restored proposals are inactive.
 
 The Saved Portfolio component lets an admitted live turn render the active
 portfolio through the app's existing vault-protected Finance card. The

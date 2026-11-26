@@ -312,6 +312,7 @@ import {
   peekActiveAgentTurnSession,
   setActiveAgentTurnSession,
   subscribeActiveAgentTurnSession,
+  type ActiveAgentTurnSession,
 } from "@/lib/agent/active-agent-turn-session";
 import { GoogleCalendarError, GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import { calendarInvitationInstruction, type CalendarInvitationHandoff } from "@/lib/calendar/calendar-invitation-handoff";
@@ -847,6 +848,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     isVaultUnlocked ? applicationOwnerId : null,
     vaultSessionEpoch,
   );
+  const [visualTurn, setVisualTurn] = useState(() => initialActiveSession?.nativeVisual ? initialActiveSession : null);
   const initialHistorySnapshot =
     !initialActiveSession && isVaultUnlocked && applicationOwnerId
       ? peekAgentChatHistoryCache(applicationOwnerId)
@@ -1276,20 +1278,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         (message) =>
           message.role === "assistant" &&
           message.status === "streaming" &&
-          message.text.length > 0,
+          (message.text.length > 0 || (initialActiveSession.nativeVisual?.assistantMessageId === message.id &&
+            initialActiveSession.nativeVisual.surfaces.size > 0)),
       ),
     ),
   );
-  const responseOutputRef = useRef(
-    Boolean(
-      initialActiveSession?.messages.some(
-        (message) =>
-          message.role === "assistant" &&
-          message.status === "streaming" &&
-          message.text.length > 0,
-      ),
-    ),
-  );
+  const responseOutputRef = useRef(hasResponseOutput);
   const markResponseOutput = useCallback((delta: string) => {
     if (!delta || responseOutputRef.current) return;
     responseOutputRef.current = true;
@@ -1567,6 +1561,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         applicationOwnerId,
         vaultSessionEpoch,
       );
+      setVisualTurn(active?.nativeVisual ? active : null);
       if (!active) return;
       setMessages((current) =>
         current === active.messages
@@ -1584,7 +1579,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         (message) =>
           message.role === "assistant" &&
           message.status === "streaming" &&
-          message.text.length > 0,
+          (message.text.length > 0 || (active.nativeVisual?.assistantMessageId === message.id &&
+            active.nativeVisual.surfaces.size > 0)),
       );
       responseOutputRef.current = streamingHasOutput;
       setHasResponseOutput(streamingHasOutput);
@@ -5669,6 +5665,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     let thinkingFlushFrame: number | null = null;
     let accumulatedThinkingSummary = "";
     let latestServerMessageId: string | null = null;
+    let nativeHasSurfaces = false;
     const patchTurnSessionState = (patch: {
       conversationId?: string | null;
       isChatLoading?: boolean;
@@ -5676,6 +5673,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       stoppableTurn?: boolean;
       stop?: (() => Promise<void>) | null;
       abort?: ((reason?: string) => void) | null;
+      nativeVisual?: ActiveAgentTurnSession["nativeVisual"];
     }) => {
       if (activeSessionBinding) {
         patchActiveAgentTurnSession<AgentMessage>(
@@ -6681,6 +6679,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         })(),
         signal: streamAbortController.signal,
         handlers: {
+          onNativeOutput: (output) => {
+            if (streamAbortController.signal.aborted || turnStopped || !isTurnSessionActive()) return;
+            nativeHasSurfaces = output.surfaces.size > 0;
+            const outputText = output.settledText + output.partialText;
+            responseOutputRef.current = Boolean(outputText || nativeHasSurfaces);
+            patchTurnSessionState({ nativeVisual: {
+              assistantMessageId, surfaces: output.surfaces, complete: output.status === "complete",
+            } });
+            updateMessage(assistantMessageId, (message) => ({ ...message, text: outputText }));
+          },
           onContextUsage: (usage) => {
             void chatMemory.recordUsage({ requestId: usage.modelCallId, inputTokens: usage.inputTokens }).catch(() => undefined);
           },
@@ -7189,7 +7197,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         return {
           ...message,
           text:
-            message.text || "I couldn't generate a response. Please try again.",
+            message.text || (nativeHasSurfaces ? "" : "I couldn't generate a response. Please try again."),
           status: "done",
         };
       });
@@ -9316,6 +9324,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           message.text.trim().length > 0,
       )?.id ?? null;
   const latestTranscriptMessageId = visibleMessages.findLast((message) => !message.ephemeral)?.id;
+  const liveNativeVisual = isVaultUnlocked && visualTurn?.ownerId === applicationOwnerId &&
+    visualTurn?.vaultEpoch === vaultSessionEpoch && visualTurn?.conversationId === conversationId
+    ? visualTurn.nativeVisual : undefined;
   const latestFinanceMessageIdRef = useRef(latestTranscriptMessageId);
   latestFinanceMessageIdRef.current = latestTranscriptMessageId;
   const responseActionBusy = isChatLoading || isStreaming || specialistBusy || appActionBusy ||
@@ -10609,10 +10620,20 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           : "thinking"
                       }
                       conversationId={conversationId}
+                      nativeSurfaces={liveNativeVisual?.assistantMessageId === message.id ? liveNativeVisual.surfaces : undefined}
+                      allowNativeFinanceActions={liveNativeVisual?.assistantMessageId === message.id &&
+                        liveNativeVisual.complete && message.id === latestTranscriptMessageId}
                       allowFinancePreviewStart={message.id === latestTranscriptMessageId}
                       onConfirmFinanceAnalysis={async (confirmation) => {
                         if (!applicationOwnerId || !isVaultUnlocked || !vaultOwnerToken ||
-                            message.id !== latestFinanceMessageIdRef.current || !message.liveFinancePreview) return;
+                            message.id !== latestFinanceMessageIdRef.current) return;
+                        const session = peekActiveAgentTurnSession(applicationOwnerId, snapshotVaultSessionEpoch());
+                        const visual = session?.nativeVisual;
+                        const nativePreview = session?.conversationId === conversationIdRef.current &&
+                          visual?.complete && visual.assistantMessageId === message.id &&
+                          [...visual.surfaces.values()].some(surface =>
+                            surface.components.get("root")?.component === "FinanceStockPreview");
+                        if (!message.liveFinancePreview && !nativePreview) return;
                         await executeConfirmedFinanceAnalysis(confirmation, {
                           userId: applicationOwnerId, router, appRuntimeState: appRuntimeStateRef.current,
                           surfaceMetadata: getVoiceSurfaceMetadata(), hasPortfolioData, busyOperations,

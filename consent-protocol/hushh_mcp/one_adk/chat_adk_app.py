@@ -99,6 +99,17 @@ def build_native_visual_chat_app(
     # A freshly assembled app owns the stateless processor. Renderer state
     # and credentials do not belong in the processor or its model schema.
     processor = A2uiRequestProcessor([catalog], format_factory=DirectJsonFormatFactory())
+    legacy_finance_cards = {
+        "show_portfolio_card",
+        "show_portfolio_upload",
+        "show_market_gainers",
+        "show_stock_preview",
+    }
+    root_agent.tools = [
+        tool
+        for tool in root_agent.tools
+        if getattr(tool, "__name__", None) not in legacy_finance_cards
+    ]
     root_agent.tools.append(
         SendA2uiToClientToolset(
             a2ui_enabled=lambda context: context.agent_name == root_agent.name,

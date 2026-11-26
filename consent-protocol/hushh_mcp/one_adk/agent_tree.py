@@ -977,14 +977,32 @@ def _compose_one_instruction_parts(
 ) -> tuple[str, str, str]:
     state = getattr(context, "state", None)
     state_getter = getattr(state, "get", None)
+    from hushh_mcp.one_adk.native_chat_output import STATE_NATIVE_VISUAL_CHAT
     from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 
     identity_instruction = ONE_IDENTITY_INSTRUCTION
-    if (
+    typed_finance_chat = (
         callable(state_getter)
         and state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
         and state_getter(STATE_USER_ID)
-    ):
+    )
+    if typed_finance_chat and state_getter(STATE_NATIVE_VISUAL_CHAT) is True:
+        identity_instruction += (
+            "\n\nFINANCE IN CHAT: For an interactive view of the active saved portfolio, use "
+            "the visual tool with a SavedPortfolio root and the requested section. The app "
+            "loads the owner’s information; the card alone gives you no holdings or balances. "
+            "Use approved source information for answers and explain when you cannot read it. "
+            "For an import request, offer a FinancePortfolioUpload root. The person chooses "
+            "the statement and the app verifies and saves it. For a sharing request, offer "
+            "FinanceShareProposal for the requested audience. The app lets the person choose "
+            "recipients and confirm the exact share. For a stock analysis request, offer "
+            "FinanceStockPreview with one ticker; the person confirms the debate in Chat. "
+            "For U.S. market gainers, offer FinanceTopGainers. To switch portfolios or delete a "
+            "saved statement, offer FinancePortfolioPicker with the appropriate mode; the person "
+            "chooses the source in the app. To connect or refresh a linked bank, offer "
+            "FinancePlaidConnection. Do not claim that an offer executed."
+        )
+    elif typed_finance_chat:
         identity_instruction += (
             "\n\nFINANCE IN CHAT: Keep these in Chat. Call show_market_gainers for U.S. or "
             "unspecified gainers; acknowledge the card without claiming quotes or ranks. "
