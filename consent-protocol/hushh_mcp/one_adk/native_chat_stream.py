@@ -10,9 +10,16 @@ from google.adk.events import Event
 
 from hushh_mcp.one_adk.native_chat_output import encode_native_chat_output
 from hushh_mcp.one_adk.pod_chat_transport import stream_pod_chat_frames
+from hushh_mcp.services.pod_upgrade_admission import (
+    ADMISSION,
+    PodUpgradeAdmission,
+    PodUpgradeInProgress,
+    pod_incarnation,
+)
 
 _FINISHED = b"event: done\ndata: {}\n\n"
 _BUSY = b'event: error\ndata: {"code":"POD_CHAT_BUSY"}\n\n'
+_UPDATING = b'event: error\ndata: {"code":"POD_CHAT_UPDATING"}\n\n'
 _FAILED = b'event: error\ndata: {"code":"AGENT_ERROR"}\n\n'
 _REVIEW_REQUIRED = b"event: review\ndata: {}\n\n"
 
@@ -24,6 +31,8 @@ async def native_chat_frames(
     conversation_id: str,
     require_access: Callable[[], Awaitable[None]],
     settle: Callable[[], Awaitable[None]],
+    admission: PodUpgradeAdmission = ADMISSION,
+    incarnation: str | None = None,
 ) -> AsyncGenerator[bytes, None]:
     """Deliver read-only native output and report success after the session settles."""
 
@@ -62,9 +71,23 @@ async def native_chat_frames(
         await require_access()
         yield _REVIEW_REQUIRED if awaiting_review else _FINISHED
 
+    async def admitted() -> AsyncGenerator[bytes, None]:
+        await require_access()
+        try:
+            permit = await admission.acquire_turn(incarnation=incarnation or pod_incarnation())
+        except PodUpgradeInProgress:
+            yield _UPDATING
+            return
+        try:
+            async with aclosing(projected()) as stream:
+                async for frame in stream:
+                    yield frame
+        finally:
+            await permit.release()
+
     async with aclosing(
         stream_pod_chat_frames(
-            projected,
+            admitted,
             owner_id=owner_id,
             conversation_id=conversation_id,
             encode=lambda frame: frame,

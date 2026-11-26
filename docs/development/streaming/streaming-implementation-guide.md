@@ -448,6 +448,19 @@ Encrypted history retains the A2UI call identity and redacted receipt.
 Raw layout arguments and rendered values stay in the admitted turn.
 The serving Chat endpoint currently uses the AG-UI wire adapter.
 
+The local Puppy bridge projects its own provider stream into the native Chat
+envelope. It uses a named `start` event for the local session ID and
+`activity` for bounded tool labels. Text arrives as ADK-shaped partial
+parts. Tool arguments and provider progress stay server-side. An upstream
+disconnect before `done` leaves any received text visible and marks the turn
+failed.
+
+An A2UI Finance sharing proposal can name the connection or verified-advisor
+audience. Only the live app turn can enable the existing sharing review. This
+review reads the current saved portfolio again before encrypting for the
+chosen recipient, keeps amounts hidden by default, and keeps recipient model
+processing off. Restored proposals are inactive.
+
 ## 4.1 UI Stream Mapping
 
 The canonical app stream surface is `hushh-webapp/components/app-ui/stream-progress-panel.tsx`. Portfolio import and Agent Chat both use that primitive so progress, optional thinking, and answer text stay visually and semantically consistent.

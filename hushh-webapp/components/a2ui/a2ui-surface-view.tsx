@@ -10,6 +10,9 @@ import {
 import { a2uiTableRows, readA2uiBinding, type A2uiSurface } from "@/lib/a2ui/surface-store";
 
 const A2uiPortfolioRead = dynamic(() => import("./a2ui-portfolio-read"));
+const FinanceShareProposal = dynamic(() =>
+  import("@/components/agent/finance-share-proposal").then(module => module.FinanceShareProposal),
+);
 
 function SurfaceTable({
   label, columns, rows, previewRows,
@@ -53,7 +56,9 @@ function SurfaceTable({
   );
 }
 
-function SurfaceNode({ surface, id }: { surface: A2uiSurface; id: string }) {
+function SurfaceNode({ surface, id, allowFinanceShare }: {
+  surface: A2uiSurface; id: string; allowFinanceShare: boolean;
+}) {
   const node = surface.components.get(id);
   if (!node) return null;
   switch (node.component) {
@@ -61,7 +66,7 @@ function SurfaceNode({ surface, id }: { surface: A2uiSurface; id: string }) {
       return (
         <SurfaceCard>
           <SurfaceCardContent className="min-w-0 space-y-2">
-            {node.children.map(child => <SurfaceNode key={child} surface={surface} id={child} />)}
+            {node.children.map(child => <SurfaceNode key={child} surface={surface} id={child} allowFinanceShare={allowFinanceShare} />)}
           </SurfaceCardContent>
         </SurfaceCard>
       );
@@ -79,9 +84,15 @@ function SurfaceNode({ surface, id }: { surface: A2uiSurface; id: string }) {
     case "PortfolioPerformance":
     case "PortfolioSources":
       return <A2uiPortfolioRead component={node.component} value={readA2uiBinding(surface, node.snapshot)} />;
+    case "FinanceShareProposal":
+      return allowFinanceShare
+        ? <FinanceShareProposal audience={node.audience} />
+        : <p className="ui-text-row-description">Portfolio sharing was proposed.</p>;
   }
 }
 
-export function A2uiSurfaceView({ surface }: { surface: A2uiSurface }) {
-  return <SurfaceNode surface={surface} id="root" />;
+export function A2uiSurfaceView({ surface, allowFinanceShare = false }: {
+  surface: A2uiSurface; allowFinanceShare?: boolean;
+}) {
+  return <SurfaceNode surface={surface} id="root" allowFinanceShare={allowFinanceShare} />;
 }

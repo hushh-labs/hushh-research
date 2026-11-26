@@ -17,7 +17,7 @@ vi.mock("@/lib/services/api-service", () => ({
 const mocks = vi.hoisted(() => ({
   fetchPuppyStatus: vi.fn(),
   link: { current: null as unknown },
-  runAgent: vi.fn(),
+  fetchPuppyChatStream: vi.fn(),
   abortRun: vi.fn(),
 }));
 
@@ -27,6 +27,7 @@ vi.mock("@/lib/services/puppy-one-service", async (importOriginal) => {
   return {
     ...original,
     fetchPuppyStatus: mocks.fetchPuppyStatus,
+    fetchPuppyChatStream: mocks.fetchPuppyChatStream,
   };
 });
 
@@ -36,19 +37,6 @@ vi.mock("@/lib/hermes/use-puppy-link", () => ({
 
 vi.mock("@/components/agent/puppy-model-picker", () => ({
   PuppyModelPicker: () => null,
-}));
-
-vi.mock("@ag-ui/client", () => ({
-  HttpAgent: class {
-    use() { return this; }
-    abortRun() { mocks.abortRun(); }
-    runAgent(
-      params: unknown,
-      handlers: Record<string, (arg: { event: unknown }) => void>,
-    ) {
-      return mocks.runAgent(params, handlers);
-    }
-  },
 }));
 
 import { HermesChatPanel } from "@/components/agent/hermes-chat-panel";
@@ -81,6 +69,29 @@ const CONNECTED: PuppyStatus = {
   model: "gemma-4-26b-a4b-qat",
 };
 
+const SSE_HEADERS = { "Content-Type": "text/event-stream" };
+
+function replyFrame(text: string) {
+  return `data: ${JSON.stringify({ author: "one", partial: true, content: { parts: [{ text }] } })}\n\n`;
+}
+
+function puppyReply(text: string, sessionId = "synthetic-session") {
+  return new Response(`event: start\ndata: ${JSON.stringify({ sessionId })}\n\n` +
+    replyFrame(text) + "event: done\ndata: {}\n\n", { headers: SSE_HEADERS });
+}
+
+function pendingReply(init: RequestInit, text?: string) {
+  return new Response(new ReadableStream<Uint8Array>({
+    start(controller) {
+      init.signal?.addEventListener("abort", () => {
+        mocks.abortRun();
+        controller.error(new DOMException("Stopped", "AbortError"));
+      }, { once: true });
+      if (text) controller.enqueue(new TextEncoder().encode(replyFrame(text)));
+    },
+  }), { headers: SSE_HEADERS });
+}
+
 async function mount(status: PuppyStatus = CONNECTED) {
   mocks.fetchPuppyStatus.mockResolvedValue(status);
   mocks.link.current = null;
@@ -99,7 +110,7 @@ beforeEach(() => {
   publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 });
   window.localStorage.clear();
   mocks.abortRun.mockReset();
-  mocks.runAgent.mockResolvedValue(undefined);
+  mocks.fetchPuppyChatStream.mockImplementation(async () => puppyReply("Answer"));
 });
 
 afterEach(() => {
@@ -115,7 +126,7 @@ describe("HermesChatPanel empty state", () => {
     fireEvent.change(editor, { target: { value: "Unsent synthetic draft" } });
     view.rerender(<HermesChatPanel {...props} />);
     fireEvent.keyDown(editor, { key: "Enter" });
-    expect(mocks.runAgent).not.toHaveBeenCalled();
+    expect(mocks.fetchPuppyChatStream).not.toHaveBeenCalled();
     expect(editor).toHaveValue("Unsent synthetic draft");
   });
   it("shares the retained bar with Cloud while keeping each unsent draft isolated", async () => {
@@ -181,17 +192,17 @@ describe("HermesChatPanel empty state", () => {
     expect(screen.getByRole("textbox", { name: "Message Puppy One" })).toBe(otherPuppy);
     expect([otherPuppy.selectionStart, otherPuppy.selectionEnd]).toEqual([1, 5]);
     expect(view.container.querySelectorAll("[data-agent-dock-composer]")).toHaveLength(1);
-    expect(mocks.runAgent).not.toHaveBeenCalled();
+    expect(mocks.fetchPuppyChatStream).not.toHaveBeenCalled();
   });
   it("does not submit unfinished IME text; an ordinary Enter sends once", async () => {
     await mount();
     const editor = await screen.findByPlaceholderText("Ask Puppy One…");
     fireEvent.change(editor, { target: { value: "Synthetic composition" } });
     fireEvent.keyDown(editor, { key: "Enter", isComposing: true });
-    expect(mocks.runAgent).not.toHaveBeenCalled();
+    expect(mocks.fetchPuppyChatStream).not.toHaveBeenCalled();
     expect(editor).toHaveValue("Synthetic composition");
     fireEvent.keyDown(editor, { key: "Enter", isComposing: false });
-    await waitFor(() => expect(mocks.runAgent).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.fetchPuppyChatStream).toHaveBeenCalledOnce());
   });
   it("promises on-machine generation only while the turn is pinned to it", async () => {
     await mount();
@@ -256,10 +267,9 @@ describe("HermesChatPanel transcript", () => {
       created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z",
     }));
     let calls = 0;
-    mocks.runAgent.mockImplementation(async (_params, handlers) => {
+    mocks.fetchPuppyChatStream.mockImplementation(async () => {
       calls++;
-      handlers.onRunStartedEvent({ event: { runId: `session-${calls}` } });
-      handlers.onTextMessageContentEvent({ event: { delta: `Answer ${calls}` } });
+      return puppyReply(`Answer ${calls}`, `session-${calls}`);
     });
     const view = render(<PuppyOneSurface conversations={conversations} activeConversationId="a" />);
     const sendAt = async (index: number, text: string) => {
@@ -272,10 +282,10 @@ describe("HermesChatPanel transcript", () => {
     await sendAt(0, "First topic");
     view.rerender(<PuppyOneSurface conversations={conversations} activeConversationId="b" />);
     await sendAt(1, "Second topic");
-    expect(mocks.runAgent.mock.calls[1][0].forwardedProps.sessionId).toBe("");
+    expect(JSON.parse(mocks.fetchPuppyChatStream.mock.calls[1][0].body).sessionId).toBe("");
     view.rerender(<PuppyOneSurface conversations={conversations} activeConversationId="a" />);
     await sendAt(0, "Continue first topic");
-    expect(mocks.runAgent.mock.calls[2][0].forwardedProps.sessionId).toBe("session-1");
+    expect(JSON.parse(mocks.fetchPuppyChatStream.mock.calls[2][0].body).sessionId).toBe("session-1");
     const panels = view.container.querySelectorAll("textarea");
     expect(panels[0].parentElement?.parentElement).toHaveTextContent("First topic");
     expect(panels[0].parentElement?.parentElement).not.toHaveTextContent("Second topic");
@@ -285,14 +295,10 @@ describe("HermesChatPanel transcript", () => {
   });
 
   it.each([false, true])("keeps Stop operable during a blocked composer (%s) without losing partial text", async (composerDisabled) => {
-    let reject: (error: Error) => void = () => {};
-    mocks.runAgent.mockImplementation((_params, handlers) => {
-      handlers.onTextMessageContentEvent({ event: { delta: "Partial answer" } });
-      return new Promise((_resolve, fail) => { reject = fail; });
-    });
-    mocks.abortRun.mockImplementation(() => reject(new Error("aborted")));
+    mocks.fetchPuppyChatStream.mockImplementation(async (init) => pendingReply(init, "Partial answer"));
     const view = await mount();
     await ask("Synthetic question");
+    await screen.findByText("Partial answer");
     view.rerender(<HermesChatPanel composerDisabled={composerDisabled} />);
     const stop = await screen.findByRole("button", { name: "Stop", exact: true });
     expect(stop.closest("[inert]")).toBeNull();
@@ -305,7 +311,7 @@ describe("HermesChatPanel transcript", () => {
   });
 
   it("aborts an in-flight request on actual unmount, not when hidden", async () => {
-    mocks.runAgent.mockImplementation(() => new Promise(() => {}));
+    mocks.fetchPuppyChatStream.mockImplementation(async (init) => pendingReply(init));
     const view = await mount();
     await ask("Example");
     view.rerender(<HermesChatPanel active={false} className="hidden" />);
@@ -323,16 +329,7 @@ describe("HermesChatPanel transcript", () => {
   });
 
   it("renders an answer as prose, not as literal markdown", async () => {
-    mocks.runAgent.mockImplementation(
-      async (
-        _params: unknown,
-        handlers: Record<string, (arg: { event: unknown }) => void>,
-      ) => {
-        handlers.onTextMessageContentEvent({
-          event: { delta: "**Ready.** Here is a `plan`." },
-        });
-      },
-    );
+    mocks.fetchPuppyChatStream.mockImplementation(async () => puppyReply("**Ready.** Here is a `plan`."));
     const view = await mount();
     await ask("hello");
 
@@ -348,7 +345,7 @@ describe("HermesChatPanel transcript", () => {
   });
 
   it("announces a refusal rather than only colouring it", async () => {
-    mocks.runAgent.mockRejectedValue(new Error("loopback down"));
+    mocks.fetchPuppyChatStream.mockRejectedValue(new Error("loopback down"));
     await mount();
     await ask("hello");
 
@@ -383,7 +380,7 @@ describe("HermesChatPanel secrets", () => {
       sequence: 1, editRevision: 1, editorRevision: port!.projection.editorRevision, privacyGeneration: 0,
       context, kind: "action", action: "send", text: port!.projection.text, selectionStart: 0, selectionEnd: 0 });
     await act(async () => port!.onAction(event()));
-    expect(mocks.runAgent).not.toHaveBeenCalled();
+    expect(mocks.fetchPuppyChatStream).not.toHaveBeenCalled();
     expect(port!.projection.text).toBe(text);
     view.rerender(<Shell active={false} />);
     expect(port).toBeUndefined();
@@ -392,17 +389,17 @@ describe("HermesChatPanel secrets", () => {
     expect(port!.projection.context).toBe(context);
     act(() => port!.onEdit?.("Hello 世界\nA synthetic nonsecret request"));
     await act(async () => port!.onAction(event()));
-    await waitFor(() => expect(mocks.runAgent).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.fetchPuppyChatStream).toHaveBeenCalledOnce());
   });
   it("never sends a raw secret to Puppy, keeps the draft and says why (negative control)", async () => {
     await mount();
     const secret = ["gh", "p_", "fakefake0000fakefake0000fakefake0000"].join("");
     await ask(`my github token ${secret}`);
     expect(await screen.findByText(/holds a secret, so it stayed on this device/)).toBeInTheDocument();
-    expect(mocks.runAgent).not.toHaveBeenCalled();
+    expect(mocks.fetchPuppyChatStream).not.toHaveBeenCalled();
     expect((screen.getByPlaceholderText("Ask Puppy One…") as HTMLTextAreaElement).value).toContain(secret);
 
     await ask("what is on my calendar today");
-    await waitFor(() => expect(mocks.runAgent).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.fetchPuppyChatStream).toHaveBeenCalledTimes(1));
   });
 });

@@ -15,7 +15,8 @@
         "DataTable",
         "PortfolioAllocation",
         "PortfolioPerformance",
-        "PortfolioSources"
+        "PortfolioSources",
+        "FinanceShareProposal"
       ],
       "properties": {
         "children": {
@@ -145,6 +146,16 @@
         }
       },
       "required": ["snapshot"]
+    },
+    "FinanceShareProposal": {
+      "type": "object",
+      "description": "Propose opening the app's portfolio sharing review. Only the app chooses the active portfolio, exact recipients, fields, and confirmation.",
+      "allowedParents": ["Surface", "SurfaceCard"],
+      "additionalProperties": false,
+      "properties": {
+        "audience": { "enum": ["connection", "verified_advisor"] }
+      },
+      "required": ["audience"]
     }
   },
   "functions": {}

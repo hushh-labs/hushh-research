@@ -10,7 +10,8 @@ type Component =
   | { id: string; component: "SurfaceCard"; children: string[] }
   | { id: string; component: "TextBlock"; text: string | Binding; emphasis?: "title" | "body" | "muted" }
   | { id: string; component: "DataTable"; label: string; columns: string[]; rows: TableCell[][] | Binding; previewRows?: number }
-  | { id: string; component: "PortfolioAllocation" | "PortfolioPerformance" | "PortfolioSources"; snapshot: Binding };
+  | { id: string; component: "PortfolioAllocation" | "PortfolioPerformance" | "PortfolioSources"; snapshot: Binding }
+  | { id: string; component: "FinanceShareProposal"; audience: "connection" | "verified_advisor" };
 
 export type A2uiSurface = Readonly<{
   components: ReadonlyMap<string, Component>;
@@ -112,6 +113,11 @@ function parseComponent(value: unknown): Component | null {
     case "PortfolioSources":
       return keys(value, ["id", "component", "snapshot"]) && binding(value.snapshot)
         ? { id, component, snapshot: value.snapshot }
+        : null;
+    case "FinanceShareProposal":
+      return keys(value, ["id", "component", "audience"]) &&
+        (value.audience === "connection" || value.audience === "verified_advisor")
+        ? { id, component, audience: value.audience }
         : null;
     default:
       return null;

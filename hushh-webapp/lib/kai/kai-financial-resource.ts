@@ -259,6 +259,20 @@ async function loadNetworkResource(
 }
 
 export class KaiFinancialResourceService {
+  /** Resolve the active source from the exact saved domain the caller is reviewing. */
+  static activeSavedSource(userId: string, financialDomain: Record<string, unknown>) {
+    const resource = buildResource({
+      userId,
+      financialDomain,
+      plaidStatus: buildVaultPlaidStatus(financialDomain, userId),
+      cacheTier: "network",
+      source: "network",
+    });
+    if (!resource.activePortfolio) return null;
+    const kind = resource.activeSource;
+    return { kind, snapshotId: kind === "statement" ? resource.activeStatementSnapshotId : null };
+  }
+
   /** A fresh, vault-fenced snapshot for a chat card or answer, with no cache publication. */
   static async readForAnswer(params: KaiFinancialResourceRequest, isCurrent: () => boolean) {
     if (!isCurrent()) return null;

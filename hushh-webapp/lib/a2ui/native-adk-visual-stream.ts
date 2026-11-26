@@ -1,9 +1,15 @@
 import { parseSSEBlocks } from "../streaming/sse-parser";
+import { boundedAgentEvents } from "../services/agent-event-boundary";
 import { applyA2uiMessage, type A2uiSurfaces } from "./surface-store";
 
 const ONE_ROOT = "one";
 const A2UI_TOOL = "send_a2ui_json_to_client";
-type NativeErrorCode = "POD_CHAT_BUSY" | "AGENT_ERROR";
+const NATIVE_ERROR_CODES = [
+  "POD_CHAT_BUSY", "POD_CHAT_UPDATING", "AGENT_ERROR", "PUPPY_NOT_CONFIGURED",
+  "PUPPY_SESSION_UNAVAILABLE", "PUPPY_KEY_REFUSED", "PUPPY_UNAVAILABLE",
+] as const;
+const NATIVE_EVENTS = new Set(["message", "start", "activity", "review", "done", "error"]);
+type NativeErrorCode = typeof NATIVE_ERROR_CODES[number];
 
 export type NativeAdkTurnOutput = {
   surfaces: A2uiSurfaces;
@@ -11,6 +17,8 @@ export type NativeAdkTurnOutput = {
   partialText: string;
   status: "streaming" | "complete" | "awaiting_review" | "error";
   errorCode?: NativeErrorCode;
+  sessionId?: string;
+  activity?: string[];
 };
 
 export function createNativeAdkTurnOutput(): NativeAdkTurnOutput {
@@ -53,7 +61,7 @@ export function consumeNativeAdkFrames(
   let next = output;
   for (const { event, data } of parsed.events) {
     if (next.status !== "streaming") break;
-    if (event !== "message" && event !== "done" && event !== "review" && event !== "error") continue;
+    if (!NATIVE_EVENTS.has(event)) continue;
     let value: unknown;
     try {
       value = JSON.parse(data);
@@ -67,14 +75,53 @@ export function consumeNativeAdkFrames(
     }
     const payload = object(value);
     if (!payload) continue;
-    if (event === "done" && Object.keys(payload).length === 0) {
+    if (event === "start" && !next.sessionId && typeof payload.sessionId === "string" &&
+        /^[A-Za-z0-9_.:-]{1,200}$/.test(payload.sessionId)) {
+      next = { ...next, sessionId: payload.sessionId };
+    } else if (event === "activity" && typeof payload.label === "string" &&
+        /^[A-Za-z0-9_. -]{1,80}$/.test(payload.label) && (next.activity?.length ?? 0) < 32) {
+      next = { ...next, activity: [...(next.activity ?? []), payload.label] };
+    } else if (event === "done" && Object.keys(payload).length === 0) {
       next = { ...next, status: "complete", settledText: next.settledText + next.partialText, partialText: "" };
     } else if (event === "review" && Object.keys(payload).length === 0) {
       next = { ...next, status: "awaiting_review", partialText: "" };
     } else if (event === "error") {
-      const errorCode = payload.code === "POD_CHAT_BUSY" ? "POD_CHAT_BUSY" : "AGENT_ERROR";
+      const errorCode = NATIVE_ERROR_CODES.find(code => code === payload.code) ?? "AGENT_ERROR";
       next = { ...next, status: "error", errorCode };
     }
   }
   return { output: next, remainder: parsed.remainder };
+}
+
+/** Read the common native turn projection with the app's existing SSE budgets. */
+export async function readNativeAdkTurn(
+  response: Response,
+  onOutput: (turn: NativeAdkTurnOutput) => void,
+): Promise<NativeAdkTurnOutput> {
+  const type = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (!response.ok || type !== "text/event-stream" || !response.body) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error("AGENT_STREAM_PROTOCOL_UNSUPPORTED");
+  }
+  const reader = response.body.pipeThrough(boundedAgentEvents()).getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let output = createNativeAdkTurnOutput();
+  let remainder = "";
+  try {
+    while (output.status === "streaming") {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const next = consumeNativeAdkFrames(output, decoder.decode(value, { stream: true }), remainder);
+      remainder = next.remainder;
+      if (next.output !== output) {
+        output = next.output;
+        onOutput(output);
+      }
+    }
+    if (output.status === "streaming") throw new Error("AGENT_STREAM_INCOMPLETE");
+    return output;
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
 }

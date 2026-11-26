@@ -25,7 +25,7 @@ from hushh_mcp.one_adk.chat_adk_app import _adk_context_cache_config, build_chat
 from hushh_mcp.one_adk.native_chat_output import encode_native_chat_output
 from hushh_mcp.one_adk.native_chat_stream import native_chat_frames
 from hushh_mcp.one_adk.tool_scoping import scope_leaf_tools_before_model
-from hushh_mcp.services.pod_upgrade_admission import PodUpgradeAdmission
+from hushh_mcp.services.pod_upgrade_admission import PodUpgradeAdmission, PodUpgradeInProgress
 from tests.helpers.agui_lifetime import DETACHED_ANSWER, _input, _slow_answer_agent
 
 
@@ -118,7 +118,12 @@ async def test_native_runner_streams_and_settles_with_chat_app():
     session = await sessions.create_session(app_name=app.name, user_id="review_fixture")
     runner = Runner(app=app, session_service=sessions)
     require_access = AsyncMock()
-    snapshot = AsyncMock()
+    admission = PodUpgradeAdmission(log_resolver=lambda: None)
+
+    async def save():
+        assert (await admission.status(incarnation="native-probe"))["activeWork"] == 1
+
+    snapshot = AsyncMock(side_effect=save)
 
     def open_fixture():
         return runner.run_async(
@@ -137,6 +142,8 @@ async def test_native_runner_streams_and_settles_with_chat_app():
             conversation_id=session.id,
             require_access=require_access,
             settle=snapshot,
+            admission=admission,
+            incarnation="native-probe",
         )
         events = []
         async for frame in stream:
@@ -169,7 +176,7 @@ async def test_native_stream_refuses_to_complete_when_access_ends_before_settlem
             content=genai_types.Content(role="model", parts=[genai_types.Part(text="visible")]),
         )
 
-    require_access = AsyncMock(side_effect=[None, PermissionError("private-refusal-detail")])
+    require_access = AsyncMock(side_effect=[None, None, PermissionError("private-refusal-detail")])
     snapshot = AsyncMock()
     frames = [
         frame
@@ -183,6 +190,29 @@ async def test_native_stream_refuses_to_complete_when_access_ends_before_settlem
     ]
     assert b"visible" in frames[0]
     assert frames[1] == b'event: error\ndata: {"code":"AGENT_ERROR"}\n\n'
+    snapshot.assert_not_awaited()
+
+
+async def test_native_stream_cannot_start_while_the_private_runtime_is_updating(monkeypatch):
+    admission = PodUpgradeAdmission(log_resolver=lambda: None)
+    acquire = AsyncMock(side_effect=PodUpgradeInProgress("synthetic update"))
+    monkeypatch.setattr(admission, "acquire_turn", acquire)
+    source = AsyncMock()
+    snapshot = AsyncMock()
+    frames = [
+        frame
+        async for frame in native_chat_frames(
+            source,
+            owner_id="fixture-owner",
+            conversation_id="fixture-update",
+            require_access=AsyncMock(),
+            settle=snapshot,
+            admission=admission,
+            incarnation="native-update",
+        )
+    ]
+    assert frames == [b'event: error\ndata: {"code":"POD_CHAT_UPDATING"}\n\n']
+    source.assert_not_called()
     snapshot.assert_not_awaited()
 
 

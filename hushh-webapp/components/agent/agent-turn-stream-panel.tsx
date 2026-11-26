@@ -227,6 +227,8 @@ export type AgentTurnStreamPanelProps = {
   }>;
   /** Turn-local surfaces from an admitted stream. Keep these out of saved history. */
   nativeSurfaces?: A2uiSurfaces;
+  /** Only the live, admitted turn owner may enable the app-authored sharing entry. */
+  allowNativeFinanceShare?: boolean;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
   onInformationRequestSubmitted?: (activityId: string, receipt: InformationRequestSubmissionReceipt) => Promise<void>;
   onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
@@ -411,6 +413,7 @@ export function AgentTurnStreamPanel({
   structuredExperience = null,
   structuredExperiences = [],
   nativeSurfaces,
+  allowNativeFinanceShare = false,
   onOpenConnections,
   onInformationRequestSubmitted,
   onCompileDriveNotes,
@@ -524,7 +527,8 @@ export function AgentTurnStreamPanel({
         experienceItems.length > 0 || nativeSurfaces?.size ? (
           <div className="space-y-3">
             {nativeSurfaces && [...nativeSurfaces].map(([id, surface]) => (
-              <A2uiSurfaceView key={id} surface={surface} />
+              <A2uiSurfaceView key={id} surface={surface}
+                allowFinanceShare={allowNativeFinanceShare && !isStreaming && !isError} />
             ))}
             {experienceItems.map(({ id, experience }) => {
               const scopedCompilation = experience.type === "one.connector_read.v1" &&

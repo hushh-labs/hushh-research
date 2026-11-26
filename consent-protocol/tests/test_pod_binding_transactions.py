@@ -935,6 +935,8 @@ async def test_private_native_mcp_suspend_preview_confirm_resume(
                     conversation_id=thread,
                     require_access=owner.require_access,
                     settle=checkpoint,
+                    admission=admission,
+                    incarnation="synthetic-incarnation",
                 )
             ]
         return frames, checkpoint

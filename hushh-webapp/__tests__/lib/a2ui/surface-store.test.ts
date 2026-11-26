@@ -3,6 +3,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import A2uiPortfolioRead from "@/components/a2ui/a2ui-portfolio-read";
 import { consumeNativeAdkFrames, createNativeAdkTurnOutput } from "@/lib/a2ui/native-adk-visual-stream";
+import { A2uiSurfaceView } from "@/components/a2ui/a2ui-surface-view";
 import { a2uiTableRows, applyA2uiMessage, ONE_A2UI_CATALOG, readA2uiBinding } from "@/lib/a2ui/surface-store";
 
 const create = {
@@ -176,4 +177,21 @@ it("shows the saved statement name and import time, or the linked Plaid label", 
   expect(view.getByText("Linked Plaid account")).toBeTruthy();
   expect(view.queryByText("November.pdf")).toBeNull();
   expect(view.container.querySelector("time")).toBeNull();
+});
+
+it("keeps restored finance share proposals inert and rejects model-supplied share terms", () => {
+  const proposal = { id: "root", component: "FinanceShareProposal", audience: "verified_advisor" };
+  const surface = {
+    ...create,
+    createSurface: { ...create.createSurface, components: [proposal] },
+  };
+  const accepted = applyA2uiMessage(new Map(), surface).get("holdings")!;
+  const view = render(createElement(A2uiSurfaceView, { surface: accepted }));
+  expect(view.getByText("Portfolio sharing was proposed.")).toBeTruthy();
+  expect(view.queryByRole("button")).toBeNull();
+  const state = new Map();
+  expect(applyA2uiMessage(state, {
+    ...surface,
+    createSurface: { ...surface.createSurface, components: [{ ...proposal, showAmounts: true }] },
+  })).toBe(state);
 });

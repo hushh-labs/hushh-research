@@ -1,7 +1,10 @@
 import { webcrypto } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ load: vi.fn() }));
-vi.mock("@/lib/kai/plaid-vault/vault-sync", () => ({ loadFinancialForVault: mocks.load }));
+vi.mock("@/lib/kai/plaid-vault/vault-sync", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/kai/plaid-vault/vault-sync")>(),
+  loadFinancialForVault: mocks.load,
+}));
 import { readSavedFinance } from "@/lib/finance-sharing/saved-source";
 import { assertAdvisorSourceIntegrity } from "@/lib/finance-sharing/advisor-source-integrity";
 import type { PortfolioData } from "@/components/kai/types/portfolio";
@@ -41,6 +44,22 @@ describe("explicit advisor service matching", () => {
 });
 
 describe("advisor source integrity", () => {
+  it("refuses Chat sharing of a previous statement that still exists after a switch", async () => {
+    const oldPortfolio = { holdings: [holding], total_value: 100 };
+    const active = { requireActiveSource: true };
+    mocks.load.mockResolvedValue(financial(oldPortfolio));
+    expect((await readSavedFinance(context, source, false, active)).portfolio.holdings).toHaveLength(1);
+    mocks.load.mockResolvedValue({ sources: { statement: {
+      active_snapshot_id: "next",
+      snapshots: [
+        { id: "selected", canonical_v2: oldPortfolio },
+        { id: "next", canonical_v2: { ...oldPortfolio, holdings: [{ ...holding, symbol: "MSFT" }] } },
+      ],
+    } } });
+    expect((await readSavedFinance(context, source)).portfolio.holdings).toHaveLength(1);
+    await expect(readSavedFinance(context, source, false, active)).rejects.toThrow("active portfolio changed");
+  });
+
   it("allows the exact selected USD statement when its entries survive normalization", async () => {
     mocks.load.mockResolvedValue(financial({ currency: "USD", holdings: [holding], total_value: 100 }));
     const saved = await readSavedFinance(context, source, true);
