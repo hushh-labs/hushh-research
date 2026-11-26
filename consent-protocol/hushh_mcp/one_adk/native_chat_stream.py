@@ -35,6 +35,7 @@ async def native_chat_frames(
     admission: PodUpgradeAdmission = ADMISSION,
     incarnation: str | None = None,
     announce_start: bool = False,
+    location_chat_review: bool = False,
 ) -> AsyncGenerator[bytes, None]:
     """Deliver read-only native output and report success after the session settles."""
 
@@ -68,7 +69,9 @@ async def native_chat_frames(
                     # Let ADK write its confirmation event before exposing a
                     # review boundary to the app.
                     continue
-                if frame := encode_native_chat_output(event):
+                if frame := encode_native_chat_output(
+                    event, location_chat_review=location_chat_review
+                ):
                     visible = True
                     yield frame
         if not awaiting_review and (not visible or unfinished_work):

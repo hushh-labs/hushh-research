@@ -256,6 +256,10 @@ describe("executeAgentGatewayAction", () => {
       .toEqual({ action: "sms_contacts" });
     expect(locationReviewForLegacyAction("location.setup.start", "route")?.draft).toEqual({ action: "setup_location" });
     expect(locationReviewForLegacyAction("location.open_now", "route")).toBeNull();
+    expect(locationReviewForLegacyAction("location.set_auto_share", "local_handler", { enabled: "on", circle: "Family" })?.draft)
+      .toEqual({ action: "enable_auto_approve", circles: ["Family"] });
+    expect(locationReviewForLegacyAction("location.set_auto_share", "local_handler", { enabled: "off" })?.draft)
+      .toEqual({ action: "disable_auto_approve" });
   });
 
   it("refuses a route template it cannot fill instead of pushing it literally", async () => {

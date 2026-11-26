@@ -1,5 +1,6 @@
 import { parseSSEBlocks } from "../streaming/sse-parser";
 import { boundedAgentEvents } from "../services/agent-event-boundary";
+import { parseMainLocationProposal, type MainLocationProposal } from "../agent/main-chat-location-contract";
 import { applyA2uiMessage, type A2uiSurfaces } from "./surface-store";
 
 const ONE_ROOT = "one";
@@ -20,6 +21,7 @@ export type NativeAdkTurnOutput = {
   sessionId?: string;
   serverMessageId?: string;
   activity?: string[];
+  locationChatProposal?: MainLocationProposal;
 };
 
 export function createNativeAdkTurnOutput(): NativeAdkTurnOutput {
@@ -31,7 +33,7 @@ function object(value: unknown): Record<string, unknown> | null {
 }
 
 /** Consume one public projection from an admitted native ADK stream. */
-function applyNativeAdkEvent(output: NativeAdkTurnOutput, value: unknown): NativeAdkTurnOutput {
+function applyNativeAdkEvent(output: NativeAdkTurnOutput, value: unknown, locationChatReview: boolean): NativeAdkTurnOutput {
   const event = object(value);
   if (event?.author !== ONE_ROOT) return output;
   const parts = object(event.content)?.parts;
@@ -42,24 +44,29 @@ function applyNativeAdkEvent(output: NativeAdkTurnOutput, value: unknown): Nativ
     return text ? { ...output, partialText: output.partialText + text } : output;
   }
   let surfaces = output.surfaces;
+  let locationChatProposal = output.locationChatProposal;
   for (const part of projected) {
     const response = object(part?.functionResponse);
+    if (locationChatReview && output.sessionId && response?.name === "propose_location_action") {
+      locationChatProposal = parseMainLocationProposal(response.response) ?? locationChatProposal;
+      continue;
+    }
     if (response?.name !== A2UI_TOOL) continue;
     const messages = object(response.response)?.validated_a2ui_json;
     if (!Array.isArray(messages) || messages.length > 24) continue;
     for (const message of messages) surfaces = applyA2uiMessage(surfaces, message);
   }
-  if (!text && surfaces === output.surfaces) return output;
-  if (!text) return { ...output, surfaces };
+  if (!text && surfaces === output.surfaces && locationChatProposal === output.locationChatProposal) return output;
+  if (!text) return { ...output, surfaces, locationChatProposal };
   // ADK's settled text is the aggregate from the model call. Replace its
   // provisional chunks instead of appending the same answer twice.
   const eventId = typeof event.id === "string" && /^[A-Za-z0-9_.:-]{1,160}$/.test(event.id)
     ? event.id : undefined;
-  return { ...output, surfaces, settledText: output.settledText + text, partialText: "", serverMessageId: eventId };
+  return { ...output, surfaces, locationChatProposal, settledText: output.settledText + text, partialText: "", serverMessageId: eventId };
 }
 
 export function consumeNativeAdkFrames(
-  output: NativeAdkTurnOutput, chunk: string, remainder = "",
+  output: NativeAdkTurnOutput, chunk: string, remainder = "", locationChatReview = false,
 ): { output: NativeAdkTurnOutput; remainder: string } {
   const parsed = parseSSEBlocks(chunk, remainder, "message");
   let next = output;
@@ -74,7 +81,7 @@ export function consumeNativeAdkFrames(
       continue;
     }
     if (event === "message") {
-      next = applyNativeAdkEvent(next, value);
+      next = applyNativeAdkEvent(next, value, locationChatReview);
       continue;
     }
     const payload = object(value);
@@ -101,6 +108,7 @@ export function consumeNativeAdkFrames(
 export async function readNativeAdkTurn(
   response: Response,
   onOutput: (turn: NativeAdkTurnOutput) => void,
+  locationChatReview = false,
 ): Promise<NativeAdkTurnOutput> {
   const type = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
   if (!response.ok || type !== "text/event-stream" || !response.body) {
@@ -115,7 +123,7 @@ export async function readNativeAdkTurn(
     while (output.status === "streaming") {
       const { value, done } = await reader.read();
       if (done) break;
-      const next = consumeNativeAdkFrames(output, decoder.decode(value, { stream: true }), remainder);
+      const next = consumeNativeAdkFrames(output, decoder.decode(value, { stream: true }), remainder, locationChatReview);
       remainder = next.remainder;
       if (next.output !== output) {
         output = next.output;

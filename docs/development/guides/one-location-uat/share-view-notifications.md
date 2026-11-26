@@ -43,6 +43,11 @@ native web bundles with `NEXT_PUBLIC_ONE_MAIN_CHAT_LOCATION_ENABLED=true`.
 Use signed-in test accounts with vault access and registered Location recipient
 keys. Use a named Circle with at least two participants.
 
+Test both the pinned One conversation and an ordinary new or reopened chat.
+Say “Share my location to Kushal,” then “1 hour.” Verify the inline review
+shows Kushal and one hour. Ask for Kushal’s location with device permission
+turned off. Verify the request opens in Chat without asking for the sender’s GPS.
+
 Start by typing “Share my location” in the main Chat. Verify that it offers
 private sharing and a temporary public link. In private sharing, search and
 select both a connection and a Circle. Check the audience on the review card.
@@ -68,9 +73,12 @@ From Chat, test Location setup, account sharing off, device permission denied,
 device Location Services off and paused updates. Recover through the card and
 retry the original action with its audience retained. Browser and OS settings
 may require a system prompt or Settings; the app must keep the pending review
-in Chat. Test Circles, saved places, public link management, private check-in,
-nearby check-in and settings from their inline reviews. Verify each change in
-the Location workspace and reflect changes made there back in Chat.
+in Chat. Test Circles, saved places, public links and private check-ins from
+their inline reviews. “Check me in here” opens the Check-in screen to find
+venues from the device’s current position. Reopening chat history must keep
+the conversation visible. Ask to enable Auto approve for a named Circle, review
+the scope, then turn it off from Chat. Verify the saved preference on both
+surfaces and that requests already waiting still require an answer.
 
 For Save My Soul (SMS), review the current emergency contacts in Chat, then
 send only to consenting test accounts. Change the roster or recipient key

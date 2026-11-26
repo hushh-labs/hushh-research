@@ -259,6 +259,7 @@ export type AgentChatStreamHandlers = {
   onToolStart?: (payload: AgentChatToolEvent) => void;
   onToolWaiting?: (payload: AgentChatToolEvent) => void;
   onToolResult?: (payload: AgentChatToolEvent) => void;
+  onLocationProposal?: (proposal: MainLocationProposal) => void;
   /** Request ids a server tool reported as waiting on the owner; the workspace renders each as a pending-consent card. */
   onPendingConsentRequests?: (requestIds: string[]) => void;
   onToken?: (token: string) => void;
@@ -1457,6 +1458,10 @@ async function streamAgentChatAttempt(input: {
   const communicationPreferences = ownerStyleRequestField(input.communicationPreferences);
   const threadId = input.conversationId || crypto.randomUUID();
   const handlers = input.handlers ?? {};
+  const locationReviewProps = input.locationChatReview ? {
+    locationChatReview: true,
+    ...(input.locationChatContinuation ? { locationChatContinuation: input.locationChatContinuation } : {}),
+  } : {};
   const mcpOwner = snapshotValidatedAuthSessionOwner();
   const mcpVaultEpoch = snapshotVaultSessionEpoch();
   const ownerSessionCurrent = () => Boolean(
@@ -1509,13 +1514,13 @@ async function streamAgentChatAttempt(input: {
     !recovered && !input.attachments?.length && !input.consentContinuation && !input.financeShare &&
     !input.feedAttention && !input.personSelectionHandle && !input.gmailInformationRequestWorkflowId &&
     !input.driveSearchSelection && !input.pendingEmailDraft && !input.emailMemoryProjection &&
-    !input.emailMemoryCommit && !input.locationChatContinuation;
+    !input.emailMemoryCommit;
   if (nativeResume || nativeFreshTurn) {
     const { admitsNativeCloudChat, streamNativeCloudChat, NATIVE_CLOUD_CHAT_TRANSPORT } =
       await import("./native-cloud-chat");
     const headers = { Authorization: `Bearer ${input.vaultOwnerToken}`, "Content-Type": "application/json",
       ...(await oneChatKeyHeaders(input.vaultKey)) };
-    const admitted = await admitsNativeCloudChat(headers, turnSessionCurrent, input.signal).catch(() => false);
+    const admitted = await admitsNativeCloudChat(headers, turnSessionCurrent, input.signal, !nativeResume && input.locationChatReview).catch(() => false);
     assertTurnSessionCurrent();
     if (nativeResume && !admitted) throw new Error("Reconnect to resume the connector review.");
     if (admitted) {
@@ -1531,6 +1536,7 @@ async function streamAgentChatAttempt(input: {
         forwardedProps: {
           ...connectors, timezone, turnLocation, communicationPreferences, screenContext: input.screenContext,
           specialistFocus: input.specialistFocus, mainChat: input.mainChat,
+          ...(!nativeResume ? locationReviewProps : {}),
           ...(approval ? { mcpApproval: {
             directiveId: approval.directiveId, connectorId: approval.connectorId, toolName: approval.toolName,
             pendingHandle: approval.pendingHandle, receipt: approval.receipt,
@@ -1551,7 +1557,7 @@ async function streamAgentChatAttempt(input: {
       try {
         const output = await streamNativeCloudChat({
           request: { method: "POST", headers, body, signal: transportAbort.signal },
-          conversationId: threadId, isCurrent: current, handlers,
+          conversationId: threadId, isCurrent: current, handlers, locationChatReview: !nativeResume && input.locationChatReview,
         });
         if (output.status === "error") throw new Error(formatAgentChatErrorMessage("", output.errorCode));
         if (!handlers.onNativeOutput && output.settledText) handlers.onToken?.(output.settledText);
@@ -1940,7 +1946,7 @@ async function streamAgentChatAttempt(input: {
   let suppressTransientPodBusy = false;
   let transientPodBusy = false;
   let attemptProducedOutput = false;
-  const runUntilTerminal = async (parameters: Parameters<HttpAgent["runAgent"]>[0], resumeSignal?: AbortSignal) => {
+  const runUntilTerminal = async (parameters: NonNullable<Parameters<HttpAgent["runAgent"]>[0]>, resumeSignal?: AbortSignal) => {
     for (let retryIndex = 0; ; retryIndex += 1) {
       if (input.signal?.aborted || resumeSignal?.aborted) {
         throw new DOMException("Agent turn cancelled", "AbortError");
@@ -1953,7 +1959,7 @@ async function streamAgentChatAttempt(input: {
       suppressTransientPodBusy = retryIndex < POD_CHAT_BUSY_RETRY_DELAYS_MS.length;
       liveness.start();
       try {
-        await agent.runAgent(parameters, subscriber);
+        await agent.runAgent({ ...parameters, forwardedProps: { ...parameters.forwardedProps, ...locationReviewProps } }, subscriber);
       } catch (err) {
         if (
           suppressTransientPodBusy &&
@@ -2446,7 +2452,7 @@ async function streamAgentChatAttempt(input: {
           return;
         }
       }
-      const safeArgs = toolCallName === "propose_file_schedule" || toolCallName === "propose_goal_plan"
+      const safeArgs = toolCallName === "propose_file_schedule" || toolCallName === "propose_goal_plan" || toolCallName === "propose_location_action"
         ? {} : privateToolProgressArgs(toolCallName, toolCallArgs);
       toolArgs.set(event.toolCallId, safeArgs);
       handlers.onToolWaiting?.(
@@ -2455,6 +2461,14 @@ async function streamAgentChatAttempt(input: {
     },
     onToolCallResultEvent: ({ event }) => {
       const toolName = toolNames.get(event.toolCallId) || "";
+      if (toolName === "propose_location_action") {
+        if (input.locationChatReview && turnSessionCurrent()) {
+          const proposal = parseMainLocationProposal(event.content);
+          if (proposal) handlers.onLocationProposal?.(proposal);
+        }
+        handlers.onToolResult?.(toolPayload(event.toolCallId, toolName));
+        return;
+      }
       if (toolName === "propose_goal_plan") {
         const proposal = readGoalPlanProposal(event.content);
         if (proposal) handlers.onGoalPlanProposal?.(proposal);
@@ -3044,10 +3058,7 @@ async function streamAgentChatAttempt(input: {
           receipt: input.resumeMcpReview.approval.receipt,
         } } : {}),
         ...(input.specialistFocus ? { specialistFocus: input.specialistFocus } : {}),
-        ...(input.mainChat ? {
-          mainChat: true,
-          ...(input.locationChatReview ? { locationChatReview: true, locationChatContinuation: input.locationChatContinuation } : {}),
-        } : {}),
+        ...(input.mainChat ? { mainChat: true } : {}),
         // Only the native app asks the server for a "One replied" push when it
         // stops reading; a web tab's closed stream must not wake a phone.
         notifyOnDetach: Capacitor.isNativePlatform(),

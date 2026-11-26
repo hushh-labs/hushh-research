@@ -5,7 +5,7 @@ export const MAIN_CHAT_LOCATION_ENABLED = process.env.NEXT_PUBLIC_ONE_MAIN_CHAT_
 
 export const locationRecoveryActions = ["setup_location", "enable_location", "enable_device_location", "resume_updates"] as const;
 export const locationSafetyActions = ["sos_review", "sos_stop", "sms_contacts"] as const;
-export const locationWorkspaceActions = ["manage_circles", "manage_places", "manage_ratings", "manage_contacts", "manage_settings", "manage_links", "check_in", "nearby_check_in", "view_self"] as const;
+export const locationWorkspaceActions = ["manage_circles", "manage_places", "manage_ratings", "manage_contacts", "manage_settings", "enable_auto_approve", "disable_auto_approve", "manage_links", "check_in", "nearby_check_in", "view_self"] as const;
 export type LocationRecoveryAction = typeof locationRecoveryActions[number];
 export type LocationSafetyAction = typeof locationSafetyActions[number];
 export type LocationWorkspaceAction = typeof locationWorkspaceActions[number];
@@ -115,14 +115,18 @@ export function locationReviewForLegacyAction(actionId: string, path: string, sl
     return draft ? { draft, selectionOnly: false } : null;
   }
   if (path !== "local_handler") return null;
-  const action = legacyLocationLocalReview.get(actionId);
+  let action = legacyLocationLocalReview.get(actionId);
   if (!action) return null;
+  if (actionId === "location.set_auto_share") {
+    if (slots.enabled === "on") action = "enable_auto_approve";
+    if (slots.enabled === "off") action = "disable_auto_approve";
+  }
   const draft: Omit<MainLocationProposal, "id"> = { action };
   if (legacyPersonHints.has(action) && typeof slots.person === "string") {
     const names = (action === "set_duration" ? [slots.person] : splitSpokenNames(slots.person)).map(locationNameHint);
     if (names.length <= 20 && names.every((name) => name !== undefined)) draft.people = names;
   }
-  if (action === "share_private" || action === "share_live" || action === "ask" || action === "manage_circles") {
+  if (action === "share_private" || action === "share_live" || action === "ask" || action === "manage_circles" || action === "enable_auto_approve") {
     const circle = locationNameHint(actionId === "location.create_circle" ? slots.name : slots.circle);
     if (circle) draft.circles = [circle];
   }
@@ -154,7 +158,10 @@ export function parseMainLocationProposal(value: unknown): MainLocationProposal 
     try { value = JSON.parse(value); } catch { return null; }
   }
   if (!value || typeof value !== "object") return null;
-  const input = value as Record<string, unknown>;
+  const envelope = value as Record<string, unknown>;
+  // ADK can wrap the function's JSON object in a result field.
+  const input = envelope.result && typeof envelope.result === "object"
+    ? envelope.result as Record<string, unknown> : envelope;
   if (input.proposal && typeof input.proposal === "object") return parseMainLocationProposal(input.proposal);
   if (input.type !== "location.chat_action" || typeof input.id !== "string" ||
       !UUID.test(input.id) || !actions.some((action) => action === input.action)) return null;
@@ -168,7 +175,9 @@ export function parseMainLocationProposal(value: unknown): MainLocationProposal 
   const circles = names(input.circles, 5);
   if (people === null || circles === null) return null;
   const action = input.action as MainLocationAction;
-  const dedicatedReview = [...locationRecoveryActions, ...locationSafetyActions, "manage_places", "manage_ratings", "manage_contacts", "manage_settings", "manage_links", "nearby_check_in", "view_self"]
+  if (action === "enable_auto_approve" && (people?.length || input.durationHours != null ||
+      input.durationMode != null || input.direction != null)) return null;
+  const dedicatedReview = [...locationRecoveryActions, ...locationSafetyActions, "manage_places", "manage_ratings", "manage_contacts", "manage_settings", "disable_auto_approve", "manage_links", "nearby_check_in", "view_self"]
     .some((entry) => entry === action);
   if (dedicatedReview && (people?.length || circles?.length || input.durationHours != null ||
       input.durationMode != null || input.direction != null)) return null;
