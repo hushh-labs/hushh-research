@@ -531,6 +531,7 @@ append_optional_env "WALLET_PASS_PROVIDER" "${_WALLET_PASS_PROVIDER}"
 append_optional_env "APP_REVIEW_MODE" "${_APP_REVIEW_MODE}"
 append_optional_env "AUTH_PHONE_RECOVERY_ENABLED" "${_AUTH_PHONE_RECOVERY_ENABLED}"
 append_optional_env "ACCOUNT_GENERATION_ADMISSION_ENABLED" "${_ACCOUNT_GENERATION_ADMISSION_ENABLED}"
+append_optional_env "ONE_MAIN_CHAT_LOCATION_ENABLED" "${_ONE_MAIN_CHAT_LOCATION_ENABLED}"
 # One switch for every text agent (constants.GEMINI_MODEL). Empty keeps the proven
 # default. Ported from main 2026-09-02: the workflow passes it, this lane dropped it.
 append_optional_env "HUSSH_GEMINI_TEXT_MODEL" "${_HUSSH_GEMINI_TEXT_MODEL}"
