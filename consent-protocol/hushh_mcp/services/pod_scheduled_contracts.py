@@ -6,10 +6,11 @@ These are pod-local contracts, not a second persistence or approval authority.
 from __future__ import annotations
 
 import json
+from calendar import monthrange
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Annotated, Literal, Protocol, runtime_checkable
 from uuid import NAMESPACE_URL, uuid5
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -30,6 +31,20 @@ class ScheduleRefused(RuntimeError):
         super().__init__(code)
 
 
+ScheduleRepeat = Literal["once", "daily", "weekly", "monthly"]
+Weekday = Annotated[int, Field(strict=True, ge=0, le=6)]
+
+
+def validate_weekdays(
+    repeat: ScheduleRepeat, weekdays: list[int] | None, first_run_at: int, zone: ZoneInfo
+) -> None:
+    if weekdays is None:
+        return
+    first = datetime.fromtimestamp(first_run_at, UTC).astimezone(zone)
+    if repeat != "weekly" or weekdays != sorted(set(weekdays)) or first.weekday() not in weekdays:
+        raise ValueError("Invalid schedule weekdays")
+
+
 class ScheduleRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
     request_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{8,128}$")
@@ -38,16 +53,18 @@ class ScheduleRequest(BaseModel):
     parameters: dict = Field(repr=False)
     first_run_at: int = Field(gt=0)
     timezone: str = Field(min_length=1, max_length=64)
-    repeat: Literal["once", "daily", "weekly"] = "once"
+    repeat: ScheduleRepeat = "once"
+    weekdays: list[Weekday] | None = Field(default=None, min_length=1, max_length=7)
     authorization_expires_at: int = Field(gt=0)
     confirmed: Literal[True]
 
     @model_validator(mode="after")
     def bounded_terms(self):
         try:
-            ZoneInfo(self.timezone)
+            zone = ZoneInfo(self.timezone)
+            validate_weekdays(self.repeat, self.weekdays, self.first_run_at, zone)
             encoded = json.dumps(self.parameters, allow_nan=False)
-        except (ValueError, TypeError, ZoneInfoNotFoundError):
+        except (ValueError, TypeError, OverflowError, OSError, ZoneInfoNotFoundError):
             raise ValueError("Invalid schedule terms") from None
         if len(encoded.encode()) > 4096 or self.first_run_at >= self.authorization_expires_at:
             raise ValueError("Invalid schedule terms")
@@ -126,17 +143,36 @@ def capability_scopes(capability: ScheduledCapability) -> list[str]:
     return list(scopes)
 
 
+def next_monthly_date(local: datetime, day: int) -> datetime:
+    year, month = local.year, local.month
+    while True:
+        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+        if day <= monthrange(year, month)[1]:
+            return local.replace(year=year, month=month, day=day)
+
+
 def next_run_after(
-    due_at: int, repeat: str, timezone: str, now: int, *, anchor_at: int | None = None
+    due_at: int,
+    repeat: str,
+    timezone: str,
+    now: int,
+    *,
+    anchor_at: int | None = None,
+    weekdays: list[int] | None = None,
 ) -> int | None:
     if repeat == "once":
         return None
-    days = 1 if repeat == "daily" else 7
-    local = datetime.fromtimestamp(due_at, UTC).astimezone(ZoneInfo(timezone))
-    anchor = datetime.fromtimestamp(anchor_at or due_at, UTC).astimezone(ZoneInfo(timezone))
+    zone = ZoneInfo(timezone)
+    local = datetime.fromtimestamp(due_at, UTC).astimezone(zone)
+    anchor = datetime.fromtimestamp(anchor_at or due_at, UTC).astimezone(zone)
     # Coalesce missed occurrences; never catch up by issuing a burst of effects.
     for _ in range(367):
-        local += timedelta(days=days)
+        if repeat == "monthly":
+            local = next_monthly_date(local, anchor.day)
+        elif weekdays:
+            local += timedelta(days=min((day - local.weekday()) % 7 or 7 for day in weekdays))
+        else:
+            local += timedelta(days=1 if repeat == "daily" else 7)
         local = local.replace(
             hour=anchor.hour, minute=anchor.minute, second=anchor.second, fold=anchor.fold
         )
@@ -193,7 +229,8 @@ class _ScheduleRecord(BaseModel):
     capability: str = Field(pattern=r"^agent_[a-z_]+\.[a-z_]+\.v[1-9][0-9]*$")
     terms: dict = Field(repr=False)
     grant: dict = Field(repr=False)
-    repeat: Literal["once", "daily", "weekly"]
+    repeat: ScheduleRepeat
+    weekdays: list[Weekday] | None = Field(default=None, min_length=1, max_length=7)
     timezone: str = Field(min_length=1, max_length=64)
     first_run_at: int = Field(gt=0)
     next_run_at: int = Field(gt=0)
@@ -216,7 +253,11 @@ class _ScheduleRecord(BaseModel):
 
     @model_validator(mode="after")
     def bounded(self):
-        ZoneInfo(self.timezone)
+        zone = ZoneInfo(self.timezone)
+        try:
+            validate_weekdays(self.repeat, self.weekdays, self.first_run_at, zone)
+        except (OverflowError, OSError):
+            raise ValueError("Invalid schedule weekdays") from None
         if self.checkpoint is not None:
             validate_schedule_checkpoint(self.model_dump(), self.checkpoint)
         scopes = self.grant.get("scopes")

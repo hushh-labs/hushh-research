@@ -16,6 +16,7 @@ from hushh_mcp.services.pod_scheduled_contracts import (
 
 KIND = "pod_scheduled_task_v1"
 MAX_SCHEDULES = 50
+MAX_RECENT_RUNS = 5
 
 
 class ScheduledTaskJournal:
@@ -29,7 +30,9 @@ class ScheduledTaskJournal:
         await self.access.check()
         await self.log.require_open()
 
-    async def snapshot(self) -> tuple[dict[str, dict], int]:
+    async def snapshot(
+        self, *, recent_runs: dict[str, dict[str, dict]] | None = None
+    ) -> tuple[dict[str, dict], int]:
         await self.check()
         records, _ = await self.log.replay_since(max_records=30000, max_bytes=64 * 1024 * 1024)
         if len(records) > 30000:
@@ -54,6 +57,17 @@ class ScheduledTaskJournal:
             ):
                 raise ScheduleRefused("SCHEDULE_RECOVERY_INVALID")
             rows[row["id"]] = row
+            run = row["last_run"]
+            if recent_runs is not None and run and run["state"] != "running":
+                runs = recent_runs.setdefault(row["id"], {})
+                runs[run["id"]] = {
+                    "id": run["id"],
+                    "state": run["state"],
+                    "started_at": run["started_at"],
+                    "finished_at": run.get("finished_at"),
+                }
+                if len(runs) > MAX_RECENT_RUNS:
+                    del runs[next(iter(runs))]
         if len(rows) > MAX_SCHEDULES:
             raise ScheduleRefused("SCHEDULE_HISTORY_LIMIT")
         await self.check()
@@ -85,8 +99,16 @@ class ScheduledTaskJournal:
             raise ScheduleRefused("SCHEDULE_REVISION_CONFLICT")
 
     async def list(self) -> list[dict]:
-        rows, _ = await self.snapshot()
-        return [await self._view(row) for row in rows.values()]
+        recent_runs: dict[str, dict[str, dict]] = {}
+        rows, _ = await self.snapshot(recent_runs=recent_runs)
+        result = []
+        for row in rows.values():
+            view = await self._view(row)
+            runs = recent_runs.get(row["id"], {})
+            if runs:
+                view["recent_runs"] = list(reversed(runs.values()))
+            result.append(view)
+        return result
 
     async def _view(self, row: dict) -> dict:
         result = self.view(row)
@@ -113,6 +135,8 @@ class ScheduledTaskJournal:
                 "last_run",
             )
         }
+        if row.get("weekdays") is not None:
+            result["weekdays"] = row["weekdays"]
         if (
             row["incarnation"] != self.access.incarnation
             or row["authorization_expires_at"] <= self.clock()

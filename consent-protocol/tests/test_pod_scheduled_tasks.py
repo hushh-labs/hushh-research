@@ -252,6 +252,84 @@ def test_schedule_calendar_coalesces_dst_and_missed_runs():
     )
 
 
+@pytest.mark.parametrize(
+    ("repeat", "first", "weekdays", "following"),
+    [
+        ("weekly", "1970-01-02T09:00:00+00:00", [0, 4], "1970-01-05T09:00:00+00:00"),
+        ("monthly", "1970-01-31T09:00:00+00:00", None, "1970-03-31T09:00:00+00:00"),
+    ],
+)
+async def test_recurring_schedule_retains_its_calendar_after_recovery(
+    scheduled_tasks, repeat, first, weekdays, following
+):
+    from datetime import datetime
+
+    first_at = int(datetime.fromisoformat(first).timestamp())
+    following_at = int(datetime.fromisoformat(following).timestamp())
+    world = scheduled_tasks
+    world.clock[0] = first_at - 3600
+    request = schedule_request(
+        repeat=repeat,
+        weekdays=weekdays,
+        timezone="UTC",
+        first_run_at=first_at,
+        authorization_expires_at=following_at + 3600,
+    )
+    task = await world.runtime.create(request, grant={"subject_id": "browser", "version": 1})
+    delivery = world.delivery.offer.await_args.args
+    world.clock[0] = first_at
+    result = await world.build().run(*delivery[:3])
+    assert result["last_run"]["state"] == "completed"
+    assert result["state"] == "scheduled"
+    assert result["next_run_at"] == following_at
+    assert result.get("weekdays") == weekdays
+    assert world.delivery.offer.await_args.args[-1] == following_at
+    world.capability.run.assert_awaited_once()
+    assert task["id"] == result["id"]
+    following_delivery = world.delivery.offer.await_args.args
+    world.clock[0] = following_at
+    await world.build().run(*following_delivery[:3])
+    [recovered] = await world.build().list()
+    assert recovered["state"] == "completed"
+    assert recovered["recent_runs"] == [
+        {
+            "id": following_delivery[2],
+            "state": "completed",
+            "started_at": following_at,
+            "finished_at": following_at,
+        },
+        {"id": delivery[2], "state": "completed", "started_at": first_at, "finished_at": first_at},
+    ]
+
+
+def test_selected_weekdays_reject_an_unapproved_first_run():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="Invalid schedule terms"):
+        schedule_request(repeat="weekly", weekdays=[0], timezone="UTC")
+
+
+async def test_skip_next_fences_previous_delivery_and_preserves_the_series(scheduled_tasks):
+    world = scheduled_tasks
+    grant = {"subject_id": "browser", "version": 1}
+    task = await world.runtime.create(
+        schedule_request(repeat="daily", authorization_expires_at=200000), grant=grant
+    )
+    skipped = world.delivery.offer.await_args.args
+    result = await world.runtime.control(
+        task["id"], task["revision"], "skip_next", confirmed=True, caller_grant=grant
+    )
+    next_delivery = world.delivery.offer.await_args.args
+    assert next_delivery[-1] == skipped[-1] + 86400
+    assert result["id"] == task["id"] and result["state"] == "scheduled"
+    world.clock[0] = skipped[-1]
+    await world.build().run(*skipped[:3])
+    world.capability.run.assert_not_awaited()
+    world.clock[0] = next_delivery[-1]
+    await world.build().run(*next_delivery[:3])
+    world.capability.run.assert_awaited_once()
+
+
 @pytest.mark.asyncio
 async def test_schedule_rejects_horizon_outside_signed_grant_before_persisting(scheduled_tasks):
     from hushh_mcp.services.pod_scheduled_tasks import ScheduleRefused

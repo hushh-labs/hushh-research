@@ -25,7 +25,7 @@ describe("private Files schedule review in Chat", () => {
     mocks.entry.mockReset().mockResolvedValue(file);
     vi.spyOn(PodScheduledTasksClient.prototype, "status").mockResolvedValue({
       available: true, code: null, authorization_limit_at: Math.floor(Date.now() / 1000) + 172800,
-      templates: [FILE_ORGANIZATION_TEMPLATE], tasks: [],
+      templates: [FILE_ORGANIZATION_TEMPLATE], repeat_modes: ["once", "daily", "weekly", "monthly"], tasks: [],
     });
   });
 
@@ -64,6 +64,14 @@ describe("private Files schedule review in Chat", () => {
     fireEvent.click(await openReview());
     expect(await screen.findByRole("alert")).toHaveTextContent("selected file or its permission changed");
     expect(organize).not.toHaveBeenCalled();
+  });
+
+  it("requires an explicit end time for a recurring Files schedule", async () => {
+    const confirm = await openReview();
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Repeat" }), { key: "Enter" });
+    fireEvent.click(await screen.findByRole("option", { name: "Daily" }));
+    expect(screen.getByLabelText("End at")).toBeVisible();
+    expect(confirm).toBeDisabled();
   });
 
   it("does not list Shared files or offer confirmation", async () => {

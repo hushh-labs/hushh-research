@@ -1,5 +1,5 @@
 vi.mock("@/components/wallet/wallet-entry-warmup", () => ({ WalletEntryWarmup: () => null }));
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { nativeLauncherAgent } from "@/components/dashboard/native-one-dashboard";
@@ -268,13 +268,13 @@ describe("OneDashboardPage", () => {
       "gmail",
       "calendar",
       "finance",
-      "goals",
       "ria",
       "wallet",
       "consent",
       "pkm",
       "files",
       "messages",
+      "goals",
     ] as const;
     const grid = screen.getByTestId("one-agents-grid");
     expect(
@@ -469,8 +469,8 @@ describe("OneDashboardPage", () => {
     expect(screen.getByLabelText("Show agent list view")).toBe(listControl);
     expect(gridContent.isConnected).toBe(false);
     expect(screen.queryByTestId("one-agents-grid")).toBeNull();
-    expect(screen.getByTestId("one-agents-list")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Open Goals" })).toHaveAttribute("href", ROUTES.ONE_GOALS);
+    const list = within(screen.getByTestId("one-agents-list"));
+    expect(list.getAllByRole("link").at(-1)).toBe(list.getByRole("link", { name: "Open Goals" }));
 
     fireEvent.click(gridControl);
     expect(screen.getByRole("heading", { name: "Agents (11)" })).toBe(heading);

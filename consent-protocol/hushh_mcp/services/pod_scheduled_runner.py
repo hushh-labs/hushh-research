@@ -240,6 +240,7 @@ class ScheduledTaskRunner:
                         row["timezone"],
                         int(self.clock()),
                         anchor_at=row["first_run_at"],
+                        weekdays=row.get("weekdays"),
                     )
                     if outcome == "completed"
                     else None
