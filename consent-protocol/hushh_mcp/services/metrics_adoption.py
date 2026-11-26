@@ -21,10 +21,12 @@ from hushh_mcp.services.account_generation_service import EXACT_OWNER_IDENTITIES
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.metrics_adoption_sql import (
     CANDIDATES_SQL,
+    MAX_ADOPTION_CANDIDATES,
     MEANINGFUL_REPLIES_SQL,
     SOURCE_TABLES,
 )
 
+OWNER_BATCH_SIZE = 50
 _production_aggregate_lock = asyncio.Lock()
 
 
@@ -72,7 +74,9 @@ def approved_binding(environment: str = "production") -> dict:
         }
         if environment == "uat":
             required |= {"databaseName", "databaseUser"}
-        optional = {"provisionalUtcDay"} if environment == "uat" else set()
+        optional = (
+            {"provisionalUtcDay", "provisionalSourceGeneration"} if environment == "uat" else set()
+        )
         if (
             not isinstance(row, dict)
             or not required <= row.keys() <= required | optional
@@ -85,10 +89,13 @@ def approved_binding(environment: str = "production") -> dict:
             "scopeDigest",
             "populationPolicyRevision",
             "reconciliationDigest",
+            *(("provisionalSourceGeneration",) if "provisionalSourceGeneration" in row else ()),
         ):
             if not isinstance(row[field], str) or not re.fullmatch(r"[a-f0-9]{64}", row[field]):
                 raise ValueError
         if date.fromisoformat(row["coverageFrom"]).isoformat() != row["coverageFrom"]:
+            raise ValueError
+        if "provisionalSourceGeneration" in row and "provisionalUtcDay" not in row:
             raise ValueError
         if "provisionalUtcDay" in row:
             day = row["provisionalUtcDay"]
@@ -131,6 +138,11 @@ def period_bounds(
         and start == end == local_day
         and binding.get("provisionalUtcDay") == end.isoformat()
     )
+    expected_generation = (
+        binding.get("provisionalSourceGeneration", binding["sourceGeneration"])
+        if provisional
+        else binding["sourceGeneration"]
+    )
     if (
         environment not in {"production", "uat"}
         or start > end
@@ -139,10 +151,9 @@ def period_bounds(
         or (end >= local_day and not provisional)
         or (environment == "uat" and first < now - timedelta(days=7))
         or (environment == "production" and start < local_day - timedelta(days=7))
-        or any(
-            getattr(request, key) != binding[key]
-            for key in ("definitionVersion", "sourceGeneration", "scopeDigest")
-        )
+        or request.definitionVersion != binding["definitionVersion"]
+        or request.scopeDigest != binding["scopeDigest"]
+        or request.sourceGeneration != expected_generation
     ):
         raise ValueError("Unsupported aggregate period or generation")
     # Existing effect adapters use inclusive bounds. Preserve the half-open day
@@ -166,7 +177,7 @@ async def _candidates(conn, since, through):
     rows = await conn.fetch(CANDIDATES_SQL, since, through, timeout=5)
     ids = [row["user_id"] for row in rows]
     if (
-        len(ids) > 50
+        len(ids) > MAX_ADOPTION_CANDIDATES
         or len(set(ids)) != len(ids)
         or any(not isinstance(uid, str) or not 1 <= len(uid) <= 128 for uid in ids)
     ):
@@ -188,10 +199,16 @@ async def _owner_identities(ids, conn):
         return {owner: owner for owner in ids}
     if restricted is not False:
         raise AggregateUnavailable("Metrics generation authority unavailable")
-    rows = await conn.fetch(EXACT_OWNER_IDENTITIES_SQL, ids, timeout=5)
-    identities = {row["owner"]: row["identity_uid"] for row in rows}
+    identities: dict[str, str] = {}
+    total_rows = 0
+    for offset in range(0, len(ids), OWNER_BATCH_SIZE):
+        batch = ids[offset : offset + OWNER_BATCH_SIZE]
+        rows = await conn.fetch(EXACT_OWNER_IDENTITIES_SQL, batch, timeout=5)
+        total_rows += len(rows)
+        for row in rows:
+            identities[row["owner"]] = row["identity_uid"]
     if (
-        len(identities) != len(rows)
+        len(identities) != total_rows
         or not identities.keys() <= set(ids)
         or len(set(identities.values())) != len(identities)
     ):
@@ -199,16 +216,30 @@ async def _owner_identities(ids, conn):
     return identities
 
 
+async def _active_projection_ids(conn, ids: list[str]) -> set[str]:
+    active: set[str] = set()
+    for offset in range(0, len(ids), OWNER_BATCH_SIZE):
+        batch = ids[offset : offset + OWNER_BATCH_SIZE]
+        active |= await AccountDeletionLifecycleService.active_projection_user_ids(
+            conn, user_ids=batch
+        )
+    return active
+
+
 async def _identity(ids, conn, environment="production"):
     if not ids:
         return {}, {}, {}
     identities = await _owner_identities(ids, conn)
     firebase_uids = list(identities.values())
-    firebase_records = await (
-        metrics_uat_authority.current_records(firebase_uids)
-        if environment == "uat"
-        else plg_reporting.current_reporting_records(firebase_uids)
-    )
+    firebase_records: dict[str, dict] = {}
+    for offset in range(0, len(firebase_uids), OWNER_BATCH_SIZE):
+        batch = firebase_uids[offset : offset + OWNER_BATCH_SIZE]
+        chunk = await (
+            metrics_uat_authority.current_records(batch)
+            if environment == "uat"
+            else plg_reporting.current_reporting_records(batch)
+        )
+        firebase_records.update(chunk)
     records = {
         owner: {**firebase_records[uid], "firebase_uid": uid}
         for owner, uid in identities.items()
@@ -216,8 +247,12 @@ async def _identity(ids, conn, environment="production"):
     }
     identity = ActorIdentityService()
     owners = list(records)
-    canonical = await identity.get_many(owners, conn=conn)
-    aliases = await identity.get_many_verified_email_aliases(owners, conn=conn)
+    canonical: dict = {}
+    aliases: dict = {}
+    for offset in range(0, len(owners), OWNER_BATCH_SIZE):
+        batch = owners[offset : offset + OWNER_BATCH_SIZE]
+        canonical.update(await identity.get_many(batch, conn=conn))
+        aliases.update(await identity.get_many_verified_email_aliases(batch, conn=conn))
     return records, canonical, aliases
 
 
@@ -283,11 +318,7 @@ async def adoption_aggregate(
         await guard.execute("SET LOCAL lock_timeout='1s'")
         await _assert_global_read(guard)
         ids = await _candidates(guard, since, through)
-        active = (
-            await AccountDeletionLifecycleService.active_projection_user_ids(guard, user_ids=ids)
-            if ids
-            else set()
-        )
+        active = await _active_projection_ids(guard, ids) if ids else set()
         before = (
             await _identity(ids, guard, environment)
             if environment == "uat"
