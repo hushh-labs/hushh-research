@@ -21,6 +21,8 @@ export const followupSchema = mailboxSchema.omit({ address: true }).extend({
   waiting_on: z.enum(["owner", "participant"]),
   fulfilment: z.string().min(1).max(240),
   quote: z.string().min(3).max(500),
+  due_date: z.string().date().nullish(),
+  due_time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullish(),
   promised_wording: z.string().max(80).nullable(),
   document: z.string().max(160).nullable(),
   received: z

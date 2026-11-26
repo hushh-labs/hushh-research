@@ -2384,7 +2384,7 @@ export default function GmailReceiptsPage({
                       trackedBoardOpen ? <>
                         <Button onClick={() => setTrackedBoardOpen(false)}>View Overview follow-ups</Button>
                         {userId && isVaultUnlocked && vaultKey && vaultOwnerToken ?
-                          <MailFollowupsEntry expectedAccount={gmail.status?.google_sub} key={JSON.stringify([userId,receiptAccountKey,snapshotVaultSessionEpoch()])}
+                          <MailFollowupsEntry key={JSON.stringify([userId,receiptAccountKey,snapshotVaultSessionEpoch()])}
                             session={{userId,vaultKey,vaultOwnerToken}} confirmTransition={confirmTransition}
                             onBack={() => setWorkspace("overview")}/> :
                           <Button onClick={() => setShowVaultUnlock(true)}>Unlock to track conversations</Button>}

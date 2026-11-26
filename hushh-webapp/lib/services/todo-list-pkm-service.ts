@@ -532,7 +532,7 @@ export const TodoListPkmService = {
   trackMail(persistence: TodoWriteParams, finding: MailFollowup) {
     const item = followupSchema.parse(finding);
     const task = buildTodo({ source: "gmail", type: "automatic", sourceId: `mail_thread:${item.key}`,
-      title: item.title, notes: item.fulfilment });
+      title: item.title, date: item.due_date ?? null, time: item.due_time ?? null, notes: item.fulfilment });
     return write(persistence, "one_todo_list_gmail_follow_up", `one_todo_list:create:${task.id}`,
       current => current.tasks.some(existing => existing.id === task.id)
         ? current.tasks : [{ ...task, mailFollowup: item }, ...current.tasks]);

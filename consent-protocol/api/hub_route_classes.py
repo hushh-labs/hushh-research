@@ -67,15 +67,6 @@ POST /api/one/finance/advisor-reviews/portfolio-analysis
 POST /api/one/finance/advisor-reviews/{request_id}/meeting/action
 GET,POST /api/connectors/google_drive/sharing/packets/{packet_id}/preview
 POST /api/one/todos/suggestions
-POST /api/one/mail/followups/inventory
-POST /api/one/mail/followups/account
-POST /api/one/mail/followups/disconnect
-POST /api/one/mail/followups/search
-POST /api/one/mail/followups/open
-POST /api/one/mail/followups/track
-POST /api/one/mail/followups/check
-POST /api/one/mail/followups/draft
-POST /api/one/mail/followups/document
 POST /api/one/calendar/board/day
 POST /api/one/calendar/conflicts/review
 POST /api/one/calendar/conflicts/confirm

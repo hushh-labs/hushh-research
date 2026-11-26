@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ComponentProps } from "react";
+import { useEffect, useState, type ComponentProps } from "react";
 import { ApiService } from "@/lib/services/api-service";
-import { mailFollowupsClient } from "@/lib/services/mail-followups-service";
+
 import {
   snapshotVaultSessionEpoch,
   isVaultSessionEpochCurrent,
@@ -13,35 +13,10 @@ import { MailFollowupsWorkspace } from "./mail-followups-workspace";
 import { MailActionButton } from "./mail-action-button";
 
 export function MailFollowupsEntry(
-  props: ComponentProps<typeof MailFollowupsWorkspace> & {
-    expectedAccount?: string | null;
-  },
+  props: ComponentProps<typeof MailFollowupsWorkspace>,
 ) {
-  const { session, expectedAccount, onBack } = props;
-  const mail = useMemo(
-    () => mailFollowupsClient(session.vaultOwnerToken),
-    [session.vaultOwnerToken],
-  );
+  const { session, onBack } = props;
   const [placement, setPlacement] = useState<"private" | "shared" | "error">();
-  const shared = useMemo(
-    () => ({
-      mail,
-      async load(signal: AbortSignal) {
-        const { default: primary, additional } = await mail.inventory(signal);
-        if (primary && expectedAccount && expectedAccount !== primary.account)
-          throw new Error("Mailbox changed.");
-        return [...(primary ? [primary] : []), ...additional].map((box) => ({
-          accountId: box.account,
-          credentialId: box.connection,
-          email: box.address,
-          capabilities: { read: true, manage: false },
-          isDefault: box === primary,
-        }));
-      },
-      remove: mail.disconnectShared,
-    }),
-    [mail, expectedAccount],
-  );
   useEffect(() => {
     const controller = new AbortController();
     const epoch = snapshotVaultSessionEpoch();
@@ -64,17 +39,18 @@ export function MailFollowupsEntry(
       if (current()) setPlacement("error");
     });
     return () => controller.abort();
-  }, [mail, session.userId, expectedAccount]);
+  }, [session.userId, session.vaultOwnerToken]);
   if (placement === "private") return <MailFollowupsWorkspace {...props} />;
-  if (placement === "shared")
-    return <MailFollowupsWorkspace {...props} shared={shared} />;
+
   return (
     <>
       <MailActionButton onClick={onBack}>Back to Mail</MailActionButton>
       <p role="status">
-        {placement === "error"
-          ? "Mail could not verify access to this mailbox. Reopen Follow-ups to try again."
-          : "Loading mailbox…"}
+        {placement === "shared"
+          ? "Mail Follow-ups requires a connected private agent."
+          : placement === "error"
+            ? "Mail could not verify access to this mailbox. Reopen Follow-ups to try again."
+            : "Loading mailbox…"}
       </p>
     </>
   );

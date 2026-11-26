@@ -33,6 +33,7 @@ class MailTerms(Tracked):
 
 
 class ScheduledMailFollowup:
+    allow_run_now = False
     max_active_seconds = 150
     required_scopes = ("pod.act", "pkm.read")
 
@@ -77,7 +78,11 @@ class ScheduledMailFollowup:
         row = lease.claimed
         terms = row["terms"]
         request = MailTerms.model_validate(terms["request"])
-        if row["repeat"] != "once" or row["first_run_at"] != request.due:
+        if (
+            row["repeat"] != "once"
+            or row["first_run_at"] != request.due
+            or row["next_run_at"] != request.due
+        ):
             return "needs_review"
         model = await resolve_scheduled_model(
             self.log, pod_id=self.grants.authority.hushh_id, check=lease.check
