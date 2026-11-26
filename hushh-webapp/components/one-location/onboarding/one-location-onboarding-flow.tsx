@@ -155,7 +155,7 @@ type OneLocationOnboardingFlowProps = {
   /** Where to centre the finale map. Null renders the stylised fallback. */
   mapPoint?: { lat: number; lng: number } | null;
   /** Acquire a foreground fix on entry, or when the owner retries. */
-  onPrepareLocation?: () => Promise<boolean>;
+  onPrepareLocation?: (reason: "entry" | "retry") => Promise<boolean>;
   /** A foreground return observed usable, granted location permission. */
   locationResumeAttempt?: number;
   /** A completed save retained by the account-scoped page through auth gates. */
@@ -1124,6 +1124,7 @@ export function OneLocationOnboardingFlow({
   const placeSaved = savedPlace || localPlaceSaved;
   const placeSaveInFlightRef = useRef(false);
   const [locationPreparing, setLocationPreparing] = useState(false);
+  const [captureRevision, setCaptureRevision] = useState(0);
   const locationPreparingRef = useRef(false);
   const autoLocationAttemptedRef = useRef(false);
   const lastLocationResumeRef = useRef(locationResumeAttempt);
@@ -1452,14 +1453,18 @@ export function OneLocationOnboardingFlow({
     }
   };
 
-  const requestLocation = useCallback(() => {
-    if (leaving || locationPreparingRef.current || !onPrepareLocation) return;
+  const requestLocation = useCallback((reason: "entry" | "retry" = "retry") => {
+    if (leaving || locationPreparingRef.current || placeSaveInFlightRef.current || !onPrepareLocation) return;
+    autoLocationAttemptedRef.current = true;
     locationPreparingRef.current = true;
     setLocationError(null);
     setLocationPreparing(true);
     void (async () => {
       try {
-        if (await onPrepareLocation()) return;
+        if (await onPrepareLocation(reason)) {
+          setCaptureRevision((revision) => revision + 1);
+          return;
+        }
       } catch {
         // The same recovery is available for a rejected acquisition.
       } finally {
@@ -1475,26 +1480,25 @@ export function OneLocationOnboardingFlow({
     lastLocationResumeRef.current = locationResumeAttempt;
     // Resume only a failed setup read. Never replace a chosen point or retry
     // while the original permission sheet/acquisition is still settling.
-    if (screen !== "features" || leaving || !locationError || placeSaved || place?.mapInitial) return;
+    if (screen !== "features" || leaving || !locationError || placeSaved) return;
     requestLocation();
-  }, [locationResumeAttempt, screen, leaving, locationError, placeSaved, place?.mapInitial, requestLocation]);
+  }, [locationResumeAttempt, screen, leaving, locationError, placeSaved, requestLocation]);
 
   // Ask once when the place screen is ready. Returning from the next screen,
   // a rerender, or Strict Mode must not repeatedly prompt after a refusal.
   useEffect(() => {
     if (screen !== "features" || leaving || !onPrepareLocation || autoLocationAttemptedRef.current) return;
-    if (placeSaved || place?.mapInitial) {
+    if (placeSaved) {
       autoLocationAttemptedRef.current = true;
       return;
     }
     // Defer until mount effects have settled so a Strict Mode cleanup cannot
     // invalidate the account session while its first capture is starting.
     const timer = window.setTimeout(() => {
-      autoLocationAttemptedRef.current = true;
-      requestLocation();
+      if (!autoLocationAttemptedRef.current) requestLocation("entry");
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [screen, leaving, onPrepareLocation, placeSaved, place?.mapInitial, requestLocation]);
+  }, [screen, leaving, onPrepareLocation, placeSaved, requestLocation]);
 
   // All Back surfaces unwind the same local flow, including native Back and
   // legacy/controlled entries that start directly on the feature screen.
@@ -1541,7 +1545,8 @@ export function OneLocationOnboardingFlow({
           compactOnboarding
           onboardingRouteId={nativeTest.routeId}
           onBack={handleFlowBack}
-          onRequestLocation={requestLocation}
+          onRequestLocation={onPrepareLocation ? () => requestLocation() : undefined}
+          captureRevision={captureRevision}
           requestingLocation={locationPreparing}
           locationError={locationError}
           onboardingPlaceSaved={placeSaved}
