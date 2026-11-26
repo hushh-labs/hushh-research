@@ -52,6 +52,7 @@
   --page-inline-gutter-standard: 24px;
   max-width: 728px;
 }
+.workspace.followupsFrame { max-width: 66rem; }
 .typography :global([data-slot="page-header-description"]),
 .typography :global([data-slot="settings-row-description"]),
 .typography :global(p.text-muted-foreground),

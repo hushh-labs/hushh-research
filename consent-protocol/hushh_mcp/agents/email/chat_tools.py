@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import re
 from collections import Counter
 from email.utils import getaddresses
@@ -910,21 +909,9 @@ async def gmail_read_attachment(
     parse_mime = "text/csv" if mime == "application/csv" else mime
     try:
         async with asyncio.timeout(15):
-            if os.getenv("HUSHH_DEPLOY_ENV") == "uat":
-                from hushh_mcp.services.email_oss.attachment_worker import WorkerAttachmentParser
+            from hushh_mcp.services.mail_attachment_parser import parse_mail_attachment
 
-                worker = WorkerAttachmentParser()
-                parsed = await worker(content=content, mime_type=parse_mime)
-            else:
-                from hushh_mcp.services.drive_document_processor import (
-                    ClamAvScanner,
-                    IsolatedDocumentParser,
-                )
-
-                await ClamAvScanner().scan(content)
-                parsed = await IsolatedDocumentParser().parse(
-                    content=content, mime_type=parse_mime, live=True
-                )
+            parsed = await parse_mail_attachment(content, parse_mime)
     except TimeoutError:
         return {
             "status": "unresolved",
