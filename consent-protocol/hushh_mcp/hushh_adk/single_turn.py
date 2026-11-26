@@ -35,12 +35,49 @@ _SINGLE_TURN_REQUEST_LABELS: ContextVar[dict[str, str] | None] = ContextVar(
 )
 
 
-class SingleTurnInvalidJsonError(ValueError):
+class SingleTurnDecodeError(ValueError):
+    """An answer the gene could not use, with a content-free account of why.
+
+    ``stage`` is a fixed label. ``keyword`` is the JSON-Schema rule that failed
+    and ``path`` names schema-owned properties only, never model output, so an
+    operator can see which field broke a contract without any email or answer
+    text entering a log. ``str(error)`` stays the stable message callers match.
+    """
+
+    stage = "decode"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        keyword: str | None = None,
+        path: tuple[str, ...] = (),
+        chars: int | None = None,
+        closed: bool | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.keyword = keyword
+        self.path = path
+        self.chars = chars
+        self.closed = closed
+
+
+class SingleTurnInvalidJsonError(SingleTurnDecodeError):
     """The model returned text that cannot be decoded as JSON."""
 
+    stage = "invalid_json"
 
-class SingleTurnEmptyResponseError(ValueError):
+
+class SingleTurnSchemaMismatchError(SingleTurnDecodeError):
+    """The model returned JSON that breaks the gene's output schema."""
+
+    stage = "schema_mismatch"
+
+
+class SingleTurnEmptyResponseError(SingleTurnDecodeError):
     """The model returned no response text."""
+
+    stage = "empty_response"
 
 
 @contextmanager
@@ -163,11 +200,32 @@ def _prompt_text(prompt_parts: str | Sequence[Any]) -> str:
     return prompt
 
 
+def _first_schema_failure(validator: Draft202012Validator, value: dict[str, Any]) -> dict[str, Any]:
+    """Name the first broken rule and property without reading any value."""
+
+    error = next(
+        iter(sorted(validator.iter_errors(value), key=lambda item: list(item.absolute_path))), None
+    )
+    if error is None:
+        return {}
+    path = tuple(part for part in error.absolute_path if isinstance(part, str))
+    if error.validator == "required" and isinstance(error.validator_value, list):
+        missing = [name for name in error.validator_value if name not in error.instance]
+        if missing:
+            path = (*path, str(missing[0]))
+    return {"keyword": str(error.validator), "path": path}
+
+
 def _decode(text: str, schema: Any) -> Any:
     try:
         value = json.loads(text)
     except json.JSONDecodeError as error:
-        raise SingleTurnInvalidJsonError("single-turn agent returned invalid JSON") from error
+        # An answer that stops mid-object was cut off, not mis-shaped.
+        raise SingleTurnInvalidJsonError(
+            "single-turn agent returned invalid JSON",
+            chars=len(text),
+            closed=text.rstrip().endswith(("}", "]")),
+        ) from error
     if isinstance(schema, type) and issubclass(schema, BaseModel):
         return schema.model_validate(value)
     if not isinstance(value, dict):
@@ -177,7 +235,10 @@ def _decode(text: str, schema: Any) -> Any:
     if isinstance(schema, dict):
         validator = Draft202012Validator(_json_schema(schema))
         if not validator.is_valid(value):
-            raise ValueError("single-turn response does not match output schema")
+            raise SingleTurnSchemaMismatchError(
+                "single-turn response does not match output schema",
+                **_first_schema_failure(validator, value),
+            )
     return value
 
 
