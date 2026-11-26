@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -13,6 +13,7 @@ import {
 import {
   type Ctx, applyNoticeCheck, emptyTrackingDoc, loadTracking, recordInsightReviewed, saveTracking, validateTrackingDoc,
 } from "@/lib/mail/receipt-tracking";
+import * as receiptTracking from "@/lib/mail/receipt-tracking";
 import { buildRecentReceiptRows } from "@/lib/profile/gmail-receipt-presentation";
 import { GmailReceiptsService, type ReceiptListItem } from "@/lib/services/gmail-receipts-service";
 
@@ -390,6 +391,21 @@ describe("the Overview's price rises", () => {
     // Reading what Receipts already saved starts no model call.
     await new Promise((resolve) => setTimeout(resolve, 1_800));
     expect(check).not.toHaveBeenCalled();
+  });
+
+  it("invalidates an in-flight tracking load when its provider unmounts", async () => {
+    let rejectLoad!: (error: Error) => void;
+    const load = vi.spyOn(receiptTracking, "loadTracking").mockReturnValue(new Promise((_, reject) => {
+      rejectLoad = reject;
+    }));
+    const view = render(panel());
+    const activeSession = load.mock.calls[0]?.[0];
+    expect(activeSession?.isCurrent?.()).toBe(true);
+
+    view.unmount();
+    await act(async () => rejectLoad(new Error("Storage closed")));
+
+    expect(activeSession?.isCurrent?.()).toBe(false);
   });
 
   it("leaves out a rise the owner already answered", async () => {
