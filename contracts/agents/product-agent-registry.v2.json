@@ -5337,6 +5337,12 @@
           "required_scope": "cap.one.invoke"
         },
         {
+          "description": "Offer an owner-only review of a Location action in the main conversation. Reads and changes nothing.",
+          "name": "propose_location_action",
+          "py_func": "hushh_mcp.one_adk.location_chat_proposal.propose_location_action",
+          "required_scope": "vault.owner"
+        },
+        {
           "description": "Add one optional contextual emoji to the latest typed-chat user message; presentation only, never ends the answer or persists a reaction.",
           "name": "react_to_message",
           "py_func": "hushh_mcp.one_adk.message_reactions.react_to_message",

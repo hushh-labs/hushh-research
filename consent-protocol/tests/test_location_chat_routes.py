@@ -1,12 +1,16 @@
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from api.routes.one import location_chat
+from api.routes.one import location_chat, location_chat_plans
+
+pytestmark = pytest.mark.usefixtures("shared_hub_owner")
 
 
 def _build_app(user_id: str = "user_123") -> TestClient:
     app = FastAPI()
     app.include_router(location_chat.router)
+    app.include_router(location_chat_plans.router)
     app.dependency_overrides[location_chat.require_vault_owner_token] = lambda: {
         "user_id": user_id,
         "scope": "vault.owner",
@@ -275,4 +279,31 @@ def test_chat_route_rejects_when_no_input(monkeypatch):
     monkeypatch.setattr(location_chat, "_service", lambda: object())
     client = _build_app()
     response = client.post("/api/one/location/chat", json={})
+    assert response.status_code == 422
+
+
+def test_main_chat_review_endpoint_uses_the_authenticated_owner(monkeypatch):
+    captured = {}
+
+    class _PlanService:
+        def __init__(self, _location):
+            pass
+
+        def prepare(self, **kwargs):
+            captured.update(kwargs)
+            return {"status": "review"}
+
+    monkeypatch.setattr(location_chat_plans, "_service", object)
+    monkeypatch.setattr(location_chat_plans, "LocationChatPlanService", _PlanService)
+    client = _build_app(user_id="owner_123")
+    path = "/api/one/location/chat-plans/prepare"
+
+    response = client.post(path, json={"action": "share_pin", "personUserId": "recipient"})
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "review"}
+    assert captured["user_id"] == "owner_123"
+    assert captured["person_user_id"] == "recipient"
+
+    response = client.post(path, json={"action": "share_pin", "userId": "another_owner"})
     assert response.status_code == 422

@@ -29,6 +29,12 @@ from typing import Any, Literal, Protocol
 
 from pydantic import ValidationError
 
+from hushh_mcp.one_adk.location_chat_proposal import (
+    PROPOSAL_READY,
+    VOICE_LOCATION_CHAT_FEATURE,
+    location_chat_enabled,
+)
+from hushh_mcp.one_adk.location_chat_proposal import TOOL_NAME as LOCATION_CHAT_TOOL_NAME
 from hushh_mcp.one_voice import protocol
 from hushh_mcp.one_voice.config import OneVoiceLiveConfig
 from hushh_mcp.one_voice.conversations import (
@@ -195,6 +201,7 @@ _AWAITING_DEVICE = frozenset(
     {
         "draft_open_requested",
         "review_requested",
+        PROPOSAL_READY,
         protocol.LOCATION_UPDATES_PENDING,
         "scope_review_required",
         protocol.SOS_GRANTS_CREATED,
@@ -477,6 +484,7 @@ class VoiceSession:
         # Set from the auth frame before any tool runs; UTC until then.
         self._client_timezone = "UTC"
         self._mail_review_supported = False
+        self._location_chat_review_supported = False
         self._playback_acknowledgements = False
         self._mail_input_generation = 0
         self._read_input_generation = 0
@@ -953,6 +961,12 @@ class VoiceSession:
         # route's authority object and stays untouched.
         self._client_timezone = frame.timezone or "UTC"
         self._mail_review_supported = "mail_draft_review" in (frame.client.get("features") or [])
+        features = frame.client.get("features")
+        self._location_chat_review_supported = (
+            location_chat_enabled()
+            and isinstance(features, list)
+            and VOICE_LOCATION_CHAT_FEATURE in features
+        )
         self._playback_acknowledgements = "audio_playback" in (frame.client.get("features") or [])
         return auth
 
@@ -982,6 +996,7 @@ class VoiceSession:
             approval_input=self._mail_approval_input.get,
         )
         self.ctx.services["mail_delivery_status"] = self._mail_delivery_status
+        self.ctx.services[VOICE_LOCATION_CHAT_FEATURE] = self._location_chat_review_supported
         self._display_name = auth.display_name
         # Not guarded on purpose: a session that cannot say which cards are open
         # must not start, or a card shown in an earlier session could be
@@ -1011,7 +1026,8 @@ class VoiceSession:
         from hushh_mcp.one_voice.instruction import build_instruction
 
         declarations = registry.runtime_declarations(
-            mail_review_supported=self._mail_review_supported
+            mail_review_supported=self._mail_review_supported,
+            location_chat_review_supported=self._location_chat_review_supported,
         )
         # Nothing else observes this list. It is assembled here and handed to the
         # provider; no endpoint returns it and no client frame carries it, so
@@ -3532,7 +3548,9 @@ class VoiceSession:
             protocol.tool_started(
                 call_id=str(call_id or ""),
                 tool=name,
-                args_public=_public_args(
+                args_public={}
+                if name == LOCATION_CHAT_TOOL_NAME
+                else _public_args(
                     args,
                     hidden_fields=spec.private_args if spec is not None else (),
                 ),

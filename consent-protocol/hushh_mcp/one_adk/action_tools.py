@@ -55,6 +55,7 @@ from hushh_mcp.one_adk.action_retrieval import (
     retrieval_error,
     search_actions,
 )
+from hushh_mcp.one_adk.location_chat_proposal import legacy_location_chat_action
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.one_adk.shared_with_me_card import (
     SHARED_WITH_ME_CARD_KIND,
@@ -4335,6 +4336,8 @@ async def run_app_action(
     beyond this tool's status.
     """
     clean_id = str(action_id or "").strip()
+    if redirected := legacy_location_chat_action(tool_context.state, clean_id):
+        return redirected
     clean_slots = {k: v for k, v in (slots or {}).items() if v not in (None, "")}
     entry = get_action_gateway_action(clean_id)
     if entry is not None and (
@@ -5167,6 +5170,8 @@ async def start_app_goal(
     introduced here.
     """
     clean_id = str(action_id or "").strip()
+    if redirected := legacy_location_chat_action(tool_context.state, clean_id):
+        return redirected
     entry = get_action_gateway_action(clean_id)
     # Checked here, before either journey branch below, because both bypass
     # run_app_action entirely -- a settled journey never reaches it, and a
@@ -5359,6 +5364,12 @@ async def _continue_settled_journey(
 async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
     """Continue an authored goal only after fresh route context has settled."""
     run = tool_context.state.get(_STATE_GOAL_RUN)
+    if isinstance(run, dict) and (
+        redirected := legacy_location_chat_action(
+            tool_context.state, str(run.get("action_id") or "").strip()
+        )
+    ):
+        return redirected
     if isinstance(run, dict) and run.get("schema_version") == "one.settled_action_journey.v1":
         return await _continue_settled_journey(run, tool_context)
     # Every outcome below is logged with a distinct reason. A stalled journey
@@ -5828,6 +5839,10 @@ async def propose_app_action(
     clean_id = str(action_id or "").strip()
     if not clean_id:
         return {"status": "blocked", "message": "An action id is required."}
+    if tool_context is not None and (
+        redirected := legacy_location_chat_action(tool_context.state, clean_id)
+    ):
+        return redirected
 
     entry = get_action_gateway_action(clean_id)
     if entry is None:

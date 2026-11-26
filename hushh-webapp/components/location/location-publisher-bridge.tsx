@@ -3,7 +3,7 @@
 /**
  * App-level Location publisher for the voice-first area.
  *
- * Mounted ONCE (AgentOwnerGate) while Live is on, so publishing survives
+ * Mounted by AgentOwnerGate, so publishing survives
  * navigation. It owns three things:
  *
  *  1. The continuous watch -> coarsen -> encrypt -> storeEnvelope loop for
@@ -21,9 +21,13 @@
  * (a stored envelope, a registered key, the OS's own answer).
  */
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { Capacitor } from "@capacitor/core";
 
+import {
+  flushLocationStops, hasQueuedLocationStop, locationStopQueueRevision, subscribeLocationStopQueue,
+} from "@/lib/location/pending-stops";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { useAuth } from "@/hooks/use-auth";
 import {
   LocationAccountSettingsResource,
@@ -236,7 +240,7 @@ function grantsKey(grants: readonly OneLocationGrant[]): string {
     .join(",");
 }
 
-export function LocationPublisherBridge() {
+export function LocationPublisherBridge({ pathname }: { pathname?: string | null } = {}) {
   const { userId } = useAuth();
   const { vaultOwnerToken, vaultKey } = useVault();
   const uid = userId ?? null;
@@ -257,7 +261,21 @@ export function LocationPublisherBridge() {
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  const grants = useMemo(() => activeOwnerGrants(state), [state]);
+  useSyncExternalStore(subscribeLocationStopQueue, locationStopQueueRevision, () => 0);
+  const grants = activeOwnerGrants(state).filter((grant) =>
+    grant.shareKind !== "pin" && !hasQueuedLocationStop(uid, grant.id));
+  useEffect(() => {
+    if (!uid || !vaultOwnerToken) return;
+    const retry = () => {
+      void flushLocationStops(uid, vaultOwnerToken).then((changed) => {
+        if (changed) CacheSyncService.onOneLocationStateMutated(uid, ["workspace"]);
+      }).catch(() => undefined);
+    };
+    retry();
+    window.addEventListener("online", retry);
+    const interval = window.setInterval(retry, 5_000);
+    return () => { window.clearInterval(interval); window.removeEventListener("online", retry); };
+  }, [uid, vaultOwnerToken]);
   const recipientsByUserId = useMemo(
     () => indexRecipientsByUserId(state?.recipients),
     [state],
@@ -333,7 +351,9 @@ export function LocationPublisherBridge() {
           precision: sharingRef.current.precision,
           vaultOwnerToken: token,
           encrypt: encryptLocationForRecipient,
-          store: (params) => OneLocationService.storeEnvelope(params),
+          store: (params) => hasQueuedLocationStop(uidRef.current, params.grantId)
+            ? Promise.reject(new Error("This share has stopped on this device."))
+            : OneLocationService.storeEnvelope(params),
         });
         if (cancelled) return;
         if (result.published.length > 0) {
@@ -439,7 +459,7 @@ export function LocationPublisherBridge() {
     void syncBackgroundShare({ enabled: publishing, session }).catch(
       () => undefined,
     );
-  }, [publishing, grantsSignature, vaultOwnerToken]);
+  }, [publishing, grantsSignature, vaultOwnerToken, pathname]);
 
   useEffect(
     () => () => {
