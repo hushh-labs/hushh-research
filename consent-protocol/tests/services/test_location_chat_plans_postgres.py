@@ -10,6 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import ProgrammingError
 
 from hushh_mcp.services import one_location_agent_service as location
+from hushh_mcp.services.account_service import AccountService
 from hushh_mcp.services.location_chat_plans import LocationChatPlanService
 from tests.helpers.location_command_postgres import (
     active_location_provider_accounts as active_location_provider_accounts,
@@ -113,6 +114,29 @@ def test_pin_has_its_own_immutable_lane_and_pinned_view(location_plans):
         connection.execute(text("SET LOCAL ROLE one_chat_plan_unprivileged"))
         with pytest.raises(ProgrammingError, match="permission denied"):
             connection.execute(text("SELECT * FROM public.one_location_chat_plans"))
+
+
+def test_erasure_removes_reviews_for_either_party(location_plans):
+    _, db = location_plans
+    db.execute_raw("""
+        INSERT INTO one_location_chat_plans (
+            user_id, person_user_id, intent_hash, action, terms, expires_at
+        )
+        VALUES
+            ('owner', 'other', repeat('a', 64), 'view', '{}', now() + INTERVAL '1 hour'),
+            ('other', 'owner', repeat('b', 64), 'view', '{}', now() + INTERVAL '1 hour'),
+            ('other', 'third', repeat('c', 64), 'view', '{}', now() + INTERVAL '1 hour')
+    """)
+    with db.engine.begin() as connection:
+        AccountService()._delete_user_rows_if_table_exists(
+            connection,
+            table_name="one_location_chat_plans",
+            params={"user_id": "owner"},
+        )
+
+    assert db.execute_raw("SELECT user_id, person_user_id FROM one_location_chat_plans").data == [
+        {"user_id": "other", "person_user_id": "third"}
+    ]
 
 
 @pytest.mark.asyncio

@@ -58,6 +58,9 @@ async def test_location_review_is_admitted_only_for_main_owner_chat(monkeypatch)
     declarations = [
         types.FunctionDeclaration(name="propose_location_action"),
         types.FunctionDeclaration(name="list_pending_location_requests"),
+        types.FunctionDeclaration(name="ask_email_agent"),
+        types.FunctionDeclaration(name="finance"),
+        types.FunctionDeclaration(name="calendar_summary"),
     ]
     for state, visible in (
         ({}, "list_pending_location_requests"),
@@ -69,7 +72,12 @@ async def test_location_review_is_admitted_only_for_main_owner_chat(monkeypatch)
             )
         )
         agent_tree._scope_location_chat_review(SimpleNamespace(state=state), request)
-        assert [item.name for item in request.config.tools[0].function_declarations] == [visible]
+        assert [item.name for item in request.config.tools[0].function_declarations] == [
+            visible,
+            "ask_email_agent",
+            "finance",
+            "calendar_summary",
+        ]
 
 
 def test_location_proposal_restores_intent_without_execution_authority():

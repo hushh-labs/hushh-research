@@ -2400,11 +2400,7 @@ async def ask_email_agent(request: str, tool_context: ToolContext) -> dict[str, 
 
 
 async def ask_location_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Use Location's existing support workflows for permissions, privacy, links, check-ins and safety.
-
-    In main Chat, use propose_location_action for sharing, viewing, requests and
-    approvals handled by the inline cards. Opening a workflow never confirms it.
-    """
+    """Ask the Location specialist about live sharing, privacy, check-ins, or Save My Soul."""
     return await _specialist_turn("agent_location", request, tool_context)
 
 

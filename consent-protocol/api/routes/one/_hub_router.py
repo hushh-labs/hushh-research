@@ -45,6 +45,7 @@ from .insurance_agents import router as insurance_agents_router
 from .location import public_router as public_location_router
 from .location import router as location_router
 from .location_chat import router as location_chat_router
+from .location_chat_plans import router as location_chat_plans_router
 from .location_settings import router as location_settings_router
 from .marketplace_catalog import router as marketplace_catalog_router
 from .marketplace_requests import router as marketplace_requests_router
@@ -134,9 +135,9 @@ router.include_router(agent_feedback_router)
 router.include_router(business_suggestions_router)
 router.include_router(todo_suggestions_router)
 router.include_router(location_router)
-router.include_router(location_chat_router)
 router.include_router(public_location_router)
 router.include_router(location_chat_router)
+router.include_router(location_chat_plans_router)
 router.include_router(location_settings_router)
 router.include_router(information_chat_router)
 router.include_router(information_requests_router)
