@@ -9,7 +9,7 @@
  * handed the person's provider key. Read-only: a GET never issues a grant.
  */
 import { readJson, verifyHubSignature } from "@/lib/services/owner-pod-crypto";
-import { isOwnerCloudTarget } from './owner-cloud';
+import { isOwnerCloudTarget, isPrivatePodBinding } from './owner-cloud';
 import type { OwnerPodTransport, PinnedEndpoint, PodSessionRecord } from "@/lib/services/owner-pod-endpoint";
 import { normalizeAiSelection, sealAiSelection, type AiSelectionRecipient } from "./ai-selection-seal";
 
@@ -25,7 +25,7 @@ export async function agentRecipientFromBinding({
   endpoint,
   session,
   transport,
-}: AiSelectionSealContext, authority?: { requiredScope: string; ownerCloudOnly: boolean }): Promise<AiSelectionRecipient> {
+}: AiSelectionSealContext, authority?: { requiredScope: string; ownerCloudOnly: boolean; uatMailSandbox?: boolean }): Promise<AiSelectionRecipient> {
   const response = await transport.hub(
     `/api/account/trusted-devices/${encodeURIComponent(session.subjectId)}/pod-binding`,
     { method: "GET", cache: "no-store" },
@@ -54,7 +54,9 @@ export async function agentRecipientFromBinding({
   }
   if (authority && (binding.role !== 'app' || binding.subject_kind !== 'app' ||
       !Array.isArray(binding.scopes) || !binding.scopes.includes(authority.requiredScope) ||
-      (authority.ownerCloudOnly && !isOwnerCloudTarget(binding.deployment_target)))) {
+      (authority.uatMailSandbox
+        ? binding.environment !== "uat" || binding.deployment_target !== "ace" || !isPrivatePodBinding(binding)
+        : authority.ownerCloudOnly && !isOwnerCloudTarget(binding.deployment_target)))) {
     throw new Error('OWNER_SESSION_REQUIRED');
   }
   return { hushhId: endpoint.hushhId, podKeyId: endpoint.podKeyId, publicKey: binding.pod_public_key };

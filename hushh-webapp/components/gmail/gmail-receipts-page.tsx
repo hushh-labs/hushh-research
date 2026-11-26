@@ -1077,10 +1077,12 @@ function MailPageContent({
         else toast.error(connectRefusalMessage(outcome.code, 'Gmail'));
         return false;
       }
-      const current = await refreshGmailStatus({ force: true });
-      if (gmailOwnerIdRef.current !== operationOwner) return false;
-      if (current?.connected) toast.success('Gmail connected to Agent One.');
-      return current?.connected === true;
+      if (outcome.legacyCleanup === "unconfirmed") {
+        toast.info("Gmail connected. The previous Google connection still needs verification.");
+      } else {
+        toast.success("Gmail connected to your private agent.");
+      }
+      return true;
     };
 
 

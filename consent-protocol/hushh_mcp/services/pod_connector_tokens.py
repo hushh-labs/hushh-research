@@ -191,7 +191,9 @@ class PodGoogleTokenSource:
                 refresh_token=credential.refresh_token,
                 scopes=scopes,
                 client_secret=self._client_secret(credential),
-                post=post if post is not None else self._post,
+                post=google.hosted_mail_exchange
+                if credential.client_profile == "hussh_uat_mail_web"
+                else (post or self._post),
             )
         except google.GoogleOAuthError as exc:
             if exc.code != google.INVALID_GRANT:

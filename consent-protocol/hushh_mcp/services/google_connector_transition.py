@@ -52,7 +52,7 @@ class TransitionMutation(BaseModel):
     transition: TransitionReceipt
     connectorId: Literal["gmail", "calendar", "drive", "contacts"]
     credentialId: str = Field(pattern=r"^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$")
-    clientProfile: Literal["hussh_ios", "hussh_android"]
+    clientProfile: Literal["hussh_ios", "hussh_android", "hussh_uat_mail_web"]
     podKeyId: str = Field(min_length=1, max_length=128)
     issuedAtMs: int = Field(ge=1)
     epoch: int = Field(ge=0)
@@ -151,7 +151,7 @@ class GoogleConnectorTransitionService:
             raise TransitionRefused("CLIENT_PROFILE_UNSUPPORTED", 422) from None
         now = int(self._clock() * 1000)
         with self.db.engine.begin() as connection:
-            row = _registry(connection, owner)
+            row = _registry(connection, owner, profile)
             records = _rows(connection, owner)
             admit_revocation_recovery(row, records, now)
             previous = _state(row)
@@ -211,7 +211,7 @@ class GoogleConnectorTransitionService:
 
     def _ready(self, owner: str, state: dict, confirmed: bool) -> None:
         with self.db.engine.begin() as connection:
-            row = _registry(connection, owner)
+            row = _registry(connection, owner, state["profile"])
             current = _state(row)
             if (
                 current.get("id") != state["id"]
@@ -256,7 +256,7 @@ class GoogleConnectorTransitionService:
             if not observed:
                 raise TransitionRefused("GOOGLE_TRANSITION_POD_MISMATCH", 403)
             owner = observed["user_id"]
-            row = _registry(connection, owner)
+            row = _registry(connection, owner, body.clientProfile)
             state = _state(row)
             _validate_mutation(principal, body, row, state, now)
             return _apply_mutation(connection, owner, state, body, now)
@@ -271,7 +271,8 @@ def _validate_mutation(
     from hushh_mcp.services.pod_placement_fence import row_epoch  # noqa: PLC0415
 
     if (
-        not principal.signed
+        (body.clientProfile == "hussh_uat_mail_web" and body.connectorId != "gmail")
+        or not principal.signed
         or principal.standby
         or row.get("hushh_id") != principal.hushh_id
         or row["pod_signing_key_id"] != principal.key_id
