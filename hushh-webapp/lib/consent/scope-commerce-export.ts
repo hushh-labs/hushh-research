@@ -1,4 +1,5 @@
 import { buildConsentExportForScope } from "@/lib/consent/export-builder";
+import { ensureFreshPlaidProjectionForScope } from "@/lib/consent/financial-plaid-export-refresh";
 import {
   buildConsentExportAadV2,
   buildConsentExportEnvelopeSubmissionV2,
@@ -20,8 +21,11 @@ export async function prepareAndStagePaidScopeExport(params: {
   userId: string;
   vaultKey: string;
   vaultOwnerToken: string;
+  machineScope?: string;
   negativeNetAcknowledgement?: NegativeNetAcknowledgement;
+  activateOnStage?: boolean;
 }) {
+  const activateImmediately = params.activateOnStage ?? true;
   const acknowledgement = params.negativeNetAcknowledgement
     ? { ...params.negativeNetAcknowledgement } : undefined;
   const ownerCosts = acknowledgement ? { negative_net_acknowledgement: acknowledgement } : {};
@@ -29,10 +33,23 @@ export async function prepareAndStagePaidScopeExport(params: {
   const assertCurrent = () => {
     if (!isVaultSessionEpochCurrent(epoch)) throw new Error("Unlock your vault again before sharing.");
   };
-  const context = await ScopeCommerceService.getPurchase(params.purchaseId, params.vaultOwnerToken);
+  const directScope =
+    typeof params.machineScope === "string" && params.machineScope.startsWith("attr.")
+      ? params.machineScope
+      : "";
+  const context = directScope
+    ? null
+    : await ScopeCommerceService.getPurchase(params.purchaseId, params.vaultOwnerToken);
   assertCurrent();
-  const scope = String(context.machineScope || context.machine_scope || "");
+  const scope = directScope || String(context?.machineScope || context?.machine_scope || "");
   if (!scope.startsWith("attr.")) throw new Error("The approved scope is unavailable.");
+  await ensureFreshPlaidProjectionForScope({
+    userId: params.userId,
+    scope,
+    vaultKey: params.vaultKey,
+    vaultOwnerToken: params.vaultOwnerToken,
+    assertCurrent,
+  });
   const built = await buildConsentExportForScope({
     userId: params.userId, scope, vaultKey: params.vaultKey,
     vaultOwnerToken: params.vaultOwnerToken,
@@ -47,12 +64,16 @@ export async function prepareAndStagePaidScopeExport(params: {
   };
   assertCurrent();
   const preparation = await ScopeCommerceService.preparePurchase(
-    params.purchaseId, { sourceRevisions, ...ownerCosts }, params.vaultOwnerToken,
+    params.purchaseId,
+    { sourceRevisions, ...ownerCosts, ...(activateImmediately ? { activate_immediately: true } : {}) },
+    params.vaultOwnerToken,
   );
   assertCurrent();
   if (preparation.machineScope !== scope || !preparation.preparationId || !preparation.exportId ||
       preparation.exportRevision !== 1 || !Number.isSafeInteger(preparation.startsAtMs) ||
-      !Number.isSafeInteger(preparation.expiresAtMs) || preparation.startsAtMs <= Date.now() ||
+      !Number.isSafeInteger(preparation.expiresAtMs) ||
+      (!activateImmediately && preparation.startsAtMs <= Date.now()) ||
+      preparation.expiresAtMs <= Date.now() ||
       preparation.expiresAtMs <= preparation.startsAtMs) {
     throw new Error("The export preparation changed. Refresh before sharing.");
   }
@@ -81,6 +102,7 @@ export async function prepareAndStagePaidScopeExport(params: {
   return ScopeCommerceService.stagePurchase(params.purchaseId, {
     ...ownerCosts,
     preparation_id: preparation.preparationId,
+    ...(activateImmediately ? { activate_on_stage: true } : {}),
     envelope: {
       ...encrypted, exportEnvelope, sourceRevisions,
       wrappedKey: {

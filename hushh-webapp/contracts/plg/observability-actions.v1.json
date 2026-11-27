@@ -34,6 +34,7 @@
       "poll"
     ],
     "growth_funnel_step_completed": [],
+    "hushh_mail_signin_screen_view": [],
     "import_parse_completed": [],
     "import_quality_gate_failed": [],
     "import_quality_gate_passed": [],
@@ -132,6 +133,6 @@
     "recommendation_viewed": [],
     "ria_activation_completed": []
   },
-  "sourceDigest": "1b6fd560d885ed0a8395bfd9c14f4fb8618b0a990039fdf6504800077932f852",
+  "sourceDigest": "7b2243e77282e7d7518352a70883a655de6dd8bd1005bfcac343f5996db5e61f",
   "version": 1
 }

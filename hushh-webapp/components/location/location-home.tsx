@@ -422,6 +422,8 @@ function shareKindLabel(kind: OneLocationGrant["shareKind"]): string | null {
       return "Save My Soul";
     case "check_in":
       return "Check-In";
+    case "pin":
+      return "Current pin";
     case "drive_to":
       return "Drive";
     default:

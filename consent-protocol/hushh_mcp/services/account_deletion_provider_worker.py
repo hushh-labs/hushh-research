@@ -42,6 +42,11 @@ async def _notify_erased(claim: journal.ProviderCleanupClaim) -> None:
     a retry cannot resend. The recipient is read from the retained sign-in and
     Hussh never stores it; an uncertain or failed send is logged, not replayed.
     """
+    if claim.firebase_erasure_authority is not None:
+        # Native identity absence was required before the erasure commit. No
+        # email is retained or fetched from a deleted identity for this notice.
+        logger.info("account_deletion.notice_skipped reason=identity_removed")
+        return
     from hushh_mcp.services.support_email_service import (
         SupportEmailConfig,
         send_verified_account_notice,

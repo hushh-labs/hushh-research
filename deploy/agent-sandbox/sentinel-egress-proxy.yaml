@@ -1,0 +1,169 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Hushh
+# Out-of-sandbox Sentinel Egress Proxy + Control Service (NIST SC-7(5), AC-6, AU-9).
+# Replace the @sha256 placeholder digest during release rendering.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sentinel-vertex-sa
+  namespace: hussh-sandbox-system
+  labels:
+    app: sentinel-egress-proxy
+    app.kubernetes.io/part-of: hussh-one
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sentinel-egress-proxy
+  namespace: hussh-sandbox-system
+  labels:
+    app: sentinel-egress-proxy
+    app.kubernetes.io/part-of: hussh-one
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sentinel-egress-proxy
+  template:
+    metadata:
+      labels:
+        app: sentinel-egress-proxy
+    spec:
+      serviceAccountName: sentinel-vertex-sa
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: sentinel
+          image: us-central1-docker.pkg.dev/hushh-pda-dev/one-pod-release/consent-protocol-pod@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          command:
+            - /opt/venv/bin/python
+            - -m
+            - hushh_mcp.services.agent_sandbox.sentinel_proxy_server
+          ports:
+            - name: proxy
+              containerPort: 3128
+              protocol: TCP
+            - name: control
+              containerPort: 8081
+              protocol: TCP
+            - name: model-gateway
+              containerPort: 8082
+              protocol: TCP
+          env:
+            - name: SENTINEL_DEFAULT_MODE
+              value: deny
+            - name: SENTINEL_MODEL_GATEWAY_PORT
+              value: "8082"
+            - name: SENTINEL_SYSTEM_ALLOW_HOSTS
+              value: dev.api.hussh.si,uat.api.hussh.si,api.hussh.si,dev.api.hussh.ai,uat.api.hussh.ai,api.hussh.ai,www.googleapis.com,oauth2.googleapis.com,sandbox.plaid.com,production.plaid.com
+            - name: SENTINEL_AUDIT_LOG_PATH
+              value: /var/run/hussh-audit/sentinel-audit.jsonl
+            - name: SENTINEL_AUDIT_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: sentinel-proxy-secrets
+                  key: audit-hmac-key
+            - name: SENTINEL_CONTROL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: sentinel-proxy-secrets
+                  key: control-token
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: audit-sink
+              mountPath: /var/run/hussh-audit
+            - name: sentinel-tmp
+              mountPath: /tmp
+      volumes:
+        - name: audit-sink
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: sentinel-tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentinel-egress-proxy
+  namespace: hussh-sandbox-system
+  labels:
+    app: sentinel-egress-proxy
+spec:
+  selector:
+    app: sentinel-egress-proxy
+  ports:
+    - name: proxy
+      port: 3128
+      targetPort: 3128
+      protocol: TCP
+    - name: control
+      port: 8081
+      targetPort: 8081
+      protocol: TCP
+    - name: model-gateway
+      port: 8082
+      targetPort: 8082
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sentinel-egress-proxy-policy
+  namespace: hussh-sandbox-system
+spec:
+  podSelector:
+    matchLabels:
+      app: sentinel-egress-proxy
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: hussh-agents
+          podSelector:
+            matchLabels:
+              app: hussh-one-sandbox
+      ports:
+        - protocol: TCP
+          port: 3128
+        - protocol: TCP
+          port: 8082
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: hussh-hub-router
+          podSelector:
+            matchLabels:
+              app: hussh-consent-hub
+      ports:
+        - protocol: TCP
+          port: 8081

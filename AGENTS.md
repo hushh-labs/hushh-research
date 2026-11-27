@@ -14,9 +14,12 @@ Package-local instructions refine that contract within their scope. Every coding
 agent uses this same entrypoint and reads the canonical sources directly.
 
 Keep one concise current source for documentation and agent guidance. Do not
-create or retain stale, duplicate, or bloated copies. Preserve unique uncommitted
-work and required evidence before removing a copy; use Git history for prior
-versions instead of checking in historical snapshots.
+create or retain stale, duplicate, or bloated copies. Follow the
+[documentation standard](docs/development/documentation.md) (human clarity first,
+coding-agent contracts cleanly separated, zero em/en dashes) and use
+[llms.txt](llms.txt) for one-hop machine discovery of canonical references.
+Preserve unique uncommitted work and required evidence before removing a copy;
+use Git history for prior versions instead of checking in historical snapshots.
 
 Generated review/audit evidence belongs in ignored local or CI artifacts, not
 source commits. Preserve runtime contracts and required app assets under the

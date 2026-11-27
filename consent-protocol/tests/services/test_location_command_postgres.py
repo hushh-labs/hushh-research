@@ -1,13 +1,11 @@
-"""Real transaction tests. Run with ONE_COMMAND_TEST_DATABASE_URL pointing to an isolated test DB."""
+"""Real transaction tests against disposable databases on the local command test server."""
 
 import asyncio
-import os
 from pathlib import Path
-from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 
 from hushh_mcp.services.action_directive_ledger import (
     ActionDirectiveAuthorityError,
@@ -15,58 +13,11 @@ from hushh_mcp.services.action_directive_ledger import (
 )
 from hushh_mcp.services.command_checkpoints import CommandCheckpointConflict, CommandCheckpointStore
 from tests.helpers.chat_keys import static_chat_cipher
-
-
-@pytest.fixture
-def db():
-    url = os.getenv("ONE_COMMAND_TEST_DATABASE_URL")
-    if not url:
-        pytest.skip("An isolated PostgreSQL database is required.")
-    engine = create_engine(url)
-    schema = f"command_test_{uuid4().hex}"
-    with engine.begin() as conn:
-        conn.execute(text(f'CREATE SCHEMA "{schema}"'))
-    scoped = create_engine(url, connect_args={"options": f"-csearch_path={schema},public"})
-
-    class Database:
-        engine = scoped
-
-        def execute_raw(self, sql, params=None):
-            with scoped.begin() as conn:
-                result = conn.execute(text(sql), params or {})
-                return SimpleNamespace(
-                    data=[dict(row) for row in result.mappings()] if result.returns_rows else []
-                )
-
-    database = Database()
-    database.execute_raw(
-        "CREATE TABLE actor_profiles(user_id TEXT PRIMARY KEY); INSERT INTO actor_profiles VALUES('owner'),('other'); CREATE TABLE agent_chat_conversations(id UUID PRIMARY KEY)"
-    )
-    migrations = Path(__file__).resolve().parents[2] / "db/migrations"
-    for name in (
-        "114_one_action_directive_ledger.sql",
-        "184_encrypted_one_adk_sessions.sql",
-        "212_location_command_runtime.sql",
-        "212_location_command_runtime.sql",
-        "213_location_command_workflow_binding.sql",
-        "213_location_command_workflow_binding.sql",
-        "215_location_command_resource_receipt.sql",
-        "215_location_command_resource_receipt.sql",
-        "216_location_command_membership_receipts.sql",
-        "217_location_command_effect_receipts.sql",
-        "218_location_command_audience_receipts.sql",
-        "216_location_command_membership_receipts.sql",
-        "217_location_command_effect_receipts.sql",
-        "218_location_command_audience_receipts.sql",
-        # The ledger store writes adk_app_name; keep the fixture at the real schema.
-        "248_adk_chat_action_authority.sql",
-    ):
-        database.execute_raw((migrations / name).read_text())
-    yield database
-    scoped.dispose()
-    with engine.begin() as conn:
-        conn.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
-    engine.dispose()
+from tests.helpers.location_command_postgres import (
+    active_location_provider_accounts as active_location_provider_accounts,
+)
+from tests.helpers.location_command_postgres import audience_writer_schema
+from tests.helpers.location_command_postgres import db as db
 
 
 async def ready(db, confirmation=True):
@@ -719,10 +670,13 @@ def test_request_receipt_survives_approval_and_rolls_back_with_effect(db):
             row = self.connection.execute(text(sql), params or {}).mappings().first()
             return dict(row) if row else None
 
+        def _execute_many(self, sql, params=None):
+            return db.execute_raw(sql, params).data
+
         def _active_grant_between(self, **kwargs):
             return None
 
-        def _repair_legacy_direct_request_deadlines(self, _owner):
+        def _repair_legacy_direct_request_deadlines(self, _owner, *, requester_user_id=None):
             pass
 
         def _identity_row(self, _user):
@@ -1139,53 +1093,6 @@ def json_text(value):
     return json.dumps(value)
 
 
-def audience_writer_schema(db, monkeypatch):
-    """Execute domain writers against real Location migrations and SQL tables."""
-    from contextlib import contextmanager
-
-    from hushh_mcp.services import one_location_agent_service as agents
-
-    db.execute_raw("""CREATE TABLE actor_identity_cache(user_id TEXT PRIMARY KEY,display_name TEXT,
-        phone_number TEXT,phone_verified BOOLEAN,email TEXT,custom_photo_url TEXT,photo_url TEXT);
-        INSERT INTO actor_identity_cache(user_id,display_name,phone_verified) VALUES('owner','Owner',TRUE),('other','Contact',TRUE),('third','Third',TRUE);
-        CREATE TABLE connections(id UUID PRIMARY KEY DEFAULT gen_random_uuid(),user_a_id TEXT,user_b_id TEXT,status TEXT,source TEXT,
-            created_at TIMESTAMPTZ DEFAULT NOW(),updated_at TIMESTAMPTZ DEFAULT NOW(),revoked_at TIMESTAMPTZ,UNIQUE(user_a_id,user_b_id));
-        INSERT INTO connections(user_a_id,user_b_id,status,source) VALUES('owner','other','active','request'),('owner','third','active','request');
-        CREATE TABLE connection_requests(requester_user_id TEXT,addressee_user_id TEXT,status TEXT,responded_at TIMESTAMPTZ,updated_at TIMESTAMPTZ,metadata JSONB);
-        CREATE TABLE one_location_public_invite_submissions(request_id UUID);
-        CREATE TABLE feed_events(user_id TEXT,source_domain TEXT,event_type TEXT,metadata JSONB,source_row_id TEXT);
-    """)
-    migrations = Path(__file__).resolve().parents[2] / "db/migrations"
-    for prefix in (61, 115, 116, 134, 135, 150, 154, 160, 163, 191):
-        with db.engine.begin() as connection:
-            connection.exec_driver_sql(
-                next(migrations.glob(f"{prefix:03d}_*.sql")).read_text(),
-                execution_options={"no_parameters": True},
-            )
-    db.execute_raw("""INSERT INTO one_location_recipient_keys(user_id,key_id,public_key_jwk)
-        VALUES('other','key','{"kty":"EC"}'),('third','key-3','{"kty":"EC"}');""")
-
-    @contextmanager
-    def connection():
-        with db.engine.begin() as conn:
-            yield conn
-
-    monkeypatch.setattr(agents, "get_db", lambda: db)
-    monkeypatch.setattr(agents, "get_db_connection", connection)
-    # Cryptographic token issuance and push transport are outside the SQL writer.
-    monkeypatch.setattr(
-        agents.OneLocationAgentService,
-        "_mint_grant_capability_token",
-        lambda *_args, **_kwargs: {"token": "fixture-capability"},
-    )
-    monkeypatch.setattr(
-        agents.OneLocationAgentService,
-        "_send_location_share_created_notification",
-        lambda *_args, **_kwargs: None,
-    )
-    return agents.OneLocationAgentService
-
-
 async def admit_audience(db, monkeypatch, action, people, message="Meet here"):
     from hushh_mcp.services import location_command_audience_receipts as audience
 
@@ -1285,6 +1192,26 @@ async def test_actual_private_share_commits_ciphertext_events_and_audience_recei
         Service().create_grant_with_initial_envelope(
             **{**args, "command_operation_id": None, "share_kind": "sos"}
         )
+
+
+def test_legacy_request_deadline_repair_skips_deleted_counterparty(db, monkeypatch):
+    service = audience_writer_schema(db, monkeypatch)()
+    db.execute_raw("""
+        INSERT INTO one_location_access_requests (requester_user_id, owner_user_id, status)
+        VALUES ('owner', 'other', 'pending'), ('owner', 'third', 'pending');
+        INSERT INTO public.actor_profiles (user_id) VALUES ('other');
+        DELETE FROM public.actor_profiles WHERE user_id = 'other';
+    """)
+
+    service._repair_legacy_direct_request_deadlines("owner")
+
+    assert db.execute_raw("""
+        SELECT owner_user_id, expires_at IS NOT NULL AS repaired
+        FROM one_location_access_requests ORDER BY owner_user_id
+    """).data == [
+        {"owner_user_id": "other", "repaired": False},
+        {"owner_user_id": "third", "repaired": True},
+    ]
 
 
 @pytest.mark.asyncio

@@ -630,6 +630,11 @@ export function informationRequestOutcome(
   bundle: Pick<InformationRequestBundle, "items" | "cancelled">,
 ): ConsentOutcome | null {
   if (bundle.cancelled) return null;
+  // Paid requests can report CONSENT_GRANTED on ledger metadata before the
+  // encrypted envelope is staged/active. Wait until accessReady !== false.
+  if (bundle.items.some((item) => item.status === "granted" && item.accessReady === false)) {
+    return null;
+  }
   const fromServer = progressOutcome(bundle);
   if (fromServer === "pending") return null;
   if (fromServer) return fromServer;

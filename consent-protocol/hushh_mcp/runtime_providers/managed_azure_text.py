@@ -42,12 +42,19 @@ def _text_model(model: str) -> str:
     return resolved
 
 
-def build_azure_text_model(model: str, *, http_options=None) -> AzureOpenAIAdkModel | None:
+def build_azure_text_model(
+    model: str, *, http_options=None, capability: str | None = None
+) -> AzureOpenAIAdkModel | None:
     binding = ManagedAzureBinding.from_environment()
     if binding is None:
         return None
     _text_model(model)
     config = load_pwm_policy(environment="uat", provider="azure_openai")["azure"]
+    descriptor = None
+    if capability is not None:
+        if capability != "one_text_root" or capability not in binding.capabilities:
+            raise ValueError("Unsupported managed Azure text capability")
+        descriptor = binding.capabilities[capability]
     timeout_ms = (
         http_options.get("timeout")
         if isinstance(http_options, dict)
@@ -58,12 +65,14 @@ def build_azure_text_model(model: str, *, http_options=None) -> AzureOpenAIAdkMo
         binding.require_current()
 
     return AzureOpenAIAdkModel(
-        model=config["primary_deployment"],
+        model=descriptor["deployment"] if descriptor else config["primary_deployment"],
         endpoint=binding.endpoint,
         token_supplier=binding.token_supplier,
         require_current=require_current,
         timeout_seconds=min(120, max(0.001, timeout_ms / 1000)) if timeout_ms else 60,
         allow_web_search=True,
+        default_reasoning_effort=descriptor["reasoning_effort"] if descriptor else None,
+        text_verbosity=descriptor["text_verbosity"] if descriptor else None,
     )
 
 

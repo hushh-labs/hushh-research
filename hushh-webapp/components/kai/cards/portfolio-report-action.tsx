@@ -1,5 +1,7 @@
 "use client";
 
+import type { FinancePortfolioPresentation } from "../sharing/finance-portfolio-sharing";
+import { normalizeStaticExportPathname } from "@/lib/navigation/routes";
 import { useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Download, Loader2, Share2 } from "@/components/icons";
@@ -12,22 +14,36 @@ import styles from "@/components/kai/shared/finance-workspace.module.css";
 import { FinanceShareFlow } from "@/components/kai/sharing/finance-share-flow";
 import type { FinanceSource } from "@/lib/finance-sharing/contract";
 
-export function PortfolioReportAction({ model, source, period, disabled, busy, onExport, sharingSource }: {
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
+export function PortfolioReportAction({ model, source, period, disabled, busy, onExport, sharingSource, presentation, className }: {
   model: DashboardViewModel; source: string; period: string; disabled?: boolean; busy?: boolean; onExport: () => void;
-  sharingSource?: FinanceSource;
+  sharingSource?: FinanceSource; presentation?: FinancePortfolioPresentation;
+  className?: string;
 }) {
-  const [open, setOpen] = useState(false);
-  const [sharing, setSharing] = useState(false);
-  const pathname = usePathname();
+  const [localOpen, setLocalOpen] = useState(false);
+  const [localSharing, setLocalSharing] = useState(false);
+  const open = presentation ? presentation.view === "report" : localOpen;
+  const sharing = presentation ? presentation.view === "share" : localSharing;
+  const setOpen = (value: boolean) => presentation ? presentation.change(value ? "report" : null) : setLocalOpen(value);
+  const setSharing = (value: boolean) => presentation ? presentation.change(value ? "share" : null) : setLocalSharing(value);
+  const pathname = normalizeStaticExportPathname(usePathname() ?? "/");
   const params = useSearchParams();
   const active = pathname !== "/one/kai" || params.get("tab") === "portfolio";
   const visible = open && active;
   useBackLayer(pathname, visible ? 1 : 0, () => { setOpen(false); return true; }, pathname === "/one/kai" ? { tab: "portfolio" } : undefined);
-  const money = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
+  const { format: money } = useMarketCurrency();
   return <>
     <div className="flex items-center gap-2">
       {sharingSource ? <ShellActionSurface variant="icon" aria-label="Share Finance with connections" disabled={busy} onClick={() => setSharing(true)}><Share2 className="h-4 w-4" /></ShellActionSurface> : null}
-      <ShellActionSurface variant="icon" aria-label="Share portfolio PDF" data-voice-control-id="share_portfolio_pdf" disabled={disabled || busy} onClick={() => setOpen(true)}>
+      <ShellActionSurface
+        variant="icon"
+        className={className}
+        aria-label="Share portfolio PDF"
+        title="Share portfolio PDF"
+        data-voice-control-id="share_portfolio_pdf"
+        disabled={disabled || busy}
+        onClick={() => setOpen(true)}
+      >
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
       </ShellActionSurface>
     </div>

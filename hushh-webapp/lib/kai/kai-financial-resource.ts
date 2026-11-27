@@ -16,6 +16,7 @@ import {
   hasPortfolioHoldings,
   resolveAvailableSources,
   resolvePortfolioFreshness,
+  resolvePreferredPortfolioSource,
   type PlaidPortfolioStatusResponse,
   type PortfolioFreshness,
   type PortfolioSource,
@@ -23,7 +24,7 @@ import {
 } from "@/lib/kai/brokerage/portfolio-sources";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache-service";
-import { currentPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
+import { currentPkmInvalidationEpoch, currentPkmSourceEpoch } from "@/lib/cache/pkm-invalidation-epoch";
 
 const SECURE_RESOURCE_KEY = "kai_financial_resource_v1";
 const REQUEST_LABEL = "kai_financial_resource";
@@ -80,22 +81,6 @@ function toFinancialDomain(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function pickPreferredSource(params: {
-  preferred: PortfolioSource | string | null | undefined;
-  availableSources: PortfolioSource[];
-}): PortfolioSource {
-  const preferred = params.preferred;
-  if (
-    (preferred === "statement" || preferred === "plaid") &&
-    params.availableSources.includes(preferred)
-  ) {
-    return preferred;
-  }
-  if (params.availableSources.includes("statement")) return "statement";
-  if (params.availableSources.includes("plaid")) return "plaid";
-  return "statement";
-}
-
 function extractHoldings(portfolio: PortfolioData | null | undefined): string[] {
   if (!Array.isArray(portfolio?.holdings)) {
     return [];
@@ -128,17 +113,11 @@ function buildResource(params: {
     statementPortfolio,
     plaidPortfolio,
   });
-  const storedActiveSource =
-    params.plaidStatus?.source_preference ?? compatibilityView.activeSource;
-  const hasSavedStatementSnapshot = Boolean(activeStatementSnapshotId);
-  const desiredSource: PortfolioSource =
-    storedActiveSource === "plaid" ||
-    (!hasSavedStatementSnapshot && hasPortfolioHoldings(plaidPortfolio))
-      ? "plaid"
-      : "statement";
-  const activeSource = pickPreferredSource({
-    preferred: desiredSource,
-    availableSources,
+  const activeSource = resolvePreferredPortfolioSource({
+    storedActiveSource: compatibilityView.activeSource,
+    backendPreferredSource: params.plaidStatus?.source_preference,
+    hasStatementPortfolio: availableSources.includes("statement"),
+    hasPlaidPortfolio: availableSources.includes("plaid"),
   });
   const activePortfolio = activeSource === "plaid" ? plaidPortfolio : statementPortfolio;
   const hasFinancialData =
@@ -259,6 +238,26 @@ async function loadNetworkResource(
 }
 
 export class KaiFinancialResourceService {
+  /** A fresh, vault-fenced snapshot for a chat card or answer, with no cache publication. */
+  static async readForAnswer(params: KaiFinancialResourceRequest, isCurrent: () => boolean) {
+    if (!isCurrent()) return null;
+    const financialEpoch = () => currentPkmSourceEpoch(params.userId, ["financial"]);
+    const generation = financialEpoch();
+    const isReadCurrent = () => isCurrent() && generation === financialEpoch();
+    const { financial } = await loadFinancialContext(params);
+    if (!isReadCurrent()) return null;
+    return {
+      resource: buildResource({
+        userId: params.userId,
+        financialDomain: financial,
+        plaidStatus: buildVaultPlaidStatus(financial, params.userId),
+        cacheTier: "network",
+        source: "network",
+      }),
+      isCurrent: isReadCurrent,
+    };
+  }
+
   static peek(userId: string) {
     return CacheService.getInstance().peek<KaiFinancialResource>(
       CACHE_KEYS.KAI_FINANCIAL_RESOURCE(userId)

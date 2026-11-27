@@ -88,13 +88,21 @@ describe("profile workspace duplication contract", () => {
     expect(memory).not.toContain("DocumentHashcoinPayouts");
     expect(profilePageSource).toContain('activePanel === "payouts"');
     expect(profilePageSource).toContain('activePanel === "request-pricing"');
-    expect(profilePageSource).toContain("<PaymentsAndEarnings key={applicationOwnerId} commerce={nativePayout.commerce} answer={nativePayout.answer} />");
+    expect(profilePageSource).toContain("<PaymentsAndEarnings key={applicationOwnerId} answer={nativePayout.answer} />");
     // One bank control on Payouts: the bank rows in "Your money", the only
     // control that takes Stripe's return. A second would start setup again.
     const payoutsPanel = profilePageSource.split('activePanel === "payouts") {')[1]?.split("} else if (")[0] ?? "";
-    expect(payoutsPanel).toContain("<PaymentsAndEarnings key={applicationOwnerId} commerce={nativePayout.commerce} answer={nativePayout.answer} />");
+    expect(payoutsPanel).toContain("<PaymentsAndEarnings key={applicationOwnerId} answer={nativePayout.answer} />");
     expect(payoutsPanel).not.toContain("AnswerPayoutAccount");
-    expect(paymentsSource).toContain("<ScopeCommerceAccountPanel model={commerce} />");
+    expect(paymentsSource).not.toContain("ScopeCommerceAccountPanel");
+    const payoutsAction = (JSON.parse(readFileSync(join(process.cwd(), "app/one/profile/page.voice-action-contract.json"), "utf8")) as {
+      actions: { action_id: string; aliases: string[] }[];
+    }).actions.find(action => action.action_id === "route.profile_payouts");
+    expect(payoutsAction?.aliases).toContain("document earnings");
+    for (const alias of ["add funds", "purchase balance", "information-access earnings"]) {
+      expect(payoutsAction?.aliases).not.toContain(alias);
+    }
+
     expect(paymentsSource.match(/<DocumentHashcoinPayouts\b/g)).toEqual(["<DocumentHashcoinPayouts"]);
     expect(paymentsSource).toMatch(/arrival\?\.source === "answers" \? <section[^>]*><AnswerPayoutAccount model={answer} \/><\/section> : null/);
     expect(payoutsSource.match(/<(?:PayoutBankRows|DocumentPayoutAccountCard)\b/g)).toEqual(["<PayoutBankRows"]);
@@ -132,7 +140,7 @@ describe("profile workspace duplication contract", () => {
     const panel = profilePageSource.split('activePanel === "world-model") {')[1]?.split("} else if (")[0] ?? "";
     expect(panel).toContain("<PersonalWorldModelPage");
     expect(panel).toContain("embedded");
-    expect(panel).toContain('onManageDetails={() => openVaultBackedPanel("my-data")}');
+    expect(panel).toContain("onManageDetails={openCanonicalMemoryRoute}");
     // Negative controls: no pane-only exclusion and no redirect to the route.
     expect(profilePageSource).not.toMatch(/!isPanePresentation &&\s*activePanel === "world-model"/);
     expect(profilePageSource).not.toContain("buildProfileWorldModelRoute");

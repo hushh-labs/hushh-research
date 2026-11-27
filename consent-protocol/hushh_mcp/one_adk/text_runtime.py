@@ -222,6 +222,12 @@ def _runtime_model(
             vertex_project=runtime_vertex_project,
             vertex_location=runtime_vertex_location,
         )
+    if runtime_mode == "sentinel_vertex":
+        from hushh_mcp.runtime_providers.sentinel_gemini import build_sentinel_gemini_adk_model
+
+        if credential:
+            raise ValueError("Sentinel Vertex cannot be constructed from an API key")
+        return build_sentinel_gemini_adk_model(model, vertex_location=managed_location)
     if runtime_mode in {"user_adc", "hosted_pod_adc"}:
         # Native owner ADC by default; an explicit dev bridge changes only the
         # inference destination and verifies the attached owner workload identity.
@@ -315,9 +321,22 @@ _SPECIALIST_TOOL_SOURCES: dict[str, tuple[str, str]] = {
     "calendar_event_detail": ("agent_calendar", "Calendar"),
     "calendar_availability": ("agent_calendar", "Calendar"),
     "calendar_free_slots": ("agent_calendar", "Calendar"),
+    "calendar_shared_free_slots": ("agent_calendar", "Calendar"),
+    "calendar_opening_detail": ("agent_calendar", "Calendar"),
     "propose_calendar_event": ("agent_calendar", "Calendar"),
     "propose_calendar_reschedule": ("agent_calendar", "Calendar"),
     "propose_calendar_cancellation": ("agent_calendar", "Calendar"),
+    "gmail_search_mail": ("agent_email", "Email"),
+    "gmail_scan_receipts": ("agent_email", "Email"),
+    "gmail_read_thread": ("agent_email", "Email"),
+    "gmail_read_attachment": ("agent_email", "Email"),
+    "gmail_list_needs_reply": ("agent_email", "Email"),
+    "gmail_mailbox_insights": ("agent_email", "Email"),
+    "gmail_manage_labels": ("agent_email", "Email"),
+    "gmail_manage_drafts": ("agent_email", "Email"),
+    "gmail_manage_settings": ("agent_email", "Email"),
+    "open_gmail_reply_draft": ("agent_email", "Email"),
+    "open_gmail_forward_draft": ("agent_email", "Email"),
     "propose_gmail_mailbox_change": ("agent_email", "Email"),
     "propose_gmail_todo": ("agent_email", "Email"),
     "ask_consent_agent": ("agent_nav", "Consent Center"),
@@ -411,10 +430,11 @@ def _event_specialists(event: Any) -> list[OneTextSpecialistOutcome]:
 
 
 _LOAD_MEMORY_TOOL = "load_memory"
+_WIKI_RECALL_TOOLS = frozenset({"search_wiki", "read_wiki_page", "trace_claim"})
 
 
 def _event_memory_recalls(event: Any, *, backend: str | None = None) -> list[dict[str, Any]]:
-    """Read observed ``load_memory`` calls and responses off One's events.
+    """Read observed ``load_memory`` and Personal Wiki recall calls/responses off One's events.
 
     The north star credits recall only as an OBSERVED tool call, so the report
     is built from the function-call and function-response parts ADK appends,
@@ -423,8 +443,7 @@ def _event_memory_recalls(event: Any, *, backend: str | None = None) -> list[dic
     * a call: ``{"queryChars": n, "hits": None, "backend": ...}`` (the query is the
       person's own words; only its length is kept);
     * a response: ``{"queryChars": None, "hits": k, "backend": ...}`` where ``k`` is
-      the number of memories returned (ADK wraps a ``LoadMemoryResponse`` as
-      ``{"result": {"memories": [...]}}``; a bare ``{"memories": [...]}`` is read too).
+      the number of memories/wiki records returned.
 
     The caller pairs a response with the call before it. Text never leaves here.
     """
@@ -433,34 +452,62 @@ def _event_memory_recalls(event: Any, *, backend: str | None = None) -> list[dic
     out: list[dict[str, Any]] = []
     get_calls = getattr(event, "get_function_calls", None)
     for call in (get_calls() if callable(get_calls) else None) or []:
-        if str(getattr(call, "name", "") or "") != _LOAD_MEMORY_TOOL:
-            continue
-        args = getattr(call, "args", None)
-        query = args.get("query") if isinstance(args, dict) else None
-        out.append(
-            {
-                "queryChars": len(str(query)) if isinstance(query, str) else 0,
-                "hits": None,
-                "backend": backend,
-            }
-        )
+        call_name = str(getattr(call, "name", "") or "")
+        if call_name == _LOAD_MEMORY_TOOL:
+            args = getattr(call, "args", None)
+            query = args.get("query") if isinstance(args, dict) else None
+            out.append(
+                {
+                    "queryChars": len(str(query)) if isinstance(query, str) else 0,
+                    "hits": None,
+                    "backend": backend,
+                }
+            )
+        elif call_name in _WIKI_RECALL_TOOLS:
+            args = getattr(call, "args", None)
+            raw_arg = (
+                args.get("query") or args.get("page_id") or args.get("claim_id")
+                if isinstance(args, dict)
+                else None
+            )
+            out.append(
+                {
+                    "queryChars": len(str(raw_arg)) if isinstance(raw_arg, str) else 0,
+                    "hits": None,
+                    "backend": "pod_wiki",
+                }
+            )
     get_responses = getattr(event, "get_function_responses", None)
     for reply in (get_responses() if callable(get_responses) else None) or []:
-        if str(getattr(reply, "name", "") or "") != _LOAD_MEMORY_TOOL:
-            continue
+        reply_name = str(getattr(reply, "name", "") or "")
         response = getattr(reply, "response", None)
-        memories: Any = None
-        if isinstance(response, dict):
-            memories = response.get("memories")
-            if memories is None and isinstance(response.get("result"), dict):
-                memories = response["result"].get("memories")
-        out.append(
-            {
-                "queryChars": None,
-                "hits": len(memories) if isinstance(memories, list) else 0,
-                "backend": backend,
-            }
-        )
+        if reply_name == _LOAD_MEMORY_TOOL:
+            memories: Any = None
+            if isinstance(response, dict):
+                memories = response.get("memories")
+                if memories is None and isinstance(response.get("result"), dict):
+                    memories = response["result"].get("memories")
+            out.append(
+                {
+                    "queryChars": None,
+                    "hits": len(memories) if isinstance(memories, list) else 0,
+                    "backend": backend,
+                }
+            )
+        elif reply_name in _WIKI_RECALL_TOOLS:
+            wiki_hits = 0
+            if isinstance(response, dict) and response.get("status") in {"ok", "conflicted"}:
+                if isinstance(response.get("results"), list):
+                    wiki_hits = len(response["results"])
+                elif response.get("page_id") or response.get("claim"):
+                    wiki_hits = 1
+            out.append(
+                {
+                    "queryChars": None,
+                    "hits": wiki_hits,
+                    "backend": "pod_wiki",
+                }
+            )
     return out
 
 
@@ -574,6 +621,7 @@ async def _stream_one_text_turn_once(
     execution_surface: Literal["typed_chat"] | None = None,
     memory_commit_allowed: Any = None,
     memory_review_policy: "MemoryReviewPolicy | None" = None,
+    turn_started_at: float | None = None,
 ) -> AsyncGenerator[OneTextStreamEvent, None]:
     """Run one typed turn in one endpoint and expose replay boundaries."""
     if str(runtime_provider or "").strip().lower() not in {"gemini", "puppy", *OWNER_HEADS}:
@@ -645,22 +693,44 @@ async def _stream_one_text_turn_once(
         # review then retires nothing.
         review_policy=memory_review_policy,
     )
-    # The always-on curated digest (pod only; empty string and False on the hub).
-    memory_digest = await _memory_digest(memory_service)
+    from hushh_mcp.one_adk.wiki_recall_tools import (  # noqa: PLC0415
+        STATE_WIKI_HOT_DIGEST,
+        build_wiki_hot_digest_context,
+        is_wiki_serving_primary,
+        optional_pod_wiki_library,
+        read_fenced_pod_wiki_hot_digest,
+        read_pod_wiki_migration_state,
+    )
+
+    wiki_lib = optional_pod_wiki_library()
+    wiki_hot_digest = await read_fenced_pod_wiki_hot_digest()
+    if not wiki_hot_digest and wiki_lib is not None:
+        try:
+            wiki_hot_digest = await build_wiki_hot_digest_context(wiki_lib)
+        except Exception as exc:  # noqa: BLE001 - wiki hot digest degrades cleanly
+            logger.warning("one_text_turn.wiki_digest_failed error=%s", type(exc).__name__)
+    migration_state = await read_pod_wiki_migration_state(wiki_lib)
+    suppress_classic = bool(wiki_hot_digest) and is_wiki_serving_primary(migration_state)
+    # The always-on curated digest (pod only; suppressed once Personal Wiki is primary).
+    memory_digest = "" if suppress_classic else await _memory_digest(memory_service)
     session = await session_service.create_session(
         app_name=ONE_APP_NAME,
         user_id=session_key,
         session_id=f"chat_{uuid.uuid4().hex}",
         state={
-            STATE_MEMORY_AVAILABLE: memory_service is not None,
+            "temp:hussh:turn_started_at": turn_started_at
+            if turn_started_at is not None
+            else time.time(),
+            STATE_MEMORY_AVAILABLE: (memory_service is not None) and not suppress_classic,
             STATE_MEMORY_DIGEST: memory_digest,
+            **({STATE_WIKI_HOT_DIGEST: wiki_hot_digest} if wiki_hot_digest else {}),
             STATE_USER_ID: clean_user_id,
             STATE_CONSENT_TOKEN: str(consent_token or "").strip(),
             STATE_CONVERSATION_ID: clean_conversation_id,
             STATE_TIMEZONE: str(timezone or "").strip()[:64],
             STATE_SCREEN: str(sanitized_context.get("screen") or "").strip()[:64],
             STATE_VOICE_CONTEXT: sanitized_context,
-            STATE_PKM_CONTEXT: str(pkm_context or "").strip()[:20000],
+            STATE_PKM_CONTEXT: str(pkm_context or ""),
             # Only meaningful when the projection is empty; the instruction reads it
             # solely on that branch. Carried rather than recomputed because the
             # grounding service is the only thing that knows WHY.
@@ -981,6 +1051,7 @@ async def stream_one_text_turn(
     memory_review_policy: "MemoryReviewPolicy | None" = None,
 ) -> AsyncGenerator[OneTextStreamEvent, None]:
     """Run One with same-model regional failover before any observable event."""
+    turn_started_at = time.time()
     locations: tuple[str | None, ...] = (None,)
     from hushh_mcp.runtime_providers.managed_text import managed_text_policy
 
@@ -1014,6 +1085,7 @@ async def stream_one_text_turn(
                 runtime_vertex_location=runtime_vertex_location,
                 data_door_grants=data_door_grants,
                 managed_location=location,
+                turn_started_at=turn_started_at,
                 execution_surface=execution_surface,
                 memory_commit_allowed=memory_commit_allowed,
                 memory_review_policy=memory_review_policy,

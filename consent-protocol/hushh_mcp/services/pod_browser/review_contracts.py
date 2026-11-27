@@ -17,7 +17,7 @@ class BrowserHubReview(StrictContract):
     purpose: Purpose
     commitment: str = Field(pattern=r"^[a-f0-9]{64}$")
     pod_key_id: str = Field(min_length=1, max_length=128)
-    environment: Literal["dev", "development"]
+    environment: Literal["dev", "development", "uat"]
     epoch: int = Field(ge=1)
     service_uid: str | None = Field(default=None, min_length=1, max_length=256)
 

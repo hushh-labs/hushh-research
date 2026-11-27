@@ -200,17 +200,10 @@ for (const width of [393, 1440]) {
       results.getByText("No saved Google contacts found"),
     ).toBeVisible();
     await expect(
-      results.getByRole("link", { name: "Check Google Contacts" }),
+      results.getByText("Read 0 saved Google contacts.", { exact: true }),
     ).toBeVisible();
-    await expect(
-      results.getByRole("link", { name: "Proceed to connections" }),
-    ).toBeVisible();
-    await expect(
-      results.getByRole("link", { name: "Proceed to connections" }),
-    ).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
-    await expect(
-      results.getByRole("link", { name: "Proceed to connections" }),
-    ).toHaveClass(/bg-\[[^\]]*var\(--app-neutral-fill\)/);
+    await expect(results.getByRole("link")).toHaveCount(0);
+    await expect(results.getByRole("button", { name: "Close" })).toBeVisible();
     await expect(
       results.getByRole("button", { name: "Choose Google account" }),
     ).toHaveClass(/bg-\[[^\]]*var\(--app-accent\)/);

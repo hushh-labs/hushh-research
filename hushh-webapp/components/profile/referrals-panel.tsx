@@ -1,5 +1,6 @@
 "use client";
 
+import { referralDisplayName } from "@/lib/referral/leaderboard-presentation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { ShareNetworkIcon as Share2 } from "@/components/icons";
@@ -525,7 +526,7 @@ export function ReferralsPanelView({ panePresentation = false, model }: { panePr
       {gamification.handle === null ? (
         <SettingsGroup
           title="Appear on the leaderboard"
-          description="Choose a handle to show your rank to other referrers. Your real name is never shown."
+          description="Your handle is public. Profile names follow your privacy settings."
         >
           <SettingsRow
             icon={icons.people}
@@ -577,7 +578,7 @@ export function ReferralsPanelView({ panePresentation = false, model }: { panePr
               key={entry.rank}
               icon={entry.is_viewer ? icons.success : icons.people}
               iconTone="capability"
-              title={`#${entry.rank} ${entry.handle}`}
+              title={`#${entry.rank} ${referralDisplayName(entry)}`}
               trailing={<span>{entry.points} coins</span>}
               density="compact"
             />
@@ -586,7 +587,7 @@ export function ReferralsPanelView({ panePresentation = false, model }: { panePr
             <SettingsRow
               icon={icons.success}
               iconTone="capability"
-              title={`#${gamification.leaderboard.viewer.rank} ${gamification.leaderboard.viewer.handle} (you)`}
+              title={`#${gamification.leaderboard.viewer.rank} ${referralDisplayName(gamification.leaderboard.viewer)} (you)`}
               trailing={<span>{gamification.leaderboard.viewer.points} coins</span>}
               density="compact"
             />

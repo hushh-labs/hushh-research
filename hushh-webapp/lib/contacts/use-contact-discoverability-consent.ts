@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { toast } from "sonner";
+import { useTypographyToast } from "@/lib/morphy-ux/ui/use-typography-toast";
 
 import {
   CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
@@ -112,6 +112,7 @@ export function useContactDiscoverabilityConsent({
   getIdToken,
   actionLabel = "Check contacts",
 }: UseContactDiscoverabilityConsentOptions) {
+  const toast = useTypographyToast();
   const normalizedUserId = String(userId || "").trim() || null;
   const hasTokenResolver = Boolean(getIdToken);
   const identityRef = useRef({
@@ -247,7 +248,7 @@ export function useContactDiscoverabilityConsent({
         if (requestedWhileLoading) setDialogOpen(true);
       }
     },
-    [setPreference],
+    [setPreference, toast],
   );
 
   const startPreferenceRead = useCallback(
@@ -400,7 +401,7 @@ export function useContactDiscoverabilityConsent({
         }
       }
     },
-    [setPreference],
+    [setPreference, toast],
   );
 
   const onOpenChange = useCallback((open: boolean) => {

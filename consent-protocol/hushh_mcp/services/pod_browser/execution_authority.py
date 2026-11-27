@@ -182,6 +182,12 @@ class BrowserExecutionAuthority:
             await self.authorize_action(binding, action)
         await self._journal.begin(binding, "action", commitment)
 
+    async def consume_credential_nonce(self, binding, nonce: str) -> None:
+        await self.check_binding(binding)
+        commitment = self._journal.commitment(binding, "action", {"credential_nonce": nonce})
+        await self._journal.begin(binding, "action", commitment)
+        await self._journal.settle(binding, "action", commitment, uncertain=False)
+
     async def settle_dispatch(self, binding, action, *, uncertain: bool) -> None:
         # Settlement records the result even after expiry/revocation.
         if binding != self._binding:
@@ -199,6 +205,7 @@ class PublicResearchNetworkAuthority:
             journal,
             policy,
         )
+        self._credential_commitments: dict[str, str] = {}
 
     async def check_binding(self, binding) -> None:
         if binding != self._binding:
@@ -209,6 +216,30 @@ class PublicResearchNetworkAuthority:
         await self.check_binding(binding)
         # A navigation's UI receipt is pending while its requests complete.
         await self._journal.require_settled(binding, lane="network")
+
+    async def authorize_credential_request(self, binding, request, commitment, credential):
+        from .credential_network import CredentialSubmission
+
+        await self.check_binding(binding)
+        if (
+            not isinstance(credential, CredentialSubmission)
+            or credential.binding != binding
+            or request.scope != credential.scope
+            or commitment != request.commitment()
+            or credential.origin not in self._policy.interactive_origins
+        ):
+            raise BrowserRefused("BROWSER_CREDENTIAL_REQUEST_REFUSED")
+        await credential.check()
+        self._credential_commitments[commitment] = self._journal.commitment(
+            binding,
+            "network",
+            {
+                "request": commitment,
+                "scope": request.scope.model_dump(mode="json"),
+                "credential_authentication": credential.terms,
+            },
+        )
+        return BrowserNetworkPermit(effect_receipt_required=True)
 
     async def authorize_request(self, binding, request, commitment) -> BrowserNetworkPermit:
         await self.check_binding(binding)
@@ -243,6 +274,8 @@ class PublicResearchNetworkAuthority:
         return BrowserNetworkPermit(effect_receipt_required=True)
 
     def _commitment(self, binding, request, commitment):
+        if commitment in self._credential_commitments:
+            return self._credential_commitments[commitment]
         return self._journal.commitment(
             binding,
             "network",

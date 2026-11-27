@@ -1,9 +1,9 @@
 {
   "file": "disposable-domains.txt",
-  "sha256": "698469ed3129ff82950e28cb8ec1c64bf142acbc1e84abe9f2391396a962c5ff",
-  "source": "https://github.com/disposable-email-domains/disposable-email-domains/tree/e2254bf7fc8dcf113f6028b21e263a352111490b",
+  "sha256": "d0ee73b42a7e8fc7aa679b39e7e661244a6d3e09bc7e2235901614706e540ae8",
+  "source": "https://github.com/disposable-email-domains/disposable-email-domains/tree/f4cad16eb9fa2cd9ceb352ff5a8c213a25a10083",
   "license": "LICENSE-disposable-domains.txt",
-  "retrieved_at": 1793374078,
-  "expires_at": 1793978878,
+  "retrieved_at": 1795208129,
+  "expires_at": 1795812929,
   "scope": "Known disposable domains plus Hussh emergency revocations; no claim of comprehensive malicious-domain coverage."
 }

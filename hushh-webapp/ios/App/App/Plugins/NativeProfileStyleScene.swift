@@ -183,6 +183,7 @@ struct NativeProfileStyleText: UIViewRepresentable {
     }
     func updateUIView(_ view: UITextView, context: Context) {
         view.isEditable = model.canEdit; view.textColor = .label; view.tintColor = model.accent
+        view.keyboardAppearance = model.projection.appearance == "dark" ? .dark : .light
         let text = model.draft[field]?.text ?? ""
         if view.markedTextRange == nil && view.text != text {
             let selection = view.selectedRange

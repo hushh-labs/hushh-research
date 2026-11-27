@@ -37,7 +37,7 @@ it.each(["success", "error"] as const)("records the actual resume parse %s witho
   expect(JSON.stringify(state.track.mock.calls)).not.toContain("PRIVATE");
 });
 
-it.each([true, false])("records the returned save commitment %s without changing Main's UI flow", async committed => {
+it.each([true, false])("records the returned save commitment %s", async committed => {
   state.save.mockResolvedValue({ success: committed });
   render(<CareerPage />);
   await screen.findByText("PRIVATE_CANDIDATE");

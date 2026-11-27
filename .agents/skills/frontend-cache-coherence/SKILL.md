@@ -58,8 +58,8 @@ Non-owned surfaces:
 1. Classify the prompt claim as existing, partial, missing, future-state, wrong-direction, or needs-verification.
 2. Run the cache and manifest checks before trusting screen coverage.
 3. Preserve the security posture: decrypted PKM, vault keys, and consent secrets stay memory-only.
-4. Use `useStaleResource` or a service-owned resource wrapper for warm-cache rendering.
-5. Route all mutation invalidation through `CacheSyncService` or a domain service that delegates to it.
+4. Mandate the canonical **SWR + Write-Through Cache Coherence Pipeline** on every frontend data read and mutation: (a) synchronous Frame-1 warm L1 peek (`useStaleResource` or service `peek*`) so revisits paint in `0ms` without resetting state to `null`, (b) batched single-flight SWR for list/row surfaces (never fire per-row `N+1` `useEffect` fetches), (c) write-through cache update + `CacheSyncService` invalidation on every mutation, and (d) stable-geometry skeleton rows on genuine cold first reads instead of text pop-in.
+5. Route all mutation invalidation through `CacheSyncService` or a domain service that writes through and delegates to it, and codify new surface invariants in `audit-cache-coherence.mjs`.
 6. Use reviewer env identity only through the existing resolver; never hardcode reviewer values.
 7. Treat performance as part of cache coherence: choose the safest available UX path before showing a blocking loader.
 8. Verify route/cache KPI coverage for changed screens: readiness, resource resolution, refresh completion, and warmup where applicable.

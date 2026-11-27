@@ -3,6 +3,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from api.middleware import require_vault_owner_token
@@ -15,7 +16,25 @@ from hushh_mcp.services.owner_placement_guard import hub_content_owner, require_
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/one/todos", route_class=PrivateNoStoreRoute)
+
+class PrivateTaskSuggestionRoute(PrivateNoStoreRoute):
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+
+        async def private_handler(request: Request):
+            try:
+                return await handler(request)
+            except RequestValidationError:
+                return JSONResponse(
+                    {"detail": "Invalid task suggestion request."},
+                    status_code=422,
+                    headers=PRIVATE_NO_STORE_HEADERS,
+                )
+
+        return private_handler
+
+
+router = APIRouter(prefix="/api/one/todos", route_class=PrivateTaskSuggestionRoute)
 
 
 @router.get("/suggestions/status")

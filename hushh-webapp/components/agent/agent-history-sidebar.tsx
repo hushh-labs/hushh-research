@@ -13,7 +13,7 @@ import {
   PencilIcon as Pencil,
   PlusIcon as Plus,
   SearchIcon as Search,
-  TrashIcon as Trash2,
+  Trash2,
   XIcon as X,
 } from "@/components/icons";
 
@@ -29,9 +29,19 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -39,6 +49,7 @@ import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 import { SidePanelMotionBody } from "@/components/app-ui/side-panel-motion";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
+import { HusshOneLockup } from "@/components/brand/hussh-one-lockup";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
 import { parseChatTimestamp } from "@/lib/agent/chat-time-separators";
@@ -79,14 +90,61 @@ type AgentHistorySidebarProps = {
   getAppOpen?: boolean;
   /** Feed-style background activity, kept separate from conversation search. */
   driveActivity?: ReactNode;
+  /** Persistent head-orchestrator stream ("One") pinned above focused Chats. */
+  pinnedOneConversationId?: string | null;
+  oneStreamActive?: boolean;
+  pendingOneActionCount?: number;
+  onSelectOneStream?: () => void;
   onCreateNew: () => void;
   onSelectConversation: (conversationId: string) => void;
   onRenameConversation: (conversationId: string, title: string) => Promise<void> | void;
+  onCategorizeConversation?: (
+    conversationId: string,
+    category: string | null,
+  ) => Promise<void> | void;
   onDeleteConversation: (conversationId: string) => Promise<void> | void;
 };
 
+export const STANDARD_CHAT_CATEGORIES = [
+  "Personal",
+  "Finance",
+  "Connections",
+  "Work",
+] as const;
+
+const FINANCE_CUES =
+  /\b(?:plaid|bank|banks|account|accounts|cashflow|cash\s+flow|liabilit(?:y|ies)|portfolio|net\s+worth|investment|investments|stock|stocks|market|wallet|stripe|payout|payouts|tariff|pricing|receipt|receipts|tax|taxes|budget|spending|expense|expenses)\b/i;
+const CONNECTIONS_CUES =
+  /\b(?:connection|connections|circle|circles|shared\s+with\s+me|share\s+with|information\s+request|request\s+.*\bfrom\b|access\s+request|consent|grant|grants|trusted|people|invite)\b/i;
+const WORK_CUES =
+  /\b(?:gmail|email|emails|inbox|calendar|schedule|meeting|meetings|drive|document|documents|deck|slide|slides|project|projects|client|clients|advisory|brief|report|task|tasks|todo|mcp|slack|github|jira|notion)\b/i;
+
+export function normalizeCategoryLabel(raw?: string | null): string | null {
+  if (!raw) return null;
+  const cleaned = raw.replace(/\s+/g, " ").trim().slice(0, 32);
+  return cleaned || null;
+}
+
+export function resolveConversationCategory(
+  conversation: Pick<AgentChatConversation, "title" | "category">,
+): string {
+  const explicit = normalizeCategoryLabel(conversation.category);
+  if (explicit) return explicit;
+  const title = normalizeTitle(conversation.title || "");
+  if (CONNECTIONS_CUES.test(title)) return "Connections";
+  if (FINANCE_CUES.test(title)) return "Finance";
+  if (WORK_CUES.test(title)) return "Work";
+  return "Personal";
+}
+
 export function normalizeTitle(title: string): string {
   return title.trim().replace(/\s+/g, " ");
+}
+
+export function isPinnedOneStreamConversation(
+  conversation: Pick<AgentChatConversation, "title">,
+): boolean {
+  return normalizeTitle(conversation.title).toLowerCase() === "one";
 }
 
 function conversationLabel(conversation: AgentChatConversation): string {
@@ -192,13 +250,19 @@ export function AgentHistorySidebar({
   onGetApp,
   getAppOpen = false,
   driveActivity,
+  pinnedOneConversationId = null,
+  oneStreamActive = false,
+  pendingOneActionCount = 0,
+  onSelectOneStream,
   onCreateNew,
   onSelectConversation,
   onRenameConversation,
+  onCategorizeConversation,
   onDeleteConversation,
 }: AgentHistorySidebarProps) {
   const shortcutInteraction = useShortcutIconMotion();
   const isMobileMode = mode === "mobile";
+  const showPinnedOneStream = surface === "one" && Boolean(onSelectOneStream);
   // Neutral on the default path, owned when the other agent is on screen.
   const listTitle = surface === "puppy" ? "Puppy chats" : "Chats";
   const puppyFootnote =
@@ -211,15 +275,67 @@ export function AgentHistorySidebar({
   const [renameValue, setRenameValue] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<AgentChatConversation | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeCategory, setActiveCategory] = useState<string>("All");
+  const [customCategoryTarget, setCustomCategoryTarget] =
+    useState<AgentChatConversation | null>(null);
+  const [customCategoryDraft, setCustomCategoryDraft] = useState("");
 
   const trimmedQuery = searchQuery.trim().toLowerCase();
 
-  const filteredConversations = useMemo(() => {
-    if (!trimmedQuery) return conversations;
-    return conversations.filter((conversation) =>
-      displayConversationLabel(conversation).toLowerCase().includes(trimmedQuery),
+  const chatConversations = useMemo(() => {
+    if (!showPinnedOneStream) return conversations;
+    return conversations.filter(
+      (conversation) =>
+        conversation.id !== pinnedOneConversationId &&
+        !isPinnedOneStreamConversation(conversation),
     );
-  }, [conversations, trimmedQuery]);
+  }, [conversations, pinnedOneConversationId, showPinnedOneStream]);
+
+  const categorySummary = useMemo(() => {
+    const counts = new Map<string, number>();
+    const customNames: string[] = [];
+    for (const conversation of chatConversations) {
+      const cat = resolveConversationCategory(conversation);
+      counts.set(cat, (counts.get(cat) ?? 0) + 1);
+      if (
+        !STANDARD_CHAT_CATEGORIES.includes(
+          cat as (typeof STANDARD_CHAT_CATEGORIES)[number],
+        ) &&
+        !customNames.includes(cat)
+      ) {
+        customNames.push(cat);
+      }
+    }
+    const ordered = [
+      ...STANDARD_CHAT_CATEGORIES.filter((cat) => (counts.get(cat) ?? 0) > 0),
+      ...customNames.sort((a, b) => a.localeCompare(b)),
+    ];
+    return { counts, ordered, customNames };
+  }, [chatConversations]);
+
+  const effectiveActiveCategory =
+    activeCategory === "All" || categorySummary.counts.has(activeCategory)
+      ? activeCategory
+      : "All";
+
+  const filteredConversations = useMemo(() => {
+    return chatConversations.filter((conversation) => {
+      const category = resolveConversationCategory(conversation);
+      if (
+        effectiveActiveCategory !== "All" &&
+        category !== effectiveActiveCategory
+      ) {
+        return false;
+      }
+      if (!trimmedQuery) return true;
+      return (
+        displayConversationLabel(conversation)
+          .toLowerCase()
+          .includes(trimmedQuery) ||
+        category.toLowerCase().includes(trimmedQuery)
+      );
+    });
+  }, [chatConversations, effectiveActiveCategory, trimmedQuery]);
 
   const groupedConversations = useMemo(() => {
     const now = Date.now();
@@ -274,12 +390,49 @@ export function AgentHistorySidebar({
     void Promise.resolve(onDeleteConversation(targetId)).catch(() => undefined);
   };
 
+  const assignCategory = (conversationId: string, category: string | null) => {
+    if (!onCategorizeConversation) return;
+    const normalized = category ? normalizeCategoryLabel(category) : null;
+    void Promise.resolve(onCategorizeConversation(conversationId, normalized)).catch(
+      () => undefined,
+    );
+  };
+
+  const openCustomCategoryModal = (conversation: AgentChatConversation) => {
+    setCustomCategoryTarget(conversation);
+    setCustomCategoryDraft(
+      conversation.category_source === "custom"
+        ? normalizeCategoryLabel(conversation.category) ?? ""
+        : "",
+    );
+  };
+
+  const submitCustomCategory = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!customCategoryTarget) return;
+    const nextCategory = normalizeCategoryLabel(customCategoryDraft);
+    if (!nextCategory) return;
+    const targetId = customCategoryTarget.id;
+    setCustomCategoryTarget(null);
+    setCustomCategoryDraft("");
+    assignCategory(targetId, nextCategory);
+  };
+
   const renderConversationItem = (conversation: AgentChatConversation) => {
     const title = displayConversationLabel(conversation);
     const active = conversation.id === activeConversationId;
     const pending = actionPendingId === conversation.id;
     const isRenaming = renamingId === conversation.id;
     const timeLabel = formatRelativeTime(conversationTimestamp(conversation));
+    const resolvedCategory = resolveConversationCategory(conversation);
+    const isCustomCategory = conversation.category_source === "custom";
+    const menuCategoryChoices = Array.from(
+      new Set([
+        ...STANDARD_CHAT_CATEGORIES,
+        ...categorySummary.customNames,
+        ...(isCustomCategory ? [resolvedCategory] : []),
+      ]),
+    );
 
     if (collapsed && !isMobileMode) {
       return (
@@ -315,9 +468,13 @@ export function AgentHistorySidebar({
         role="listitem"
         className={cn(
           "group relative rounded-[12px] transition-colors motion-reduce:transition-none duration-150",
-          active
-            ? "bg-[color:var(--one-chat-row-active)] text-foreground"
-            : "text-foreground/80 hover:bg-[color:var(--one-chat-row-hover)] hover:text-foreground"
+          isMobileMode
+            ? active
+              ? "text-foreground"
+              : "text-foreground/85 hover:text-foreground"
+            : active
+              ? "bg-[color:var(--one-chat-row-active)] text-foreground"
+              : "text-foreground/80 hover:bg-[color:var(--one-chat-row-hover)] hover:text-foreground",
         )}
       >
         {isRenaming ? (
@@ -362,7 +519,7 @@ export function AgentHistorySidebar({
         ) : (
           // Age follows the title in its text flow, not a second trailing
           // column. Only the action target reserves space at the row edge.
-          <div className="relative flex min-w-0 items-center pr-1">
+          <div className={cn("relative flex min-w-0 items-center", !isMobileMode && "pr-1")}>
             <button
               type="button"
               className={cn(
@@ -398,6 +555,14 @@ export function AgentHistorySidebar({
                 </time>
               ) : null}
               </span>
+              {isCustomCategory ? (
+                <span
+                  data-testid="agent-history-row-category"
+                  className="mt-1 inline-flex max-w-full items-center truncate rounded-full bg-[color:var(--app-accent)]/[0.09] px-1.5 py-px text-[10px] font-medium leading-tight text-[color:var(--app-accent)] dark:bg-white/[0.09] dark:text-foreground/80"
+                >
+                  {resolvedCategory}
+                </span>
+              ) : null}
               {isMobileMode ? <MaterialRipple variant="none" effect="fade" disabled={disabled || pending} disableHover className="z-10" /> : null}
             </button>
 
@@ -419,14 +584,26 @@ export function AgentHistorySidebar({
                 <DropdownMenuTrigger asChild>
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="plain"
                     size="icon-xs"
-                    className={cn("rounded-full text-foreground/70 hover:bg-[color:var(--one-chat-row-active)] hover:text-foreground focus-visible:opacity-100 data-[state=open]:bg-[color:var(--one-chat-row-active)] data-[state=open]:text-foreground", isMobileMode ? "h-11 w-11" : "h-8 w-8")}
+                    showRipple={false}
+                    className={cn(
+                      "group/row-actions bg-transparent p-0 text-foreground/65 hover:bg-transparent hover:opacity-100 focus-visible:border-transparent focus-visible:opacity-100 focus-visible:ring-0 data-[state=open]:bg-transparent",
+                      isMobileMode ? "flex h-11 w-11 items-center justify-end pr-1" : "grid h-8 w-8 place-items-center",
+                    )}
                     disabled={disabled || pending}
                     onClick={(event) => event.stopPropagation()}
                     aria-label={`Open actions for ${title}`}
                   >
-                    <MoreHorizontal className="size-[18px]" weight="bold" aria-hidden="true" />
+                    <span
+                      data-agent-history-row-action-pill
+                      className={cn(
+                        "grid place-items-center rounded-[8px] transition-colors duration-150 motion-reduce:transition-none group-hover/row-actions:bg-foreground/[0.07] group-hover/row-actions:text-foreground group-focus-visible/row-actions:ring-2 group-focus-visible/row-actions:ring-[color:var(--app-accent)]/50 group-data-[state=open]/row-actions:bg-foreground/[0.10] group-data-[state=open]/row-actions:text-foreground",
+                        isMobileMode ? "size-8" : "size-7",
+                      )}
+                    >
+                      <MoreHorizontal className="size-4" weight="bold" aria-hidden="true" />
+                    </span>
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
@@ -440,21 +617,62 @@ export function AgentHistorySidebar({
                   alignOffset={isMobileMode ? 0 : -6}
                   collisionPadding={12}
                   // Drawer menus share Profile's material even through a portal.
-                  className="w-max min-w-0 max-w-[calc(100vw-24px)] rounded-[17px] border-0 bg-[color:var(--one-chat-menu,var(--popover))] p-1.5 text-foreground shadow-[0_12px_32px_-10px_rgba(0,0,0,0.22),0_2px_8px_rgba(0,0,0,0.06)] dark:shadow-[0_12px_32px_-8px_rgba(0,0,0,0.7),0_2px_8px_rgba(0,0,0,0.4)]"
+                  className="w-max min-w-0 max-w-[calc(100vw-24px)] rounded-[17px] border-0 bg-[color:var(--one-chat-menu,var(--popover))] p-1 text-foreground shadow-[0_12px_32px_-10px_rgba(0,0,0,0.22),0_2px_8px_rgba(0,0,0,0.06)] dark:shadow-[0_12px_32px_-8px_rgba(0,0,0,0.7),0_2px_8px_rgba(0,0,0,0.4)]"
                 >
+                  {/* Bring the labels closer while keeping both 44px tap targets. */}
                   <DropdownMenuItem
-                    className="h-11 cursor-pointer gap-3 rounded-[14px] px-3 text-[15px] focus:!bg-[color:var(--one-chat-row-active)] focus:!text-foreground [&_svg]:!size-[18px]"
+                    className="h-11 cursor-pointer gap-3 rounded-[14px] px-3 pt-2.5 pb-0.5 text-[15px] focus:!bg-[color:var(--one-chat-row-active)] focus:!text-foreground [&_svg]:!size-[18px]"
                     onSelect={() => startRename(conversation)}
                   >
                     <Pencil aria-hidden="true" />
                     Rename
                   </DropdownMenuItem>
+                  {onCategorizeConversation ? (
+                    <>
+                      <DropdownMenuSeparator className="my-1 bg-[color:var(--one-chat-divider)]" />
+                      <DropdownMenuLabel className="px-3 py-1 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-[color:var(--one-chat-meta)]">
+                        Category
+                      </DropdownMenuLabel>
+                      {menuCategoryChoices.map((choice) => {
+                        const selected = resolvedCategory === choice;
+                        return (
+                          <DropdownMenuItem
+                            key={choice}
+                            className="h-9 cursor-pointer justify-between gap-3 rounded-[12px] px-3 text-[13.5px] focus:!bg-[color:var(--one-chat-row-active)] focus:!text-foreground"
+                            onSelect={() => assignCategory(conversation.id, choice)}
+                          >
+                            <span className="truncate">{choice}</span>
+                            {selected ? (
+                              <Check className="size-3.5 shrink-0 text-[color:var(--app-accent)]" aria-hidden="true" />
+                            ) : null}
+                          </DropdownMenuItem>
+                        );
+                      })}
+                      <DropdownMenuItem
+                        className="h-9 cursor-pointer gap-2 rounded-[12px] px-3 text-[13.5px] text-[color:var(--app-accent)] focus:!bg-[color:var(--one-chat-row-active)] focus:!text-[color:var(--app-accent)]"
+                        onSelect={() => openCustomCategoryModal(conversation)}
+                      >
+                        <Plus className="size-3.5 shrink-0" aria-hidden="true" />
+                        <span>Custom topic…</span>
+                      </DropdownMenuItem>
+                      {isCustomCategory ? (
+                        <DropdownMenuItem
+                          className="h-9 cursor-pointer gap-2 rounded-[12px] px-3 text-[13px] text-muted-foreground focus:!bg-[color:var(--one-chat-row-active)] focus:!text-foreground"
+                          onSelect={() => assignCategory(conversation.id, null)}
+                        >
+                          <span>Automatic category</span>
+                        </DropdownMenuItem>
+                      ) : null}
+                      <DropdownMenuSeparator className="my-1 bg-[color:var(--one-chat-divider)]" />
+                    </>
+                  ) : null}
                   <DropdownMenuItem
                     variant="destructive"
-                    className="h-11 cursor-pointer gap-3 rounded-[14px] px-3 text-[15px] focus:!bg-[color:var(--one-chat-row-active)] [&_svg]:!size-[18px]"
+                    // Inherit the row color even when it transitions on focus.
+                    className="h-11 cursor-pointer gap-3 rounded-[14px] px-3 pt-0.5 pb-2.5 text-[15px] data-[variant=destructive]:*:[svg]:!text-inherit focus:!bg-[color:var(--one-chat-row-active)] [&_svg]:!size-[18px]"
                     onSelect={() => setDeleteTarget(conversation)}
                   >
-                    <Trash2 aria-hidden="true" />
+                    <Trash2 inheritColor aria-hidden="true" />
                     Delete
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -496,6 +714,53 @@ export function AgentHistorySidebar({
       />
     </div>
   );
+  const categoryFilterBar =
+    chatConversations.length > 0 && categorySummary.ordered.length > 0 ? (
+      <div
+        data-testid="agent-history-category-bar"
+        role="tablist"
+        aria-label="Chat categories"
+        className={cn(
+          "flex min-w-0 w-full items-center gap-1.5 overflow-x-auto overscroll-x-contain py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+          isMobileMode ? "px-[var(--page-inline-gutter-standard)]" : "px-3",
+        )}
+      >
+        {["All", ...categorySummary.ordered].map((categoryName) => {
+          const selected = effectiveActiveCategory === categoryName;
+          const count =
+            categoryName === "All"
+              ? chatConversations.length
+              : (categorySummary.counts.get(categoryName) ?? 0);
+          return (
+            <button
+              key={categoryName}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              data-testid={`agent-history-category-${categoryName.toLowerCase().replace(/\s+/g, "-")}`}
+              onClick={() => setActiveCategory(categoryName)}
+              className={cn(
+                "inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2.5 text-[11.5px] font-medium leading-none outline-none transition-colors duration-150 motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/50",
+                selected
+                  ? "bg-foreground text-background shadow-[0_1px_2px_rgba(0,0,0,0.08)] dark:bg-white dark:text-zinc-950"
+                  : "border border-[color:var(--one-chat-divider)] bg-transparent text-[color:var(--one-chat-meta)] hover:bg-[color:var(--one-chat-row-hover)] hover:text-foreground",
+              )}
+            >
+              <span>{categoryName}</span>
+              <span
+                className={cn(
+                  "text-[10px] tabular-nums",
+                  selected ? "opacity-75" : "opacity-60",
+                )}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    ) : null;
+
   // Quiet list rows, as in the reference: no pill outline or glass, only a
   // hover fill. The shared control keeps its focus ring and ripple.
   const footerButtonClassName = cn(
@@ -534,9 +799,9 @@ export function AgentHistorySidebar({
                 <h2 data-agent-history-title className="truncate text-[20px] font-semibold leading-[23px] tracking-[-0.025em] text-foreground">
                   {listTitle}
                 </h2>
-                {conversations.length > 0 ? (
+                {chatConversations.length > 0 ? (
                   <span className="rounded-full bg-[color:var(--one-chat-field)] px-1.5 py-0.5 text-[10.5px] font-medium tabular-nums text-[color:var(--one-chat-meta)]">
-                    {conversations.length}
+                    {chatConversations.length}
                   </span>
                 ) : null}
               </div>
@@ -544,23 +809,75 @@ export function AgentHistorySidebar({
         ) : null}
         <SidePanelMotionBody>
         {isMobileMode ? (
-          <div data-agent-history-controls className="px-4 pb-1">
-            {puppyFootnote}
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              data-chat-new-button
-              className="flex h-11 w-full items-center justify-start gap-2 rounded-[12px] border-0 bg-transparent px-3 text-[15px] font-medium text-foreground shadow-none transition-[transform,background-color] motion-reduce:transition-none duration-150 hover:bg-[color:var(--one-chat-row-hover)] active:bg-[color:var(--one-chat-row-active)] dark:bg-transparent dark:hover:bg-[color:var(--one-chat-row-hover)]"
-              onClick={onCreateNew}
-              disabled={createNewDisabled}
-              aria-label="Create new chat"
-              title="Create new chat"
-            >
-              <Plus className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-              <span data-agent-history-row-title>New chat</span>
-            </Button>
-          </div>
+          <>
+            {showPinnedOneStream ? (
+              <div data-agent-history-controls className="px-4 pb-2.5 pt-1">
+                <button
+                  type="button"
+                  data-testid="agent-history-pinned-one"
+                  data-state={oneStreamActive ? "active" : undefined}
+                  className={cn(
+                    "group/one relative isolate flex min-h-11 w-full items-center justify-between gap-3 overflow-hidden rounded-[14px] border px-3.5 py-2 text-left outline-none transition-[background-color,border-color,box-shadow] duration-[180ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60",
+                    oneStreamActive
+                      ? "border-black/[0.08] bg-white shadow-[0_2px_8px_-2px_rgba(0,0,0,0.07),0_0_0_0.5px_rgba(0,0,0,0.03),inset_0_1px_0_rgba(255,255,255,0.9)] dark:border-white/[0.12] dark:bg-white/[0.10] dark:shadow-[0_2px_10px_-2px_rgba(0,0,0,0.45),inset_0_0.5px_0_rgba(255,255,255,0.16)]"
+                      : "border-black/[0.05] bg-black/[0.025] hover:border-black/[0.09] hover:bg-black/[0.045] dark:border-white/[0.07] dark:bg-white/[0.04] dark:hover:border-white/[0.12] dark:hover:bg-white/[0.07]",
+                  )}
+                  onClick={() => onSelectOneStream?.()}
+                  disabled={disabled}
+                  aria-current={oneStreamActive ? "page" : undefined}
+                  aria-label={pendingOneActionCount > 0 ? `One (${pendingOneActionCount} waiting)` : "One"}
+                >
+                  <HusshOneLockup variant="drawer" active={oneStreamActive} className="relative z-10" />
+                  <span className="relative z-10 flex shrink-0 items-center gap-2">
+                    <span className="text-[12px] font-normal leading-4 text-[color:var(--one-chat-meta)]">
+                      Main chat
+                    </span>
+                    {pendingOneActionCount > 0 ? (
+                      <span
+                        data-testid="agent-history-pinned-one-badge"
+                        className="shrink-0 rounded-full bg-[color:var(--app-accent)] px-2 py-0.5 text-[11px] font-semibold tabular-nums text-white"
+                      >
+                        {pendingOneActionCount}
+                      </span>
+                    ) : oneStreamActive ? (
+                      <span
+                        aria-hidden="true"
+                        className="size-1.5 rounded-full bg-[color:var(--app-accent)]"
+                      />
+                    ) : null}
+                  </span>
+                  <MaterialRipple variant="none" effect="glass" disableHover />
+                </button>
+              </div>
+            ) : null}
+            <div data-agent-history-controls className="px-4 pb-1">
+              {showPinnedOneStream ? (
+                <div
+                  data-agent-history-chats-label
+                  className="border-t border-[color:var(--one-chat-divider)] px-2 pb-1 pt-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-[color:var(--one-chat-meta)]"
+                >
+                  Chats
+                </div>
+              ) : null}
+              {puppyFootnote}
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                data-chat-new-button
+                className="flex h-11 w-full items-center justify-start gap-2 rounded-[12px] border-0 bg-transparent px-3 text-[15px] font-medium text-foreground shadow-none transition-[transform,background-color] motion-reduce:transition-none duration-150 hover:bg-[color:var(--one-chat-row-hover)] active:bg-[color:var(--one-chat-row-active)] dark:bg-transparent dark:hover:bg-[color:var(--one-chat-row-hover)]"
+                onClick={onCreateNew}
+                disabled={createNewDisabled}
+                aria-label="Create new chat"
+                title="Create new chat"
+              >
+                <Plus className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                <span data-agent-history-row-title>New chat</span>
+              </Button>
+            </div>
+            <div data-agent-history-controls className="pb-1 pt-1.5">{searchField}</div>
+            {categoryFilterBar}
+          </>
         ) : railMode ? (
           <div className="flex w-full flex-col items-center gap-2 p-3">
             <Button
@@ -574,6 +891,30 @@ export function AgentHistorySidebar({
             >
               <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
             </Button>
+            {showPinnedOneStream ? (
+              <button
+                type="button"
+                data-testid="agent-history-pinned-one"
+                data-state={oneStreamActive ? "active" : undefined}
+                className={cn(
+                  "relative isolate grid h-10 w-10 place-items-center overflow-hidden rounded-[12px] border transition-[background-color,border-color,box-shadow] duration-[180ms] motion-reduce:transition-none outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60",
+                  oneStreamActive
+                    ? "border-black/[0.08] bg-white text-[color:var(--app-accent)] shadow-[0_2px_6px_rgba(0,0,0,0.06)] dark:border-white/[0.14] dark:bg-white/[0.12]"
+                    : "border-black/[0.05] bg-black/[0.03] text-foreground/80 hover:bg-black/[0.06] hover:text-foreground dark:border-white/[0.08] dark:bg-white/[0.05]",
+                )}
+                onClick={() => onSelectOneStream?.()}
+                disabled={disabled}
+                aria-current={oneStreamActive ? "page" : undefined}
+                aria-label="Open One"
+                title="One"
+              >
+                <HusshOneLockup variant="rail" active={oneStreamActive} />
+                {pendingOneActionCount > 0 ? (
+                  <span className="absolute right-1 top-1 size-2 rounded-full bg-[color:var(--app-accent)]" aria-hidden="true" />
+                ) : null}
+                <MaterialRipple variant="none" effect="glass" disableHover />
+              </button>
+            ) : null}
             <Button
               type="button"
               variant="ghost"
@@ -588,26 +929,74 @@ export function AgentHistorySidebar({
             </Button>
           </div>
         ) : (
-          // Search first, level with the chat header, then New chat beside it.
-          <div className="flex h-[var(--agent-chat-header-height,4rem)] shrink-0 items-center gap-2 px-3 pt-[var(--agent-chat-header-safe-top,0px)]">
-            {searchField}
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              data-chat-new-button
-              className="h-11 w-11 shrink-0 rounded-full text-muted-foreground hover:bg-[color:var(--one-chat-row-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60"
-              onClick={onCreateNew}
-              disabled={createNewDisabled}
-              aria-label="Create new chat"
-              title="New chat"
-            >
-              <Plus className="h-[18px] w-[18px]" aria-hidden="true" />
-            </Button>
-          </div>
+          <>
+            {showPinnedOneStream ? (
+              <div className="shrink-0 px-3 pb-2 pt-[calc(var(--agent-chat-header-safe-top,0px)+0.75rem)]">
+                <button
+                  type="button"
+                  data-testid="agent-history-pinned-one"
+                  data-state={oneStreamActive ? "active" : undefined}
+                  className={cn(
+                    "group/one relative isolate flex min-h-11 w-full items-center justify-between gap-3 overflow-hidden rounded-[14px] border px-3.5 py-2 text-left outline-none transition-[background-color,border-color,box-shadow] duration-[180ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60",
+                    oneStreamActive
+                      ? "border-black/[0.08] bg-white shadow-[0_2px_8px_-2px_rgba(0,0,0,0.07),0_0_0_0.5px_rgba(0,0,0,0.03),inset_0_1px_0_rgba(255,255,255,0.9)] dark:border-white/[0.12] dark:bg-white/[0.10] dark:shadow-[0_2px_10px_-2px_rgba(0,0,0,0.45),inset_0_0.5px_0_rgba(255,255,255,0.16)]"
+                      : "border-black/[0.05] bg-black/[0.025] hover:border-black/[0.09] hover:bg-black/[0.045] dark:border-white/[0.07] dark:bg-white/[0.04] dark:hover:border-white/[0.12] dark:hover:bg-white/[0.07]",
+                  )}
+                  onClick={() => onSelectOneStream?.()}
+                  disabled={disabled}
+                  aria-current={oneStreamActive ? "page" : undefined}
+                  aria-label={pendingOneActionCount > 0 ? `One (${pendingOneActionCount} waiting)` : "One"}
+                >
+                  <HusshOneLockup variant="drawer" active={oneStreamActive} className="relative z-10" />
+                  <span className="relative z-10 flex shrink-0 items-center gap-2">
+                    <span className="text-[12px] font-normal leading-4 text-[color:var(--one-chat-meta)]">
+                      Main chat
+                    </span>
+                    {pendingOneActionCount > 0 ? (
+                      <span
+                        data-testid="agent-history-pinned-one-badge"
+                        className="shrink-0 rounded-full bg-[color:var(--app-accent)] px-2 py-0.5 text-[11px] font-semibold tabular-nums text-white"
+                      >
+                        {pendingOneActionCount}
+                      </span>
+                    ) : oneStreamActive ? (
+                      <span
+                        aria-hidden="true"
+                        className="size-1.5 rounded-full bg-[color:var(--app-accent)]"
+                      />
+                    ) : null}
+                  </span>
+                  <MaterialRipple variant="none" effect="glass" disableHover />
+                </button>
+                <div
+                  data-agent-history-chats-label
+                  className="mt-2.5 border-t border-[color:var(--one-chat-divider)] px-1 pb-0 pt-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-[color:var(--one-chat-meta)]"
+                >
+                  Chats
+                </div>
+              </div>
+            ) : null}
+            {/* Search first, scoped directly to Chats, then New chat beside it. */}
+            <div className={cn("flex shrink-0 items-center gap-2 px-3", showPinnedOneStream ? "py-1" : "h-[var(--agent-chat-header-height,4rem)] pt-[var(--agent-chat-header-safe-top,0px)]")}>
+              {searchField}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                data-chat-new-button
+                className="h-11 w-11 shrink-0 rounded-full text-muted-foreground hover:bg-[color:var(--one-chat-row-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60"
+                onClick={onCreateNew}
+                disabled={createNewDisabled}
+                aria-label="Create new chat"
+                title="New chat"
+              >
+                <Plus className="h-[18px] w-[18px]" aria-hidden="true" />
+              </Button>
+            </div>
+            {categoryFilterBar}
+          </>
         )}
 
-        {isMobileMode ? <div data-agent-history-controls className="pb-1 pt-2">{searchField}</div> : null}
         {!isMobileMode && !railMode && puppyFootnote ? <div className="px-4">{puppyFootnote}</div> : null}
 
         <div className={cn("min-h-0 flex-1 overflow-y-auto overscroll-contain pb-3 pt-0.5 scrollbar-thin scrollbar-thumb-black/10 dark:scrollbar-thumb-white/10 scrollbar-track-transparent", isMobileMode ? "px-[var(--page-inline-gutter-standard)]" : "px-2.5")}>
@@ -623,7 +1012,7 @@ export function AgentHistorySidebar({
             </div>
           ) : null}
 
-          {!railMode && !loading && conversations.length === 0 ? (
+          {!railMode && !loading && chatConversations.length === 0 ? (
             <div className="my-3 flex flex-col items-center justify-center rounded-2xl border border-dashed border-[color:var(--one-chat-divider)] px-4 py-8 text-center">
               <div className="mb-2.5 grid h-10 w-10 place-items-center rounded-xl bg-[color:var(--one-chat-field)] text-muted-foreground">
                 <MessageSquare className="h-5 w-5 opacity-70" aria-hidden="true" />
@@ -648,7 +1037,7 @@ export function AgentHistorySidebar({
 
           {!railMode &&
           !loading &&
-          conversations.length > 0 &&
+          chatConversations.length > 0 &&
           filteredConversations.length === 0 ? (
             <div className="my-3 flex flex-col items-center justify-center rounded-2xl border border-dashed border-[color:var(--one-chat-divider)] px-4 py-7 text-center">
               <div className="mb-2 grid h-9 w-9 place-items-center rounded-xl bg-[color:var(--one-chat-field)] text-muted-foreground">
@@ -656,16 +1045,21 @@ export function AgentHistorySidebar({
               </div>
               <p className="text-[13px] font-semibold text-foreground/80">No matches found</p>
               <p className="mt-0.5 max-w-[210px] truncate text-[11.5px] text-muted-foreground">
-                No chats match &ldquo;{searchQuery.trim()}&rdquo;
+                {searchQuery.trim()
+                  ? `No chats match “${searchQuery.trim()}”`
+                  : `No chats in ${effectiveActiveCategory}`}
               </p>
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
                 className="mt-2 h-8 text-xs text-muted-foreground hover:text-foreground"
-                onClick={() => setSearchQuery("")}
+                onClick={() => {
+                  setSearchQuery("");
+                  setActiveCategory("All");
+                }}
               >
-                Clear search
+                {searchQuery.trim() ? "Clear search" : "Show all chats"}
               </Button>
             </div>
           ) : null}
@@ -782,6 +1176,54 @@ export function AgentHistorySidebar({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog
+        open={Boolean(customCategoryTarget)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCustomCategoryTarget(null);
+            setCustomCategoryDraft("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[360px]" srDescription="Assign a custom category topic to this chat.">
+          <DialogHeader>
+            <DialogTitle>Custom category</DialogTitle>
+            <DialogDescription>
+              Organize this conversation under your own topic.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={submitCustomCategory} className="space-y-4">
+            <Input
+              value={customCategoryDraft}
+              onChange={(event) => setCustomCategoryDraft(event.target.value)}
+              placeholder="e.g. Advisory, Travel, Family"
+              aria-label="Category name"
+              maxLength={32}
+              autoFocus
+              autoComplete="off"
+            />
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setCustomCategoryTarget(null);
+                  setCustomCategoryDraft("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={!normalizeCategoryLabel(customCategoryDraft)}
+              >
+                Save
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

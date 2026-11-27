@@ -28,6 +28,7 @@ export interface HushhSettings {
   // UI Preferences
   theme: "system" | "light" | "dark";
   hapticFeedback: boolean;
+  experimentalNativeInterface: boolean;
 
   // Developer/Debug
   showDebugInfo: boolean;
@@ -50,6 +51,7 @@ export const DEFAULT_SETTINGS: HushhSettings = {
   // UI defaults
   theme: "system",
   hapticFeedback: true,
+  experimentalNativeInterface: false,
 
   // Debug on for dev
   showDebugInfo: true,
@@ -65,6 +67,7 @@ export const PRODUCTION_SETTINGS: HushhSettings = {
   requireBiometricUnlock: true,
   theme: "system",
   hapticFeedback: true,
+  experimentalNativeInterface: false,
   showDebugInfo: false,
   verboseLogging: false,
 };
@@ -106,6 +109,7 @@ class SettingsServiceImpl {
       settings = { ...DEFAULT_SETTINGS };
     }
 
+    settings.experimentalNativeInterface = settings.experimentalNativeInterface === true;
     if (usesNativeHapticPreference()) {
       settings.hapticFeedback = await readAppHapticPreference().catch(() => false);
     }

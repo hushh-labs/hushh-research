@@ -1,5 +1,6 @@
 "use client";
 
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import { PersonProfileButton } from "@/components/connections/person-profile-button";
 import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import { MapPersonTrayChip, MapSharingPersonRow, activeSharePeopleFromGrants, type MapSharingPerson } from "./map-connection-rows";
@@ -31,7 +32,7 @@ import {
   UsersRound,
 } from "@/components/icons";
 import { useRouter, useSearchParams } from "next/navigation";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { LocationMapCloseControl, LocationMapCheckInControl, LocationMapLocateControl } from "./location-map-stationary-controls";
 import {
@@ -70,7 +71,10 @@ import {
   readLocationWorkspaceMemory,
   writeLocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
-import { updateOneLocationControlState } from "@/lib/one-location/location-control-state";
+import {
+  readOneLocationControlState,
+  updateOneLocationControlState,
+} from "@/lib/one-location/location-control-state";
 import { resolvedAccentHex } from "@/lib/theme/accent";
 import {
   firstNameFromLabel,
@@ -86,7 +90,7 @@ import {
   getNativeMapsApiKey,
 } from "@/lib/one-location/maps-config";
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
-import { neutralWorldCamera } from "@/lib/one-location/map-world-view";
+import { neutralWorldCamera, wrappedLongitude } from "@/lib/one-location/map-world-view";
 import {
   attachWebPersonAvatarHosts,
   webPersonMarkerPlaceholder,
@@ -109,6 +113,7 @@ import {
   NEARBY_PRIVATE_RESUME_PARAM,
 } from "@/lib/one-location/nearby-private-navigation";
 import { OneLocationService } from "@/lib/one-location/service";
+import { isFixedLocationGrant } from "@/lib/one-location/notifications";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { subscribeToOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
 import { publishOneLocationMapPreferences } from "@/lib/one-location/use-one-location-map-preferences";
@@ -297,8 +302,8 @@ const STALE_TINT = { r: 142, g: 142, b: 147, a: 255 } as const;
 const SELF_TINT = { r: 0, g: 122, b: 255, a: 255 } as const;
 /** Green (--app-success). A live check-in is a settled positive fact. */
 const PLACE_ACTIVE_TINT = { r: 52, g: 199, b: 89, a: 255 } as const;
-/** Apple blue for a chosen venue; shape and label distinguish it from you. */
-const PLACE_PENDING_TINT = SELF_TINT;
+/** Red marks the selected venue before the owner confirms their check-in. */
+const PLACE_PENDING_TINT = { r: 234, g: 67, b: 53, a: 255 } as const;
 
 /** The CSS form of a pin tint, so a legend swatch cannot drift from its pin. */
 function tintCss(tint: { r: number; g: number; b: number }): string {
@@ -613,10 +618,6 @@ async function frameMarkers(
   // fit. A rejected bridge call must leave the existing street-scale dot alone
   // rather than painting a continent-sized circle over an unmoved camera.
   if (fittedZoom !== null) prepareCamera?.(fittedZoom);
-}
-
-function wrappedLongitude(longitude: number): number {
-  return ((((longitude + 180) % 360) + 360) % 360) - 180;
 }
 
 function radiusBounds(
@@ -938,6 +939,7 @@ export function LocationImmersiveMap({
   const interactionIntents = useInteractionIntents();
   const [mapReady, setMapReady] = useState(false);
   const [entryLocationSettled, setEntryLocationSettled] = useState(false);
+  const [entryMarkersSettled, setEntryMarkersSettled] = useState(false);
   const [status, setStatus] = useState<
     "idle" | "loading" | "ready" | "unavailable" | "error"
   >("idle");
@@ -1036,6 +1038,7 @@ export function LocationImmersiveMap({
     setSelfMarker(null);
     setSelected(null);
     setEntryLocationSettled(false);
+    setEntryMarkersSettled(false);
     setMapRetryToken((token) => token + 1);
   }, [rendererReady]);
 
@@ -1251,6 +1254,7 @@ export function LocationImmersiveMap({
     (options?: {
       maxAgeMs?: number;
       fresh?: boolean;
+      requireMeasurement?: boolean;
     }): Promise<PlainLocationPoint> => {
       // A caller demanding a genuinely fresh fix must not be handed the
       // in-flight one this ref is holding — that is how the check-in anchor
@@ -1258,7 +1262,8 @@ export function LocationImmersiveMap({
       if (
         locationCaptureRef.current &&
         options?.maxAgeMs !== 0 &&
-        !options?.fresh
+        !options?.fresh &&
+        !options?.requireMeasurement
       ) {
         return locationCaptureRef.current;
       }
@@ -1285,7 +1290,7 @@ export function LocationImmersiveMap({
   // dropped a caller's `maxAgeMs: 0` — TypeScript accepts the narrower arity, so
   // it compiled clean while the check-in anchor quietly used a cached fix.
   const captureAndRememberCurrentLocation = useCallback(
-    async (options?: { maxAgeMs?: number; fresh?: boolean }) => {
+    async (options?: { maxAgeMs?: number; fresh?: boolean; requireMeasurement?: boolean }) => {
       const point = await captureCurrentLocation(options);
       if (auth.userId) {
         const workspace = readLocationWorkspaceMemory(auth.userId);
@@ -1300,7 +1305,7 @@ export function LocationImmersiveMap({
   );
 
   const handleNearbyStateChange = useCallback(
-    (next: OneLocationNearbyPresenceState) => {
+    (next: OneLocationNearbyPresenceState, confirmedCheckIn?: true) => {
       // Keep the ref current in the same turn as the callback. The entry GPS
       // request can already be in flight here, and waiting for the state-sync
       // effect would leave a small window where its late result can still move
@@ -1310,7 +1315,7 @@ export function LocationImmersiveMap({
       if (!auth.userId) return;
       updateOneLocationControlState(auth.userId, (current) => ({
         ...current,
-        paused: next.presence ? false : current.paused,
+        paused: confirmedCheckIn && next.presence ? false : current.paused,
         nearbyPresenceActive: Boolean(next.presence),
         nearbyCheckedInAt: next.presence?.checkedInAt ?? null,
       }));
@@ -1442,6 +1447,7 @@ export function LocationImmersiveMap({
         }));
         markerSignatureRef.current = markerSignature(demoMarkers);
         setMarkers(demoMarkers);
+        setEntryMarkersSettled(true);
         setStatus((current) => current === "unavailable" ? current : "ready");
         return;
       }
@@ -1496,6 +1502,7 @@ export function LocationImmersiveMap({
         markerSignatureRef.current = nextSignature;
         setMarkers(nextMarkers);
       }
+      setEntryMarkersSettled(true);
       setStatus((current) => current === "unavailable" ? current : "ready");
     } catch {
       if (
@@ -1503,6 +1510,7 @@ export function LocationImmersiveMap({
         rendererReadyRef.current &&
         refreshGenerationRef.current === refreshGeneration
       ) {
+        setEntryMarkersSettled(true);
         setStatus((current) => current === "unavailable" ? current : "error");
       }
     } finally {
@@ -1649,6 +1657,10 @@ export function LocationImmersiveMap({
   }, [demoMode]);
 
   useEffect(() => {
+    setEntryMarkersSettled(false);
+  }, [auth.userId, demoMode, vaultOwnerToken]);
+
+  useEffect(() => {
     if (!vaultOwnerToken || !rendererReady) return;
     void refresh();
     if (demoMode) return;
@@ -1785,6 +1797,14 @@ export function LocationImmersiveMap({
         return;
       }
       mapRef.current = map;
+      if (!isCheckInSurface && !framedInitialMarkersRef.current && !initialFrameCommandRef.current) {
+        // Reserve entry before the renderer becomes interactive. Explicit camera
+        // actions can then supersede it while location/decryption is still pending.
+        initialFrameCommandRef.current = {
+          cameraRevision: settledCameraRevisionRef.current,
+          generation: ++cameraCommandGenerationRef.current,
+        };
+      }
       mapMinimumZoomRef.current = worldView.zoom;
       placeholderCameraRetiredRef.current = false;
       if (!isNative()) {
@@ -1948,7 +1968,8 @@ export function LocationImmersiveMap({
         try {
           await map.setOnCameraMoveStartedListener((event) => {
             if (!currentInstance()) return;
-            if (event.isGesture && rendererReadyRef.current) {
+            if (event.isGesture && rendererReadyRef.current &&
+              (isNative() || isCheckInSurface || initialDemoModeRef.current)) {
               // Native reports genuine gestures; Web also labels programmatic
               // center_changed as gestures, so placeholder ownership uses DOM input.
               if (isNative()) placeholderCameraRetiredRef.current = true;
@@ -2069,9 +2090,15 @@ export function LocationImmersiveMap({
       return;
     }
     entryLocationRequestedRef.current = true;
+    const userId = auth.userId;
+    const deferEntryCamera = !isCheckInSurface && !demoMode;
+    if (readOneLocationControlState(userId).paused) {
+      setEntryLocationSettled(true);
+      return;
+    }
     let cancelled = false;
     const cachedPoint = readLocationWorkspaceMemory(
-      auth.userId,
+      userId,
     ).myLocationPoint;
     const shouldMoveCameraToDevice = () => {
       if (!isCheckInSurface) return true;
@@ -2086,26 +2113,31 @@ export function LocationImmersiveMap({
 
     void (async () => {
       if (cachedPoint) {
-        framedInitialMarkersRef.current = true;
-        initialFrameCommandRef.current = null;
+        if (!deferEntryCamera) {
+          framedInitialMarkersRef.current = true;
+          initialFrameCommandRef.current = null;
+        }
         await focusSelfPoint(cachedPoint, {
           animate: false,
           select: false,
-          moveCamera: shouldMoveCameraToDevice(),
+          moveCamera: !deferEntryCamera && shouldMoveCameraToDevice(),
         });
       }
       try {
+        if (cancelled || readOneLocationControlState(userId).paused) return;
         const point = await captureCurrentLocation();
-        if (cancelled) return;
-        framedInitialMarkersRef.current = true;
-        initialFrameCommandRef.current = null;
+        if (cancelled || readOneLocationControlState(userId).paused) return;
+        if (!deferEntryCamera) {
+          framedInitialMarkersRef.current = true;
+          initialFrameCommandRef.current = null;
+        }
         await focusSelfPoint(point, {
           animate: true,
           select: false,
           // Presence and GPS load concurrently. If presence won the race, keep
           // the freshly captured point as device state without letting its late
           // completion pan away from the active venue.
-          moveCamera: shouldMoveCameraToDevice(),
+          moveCamera: !deferEntryCamera && shouldMoveCameraToDevice(),
         });
       } catch {
         // Entry focus is best-effort. The explicit Locate control remains
@@ -2121,6 +2153,7 @@ export function LocationImmersiveMap({
   }, [
     auth.userId,
     captureCurrentLocation,
+    demoMode,
     focusSelfPoint,
     isCheckInSurface,
     mapReady,
@@ -2157,6 +2190,9 @@ export function LocationImmersiveMap({
   const activePlaceLongitude = nearbyPresenceState.presence?.placeLng;
   const activePlaceLabel = nearbyPresenceState.presence?.placeLabel;
   const activeCheckedInAt = nearbyPresenceState.presence?.checkedInAt;
+  const activeCheckInLabel = hasActivePresence
+    ? activePlaceLabel?.trim() || "Your check-in place"
+    : nearbyPlaceFocus?.active ? nearbyPlaceFocus.label : null;
 
   /**
    * The sheet publishes selection focus only while it is open, but the active
@@ -2228,11 +2264,7 @@ export function LocationImmersiveMap({
     };
   }, [isCheckInSurface, displayedPlaceFocus, activeCheckedInAt, selfMarker]);
 
-  /**
-   * A venue pin is useful only while choosing: it lets the owner compare the
-   * candidate with their current position. After confirmation the avatar owns
-   * the venue coordinate, so a second green pin would duplicate the same fact.
-   */
+  /** The selected venue has its own pin until the check-in becomes active. */
   const nearbyPlaceMarker = useMemo<RenderMarker | null>(() => {
     if (!displayedPlaceFocus) return null;
     if (isCheckInSurface && displayedPlaceFocus.active) return null;
@@ -2287,7 +2319,13 @@ export function LocationImmersiveMap({
       ? `Your check-in at ${displayedPlaceFocus.label}`
       : "Your location";
 
+  const checkInDetailsRef = useRef<HTMLDetailsElement>(null);
   const selectSelfMarker = useCallback(() => {
+    if (isCheckInSurface && displayedPlaceFocus?.active && checkInDetailsRef.current) {
+      checkInDetailsRef.current.open = true;
+      checkInDetailsRef.current.querySelector("summary")?.focus({ preventScroll: true });
+      return;
+    }
     // A cached point may exist before consent or after it is revoked. Never let
     // even a stale queued activation disclose that coordinate to the renderer.
     if (!rendererReady || !mapSelfMarker) return;
@@ -2302,7 +2340,7 @@ export function LocationImmersiveMap({
       zoom: 15,
       animate: true,
     }).catch(() => undefined);
-  }, [mapSelfMarker, moveCameraAndPublishZoom, rendererReady]);
+  }, [displayedPlaceFocus?.active, isCheckInSurface, mapSelfMarker, moveCameraAndPublishZoom, rendererReady]);
 
   /**
    * Non-owner pins managed as one renderer batch. The owner fallback is a
@@ -2591,9 +2629,17 @@ export function LocationImmersiveMap({
 
   useEffect(() => {
     const element = mapElement.current;
-    if (!element || !mapReady || isNative()) return;
+    if (!element || isNative()) return;
     const retirePlaceholder = () => {
-      if (rendererReadyRef.current) placeholderCameraRetiredRef.current = true;
+      if (!rendererReadyRef.current) return;
+      placeholderCameraRetiredRef.current = true;
+      if (!isCheckInSurface && !demoMode) {
+        // Web labels programmatic center_changed as gestures. Actual DOM input
+        // is the authority for retiring the pending entry view on Your Map.
+        cameraCommandGenerationRef.current += 1;
+        initialFrameCommandRef.current = null;
+        framedInitialMarkersRef.current = true;
+      }
     };
     const onMapKeyDown = (event: KeyboardEvent) => {
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Home", "End", "+", "-", "="].includes(event.key)) {
@@ -2608,7 +2654,7 @@ export function LocationImmersiveMap({
       element.removeEventListener("wheel", retirePlaceholder);
       element.removeEventListener("keydown", onMapKeyDown, true);
     };
-  }, [mapReady]);
+  }, [demoMode, isCheckInSurface, mapReady]);
 
   /**
    * Keep the neutral world view filling the box after the box changes size.
@@ -2634,7 +2680,13 @@ export function LocationImmersiveMap({
       width: mapBox.width,
       height: mapBox.height,
     });
-    cameraCommandGenerationRef.current += 1;
+    const previousGeneration = cameraCommandGenerationRef.current;
+    const generation = ++cameraCommandGenerationRef.current;
+    const pendingInitialFrame = initialFrameCommandRef.current;
+    if (pendingInitialFrame?.generation === previousGeneration) {
+      // Resizing the neutral placeholder is not a new user camera intent.
+      pendingInitialFrame.generation = generation;
+    }
     void map
       .setCamera({
         coordinate: worldView.center,
@@ -3043,13 +3095,12 @@ export function LocationImmersiveMap({
       // generic people auto-frame claim that camera as the venue marker appears
       // would cancel the authoritative check-in fit.
       !isCheckInSurface &&
+      rendererReady &&
       entryLocationSettled &&
-      !framedInitialMarkersRef.current &&
-      visibleMarkers.length > 0;
-    if (!initialFrameEligible) initialFrameCommandRef.current = null;
-    let initialFrameCommand = initialFrameEligible
-      ? initialFrameCommandRef.current
-      : null;
+      entryMarkersSettled &&
+      !framedInitialMarkersRef.current;
+    if (isCheckInSurface || framedInitialMarkersRef.current) initialFrameCommandRef.current = null;
+    let initialFrameCommand = initialFrameEligible ? initialFrameCommandRef.current : null;
     if (initialFrameEligible && !initialFrameCommand) {
       initialFrameCommand = {
         cameraRevision: settledCameraRevisionRef.current,
@@ -3089,15 +3140,10 @@ export function LocationImmersiveMap({
           : [],
       ));
       const mapMarkers: Marker[] = rendererMarkers.map((marker) => {
-        // Labels stay in the local HTML tray/search index. The native Google
-        // renderer receives coordinates and a generic accessibility title,
-        // never the private recipient name.
-        const title =
-          marker.kind === "place"
-            ? // A public venue the owner picked, so its name may reach the
-              // renderer -- unlike a private recipient's label.
-              marker.label
-            : "Private location";
+        // Private names stay in the local tray and avatar overlays.
+        const title = marker.kind === "place"
+          ? "Selected check-in place"
+          : "Private location";
         return {
           coordinate: {
             lat: marker.point.latitude,
@@ -3109,12 +3155,11 @@ export function LocationImmersiveMap({
           ...(isNative()
             ? {
                 title,
-                snippet:
-                  marker.kind === "place"
-                    ? "Your check-in place"
-                    : "Sharing privately now",
+                snippet: marker.kind === "place"
+                  ? "Confirm your check-in in the drawer"
+                  : "Sharing privately now",
               }
-            : avatarTitles.has(marker.key)
+              : avatarTitles.has(marker.key)
               ? {
                   title: avatarTitles.get(marker.key),
                   iconUrl: webPersonMarkerPlaceholder(isStaleAt(marker.capturedAt, freshnessSeconds, staleClockMs)),
@@ -3132,7 +3177,7 @@ export function LocationImmersiveMap({
           )
             ? STALE_TINT
             : marker.tint,
-          zIndex: marker.kind === "place" ? 9 : 1,
+          zIndex: 1,
         };
       });
       const ids = mapMarkers.length ? await map.addMarkers(mapMarkers) : [];
@@ -3191,6 +3236,17 @@ export function LocationImmersiveMap({
         if (initialFrameCommandRef.current === initialFrameCommand) {
           initialFrameCommandRef.current = null;
         }
+        if (!visibleMarkers.some((marker) => marker.kind === "person")) {
+          const owner = visibleMarkers.find((marker) => marker.kind === "self");
+          if (owner) {
+            await moveCameraAndPublishZoom(map, {
+              coordinate: { lat: owner.point.latitude, lng: owner.point.longitude },
+              zoom: zoomForAccuracy(owner.point.accuracyM),
+              animate: false,
+            }).catch(() => undefined);
+          }
+          return;
+        }
         const measuredBox = mapElement.current
           ? measureMapBox(mapElement.current)
           : undefined;
@@ -3232,9 +3288,12 @@ export function LocationImmersiveMap({
   }, [
     clusteringActive,
     entryLocationSettled,
+    entryMarkersSettled,
     isCheckInSurface,
     mapReady,
+    rendererReady,
     rendererMarkers,
+    moveCameraAndPublishZoom,
     visibleMarkers,
     freshnessSeconds,
     staleClockMs,
@@ -3292,7 +3351,7 @@ export function LocationImmersiveMap({
         toast.success(
           nextMode === "ghost"
             ? "Demo Ghost Mode is on."
-            : "Demo visibility is on.",
+            : "Demo visibility is on.", { className: connectTypography.toast },
         );
         return;
       }
@@ -3315,10 +3374,10 @@ export function LocationImmersiveMap({
           ? privateShareCount > 0
             ? `Ghost Mode is on. The ${privateShareCount === 1 ? "person" : `${privateShareCount} people`} you share with privately can still see you.`
             : "Ghost Mode is on. You are hidden from your connections."
-          : "You are visible to your connections again.",
+          : "You are visible to your connections again.", { className: connectTypography.toast },
       );
     } catch {
-      toast.error("Map visibility could not be updated.");
+      toast.error("Map visibility could not be updated.", { className: connectTypography.toast });
     } finally {
       setBusy(null);
     }
@@ -3380,7 +3439,7 @@ export function LocationImmersiveMap({
       toast.error(
         isLocationPermissionDeniedError(error)
           ? LOCATION_COPY.denied
-          : LOCATION_COPY.noFix,
+          : LOCATION_COPY.noFix, { className: connectTypography.toast },
       );
       setBusy(null);
       return;
@@ -3388,7 +3447,7 @@ export function LocationImmersiveMap({
     try {
       await focusSelfPoint(point, { animate: true, select: true });
       if (demoMode) {
-        toast.success("Centered on your device location.");
+        toast.success("Centered on your device location.", { className: connectTypography.toast });
         return;
       }
       // Ghost Mode used to stop here, and that was the bug.
@@ -3414,7 +3473,7 @@ export function LocationImmersiveMap({
         ]),
       );
       const grants = state.ownerGrants.filter(
-        (grant) => grant.status === "active" && !!grant.id,
+        (grant) => grant.status === "active" && !!grant.id && !isFixedLocationGrant(grant),
       );
       // Keep the on-map "Sharing with N" status in sync off this same fetch.
       if (mountedRef.current) {
@@ -3430,7 +3489,7 @@ export function LocationImmersiveMap({
         toast.message(
           preferences.presenceMode === "ghost"
             ? "Ghost Mode is on, and you aren't sharing with anyone yet."
-            : "You aren't sharing your location with anyone yet.",
+            : "You aren't sharing your location with anyone yet.", { className: connectTypography.toast },
         );
         return;
       }
@@ -3455,11 +3514,11 @@ export function LocationImmersiveMap({
       );
       // Keeps the fact that other PEOPLE received it — that is the privacy-
       // relevant half. "Location updated" would hide it.
-      toast.success("Sent to the people you share with.");
+      toast.success("Sent to the people you share with.", { className: connectTypography.toast });
     } catch {
       // The map has already moved to the new position; what failed is telling
       // the people it is shared with.
-      toast.error("Couldn't send the update.");
+      toast.error("Couldn't send the update.", { className: connectTypography.toast });
     } finally {
       setBusy(null);
     }
@@ -3559,12 +3618,12 @@ export function LocationImmersiveMap({
   /** OUTGOING: people this account is sharing with. A different audience from
    *  the one above, and the reason the two get separate rows. */
   const privateShareLabel = !privateShareCountKnown
-    ? "Private sharing"
+    ? "Location sharing"
     : privateShareCount === 0
       ? "Not sharing with anyone"
       : privateShareCount === 1
-        ? "Private sharing with 1 person"
-        : `Private sharing with ${privateShareCount} people`;
+        ? "Location sharing with 1 person"
+        : `Location sharing with ${privateShareCount} people`;
 
   const privateShareHint = !privateShareCountKnown
     ? "Checking your active shares…"
@@ -3635,11 +3694,11 @@ export function LocationImmersiveMap({
               : item,
           ),
         }));
-        toast.success("Connection request sent.");
+        toast.success("Connection request sent.", { className: connectTypography.toast });
       } catch {
         if (requestIsCurrent()) {
           toast.error(
-            "That person may no longer be nearby. Open Check in and refresh the list.",
+            "That person may no longer be nearby. Open Check in and refresh the list.", { className: connectTypography.toast },
           );
         }
       } finally {
@@ -3686,7 +3745,7 @@ export function LocationImmersiveMap({
       closeRequestedRef.current = false;
       closeNavigationIdRef.current = null;
       setClosing(false);
-      toast.error("Couldn’t leave the map. Try again.");
+      toast.error("Couldn’t leave the map. Try again.", { className: connectTypography.toast });
       return;
     }
     closeNavigationIdRef.current =
@@ -3723,6 +3782,11 @@ export function LocationImmersiveMap({
     isCheckInSurface ? ROUTES.ONE_LOCATION_CHECK_IN : ROUTES.ONE_LOCATION_MAP,
     100,
     () => {
+      const details = checkInDetailsRef.current;
+      if (details?.open) {
+        details.open = false;
+        return true;
+      }
       if (nearbyCheckInOpen) {
         closeNearbyCheckIn();
         return true;
@@ -3735,6 +3799,7 @@ export function LocationImmersiveMap({
   const toggleDemoPeople = useCallback(() => {
     if (!demoAvailable) return;
     const nextEnabled = !demoMode;
+    if (!entryLocationSettled) entryLocationRequestedRef.current = false;
     markerSignatureRef.current = "";
     framedInitialMarkersRef.current = false;
     initialFrameCommandRef.current = null;
@@ -3743,9 +3808,9 @@ export function LocationImmersiveMap({
     toast.message(
       nextEnabled
         ? "Showing fictional people. Locate Me still uses this device."
-        : "Fictional people hidden.",
+        : "Fictional people hidden.", { className: connectTypography.toast },
     );
-  }, [demoAvailable, demoMode]);
+  }, [demoAvailable, demoMode, entryLocationSettled]);
 
   /**
    * A name in the "Sharing with" list belongs to someone this account shares
@@ -3799,7 +3864,7 @@ export function LocationImmersiveMap({
     // asked. `markers` is the incoming set: people who chose to share with this
     // account. Your own pin is not "everyone".
     if (markers.length === 0) {
-      toast.message("No one is sharing a live location with you yet.");
+      toast.message("No one is sharing a live location with you yet.", { className: connectTypography.toast });
     }
     if (visibleMarkers.length > 0) {
       const cameraRevision = settledCameraRevisionRef.current;
@@ -3854,7 +3919,7 @@ export function LocationImmersiveMap({
           pendingInitialFrame.generation = cameraCommandGeneration;
           pendingInitialFrame.cameraRevision = settledCameraRevisionRef.current;
         }
-        toast.error("Map could not frame everyone.");
+        toast.error("Map could not frame everyone.", { className: connectTypography.toast });
       }
       return;
     }
@@ -4139,8 +4204,7 @@ export function LocationImmersiveMap({
         removing the only part of it that was answering a question.
       */}
       {rendererReady &&
-      (nearbyCheckInOpen || displayedPlaceFocus?.active) &&
-      (nearbySearchPoint || displayedPlaceFocus) ? (
+      (activeCheckInLabel || (nearbyCheckInOpen && (nearbySearchPoint || displayedPlaceFocus))) ? (
         <div
           className="pointer-events-none absolute left-4 right-4 z-20 flex max-w-[18rem] flex-col gap-1.5 rounded-2xl border border-[var(--app-accent-border)] bg-background/90 px-3 py-2 text-xs font-semibold shadow-lg backdrop-blur-md md:right-auto"
           style={{
@@ -4148,19 +4212,24 @@ export function LocationImmersiveMap({
           }}
           data-testid="one-location-nearby-search-area-legend"
         >
-          {displayedPlaceFocus?.active ? (
-            <span
-              className="flex items-center gap-2"
+          {activeCheckInLabel ? (
+            <details
+              key={activeCheckInLabel}
+              ref={checkInDetailsRef}
+              className="pointer-events-auto min-w-0"
               data-testid="one-location-nearby-place-legend"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
             >
-              <MapSelfAvatarLegend
-                avatarUrl={selfAvatarUrl}
-                displayName={selfDisplayName}
-              />
-              <span data-location-type-role="row-description" className="truncate text-foreground">
-                Checked in at {displayedPlaceFocus.label}
-              </span>
-            </span>
+              <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-md text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+                <MapSelfAvatarLegend avatarUrl={selfAvatarUrl} displayName={selfDisplayName} />
+                <span data-location-type-role="row-description" className="min-w-0 flex-1">You’re checked in</span>
+                <ChevronDown className="size-4 shrink-0" aria-hidden />
+              </summary>
+              <p data-location-type-role="row-description" className="max-h-[30dvh] overflow-y-auto overscroll-contain pb-1 text-foreground [overflow-wrap:anywhere]">
+                {activeCheckInLabel}
+              </p>
+            </details>
           ) : nearbySearchPoint ? (
             <span className="flex items-center gap-2">
               <MapSelfAvatarLegend
@@ -4175,7 +4244,7 @@ export function LocationImmersiveMap({
               <span data-location-type-role="row-description" className="truncate text-foreground">You are here</span>
             </span>
           ) : null}
-          {displayedPlaceFocus && !displayedPlaceFocus.active ? (
+          {!activeCheckInLabel && displayedPlaceFocus ? (
             <span
               className="flex items-center gap-2"
               data-testid="one-location-nearby-place-legend"
@@ -4192,17 +4261,7 @@ export function LocationImmersiveMap({
               </span>
             </span>
           ) : null}
-          {!displayedPlaceFocus?.active &&
-          displayedPlaceFocus?.distanceMeters != null &&
-          displayedPlaceFocus.distanceMeters >= 25 ? (
-            <span data-location-type-role="row-description" className="pl-[1.125rem] font-normal text-muted-foreground">
-              {displayedPlaceFocus.distanceMeters < 1_000
-                ? `${displayedPlaceFocus.distanceMeters} m`
-                : `${(displayedPlaceFocus.distanceMeters / 1_000).toFixed(1)} km`}{" "}
-              from you
-            </span>
-          ) : null}
-          <span data-location-type-role="row-description" className="pl-[1.125rem] font-normal text-muted-foreground">
+          {(nearbyCheckInOpen || (isCheckInSurface && displayedPlaceFocus?.active)) ? <span data-location-type-role="row-description" className="pl-[1.125rem] font-normal text-muted-foreground">
             {/* "match" is the backend's word for how it pairs attendees, and it
                 also hid a real difference: the live circle is drawn around the
                 PLACE, the search circle around the PERSON (see the circle title
@@ -4210,7 +4269,7 @@ export function LocationImmersiveMap({
             {displayedPlaceFocus?.active
               ? "500 m around your place"
               : "500 m around you"}
-          </span>
+          </span> : null}
         </div>
       ) : null}
       {status !== "unavailable" && (!mapReady || rendererPreparationPending || (isCheckInSurface && nearbyCheckInOpen && !checkInStartupReady)) ? (
@@ -4516,12 +4575,12 @@ export function LocationImmersiveMap({
                           return (
                             <div
                               key={attendee.participantAlias}
-                              className="flex min-h-11 items-center gap-1 rounded-xl px-1.5 transition-colors hover:bg-muted/70 focus-within:ring-2 focus-within:ring-accent/70"
+                              className="flex min-h-11 items-center gap-1 rounded-xl px-1.5 focus-within:ring-2 focus-within:ring-accent/70"
                               data-testid="one-location-map-nearby-person"
                             >
                               <button
                                 type="button"
-                                className="flex min-h-11 min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none"
+                                className="group/nearby-person flex min-h-11 min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none"
                                 aria-label={`Open nearby actions for ${attendee.displayName}`}
                                 onClick={openNearbyCheckIn}
                               >
@@ -4529,7 +4588,7 @@ export function LocationImmersiveMap({
                                   {personInitials(attendee.displayName)}
                                 </span>
                                 <span className="min-w-0 flex-1">
-                                  <span data-location-type-role="row-title" className="block truncate text-sm font-medium">
+                                  <span data-location-type-role="row-title" className="block truncate text-sm font-medium group-hover/nearby-person:text-[color:var(--app-accent)]">
                                     {attendee.displayName}
                                   </span>
                                   <span data-location-type-role="row-description" className="block truncate text-xs text-muted-foreground">
@@ -4875,20 +4934,20 @@ export function LocationImmersiveMap({
                         variant="link"
                         aria-label={
                           nearbyPresenceState.presence
-                            ? `Checked in${
+                            ? `View check-in${
                                 nearbyPresenceState.attendees.length > 0
                                   ? `, ${nearbyPresenceState.attendees.length} nearby`
                                   : ""
                               }`
-                            : "Want to check in?"
+                            : "Check in"
                         }
                 data-testid="one-location-map-nearby-check-in"
                         onClick={openNearbyCheckIn}
                       >
                         <span data-location-type-role="compact-action" className="truncate">
                           {nearbyPresenceState.presence
-                            ? "Checked in"
-                            : "Want to check in?"}
+                            ? "View check-in"
+                            : "Check in"}
                         </span>
                       </Button>
                     ) : null}

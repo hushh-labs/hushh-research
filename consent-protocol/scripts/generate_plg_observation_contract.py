@@ -12,8 +12,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "hushh-webapp/lib/observability/events.ts"
 ACTIONS = SOURCE.with_name("actions.ts")
 
-# Existing metadata-only feature events keep their analytics system category.
-# This exact admission excludes unrelated authentication and diagnostics.
+# These existing feature observations retain their analytics system category.
+# This exact list is not an admission for authentication, diagnostics or payloads.
 REVIEWED_SYSTEM_FEATURE_EVENTS = frozenset(
     {
         "gmail_connect_started",
@@ -61,7 +61,13 @@ def compile_contract(source: str, *, actions_source: str = "") -> dict:
     }
     events = {}
     for name, category in names:
-        if category == "system" and name not in REVIEWED_SYSTEM_FEATURE_EVENTS:
+        # Only reviewed metadata-only feature events and the existing sign-in
+        # prompt are exceptions. Other system/auth events remain excluded.
+        if (
+            category == "system"
+            and name != "hushh_mail_signin_screen_view"
+            and name not in REVIEWED_SYSTEM_FEATURE_EVENTS
+        ):
             continue
         body = re.search(r"^  " + re.escape(name) + r": \{([\s\S]*?)^  \};", payloads, re.M)
         action_values = []

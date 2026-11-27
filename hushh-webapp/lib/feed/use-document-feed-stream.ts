@@ -12,7 +12,8 @@ import {
   createDocumentFeedStreamManager,
   type DocumentFeedStreamManager,
 } from "@/lib/feed/document-feed-stream-manager";
-import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
+import { dispatchFeedConnectionRequestsChanged, dispatchFeedStateChanged } from "@/lib/feed/feed-events";
+import { dispatchSmsAlertsChanged } from "@/lib/one-location/sms-alarm-state";
 import { dispatchPayoutStateChanged } from "@/lib/payouts/payout-events";
 import { setPayoutStreamState } from "@/lib/payouts/payout-live-store";
 import { registerPeriodicTask } from "@/lib/perf/idle-scheduler";
@@ -85,15 +86,24 @@ function openSharedStream(user: FeedUser, ownerId: string): SharedStream {
     getToken: (forceRefresh) => shared.user.getIdToken(forceRefresh),
     isCurrent,
     isVisible: () => document.visibilityState !== "hidden",
-    dispatchFeed: ({ general, consent, requestId, historyMutated }) => {
-      // Server activity invalidates both Feed projections and fences older reads.
+    dispatchFeed: ({ general, consent, connections, requestId, historyMutated, reconcileSms, reconcileConnections, connectionGraphChanged }) => {
+      if (reconcileSms) dispatchSmsAlertsChanged(uid);
+      // This stream already relays frames to sibling tabs.
+      if (reconcileConnections) CacheSyncService.onConnectionGraphMutated(uid, {
+        broadcast: false,
+        reason: connectionGraphChanged ? "mutation" : "reconcile",
+      });
       if (historyMutated) CacheSyncService.onFeedHistoryMutated(uid);
-      else CacheSyncService.onFeedChanged(uid);
+      else if (general && !consent && !reconcileConnections) CacheSyncService.onFeedChanged(uid);
+      if (connections) {
+        if (!reconcileConnections) CacheSyncService.onFeedConnectionRequestsChanged(uid);
+        dispatchFeedConnectionRequestsChanged();
+      }
       if (general) dispatchFeedStateChanged("arrived");
       if (!consent) return;
       // Feed surfaces listen to this one signal and perform a forced
       // authenticated reread. Consent Center also repairs its current view.
-      CacheSyncService.onConsentMutated(uid);
+      if (!reconcileConnections) CacheSyncService.onConsentMutated(uid);
       dispatchConsentStateChanged({
         source: "sse_document_feed",
         requestId: requestId ? `document_share_request:${requestId}` : undefined,

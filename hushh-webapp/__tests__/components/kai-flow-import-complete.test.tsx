@@ -1,13 +1,3 @@
-/**
- * KaiFlow: the "import complete" card after a brokerage statement import.
- *
- * Regression (UAT, 2026-09-27): after a Schwab statement finished extracting
- * inside Finance setup, "Review Extracted Portfolio" navigated to
- * ?stage=reviewing and was pushed straight back to ?stage=import_complete,
- * and "Cancel" left the card on screen. The navigation mock below updates
- * useSearchParams on router.push, exactly like the app router, because that
- * update is what re-ran the snapshot restore and undid the review click.
- */
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -43,6 +33,12 @@ const nav = vi.hoisted(() => {
 const setup = vi.hoisted(() => ({
   onSetupSourceSettled: vi.fn(async () => true),
   syncOnboardingJourney: vi.fn(),
+}));
+const importStream = vi.hoisted(() => vi.fn());
+const scrollReset = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/services/kai-token-guard", () => ({
+  ensureKaiVaultOwnerToken: vi.fn(async () => "synthetic-owner-token"),
 }));
 
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
@@ -135,12 +131,14 @@ vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
 }));
 
 vi.mock("@/lib/navigation/use-scroll-reset", () => ({
-  useScrollReset: () => undefined,
+  useScrollReset: scrollReset,
   scrollAppToTop: () => undefined,
 }));
 
 vi.mock("@/lib/services/app-background-task-service", () => ({
   AppBackgroundTaskService: {
+    hasRunningTask: vi.fn(() => false),
+    getState: vi.fn(() => ({ tasks: [] })),
     dismissTask: vi.fn(),
     startTask: vi.fn(() => "task-synthetic"),
     updateTask: vi.fn(),
@@ -151,9 +149,11 @@ vi.mock("@/lib/services/app-background-task-service", () => ({
 
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
+    importPortfolioStream: importStream,
     cancelPortfolioImportRun: vi.fn(
       async () => new Response(null, { status: 404 }),
     ),
+    streamPortfolioImportRun: vi.fn(),
     getActivePortfolioImportRun: vi.fn(
       async () => new Response(JSON.stringify({ run: null }), { status: 200 }),
     ),
@@ -167,9 +167,10 @@ vi.mock("@/components/vault/vault-unlock-dialog", () => ({
 }));
 
 vi.mock("@/components/kai/views/portfolio-review-view", () => ({
-  PortfolioReviewView: ({ portfolioData }: { portfolioData: { holdings?: unknown[] } }) => (
+  PortfolioReviewView: ({ portfolioData, onReimport }: { portfolioData: { holdings?: unknown[] }; onReimport: () => void }) => (
     <div data-testid="portfolio-review">
       review holdings: {portfolioData.holdings?.length ?? 0}
+      <button type="button" onClick={onReimport}>Start over</button>
     </div>
   ),
 }));
@@ -178,11 +179,14 @@ vi.mock("@/components/kai/views/portfolio-import-view", () => ({
   PortfolioImportView: ({
     onPreloadSchema,
     onConnectPlaid,
+    onFileSelect,
   }: {
     onPreloadSchema?: () => void;
     onConnectPlaid?: () => void;
+    onFileSelect?: (file: File) => void;
   }) => (
     <div data-testid="portfolio-import-chooser">
+      <button type="button" onClick={() => onFileSelect?.(new File(["%PDF synthetic"], "statement.pdf", { type: "application/pdf" }))}>Upload statement</button>
       <button type="button" onClick={() => onPreloadSchema?.()}>
         Load sample brokerage
       </button>
@@ -205,6 +209,8 @@ vi.mock("@/components/kai/views/analysis-view", () => ({
   AnalysisView: () => null,
 }));
 
+import { KAI_PORTFOLIO_IMPORT_IDLE_TIMEOUT_MS } from "@/lib/services/kai-import-stream-config";
+import { ApiService } from "@/lib/services/api-service";
 import { KaiFlow } from "@/components/kai/kai-flow";
 import { ROUTES } from "@/lib/navigation/routes";
 
@@ -267,12 +273,13 @@ function seedCompletedImport(platform: Platform, runId: string | null) {
   );
 }
 
-function renderSetupImportFlow() {
+function renderSetupImportFlow(vaultKey?: string) {
   return render(
     <KaiFlow
       userId={USER_ID}
       mode="import"
       vaultOwnerToken="synthetic-owner-token"
+      vaultKey={vaultKey}
       onSetupSourceSettled={setup.onSetupSourceSettled}
       deferSensitiveActionsUntilSetupFinalized
       voicePublisherRole="chrome"
@@ -281,7 +288,7 @@ function renderSetupImportFlow() {
 }
 
 describe.each<Platform>(["web", "native"])(
-  "KaiFlow import complete card (%s)",
+  "KaiFlow statement review (%s)",
   (platform) => {
     beforeEach(() => {
       nav.reset();
@@ -290,12 +297,118 @@ describe.each<Platform>(["web", "native"])(
       setPlatform(platform);
       setup.onSetupSourceSettled.mockClear();
       setup.syncOnboardingJourney.mockClear();
+      importStream.mockReset();
+      vi.mocked(ApiService.streamPortfolioImportRun).mockReset();
+      scrollReset.mockClear();
     });
 
     afterEach(() => {
       setPlatform("web");
       window.sessionStorage.clear();
       window.localStorage.clear();
+    });
+
+    it("cancel during active-run precheck never cancels a late run or starts upload", async () => {
+      let resolvePrecheck!: (value: Response) => void;
+      vi.mocked(ApiService.getActivePortfolioImportRun).mockImplementationOnce(() => new Promise(resolve => { resolvePrecheck = resolve; }));
+      vi.mocked(ApiService.cancelPortfolioImportRun).mockClear();
+      renderSetupImportFlow("synthetic-vault-key");
+      fireEvent.click(await screen.findByText("Upload statement"));
+      await screen.findByRole("button", { name: "Cancel", exact: true });
+      await waitFor(() => expect(resolvePrecheck).toBeDefined());
+      fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+      await act(async () => { resolvePrecheck(new Response(JSON.stringify({ run: { run_id: "late-run", status: "running" } }))); });
+      expect(importStream).not.toHaveBeenCalled();
+      expect(ApiService.cancelPortfolioImportRun).not.toHaveBeenCalled();
+      expect(screen.getByTestId("portfolio-import-chooser")).toBeVisible();
+    });
+
+    it("resume deadline stops loading and records failure for the same attempt", async () => {
+      seedCompletedImport(platform, "synthetic-resume");
+      const { storage, key } = snapshotStore(platform);
+      const snapshot = JSON.parse(storage.getItem(key)!);
+      snapshot.status = "running";
+      snapshot.streaming.stage = "extracting";
+      delete snapshot.parsedPortfolio;
+      storage.setItem(key, JSON.stringify(snapshot));
+      vi.mocked(ApiService.streamPortfolioImportRun).mockImplementation(({ signal }) => new Promise((_, reject) => {
+        signal?.addEventListener("abort", () => reject(new DOMException("Timed out", "AbortError")), { once: true });
+      }));
+      const timeoutSpy = vi.spyOn(window, "setTimeout");
+      const view = renderSetupImportFlow("synthetic-vault-key");
+      try {
+        await waitFor(() => expect(ApiService.streamPortfolioImportRun).toHaveBeenCalledOnce());
+        const timeout = timeoutSpy.mock.calls.find(([, delay]) => delay === KAI_PORTFOLIO_IMPORT_IDLE_TIMEOUT_MS)?.[0];
+        expect(typeof timeout).toBe("function");
+        await act(async () => { (timeout as () => void)(); });
+        expect(await screen.findByText("Couldn’t resume reading your statement. Try importing it again.")).toBeVisible();
+        expect(JSON.parse(storage.getItem(key)!).status).toBe("failed");
+      } finally {
+        view.unmount();
+        timeoutSpy.mockRestore();
+      }
+    });
+
+    it("fresh upload keeps stream ownership across route updates", async () => {
+      vi.mocked(ApiService.streamPortfolioImportRun).mockClear();
+      let emit!: (text: string) => void;
+      const body = new ReadableStream<Uint8Array>({ start(controller) { emit = text => { controller.enqueue(new TextEncoder().encode(text)); if (text.startsWith("event: complete")) controller.close(); }; } });
+      importStream.mockResolvedValue(new Response(body));
+      renderSetupImportFlow("synthetic-vault-key");
+      fireEvent.click(await screen.findByText("Upload statement"));
+      await waitFor(() => expect(importStream).toHaveBeenCalledOnce());
+      await act(async () => nav.navigate(`${SETUP_PATH}?stage=importing&review_source=statement`));
+      const envelope = { schema_version: "1.0", stream_id: "synthetic-import", stream_kind: "portfolio_import", seq: 1,
+        event: "complete", terminal: true, payload: { portfolio_data_v2: syntheticParsedPortfolio() } };
+      await act(async () => emit(`event: complete\ndata: ${JSON.stringify(envelope)}\n\n`));
+      await screen.findByTestId("portfolio-review");
+      expect(ApiService.streamPortfolioImportRun).not.toHaveBeenCalled();
+    });
+
+    it("streams source facts in the review shell and excludes provisional values from recovery storage", async () => {
+      let emit!: (text: string) => void;
+      const body = new ReadableStream<Uint8Array>({ start(controller) { emit = text => { controller.enqueue(new TextEncoder().encode(text)); if (text.startsWith("event: complete")) controller.close(); }; } });
+      importStream.mockResolvedValue(new Response(body));
+      const view = renderSetupImportFlow("synthetic-vault-key");
+      fireEvent.click(await screen.findByText("Upload statement"));
+      await waitFor(() => expect(importStream).toHaveBeenCalledOnce());
+      const envelope = { schema_version: "1.0", stream_id: "synthetic-import", stream_kind: "portfolio_import", seq: 1, event: "progress", terminal: false,
+        payload: { holdings_preview: [{ symbol: "SENTINEL", name: "Sensitive provisional lot", quantity: 7 }],
+          extraction_update: { version: 1, revision: 1, unit_id: "pdf:1", unit_index: 1, units_total: 2, source_kind: "pdf",
+            rows: [{ source_id: "pdf:1:1", symbol: "SENTINEL", name: "Sensitive provisional lot", market_value: 17 }],
+            facts: { statement_details: { institution_name: "Synthetic broker", account_number: "SENSITIVE-ACCOUNT-TEST" } } } } };
+      await act(async () => emit(`event: progress\ndata: ${JSON.stringify(envelope)}\n\n`));
+      expect(await screen.findByText("SENSITIVE-ACCOUNT-TEST")).toBeVisible();
+      const { storage, key } = snapshotStore(platform);
+      const persisted = storage.getItem(key)!;
+      expect(persisted).not.toContain("SENSITIVE-ACCOUNT-TEST");
+      expect(persisted).not.toContain("Sensitive provisional lot");
+      expect(persisted).not.toContain("SENTINEL");
+      expect(screen.queryByTestId("portfolio-review")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+      expect(screen.queryByText("SENSITIVE-ACCOUNT-TEST")).toBeNull();
+      view.unmount();
+    });
+
+    it.each([false, true])("terminal import settles before review and cancellation wins (%s)", async (cancel) => {
+      const envelope = { schema_version: "1.0", stream_id: "synthetic-import", stream_kind: "portfolio_import", seq: 1,
+        event: "complete", terminal: true, payload: { portfolio_data_v2: syntheticParsedPortfolio() } };
+      importStream.mockResolvedValue(new Response(`event: complete\ndata: ${JSON.stringify(envelope)}\n\n`, { status: 200 }));
+      renderSetupImportFlow("synthetic-vault-key");
+      fireEvent.click(await screen.findByText("Upload statement"));
+      await screen.findByText("Ready to review");
+      const readingScrollKey = scrollReset.mock.lastCall?.[0];
+      expect(screen.queryByTestId("portfolio-review")).toBeNull();
+      if (cancel) {
+        fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+        await screen.findByTestId("portfolio-import-chooser");
+        await act(async () => { await new Promise(resolve => setTimeout(resolve, 500)); });
+        expect(screen.queryByTestId("portfolio-review")).toBeNull();
+      } else {
+        await screen.findByTestId("portfolio-review");
+        expect(scrollReset.mock.lastCall?.[0]).toBe(readingScrollKey);
+        expect(screen.queryByRole("button", { name: "Cancel", exact: true })).toBeNull();
+      }
     });
 
     it.each([null, "/circle/join?invite=opaque_token", "https://outside.invalid"])(
@@ -321,20 +434,18 @@ describe.each<Platform>(["web", "native"])(
     it("does not navigate again when the import snapshot stays in the same stage", async () => {
       seedCompletedImport(platform, "import_run_synthetic");
       renderSetupImportFlow();
-      await screen.findByText("Review Extracted Portfolio");
+      await screen.findByTestId("portfolio-review");
       const navigationCount = nav.hrefs.length;
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 1500));
       });
       expect(nav.hrefs).toHaveLength(navigationCount);
-      expect(nav.getSearch()).toBe("stage=import_complete");
+      expect(nav.getSearch()).toBe("stage=reviewing");
     });
 
     it("opens the review after a completed import and stays there", async () => {
       seedCompletedImport(platform, "import_run_synthetic");
       renderSetupImportFlow();
-
-      fireEvent.click(await screen.findByText("Review Extracted Portfolio"));
 
       expect(await screen.findByTestId("portfolio-review")).toBeTruthy();
       // Outlast the 700 ms snapshot poll and any restore re-run.
@@ -344,7 +455,7 @@ describe.each<Platform>(["web", "native"])(
       expect(screen.getByTestId("portfolio-review").textContent).toContain(
         "review holdings: 2",
       );
-      expect(screen.queryByText("Review Extracted Portfolio")).toBeNull();
+      expect(screen.queryByText("Statement ready to review")).toBeNull();
       expect(nav.getSearch()).toBe("stage=reviewing");
     });
 
@@ -359,28 +470,25 @@ describe.each<Platform>(["web", "native"])(
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 900));
       });
-      expect(screen.queryByText("Review Extracted Portfolio")).toBeNull();
+      expect(screen.queryByText("Statement ready to review")).toBeNull();
       expect(nav.getSearch()).toBe("stage=reviewing");
     });
 
-    it.each([null, "/circle/join?invite=opaque_token"])("cancel retains the source chooser and invitation continuation (%s)", async (returnTo) => {
+    it.each([null, "/circle/join?invite=opaque_token"])("starting over retains the source chooser and invitation continuation (%s)", async (returnTo) => {
       seedCompletedImport(platform, "import_run_synthetic");
       if (returnTo) nav.navigate(`${SETUP_PATH}?return_to=${encodeURIComponent(returnTo)}`);
       renderSetupImportFlow();
 
-      fireEvent.click(await screen.findByText("Cancel"));
+      fireEvent.click(await screen.findByRole("button", { name: "Start over" }));
 
       expect(await screen.findByTestId("portfolio-import-chooser")).toBeTruthy();
-      expect(setup.onSetupSourceSettled).toHaveBeenCalledWith(
-        "later",
-        undefined,
-      );
+      expect(setup.onSetupSourceSettled).not.toHaveBeenCalled();
       const { storage, key } = snapshotStore(platform);
       expect(storage.getItem(key)).toBeNull();
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 900));
       });
-      expect(screen.queryByText("Review Extracted Portfolio")).toBeNull();
+      expect(screen.queryByText("Statement ready to review")).toBeNull();
       await waitFor(() =>
         expect(new URLSearchParams(nav.getSearch()).get("stage")).toBe("import_required"),
       );

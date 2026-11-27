@@ -73,7 +73,7 @@ def _recipient_key_row(row: dict) -> dict[str, Any]:
     return {
         "userId": _str_or_none(row.get("user_id")),
         "keyId": row.get("key_id"),
-        "publicKeyJwk": row.get("public_key_jwk"),
+        "publicKeyJwk": _parse_metadata(row.get("public_key_jwk")),
         "algorithm": row.get("algorithm") or _DEFAULT_KEY_ALGORITHM,
         "createdAt": _str_or_none(row.get("created_at")),
     }
@@ -363,6 +363,28 @@ class MarketplaceRequestService:
         query = query.order("created_at", desc=True)
         result = await self._execute_query(query)
         return [_row_to_request(r) for r in (getattr(result, "data", None) or [])]
+
+    async def list_participant_requests(
+        self, *, user_id: str
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """List owner-side and buyer-side marketplace requests in one round trip."""
+        result = await asyncio.to_thread(
+            self.db.execute_raw,
+            'SELECT * FROM "marketplace_access_requests" '
+            'WHERE "owner_user_id" = :user_id OR "buyer_user_id" = :user_id '
+            'ORDER BY "created_at" DESC',
+            {"user_id": user_id},
+        )
+        rows = getattr(result, "data", None) or []
+        owned: list[dict[str, Any]] = []
+        bought: list[dict[str, Any]] = []
+        for raw in rows:
+            mapped = _row_to_request(raw)
+            if str(raw.get("owner_user_id") or "") == user_id:
+                owned.append(mapped)
+            if str(raw.get("buyer_user_id") or "") == user_id:
+                bought.append(mapped)
+        return owned, bought
 
     async def get_delivered_envelope(self, *, buyer_user_id: str, request_id: str) -> dict | None:
         from hushh_mcp.services.marketplace_consent_ports import get_delivered_envelope

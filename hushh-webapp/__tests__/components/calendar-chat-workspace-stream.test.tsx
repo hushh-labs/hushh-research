@@ -1,11 +1,13 @@
 import { fixture, resetCalendarChatFixture } from "./calendar-chat-workspace-fixture";
 import { clearAgentChatHistoryCache } from "@/lib/agent/agent-chat-history-cache";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
+import { useVoiceSessionStore } from "@/lib/one-voice/session-store";
 import * as connections from "@/lib/connections/google-connect-in-place";
 import result from "../../../consent-protocol/tests/fixtures/calendar/chat_proposal_result.json";
 import { calendarChatStream as sse } from "../fixtures/calendar-chat-stream";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CalendarInvitationChat } from "@/components/calendar/calendar-invitation-chat";
 import { AgentChatWorkspace } from "@/components/agent/agent-chat-workspace";
 import { AgentDockProvider, AgentDockVoiceBoundary } from "@/components/agent/agent-dock";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
@@ -15,7 +17,8 @@ import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { useChatOnboardingSession } from "@/lib/agent/chat-onboarding/use-chat-onboarding";
 import { reduceChatOnboarding } from "@/lib/agent/chat-onboarding/chat-onboarding-machine";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
-import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { advanceVaultSessionEpoch, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import type { ChatMemoryMessage } from "@/lib/agent/chat-memory-runtime";
 import { calendarDaySearchRequest } from "@/lib/calendar/calendar-day-search-request";
 
 beforeEach(() => resetCalendarChatFixture());
@@ -23,6 +26,40 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); publishValidatedAuthSessionPr
 
 function workspace() {
   return render(<AgentDockProvider><AgentDockVoiceBoundary><AgentBarSurface /></AgentDockVoiceBoundary><AgentChatWorkspace /></AgentDockProvider>);
+}
+
+async function chatMemoryPorts() {
+  const [markdown, durable, rewrites] = await Promise.all([
+    import("@/lib/pkm/markdown-memory"),
+    import("@/lib/services/secure-durable-resource-service"),
+    import("@/lib/agent/chat-memory-rewrite"),
+  ]);
+  let revision = 0;
+  let pending: { messages: ChatMemoryMessage[] } | null = null;
+  let memory = {
+    userId: "owner", vaultEpoch: snapshotVaultSessionEpoch(), markdown: "- Existing owner fact\n",
+    updatedAt: null, persisted: true,
+    chatMemoryCheckpoint: { version: 1 as const, editGeneration: 0,
+      conversations: {} as Record<string, string[]>, requests: [] as string[] },
+  };
+  vi.spyOn(markdown, "loadMarkdownMemory").mockImplementation(async () => {
+    if (fixture.memoryReadFails) throw new Error("read failed");
+    return structuredClone(memory);
+  });
+  const replace = vi.spyOn(markdown, "replaceChatMarkdownMemory").mockImplementation(async params => {
+    await params.beforeEffect?.();
+    memory = { ...memory, markdown: params.markdown, chatMemoryCheckpoint: structuredClone(params.checkpoint) };
+    return { success: true };
+  });
+  vi.spyOn(durable.SecureDurableResourceService, "read").mockResolvedValue(null);
+  vi.spyOn(durable.SecureDurableResourceService, "version").mockImplementation(async () => ({ generation: 0, revision }));
+  vi.spyOn(durable.SecureDurableResourceService, "write").mockImplementation(async params => {
+    if (!params.isCurrent?.()) throw new DOMException("Memory session changed.", "AbortError");
+    pending = structuredClone(params.value) as { messages: ChatMemoryMessage[] };
+    return { generation: 0, revision: ++revision };
+  });
+  const rewrite = vi.spyOn(rewrites, "rewriteChatMemory").mockResolvedValue({ markdown: "- Updated owner fact\n" });
+  return { rewrite, replace, pendingMessages: () => pending?.messages ?? [] };
 }
 
 it.each(["Create new chat", "Start new chat"])("allows %s to reset a locked-vault draft without reading saved history", async entry => {
@@ -144,6 +181,59 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     expect(screen.queryByRole("button", { name: "Review in Settings" })).toBeNull();
   });
 
+  it("shows the audio player's activity independently of the relay phase", async () => {
+    const view = workspace();
+    const voice = useVoiceSessionStore.getState();
+    const expectPose = (pose: string) => waitFor(() => {
+      const layer = view.container.querySelector(
+        '[data-agent-chat-one-profile-trigger] [data-one-presence-layer="current"]',
+      );
+      expect(layer).toBeVisible();
+      expect(layer).toHaveAttribute("data-one-presence-artwork", pose);
+    });
+    try {
+      act(() => voice.dispatch({ type: "connecting", conversationId: "voice-presence" }));
+      await expectPose("connected");
+      // Audio and the relay phase update independently.
+      act(() => voice.dispatch({ type: "speaking", speaking: true }));
+      await expectPose("answering");
+      act(() => voice.dispatch({ type: "speaking", speaking: false }));
+      await expectPose("connected");
+      act(() => voice.dispatch({ type: "speaking", speaking: true }));
+      await expectPose("answering");
+      act(() => voice.dispatch({ type: "closed", code: 1000, reason: "stopped", now: Date.now() }));
+      await expectPose("connected");
+    } finally {
+      act(() => voice.reset());
+    }
+  });
+
+  it("cancels memory preparation before dispatch and ignores its late result", async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    const memory = await import("@/lib/agent/agent-pkm-memory");
+    let finishPreparation!: () => void;
+    vi.spyOn(memory, "peekAgentPkmContext").mockReturnValue(null);
+    const prepare = vi.spyOn(memory, "loadAgentPkmContext").mockImplementationOnce(() =>
+      new Promise(resolve => { finishPreparation = () => resolve(fixture.memory as never); }));
+    const stream = vi.spyOn(ApiService, "apiFetchStream");
+    const view = workspace();
+    const visiblePose = () => view.container.querySelector(
+      '[data-agent-chat-one-profile-trigger] [data-one-presence-layer="current"]',
+    );
+    const composer = await screen.findByRole("textbox", { name: "Message One" });
+    fireEvent.change(composer, { target: { value: "Explain photosynthesis in a sentence." } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(prepare).toHaveBeenCalled());
+    await waitFor(() => expect(visiblePose()).toHaveAttribute("data-one-presence-artwork", "thinking"));
+    expect(stream).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Stop One" }));
+    await waitFor(() => expect(visiblePose()).toHaveAttribute("data-one-presence-artwork", "connected"));
+    await act(async () => finishPreparation());
+    expect(stream).not.toHaveBeenCalled();
+    expect(visiblePose()).toBeVisible();
+    expect(visiblePose()).toHaveAttribute("data-one-presence-artwork", "connected");
+  });
+
   it.each(["result", "error"] as const)("shows working during a tool call and settles after its %s", async outcome => {
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
     let channel!: ReadableStreamDefaultController<Uint8Array>;
@@ -175,6 +265,64 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     }
     act(() => channel.close());
     await waitFor(() => expect(avatar()).toHaveAttribute("data-one-presence-state", "connected"));
+  });
+
+  it.each(["tool execution", "text streaming"])("settles visible activity when Stop drains %s", async phase => {
+    const channels: ReadableStreamDefaultController<Uint8Array>[] = [];
+    const encoder = new TextEncoder();
+    const fetchStream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () =>
+      new Response(new ReadableStream<Uint8Array>({ start(controller) { channels.push(controller); } }),
+        { headers: { "Content-Type": "text/event-stream" } }));
+    let acknowledgeStop!: () => void;
+    const chatRequest = vi.mocked(ApiService.agentChatRequest);
+    const request = chatRequest.getMockImplementation()!;
+    chatRequest.mockImplementation((...args) => args[0].endsWith("/stop")
+      ? new Promise(resolve => { acknowledgeStop = () => resolve(Response.json({ stopped: true })); })
+      : request(...args));
+    const view = workspace();
+    const visiblePose = () => view.container.querySelector(
+      '[data-agent-chat-one-profile-trigger] [data-one-presence-layer="current"]',
+    );
+    const expectPose = (pose: string) => waitFor(() => {
+      expect(visiblePose()).toBeVisible();
+      expect(visiblePose()).toHaveAttribute("data-one-presence-artwork", pose);
+    });
+    const push = (event: Record<string, unknown>) => act(() => channels.at(-1)!.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`)));
+    const send = async (prompt: string) => {
+      const composer = await screen.findByRole("textbox", { name: "Message One" });
+      fireEvent.change(composer, { target: { value: prompt } });
+      fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    };
+    await send("Describe a river.");
+    await waitFor(() => expect(fetchStream).toHaveBeenCalledTimes(1));
+    push({ type: "RUN_STARTED", threadId: "same-conversation", runId: "stoppable" });
+    await expectPose("thinking");
+    if (phase === "tool execution") {
+      push({ type: "TOOL_CALL_START", toolCallId: "first-tool", toolCallName: "propose_calendar_event" });
+    } else {
+      push({ type: "TEXT_MESSAGE_START", messageId: "partial", role: "assistant" });
+      push({ type: "TEXT_MESSAGE_CONTENT", messageId: "partial", delta: "A river is" });
+    }
+    await expectPose("working");
+    fireEvent.click(screen.getByRole("button", { name: "Stop One" }));
+    await waitFor(() => expect(acknowledgeStop).toBeTypeOf("function"));
+    await expectPose("connected");
+    push({ type: "TOOL_CALL_START", toolCallId: "late-tool", toolCallName: "propose_calendar_event" });
+    push({ type: "TEXT_MESSAGE_CONTENT", messageId: "partial", delta: "LATE OUTPUT" });
+    await act(async () => {});
+    await expectPose("connected");
+    expect(screen.queryByText("LATE OUTPUT", { exact: false })).not.toBeInTheDocument();
+    await act(async () => acknowledgeStop());
+    push({ type: "RUN_FINISHED", threadId: "same-conversation", runId: "stoppable" });
+    act(() => channels[0].close());
+
+    await send("Describe an ocean.");
+    await waitFor(() => expect(fetchStream).toHaveBeenCalledTimes(2));
+    push({ type: "RUN_STARTED", threadId: "same-conversation", runId: "next" });
+    await expectPose("thinking");
+    push({ type: "RUN_ERROR", code: "MODEL_FAILED", message: "Please try again." });
+    act(() => channels[1].close());
+    await expectPose("connected");
   });
 
   it("shows Working for written output in both avatars and recovers after a failed draft", async () => {
@@ -285,14 +433,15 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     expect(fixture.router.push).not.toHaveBeenCalledWith("/one/calendar");
   });
 
-  it.each(["tool", "state"] as const)("shows invitation controls from %s after the account check inside the existing conversation", async delivery => {
+  it.each(["default", "account-b", "account-c"].flatMap(accountId => ["tool", "state"].map(delivery => [accountId, delivery] as const)))("keeps %s invitation controls bound through %s stream, review and confirmation", async (accountId, delivery) => {
+    const email = `${accountId}@example.test`;
     let settleStatus!: () => void;
     vi.mocked(GoogleCalendarService.status).mockImplementation(() => new Promise(resolve => {
-      settleStatus = () => resolve({ connected: true, google_email: "owner@example.com", access_level: "manage" } as never);
+      settleStatus = () => resolve({ connected: true, google_email: "primary@example.test", access_level: "manage", accounts: [{ account_id: accountId, google_email: email, connected: true, status: "connected", access_level: "manage" }] } as never);
     }));
     const invitation = { id: "invite", calendar_id: "primary", title: "Client Sync", start: { dateTime: "2030-10-14T10:00:00Z" }, end: { dateTime: "2030-10-14T10:30:00Z" }, response_status: "needsAction" as const, can_respond: true, conflicts: [], attendees: [], organizer: { email: "organizer@example.com" } };
-    vi.spyOn(GoogleCalendarService, "invitations").mockResolvedValue({ events: [invitation], pending_count: 1, unreadable_calendars: [], time_zone: "UTC", start_at: "2030-10-14T00:00:00Z", end_at: "2031-01-12T00:00:00Z", complete: true, account_email: "owner@example.com" });
-    const directive = { directive: { kind: "action", delegateAgentId: "agent_calendar", payload: { type: "calendar.invitations", accountEmail: "owner@example.com", eventId: "invite", calendarId: "primary", filter: "all", decision: "accepted", timeZone: "UTC" } }, message: "Review the invitation." };
+    vi.spyOn(GoogleCalendarService, "invitations").mockResolvedValue({ events: [invitation], pending_count: 1, unreadable_calendars: [], time_zone: "UTC", start_at: "2030-10-14T00:00:00Z", end_at: "2031-01-12T00:00:00Z", complete: true, account_email: email });
+    const directive = { directive: { kind: "action", delegateAgentId: "agent_calendar", payload: { type: "calendar.invitations", accountId, accountEmail: email, eventId: "invite", calendarId: "primary", filter: "all", decision: "accepted", timeZone: "UTC" } }, message: "Review the invitation." };
     vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse(delivery, directive));
     const execute = vi.spyOn(GoogleCalendarService, "executeProposal");
     const review = vi.spyOn(GoogleCalendarService, "reviewAttendance").mockResolvedValue({ review_id: "review", review_token: "browser-memory-only", title: "Client Sync", response_status: "accepted", conflicts: [], recipient: null, subject: null, message: null, rescheduling_link: null, sender_label: null, expires_at: "2030-10-14T09:00:00Z" });
@@ -307,10 +456,12 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     expect(GoogleCalendarService.invitations).not.toHaveBeenCalled();
     await act(async () => settleStatus());
     fireEvent.click(await screen.findByRole("button", { name: "Accept", exact: true }));
-    await waitFor(() => expect(review).toHaveBeenCalledWith(expect.objectContaining({ eventId: "invite", calendarId: "primary", expectedAccountEmail: "owner@example.com", responseStatus: "accepted" })));
+    await waitFor(() => expect(review).toHaveBeenCalledWith(expect.objectContaining({ eventId: "invite", calendarId: "primary", accountId, expectedAccountEmail: email, responseStatus: "accepted" })));
+    expect(GoogleCalendarService.invitations).toHaveBeenCalledWith(expect.objectContaining({ accountId }));
     expect(confirm).not.toHaveBeenCalled();
     fireEvent.click(await screen.findByRole("button", { name: "Confirm accept" }));
     await waitFor(() => expect(confirm).toHaveBeenCalledOnce());
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ accountId }));
     expect(screen.getByText("Accept tomorrow's client meeting")).toBeInTheDocument();
     expect(execute).not.toHaveBeenCalled();
     expect(fixture.router.push).not.toHaveBeenCalledWith("/one/calendar");
@@ -456,7 +607,7 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     expect(execute).not.toHaveBeenCalled();
     fireEvent.click(confirm); fireEvent.click(confirm);
     await waitFor(() => expect(execute).toHaveBeenCalledOnce());
-    expect(execute).toHaveBeenCalledWith({ vaultOwnerToken: "test-owner-token", userId: "owner", proposalId: "gcal_local_review" });
+    expect(execute).toHaveBeenCalledWith({ vaultOwnerToken: "test-owner-token", userId: "owner", proposalId: "gcal_local_review", accountId: "default" });
     resolveExecution({ action: "create", event: { id: "local-event", title: "Call" } } as never);
     await waitFor(() => expect(screen.queryByRole("button", { name: "Schedule meeting" })).toBeNull());
     fireEvent.change(screen.getByRole("textbox", { name: "Message One" }), { target: { value: "Book another call with the still-valid Calendar permission" } });
@@ -480,6 +631,70 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     expect(screen.queryByTestId("agent-calendar-proposal-card")).toBeNull();
     expect(screen.queryByRole("button", { name: "Allow Calendar scheduling" })).toBeNull();
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("shows the invite and threaded reply together and confirms once", async () => {
+    const proposal = structuredClone(result);
+    Object.assign(proposal.directive.payload, {
+      confirmLabel: "Schedule and send reply",
+      gmailReply: { to: ["reply@example.com"], subject: "Re: Planning", body: "I sent the invitation." },
+    });
+    vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("state", proposal));
+    const execute = vi.spyOn(GoogleCalendarService, "executeProposal").mockResolvedValue({
+      action: "create", event: { id: "local-event", title: "Call" }, gmail_reply: { status: "not_sent" },
+    });
+    workspace();
+    fireEvent.change(await screen.findByRole("textbox", { name: "Message One" }), { target: { value: "Book the meeting and reply to the email." } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    const confirm = await screen.findByRole("button", { name: "Schedule and send reply" });
+    const card = screen.getByTestId("agent-calendar-proposal-card");
+    expect(card).toHaveTextContent("guest@example.com");
+    expect(card).toHaveTextContent("reply@example.com");
+    expect(card).toHaveTextContent("Re: Planning");
+    expect(card).toHaveTextContent("I sent the invitation.");
+    expect(execute).not.toHaveBeenCalled();
+    fireEvent.click(confirm); fireEvent.click(confirm);
+    await waitFor(() => expect(execute).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Schedule and send reply" })).toBeNull());
+  });
+  it("keeps the Calendar connect card beside its source across two Mail turns", async () => {
+    const mailReply = (messageId: string, text: string) => new Response(
+      [
+        { type: "RUN_STARTED", threadId: "same-conversation", runId: messageId },
+        { type: "TEXT_MESSAGE_START", messageId, role: "assistant" },
+        { type: "TEXT_MESSAGE_CONTENT", messageId, delta: text },
+        { type: "TEXT_MESSAGE_END", messageId },
+        { type: "RUN_FINISHED", threadId: "same-conversation", runId: messageId },
+      ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(""),
+      { headers: { "Content-Type": "text/event-stream" } },
+    );
+    vi.spyOn(ApiService, "apiFetchStream")
+      .mockImplementationOnce(async () => sse("tool", {
+        status: "connection_required", directive: { kind: "action", delegateAgentId: "agent_calendar", payload: {
+          type: "calendar.connect", accessLevel: "read", summary: "Connect Calendar to read events.", confirmLabel: "Connect Calendar",
+        } },
+      }))
+      .mockImplementationOnce(async () => mailReply("mail-account", "Mail is connected to linked@example.test."))
+      .mockImplementationOnce(async () => mailReply("mail-list", "Your latest email is Weekly update."));
+    workspace();
+    const composer = await screen.findByRole("textbox", { name: "Message One" });
+    async function send(question: string) {
+      await waitFor(() => expect(screen.queryByRole("button", { name: "Stop One" })).toBeNull());
+      fireEvent.change(composer, { target: { value: question } });
+      fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    }
+    await send("What is on my Calendar?");
+    const initialCard = await screen.findByRole("button", { name: "Connect Calendar" });
+    const calendarQuestion = screen.getByText("What is on my Calendar?");
+    expect(calendarQuestion.compareDocumentPosition(initialCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await send("Which account is connected to Mail?");
+    await screen.findByText(/Mail is connected to/);
+    await send("Show my recent Mail.");
+    await screen.findByText("Your latest email is Weekly update.");
+    const card = screen.getByRole("button", { name: "Connect Calendar" });
+    const mailQuestion = screen.getByText("Which account is connected to Mail?");
+    expect(card).toBeEnabled();
+    expect(card.compareDocumentPosition(mailQuestion) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("denied consent retains one actionable authorization card without continuing or executing", async () => {
@@ -587,9 +802,10 @@ it("rejects a changed Google account even if the model returns the same invitati
 });
 
 it("binds invitation reconnect to the unlocked owner and retires its capability on unmount", async () => {
+  vi.mocked(GoogleCalendarService.status).mockResolvedValue({ connected: true, accounts: [{ account_id: "account-b", connected: true, google_email: "selected@example.test", status: "connected" }] } as never);
   vi.spyOn(GoogleCalendarService, "invitations").mockRejectedValue(new GoogleCalendarError("Connect Calendar", "calendar_not_connected", 409));
   vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("state", { directive: {
-    kind: "action", delegateAgentId: "agent_calendar", payload: { type: "calendar.invitations", filter: "pending" },
+    kind: "action", delegateAgentId: "agent_calendar", payload: { type: "calendar.invitations", accountId: "account-b", filter: "pending" },
   } }));
   const connect = vi.spyOn(connections, "connectCalendarInPlace").mockReturnValue({ surface: "native", result: new Promise(() => {}) });
   const view = workspace();
@@ -598,6 +814,7 @@ it("binds invitation reconnect to the unlocked owner and retires its capability 
   fireEvent.click(await screen.findByRole("button", { name: "Allow Calendar access" }));
   expect(connect).toHaveBeenCalledOnce();
   const controls = connect.mock.calls[0][0];
+  expect(controls.accountId).toBe("account-b");
   expect(controls.vaultOwnerCapability).toBe(fixture.vault.vaultOwnerToken);
   expect(controls.isCurrent?.()).toBe(true);
   view.unmount();
@@ -609,60 +826,57 @@ it.each(["navigation", "vault lock", "owner change", "verification required"])(
   "finishes pasted-profile capture after %s only while its original vault session is authorized",
   async boundary => {
     const ingestion = await import("@/lib/pkm/pkm-natural-language-ingestion");
-    const markdown = await import("@/lib/pkm/markdown-memory");
+    const memory = await chatMemoryPorts();
+    const legacyPreparation = vi.spyOn(ingestion, "prepareNaturalLanguagePkm");
     fixture.captureReady = true;
     const profile = Array.from({ length: 33 }, (_, index) =>
       `Synthetic profile line ${index}: I study mechanical engineering and build robots.`).join("\n");
-    let finish!: (value: Awaited<ReturnType<typeof ingestion.prepareNaturalLanguagePkm>>) => void;
-    const preparation = vi.spyOn(ingestion, "prepareNaturalLanguagePkm").mockImplementation(
+    let finish!: (value: { markdown: string }) => void;
+    memory.rewrite.mockImplementation(
       () => new Promise(resolve => { finish = resolve; }),
     );
-    const stage = vi.spyOn(markdown, "stageMarkdownMemoryFacts").mockImplementation(async params => {
-      await params.beforeEffect?.();
-      return { success: true, saved: 1, markdown: "## Facts\n- I build robots.\n" };
-    });
     const stream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("tool"));
     const view = workspace();
     const composer = await screen.findByRole("textbox", { name: "Message One" });
     fireEvent.change(composer, { target: { value: "Save this about me" } });
     fireEvent.paste(composer, { clipboardData: { getData: () => profile } });
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
-    await waitFor(() => expect(preparation).toHaveBeenCalledOnce());
+    await waitFor(() => expect(memory.rewrite).toHaveBeenCalledOnce());
     await waitFor(() => expect(stream).toHaveBeenCalledOnce());
-    expect(preparation.mock.calls[0][0].message).toBe(`Save this about me\n\n${profile}`);
+    expect(memory.rewrite.mock.calls[0][1].messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "user", content: `Save this about me\n\n${profile}` }),
+    ]));
+    expect(legacyPreparation).not.toHaveBeenCalled();
     // The answer can finish while the independent semantic preparation is pending.
     await screen.findByRole("button", { name: "Schedule meeting" });
     view.unmount();
     if (boundary === "vault lock") advanceVaultSessionEpoch();
     if (boundary === "owner change") publishValidatedAuthSessionPrincipal({ firebaseUid: "replacement", ownerId: "replacement", accountGeneration: 0 });
     if (boundary === "verification required") fixture.tokenAccess.available = false;
-    await act(async () => finish({ cards: [{
-      card_id: "robotics", source_text: "I build robots.", write_mode: "can_save",
-      candidate_payload: { soul_section: "Facts", soul_text: "I build robots." },
-    }] } as never));
-    expect(stage).toHaveBeenCalledTimes(boundary === "navigation" ? 1 : 0);
+    await act(async () => finish({ markdown: "## Facts\n- I build robots.\n" }));
+    expect(memory.replace).toHaveBeenCalledTimes(boundary === "navigation" ? 1 : 0);
   },
   15_000,
 );
 
 it.each(["capture", "read", "locked"] as const)("keeps a background memory %s failure out of the answer unless the vault is locked", async failure => {
-  const [ingestion, markdown, { morphyToast }, observability] = await Promise.all([import("@/lib/pkm/pkm-natural-language-ingestion"),
-    import("@/lib/pkm/markdown-memory"), import("@/lib/morphy-ux/morphy"), import("@/lib/observability/client")]);
+  const [{ morphyToast }, observability] = await Promise.all([
+    import("@/lib/morphy-ux/morphy"), import("@/lib/observability/client")]);
+  const memory = await chatMemoryPorts();
   const [failureToast, track] = [vi.spyOn(morphyToast, "error"), vi.spyOn(observability, "trackEvent")];
   Object.assign(fixture, { captureReady: true, memoryReadFails: failure !== "capture" });
   if (failure === "locked") fixture.vault.vaultKey = null as never;
-  const preparation = vi.spyOn(ingestion, "prepareNaturalLanguagePkm").mockResolvedValue({ cards: [], previews: [], sourceCoverage: [{ sourceBlockId: "profile",
-    preparationIssue: "preparation_timeout", disposition: "review_required", detectedFactCount: 0, accountedFactCount: 0 }] } as never);
-  const stage = vi.spyOn(markdown, "stageMarkdownMemoryFacts");
+  memory.rewrite.mockRejectedValue(new Error("Synthetic memory rewrite failure"));
   const stream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("tool"));
   workspace();
-  fireEvent.change(await screen.findByRole("textbox", { name: "Message One" }), { target: { value: "I study robotics at Example University." } });
+  fireEvent.change(await screen.findByRole("textbox", { name: "Message One" }), { target: { value: "Remember that I study robotics at Example University." } });
   fireEvent.click(screen.getByRole("button", { name: "Send message" }));
   const blocked = "One couldn't load your private memory for this turn. Keep your vault unlocked and try again.";
   await (failure === "locked" ? screen.findByText(blocked) : screen.findByRole("button", { name: "Schedule meeting" }));
-  expect(preparation).toHaveBeenCalledTimes(failure === "capture" ? 1 : 0);
-  expect(stage).not.toHaveBeenCalled(); expect(failureToast).not.toHaveBeenCalled();
-  if (failure === "capture") expect(track).toHaveBeenCalledWith("agent_pkm_save_confirmation_completed", expect.objectContaining({ result: "error" }));
+  if (failure === "capture") await waitFor(() => expect(memory.rewrite).toHaveBeenCalled());
+  else expect(memory.rewrite).not.toHaveBeenCalled();
+  expect(memory.replace).not.toHaveBeenCalled(); expect(failureToast).not.toHaveBeenCalled();
+  expect(screen.queryByText("Synthetic memory rewrite failure")).not.toBeInTheDocument();
   expect(stream).toHaveBeenCalledTimes(failure === "locked" ? 0 : 1);
   expect(Boolean(screen.queryByText(blocked))).toBe(failure === "locked");
   expect(screen.queryByText(/memory\.md status/)).toBeNull(); expect(Boolean(screen.queryByText("Private memory could not load."))).toBe(failure === "read");
@@ -674,9 +888,8 @@ it.each(["capture", "read", "locked"] as const)("keeps a background memory %s fa
 
 it("meeting context continues the current conversation with source attachments and no automatic PKM capture", async () => {
   const { CalendarInsightsService } = await import("@/lib/services/calendar-insights-service");
-  const ingestion = await import("@/lib/pkm/pkm-natural-language-ingestion");
+  const memory = await chatMemoryPorts();
   fixture.captureReady = true;
-  const preparation = vi.spyOn(ingestion, "prepareNaturalLanguagePkm").mockResolvedValue({ cards: [] } as never);
   const contextRead = vi.spyOn(CalendarInsightsService, "read").mockResolvedValue({ title: "QA Review", sources: [{ title: "Verified notes", url: "https://docs.google.com/document/d/verified", text: "Private meeting source", truncated: false }] });
   const stream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("tool"));
   workspace();
@@ -685,8 +898,9 @@ it("meeting context continues the current conversation with source attachments a
   fireEvent.click(screen.getByRole("button", { name: "Send message" }));
   await waitFor(() => expect(stream).toHaveBeenCalledTimes(1));
   await screen.findByRole("button", { name: "Schedule meeting" });
-  await waitFor(() => expect(preparation).toHaveBeenCalledTimes(1));
-  preparation.mockClear();
+  await waitFor(() => expect(memory.pendingMessages()).toEqual(expect.arrayContaining([
+    expect.objectContaining({ content: "Earlier conversation" }),
+  ])));
   const earlierThread = JSON.parse(String(stream.mock.calls[0][1]?.body)).threadId;
   act(() => { useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarRequest: { ownerId: "owner", request: "Summarize this meeting.", meeting: { calendar_id: "primary", event_id: "verified-event", expected_account_email: "owner@example.com" } } }); });
   await waitFor(() => expect(stream).toHaveBeenCalledTimes(2));
@@ -697,11 +911,19 @@ it("meeting context continues the current conversation with source attachments a
   const source = Buffer.from(wire.messages.at(-1).content.find((part: { type: string }) => part.type === "document").source.value, "base64").toString("utf8");
   expect(source).toContain("Private meeting source");
   expect(source).toContain("https://docs.google.com/document/d/verified");
-  expect(preparation).not.toHaveBeenCalled();
+  expect(memory.rewrite).not.toHaveBeenCalled();
   expect(useOneConversationSession.getState().pendingHandoff).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: /Meeting sources.txt/ }));
   await screen.findByTestId("text-attachment-viewer");
   expect(screen.queryByRole("button", { name: "Edit and send again" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open chat history" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Create new chat" }));
+  await waitFor(() => expect(memory.rewrite).toHaveBeenCalledOnce());
+  const remembered = memory.rewrite.mock.calls[0][1].messages.map(message => message.content).join("\n");
+  expect(remembered).toContain("Earlier conversation");
+  expect(remembered).not.toContain("Private meeting source");
+  expect(remembered).not.toContain("Summarize this meeting.");
 });
 
 it("discards pending meeting context when the workspace owner changes", async () => {
@@ -943,3 +1165,148 @@ it.each([false, true])("reports authorized Calendar/Mail settlement without repe
   expect(confirm).not.toHaveBeenCalled();
   expect(useOneConversationSession.getState().pendingHandoff).toBeNull();
 });
+
+
+it("retires the previous booking review when its replacement needs clarification", async () => {
+  const stream = vi.spyOn(ApiService, "apiFetchStream").mockImplementationOnce(async () => sse("tool"))
+    .mockImplementation(async () => sse("tool", { status: "input_required", reason_code: "calendar_time_invalid", message: "Choose a valid time." }));
+  const execute = vi.spyOn(GoogleCalendarService, "executeProposal");
+  workspace();
+  const composer = await screen.findByRole("textbox", { name: "Message One" });
+  fireEvent.change(composer, { target: { value: "Book a call" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  expect(await screen.findByRole("button", { name: "Schedule meeting" })).toBeEnabled();
+  fireEvent.change(composer, { target: { value: "Change the time first" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  await waitFor(() => expect(stream).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.queryByTestId("agent-calendar-proposal-card")).toBeNull());
+  expect(execute).not.toHaveBeenCalled();
+});
+
+
+it("rejects an invitation account substitution even when both entries have the same email", async () => {
+  vi.mocked(GoogleCalendarService.status).mockResolvedValue({ connected: true, google_email: "same@example.test", accounts: [
+    { account_id: "account-b", google_email: "same@example.test", connected: true },
+    { account_id: "account-c", google_email: "same@example.test", connected: true },
+  ] } as never);
+  const payload = { type: "calendar.invitations", accountId: "account-c", calendarId: "primary", eventId: "invite", accountEmail: "same@example.test" };
+  vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("state", { directive: { kind: "action", delegateAgentId: "agent_calendar", payload } }));
+  const reads = vi.spyOn(GoogleCalendarService, "invitations");
+  const confirm = vi.spyOn(GoogleCalendarService, "confirmAttendance");
+  useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarInvitation: {
+    ownerId: "owner", accountId: "account-b", accountEmail: "same@example.test", calendarId: "primary", eventId: "invite", request: "Accept this invitation" } });
+  workspace();
+  await screen.findByText("The Calendar account selection changed. Close this review and check the invitation again.");
+  expect(reads).not.toHaveBeenCalled(); expect(confirm).not.toHaveBeenCalled();
+});
+
+it("does not read primary invitations when the selected account disappears from inventory", async () => {
+  vi.mocked(GoogleCalendarService.status).mockResolvedValue({ connected: true, google_email: "primary@example.test", accounts: [
+    { account_id: "default", google_email: "primary@example.test", connected: true },
+  ] } as never);
+  vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("state", { directive: { kind: "action", delegateAgentId: "agent_calendar", payload: {
+    type: "calendar.invitations", accountId: "account-b", filter: "pending",
+  } } }));
+  const reads = vi.spyOn(GoogleCalendarService, "invitations");
+  const connect = vi.spyOn(connections, "connectCalendarInPlace").mockReturnValue({ surface: "native", result: new Promise(() => {}) });
+  const view = workspace();
+  fireEvent.change(await screen.findByRole("textbox", { name: "Message One" }), { target: { value: "Show selected invitations" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Reconnect Calendar" }));
+  expect(reads).not.toHaveBeenCalled();
+  expect(connect).toHaveBeenCalledWith(expect.objectContaining({ accountId: "account-b" }));
+  view.unmount();
+});
+
+
+it("blocks a substituted reconnect directive before opening another account's OAuth", async () => {
+  vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("state", { directive: { kind: "action", delegateAgentId: "agent_calendar", payload: {
+    type: "calendar.connect", accountId: "default", summary: "Renew Calendar", confirmLabel: "Renew Calendar",
+  } } }));
+  const connect = vi.spyOn(connections, "connectCalendarInPlace");
+  useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarInvitation: {
+    ownerId: "owner", accountId: "account-b", accountEmail: "selected@example.test", calendarId: "primary", eventId: "invite", request: "Accept this invitation" } });
+  workspace();
+  fireEvent.click(await screen.findByRole("button", { name: "Renew Calendar" }));
+  await screen.findByText("The Calendar account selection changed. Check the selected account again before reconnecting.");
+  expect(connect).not.toHaveBeenCalled();
+});
+
+it("starts a fresh reconnect after capability renewal and invalidates the old attempt", async () => {
+  vi.mocked(GoogleCalendarService.status).mockResolvedValue({ connected: true, accounts: [] } as never);
+  const connect = vi.spyOn(connections, "connectCalendarInPlace").mockReturnValue({ surface: "native", result: new Promise(() => {}) });
+  const props = { owner: fixture.auth.user, ownerId: "owner", payload: { accountId: "account-b" }, onResult: vi.fn(), onClose: vi.fn() };
+  const view = render(<CalendarInvitationChat {...props} vaultOwnerCapability="synthetic-first-capability" />);
+  fireEvent.click(await screen.findByRole("button", { name: "Reconnect Calendar" }));
+  const first = connect.mock.calls[0][0];
+  expect(first.isCurrent?.()).toBe(true);
+  view.rerender(<CalendarInvitationChat {...props} vaultOwnerCapability="synthetic-next-capability" />);
+  expect(first.isCurrent?.()).toBe(false);
+  expect(first.signal?.aborted).toBe(true);
+  const reconnect = await screen.findByRole("button", { name: "Reconnect Calendar" });
+  expect(reconnect).toBeEnabled();
+  fireEvent.click(reconnect);
+  expect(connect).toHaveBeenCalledTimes(2);
+  expect(connect.mock.calls[1][0].vaultOwnerCapability).toBe("synthetic-next-capability");
+});
+
+
+it.each(["", null, 17])("rejects malformed explicit invitation account %s before any read", async accountId => {
+  const reads = vi.spyOn(GoogleCalendarService, "invitations");
+  const connect = vi.spyOn(connections, "connectCalendarInPlace");
+  render(<CalendarInvitationChat owner={fixture.auth.user} ownerId="owner" payload={{ accountId }} onResult={vi.fn()} onClose={vi.fn()} />);
+  await screen.findByText("The Calendar account selection is invalid. Close this review and check the invitation again.");
+  expect(GoogleCalendarService.status).not.toHaveBeenCalled();
+  expect(reads).not.toHaveBeenCalled(); expect(connect).not.toHaveBeenCalled();
+});
+
+it("keeps consecutive turns on the single canonical Main chat without spawning sidebar chats", async () => {
+  const encoder = new TextEncoder();
+  const requests: Array<{ threadId: string; mainChat?: boolean }> = [];
+  vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async (_url, init) => {
+    const wire = JSON.parse(String(init?.body ?? "{}"));
+    requests.push({
+      threadId: wire.threadId,
+      mainChat: wire.forwardedProps?.mainChat,
+    });
+    const turnNumber = requests.length;
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "RUN_STARTED", threadId: wire.threadId, runId: `run-${turnNumber}` })}\n\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "TEXT_MESSAGE_START", messageId: `msg-${turnNumber}`, role: "assistant" })}\n\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "TEXT_MESSAGE_CONTENT", messageId: `msg-${turnNumber}`, delta: `Reply ${turnNumber}` })}\n\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "TEXT_MESSAGE_END", messageId: `msg-${turnNumber}` })}\n\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "RUN_FINISHED", threadId: wire.threadId, runId: `run-${turnNumber}` })}\n\n`));
+          controller.close();
+        },
+      }),
+      { headers: { "Content-Type": "text/event-stream" } },
+    );
+  });
+
+  workspace();
+  const composer = await screen.findByRole("textbox", { name: "Message One" });
+
+  fireEvent.change(composer, { target: { value: "Hey" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  await screen.findByText("Reply 1");
+
+  const listCallsAfterFirstTurn = vi.mocked(ApiService.listAgentChatConversations).mock.calls.length;
+
+  fireEvent.change(composer, { target: { value: "how are you" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  await screen.findByText("Reply 2");
+
+  expect(requests).toHaveLength(2);
+  expect(requests[0]?.mainChat).toBe(true);
+  expect(requests[1]?.mainChat).toBe(true);
+  expect(requests[1]?.threadId).toBe(requests[0]?.threadId);
+  // Ongoing Main chat turns must not hammer the pod with forced sidebar list reloads.
+  expect(vi.mocked(ApiService.listAgentChatConversations).mock.calls.length).toBe(listCallsAfterFirstTurn);
+
+  // Open sidebar and verify the Main chat stays pinned under One and never spawns a row in Chats.
+  fireEvent.click(screen.getByRole("button", { name: "Open chat history" }));
+  expect(await screen.findByTestId("agent-history-pinned-one")).toHaveAttribute("aria-current", "page");
+  expect(screen.queryByRole("list", { name: "Today conversations" })).toBeNull();
+}, 15_000);

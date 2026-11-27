@@ -15,6 +15,11 @@ import {
 } from "@/lib/services/api-service";
 
 describe("fetchWithWebTimeout", () => {
+  it("lets shared and direct-pod memory rewrites outlast the 90-second backend budget", () => {
+    expect(webFetchTimeoutMsForPath("/api/pkm/memory/rewrite")).toBe(100_000);
+    expect(webFetchTimeoutMsForPath("https://owner-pod.example/api/one/pod/memory/rewrite")).toBe(100_000);
+    expect(webFetchTimeoutMsForPath("/api/pkm/metadata/owner")).toBe(60_000);
+  });
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -48,6 +53,9 @@ describe("fetchWithWebTimeout", () => {
     expect(webFetchTimeoutMsForPath("/api/kai/gmail/receipts/detail")).toBe(
       80_000,
     );
+    // One's mailbox check waits for a model answer, so it outlasts a scan; its source email is a single read.
+    expect(webFetchTimeoutMsForPath("/api/kai/gmail/receipts/notice")).toBe(95_000);
+    expect(webFetchTimeoutMsForPath("/api/kai/gmail/receipts/notice/source")).toBe(95_000);
     expect(webFetchTimeoutMsForPath("/api/kai/gmail/receipts/user-123")).toBe(
       60_000,
     );

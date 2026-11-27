@@ -1,14 +1,27 @@
 "use client";
 
-import { useState } from "react";
 import type { ReactNode } from "react";
-import { usePathname } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
-import { useBackLayer } from "@/lib/navigation/back-layers";
 
-/** Keep the event's verified destination; the external Meet identity is chosen in Meet. */
+/** Build the direct Meet URL routed through the event's Calendar account without confirmation. */
+export function calendarJoinHref(url: string | null | undefined, accountEmail?: string | null): string | null {
+  const safe = safeMeetingUrl(url);
+  if (!safe) return null;
+  const meeting = new URL(safe);
+  const email = accountEmail?.trim() || "";
+  if (meeting.origin === "https://meet.google.com" && email) {
+    meeting.searchParams.set("authuser", email);
+    // Meet alone can fall back to the default session when this account is absent.
+    // Google's account handoff skips its chooser when the hinted session exists.
+    const account = new URL("https://accounts.google.com/AccountChooser");
+    account.searchParams.set("Email", email);
+    account.searchParams.set("continue", meeting.href);
+    return account.href;
+  }
+  return safe;
+}
+
+/** Let Google reuse the calendar account's session or handle sign-in itself. */
 export function CalendarJoinLink({ url, accountEmail, label = "Join meeting", ariaLabel, className, children }: {
   url: string | null | undefined;
   accountEmail?: string | null;
@@ -17,21 +30,7 @@ export function CalendarJoinLink({ url, accountEmail, label = "Join meeting", ar
   className?: string;
   children?: ReactNode;
 }) {
-  const safe = safeMeetingUrl(url);
-  const [launch, setLaunch] = useState<{ url: string; accountEmail: string } | null>(null);
-  const pathname = usePathname();
-  useBackLayer(pathname, launch ? 3 : 0, () => { setLaunch(null); return true; });
-  if (!safe) return null;
-  const isMeet = new URL(safe).hostname === "meet.google.com";
-  const email = accountEmail?.trim() || "";
-  if (!isMeet || !email) return <a href={safe} target="_blank" rel="noopener noreferrer" className={className} aria-label={ariaLabel}>{children || label}</a>;
-  return <>
-    <a href={safe} target="_blank" rel="noopener noreferrer" className={className} aria-label={ariaLabel} onClick={event => { event.preventDefault(); setLaunch({ url: safe, accountEmail: email }); }}>{children || label}</a>
-    <Dialog modal open={Boolean(launch)} onOpenChange={open => { if (!open) setLaunch(null); }}>
-      <DialogContent className="w-[min(calc(100vw-2rem),24rem)] gap-3 p-5">
-        <DialogHeader className="text-left"><DialogTitle>Check Google account</DialogTitle><DialogDescription>Use {launch?.accountEmail} in Google Meet. Tap Switch on the pre-join screen.</DialogDescription></DialogHeader>
-        <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setLaunch(null)}>Cancel</Button><Button asChild><a href={launch?.url || safe} target="_blank" rel="noopener noreferrer" onClick={() => setLaunch(null)}>Open Meet</a></Button></div>
-      </DialogContent>
-    </Dialog>
-  </>;
+  const href = calendarJoinHref(url, accountEmail);
+  if (!href) return null;
+  return <a href={href} target="_blank" rel="noopener noreferrer" className={className} aria-label={ariaLabel}>{children || label}</a>;
 }

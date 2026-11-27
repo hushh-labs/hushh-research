@@ -29,6 +29,7 @@ type SyncOptions = Omit<
   "source" | "signal" | "idToken"
 > & {
   routeId: RouteId;
+  sessionSignal?: AbortSignal;
   beginInvites?: () => SyncOptions["onInviteCandidates"];
   /**
    * Force the Google account chooser instead of silently reusing the
@@ -86,6 +87,7 @@ export function useGoogleContactSyncSession(
   const run = useCallback(
     async (options: SyncOptions) => {
       if (
+        options.sessionSignal?.aborted ||
         !owner ||
         isNative() ||
         operation.current ||
@@ -95,6 +97,8 @@ export function useGoogleContactSyncSession(
         return null;
       const abort = new AbortController();
       operation.current = abort;
+      const cancelSession = () => abort.abort();
+      options.sessionSignal?.addEventListener("abort", cancelSession, { once: true });
       let authorized = false;
       const current = () =>
         operation.current === abort &&
@@ -226,6 +230,7 @@ export function useGoogleContactSyncSession(
         }
         return null;
       } finally {
+        options.sessionSignal?.removeEventListener("abort", cancelSession);
         if (operation.current === abort) operation.current = null;
       }
     },

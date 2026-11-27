@@ -1,0 +1,131 @@
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { FeedActivitySearch } from "@/components/feed/feed-activity-search";
+import { FEED_SEARCH_OPEN_EVENT } from "@/lib/feed/feed-search-events";
+import { clearFeedSearch, consumeFeedSearchReturn, recallFeedSearch } from "@/lib/feed/feed-search-memory";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { bumpFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
+import { armFeedSearchReturn, retainFeedSearch } from "@/lib/feed/feed-search-memory";
+import { searchFeed, clearFeedSearchCache } from "@/lib/feed/search-cache";
+vi.mock("@/lib/agent/local-onboarding-actions", () => ({ useLocalOnboardingActionHandler: () => { } }));
+const mocks = vi.hoisted(() => ({ search: vi.fn(), back: vi.fn(), push: vi.fn(), finance: vi.fn<(_props: {
+        initialRecords?: unknown[];
+    }) => null>(() => null) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
+vi.mock("@/lib/services/feed-service", () => ({ FeedService: { searchActivity: mocks.search } }));
+vi.mock("@/lib/navigation/back-layers", () => ({ useBackLayer: mocks.back }));
+vi.mock("@/components/feed/feed-row", () => ({ FeedRow: ({ item, onOpen }: any) => <button onClick={() => onOpen(item)}>{item.actor_label}</button> }));
+vi.mock("@/components/feed/feed-finance-search", () => ({ FeedFinanceSearch: mocks.finance }));
+vi.mock("@/components/feed/feed-drive-search", () => ({ FeedDriveSearch: () => null }));
+const result = { id: "9007199254740997", activity_group_id: "location-grant:one", scope_id: "location", source_domain: "location", event_type: "location_share_expired", actor_label: "Ankit", metadata: {}, read: true, created_at: "2026-10-03T12:00:00Z" };
+const current = () => true, getToken = async () => "memory-only-token";
+const props = { ownerId: "qa_search", getToken, isCurrent: current, onOpen: vi.fn(), onModeChange: vi.fn() };
+const open = () => act(() => window.dispatchEvent(new Event(FEED_SEARCH_OPEN_EVENT)));
+describe("Server-backed Feed search", () => {
+    beforeEach(() => { vi.clearAllMocks(); clearFeedSearch(); clearFeedSearchCache(); mocks.search.mockResolvedValue({ items: [], next_cursor: null }); });
+    it("starts calm and scopes immediately with an empty query before pagination", async () => {
+        render(<FeedActivitySearch {...props}/>);
+        expect(screen.queryByRole("search")).toBeNull();
+        open();
+        expect(screen.getByRole("option", {name:"Cards"})).toBeInTheDocument();
+        fireEvent.change(screen.getByRole("combobox", { name: "Agent scope" }), { target: { value: "wallet" } });
+        await waitFor(() => expect(mocks.search.mock.calls.at(-1)[0].query.scope).toBe("wallet"));
+        fireEvent.change(screen.getByRole("combobox", { name: "Agent scope" }), { target: { value: "location" } });
+        await waitFor(() => expect(mocks.search).toHaveBeenCalledWith(expect.objectContaining({ query: expect.objectContaining({ scope: "location", query: "", cursor: null }) })));
+        expect(await screen.findByText("No Location activity")).toBeInTheDocument();
+        fireEvent.click(screen.getByRole("button", { name: "Remove Location scope" }));
+        await waitFor(() => expect(mocks.search.mock.calls.at(-1)[0].query.scope).toBeNull());
+    });
+    it("sends typed terms and follows opaque ranked cursors without scanning pages in the browser", async () => {
+        mocks.search.mockResolvedValueOnce({ items: [result], next_cursor: "opaque-rank-cursor" }).mockResolvedValueOnce({ items: [{ ...result, id: "9007199254740998", activity_group_id: "location-grant:two", actor_label: "Second" }], next_cursor: null });
+        render(<FeedActivitySearch {...props}/>);
+        open();
+        await screen.findByRole("button", { name: "Ankit" });
+        fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+        await screen.findByRole("button", { name: "Second" });
+        expect(mocks.search.mock.calls[1][0].query.cursor).toBe("opaque-rank-cursor");
+        fireEvent.change(screen.getByRole("textbox", { name: "Search Feed" }), { target: { value: "Singh Ank" } });
+        await waitFor(() => expect(mocks.search.mock.calls.at(-1)[0].query).toEqual(expect.objectContaining({ query: "Singh Ank", cursor: null })));
+    });
+    it("offers a correction without silently replacing a name or inventing a hit", async () => {
+        mocks.search.mockResolvedValue({ items: [], next_cursor: null, suggestion: "ankit" });
+        render(<FeedActivitySearch {...props}/>);
+        open();
+        fireEvent.change(screen.getByRole("textbox", { name: "Search Feed" }), { target: { value: "Ankti" } });
+        const suggestion = await screen.findByRole("button", { name: "Search “ankit”" });
+        expect(screen.getByRole("textbox", { name: "Search Feed" })).toHaveValue("Ankti");
+        expect(screen.queryByLabelText("Top Hit")).toBeNull();
+        fireEvent.click(suggestion);
+        await waitFor(() => expect(mocks.search.mock.calls.at(-1)[0].query.query).toBe("ankit"));
+    });
+    it("retains a deliberate result return but resets a fresh visit to All", async () => {
+        mocks.search.mockResolvedValue({ items: [result], next_cursor: null });
+        const view = render(<FeedActivitySearch {...props}/>);
+        open();
+        fireEvent.change(screen.getByRole("combobox", { name: "Agent scope" }), { target: { value: "location" } });
+        fireEvent.change(screen.getByRole("textbox", { name: "Search Feed" }), { target: { value: "Ank" } });
+        fireEvent.click(await screen.findByRole("button", { name: "Ankit" }));
+        await waitFor(() => expect(recallFeedSearch(props.ownerId)?.agent).toBe("location"));
+        view.unmount();
+        const initial = consumeFeedSearchReturn(props.ownerId);
+        expect(initial?.query).toBe("Ank");
+        const returned = render(<FeedActivitySearch {...props} initial={initial}/>);
+        expect(screen.getByRole("combobox", { name: "Agent scope" })).toHaveValue("location");
+        returned.unmount();
+        expect(consumeFeedSearchReturn(props.ownerId)).toBeNull();
+        render(<FeedActivitySearch {...props}/>);
+        expect(screen.queryByRole("search")).toBeNull();
+    });
+    it("ignores a response after its owner episode ends", async () => {
+        let resolve!: (value: unknown) => void;
+        let active = true;
+        mocks.search.mockReturnValue(new Promise(done => { resolve = done; }));
+        render(<FeedActivitySearch {...props} isCurrent={() => active}/>);
+        open();
+        await waitFor(() => expect(mocks.search).toHaveBeenCalled());
+        active = false;
+        await act(async () => resolve({ items: [result], next_cursor: null }));
+        expect(screen.queryByRole("button", { name: "Ankit" })).toBeNull();
+    });
+    it("opens the authorized Advisor Top Hit and keeps the existing Clients route", async () => {
+        mocks.search.mockResolvedValue({ items: [], next_cursor: null, top_hit: { kind: "client", label: "Ankit Kumar Singh", href: "/ria/clients/permitted?from=%2Fone%2Ffeed" } });
+        render(<FeedActivitySearch {...props} persona="ria"/>);
+        open();
+        fireEvent.change(screen.getByRole("combobox", { name: "Agent scope" }), { target: { value: "advisor" } });
+        fireEvent.change(screen.getByRole("textbox", { name: "Search Feed" }), { target: { value: "Ank" } });
+        fireEvent.click(await screen.findByRole("button", { name: "Ankit Kumar Singh" }));
+        expect(mocks.push).toHaveBeenCalledWith("/ria/clients/permitted?from=%2Fone%2Ffeed");
+        expect(screen.getByRole("button", { name: "Clients →" })).toBeInTheDocument();
+    });
+    it("does not duplicate a pinned incident in ordinary scoped results", async () => {
+        mocks.search.mockResolvedValue({ items: [result], top_hit: { kind: "activity", item: result }, next_cursor: null });
+        render(<FeedActivitySearch {...props} pinnedOperations={new Set([result.activity_group_id])}/>);
+        open();
+        await waitFor(() => expect(recallFeedSearch(props.ownerId)?.items).toHaveLength(1));
+        expect(screen.queryByRole("button", { name: "Ankit" })).toBeNull();
+    });
+    it("fences invalidated requests and strips transient Top Hit previews from return memory", async () => {
+        await searchFeed(props.ownerId, { query: "Ank", scope: "location" }, "memory-only", current);
+        const fence = mocks.search.mock.calls.at(-1)![0].isEffectCurrent;
+        expect(fence()).toBe(true);
+        bumpFeedInvalidationEpoch(props.ownerId);
+        expect(fence()).toBe(false);
+        await searchFeed(props.ownerId, { query: "Ank", scope: "location" }, "memory-only", current);
+        expect(mocks.search).toHaveBeenCalledTimes(2);
+        const item = { ...result, metadata: { message_preview: "transient decrypted preview" } };
+        retainFeedSearch(props.ownerId, { open: true, query: "Ank", person: "", agent: "location", from: "", through: "", filtersOpen: false, submitted: null, items: [item], cursor: null, topHit: { kind: "activity", item } });
+        armFeedSearchReturn("/one/location");
+        const snapshot = consumeFeedSearchReturn(props.ownerId)!;
+        expect(snapshot.items[0].metadata).not.toHaveProperty("message_preview");
+        expect(snapshot.topHit?.kind === "activity" && snapshot.topHit.item.metadata).not.toHaveProperty("message_preview");
+    });
+    it("retires restored Finance labels when the vault episode changes", async () => {
+        const initial = { open: true, query: "October", person: "", agent: "finance", from: "", through: "", filtersOpen: false, pending: false, submitted: { query: "October", person: "", agent: "finance", fromAt: null, beforeAt: null, revision: 1 }, items: [], cursor: null, financeItems: [{ kind: "statement" as const, title: "October statement", href: "/kai/portfolio?statementId=synthetic", timestamp: "2026-10-01T00:00:00Z", searchable: ["October"] }] };
+        render(<FeedActivitySearch {...props} initial={initial}/>);
+        expect(mocks.finance.mock.calls.at(-1)![0].initialRecords).toHaveLength(1);
+        act(() => advanceVaultSessionEpoch());
+        await waitFor(() => expect(mocks.finance.mock.calls.at(-1)![0].initialRecords).toBeUndefined());
+        expect(recallFeedSearch(props.ownerId)?.financeItems).toBeUndefined();
+    });
+
+});

@@ -12,7 +12,7 @@ Runtime truth note:
 1. Use script-first regression for Kai runtime truth:
    - auth/bootstrap
    - debate completion
-   - PKM persistence
+     - portfolio and profile PKM persistence
    - saved analysis history
 2. Do not use Playwright unless the proof actually requires a browser:
    - review-mode auth/bootstrap
@@ -103,7 +103,7 @@ The microphone now enters the Location command runtime. Ordinary typed Kai text 
 2. Confirm quick recommendation card appears with final decision.
 3. Confirm decision card PKM context shows non-zero holdings count when applicable.
 4. If providers degrade, confirm degraded messaging appears without hard failure.
-5. Treat the local regression script as the source of truth for whether debate saves into evolved PKM `financial.analysis_history`.
+5. Run analysis twice for one ticker. Open History and confirm it shows the newer result and its date. Reload on the same device, unlock the vault, and reopen that result. Confirm `financial.analysis_history` and its PKM summary are unchanged by both completions. Use the existing PKM records to verify legacy results still open.
 
 ## 4a) Post-upgrade regression gate
 1. After the PKM upgrade or no-write rehearsal finishes, confirm these still work on the upgraded contract:

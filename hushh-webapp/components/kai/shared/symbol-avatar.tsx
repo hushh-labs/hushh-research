@@ -43,6 +43,11 @@ function getMarkerGlyph(symbol: string, isCash: boolean): string {
   return cleaned.length > 0 ? cleaned.charAt(0) : "•";
 }
 
+/** The native symbol mark uses the same glyph and deterministic brand color. */
+export function symbolAvatarFallback(symbol: string): { glyph: string; hue: number } {
+  return { glyph: getMarkerGlyph(symbol, false), hue: hashText(symbol || "holding") % 360 };
+}
+
 function getIconStyle(key: string, isCash: boolean): CSSProperties {
   const baseHue = isCash ? 145 : hashText(key || "holding") % 360;
   const accentHue = (baseHue + 38) % 360;
@@ -76,14 +81,18 @@ export function SymbolAvatar({
   isCash = false,
   size = "md",
   className,
+  logo = true,
 }: {
   symbol: string;
   name?: string | null;
   isCash?: boolean;
   size?: keyof typeof SIZE_CLASSES;
   className?: string;
+  /** False for symbols the US logo lookup does not cover, so a bare NSE ticker can never
+   * pick up a different US company's logo. */
+  logo?: boolean;
 }) {
-  const logoUrl = getCompanyLogoUrl({ symbol, name, isCash });
+  const logoUrl = logo ? getCompanyLogoUrl({ symbol, name, isCash }) : null;
   const [logoFailed, setLogoFailed] = useState(false);
 
   useEffect(() => {

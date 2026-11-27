@@ -17,6 +17,7 @@
  * plugin (nativeStreamFetch), which really streams and really cancels, so a
  * backgrounded app frees its backend slot. Never buffered CapacitorHttp.
  */
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { getDirectBackendUrl } from "@/lib/services/api-service";
 import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
 import type {
@@ -73,7 +74,7 @@ function directOrigin(): string | null {
 }
 
 function isOffline(): boolean {
-  return typeof navigator !== "undefined" && navigator.onLine === false;
+  return !isNetworkOnline();
 }
 
 function createWebTransport(now: () => number): DocumentFeedTransport {

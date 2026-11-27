@@ -78,6 +78,7 @@ def resolve_specialist_availability(
     user_id: str,
     consent_token: str,
     voice_context: object,
+    execution_surface: str | None = None,
 ) -> SpecialistAvailabilityV1:
     """Resolve a specialist's callable state from redacted current context."""
     context = voice_context if isinstance(voice_context, dict) else {}
@@ -111,13 +112,15 @@ def resolve_specialist_availability(
     # actionable than any of the readiness facts below it -- "Email needs
     # approved task-specific authority" is true but not the point when the
     # actual reason is that the person turned Email off themselves.
+    # Voice control toggles restrict voice surfaces, never typed text chat.
     voice_settings = context.get("voice_settings")
     voice_settings = voice_settings if isinstance(voice_settings, dict) else {}
-    if is_voice_entirely_disabled(voice_settings):
-        return result("domain_disabled", "voice_disabled_by_user")
-    voice_domain = resolve_voice_domain_for_specialist(agent_id)
-    if is_voice_domain_disabled(voice_domain, voice_settings.get("disabled_domains")):
-        return result("domain_disabled", "voice_domain_disabled_by_user")
+    if execution_surface != "typed_chat":
+        if is_voice_entirely_disabled(voice_settings):
+            return result("domain_disabled", "voice_disabled_by_user")
+        voice_domain = resolve_voice_domain_for_specialist(agent_id)
+        if is_voice_domain_disabled(voice_domain, voice_settings.get("disabled_domains")):
+            return result("domain_disabled", "voice_domain_disabled_by_user")
 
     # `/one/setup/location` deliberately admits only generated onboarding
     # actions. Returning setup_required here makes an accidental tool call

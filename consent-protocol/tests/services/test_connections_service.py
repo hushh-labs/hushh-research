@@ -15,14 +15,104 @@ from hushh_mcp.services.connections_service import (
 )
 
 
+@pytest.fixture(autouse=True)
+def stub_connection_account_status(monkeypatch):
+    monkeypatch.setattr(
+        "hushh_mcp.services.connections_service.active_directory_user_ids",
+        lambda ids, **_: set(ids),
+    )
+
+
 def _svc():
-    return ConnectionsService.__new__(ConnectionsService)
+    service = ConnectionsService.__new__(ConnectionsService)
+    service._directory_profiles = lambda viewer, ids: []
+    return service
+
+
+def _row_metadata(params, relationships=None):
+    return [
+        {
+            "candidate_id": uid,
+            "public_person_ref": None,
+            "relationship": (relationships or {}).get(uid, "none"),
+            "mutual_count": 0,
+            "preview_user_ids": [],
+            "previews_valid": True,
+        }
+        for uid in params["page_user_ids"]
+    ]
+
+
+def test_network_row_metadata_batches_fifty_rows_into_one_bounded_preview_lookup():
+    from hushh_mcp.services.connection_row_metadata import ConnectionRowMetadata
+
+    people = [{"userId": f"person-{i}", "publicPersonRef": f"public-{i}"} for i in range(50)]
+    reads, lookups = [], []
+
+    def read(sql, params):
+        reads.append(params)
+        return [
+            {
+                "candidate_id": person["userId"],
+                "public_person_ref": person["publicPersonRef"],
+                "relationship": "none",
+                "mutual_count": 9,
+                "preview_user_ids": [f"peer-{i}-a", f"peer-{i}-b"],
+                "previews_valid": True,
+            }
+            for i, person in enumerate(people)
+        ]
+
+    def profiles(viewer, ids):
+        lookups.append((viewer, ids))
+        return [
+            {
+                "userId": uid,
+                "publicPersonRef": f"public-{uid}",
+                "displayName": "Peer",
+                "photoUrl": None,
+            }
+            for uid in ids
+        ]
+
+    projection = ConnectionRowMetadata(
+        SimpleNamespace(_execute_many=read), "viewer", people, profiles
+    )
+    result = projection.settle()
+    assert len(reads) == 2
+    assert len(lookups) == 1 and len(lookups[0][1]) == 100
+    assert len(result) == 50
+    assert all(
+        item["mutualConnectionCount"] == 9 and len(item["mutualConnectionPreviews"]) == 2
+        for item in result.values()
+    )
+    with pytest.raises(ConnectionsError):
+        ConnectionRowMetadata(
+            SimpleNamespace(_execute_many=read), "viewer", people + [{"userId": "extra"}], profiles
+        )
 
 
 def test_mutual_list_requires_visible_target_and_projects_only_public_identity():
     service = _svc()
     service._execute_one = lambda sql, params: {"user_id": "target"}
-    service._execute_many = lambda sql, params: [{"mutual_count": 2}]
+    service._execute_many = lambda sql, params: (
+        [
+            {
+                "candidate_id": "internal-peer",
+                "public_person_ref": "public-peer",
+                "relationship": "connected",
+                "mutual_count": 0,
+                "preview_user_ids": [],
+                "previews_valid": True,
+                "degree": 1,
+                "overflow": False,
+                "target_available": True,
+                "total_count": 2,
+            }
+        ]
+        if "AS previews_valid" in sql
+        else [{"mutual_count": 2}]
+    )
     service._directory_profiles = lambda viewer, ids: [
         {"userId": "target", "displayName": "Target"}
     ]
@@ -50,7 +140,16 @@ def test_mutual_list_requires_visible_target_and_projects_only_public_identity()
             limit=20,
         )
         assert result["items"] == [
-            {"publicPersonRef": "public-peer", "displayName": "Peer", "photoUrl": None}
+            {
+                "publicPersonRef": "public-peer",
+                "displayName": "Peer",
+                "photoUrl": None,
+                "relationship": "connected",
+                "networkDegree": 1,
+                "mutualConnectionCount": 0,
+                "mutualConnectionPreview": None,
+                "mutualConnectionPreviews": [],
+            }
         ]
         assert result["totalCount"] == 2
         service._directory_profiles = lambda viewer, ids: []
@@ -100,13 +199,20 @@ def test_person_context_is_pair_bound_and_uses_current_connection(
     connected, status, requester, relationship
 ):
     svc = _svc()
-    svc._directory_lookup = lambda viewer: [{"userId": "counterpart"}]
+    svc._directory_profiles = lambda viewer, ids: [
+        {
+            "userId": "counterpart",
+            "publicPersonRef": "public-counterpart",
+            "displayName": "Canonical Person",
+            "photoUrl": "https://example.test/canonical.jpg",
+        }
+    ]
     queries = []
 
     def read(sql, params):
         queries.append((sql, params))
-        if "actor_identity_cache" in sql:
-            return {"display_name": "Synthetic Person", "photo_url": None, "connected": connected}
+        if "AS connected" in sql:
+            return {"connected": connected}
         return {
             "id": "request",
             "requester_user_id": requester,
@@ -117,6 +223,9 @@ def test_person_context_is_pair_bound_and_uses_current_connection(
     svc._execute_one = read
     result = svc.get_person_context("viewer", "counterpart")
     assert result["person"]["relationship"] == relationship
+    assert result["person"]["publicPersonRef"] == "public-counterpart"
+    assert result["person"]["displayName"] == "Canonical Person"
+    assert result["person"]["photoUrl"] == "https://example.test/canonical.jpg"
     assert result["person"]["email"] is None
     assert all(
         params == {"viewer": "viewer", "counterpart": "counterpart"} for _, params in queries
@@ -128,7 +237,7 @@ def test_person_context_is_pair_bound_and_uses_current_connection(
 
 def test_person_context_rejects_hidden_or_self_before_request_lookup():
     svc = _svc()
-    svc._directory_lookup = lambda viewer: []
+    svc._directory_profiles = lambda viewer, ids: []
     svc._execute_one = lambda *args: pytest.fail("Hidden identity must not be queried")
     for target in ("hidden", "viewer", ""):
         with pytest.raises(ConnectionsError):
@@ -523,6 +632,8 @@ class _RecordingDB:
 
     def execute_raw(self, sql, params=None):
         self.calls.append((sql, params or {}))
+        if "AS previews_valid" in sql:
+            return SimpleNamespace(data=_row_metadata(params, getattr(self, "relationships", {})))
         rows = self._results.pop(0) if self._results else []
         return SimpleNamespace(data=rows)
 
@@ -1865,14 +1976,12 @@ def test_search_directory_reuses_ready_people_and_annotates_relationship():
         {"userId": "user-d", "displayName": "Dan"},
         {"userId": "user-e", "displayName": "Eve"},
     ]
-    # Relationship queries run in order: outgoing pending, incoming pending, connections.
-    db = _RecordingDB(
-        [
-            [{"addressee_user_id": "user-b"}],  # outgoing pending -> user-b
-            [{"requester_user_id": "user-d"}],  # incoming pending -> user-d
-            [{"user_a_id": "user-a", "user_b_id": "user-c"}],  # connected -> user-c
-        ]
-    )
+    db = _RecordingDB([])
+    db.relationships = {
+        "user-b": "pending_outgoing",
+        "user-d": "pending_incoming",
+        "user-c": "connected",
+    }
     with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
         out = svc.search_directory("user-a", query="", page=1, limit=20)
     by_id = {i["userId"]: i for i in out["items"]}
@@ -2092,6 +2201,7 @@ def test_search_directory_delegates_pagination_to_eligible_directory_query():
                 "relationship": "none",
                 "mutualConnectionCount": 0,
                 "mutualConnectionPreview": None,
+                "mutualConnectionPreviews": [],
                 "isRia": False,
             }
         ],
@@ -2115,6 +2225,8 @@ class _RiaAwareDB:
 
     def execute_raw(self, sql, params=None):
         self.calls.append((sql, params or {}))
+        if "AS previews_valid" in sql:
+            return SimpleNamespace(data=_row_metadata(params))
         if "ria_profiles" in sql:
             requested = set((params or {}).get("user_ids") or [])
             return SimpleNamespace(
@@ -2286,8 +2398,8 @@ def test_list_connections_annotates_ria_status_per_row():
             "created_at": "2026-07-08T00:00:00Z",
         },
     ]
-    # Second call is _verified_ria_user_ids: only the advisor comes back.
-    db = _RecordingDB([connection_rows, [{"user_id": "user-advisor"}]])
+    # After account admission and the row read, only the advisor is annotated.
+    db = _RecordingDB([connection_rows, connection_rows, [{"user_id": "user-advisor"}]])
     with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
         out = svc.list_connections("user-a")
 
@@ -2313,13 +2425,13 @@ def test_list_connections_uses_the_same_verified_gate_as_the_directory():
             "created_at": "2026-07-09T00:00:00Z",
         }
     ]
-    db = _RecordingDB([connection_rows, []])
+    db = _RecordingDB([connection_rows, connection_rows, []])
     with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
         svc.list_connections("user-a")
 
     from hushh_mcp.services.ria_iam_service import RIAIAMService
 
-    annotation_sql = db.calls[1][0]
+    annotation_sql = db.calls[2][0]
     assert "ria_profiles" in annotation_sql
     for status in RIAIAMService._RIA_VERIFIED_STATUSES:
         assert f"'{status}'" in annotation_sql, f"annotation gate omits '{status}'"
@@ -2352,7 +2464,7 @@ def test_list_connections_stringifies_a_real_driver_datetime():
             "created_at": datetime(2026, 7, 9, 0, 0, 0, tzinfo=timezone.utc),
         }
     ]
-    db = _RecordingDB([rows, []])
+    db = _RecordingDB([rows, rows, []])
     with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
         out = svc.list_connections("user-a")
     assert out[0]["createdAt"] == "2026-07-09T00:00:00+00:00"
@@ -3379,8 +3491,13 @@ def test_directory_mutual_preview_uses_eligible_profile_outside_current_page():
 
     def read(sql, params):
         queries.append((sql, params))
-        if "WITH viewer_peers AS" in sql:
-            return [{"candidate_id": "candidate", "mutual_count": 2, "preview_user_id": "peer"}]
+        if "AS previews_valid" in sql:
+            return [
+                {**row, "mutual_count": 2, "preview_user_ids": ["peer"]}
+                if row["candidate_id"] == "candidate"
+                else row
+                for row in _row_metadata(params)
+            ]
         return []
 
     svc._execute_many = read
@@ -3404,4 +3521,79 @@ def test_directory_mutual_preview_uses_eligible_profile_outside_current_page():
     item = svc.search_directory("owner")["items"][0]
     assert item["mutualConnectionCount"] == 2
     assert item["mutualConnectionPreview"] is None
-    assert queries[-1][1] == {"user_id": "owner", "page_user_ids": ["candidate"]}
+    assert queries[-1][1]["page_user_ids"] == ["candidate"]
+
+
+def test_tombstone_sealed_pending_requests_feed_transition_and_accept_retirement():
+    svc = _svc()
+    svc._display_name_for = lambda uid: f"Name:{uid}"
+    executed: list[tuple[str, dict]] = []
+
+    def record_one(sql, params=None):
+        executed.append((sql, dict(params or {})))
+        return {"id": "feed-row-1"}
+
+    svc._execute_one = record_one
+    svc._record_connection_feed_transition(
+        owner_user_id="deleted-requester",
+        counterpart_user_id="active-addressee",
+        actor_user_id="active-addressee",
+        event_type="connection_rejected",
+        source_row_id="req-123",
+    )
+    assert len(executed) == 1
+    assert "account_deletion_tombstones" in executed[0][0]
+    assert executed[0][1]["owner_user_id"] == "deleted-requester"
+
+    many_queries: list[tuple[str, dict]] = []
+
+    def record_many(sql, params=None):
+        many_queries.append((sql, dict(params or {})))
+        return []
+
+    svc._execute_many = record_many
+    assert svc.list_requests("active-addressee", direction="incoming") == []
+    assert "account_deletion_tombstones" in many_queries[-1][0]
+    assert "cr.requester_user_id" in many_queries[-1][0]
+
+    # When accepting a cached pending request from a tombstoned requester on a real DB
+    # transaction, the service retires the request as cancelled and raises 410 cleanly.
+    class _FakeTxConn:
+        engine = object()
+
+        def execute(self, stmt, params=None):
+            return SimpleNamespace(first=lambda: None)
+
+    fake_conn = _FakeTxConn()
+    svc._transaction = lambda: nullcontext()
+    svc._transaction_connection = fake_conn
+    svc._load_request = lambda req_id, for_update=False: {
+        "id": req_id,
+        "requester_user_id": "deleted-requester",
+        "addressee_user_id": "active-addressee",
+        "status": "pending",
+    }
+    svc._expire_pending_scope_proposals = lambda req_id: None
+    svc._reviewable_scope_proposals = lambda req_id: []
+    resolved_proposals: list[tuple[str, str, str]] = []
+    svc._resolve_pending_scope_proposals = lambda req_id, *, status, actor_user_id, reason: (
+        resolved_proposals.append((req_id, status, reason))
+    )
+    cancel_writes: list[tuple[str, dict]] = []
+
+    def fake_exec_one(sql, params=None):
+        cancel_writes.append((sql, dict(params or {})))
+        if "INSERT INTO connections" in sql:
+            return None
+        return {"id": "req-dead-1"}
+
+    svc._execute_one = fake_exec_one
+
+    with patch("hushh_mcp.services.connections_service.lock_connection_graph_users"):
+        with pytest.raises(ConnectionsError) as exc_info:
+            svc.accept_request("active-addressee", "req-dead-1")
+
+    assert exc_info.value.code == "CONNECTION_REQUESTER_DELETED"
+    assert exc_info.value.status_code == 410
+    assert any("SET status = 'cancelled'" in sql for sql, _ in cancel_writes)
+    assert resolved_proposals == [("req-dead-1", "declined", "requester_account_deleted")]

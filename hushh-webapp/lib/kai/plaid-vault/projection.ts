@@ -17,8 +17,10 @@
  */
 
 import type { Holding, PortfolioData } from "@/components/kai/types/portfolio";
+import { cleanText, round2, toAccountRecord, toHoldingRecord, toNumber, toSecurityRecord, toTransactionRecord } from "./snapshot-records";
+export { round2 } from "./snapshot-records";
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
-import { buildLinkedAccountsView } from "@/lib/kai/plaid-vault/linked-accounts";
+import { accountTypeWords, buildLinkedAccountsView } from "@/lib/kai/plaid-vault/linked-accounts";
 
 import {
   isUnavailable,
@@ -32,14 +34,15 @@ import {
   type HoldingRecord,
   type IncomeStability,
   type MonthlyCashFlow,
-  type PlaidAccount,
-  type PlaidHolding,
-  type PlaidSecurity,
-  type PlaidTx,
   type PlaidVaultSnapshot,
   type RecurringBill,
   type RecurringCadence,
   type SecurityRecord,
+  type ShareableBankAccountItem,
+  type ShareableBankAccountsV1,
+  type ShareableCashFlowV1,
+  type ShareableLiabilitiesV1,
+  type ShareableLiabilityItem,
   type ShareableSummaryV1,
   type TransactionRecord,
 } from "@/lib/kai/plaid-vault/types";
@@ -59,21 +62,6 @@ const TREND_THRESHOLD = 0.02;
 
 function asRecord(value: unknown): AnyObj | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as AnyObj) : null;
-}
-
-function cleanText(value: unknown): string | null {
-  if (value === null || value === undefined) return null;
-  const text = String(value).trim();
-  return text.length > 0 ? text : null;
-}
-
-function toNumber(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  return null;
-}
-
-export function round2(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
 function sortedRecord<T>(entries: Iterable<[string, T]>): Record<string, T> {
@@ -192,117 +180,6 @@ export function accountIdentityKey(account: AccountRecord): string | null {
     return `m:${account.institution_id}:${account.mask}:${account.subtype ?? account.type}`;
   }
   return null;
-}
-
-// ---------------------------------------------------------------------------
-// Tier A record builders
-// ---------------------------------------------------------------------------
-
-function toAccountRecord(
-  itemId: string,
-  connection: ConnectionRecord,
-  account: PlaidAccount
-): AccountRecord {
-  // official_name is intentionally dropped.
-  return {
-    account_id: account.account_id,
-    persistent_account_id: cleanText(account.persistent_account_id),
-    item_id: itemId,
-    institution_id: connection.institution_id,
-    institution_name: connection.institution_name,
-    name: cleanText(account.name) ?? "Account",
-    mask: cleanText(account.mask),
-    type: cleanText(account.type) ?? "other",
-    subtype: cleanText(account.subtype),
-    balances: {
-      available: toNumber(account.balances?.available),
-      current: toNumber(account.balances?.current),
-      limit: toNumber(account.balances?.limit),
-      iso_currency_code: cleanText(account.balances?.iso_currency_code),
-    },
-    duplicate_of: null,
-  };
-}
-
-function toSecurityRecord(security: PlaidSecurity): SecurityRecord {
-  const type = cleanText(security.type)?.toLowerCase() ?? null;
-  return {
-    security_id: security.security_id,
-    ticker: cleanText(security.ticker_symbol)?.toUpperCase() ?? null,
-    name: cleanText(security.name),
-    type,
-    subtype: cleanText(security.subtype)?.toLowerCase() ?? null,
-    cusip: cleanText(security.cusip),
-    is_cash_equivalent: security.is_cash_equivalent === true || type === "cash",
-    close_price: toNumber(security.close_price),
-    sector: cleanText(security.sector),
-    industry: cleanText(security.industry),
-  };
-}
-
-function toHoldingRecord(
-  itemId: string,
-  holding: PlaidHolding,
-  security: SecurityRecord | undefined
-): HoldingRecord {
-  const quantity = toNumber(holding.quantity) ?? 0;
-  const price = toNumber(holding.institution_price);
-  const value =
-    toNumber(holding.institution_value) ??
-    (price !== null ? quantity * price : null) ??
-    (security?.close_price !== null && security?.close_price !== undefined
-      ? quantity * security.close_price
-      : 0);
-  return {
-    item_id: itemId,
-    account_id: holding.account_id,
-    security_id: holding.security_id,
-    quantity,
-    institution_price: price,
-    institution_price_as_of: cleanText(holding.institution_price_as_of),
-    institution_value: round2(value),
-    cost_basis: toNumber(holding.cost_basis),
-    iso_currency_code: cleanText(holding.iso_currency_code),
-  };
-}
-
-function toTransactionRecord(itemId: string, tx: PlaidTx): TransactionRecord {
-  const pfc = tx.personal_finance_category ?? null;
-  const legacy = Array.isArray(tx.category) ? tx.category.filter(Boolean) : [];
-  const location = tx.location
-    ? {
-        address: cleanText(tx.location.address),
-        city: cleanText(tx.location.city),
-        region: cleanText(tx.location.region),
-        postal_code: cleanText(tx.location.postal_code),
-        country: cleanText(tx.location.country),
-      }
-    : null;
-  const hasLocation = location !== null && Object.values(location).some((v) => v !== null);
-  const counterparties = Array.isArray(tx.counterparties)
-    ? tx.counterparties.map((entry) => ({
-        name: cleanText(entry.name),
-        type: cleanText(entry.type),
-      }))
-    : null;
-  return {
-    transaction_id: tx.transaction_id,
-    item_id: itemId,
-    account_id: tx.account_id,
-    amount: toNumber(tx.amount) ?? 0,
-    iso_currency_code: cleanText(tx.iso_currency_code),
-    date: tx.date,
-    authorized_date: cleanText(tx.authorized_date),
-    name: cleanText(tx.name),
-    merchant_name: cleanText(tx.merchant_name),
-    pending: tx.pending === true,
-    payment_channel: cleanText(tx.payment_channel),
-    category_primary: cleanText(pfc?.primary) ?? cleanText(legacy[0]),
-    category_detailed: cleanText(pfc?.detailed) ?? cleanText(legacy.join("_")),
-    location: hasLocation ? location : null,
-    counterparties: counterparties && counterparties.length > 0 ? counterparties : null,
-    reduced: false,
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -676,6 +553,173 @@ function computeSummary(
   };
 }
 
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function computeBankAccounts(
+  accounts: Map<string, AccountRecord>,
+  connections: Map<string, ConnectionRecord>,
+  derived: DerivedFactsV1,
+  now: string,
+): ShareableBankAccountsV1 {
+  const institutions = new Set<string>();
+  const items: ShareableBankAccountItem[] = [];
+  let totalDepository = 0;
+
+  for (const account of accounts.values()) {
+    if (account.duplicate_of) continue;
+    if (String(account.type || "").toLowerCase() !== "depository") continue;
+    const connection = connections.get(account.item_id);
+    const institutionName =
+      cleanText(connection?.institution_name) ?? cleanText(account.institution_name) ?? "Linked institution";
+    const accountType = accountTypeWords(account.type, account.subtype);
+    const accountName = cleanText(account.name) ?? accountType;
+    const currentBalance = round2(accountBalanceValue(account));
+    const availableRaw = toNumber(account.balances?.available);
+    const availableBalance = availableRaw !== null ? round2(availableRaw) : null;
+    const currency = (cleanText(account.balances?.iso_currency_code) ?? "USD").toUpperCase();
+    totalDepository += currentBalance;
+    institutions.add(connection?.institution_id ?? account.institution_id ?? `name:${institutionName}`);
+    items.push({
+      institution_name: institutionName,
+      account_name: accountName,
+      account_type: accountType,
+      current_balance: currentBalance,
+      available_balance: availableBalance,
+      currency,
+    });
+  }
+
+  items.sort(
+    (left, right) =>
+      compareText(left.institution_name, right.institution_name) ||
+      compareText(left.account_name, right.account_name) ||
+      compareText(left.account_type, right.account_type),
+  );
+
+  return {
+    schema: "plaid-accounts-v1",
+    cash_in_bank: derived.liquid_cash.value,
+    total_depository_balance: round2(totalDepository),
+    account_count: items.length,
+    institution_count: institutions.size,
+    as_of: now.slice(0, 10),
+    items,
+  };
+}
+
+function computeLiabilities(
+  accounts: Map<string, AccountRecord>,
+  connections: Map<string, ConnectionRecord>,
+  derived: DerivedFactsV1,
+  now: string,
+): ShareableLiabilitiesV1 {
+  const institutions = new Set<string>();
+  const items: ShareableLiabilityItem[] = [];
+  let creditCardOwed = 0;
+  let creditLimitTotal = 0;
+  let loanOwed = 0;
+
+  for (const account of accounts.values()) {
+    if (account.duplicate_of) continue;
+    if (classifyAccountType(account.type) !== "liability") continue;
+    const connection = connections.get(account.item_id);
+    const institutionName =
+      cleanText(connection?.institution_name) ?? cleanText(account.institution_name) ?? "Linked institution";
+    const isCredit = String(account.type || "").toLowerCase() === "credit";
+    const category: "Credit card" | "Loan" = isCredit ? "Credit card" : "Loan";
+    const accountType = accountTypeWords(account.type, account.subtype);
+    const accountName = cleanText(account.name) ?? accountType;
+    const balanceOwed = round2(accountBalanceValue(account));
+    const limitRaw = toNumber(account.balances?.limit);
+    const creditLimit = isCredit && limitRaw !== null && limitRaw > 0 ? round2(limitRaw) : null;
+    const availableRaw = toNumber(account.balances?.available);
+    const availableCredit = isCredit
+      ? availableRaw !== null
+        ? round2(availableRaw)
+        : creditLimit !== null
+          ? round2(Math.max(creditLimit - balanceOwed, 0))
+          : null
+      : null;
+    const utilizationPct =
+      creditLimit !== null && creditLimit > 0 ? round2((balanceOwed / creditLimit) * 100) : null;
+    const currency = (cleanText(account.balances?.iso_currency_code) ?? "USD").toUpperCase();
+
+    if (isCredit) {
+      creditCardOwed += balanceOwed;
+      if (creditLimit !== null) creditLimitTotal += creditLimit;
+    } else {
+      loanOwed += balanceOwed;
+    }
+    institutions.add(connection?.institution_id ?? account.institution_id ?? `name:${institutionName}`);
+    items.push({
+      institution_name: institutionName,
+      account_name: accountName,
+      category,
+      account_type: accountType,
+      balance_owed: balanceOwed,
+      credit_limit: creditLimit,
+      available_credit: availableCredit,
+      utilization_pct: utilizationPct,
+      currency,
+    });
+  }
+
+  items.sort(
+    (left, right) =>
+      compareText(left.category, right.category) ||
+      compareText(left.institution_name, right.institution_name) ||
+      compareText(left.account_name, right.account_name),
+  );
+
+  const roundedCardOwed = round2(creditCardOwed);
+  const roundedLimitTotal = round2(creditLimitTotal);
+
+  return {
+    schema: "plaid-liabilities-v1",
+    total_owed: derived.total_liabilities.value,
+    credit_card_owed: roundedCardOwed,
+    credit_limit_total: roundedLimitTotal,
+    credit_utilization_pct:
+      roundedLimitTotal > 0 ? round2((roundedCardOwed / roundedLimitTotal) * 100) : null,
+    loan_owed: round2(loanOwed),
+    account_count: items.length,
+    institution_count: institutions.size,
+    as_of: now.slice(0, 10),
+    items,
+  };
+}
+
+function computeCashFlow(derived: DerivedFactsV1, now: string): ShareableCashFlowV1 {
+  const currentMonthRow = derived.monthly_cash_flow.value.at(-1) ?? null;
+  const debtRatio = derived.debt_to_asset_ratio.value;
+  return {
+    schema: "plaid-cashflow-v1",
+    net_worth: derived.net_worth.value,
+    total_assets: derived.total_assets.value,
+    total_liabilities: derived.total_liabilities.value,
+    liquid_cash: derived.liquid_cash.value,
+    investable_assets: derived.investable_assets.value,
+    debt_to_asset_pct: debtRatio === null ? null : round2(debtRatio * 100),
+    cash_flow_trend: derived.cash_flow_trend.value,
+    income_stability: derived.income_stability.value.label,
+    current_month: currentMonthRow?.month ?? null,
+    current_monthly_income: currentMonthRow?.income ?? 0,
+    current_monthly_spend: currentMonthRow?.spend ?? 0,
+    current_monthly_net: currentMonthRow?.net ?? 0,
+    recurring_bill_count: derived.recurring_bills.value.length,
+    as_of: now.slice(0, 10),
+    recurring_bills: derived.recurring_bills.value.map((bill) => ({
+      label: bill.label,
+      category: bill.category ? humanizeCategory(bill.category) : null,
+      cadence: bill.cadence,
+      typical_amount: bill.typical_amount,
+      last_date: bill.last_date,
+    })),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Assembly
 // ---------------------------------------------------------------------------
@@ -722,6 +766,9 @@ function assemble(financial: FinancialInput, tierA: TierA, now: string): Financi
   if (tierA.connections.size === 0) {
     delete next.derived_v1;
     delete next.summary;
+    delete next.accounts;
+    delete next.liabilities;
+    delete next.cashflow;
     delete next.linked_accounts;
     return next;
   }
@@ -735,6 +782,9 @@ function assemble(financial: FinancialInput, tierA: TierA, now: string): Financi
   );
   next.derived_v1 = derived;
   next.summary = computeSummary(derived, tierA.connections, now);
+  next.accounts = computeBankAccounts(accounts, tierA.connections, derived, now);
+  next.liabilities = computeLiabilities(accounts, tierA.connections, derived, now);
+  next.cashflow = computeCashFlow(derived, now);
   next.linked_accounts = buildLinkedAccountsView(
     { connections: tierA.connections, accounts, holdings: tierA.holdings, securities, transactions },
     derived
@@ -813,6 +863,18 @@ export function applySnapshot(
         : connection.products,
     status: "active",
     last_refreshed_at: now,
+    nws_holdings_complete: !!snapshot.investments && !isUnavailable(snapshot.investments),
+    nws_history_complete: false,
+    nws_consent: snapshot.item?.consented_products,
+    nws_debt_details_available: snapshot.item?.nws_debt_details_available,
+    nws_investments_available: snapshot.item?.nws_investments_available,
+    nws_credit_apr: Object.fromEntries(
+      (snapshot.liabilities?.credit ?? []).flatMap(record => {
+        const rates = record.aprs.map(apr => apr.apr_percentage)
+          .filter((rate): rate is number => typeof rate === "number" && Number.isFinite(rate));
+        return rates.length > 0 ? [[record.account_id, Math.max(...rates)]] : [];
+      }),
+    ),
   };
 
   // Accounts: full picture for this item.
@@ -845,6 +907,8 @@ export function applySnapshot(
   // Transactions: cursor delta.
   if (snapshot.transactions && !isUnavailable(snapshot.transactions)) {
     const delta = snapshot.transactions;
+    nextConnection.nws_history_complete = delta.has_more === false &&
+      delta.transactions_update_status === "HISTORICAL_UPDATE_COMPLETE";
     for (const removed of delta.removed ?? []) {
       const existing = tierA.transactions.get(removed.transaction_id);
       if (existing && existing.item_id === itemId) tierA.transactions.delete(removed.transaction_id);

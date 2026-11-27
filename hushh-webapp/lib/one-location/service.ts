@@ -400,6 +400,7 @@ export class OneLocationService {
     maxAgeMs?: number;
     /** Reject a held/restored fix when an action needs a current measurement. */
     requireMeasurement?: boolean;
+    fastNetworkFallback?: boolean;
     /**
      * "I need a fix that describes where the user is right now" — dropping a
      * pin, saving a place, anchoring a check-in.
@@ -416,7 +417,15 @@ export class OneLocationService {
       options?.maxAgeMs ??
       (options?.fresh || options?.requireMeasurement ? CAPTURE_FRESH_MAX_AGE_MS : CAPTURE_DEFAULT_MAX_AGE_MS);
 
-    const snapshot = await LocationBus.ensure({ maxAgeMs, ...(options?.requireMeasurement ? { requireMeasurement: true } : {}) });
+    const generation = LocationBus.getAccountGeneration();
+    const snapshot = await LocationBus.ensure({
+      maxAgeMs,
+      ...(options?.requireMeasurement ? { requireMeasurement: true } : {}),
+      ...(options?.fastNetworkFallback ? { fastNetworkFallback: true } : {}),
+    });
+    if (generation !== LocationBus.getAccountGeneration()) {
+      throw new Error("Location session changed.");
+    }
     // Read the state AFTER the await, never a copy taken before it: a watch
     // fix can land while this call is in flight, and the newer answer is the
     // right one to serve.
@@ -441,6 +450,12 @@ export class OneLocationService {
     // platform that refused (the bus returns null on a denial even while
     // holding a fix, so this is reached), and having no position at all.
     throw captureFailure(state);
+  }
+
+  /** Bounded fallback for an explicitly sent emergency alert after a failed refresh. */
+  static getRecentSosPosition(userId: string): PlainLocationPoint | null {
+    const snapshot = LocationBus.getRecentMeasuredFix(userId, 60_000);
+    return snapshot ? toPlainPoint(snapshot) : null;
   }
 
   /**
@@ -563,6 +578,17 @@ export class OneLocationService {
       ...state,
       recipients: (state.recipients ?? []).map(normalizeRecipient),
     };
+  }
+
+  static async getRecentSmsAlerts(
+    vaultOwnerToken: string,
+    signal: AbortSignal,
+  ): Promise<Record<string, string>[]> {
+    const { alerts } = await apiJson<{ alerts: Record<string, string>[] }>(
+      "/api/one/location/sms-alerts/recent",
+      { headers: authHeaders(vaultOwnerToken), cache: "no-store", signal },
+    );
+    return alerts;
   }
 
   static async updateAutoApprovePreference(params: {
@@ -1259,7 +1285,7 @@ export class OneLocationService {
     smsContactUserIds: string[];
     recipients: OneLocationRecipient[];
   }> {
-    const response = await apiJson<{
+    const response = await apiJsonWithRetry<{
       smsContactUserIds: string[];
       recipients?: OneLocationRecipientApiRow[];
     }>("/api/one/location/sms-contacts", { headers: authHeaders(vaultOwnerToken) });
@@ -1418,11 +1444,13 @@ export class OneLocationService {
     vaultOwnerToken: string;
     inviteId: string;
     locationSnapshot: PlainLocationPoint;
+    isEffectCurrent?: () => boolean;
   }): Promise<{ invite: OneLocationPublicInvite }> {
     return apiJson(
       `/api/one/location/public-invites/${encodeURIComponent(params.inviteId)}/location`,
       {
         method: "POST",
+        isEffectCurrent: params.isEffectCurrent,
         headers: jsonAuthHeaders(params.vaultOwnerToken),
         body: JSON.stringify({ locationSnapshot: params.locationSnapshot }),
       },
@@ -1546,11 +1574,13 @@ export class OneLocationService {
     reason?: string;
     shareKind?: string;
     sourceCircleId?: string;
+    isEffectCurrent?: () => boolean;
   }): Promise<OneLocationGrant> {
     const response = await apiJson<{ grant: OneLocationGrant }>(
       "/api/one/location/grants",
       {
         method: "POST",
+        ...(params.isEffectCurrent ? { isEffectCurrent: params.isEffectCurrent } : {}),
         headers: jsonAuthHeaders(params.vaultOwnerToken),
         body: JSON.stringify({
           recipientUserId: params.recipientUserId,
@@ -1602,6 +1632,7 @@ export class OneLocationService {
     capturedAt?: string | null;
     note?: string | null;
     emergencyNumber?: string | null;
+    isEffectCurrent?: () => boolean;
   }): Promise<{
     emailed: number;
     attempted: number;
@@ -1630,6 +1661,7 @@ export class OneLocationService {
         // likely to be sent from. Use the Next.js origin for this route.
       }>(`${nextRouteOrigin()}/api/one/location/sos-email`, {
         method: "POST",
+        ...(params.isEffectCurrent ? { isEffectCurrent: params.isEffectCurrent } : {}),
         headers: jsonAuthHeaders(params.vaultOwnerToken),
         body: JSON.stringify({
           grantIds: params.grantIds,
@@ -1676,6 +1708,7 @@ export class OneLocationService {
     reason?: string;
     shareKind?: string;
     sourceCircleId?: string | null;
+    isEffectCurrent?: () => boolean;
   }): Promise<{
     grant: OneLocationGrant;
     envelope: OneLocationEncryptedEnvelope;
@@ -1689,6 +1722,7 @@ export class OneLocationService {
       "/api/one/location/grants/with-envelope",
       {
         method: "POST",
+        ...(params.isEffectCurrent ? { isEffectCurrent: params.isEffectCurrent } : {}),
         headers: jsonAuthHeaders(params.vaultOwnerToken),
         body: JSON.stringify({
           recipientUserId: params.recipientUserId,
@@ -1717,6 +1751,7 @@ export class OneLocationService {
     vaultOwnerToken: string;
     grantId: string;
     envelope: OneLocationEncryptedEnvelope;
+    isEffectCurrent?: () => boolean;
   }): Promise<OneLocationStoredEnvelope> {
     const response = await apiJson<{
       envelope: OneLocationEncryptedEnvelope;
@@ -1725,6 +1760,7 @@ export class OneLocationService {
       `/api/one/location/grants/${encodeURIComponent(params.grantId)}/envelopes`,
       {
         method: "POST",
+        ...(params.isEffectCurrent ? { isEffectCurrent: params.isEffectCurrent } : {}),
         headers: jsonAuthHeaders(params.vaultOwnerToken),
         body: JSON.stringify({ envelope: params.envelope }),
       },
@@ -1803,7 +1839,7 @@ export class OneLocationService {
     }
     if (code === "NEARBY_PRESENCE_LOCATION_STALE") {
       return {
-        message: "Your location reading expired. Refresh it and try again.",
+        message: "Couldn’t verify a current location. Try checking in again. If this continues, check your device’s date and time.",
         retryLocation: true,
         openAppSettings: false,
       };
@@ -1824,13 +1860,6 @@ export class OneLocationService {
         retryLocation: false,
         openAppSettings: false,
         retryPlaces: true,
-      };
-    }
-    if (code === "NEARBY_PRESENCE_PHONE_VERIFICATION_REQUIRED") {
-      return {
-        message: "Verify your phone number before checking in nearby.",
-        retryLocation: false,
-        openAppSettings: false,
       };
     }
     if (code === "NEARBY_PRESENCE_UNAVAILABLE") {

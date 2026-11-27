@@ -42,6 +42,9 @@ export interface ConsentCenterEntry {
   counterpart_email?: string | null;
   counterpart_secondary_label?: string | null;
   counterpart_image_url?: string | null;
+  /** Presentation metadata for connected people, sourced from Connections. */
+  counterpart_is_ria?: boolean;
+  counterpart_connected_from_contacts?: boolean;
   counterpart_website_url?: string | null;
   request_id?: string | null;
   /** Owner-scoped presentation group; decisions still use each item's entry. */
@@ -583,6 +586,20 @@ export class ConsentCenterService {
       return payload;
     };
 
+    const inflightKey = JSON.stringify([cacheKey, generation, version]);
+
+    const startOrJoinInflight = (): Promise<ConsentCenterPageSummary> => {
+      const existingInflight = this.summaryFetchInflight.get(inflightKey);
+      if (existingInflight) return existingInflight;
+      const requestPromise = fetchFresh().finally(() => {
+        if (this.summaryFetchInflight.get(inflightKey) === requestPromise) {
+          this.summaryFetchInflight.delete(inflightKey);
+        }
+      });
+      this.summaryFetchInflight.set(inflightKey, requestPromise);
+      return requestPromise;
+    };
+
     // Stale-while-revalidate: on an in-memory miss, fall back to the persisted
     // IndexedDB device cache so a page reload after unlock returns the last
     // known summary instantly instead of blocking on a cold backend call.
@@ -596,13 +613,18 @@ export class ConsentCenterService {
         });
       if (stored && isCurrent()) {
         cache.set(cacheKey, stored, CACHE_TTL.MEDIUM);
-        void this.refreshSummaryInBackground(JSON.stringify([cacheKey, generation, version]), fetchFresh);
+        void this.refreshSummaryInBackground(inflightKey, startOrJoinInflight);
         return stored;
       }
     }
 
-    return fetchFresh();
+    return startOrJoinInflight();
   }
+
+  private static readonly summaryFetchInflight = new Map<
+    string,
+    Promise<ConsentCenterPageSummary>
+  >();
 
   private static readonly summaryRefreshInflight = new Map<
     string,
@@ -838,6 +860,32 @@ export class ConsentCenterService {
 
     if (options.investor_user_id) {
       CacheSyncService.onConsentMutated(options.investor_user_id);
+    }
+    return body;
+  }
+
+  static async clearSystemLogs(options: { idToken: string; userId?: string | null }) {
+    const response = await ApiService.apiFetch(
+      "/api/consent/history/clear-system-logs",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${options.idToken}`,
+        },
+      },
+    );
+    const body = (await response.json().catch(() => ({}))) as {
+      detail?: string;
+      error?: string;
+      cleared?: number;
+    };
+    if (!response.ok) {
+      throw new Error(
+        body.detail || body.error || `Request failed: ${response.status}`,
+      );
+    }
+    if (options.userId) {
+      CacheSyncService.onConsentMutated(options.userId);
     }
     return body;
   }

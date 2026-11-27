@@ -6,7 +6,7 @@ import { mergeReceiptSnapshot } from "@/lib/mail/receipt-continuity";
 import type { ReceiptSnapshot } from "@/lib/mail/receipt-snapshot";
 import { subscribeDurableOwnerReset } from "./secure-durable-resource-service";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
-import { GmailReceiptsService, type GmailLiveReceiptScanResponse, type ReceiptListItem } from "./gmail-receipts-service";
+import { GmailReceiptsService, type PrivateReceiptMailbox, type GmailLiveReceiptScanResponse, type ReceiptListItem } from "./gmail-receipts-service";
 import { MailReceiptHistoryService } from "./mail-receipt-history-service";
 
 import { withReceiptBudget } from "@/lib/mail/receipt-operation";
@@ -92,6 +92,7 @@ export class MailReceiptResourceService {
     restores.set(key, request); restoreEpochs.set(key, epoch); restoreControllers.set(key, controller); return request;
   }
   static refresh(session: ReceiptStoreSession, account: string, getIdToken: () => Promise<string>, options: {
+    accountId?: string; privateMailbox?: PrivateReceiptMailbox;
     force?: boolean; onPage?: (items: ReceiptListItem[], page: number) => void;
   } = {}): Promise<RefreshResult> {
     const key = identity(session.userId, account);
@@ -133,7 +134,7 @@ export class MailReceiptResourceService {
           let retries = 0;
           for (;;) {
             try { response = await GmailReceiptsService.scanReceipts({ idToken, vaultOwnerToken: session.vaultOwnerToken,
-              userId: session.userId, accountKey: account, page, cursor, checkpoint, incremental: true, signal }); break; }
+              userId: session.userId, accountId: options.accountId, privateMailbox: options.privateMailbox, accountKey: account, page, cursor, checkpoint, incremental: true, signal }); break; }
             catch (error) {
               const code = (error as { code?: string }).code;
               if (["GMAIL_RECEIPT_CHECKPOINT_EXPIRED", "GMAIL_RECEIPT_CURSOR_EXPIRED"].includes(code ?? "") && !recovered) {

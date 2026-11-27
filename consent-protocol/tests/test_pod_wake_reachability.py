@@ -34,6 +34,23 @@ async def test_gone_when_service_is_deleted(monkeypatch):
     assert await wake._host_is_gone(_ROW) is True
 
 
+@pytest.mark.parametrize(
+    "metadata",
+    [{"tenancy": "hussh-hosted"}, {"provisionAttempt": {"hostedAdmission": {}}}],
+)
+async def test_managed_host_never_uses_fleet_project_absence(monkeypatch, metadata):
+    selected = []
+
+    def fleet_missing(spec):
+        selected.append(spec)
+        return _backend_returning("gone")(spec)
+
+    monkeypatch.setattr(cb, "resolve_compute_backend_for_spec", fleet_missing)
+    row = {**_ROW, "deployment_target": "gcp", "backend_metadata": metadata}
+    assert await wake._host_is_gone(row) is False
+    assert selected == []
+
+
 @pytest.mark.asyncio
 async def test_not_gone_when_cold_not_ready(monkeypatch):
     # A scaled-to-zero pod that is booting is `not_ready`, not gone -- it must wake.

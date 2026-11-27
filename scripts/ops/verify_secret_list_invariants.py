@@ -35,6 +35,7 @@ from typing import NamedTuple, TypedDict
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG = REPO_ROOT / "config" / "protected-lists.json"
 SPLIT = re.compile(r"[,;\n]+")
+SYNTHETIC_PHONE_PATTERN = re.compile(r"^\+1[2-9]\d{2}55501\d{2}$")
 sys.path.insert(0, str(REPO_ROOT / "scripts" / "ci"))
 sys.path.insert(0, str(REPO_ROOT / "deploy" / "observability"))
 from auth_health_read_diagnostics import (  # noqa: E402
@@ -69,16 +70,31 @@ def gcloud(args: list[str]) -> tuple[int, str]:
 
 def versions(secret: str, project: str) -> list[str]:
     code, out = gcloud(
-        ["secrets", "versions", "list", secret, f"--project={project}",
-         "--filter=state:ENABLED", "--sort-by=~createTime", "--format=value(name)", "--limit=2"]
+        [
+            "secrets",
+            "versions",
+            "list",
+            secret,
+            f"--project={project}",
+            "--filter=state:ENABLED",
+            "--sort-by=~createTime",
+            "--format=value(name)",
+            "--limit=2",
+        ]
     )
     return out.split() if code == 0 else []
 
 
 def read(secret: str, project: str, version: str) -> str | None:
     code, out = gcloud(
-        ["secrets", "versions", "access", version,
-         f"--secret={secret}", f"--project={project}"]
+        [
+            "secrets",
+            "versions",
+            "access",
+            version,
+            f"--secret={secret}",
+            f"--project={project}",
+        ]
     )
     return out if code == 0 else None
 
@@ -135,7 +151,8 @@ def phone_runtime_authority(project: str) -> tuple[str, str] | None:
         status = payload["status"]
         traffic = status["traffic"]
         if not isinstance(traffic, list) or any(
-            type(row.get("percent", 0)) is not int or not 0 <= row.get("percent", 0) <= 100
+            type(row.get("percent", 0)) is not int
+            or not 0 <= row.get("percent", 0) <= 100
             for row in traffic
         ):
             return None
@@ -147,7 +164,9 @@ def phone_runtime_authority(project: str) -> tuple[str, str] | None:
             payload["metadata"]["name"] != "consent-protocol"
             or len(active) != 1
             or active[0]["percent"] != 100
-            or not re.fullmatch(r"consent-protocol-[a-z0-9-]{1,46}", active[0]["revisionName"])
+            or not re.fullmatch(
+                r"consent-protocol-[a-z0-9-]{1,46}", active[0]["revisionName"]
+            )
             or address.scheme != "https"
             or address.username
             or address.password
@@ -248,6 +267,28 @@ class CheckSummary(NamedTuple):
     reason_codes: set[str]
 
 
+def is_synthetic_phone_cutover(
+    name: str, current: list[str], prev: list[str], min_entries: int
+) -> bool:
+    """Recognize authorized transition to the standardized 555-01xx synthetic pool.
+
+    A phone allowlist transitioning from legacy routable entries (e.g. 59 entries)
+    to the standardized synthetic pool (>= min_entries, 100% +1[2-9]xx55501xx) is
+    the governed #9731 cutover, not an accidental wipe.
+
+    Accidental wipes (drops below floor of min_entries, or presence of non-synthetic
+    numbers, or edits to non-phone secrets) fail closed and trigger alerts.
+    """
+    if name not in {"HUSHH_UAT_PHONE_TEST_NUMBERS", "HUSHH_PROD_PHONE_TEST_NUMBERS"}:
+        return False
+    if len(current) < min_entries:
+        return False
+    if not all(SYNTHETIC_PHONE_PATTERN.match(e) for e in current):
+        return False
+    # The cutover is from a legacy list containing non-synthetic numbers
+    return any(not SYNTHETIC_PHONE_PATTERN.match(e) for e in prev)
+
+
 def check_list(spec: ProtectedListSpec) -> ListCheck:
     name, project = spec["name"], spec["project"]
     label = f"{project}/{name}"
@@ -292,19 +333,24 @@ def check_list(spec: ProtectedListSpec) -> ListCheck:
             lost = [entry for entry in prev if entry not in current_set]
             line += f"   (prev v{vs[1]}: {len(prev)}, lost {len(lost)})"
             if len(lost) > spec["max_shrink"]:
-                reason_codes.append(HealthOutcomeReason.PROTECTED_LIST_FAILED.value)
-                failures.append(
-                    f"{label}: {len(lost)} entries present in v{vs[1]} are gone from "
-                    f"v{vs[0]} (limit {spec['max_shrink']}). A write replaced the list "
-                    f"instead of adding to it. Restore with: "
-                    f"scripts/ops/secret_list_edit.py --secret {name} "
-                    f"--project {project} --restore-from {vs[1]} --apply"
-                )
-                line += "   *** ENTRIES LOST ***"
+                if is_synthetic_phone_cutover(name, current, prev, spec["min_entries"]):
+                    line += f"   (authorized synthetic cutover: v{vs[1]} had {len(prev)} entries -> v{vs[0]} has {len(current)} synthetic entries)"
+                else:
+                    reason_codes.append(HealthOutcomeReason.PROTECTED_LIST_FAILED.value)
+                    failures.append(
+                        f"{label}: {len(lost)} entries present in v{vs[1]} are gone from "
+                        f"v{vs[0]} (limit {spec['max_shrink']}). A write replaced the list "
+                        f"instead of adding to it. Restore with: "
+                        f"scripts/ops/secret_list_edit.py --secret {name} "
+                        f"--project {project} --restore-from {vs[1]} --apply"
+                    )
+                    line += "   *** ENTRIES LOST ***"
     return ListCheck(line, failures, unavailable, tuple(sorted(set(reason_codes))))
 
 
-def report_results(tracked_count: int, failures: list[str], unchecked: list[str]) -> int:
+def report_results(
+    tracked_count: int, failures: list[str], unchecked: list[str]
+) -> int:
     if unchecked:
         print("\nCould not check:", file=sys.stderr)
         for item in unchecked:
@@ -396,7 +442,9 @@ def _publish_phone_health(
         runtime_status=runtime_status,
     )
     if not published:
-        summary.reason_codes.add(HealthOutcomeReason.HEALTH_PUBLICATION_UNAVAILABLE.value)
+        summary.reason_codes.add(
+            HealthOutcomeReason.HEALTH_PUBLICATION_UNAVAILABLE.value
+        )
         summary.unchecked.append(
             "Auth phone-list health publication unavailable; check logging writer permission"
         )
@@ -419,8 +467,7 @@ def _emit_health_result(
             "status": status,
             "reason_codes": sorted(summary.reason_codes),
             "checked_lists": _checked_phone_list_count(tracked),
-            "runtime_status": runtime_status
-            or HealthRuntimeStatus.NOT_REQUESTED.value,
+            "runtime_status": runtime_status or HealthRuntimeStatus.NOT_REQUESTED.value,
         }
     )
     print(json.dumps(outcome, separators=(",", ":")))
@@ -456,7 +503,9 @@ def main() -> int:
         ap.error("health result output requires governed phone-health publication")
 
     config = json.loads(CONFIG.read_text(encoding="utf-8"))
-    tracked = [s for s in config["secrets"] if not args.project or s["project"] == args.project]
+    tracked = [
+        s for s in config["secrets"] if not args.project or s["project"] == args.project
+    ]
     if not tracked and not args.check_phone_runtime and not args.publish_health:
         print("No tracked secrets for that project.")
         return 0

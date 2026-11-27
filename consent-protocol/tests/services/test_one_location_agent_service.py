@@ -37,6 +37,16 @@ from hushh_mcp.services.requester_identity import (
 
 from .one_location_workflow_contract_cases import run_four_user_location_workflow_contract
 
+
+@pytest.fixture(autouse=True)
+def _active_accounts_for_in_memory_location_workflows(monkeypatch):
+    # These SQL/workflow doubles model active accounts. Lifecycle filtering is
+    # exercised through the production helper on real PostgreSQL separately.
+    monkeypatch.setattr(
+        OneLocationAgentService, "_live_location_account_ids", lambda self, ids: set(ids)
+    )
+
+
 PUBLIC_LOCATION_SNAPSHOT = {
     "latitude": 28.6139,
     "longitude": 77.209,
@@ -279,7 +289,7 @@ def test_atomic_private_share_lock_precedes_fresh_snapshot_mutation(
     class Connection:
         def execute(self, statement, params: dict):
             calls.append((str(statement), params))
-            return Result({"saved": True} if len(calls) == 3 else None)
+            return Result({"saved": True} if str(statement) == "SELECT :value AS saved" else None)
 
     @contextmanager
     def fake_connection():
@@ -298,16 +308,70 @@ def test_atomic_private_share_lock_precedes_fresh_snapshot_mutation(
         recipient_key_lock_key="one-location-recipient-key:recipient",
         pair_lock_key="one-location-grant:owner:recipient",
         mutation_sql="SELECT :value AS saved",
-        params={"value": True},
+        params={"value": True, "owner_user_id": "owner", "recipient_user_id": "recipient"},
     )
 
     assert result == {"saved": True}
-    assert "pg_advisory_xact_lock" in calls[0][0]
-    assert calls[0][1] == {"recipient_key_lock_key": "one-location-recipient-key:recipient"}
-    assert "pg_advisory_xact_lock" in calls[1][0]
-    assert calls[1][1] == {"pair_lock_key": "one-location-grant:owner:recipient"}
-    assert calls[2] == ("SELECT :value AS saved", {"value": True})
+    assert all("pg_advisory_xact_lock_shared" in statement for statement, _ in calls[:4])
+    assert [params["user_id"] for _, params in calls[:4]] == ["owner", "recipient"] * 2
+    assert calls[4][1] == {"recipient_key_lock_key": "one-location-recipient-key:recipient"}
+    assert calls[5][1] == {"pair_lock_key": "one-location-grant:owner:recipient"}
+    assert calls[6][0] == "SELECT :value AS saved"
     assert state["exited"] is True
+
+
+@pytest.mark.parametrize("atomic", [False, True], ids=["event-bound", "atomic-share"])
+@pytest.mark.parametrize(
+    "constraint",
+    [
+        "account_deletion_tombstone_guard",
+        "account_retired_generation_update_guard",
+        "account_identity_reference_immutable_guard",
+    ],
+)
+def test_location_mutation_classifies_only_account_deletion_guard(
+    monkeypatch: pytest.MonkeyPatch, atomic: bool, constraint: str
+) -> None:
+    driver = RuntimeError("private driver detail")
+    driver.diag = SimpleNamespace(constraint_name=constraint)
+    wrapped = RuntimeError("private SQL values")
+    wrapped.__cause__ = driver
+
+    class Connection:
+        def execute(self, statement, params):
+            if "pg_advisory_xact_lock" not in str(statement):
+                raise wrapped
+
+    @contextmanager
+    def fake_connection():
+        yield Connection()
+
+    service = OneLocationAgentService()
+    monkeypatch.setattr(one_location_service_module, "get_db_connection", fake_connection)
+
+    def write():
+        if atomic:
+            return service._execute_atomic_private_share(
+                recipient_key_lock_key="key:recipient",
+                pair_lock_key="grant:owner:recipient",
+                mutation_sql="SELECT :value",
+                params={"value": True, "owner_user_id": "owner", "recipient_user_id": "recipient"},
+            )
+        service._key_writer_connection = Connection()
+        try:
+            return service._execute_one("SELECT :value", {"value": True})
+        finally:
+            del service._key_writer_connection
+
+    if constraint != "account_identity_reference_immutable_guard":
+        with pytest.raises(OneLocationAgentError) as error:
+            write()
+        assert (error.value.status_code, error.value.code) == (409, "LOCATION_PEER_UNAVAILABLE")
+        assert "private" not in str(error.value)
+    else:
+        with pytest.raises(RuntimeError) as error:
+            write()
+        assert error.value is wrapped
 
 
 def test_recipient_key_registration_locks_before_mutation(
@@ -328,7 +392,9 @@ def test_recipient_key_registration_locks_before_mutation(
     class Connection:
         def execute(self, statement, params: dict):
             calls.append((str(statement), params))
-            return Result({"key_id": "new-key"} if len(calls) == 2 else None)
+            return Result(
+                {"key_id": "new-key"} if str(statement) == "SELECT :key_id AS key_id" else None
+            )
 
     @contextmanager
     def fake_connection():
@@ -343,13 +409,13 @@ def test_recipient_key_registration_locks_before_mutation(
     result = OneLocationAgentService()._execute_recipient_key_registration(
         recipient_key_lock_key="one-location-recipient-key:recipient",
         mutation_sql="SELECT :key_id AS key_id",
-        params={"key_id": "new-key"},
+        params={"key_id": "new-key", "user_id": "recipient"},
     )
 
     assert result == {"key_id": "new-key"}
-    assert "pg_advisory_xact_lock" in calls[0][0]
-    assert calls[0][1] == {"recipient_key_lock_key": "one-location-recipient-key:recipient"}
-    assert calls[1] == ("SELECT :key_id AS key_id", {"key_id": "new-key"})
+    assert all("pg_advisory_xact_lock_shared" in statement for statement, _ in calls[:2])
+    assert calls[2][1] == {"recipient_key_lock_key": "one-location-recipient-key:recipient"}
+    assert calls[3][0] == "SELECT :key_id AS key_id"
 
 
 @pytest.mark.parametrize(
@@ -482,7 +548,7 @@ def test_key_bound_writer_reuses_one_connection_for_nonreturning_statements(
             {"value": True},
         ) == {"value": True}
 
-    assert len([sql for sql in calls if "pg_advisory_xact_lock" in sql]) == 2
+    assert len([sql for sql in calls if "pg_advisory_xact_lock(" in sql]) == 2
     assert not hasattr(service, "_key_writer_connection")
 
 
@@ -1790,6 +1856,10 @@ def test_view_latest_envelope_awaiting_first_publish_records_no_view_event() -> 
 
 
 class FourUserMemoryService(OneLocationAgentService):
+    def _live_location_account_ids(self, user_ids) -> set[str]:
+        # A missing local identity cache entry can be repaired for an active account.
+        return set(user_ids)
+
     def __init__(self) -> None:
         self.identities = {
             "user_a": {
@@ -2241,6 +2311,10 @@ class FourUserMemoryService(OneLocationAgentService):
 
     def _execute_many(self, sql: str, params: dict | None = None) -> list[dict]:
         params = params or {}
+        if "account_user_ids" in params:
+            return [
+                {"user_id": uid} for uid in params["account_user_ids"] if uid in self.identities
+            ]
         if "FROM one_location_sms_contacts sms" in sql:
             owner = params.get("owner_user_id") or params.get("user_id")
             active_connected_ids = {
@@ -4383,6 +4457,38 @@ def test_directory_scan_timeout_is_retryable_not_an_empty_success(
         service.search_directory_candidates(owner_user_id="owner")
 
 
+def test_directory_rechecks_a_warm_positive_provider_status_after_account_removal(monkeypatch):
+    from collections import OrderedDict
+
+    from hushh_mcp.services import directory_identity_service as directory
+
+    app = SimpleNamespace(project_id="synthetic", name="warm-worker")
+    monkeypatch.setattr(directory, "_STATUS_CACHE", OrderedDict())
+    monkeypatch.setattr(directory, "get_firebase_auth_app", lambda: app)
+    monkeypatch.setattr(
+        directory, "firebase_uids_for_owner_reads", lambda owners: {uid: uid for uid in owners}
+    )
+    monkeypatch.setattr(directory, "publish_connection_account_visibility_changes", lambda _: None)
+    enabled = True
+    calls = []
+
+    def lookup(identifiers, **_):
+        calls.append([identifier.uid for identifier in identifiers])
+        return SimpleNamespace(
+            users=[SimpleNamespace(uid="peer", disabled=False)] if enabled else [],
+            not_found=set() if enabled else set(identifiers),
+        )
+
+    monkeypatch.setattr(directory.auth, "get_users", lookup)
+    assert directory.active_directory_user_ids(["peer"]) == {"peer"}
+    enabled = False
+    # This worker still holds an unexpired positive result.
+    assert directory.active_directory_user_ids(["peer"]) == {"peer"}
+    service = OneLocationAgentService.__new__(OneLocationAgentService)
+    assert service._active_directory_user_ids(["peer"]) == set()
+    assert calls == [["peer"], ["peer"]]
+
+
 def test_directory_auth_status_maps_uid_and_expires_without_fail_open(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4404,9 +4510,14 @@ def test_directory_auth_status_maps_uid_and_expires_without_fail_open(
             users=[
                 SimpleNamespace(uid="disabled", disabled=True),
                 SimpleNamespace(uid="enabled", disabled=False),
-            ]
+            ],
+            not_found={entry for entry in identifiers if entry.uid == "missing"},
         )
 
+    notifications = []
+    monkeypatch.setattr(
+        directory, "publish_connection_account_visibility_changes", notifications.append
+    )
     monkeypatch.setattr(directory.auth, "get_users", get_users)
 
     assert directory.active_directory_user_ids(["missing", "enabled", "disabled", "x" * 129]) == {
@@ -4417,9 +4528,14 @@ def test_directory_auth_status_maps_uid_and_expires_without_fail_open(
     assert all(isinstance(entry[1], bool) for entry in directory._STATUS_CACHE.values())
     assert directory.active_directory_user_ids(["enabled", "disabled"]) == {"enabled"}
     assert len(calls) == 1
+    assert notifications == [{"missing", "disabled"}]
+    assert directory.active_directory_user_ids(["enabled", "disabled"], use_cache=False) == {
+        "enabled"
+    }
+    assert notifications == [{"missing", "disabled"}]
     app.project_id = "production"
     assert directory.active_directory_user_ids(["enabled"]) == {"enabled"}
-    assert len(calls) == 2
+    assert len(calls) == 3
     clock[0] = 61.0
     monkeypatch.setattr(
         directory.auth,
@@ -4429,6 +4545,14 @@ def test_directory_auth_status_maps_uid_and_expires_without_fail_open(
 
     with pytest.raises(DirectoryIdentityUnavailableError):
         directory.active_directory_user_ids(["enabled"])
+    assert notifications == [{"missing", "disabled"}]
+
+    monkeypatch.setattr(directory.auth, "get_users", get_users)
+    assert (
+        directory.active_directory_user_ids(["missing"], use_cache=False, notify_connections=False)
+        == set()
+    )
+    assert notifications == [{"missing", "disabled"}]
 
 
 def test_directory_replacement_owner_projection_never_uses_external_uid_as_application_key(
@@ -4460,7 +4584,7 @@ def test_directory_replacement_owner_projection_never_uses_external_uid_as_appli
 
     def lookup(identifiers, **kwargs):
         calls.append([entry.uid for entry in identifiers])
-        return SimpleNamespace(users=[record])
+        return SimpleNamespace(users=[record], not_found=set())
 
     monkeypatch.setattr(directory.auth, "get_users", lookup)
     assert directory.active_directory_user_ids([owner, retired]) == {owner}
@@ -5921,6 +6045,35 @@ def test_until_stopped_is_rejected_for_check_in_grants() -> None:
     assert exc.value.code == "LOCATION_DURATION_MODE_NOT_ALLOWED"
 
 
+def test_check_in_allows_original_envelope_replay_but_blocks_movement() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "x", "y": "y"},
+    )
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+        share_kind="check_in",
+        reason="check_in",
+    )
+    # Older rows carry the check-in reason without a separate share_kind field.
+    service.grants[grant["id"]]["metadata"].pop("share_kind", None)
+    args = {"owner_user_id": "user_a", "grant_id": grant["id"]}
+    first = encrypted_envelope("key-user_b")
+    stored = service.store_encrypted_envelope(**args, envelope=first)
+    assert service.store_encrypted_envelope(**args, envelope=first)["id"] == stored["id"]
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.store_encrypted_envelope(
+            **args, envelope=encrypted_envelope("key-user_b", "movement")
+        )
+    assert exc.value.code == "LOCATION_CHECK_IN_IMMUTABLE"
+    assert len(service.envelopes) == 1
+
+
 def test_public_invite_is_request_only_and_token_hash_only() -> None:
     service = FourUserMemoryService()
     service.register_recipient_key(
@@ -6197,6 +6350,36 @@ def test_public_invite_expiry_is_decided_by_the_database_clock() -> None:
     with pytest.raises(OneLocationAgentError) as exc:
         service.resolve_public_invite(public_token=created["publicToken"])
     assert exc.value.code == "LOCATION_PUBLIC_INVITE_NOT_ACTIVE"
+
+
+def test_public_submission_projection_hides_retired_matched_accounts_before_cleanup(monkeypatch):
+    service = FourUserMemoryService()
+    now = datetime.now(timezone.utc)
+    service.public_submissions.update(
+        {
+            key: {
+                "id": key,
+                "owner_user_id": "user_a",
+                "matched_user_id": matched,
+                "request_id": None,
+                "status": "identity_pending_key",
+                "submitted_at": now,
+            }
+            for key, matched in [
+                ("retired-submission", "user_b"),
+                ("active-submission", "user_c"),
+                ("unmatched-submission", None),
+            ]
+        }
+    )
+    monkeypatch.setattr(service, "_live_location_account_ids", lambda ids: set(ids) - {"user_b"})
+    result = service.list_state(user_id="user_a")
+    assert {row["id"] for row in result["publicInviteSubmissions"]} == {
+        "active-submission",
+        "unmatched-submission",
+    }
+    # Projecting privacy does not invent an erasure receipt or delete custody.
+    assert "retired-submission" in service.public_submissions
 
 
 def test_owner_public_invite_state_uses_the_database_expiry_verdict() -> None:
@@ -9304,6 +9487,8 @@ def test_recipient_feed_clear_is_in_the_recipients_view_only() -> None:
     service.revoke_grant(owner_user_id="user_a", grant_id=sos["id"])
     cleared_at = datetime(2026, 10, 15, 4, 0, tzinfo=timezone.utc)
     service.grants[sos["id"]]["recipient_cleared_at"] = cleared_at
+    service.grants[sos["id"]]["feed_latest_sms"] = True
+    service.grants[sos["id"]]["feed_sms_confirmed"] = True
 
     received = {
         grant["id"]: grant for grant in service.list_state(user_id="user_b")["receivedGrants"]
@@ -9311,5 +9496,92 @@ def test_recipient_feed_clear_is_in_the_recipients_view_only() -> None:
     owned = {grant["id"]: grant for grant in service.list_state(user_id="user_a")["ownerGrants"]}
 
     assert received[sos["id"]]["recipientClearedAt"] == cleared_at.isoformat()
+    assert received[sos["id"]]["feedLatestSms"] is True
+    assert received[sos["id"]]["feedSmsConfirmed"] is True
     assert "recipientClearedAt" not in owned[sos["id"]]
     assert all("recipientClearedAt" not in grant for grant in owned.values())
+    assert all(
+        "feedLatestSms" not in grant and "feedSmsConfirmed" not in grant for grant in owned.values()
+    )
+
+
+@pytest.mark.parametrize("operation", ["share", "atomic_share", "request"])
+@pytest.mark.parametrize("missing", ["owner", "recipient"])
+def test_location_mutations_reject_retired_accounts_before_any_write(
+    monkeypatch, operation, missing
+):
+    service = OneLocationAgentService()
+    monkeypatch.setattr(service, "_live_location_account_ids", lambda ids: set(ids) - {missing})
+
+    def no_write(*args, **kwargs):
+        pytest.fail("A retired account reached a domain write or key lookup")
+
+    monkeypatch.setattr(service, "_execute_one", no_write)
+    monkeypatch.setattr(service, "_recipient_key_row", no_write)
+    with pytest.raises(OneLocationAgentError) as failure:
+        if operation == "request":
+            service.request_access(requester_user_id="recipient", owner_user_id="owner")
+        elif operation == "share":
+            service.create_grant(
+                owner_user_id="owner",
+                recipient_user_id="recipient",
+                recipient_key_id="key",
+                duration_hours=1,
+            )
+        else:
+            service.create_grant_with_initial_envelope(
+                owner_user_id="owner",
+                recipient_user_id="recipient",
+                recipient_key_id="key",
+                duration_hours=1,
+                client_operation_id="operation",
+                confirmed_at=datetime.now(timezone.utc),
+                envelope={},
+            )
+    assert failure.value.code == "LOCATION_PEER_UNAVAILABLE"
+    assert failure.value.status_code == 409
+
+
+def test_location_account_verification_outage_is_retryable(monkeypatch):
+    service = OneLocationAgentService()
+
+    def unavailable(ids):
+        raise DirectoryIdentityUnavailableError()
+
+    monkeypatch.setattr(service, "_live_location_account_ids", unavailable)
+    with pytest.raises(OneLocationAgentError) as failure:
+        service.request_access(requester_user_id="recipient", owner_user_id="owner")
+    assert failure.value.status_code == 503
+
+
+def test_retired_requester_cannot_be_approved_from_a_stale_request(monkeypatch):
+    service = FourUserMemoryService()
+    request = service.request_access(requester_user_id="user_b", owner_user_id="user_a")
+    monkeypatch.setattr(service, "_live_location_account_ids", lambda ids: set(ids) - {"user_b"})
+    with pytest.raises(OneLocationAgentError) as failure:
+        service.approve_request(
+            owner_user_id="user_a",
+            request_id=request["id"],
+            duration_hours=1,
+            approval_mode="manual",
+        )
+    assert failure.value.code == "LOCATION_PEER_UNAVAILABLE"
+    assert service.requests[request["id"]]["status"] == "pending"
+    assert not service.grants
+
+
+def test_public_link_rejects_retired_owner_but_treats_retired_phone_match_as_a_visitor(monkeypatch):
+    service = FourUserMemoryService()
+    created = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    monkeypatch.setattr(service, "_live_location_account_ids", lambda ids: set(ids) - {"user_b"})
+    submitted = service.submit_public_invite_request(
+        public_token=created["publicToken"],
+        visitor_display_name="Visitor",
+        phone_number="+15550100002",
+    )
+    assert submitted["submission"]["status"] == "pending_identity"
+    assert not service.requests
+    monkeypatch.setattr(service, "_live_location_account_ids", lambda ids: set(ids) - {"user_a"})
+    with pytest.raises(OneLocationAgentError) as failure:
+        service.resolve_public_invite(public_token=created["publicToken"])
+    assert failure.value.code == "LOCATION_PUBLIC_INVITE_NOT_ACTIVE"

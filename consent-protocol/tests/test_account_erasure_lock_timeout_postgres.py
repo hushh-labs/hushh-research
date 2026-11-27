@@ -7,7 +7,7 @@ import copy
 import hashlib
 import json
 import os
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import replace
 from pathlib import Path
 from time import monotonic
@@ -16,6 +16,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 
 from hushh_mcp.services import account_deletion_lifecycle_service as lifecycle
 from hushh_mcp.services import account_deletion_provider_credentials as credentials
@@ -70,6 +71,118 @@ async def test_real_blocked_erasure_rolls_back_and_releases_session_barrier(data
     finally:
         await holder.close()
         await deletion.close()
+
+
+@pytest.mark.parametrize("outcome", ["committed", "refused", "commit_failure"])
+async def test_full_deletion_admission_notifies_peers_before_erasure_and_never_on_rollback(
+    database_url, outcome, monkeypatch
+):
+    """Real producer, installed tombstone guards and real commit-only SSE hints."""
+    import asyncpg
+
+    from api.consent_listener import USER_STATE_CHANNEL
+    from hushh_mcp.services import connections_service
+    from hushh_mcp.services.account_deletion_prepare_transaction import (
+        prepare_full_account_cleanup_transaction,
+    )
+
+    pushes = []
+
+    def push(**kwargs):
+        pushes.append(kwargs)
+
+    monkeypatch.setattr(connections_service, "_notify_connection_graph_changed", push)
+
+    database = "retirement_notify_" + uuid4().hex
+    admin = await asyncpg.connect(database_url)
+    db_url = str(make_url(database_url).set(database=database))
+    engine = None
+    listener = None
+    try:
+        await admin.execute(f'CREATE DATABASE "{database}"')
+        listener = await asyncpg.connect(db_url)
+        await listener.execute("""
+            CREATE TABLE actor_profiles(user_id text PRIMARY KEY);
+            CREATE TABLE vault_keys(user_id text PRIMARY KEY);
+            CREATE TABLE connections(user_a_id text,user_b_id text,status text);
+            CREATE TABLE one_location_sms_contacts(owner_user_id text,contact_user_id text);
+            INSERT INTO actor_profiles VALUES('departing');
+            INSERT INTO vault_keys VALUES('departing');
+            INSERT INTO connections VALUES ('a-peer','departing','active'),
+              ('departing','z-peer','active'),('departing','revoked-peer','revoked'),
+              ('a-peer','unrelated','active');
+            INSERT INTO one_location_sms_contacts VALUES('sms-only','departing');
+        """)
+        for migration in (
+            "201_account_deletion_tombstones.sql",
+            "370_one_marketing_preferences.sql",
+            "418_account_provider_cleanup_staging.sql",
+            "423_account_shared_provider_authority.sql",
+        ):
+            await listener.execute((ROOT / "db/migrations" / migration).read_text(encoding="utf-8"))
+        messages: asyncio.Queue = asyncio.Queue()
+        await listener.add_listener(
+            USER_STATE_CHANNEL,
+            lambda _conn, _pid, _channel, payload: messages.put_nowait(json.loads(payload)),
+        )
+        engine = create_engine(db_url)
+
+        @contextmanager
+        def transaction():
+            with engine.begin() as conn:
+                yield conn
+                assert messages.empty(), "an uncommitted deletion must not change peer screens"
+                if outcome == "commit_failure":
+                    raise RuntimeError("synthetic commit failure")
+
+        def check_admission(_conn):
+            if outcome == "refused":
+                raise RuntimeError("synthetic final admission refusal")
+
+        def prepare():
+            return prepare_full_account_cleanup_transaction(
+                account.AccountService(),
+                "departing",
+                get_connection=transaction,
+                requested_target="both",
+                reviewed_inventory_sha256=None,
+                accept_local_erasure=False,
+                admission_check=check_admission,
+            )
+
+        if outcome in {"refused", "commit_failure"}:
+            with pytest.raises(
+                RuntimeError, match="synthetic (final admission refusal|commit failure)"
+            ):
+                await asyncio.to_thread(prepare)
+            assert await listener.fetchval("SELECT count(*) FROM account_deletion_tombstones") == 0
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(messages.get(), timeout=0.15)
+            assert pushes == []
+        else:
+            await asyncio.to_thread(prepare)
+            delivered = [await asyncio.wait_for(messages.get(), timeout=2) for _ in range(3)]
+            assert {message["user_id"] for message in delivered} == {"a-peer", "z-peer", "sms-only"}
+            assert all(
+                message == {"type": "connection_graph_changed", "user_id": message["user_id"]}
+                for message in delivered
+            )
+            assert pushes == [], "provider fan-out must not delay bounded deletion admission"
+            assert messages.empty()
+            # Peers revalidate before provider cleanup or destructive erasure.
+            assert (
+                await listener.fetchval("SELECT erasure_phase FROM account_deletion_tombstones")
+                == "provider_cleanup"
+            )
+        assert await listener.fetchval("SELECT count(*) FROM actor_profiles") == 1
+        assert await listener.fetchval("SELECT count(*) FROM vault_keys") == 1
+    finally:
+        if engine is not None:
+            engine.dispose()
+        if listener is not None:
+            await listener.close()
+        await admin.execute(f'DROP DATABASE IF EXISTS "{database}"')
+        await admin.close()
 
 
 async def _assert_blocked_erasure_rolls_back(database_url, deletion_conn, writer_conn) -> None:
@@ -870,8 +983,170 @@ async def test_provider_cleanup_retains_custody_through_failure_and_migration_re
         )
         await _assert_shared_producer_authority(conn, database_url, monkeypatch)
         await _assert_account_generation_cycles(conn, database_url, monkeypatch)
+        await _assert_prior_drive_disconnect(conn, database_url)
     finally:
         await conn.close()
+
+
+async def _assert_prior_drive_disconnect(conn, database_url):
+    """A confirmed Drive disconnect releases an exact cleanup without provider I/O."""
+    import asyncpg
+
+    await conn.execute("""
+        ALTER TABLE user_external_connector_connections
+          ADD COLUMN credential_tag text,
+          ADD COLUMN credential_expires_at timestamptz,
+          ADD COLUMN revoked_at timestamptz,
+          ADD COLUMN refresh_lease_id text,
+          ADD COLUMN refresh_lease_expires_at timestamptz,
+          ADD COLUMN revocation_pending_until timestamptz
+    """)
+    engine = create_engine(database_url)
+
+    async def prepare(owner, outcome, *, parked=False):
+        await conn.execute("INSERT INTO actor_profiles VALUES($1)", owner)
+        await conn.execute("INSERT INTO vault_keys VALUES($1)", owner)
+        await conn.execute(
+            """
+            INSERT INTO user_external_connector_connections
+              (user_id,connector_id,status,envelope_version,connection_generation,
+               credential_version,revoked_at,revocation_outcome)
+            VALUES($1,'google_drive','revoked',2,2,2,now(),$2)
+        """,
+            owner,
+            outcome,
+        )
+        with engine.begin() as transaction:
+            prepared = (
+                lifecycle.AccountDeletionLifecycleService.prepare_provider_cleanup_in_transaction(
+                    transaction,
+                    user_id=owner,
+                    firebase_uid=owner,
+                    table_exists=account.AccountService()._table_exists,
+                )
+            )
+        if parked:
+            await conn.execute(
+                """
+                UPDATE account_deletion_tombstones SET cleanup_status='quarantined',
+                 cleanup_last_classification='provider_action_required',
+                 cleanup_attempt_count=8,provider_cleanup_next_attempt_at=NULL
+                WHERE provider_cleanup_id=$1::uuid
+            """,
+                prepared.cleanup_id,
+            )
+        return prepared.cleanup_id
+
+    try:
+        parked = await prepare("synthetic_drive_parked", "revoked", parked=True)
+        refused = await prepare("synthetic_drive_refused", "failed", parked=True)
+        migration = ROOT / "db/migrations/455_uat_account_cleanup_prior_drive_revocation.sql"
+        await conn.execute(migration.read_text())
+        await conn.execute(migration.read_text())
+        fresh = await prepare("synthetic_drive_fresh", "revoked")
+
+        with pytest.raises(asyncpg.InsufficientPrivilegeError, match="prior Drive revocation"):
+            await conn.execute(
+                """
+                UPDATE account_deletion_tombstones SET cleanup_status='running',
+                 cleanup_claim_token=gen_random_uuid(), cleanup_claimed_at=now(),
+                 provider_cleanup_receipt=jsonb_set(provider_cleanup_receipt,
+                  ARRAY['items',(SELECT jsonb_object_keys(provider_cleanup_inventory)),'revocation'],
+                  '"revoked"')
+                WHERE provider_cleanup_id=$1::uuid
+            """,
+                refused,
+            )
+
+        def finalize(claim):
+            with engine.begin() as transaction:
+                journal.begin_local_erasure(transaction, claim)
+                for table in (
+                    "user_external_connector_connections",
+                    "actor_profiles",
+                    "vault_keys",
+                ):
+                    transaction.execute(
+                        text(f"DELETE FROM {table} WHERE user_id=:owner"),  # nosec B608 - fixed fixture tables.
+                        {"owner": claim.owner_id},
+                    )
+                journal.settle_local_erasure(transaction, claim)
+            return {"success": True, "account_deleted": True}
+
+        with (
+            patch.object(journal, "get_db_connection", engine.begin),
+            patch.object(admission, "_connect", lambda: _owned_release_connection(database_url)),
+            patch.object(credentials, "verify_grant", AsyncMock()) as verify,
+            patch.object(credentials, "stop_watch", AsyncMock()) as stop,
+            patch.object(credentials, "revoke_grant", AsyncMock()) as revoke,
+            patch.object(
+                account.AccountService,
+                "finalize_provider_cleanup",
+                AsyncMock(side_effect=finalize),
+            ),
+            patch.object(worker, "_notify_erased", AsyncMock()),
+        ):
+            claims = await asyncio.to_thread(journal.claim_due, limit=2)
+            assert {claim.cleanup_id for claim in claims} == {parked, fresh}
+            parked_claim = next(claim for claim in claims if claim.cleanup_id == parked)
+            fresh_claim = next(claim for claim in claims if claim.cleanup_id == fresh)
+            assert await asyncio.to_thread(journal.claim_due, limit=1) == []
+            await conn.execute(
+                """UPDATE account_deletion_tombstones
+                SET cleanup_claimed_at=now()-interval '6 minutes'
+                WHERE provider_cleanup_id=$1::uuid""",
+                parked,
+            )
+            (resumed,) = await asyncio.to_thread(journal.claim_due, limit=1)
+            assert resumed.cleanup_id == parked
+            assert resumed.claim_token != parked_claim.claim_token
+            assert resumed.receipt == parked_claim.receipt
+            with pytest.raises(journal.ProviderCleanupClaimLost):
+                await asyncio.to_thread(journal.is_ready, parked_claim)
+
+            await asyncio.to_thread(journal.release, resumed, action_required=False)
+            assert (
+                await conn.fetchval(
+                    """UPDATE account_deletion_tombstones
+                SET provider_cleanup_next_attempt_at=now()
+                WHERE provider_cleanup_id=$1::uuid AND cleanup_status='retry_pending'
+                  AND provider_cleanup_next_attempt_at>now()
+                RETURNING cleanup_attempt_count""",
+                    parked,
+                )
+                == 2
+            )
+            (retried,) = await asyncio.to_thread(journal.claim_due, limit=1)
+            assert retried.cleanup_id == parked
+            assert retried.receipt == resumed.receipt
+            for claim in (retried, fresh_claim):
+                assert next(iter(claim.inventory.values()))["revocationSupport"] == "unverified"
+                assert await asyncio.to_thread(journal.is_ready, claim)
+                assert await worker.run_claim(claim)
+                status = await asyncio.to_thread(
+                    journal.inspect_for_identity,
+                    claim.firebase_uid,
+                    operation_id=claim.cleanup_id,
+                )
+                assert status["state"] == "complete"
+                assert not status["local_erasure_confirmation_required"]
+                assert not await conn.fetchval(
+                    "SELECT EXISTS(SELECT FROM user_external_connector_connections WHERE user_id=$1)",
+                    claim.owner_id,
+                )
+                assert await conn.fetchval(
+                    "SELECT cleanup_confirmed FROM account_generations WHERE identity_hash=$1",
+                    lifecycle.account_deletion_user_hash(claim.firebase_uid),
+                )
+            assert await asyncio.to_thread(journal.claim_due, limit=1) == []
+            for port in (verify, stop, revoke):
+                port.assert_not_awaited()
+
+        rollback = migration.parent / "rollback" / (migration.stem + ".rollback.sql")
+        with pytest.raises(asyncpg.ObjectNotInPrerequisiteStateError, match="forward recovery"):
+            await conn.execute(rollback.read_text())
+    finally:
+        engine.dispose()
 
 
 async def _shared_google_owner(conn, monkeypatch):
@@ -1552,10 +1827,17 @@ async def test_exact_owner_identity_batch_reads_do_not_rebind_retired_or_unknown
     monkeypatch,
 ):
     """Exercise the bounded SQL projection; lifecycle guard qualification is above."""
+    from collections import OrderedDict
+    from types import SimpleNamespace
+
     import asyncpg
+    from sqlalchemy.pool import QueuePool
 
     from hushh_mcp.services import account_generation_service as generations
+    from hushh_mcp.services import directory_identity_service as directory
     from hushh_mcp.services import metrics_adoption
+    from hushh_mcp.services.connection_network_service import ConnectionNetworkService
+    from hushh_mcp.services.connections_service import ConnectionsService
 
     server = postgres_harness.TempPostgres()
     engine = None
@@ -1564,7 +1846,13 @@ async def test_exact_owner_identity_batch_reads_do_not_rebind_retired_or_unknown
         with patch.object(postgres_harness, "MIGRATIONS", []):
             server.start()
         url = f"postgresql://hushh@/postgres?host={server.dir}&port={server.port}"
-        engine = create_engine(url)
+        engine = create_engine(
+            url,
+            poolclass=QueuePool,
+            pool_size=1,
+            max_overflow=0,
+            pool_timeout=0.02,
+        )
         guard = await asyncpg.connect(url)
         owner = "acct_" + "a" * 32
         retired = "acct_" + "c" * 32
@@ -1608,6 +1896,51 @@ async def test_exact_owner_identity_batch_reads_do_not_rebind_retired_or_unknown
             assert generations.AccountGenerationService.firebase_identities_for_owners(
                 ["external-uid", owner, "acct_" + "b" * 32, "legacy-active"]
             ) == {owner: "external-uid", "legacy-active": "legacy-active"}
+            # Exercise the real network→directory→generation chain while its
+            # transaction holds the only slot. No second checkout can succeed.
+            monkeypatch.setenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "true")
+            monkeypatch.setattr(directory, "_STATUS_CACHE", OrderedDict())
+            monkeypatch.setattr(
+                directory,
+                "get_firebase_auth_app",
+                lambda: SimpleNamespace(project_id="synthetic", name="single-slot-network"),
+            )
+            record = SimpleNamespace(
+                uid="external-uid",
+                disabled=False,
+                display_name="Current person",
+                photo_url=None,
+                provider_data=[],
+            )
+            provider_calls = []
+
+            def lookup(identifiers, **kwargs):
+                provider_calls.append([identifier.uid for identifier in identifiers])
+                return SimpleNamespace(users=[record], not_found=set())
+
+            monkeypatch.setattr(directory.auth, "get_users", lookup)
+            monkeypatch.setattr("db.db_client.get_db_connection", engine.begin)
+            with ConnectionNetworkService(
+                ConnectionsService.__new__(ConnectionsService)
+            ) as network:
+                conn = network.connections._transaction_connection
+                transaction = conn.get_transaction()
+                people = network.directory()
+                assert people._active_directory_user_ids([owner]) == {owner}
+                assert people._directory_auth_profiles([owner]) == {
+                    owner: {"display_name": "Current person", "photo_url": ""}
+                }
+                assert conn.execute(text("SHOW statement_timeout")).scalar_one() == "8s"
+                record.disabled = True
+                assert people._active_directory_user_ids([owner]) == set()
+                # This minimal schema deliberately lacks connections. The
+                # best-effort visibility notification fails inside a savepoint;
+                # the authoritative read and caller transaction must survive.
+                assert conn.execute(text("SELECT 1")).scalar_one() == 1
+                assert conn.get_transaction() is transaction
+                assert not conn.closed
+            assert provider_calls == [["external-uid"]] * 3
+            assert engine.pool.checkedout() == 0
             with engine.begin() as conn:
                 conn.execute(
                     text("INSERT INTO account_deletion_tombstones VALUES(:hash)"),
@@ -2279,3 +2612,202 @@ def test_legacy_erasure_acceptance_settles_only_kept_identities(database_url):
         legacy.assert_guard_bypass_controls(conn)
         legacy.assert_replay_and_late_settlement(conn)
         legacy.assert_privileges(conn)
+
+
+async def test_isolated_firebase_erasure_survives_lost_ack_and_database_rollback(
+    database_url, monkeypatch
+):
+    """Real SQL fences authority/leases; native absence survives a later DB rollback."""
+    from types import SimpleNamespace
+
+    import psycopg2
+
+    from hushh_mcp.services import account_deletion_firebase_erasure as firebase_erasure
+    from tests.helpers import legacy_generation_rehearsal as legacy
+
+    with legacy.legacy_database(database_url) as conn:
+        legacy.seed_legacy_history(conn)
+        legacy.apply(conn, legacy.CANONICAL)
+        from db.firebase_erasure_adoption import installation_sql, qualification_sql, replay_sql
+        from db.migration_authority import build_manifest_entries
+
+        (entry,) = build_manifest_entries(
+            ROOT / "db/migrations/parked", ["987_account_firebase_erasure.sql"]
+        )
+        legacy.run(conn, installation_sql(entry))
+        legacy.run(conn, installation_sql(entry))
+        for predecessor in build_manifest_entries(
+            ROOT / "db/migrations",
+            [
+                "418_account_provider_cleanup_staging.sql",
+                "419_account_generations.sql",
+                legacy.CANONICAL,
+            ],
+        ):
+            legacy.run(conn, replay_sql(predecessor))
+        legacy.run(conn, qualification_sql(required=True))
+        engine = create_engine(database_url.replace("/postgres?", f"/{conn.info.dbname}?"))
+        monkeypatch.setattr(journal, "get_db_connection", engine.begin)
+        monkeypatch.setattr(firebase_erasure, "get_db_connection", engine.begin)
+        monkeypatch.setattr(
+            firebase_erasure,
+            "get_firebase_credential_settings",
+            lambda: SimpleNamespace(auth_project_id="hushh-pda-dev"),
+        )
+        monkeypatch.setattr(
+            firebase_erasure, "get_app_runtime_settings", lambda: SimpleNamespace(environment="dev")
+        )
+        owner = "synthetic-isolated-erasure"
+        legacy.run(conn, "INSERT INTO actor_profiles(user_id) VALUES(%s)", (owner,))
+        legacy.run(conn, "INSERT INTO vault_keys(user_id) VALUES(%s)", (owner,))
+        try:
+            with engine.begin() as tx:
+                lifecycle.AccountDeletionLifecycleService.prepare_provider_cleanup_in_transaction(
+                    tx,
+                    user_id=owner,
+                    firebase_uid=owner,
+                    table_exists=account.AccountService()._table_exists,
+                )
+            (claim,) = journal.claim_due(limit=1)
+            assert claim.firebase_erasure_authority["projectId"] == "hushh-pda-dev"
+            with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+                legacy.run(
+                    conn,
+                    "UPDATE account_deletion_tombstones SET firebase_erasure_authority=jsonb_set(firebase_erasure_authority,'{projectId}','\"hushh-pda\"') WHERE user_id_hash=%s",
+                    (legacy.digest(owner),),
+                )
+            with pytest.raises(Exception, match="Firebase erasure has not settled"):
+                with engine.begin() as tx:
+                    journal.begin_local_erasure(tx, claim)
+            with pytest.raises(journal.ProviderCleanupClaimLost):
+                firebase_erasure._checkpoint(replace(claim, claim_token=str(uuid4())))
+
+            app = SimpleNamespace(project_id="hushh-pda-dev")
+            monkeypatch.setattr(firebase_erasure, "get_firebase_auth_app", lambda: app)
+            monkeypatch.setattr(
+                firebase_erasure, "assert_firebase_identity_mutation_allowed", lambda _app: None
+            )
+            native = {"present": True, "deletes": 0}
+            user = SimpleNamespace(
+                uid=owner, user_metadata=SimpleNamespace(creation_timestamp=1000)
+            )
+            monkeypatch.setattr(
+                firebase_erasure, "_read_identity", lambda *_: user if native["present"] else None
+            )
+
+            def lost_ack(*_):
+                native["deletes"] += 1
+                raise TimeoutError("synthetic lost acknowledgement")
+
+            monkeypatch.setattr(firebase_erasure, "_delete_once", lost_ack)
+            with pytest.raises(journal.ProviderCleanupNotReady, match="native reconciliation"):
+                await firebase_erasure.ensure_identity_absent(claim)
+            assert firebase_erasure._checkpoint(claim)["state"] == "dispatched"
+            with pytest.raises(journal.ProviderCleanupNotReady, match="native reconciliation"):
+                await firebase_erasure.ensure_identity_absent(claim)
+            assert native["deletes"] == 1
+            # The original request settles later. Resumption observes absence;
+            # it cannot infer a failed request or send a second deletion.
+            native["present"] = False
+            await firebase_erasure.ensure_identity_absent(claim)
+            assert native["deletes"] == 1
+            assert firebase_erasure._checkpoint(claim)["state"] == "absent"
+            with pytest.raises(RuntimeError, match="synthetic rollback"):
+                with engine.begin() as tx:
+                    journal.begin_local_erasure(tx, claim)
+                    raise RuntimeError("synthetic rollback after native deletion")
+            assert (
+                legacy.run(
+                    conn,
+                    "SELECT erasure_phase FROM account_deletion_tombstones WHERE user_id_hash=%s",
+                    (legacy.digest(owner),),
+                )[0]["erasure_phase"]
+                == "provider_cleanup"
+            )
+            await firebase_erasure.ensure_identity_absent(claim)
+            assert native["deletes"] == 1
+            with engine.begin() as tx:
+                journal.begin_local_erasure(tx, claim)
+                tx.execute(
+                    text("DELETE FROM actor_profiles WHERE user_id=:owner"), {"owner": owner}
+                )
+                tx.execute(text("DELETE FROM vault_keys WHERE user_id=:owner"), {"owner": owner})
+                journal.settle_local_erasure(tx, claim)
+            result = legacy.run(
+                conn,
+                "SELECT cleanup_status,cleanup_last_outcome,firebase_uid,account_owner_id FROM account_deletion_tombstones WHERE user_id_hash=%s",
+                (legacy.digest(owner),),
+            )[0]
+            assert result == {
+                "cleanup_status": "completed",
+                "cleanup_last_outcome": "deleted",
+                "firebase_uid": None,
+                "account_owner_id": None,
+            }
+            assert legacy.generation(conn, owner)["cleanup_confirmed"] is True
+            # Replaying 418/419/437 AFTER an isolated Firebase erasure settles
+            # must preserve settled generation rows without firing BEFORE INSERT
+            # with pre-987 cleanup_confirmed=false against qualified=true.
+            for predecessor in build_manifest_entries(
+                ROOT / "db/migrations",
+                [
+                    "418_account_provider_cleanup_staging.sql",
+                    "419_account_generations.sql",
+                    legacy.CANONICAL,
+                ],
+            ):
+                legacy.run(conn, replay_sql(predecessor))
+            assert legacy.generation(conn, owner)["cleanup_confirmed"] is True
+            assert (
+                "hussh.account_legacy_settlement"
+                in legacy.run(
+                    conn,
+                    "SELECT pg_get_functiondef('guard_account_generation_history()'::regprocedure) AS definition",
+                )[0]["definition"]
+            )
+            # Historical phone receipts cannot inherit the new project. Fresh
+            # phone receipts pin it even though they have no provider-stage plan.
+            phone_digest = "hmac-sha256:" + "d" * 64
+            historical = "synthetic-historical-phone"
+            legacy.run(
+                conn,
+                """INSERT INTO account_deletion_tombstones
+                (user_id_hash,firebase_uid,cleanup_intent_kind,expected_phone_digest)
+                VALUES(%s,%s,'phone_orphan',%s)""",
+                (legacy.digest(historical), historical, phone_digest),
+            )
+            assert firebase_erasure.phone_intent_project(historical, phone_digest) is None
+            with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+                legacy.run(
+                    conn,
+                    "UPDATE account_deletion_tombstones SET firebase_cleanup_project='hushh-pda-dev' WHERE user_id_hash=%s",
+                    (legacy.digest(historical),),
+                )
+            with engine.begin() as tx:
+                assert lifecycle.AccountDeletionLifecycleService._insert_pending_in_transaction(
+                    tx,
+                    user_ids=("synthetic-fresh-phone",),
+                    intent_kind="phone_orphan",
+                    expected_phone_digest=phone_digest,
+                )
+            assert (
+                firebase_erasure.phone_intent_project("synthetic-fresh-phone", phone_digest)
+                == "hushh-pda-dev"
+            )
+            assert (
+                firebase_erasure.phone_intent_project(
+                    "synthetic-fresh-phone", "hmac-sha256:" + "e" * 64
+                )
+                is None
+            )
+            with pytest.raises(psycopg2.errors.InsufficientPrivilege, match="forward recovery"):
+                legacy.run(
+                    conn,
+                    (
+                        ROOT / "db/migrations/rollback/987_account_firebase_erasure.rollback.sql"
+                    ).read_text(),
+                )
+            legacy.run(conn, "ROLLBACK")
+            legacy.run(conn, qualification_sql(required=True))
+        finally:
+            engine.dispose()

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 from collections.abc import AsyncGenerator
 
@@ -34,6 +35,7 @@ WARMUP_USER_ID = "one-turn-warmup"
 WARMUP_SESSION_ID = "one-turn-warmup"
 # A stub turn never waits on the network; this only bounds an unexpected wait.
 WARMUP_TIMEOUT_SECONDS = 120.0
+_STANDBY_TURN_PREWARMED = threading.Event()
 
 
 class _WarmupLlm(BaseLlm):
@@ -125,14 +127,28 @@ async def warm_one_turn_path_in_background() -> None:
     )
 
 
+_DEFAULT_WARM_ONE_TURN_PATH = warm_one_turn_path
+
+
+def prewarm_standby_turn_path() -> bool:
+    """Run provider-free One turn warmup during idle warm-pool standby."""
+    reached = warm_one_turn_path()
+    if reached:
+        _STANDBY_TURN_PREWARMED.set()
+    return reached
+
+
 async def warm_private_pod_turn_path() -> None:
     """Complete the provider-free rehearsal before a private worker admits work."""
     from hushh_mcp.services.pod_session_authority import active_session_authority
 
     authority = active_session_authority()
     started_at = time.perf_counter()
-    async with asyncio.timeout(WARMUP_TIMEOUT_SECONDS):
-        reached = await asyncio.to_thread(warm_one_turn_path)
+    if _STANDBY_TURN_PREWARMED.is_set() and warm_one_turn_path is _DEFAULT_WARM_ONE_TURN_PATH:
+        reached = True
+    else:
+        async with asyncio.timeout(WARMUP_TIMEOUT_SECONDS):
+            reached = await asyncio.to_thread(warm_one_turn_path)
     if not reached:
         raise RuntimeError("PRIVATE_POD_TURN_WARMUP_FAILED")
     if active_session_authority() is not authority:
@@ -142,4 +158,9 @@ async def warm_private_pod_turn_path() -> None:
     logger.info("pod.turn_path_warmed duration_ms=%.0f", (time.perf_counter() - started_at) * 1000)
 
 
-__all__ = ["warm_one_turn_path", "warm_one_turn_path_in_background", "warm_private_pod_turn_path"]
+__all__ = [
+    "prewarm_standby_turn_path",
+    "warm_one_turn_path",
+    "warm_one_turn_path_in_background",
+    "warm_private_pod_turn_path",
+]

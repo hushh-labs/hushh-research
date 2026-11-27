@@ -12,13 +12,24 @@ import {
 } from "@/lib/computer-use/direct-transport";
 import type {
   ComputerUseBinding,
+  ComputerUseEnvironment,
   ComputerUsePhase,
   ComputerUseSnapshot,
   ComputerUseTransport,
 } from "@/lib/computer-use/contracts";
 
 type Admission = { ownerId: string; podId: string; environment: string };
-export type ComputerUseCapability = { available: boolean; code: string };
+
+function expectedWireEnvironment(admissionEnv: string): ComputerUseEnvironment | null {
+  if (admissionEnv === "dev" || admissionEnv === "development") return "development";
+  if (admissionEnv === "uat") return "uat";
+  return null;
+}
+export type ComputerUseCapability = {
+  available: boolean;
+  code: string;
+  publicResearchOnly?: boolean;
+};
 export type DiscoveredBrowserTask = {
   binding: ComputerUseBinding;
   phase: ComputerUsePhase;
@@ -109,7 +120,8 @@ export class ComputerUseClient {
   async tasks(signal: AbortSignal): Promise<DiscoveredBrowserTask[]> {
     return boundedOwnerRequest(signal, async (request) => {
       await this.readCapability(request);
-      if (!this.admission) return [];
+      const wireEnv = this.admission ? expectedWireEnvironment(this.admission.environment) : null;
+      if (!this.admission || !wireEnv) return [];
       const response = await this.request("/api/one/pod/browser/tasks", {
         signal: request,
         cache: "no-store",
@@ -124,7 +136,7 @@ export class ComputerUseClient {
         if (
           source?.owner_id !== this.ownerId ||
           source?.pod_id !== this.admission?.podId ||
-          source?.environment !== "development" ||
+          source?.environment !== wireEnv ||
           typeof source.incarnation !== "string" ||
           !source.incarnation ||
           source.incarnation.length > 256 ||
@@ -159,7 +171,7 @@ export class ComputerUseClient {
             podId: source.pod_id,
             incarnation: source.incarnation,
             taskId: source.task_id,
-            environment: "development",
+            environment: wireEnv,
           },
           phase,
           current,
@@ -177,7 +189,8 @@ export class ComputerUseClient {
     const admission = await ApiService.getComputerUseAdmission(signal);
     if (signal.aborted || !this.isCurrent()) throw new Error("BROWSER_REQUEST_CANCELLED");
     this.admission = admission;
-    if (!admission || !["dev", "development"].includes(admission.environment)) {
+    const wireEnv = admission ? expectedWireEnvironment(admission.environment) : null;
+    if (!admission || !wireEnv) {
       this.admission = null;
       return { available: false, code: "BROWSER_CLOUD_GATE_UNAVAILABLE" };
     }
@@ -189,6 +202,7 @@ export class ComputerUseClient {
     const body = (await readComputerUseJson(response)) as {
       available?: unknown;
       code?: unknown;
+      public_research_only?: unknown;
       owner_id?: unknown;
       pod_id?: unknown;
       incarnation?: unknown;
@@ -199,7 +213,7 @@ export class ComputerUseClient {
       if (
         body.owner_id !== this.ownerId ||
         body.pod_id !== admission.podId ||
-        body.environment !== "development" ||
+        body.environment !== wireEnv ||
         typeof body.incarnation !== "string" ||
         !body.incarnation ||
         body.incarnation.length > 256
@@ -215,6 +229,7 @@ export class ComputerUseClient {
         typeof body.code === "string"
           ? body.code
           : "BROWSER_CLOUD_GATE_UNAVAILABLE",
+      publicResearchOnly: body.public_research_only === true,
     };
   }
 
@@ -263,12 +278,16 @@ export class ComputerUseClient {
     ) {
       throw new Error("BROWSER_TASK_RESPONSE_REFUSED");
     }
+    const wireEnv = expectedWireEnvironment(admission.environment);
+    if (!wireEnv) {
+      throw new Error("BROWSER_CLOUD_GATE_UNAVAILABLE");
+    }
     const binding: ComputerUseBinding = {
       ownerId: this.ownerId,
       podId: admission.podId,
       incarnation,
       taskId,
-      environment: "development",
+      environment: wireEnv,
     };
     return parseComputerUseSnapshot(body, binding);
   }
@@ -323,14 +342,15 @@ function browserCoordination(value: unknown, binding: ComputerUseBinding, purpos
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("BROWSER_REVIEW_CHANGED");
   const source = value as Record<string, unknown>;
   const selected = source.binding as Record<string, unknown> | undefined;
+  const allowedSourceEnvs = binding.environment === "uat" ? ["uat"] : ["dev", "development"];
   if (!selected || typeof selected !== "object" || Array.isArray(selected)
     || selected.owner_id !== binding.ownerId || selected.pod_id !== binding.podId
     || selected.task_id !== binding.taskId || selected.incarnation !== binding.incarnation
-    || selected.environment !== "development" || !Number.isSafeInteger(selected.expires_at)
+    || selected.environment !== binding.environment || !Number.isSafeInteger(selected.expires_at)
     || (selected.expires_at as number) <= Date.now() / 1000
     || source.purpose !== purpose || !["model_process", "disclose", "session_remember", "session_restore", "provider_safety"].includes(String(purpose))
     || typeof source.commitment !== "string" || !/^[a-f0-9]{64}$/.test(source.commitment)
-    || !["dev", "development"].includes(String(source.environment))
+    || !allowedSourceEnvs.includes(String(source.environment))
     || typeof source.pod_key_id !== "string" || !source.pod_key_id || source.pod_key_id.length > 128
     || typeof source.service_uid !== "string" || !source.service_uid || source.service_uid.length > 256
     || !Number.isSafeInteger(source.epoch) || (source.epoch as number) < 1) {
@@ -338,7 +358,7 @@ function browserCoordination(value: unknown, binding: ComputerUseBinding, purpos
   }
   return {
     binding: { owner_id: binding.ownerId, pod_id: binding.podId, task_id: binding.taskId,
-      incarnation: binding.incarnation, environment: "development", expires_at: selected.expires_at },
+      incarnation: binding.incarnation, environment: binding.environment, expires_at: selected.expires_at },
     purpose, commitment: source.commitment, pod_key_id: source.pod_key_id,
     environment: source.environment, epoch: source.epoch, service_uid: source.service_uid,
   };

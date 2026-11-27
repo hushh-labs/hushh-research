@@ -30,6 +30,7 @@ import {
   UserRoundPlus,
 } from "@/components/icons";
 
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
@@ -43,7 +44,6 @@ import {
   SUBCARD_SURFACE,
 } from "@/lib/morphy-ux/tokens/surfaces";
 import {
-  AvatarBubble,
   EmptyState,
   StatusPill,
   TaskFlowHeader,
@@ -64,6 +64,7 @@ import {
 } from "@/lib/one-location/sos-incident";
 import {
   SosPanicError,
+  createSosSendIntent,
   isSosShareReadyRecipient,
   runSosPanic,
   selectSmsRecipients,
@@ -100,17 +101,6 @@ const SOS_TOOLS = new Set([
   "add_emergency_contact",
   "remove_emergency_contact",
 ]);
-
-function initialsFor(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return "?";
-  if (parts.length === 1)
-    return (parts[0] ?? "").slice(0, 2).toUpperCase() || "?";
-  return (
-    `${parts[0]?.[0] ?? ""}${parts[parts.length - 1]?.[0] ?? ""}`.toUpperCase() ||
-    "?"
-  );
-}
 
 function stringList(value: unknown): string[] {
   return Array.isArray(value)
@@ -465,9 +455,11 @@ export function SaveMySoul() {
       note.trim().slice(0, ONE_LOCATION_SHARE_NOTE_MAX_LENGTH) || null;
     setBusy("send");
     setTapDelivery(null);
+    const sendIntent = createSosSendIntent();
     try {
       const point = await OneLocationService.captureCurrentPosition({
         fresh: true,
+        fastNetworkFallback: true,
       }).catch(() => null);
       if (!point) {
         morphyToast.error(
@@ -478,6 +470,7 @@ export function SaveMySoul() {
       const result = await runSosPanic({
         vaultOwnerToken,
         ownerUserId: userId,
+        sendIntent,
         recipients: readyContacts,
         point,
         note: message,
@@ -491,7 +484,7 @@ export function SaveMySoul() {
             sos: true,
             vaultOwnerToken,
             encrypt: encryptLocationForRecipient,
-            store: (params) => OneLocationService.storeEnvelope(params),
+            store: (params) => OneLocationService.storeEnvelope({ ...params, isEffectCurrent: sendIntent.isCurrent }),
           });
           const row = published.published[0];
           if (!row) {
@@ -509,6 +502,7 @@ export function SaveMySoul() {
       const mail = await OneLocationService.sendSosEmails({
         vaultOwnerToken,
         grantIds: result.grantIds,
+        isEffectCurrent: sendIntent.isCurrent,
         latitude: point.latitude,
         longitude: point.longitude,
         accuracyM: point.accuracyM ?? null,
@@ -807,7 +801,7 @@ export function SaveMySoul() {
           <div className={cn(CARD_SURFACE, "space-y-3 p-4")}>
             <div className="flex items-center justify-between gap-3">
               <h2 className="ui-text-section-title">Emergency contacts</h2>
-              <Button asChild size="sm" variant="ghost">
+              <Button asChild size="sm" variant="link" disableHoverRipple className="min-h-11 rounded-full">
                 <Link href={hrefForLocationAction("sms-contacts")}>
                   <UserRoundPlus className="h-4 w-4" aria-hidden />
                   Manage
@@ -840,10 +834,14 @@ export function SaveMySoul() {
                       )}
                       data-testid="sos-contact"
                     >
-                      <AvatarBubble userId={contact.userId}
-                        initials={initialsFor(contact.displayName)}
-                        imageUrl={contact.photoUrl}
-                        size={36}
+                      <ConnectionPersonAvatar
+                        userId={contact.userId}
+                        label={contact.displayName}
+                        photoUrl={contact.photoUrl}
+                        verified={contact.isRia}
+                        fromContacts={contact.connectedFromContacts}
+                        size="compact"
+                        className="!size-9"
                       />
                       <div className="min-w-0 flex-1">
                         <p className="ui-text-row-label-emphasized truncate">

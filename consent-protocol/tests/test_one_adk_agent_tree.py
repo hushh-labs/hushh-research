@@ -147,16 +147,19 @@ class TestAgentTreeShape:
         assert getattr(getattr(config, "thinking_level", None), "value", None) == "LOW"
 
     def test_root_agent_is_one_with_full_roster(self):
+        from hushh_mcp.one_adk.chat_memory import chat_memory_before_model
+
         agent = build_one_root_agent()
         assert agent.name == "one"
         # Consent redaction runs first, so timing measures the request actually sent.
-        # Queued input joins last: the timing callback can still answer for the
+        # Queued input joins after timing: that callback can still answer for the
         # model (the read barrier), and a message must never be drained into a
-        # call that is not made.
+        # call that is not made. Memory budgeting then includes the queued input.
         callbacks = agent.canonical_before_model_callbacks
         assert callbacks[0].__name__ == "_one_consent_before_model"
         assert timed_one_before_model in callbacks
-        assert callbacks[-1] is club_queued_input
+        assert callbacks.index(timed_one_before_model) < callbacks.index(club_queued_input)
+        assert callbacks[-2:] == [club_queued_input, chat_memory_before_model]
         assert timed_one_after_model in agent.canonical_after_model_callbacks
         tool_names = {
             getattr(t, "name", getattr(t, "__name__", type(t).__name__)) for t in agent.tools
@@ -463,9 +466,9 @@ class TestAgentTreeShape:
             in ONE_IDENTITY_INSTRUCTION
         )
         assert "Never invent; 'at 8pm' is not today" in ONE_IDENTITY_INSTRUCTION
-        assert "Resolve relative dates with get_current_time" in ONE_IDENTITY_INSTRUCTION
-        assert "preserve title/attendees" in ONE_IDENTITY_INSTRUCTION
-        assert "Cancellation needs event id" in ONE_IDENTITY_INSTRUCTION
+        assert "current turn clock or get_current_time" in ONE_IDENTITY_INSTRUCTION
+        assert "preserve unnamed fields" in ONE_IDENTITY_INSTRUCTION
+        assert "event_ordinal, never a guessed id" in ONE_IDENTITY_INSTRUCTION
 
     def test_identity_instruction_carries_persona_grounding(self):
         # Durable north-star + principle grounding is folded into the shared
@@ -481,7 +484,7 @@ class TestAgentTreeShape:
         assert "Tri-flow parity" in ONE_IDENTITY_INSTRUCTION
         # Authoritative registry-sourced roster catalog.
         assert "YOUR SPECIALISTS" in ONE_IDENTITY_INSTRUCTION
-        assert "Kai Financial Agent" in ONE_IDENTITY_INSTRUCTION
+        assert "AgentOne Finance" in ONE_IDENTITY_INSTRUCTION
         assert "agent.kai.analyze" in ONE_IDENTITY_INSTRUCTION
 
     def test_persona_grounding_reaches_both_heads(self):
@@ -515,7 +518,7 @@ class TestAgentTreeShape:
         # over the clipped transaction sample.
         assert "Never add up individual transactions from the packet" in instruction
 
-    def test_live_mirror_packet_survives_the_server_clip_after_a_full_soul(self):
+    def test_complete_memory_and_custom_headings_reach_the_root_without_the_old_clip(self):
         soul = "S" * 18_000
         end = "\nEND LIVE MIRROR FACTS"
         head = (
@@ -531,10 +534,26 @@ class TestAgentTreeShape:
             return instruction[start : instruction.index("Use this only when relevant.", start)]
 
         assert consented(f"{soul}\n\n{packet}").rstrip().endswith("END LIVE MIRROR FACTS")
-        # Negative control: a packet over the browser budget loses its end
-        # marker to the 20,000-character clip, which is why the budget exists.
+        # V1 supplies the complete admitted document, including content beyond
+        # the retired 20,000-character projection and Markdown indentation.
         oversized = head + "x" * (2_500 - len(head) - len(end)) + end
-        assert "END LIVE MIRROR FACTS" not in consented(f"{soul}\n\n{oversized}")
+        complete = f"    synthetic_code()\n\n# My research notebook\n{soul}\n\n{oversized}\n"
+        assert complete in consented(complete)
+        from hushh_mcp.one_adk.request_secrets import (
+            consume_request_secret,
+            resolve_request_secret,
+            store_request_secret,
+        )
+
+        reference = store_request_secret(complete, preserve_whitespace=True)
+        credential = store_request_secret("  synthetic-credential  ")
+        try:
+            assert complete not in reference
+            assert complete in consented(reference)
+            assert resolve_request_secret(credential) == "synthetic-credential"
+        finally:
+            consume_request_secret(reference)
+            consume_request_secret(credential)
 
     def test_runtime_instruction_supplies_verified_account_name_without_calling_it_pkm(self):
         instruction = _one_runtime_instruction(
@@ -771,6 +790,68 @@ class TestAgentTreeShape:
 def _tool_context(state: dict, *, session_id: str | None = None) -> SimpleNamespace:
     session = SimpleNamespace(id=session_id) if session_id else None
     return SimpleNamespace(state=state, session=session)
+
+
+def test_portfolio_answer_first_instruction_preserves_legacy_card_support():
+    from hushh_mcp.one_adk.portfolio_context_contract import STATE_PORTFOLIO_CONTEXT_ENABLED
+
+    state = {_tree.STATE_EXECUTION_SURFACE: "typed_chat", STATE_USER_ID: "owner"}
+    legacy = _one_runtime_instruction(SimpleNamespace(state=state))
+    assert (
+        "For portfolio holdings, allocation, performance or sources, call show_portfolio_card"
+        in legacy
+    )
+    state[STATE_PORTFOLIO_CONTEXT_ENABLED] = True
+    instruction = _one_runtime_instruction(SimpleNamespace(state=state))
+    assert "read_portfolio_context before answering" in instruction
+    assert (
+        "For portfolio holdings, allocation, performance or sources, call show_portfolio_card"
+        not in instruction
+    )
+    assert "Call show_portfolio_card for portfolio sources" in instruction
+    assert "chat was reopened" in instruction
+    assert "An active read needs no open card" in instruction
+    assert 'with section "switch"' not in instruction
+    state[_tree.STATE_PORTFOLIO_SWITCH_ENABLED] = True
+    assert 'show_portfolio_card with section "switch"' in _one_runtime_instruction(
+        SimpleNamespace(state=state)
+    )
+
+
+def test_portfolio_card_offer_contains_only_valid_section():
+    from hushh_mcp.one_adk.finance_chat_cards import finance_card_history_descriptor
+
+    state = {_tree.STATE_EXECUTION_SURFACE: "typed_chat", STATE_USER_ID: "owner"}
+    assert _tree.show_portfolio_card("holdings", _tool_context(state)) == {
+        "status": "card_offered",
+        "structured": {"type": "one.finance_portfolio.v1", "section": "holdings"},
+    }
+    assert _tree.show_portfolio_card("trade", _tool_context(state))["status"] == "invalid_section"
+    assert _tree.show_portfolio_card("holdings", _tool_context({}))["status"] == "unavailable"
+    assert _tree.show_portfolio_card("switch", _tool_context(state))["status"] == "unavailable"
+    state[_tree.STATE_PORTFOLIO_SWITCH_ENABLED] = True
+    result = _tree.show_portfolio_card("switch", _tool_context(state))
+    assert result == {
+        "status": "card_offered",
+        "structured": {"type": "one.finance_portfolio.v1", "section": "switch"},
+    }
+    part = SimpleNamespace(
+        function_response=SimpleNamespace(name="show_portfolio_card", response=result)
+    )
+    assert finance_card_history_descriptor(part) == {
+        "activityType": "one.finance_portfolio.v1",
+        "content": {**result["structured"], "historical": True},
+    }
+
+
+def test_stock_preview_offer_is_only_available_to_signed_in_typed_chat():
+    state = {_tree.STATE_EXECUTION_SURFACE: "typed_chat", STATE_USER_ID: "owner"}
+    assert _tree.show_stock_preview(" brk-b ", _tool_context(state)) == {
+        "status": "preview_offered",
+        "structured": {"type": "one.finance_stock_preview.v1", "ticker": "BRK-B"},
+    }
+    assert _tree.show_stock_preview("/one/kai", _tool_context(state))["status"] == "needs_ticker"
+    assert _tree.show_stock_preview("BRK-B", _tool_context({})) == {"status": "unavailable"}
 
 
 class TestSpecialistTurn:
@@ -1321,17 +1402,22 @@ class TestGmailEmailDraftDirective:
         with bound_request_chat_key("owner"):
             state = await agent_chat._extract_state(request, run)
 
+        from hushh_mcp.one_adk.agent_tree import _one_dynamic_turn_context
+
         # Popped before the bridge can copy it; state only ever holds a reference.
         assert "pendingEmailDraft" not in run.forwarded_props
         assert "12345678" not in str(state)
-        instruction = _one_runtime_instruction(SimpleNamespace(state=state))
+        ctx = SimpleNamespace(state=state)
+        instruction = _one_runtime_instruction(ctx)
+        dynamic_context = _one_dynamic_turn_context(ctx)
+        assert "PENDING MAIL DRAFT" not in instruction
         if unlocked:
             assert state[STATE_PENDING_EMAIL_DRAFT].startswith("one_secret_ref:")
-            assert "PENDING MAIL DRAFT" in instruction
-            assert "Account 12345678 is attached." in instruction
+            assert "PENDING MAIL DRAFT" in dynamic_context
+            assert "Account 12345678 is attached." in dynamic_context
         else:
             assert state[STATE_PENDING_EMAIL_DRAFT] == ""
-            assert "PENDING MAIL DRAFT" not in instruction
+            assert "PENDING MAIL DRAFT" not in dynamic_context
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("unlocked", [True, False])
@@ -1380,13 +1466,18 @@ class TestGmailEmailDraftDirective:
         with bound_request_chat_key("owner"):
             state = await agent_chat._extract_state(request, run)
 
+        from hushh_mcp.one_adk.agent_tree import _one_dynamic_turn_context
+
         # Popped before the bridge can copy it; state only ever holds a reference.
         assert "pkmContext" not in run.forwarded_props
         assert "SYNTHETIC_SOUL_FACT" not in str(state)
-        instruction = _one_runtime_instruction(SimpleNamespace(state=state))
+        ctx = SimpleNamespace(state=state)
+        instruction = _one_runtime_instruction(ctx)
+        dynamic_context = _one_dynamic_turn_context(ctx)
         assert state[STATE_PKM_CONTEXT].startswith("one_secret_ref:")
         assert resolve_request_secret(state[STATE_PKM_CONTEXT]) == packet
-        assert "END LIVE MIRROR FACTS" in instruction
+        assert "END LIVE MIRROR FACTS" not in instruction
+        assert "END LIVE MIRROR FACTS" in dynamic_context
         vault.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -4817,15 +4908,23 @@ class TestReadMyPkmDomainSummary:
         assert "health" in result["message"]
 
     @pytest.mark.asyncio
-    async def test_never_reads_back_runtime_secrets_even_if_asked_by_that_exact_key(self):
+    @pytest.mark.parametrize("domain", ["runtime_secrets", "credentials"])
+    async def test_never_reads_back_runtime_secrets_even_if_asked_by_that_exact_key(self, domain):
         # Credential-shaped domain: excluded regardless of what the model
         # passes, not filtered after the fact -- see the module-level
         # _VOICE_UNREADABLE_PKM_DOMAINS comment for why.
         state = self._authorized_state()
-        with self._auth_patch():
-            result = await read_my_pkm_domain_summary("runtime_secrets", _tool_context(state))
+        index = _FakePkmIndex(
+            available_domains=[domain],
+            domain_summaries={domain: {"readable_summary": "SYNTHETIC_PRIVATE_CANARY"}},
+        )
+        with self._auth_patch(), self._pkm_patch(index) as service:
+            result = await read_my_pkm_domain_summary(domain, _tool_context(state))
         assert result["status"] == "failed"
-        assert "runtime_secrets" not in result["message"].split("Available domains: ")[-1]
+        assert domain not in result["message"].split("Available domains: ")[-1]
+        assert "SYNTHETIC_PRIVATE_CANARY" not in str(result)
+        service.return_value.get_index_v2.assert_not_awaited()
+        assert f"{_STATE_PENDING_TOOL_TRACE}:read_my_pkm_domain_summary" not in state
 
     @pytest.mark.asyncio
     async def test_a_db_hiccup_fails_clean_instead_of_killing_the_session(self):
@@ -5664,6 +5763,52 @@ class TestNamedShareChain:
 
     NAMED_ACTIONS = ("location.share_selected", "location.send_request", "connect.send_request")
 
+    def test_main_chat_offers_inline_review_even_when_location_screen_controls_are_advertised(self):
+        from hushh_mcp.one_adk.location_chat_proposal import (
+            LOCATION_CHAT_INSTRUCTION,
+            STATE_LOCATION_CHAT_CONTINUATION,
+            STATE_LOCATION_CHAT_CONVERSATION,
+            STATE_LOCATION_CHAT_REVIEW,
+        )
+
+        state = {
+            STATE_LOCATION_CHAT_REVIEW: True,
+            STATE_LOCATION_CHAT_CONVERSATION: True,
+            STATE_LOCATION_CHAT_CONTINUATION: {
+                "action": "share_live",
+                "step": "duration",
+                "circles": ["Family"],
+            },
+            STATE_VOICE_CONTEXT: {
+                "available_action_ids": ["location.share_selected", "route.one_location"],
+            },
+        }
+        instruction = _one_runtime_instruction(SimpleNamespace(state=state))
+        assert "propose_location_action" in instruction
+        assert "location.share_selected" not in instruction
+        assert "location.send_request" not in instruction
+        assert "list_my_location_shares" not in instruction
+        assert "route.one_location" in instruction
+        assert "connect.send_request" in instruction
+        assert "get_location_circle_members" in instruction
+        assert "For 'share my location', propose share_live" in instruction
+        assert "If duration is missing" in instruction
+        assert '"step": "duration"' in instruction
+        assert '"circles": ["Family"]' in instruction
+        assert "immediately use share_options" not in instruction
+        assert "immediately use share_options" in LOCATION_CHAT_INSTRUCTION
+
+        state[STATE_LOCATION_CHAT_CONVERSATION] = False
+        card_only = _one_runtime_instruction(SimpleNamespace(state=state))
+        assert "immediately use share_options" in card_only
+        assert "For 'share my location', propose share_live" not in card_only
+
+        state[STATE_LOCATION_CHAT_REVIEW] = False
+        legacy = _one_runtime_instruction(SimpleNamespace(state=state))
+        assert "location.share_selected" in legacy
+        assert "propose_location_action" not in legacy
+        assert '"circles": ["Family"]' not in legacy
+
     def test_the_old_navigate_then_pick_chain_is_gone_for_named_requests(self):
         instruction = ONE_IDENTITY_INSTRUCTION
 
@@ -6449,7 +6594,7 @@ async def test_every_email_proposal_is_refused_and_never_executed(payload):
     assert not any(key.startswith(_STATE_PENDING_DIRECTIVE) for key in context.state)
 
 
-def test_one_routes_receipt_analysis_to_dedicated_functions_and_keeps_inbox_search_for_mail():
+def test_one_routes_gmail_receipts_live_and_keeps_saved_snapshot_explicit():
     enabled = _one_runtime_instruction(
         SimpleNamespace(
             state={
@@ -6460,18 +6605,18 @@ def test_one_routes_receipt_analysis_to_dedicated_functions_and_keeps_inbox_sear
         )
     )
     assert "MAIL READ ADMISSION: enabled" in enabled
-    assert "list_recent_receipts" in enabled and "receipt_spending" in enabled
-    assert "never ask_email_agent, an inbox search or memory arithmetic" in enabled
-    assert "State the coverage and limits the result gives" in enabled
-    assert "A request for emails that mention a receipt is an inbox search" in enabled
-    assert "never receipts or attachments" not in enabled
+    assert "ask_email_agent" in enabled
+    assert "Gmail receipts and invoices also use" in enabled
+    assert "unless the person explicitly asks for saved receipts" in enabled
+    assert "source-backed answer and coverage limits" in enabled
+    assert "never ask_email_agent, an inbox search or memory arithmetic" not in enabled
     # With Mail chat reads off (voice, signed out), nothing about receipts is promised.
     disabled = _one_runtime_instruction(
         SimpleNamespace(state={STATE_USER_ID: "owner", _tree.STATE_VOICE_CONTEXT: {}})
     )
     assert "MAIL READ ADMISSION: disabled" in disabled
     assert "saved receipt memory" not in disabled
-    assert "One's receipt functions, never this tool" in _tree.ask_email_agent.__doc__
+    assert "Search receipts, invoices and bills live" in _tree.ask_email_agent.__doc__
 
 
 def test_package_exports_keep_the_existing_agent_entrypoints():

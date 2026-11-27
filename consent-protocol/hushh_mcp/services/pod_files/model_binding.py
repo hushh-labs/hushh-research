@@ -39,6 +39,13 @@ class SentinelOrganizationBinding:
         return build_sentinel_gemini_adk_model(manifest_model)
 
 
+def hosted_files_analysis_disabled() -> bool:
+    """The current managed-pod marker is reserved for the Dev pilot."""
+    from hushh_mcp.services.private_gcp_deployment import HOSTING_ENV
+
+    return HOSTING_ENV in os.environ
+
+
 def organization_model_binding() -> (
     ManagedGeminiRuntimeBinding | AzureOrganizationBinding | SentinelOrganizationBinding
 ):
@@ -48,8 +55,14 @@ def organization_model_binding() -> (
     capability plan. A generic Gemini project override does not authorize it.
     Credentials remain with the attached runtime identity and ADC.
     """
+    if hosted_files_analysis_disabled():
+        # This marker currently identifies managed Dev pods. Fail closed even
+        # if it is malformed or the model later becomes project-local.
+        raise FilesRefused("FILES_MODEL_UNAVAILABLE", 503)
+    from hushh_mcp.services import pod_owner_cloud
+
     platform = workload_platform()
-    if platform == "ace":
+    if platform == "ace" or getattr(pod_owner_cloud, "hosted_ace_runtime", lambda: False)():
         sentinel_enabled = getattr(runtime_settings, "pod_sentinel_model_enabled", None)
         if not callable(sentinel_enabled) or not sentinel_enabled():
             raise FilesRefused("FILES_MODEL_UNAVAILABLE", 503)

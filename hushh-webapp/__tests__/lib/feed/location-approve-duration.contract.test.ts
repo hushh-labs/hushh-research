@@ -27,32 +27,14 @@ function source(relativePath: string): string {
   return readFileSync(join(WEBAPP, relativePath), "utf8");
 }
 
-describe("the Feed's inline Approve", () => {
+describe("Feed Location review", () => {
   const feed = source("lib/feed/use-feed-actionables.ts");
-
-  it("does not name a duration, so the server grants what was asked", () => {
-    // Isolate the OneLocationService.approveRequest call and prove no duration
-    // rides along with it.
-    const call = feed.match(
-      /OneLocationService\.approveRequest\(\{[\s\S]*?\}\)/,
-    );
-    expect(call, "approveRequest call not found").toBeTruthy();
-    expect(call![0]).not.toMatch(/durationHours/);
-    expect(call![0]).not.toMatch(/durationMode/);
-  });
-
-  it("still identifies the request it is approving", () => {
-    const call = feed.match(
-      /OneLocationService\.approveRequest\(\{[\s\S]*?\}\)/,
-    );
-    expect(call![0]).toMatch(/requestId: request\.id/);
-  });
-
-  it("labels the button and the card from the ask, not a fixed string", () => {
-    // A card that says only "Wants to see your location." gives the owner no
-    // way to notice the amount, which is what let the mismatch go unseen.
-    expect(feed).toMatch(/locationApproveActionLabel\(request/);
-    expect(feed).toMatch(/locationAskPromptLine\(request/);
+  it("opens exact review without approving or declining from the Feed", () => {
+    expect(feed).not.toMatch(/OneLocationService\.approveRequest\(/);
+    expect(feed).not.toMatch(/OneLocationService\.denyRequest\(/);
+    expect(feed).not.toMatch(/OneLocationService\.acceptNamedCircleMemberInvite\(/);
+    expect(feed).toContain("buildOneLocationWorkflowHref({ requestId: request.id })");
+    expect(feed).toContain("locationRequestFeedLine(label");
   });
 });
 

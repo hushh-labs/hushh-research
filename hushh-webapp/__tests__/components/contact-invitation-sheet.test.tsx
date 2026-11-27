@@ -178,7 +178,7 @@ describe("contact invitation batches", () => {
     );
     await act(async () => complete("cancelled"));
     expect(
-      screen.getByText(/Cancelled. Your selection is saved/),
+      screen.getByText(/Cancelled. Your contacts are still selected/),
     ).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Back to review" }));
     expect(screen.getByText("15 selected contacts")).toBeVisible();
@@ -267,8 +267,19 @@ describe("contact invitation batches", () => {
     );
     expect(screen.getByText(/No contacts with an email address/)).toBeVisible();
     expect(
-      screen.getByRole("button", { name: "Review 0 invitations" }),
-    ).toBeDisabled();
+      screen.getByText(/Use the One mobile app to invite contacts by phone/),
+    ).toBeVisible();
+    expect(
+      screen.queryByText(/Only contacts with an email address/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("textbox", { name: "Search contacts to invite" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Review.*invitations/ }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Share link" }));
+    await waitFor(() => expect(mocks.share).toHaveBeenCalledTimes(1));
   });
 
   it("recovers invitation preparation with no web email candidates without resync", async () => {

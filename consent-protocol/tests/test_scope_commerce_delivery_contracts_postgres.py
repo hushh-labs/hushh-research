@@ -37,6 +37,435 @@ paid_contract_dsn = fixtures.paid_contract_dsn
 paid_contract = fixtures.paid_contract
 
 
+async def test_owner_started_credential_grant_uses_existing_ledger_and_exact_source_fences(
+    paid_contract: PaidContract, monkeypatch: pytest.MonkeyPatch
+):
+    from hushh_mcp.consent.token import issue_token
+    from hushh_mcp.services import owner_item_grants as items
+
+    ctx = paid_contract
+    async with ctx.pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO pkm_manifests VALUES('owner','credentials',1,'[]','[]','{}')"
+        )
+        await conn.execute("INSERT INTO pkm_blobs VALUES('owner','credentials',1,1)")
+
+    async def recipient(owner, pod, key):
+        if (owner, pod, key) != ("owner", "owner-pod", "key"):
+            raise items.OwnerItemGrantRefused("OWNER_ITEM_RECIPIENT_REFUSED")
+        return PUBLIC_KEY
+
+    monkeypatch.setattr(items, "owner_recipient", recipient)
+    body = items.OwnerItemRequest(
+        operation_id="1" * 32,
+        credential_id="cred_" + "2" * 32,
+        pod_id="owner-pod",
+        pod_key_id="key",
+        source_content_revision=1,
+        source_manifest_revision=1,
+    )
+    prepared = await items.create_owner_item_request("owner", body)
+    assert await items.create_owner_item_request("owner", body) == prepared
+    selection = prepared["selection"]
+    assert (
+        selection["owner_id"] == "owner"
+        and selection["field"]["path"] == "secrets." + body.credential_id
+    )
+    async with ctx.pool.acquire() as conn:
+        pending = await conn.fetchrow(
+            "SELECT * FROM consent_audit WHERE request_id=$1", prepared["request_id"]
+        )
+    metadata = (
+        json.loads(pending["metadata"])
+        if isinstance(pending["metadata"], str)
+        else dict(pending["metadata"])
+    )
+    token = issue_token("owner", "agent_one", prepared["scope"])
+    service = ConsentDBService()
+    await service.insert_event(
+        user_id="owner",
+        agent_id="agent_one",
+        scope=prepared["scope"],
+        action="CONSENT_GRANTED",
+        token_id=token.token,
+        request_id=prepared["request_id"],
+        expires_at=token.expires_at,
+        metadata=metadata,
+    )
+    async with ctx.pool.acquire() as conn:
+        assert (
+            await conn.fetchval(
+                "SELECT count(*) FROM consent_audit WHERE request_id=$1", prepared["request_id"]
+            )
+            == 2
+        )
+        assert await conn.fetchval("SELECT count(*) FROM scope_commerce_purchases") == 0
+        await conn.execute("UPDATE pkm_blobs SET content_revision=2 WHERE domain='credentials'")
+    with pytest.raises(items.OwnerItemGrantRefused, match="SOURCE_CHANGED"):
+        await items.create_owner_item_request(
+            "owner", body.model_copy(update={"operation_id": "3" * 32})
+        )
+    with pytest.raises(items.OwnerItemGrantRefused, match="RECIPIENT_REFUSED"):
+        await items.create_owner_item_request("foreign-owner", body)
+    forged = dict(metadata)
+    forged["owner_item_grant"] = {**metadata["owner_item_grant"], "owner_id": "foreign-owner"}
+    with pytest.raises(items.OwnerItemGrantRefused):
+        items.owner_item_binding(forged, "owner", prepared["scope"])
+    cancelled = await items.create_owner_item_request(
+        "owner", body.model_copy(update={"operation_id": "6" * 32, "source_content_revision": 2})
+    )
+    async with ctx.pool.acquire() as conn:
+        pending = await conn.fetchrow(
+            "SELECT metadata FROM consent_audit WHERE request_id=$1", cancelled["request_id"]
+        )
+    cancelled_metadata = json.loads(pending["metadata"])
+    await service.insert_event(
+        user_id="owner",
+        agent_id="agent_one",
+        scope=cancelled["scope"],
+        action="CANCELLED",
+        request_id=cancelled["request_id"],
+    )
+    with pytest.raises(items.OwnerItemGrantRefused, match="REQUEST_CHANGED"):
+        await service.insert_event(
+            user_id="owner",
+            agent_id="agent_one",
+            scope=cancelled["scope"],
+            action="CONSENT_GRANTED",
+            token_id=token.token,
+            request_id=cancelled["request_id"],
+            expires_at=token.expires_at,
+            metadata=cancelled_metadata,
+        )
+
+
+@pytest.mark.parametrize("change", ["none", "source", "recipient", "revoke", "superseded"])
+async def test_owner_item_refresh_rechecks_source_recipient_and_terminal_authority(
+    paid_contract: PaidContract, monkeypatch: pytest.MonkeyPatch, change: str
+):
+    from api.routes import consent
+    from hushh_mcp.consent.token import issue_token
+    from hushh_mcp.services import owner_item_grants as items
+
+    ctx = paid_contract
+    ctx.client._transport.app.include_router(consent.router)
+    recipient_current = True
+
+    async def recipient(owner, pod, key):
+        if not recipient_current:
+            raise items.OwnerItemGrantRefused("OWNER_ITEM_RECIPIENT_REFUSED")
+        return PUBLIC_KEY
+
+    monkeypatch.setattr(items, "owner_recipient", recipient)
+    async with ctx.pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO pkm_manifests VALUES('owner','credentials',1,'[]','[]','{}')"
+        )
+        await conn.execute("INSERT INTO pkm_blobs VALUES('owner','credentials',1,1)")
+    body = items.OwnerItemRequest(
+        operation_id="7" * 32,
+        credential_id="cred_" + "8" * 32,
+        pod_id="owner-pod",
+        pod_key_id="key",
+        source_content_revision=1,
+        source_manifest_revision=1,
+    )
+    prepared = await items.create_owner_item_request("owner", body)
+    async with ctx.pool.acquire() as conn:
+        metadata = json.loads(
+            await conn.fetchval(
+                "SELECT metadata FROM consent_audit WHERE request_id=$1", prepared["request_id"]
+            )
+        )
+    token = issue_token("owner", "agent_one", prepared["scope"])
+    service = ConsentDBService()
+    await service.insert_event(
+        user_id="owner",
+        agent_id="agent_one",
+        scope=prepared["scope"],
+        action="CONSENT_GRANTED",
+        token_id=token.token,
+        request_id=prepared["request_id"],
+        expires_at=token.expires_at,
+        metadata=metadata,
+    )
+    package = encrypted_package(
+        {
+            "grant_id": prepared["request_id"],
+            "export_id": uuid4().hex,
+            "expires_at_ms": token.expires_at,
+        }
+    )
+    envelope = package["exportEnvelope"]
+    envelope["aad"].update(
+        app_id="agent_one", machine_scope=prepared["scope"], scope_handle=prepared["scope_handle"]
+    )
+    envelope["aad_sha256"] = digest_bytes(canonical_aad_bytes(envelope["aad"]))
+    assert await service.store_consent_export(
+        consent_token=token.token,
+        user_id="owner",
+        encrypted_data=package["ciphertext"],
+        iv=package["iv"],
+        tag=package["tag"],
+        export_key=None,
+        wrapped_key_bundle=package["wrappedKey"],
+        scope=prepared["scope"],
+        expires_at_ms=token.expires_at,
+        source_content_revision=1,
+        source_manifest_revision=1,
+        refresh_policy="continuous_until_expiry",
+        export_id=envelope["export_id"],
+        envelope_version=2,
+        grant_id=prepared["request_id"],
+        app_id="agent_one",
+        scope_handle=prepared["scope_handle"],
+        recipient_key_fingerprint=prepared["recipient_key_fingerprint"],
+        envelope_aad=envelope["aad"],
+        envelope_aad_sha256=envelope["aad_sha256"],
+        ciphertext_sha256=envelope["ciphertext_sha256"],
+        ciphertext_bytes=envelope["ciphertext_bytes"],
+    )
+    assert await service.get_consent_export(token.token) is not None
+    claim = uuid4()
+    async with ctx.pool.acquire() as conn:
+        await conn.execute("UPDATE pkm_blobs SET content_revision=2 WHERE domain='credentials'")
+        await conn.execute(
+            "UPDATE consent_exports SET refresh_status='refresh_pending' WHERE consent_token=$1",
+            token.token,
+        )
+        await conn.execute(
+            """INSERT INTO consent_export_refresh_jobs(consent_token,user_id,granted_scope,status,claim_id,claim_expires_at,expected_export_revision)
+            VALUES($1,'owner',$2,'processing',$3,now()+interval '60 seconds',1)""",
+            token.token,
+            prepared["scope"],
+            claim,
+        )
+    assert await service.get_consent_export(token.token) is None
+    stale = await service.get_consent_export_metadata(token.token, _include_grant_metadata=True)
+    assert stale and stale["_grant_metadata"] == metadata and "encrypted_data" not in stale
+    envelope["aad"]["revision"] = 2
+    envelope["aad_sha256"] = digest_bytes(canonical_aad_bytes(envelope["aad"]))
+    kwargs = dict(
+        user_id="owner",
+        claim_id=str(claim),
+        expected_export_revision=1,
+        encrypted_data=package["ciphertext"],
+        iv=package["iv"],
+        tag=package["tag"],
+        wrapped_key_bundle=package["wrappedKey"],
+        connector_key_id="key",
+        connector_wrapping_alg="X25519-AES256-GCM",
+        envelope_aad=envelope["aad"],
+        envelope_aad_sha256=envelope["aad_sha256"],
+        ciphertext_sha256=envelope["ciphertext_sha256"],
+        ciphertext_bytes=envelope["ciphertext_bytes"],
+        source_content_revision=2,
+        source_manifest_revision=1,
+        grant_metadata=metadata,
+    )
+    if change == "source":
+        async with ctx.pool.acquire() as conn:
+            await conn.execute("UPDATE pkm_blobs SET content_revision=3 WHERE domain='credentials'")
+    elif change == "recipient":
+        recipient_current = False
+    elif change == "revoke":
+        await service.insert_event(
+            user_id="owner",
+            agent_id="agent_one",
+            scope=prepared["scope"],
+            action="REVOKED",
+            request_id=prepared["request_id"],
+        )
+    elif change == "superseded":
+        newer = await items.create_owner_item_request(
+            "owner",
+            body.model_copy(update={"operation_id": "9" * 32, "source_content_revision": 2}),
+        )
+        async with ctx.pool.acquire() as conn:
+            newer_metadata = json.loads(
+                await conn.fetchval(
+                    "SELECT metadata FROM consent_audit WHERE request_id=$1", newer["request_id"]
+                )
+            )
+        newer_token = issue_token("owner", "agent_one", newer["scope"])
+        await service.insert_event(
+            user_id="owner",
+            agent_id="agent_one",
+            scope=newer["scope"],
+            action="CONSENT_GRANTED",
+            token_id=newer_token.token,
+            request_id=newer["request_id"],
+            expires_at=newer_token.expires_at,
+            metadata=newer_metadata,
+        )
+    if change == "none":
+        upload = {
+            "userId": "owner",
+            "jobClaimId": str(claim),
+            "expectedPriorRevision": 1,
+            "encryptedData": package["ciphertext"],
+            "encryptedIv": package["iv"],
+            "encryptedTag": package["tag"],
+            "wrappedExportKey": package["wrappedKey"]["wrapped_export_key"],
+            "wrappedKeyIv": package["wrappedKey"]["wrapped_key_iv"],
+            "wrappedKeyTag": package["wrappedKey"]["wrapped_key_tag"],
+            "senderPublicKey": package["wrappedKey"]["sender_public_key"],
+            "wrappingAlg": "X25519-AES256-GCM",
+            "connectorKeyId": "key",
+            "sourceContentRevision": 2,
+            "sourceManifestRevision": 1,
+            "exportEnvelope": envelope,
+        }
+        result = await ctx.client.post(
+            "/api/consent/export-refresh/upload",
+            json=upload,
+            headers={"X-Contract-Identity": "owner"},
+        )
+        assert result.status_code == 200, result.text
+        assert not await service.complete_claimed_consent_export_refresh(**kwargs)
+        current = await service.get_consent_export(token.token)
+        assert (
+            current and current["export_revision"] == 2 and current["source_content_revision"] == 2
+        )
+    else:
+        assert not await service.complete_claimed_consent_export_refresh(**kwargs)
+        assert await service.get_consent_export(token.token) is None
+    async with ctx.pool.acquire() as conn:
+        stored = await conn.fetchrow(
+            "SELECT export_revision,expires_at FROM consent_exports WHERE consent_token=$1",
+            token.token,
+        )
+        assert stored["export_revision"] == (2 if change == "none" else 1)
+        assert int(stored["expires_at"].timestamp() * 1000) == token.expires_at
+
+
+async def test_owner_item_request_api_keeps_auth_and_secret_errors_out_of_responses(
+    paid_contract: PaidContract, monkeypatch: pytest.MonkeyPatch
+):
+    from api.routes import consent
+    from hushh_mcp.services import owner_item_grants as items
+
+    ctx = paid_contract
+    ctx.client._transport.app.include_router(consent.router)
+    calls = []
+
+    async def create(owner, body):
+        calls.append((owner, body.credential_id))
+        if owner != "owner":
+            raise items.OwnerItemGrantRefused("OWNER_ITEM_RECIPIENT_REFUSED")
+        return {"request_id": "owner-request"}
+
+    monkeypatch.setattr(items, "create_owner_item_request", create)
+    body = {
+        "operation_id": "1" * 32,
+        "credential_id": "cred_" + "2" * 32,
+        "pod_id": "owner-pod",
+        "pod_key_id": "key",
+        "source_content_revision": 1,
+        "source_manifest_revision": 1,
+    }
+    response = await ctx.client.post(
+        "/api/consent/owner-items/requests", json=body, headers={"X-Contract-Identity": "owner"}
+    )
+    assert response.status_code == 200 and calls == [("owner", body["credential_id"])]
+    foreign = await ctx.client.post(
+        "/api/consent/owner-items/requests", json=body, headers={"X-Contract-Identity": "foreign"}
+    )
+    assert foreign.status_code == 409
+    canary = "synthetic-secret-must-not-appear"
+    invalid = await ctx.client.post(
+        "/api/consent/owner-items/requests",
+        json={**body, "password": canary},
+        headers={"X-Contract-Identity": "owner"},
+    )
+    assert invalid.status_code == 422 and canary not in invalid.text
+    assert len(calls) == 2
+
+
+async def test_owner_item_sharing_freezes_registered_recipient_and_does_not_expand_scope(
+    paid_contract: PaidContract, monkeypatch: pytest.MonkeyPatch
+):
+    from hushh_mcp.consent.token import issue_token
+    from hushh_mcp.services import owner_item_grants as items
+
+    ctx = paid_contract
+    async with ctx.pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO pkm_manifests VALUES('owner','credentials',1,'[]','[]','{}')"
+        )
+        await conn.execute("INSERT INTO pkm_blobs VALUES('owner','credentials',1,1)")
+    active = "key"
+
+    async def recipient(app_id, expected_key_id=None, *, scope=None):
+        if app_id != "app" or expected_key_id is not None and expected_key_id != active:
+            raise items.OwnerItemGrantRefused("OWNER_ITEM_RECIPIENT_REFUSED")
+        return {
+            "app_id": "app",
+            "agent_id": "developer:app",
+            "key_id": active,
+            "public_key": PUBLIC_KEY,
+            "fingerprint": items.connector_key_fingerprint(PUBLIC_KEY),
+            "label": "Synthetic registered application",
+        }
+
+    monkeypatch.setattr(items, "registered_recipient", recipient)
+    body = items.OwnerItemRequest(
+        operation_id="4" * 32,
+        credential_id="cred_" + "5" * 32,
+        branch="summary",
+        recipient_kind="registered_app",
+        recipient_app_id="app",
+        source_content_revision=1,
+        source_manifest_revision=1,
+    )
+    prepared = await items.create_owner_item_request("owner", body)
+    assert prepared["selection"] is None and prepared["scope"].startswith(
+        "attr.credentials.summary."
+    )
+    async with ctx.pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT * FROM consent_audit WHERE request_id=$1", prepared["request_id"]
+        )
+        metadata = (
+            json.loads(row["metadata"])
+            if isinstance(row["metadata"], str)
+            else dict(row["metadata"])
+        )
+        assert row["agent_id"] == "developer:app" and metadata["refresh_policy"] == "snapshot"
+        await items.require_owner_item_binding(conn, "owner", prepared["scope"], metadata)
+        active = "rotated-key"
+        with pytest.raises(items.OwnerItemGrantRefused, match="RECIPIENT_REFUSED"):
+            await items.require_owner_item_binding(conn, "owner", prepared["scope"], metadata)
+    active = "key"
+    token = issue_token("owner", "developer:app", prepared["scope"])
+    with pytest.raises(items.OwnerItemGrantRefused):
+        await ConsentDBService().insert_event(
+            user_id="owner",
+            agent_id="developer:wrong-app",
+            scope=prepared["scope"],
+            action="CONSENT_GRANTED",
+            token_id=token.token,
+            request_id=prepared["request_id"],
+            expires_at=token.expires_at,
+            metadata=metadata,
+        )
+    await ConsentDBService().insert_event(
+        user_id="owner",
+        agent_id="developer:app",
+        scope=prepared["scope"],
+        action="CONSENT_GRANTED",
+        token_id=token.token,
+        request_id=prepared["request_id"],
+        expires_at=token.expires_at,
+        metadata=metadata,
+    )
+    async with ctx.pool.acquire() as conn:
+        assert (
+            await conn.fetchval("SELECT scope FROM consent_audit WHERE token_id=$1", token.token)
+            == prepared["scope"]
+        )
+
+
 async def test_exact_scope_stage_rejects_broadening_and_pre_activation_reads(
     paid_contract: PaidContract, monkeypatch: pytest.MonkeyPatch
 ):

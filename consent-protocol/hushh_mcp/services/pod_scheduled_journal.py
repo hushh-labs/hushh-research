@@ -7,7 +7,8 @@ import copy
 from collections.abc import Awaitable, Callable
 from zoneinfo import ZoneInfoNotFoundError
 
-from hushh_mcp.services.pod_log_replay import PodLogConflict
+from hushh_mcp.services.pod_config import POD_CONFIG_RECORD_KIND
+from hushh_mcp.services.pod_log_replay import PodLogConflict, PodLogCursor
 from hushh_mcp.services.pod_scheduled_contracts import (
     ScheduleAccess,
     ScheduleRefused,
@@ -16,6 +17,8 @@ from hushh_mcp.services.pod_scheduled_contracts import (
 
 KIND = "pod_scheduled_task_v1"
 MAX_SCHEDULES = 50
+MAX_LOG_RECORDS = 30_000
+MAX_LOG_BYTES = 64 * 1024 * 1024
 
 
 class ScheduledTaskJournal:
@@ -24,16 +27,44 @@ class ScheduledTaskJournal:
     ):
         self.access, self.log, self.check_grant, self.clock = access, log, check_grant, clock
         self._lock = asyncio.Lock()
+        self._replay_lock = asyncio.Lock()
+        self._cursor: PodLogCursor | None = None
+        self._sealed_history: bytes | None = None
 
     async def check(self) -> None:
         await self.access.check()
         await self.log.require_open()
 
+    async def _read_history(self) -> tuple[list[dict], int]:
+        # Every read still verifies the live head and any new records. Retain
+        # only the sealed projection for this journal, never owner plaintext.
+        async with self._replay_lock:
+            records, cursor = await self.log.replay_since(
+                self._cursor, max_records=MAX_LOG_RECORDS, max_bytes=MAX_LOG_BYTES
+            )
+            sequence = cursor.seq if cursor else 0
+            if sequence > MAX_LOG_RECORDS:
+                raise ScheduleRefused("SCHEDULE_HISTORY_LIMIT")
+            history = (
+                self.log._unseal(self._sealed_history)["records"]
+                if self._sealed_history is not None
+                else []
+            )
+            additions = [
+                row for row in records if row.get("kind") in {KIND, POD_CONFIG_RECORD_KIND}
+            ]
+            if additions:
+                history.extend(additions)
+                sealed = self.log._seal({"records": history})
+                if len(sealed) > MAX_LOG_BYTES:
+                    raise ScheduleRefused("SCHEDULE_HISTORY_LIMIT")
+                self._sealed_history = sealed
+            self._cursor = cursor
+            return history, sequence
+
     async def snapshot(self) -> tuple[dict[str, dict], int]:
         await self.check()
-        records, _ = await self.log.replay_since(max_records=30000, max_bytes=64 * 1024 * 1024)
-        if len(records) > 30000:
-            raise ScheduleRefused("SCHEDULE_HISTORY_LIMIT")
+        records, sequence = await self._read_history()
         rows: dict[str, dict] = {}
         for record in records:
             if record.get("kind") != KIND:
@@ -57,7 +88,7 @@ class ScheduledTaskJournal:
         if len(rows) > MAX_SCHEDULES:
             raise ScheduleRefused("SCHEDULE_HISTORY_LIMIT")
         await self.check()
-        return copy.deepcopy(rows), int(records[-1]["seq"]) if records else 0
+        return copy.deepcopy(rows), sequence
 
     async def change(
         self,

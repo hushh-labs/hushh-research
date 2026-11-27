@@ -34,6 +34,9 @@ RUN uv venv /opt/browser/venv \
 COPY hushh_mcp/services/embedding_client_leaf.py hushh_mcp/services/embedding_client_leaf.py
 COPY scripts/ops/bake_drive_embedding_model.py scripts/ops/bake_drive_embedding_model.py
 RUN python -m scripts.ops.bake_drive_embedding_model
+COPY hushh_mcp/services/email_oss/routing.py hushh_mcp/services/email_oss/routing.py
+COPY scripts/ops/bake_email_router_model.py scripts/ops/bake_email_router_model.py
+RUN python -m scripts.ops.bake_email_router_model
 
 # Stage 2: production runtime
 FROM python:3.13-slim
@@ -53,6 +56,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     VIRTUAL_ENV=/opt/venv \
     PATH=/opt/venv/bin:$PATH \
     HUSHH_DRIVE_EMBEDDING_MODEL_DIR=/opt/hushh/models/multilingual-e5-small \
+    HUSHH_EMAIL_ROUTER_MODEL_CACHE=/opt/hushh/models/email-router-fastembed \
+    HF_HUB_OFFLINE=1 \
     HUSSH_POD_MODE=1 \
     HUSSH_POD_IMAGE_TAG=${POD_IMAGE_TAG}
 COPY . .

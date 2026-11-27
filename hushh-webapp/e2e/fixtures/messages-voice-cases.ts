@@ -32,7 +32,7 @@ export function registerMessagesVoiceCases({ mount, fixture }: {
       test.skip(testInfo.project.name !== "chromium", "Chromium's synthetic microphone is the permission/capture test port.");
       const browser = await playwright.chromium.launch({ channel: "chromium", args: ["--use-fake-device-for-media-stream"] });
       try {
-        const context = await browser.newContext();
+        const context = await browser.newContext({ viewport: { width: 320, height: 844 }, isMobile: true, hasTouch: true });
         const page = await context.newPage();
         await context.grantPermissions([], { origin: microphoneOrigin });
         const errors = await mount(page, false, false, false, "idle", { origin: microphoneOrigin });
@@ -47,6 +47,15 @@ export function registerMessagesVoiceCases({ mount, fixture }: {
         await mic.click();
         const send = page.getByRole("button", { name: "Send voice message" });
         await expect(send).toBeEnabled();
+        const recordingControls = page.getByRole("group", { name: "Voice recording" });
+        const form = (await recordingControls.locator("xpath=ancestor::form").boundingBox())!;
+        for (const button of [send, page.getByRole("button", { name: "Cancel recording" })]) {
+          const box = (await button.boundingBox())!;
+          expect(box.x).toBeGreaterThanOrEqual(form.x);
+          expect(box.x + box.width).toBeLessThanOrEqual(form.x + form.width);
+          expect(box.width).toBeGreaterThanOrEqual(44); expect(box.height).toBeGreaterThanOrEqual(44);
+        }
+        expect(form.y + form.height).toBeLessThanOrEqual((await page.locator("[data-bottom-shell-navigation-slot]").boundingBox())!.y);
         await page.waitForTimeout(300);
         expect(await page.evaluate(() => (window as any).directChatFixture.sends.length)).toBe(0);
         await send.click();

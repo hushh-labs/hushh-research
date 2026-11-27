@@ -147,8 +147,15 @@ export interface ConsentExportReadSession {
  * and exposure posture have been checked. Drive's ordinary export path stays separate.
  */
 export function createConsentExportReadSession(params: {
-  userId: string; scopes: readonly string[]; vaultKey: string; vaultOwnerToken: string;
+  userId: string;
+  scopes: readonly string[];
+  vaultKey: string;
+  vaultOwnerToken: string;
+  approvedPathsCeiling?: readonly string[];
 }): ConsentExportReadSession {
+  const ceiling = params.approvedPathsCeiling
+    ? new Set(params.approvedPathsCeiling)
+    : null;
   const epoch = snapshotVaultSessionEpoch();
   const sourceEpoch = currentPkmInvalidationEpoch(params.userId);
   const valid = () => {
@@ -175,7 +182,11 @@ export function createConsentExportReadSession(params: {
     if (!snapshot) return Object.fromEntries(selected.map(scope => [scope, { payload: {} }]));
     if (snapshot.userId !== params.userId || snapshot.domain !== domain || !snapshot.manifest)
       throw new Error("Scope manifest could not be verified");
-    const paths = selected.map(scope => resolveApprovedPaths(scope, snapshot.manifest).filter(path => !isRedactedExportPath(path)));
+    const paths = selected.map(scope =>
+      resolveApprovedPaths(scope, snapshot.manifest).filter(
+        path => !isRedactedExportPath(path) && (!ceiling || ceiling.has(path)),
+      ),
+    );
     if (paths.some(entries => !entries.length)) throw new Error("Approved scope changed; review required");
     const legacy = snapshot.encryptedBlob.storageMode === "legacy_full_blob";
     const segments = legacy ? ["root"] : full ? [] : [...new Set(paths.flatMap(entries => entries.flatMap(path => {
@@ -228,6 +239,7 @@ export async function buildConsentExportForScope(params: {
   vaultKey: string;
   vaultOwnerToken: string;
   readSession?: ConsentExportReadSession;
+  approvedPathsCeiling?: readonly string[];
 }): Promise<BuiltConsentExport> {
   if (params.readSession) return params.readSession.build(params.scope);
   if (isPrivatePkmExportScope(params.scope)) {
@@ -285,8 +297,11 @@ export async function buildConsentExportForScope(params: {
   // Consent authorizes an exact path, never a semantically similar field. A
   // missing or stale projection requires fresh review, not path substitution.
   const parsedScope = requestedScope;
+  const ceiling = params.approvedPathsCeiling
+    ? new Set(params.approvedPathsCeiling)
+    : null;
   const approvedPaths = resolveApprovedPaths(params.scope, manifest).filter(
-    (path) => !isRedactedExportPath(path),
+    (path) => !isRedactedExportPath(path) && (!ceiling || ceiling.has(path)),
   );
   if (approvedPaths.length === 0) {
     throw new ConsentExportNoDataError(
@@ -306,26 +321,40 @@ export async function buildConsentExportForScope(params: {
         approvedPaths.length ? approvedPaths : [parsedScope.path ?? ""],
       );
   const segmentIds = mergeSegmentIds(manifestSegmentIds, pathSegmentIds);
-  let effectiveSegmentIds = segmentIds;
-  let encryptedDomainBlob = await PersonalKnowledgeModelService.getDomainData(
-    params.userId,
-    parsedScope.domain,
-    params.vaultOwnerToken,
-    effectiveSegmentIds,
-  );
-  if (
-    !encryptedDomainBlob &&
-    !isDomainWideScope &&
-    effectiveSegmentIds.length > 0
-  ) {
-    effectiveSegmentIds = [];
-    encryptedDomainBlob = await PersonalKnowledgeModelService.getDomainData(
+  const loadDomainAndBlob = async (segIds: string[]) => {
+    if (typeof PersonalKnowledgeModelService.loadDomainDataWithBlob === "function") {
+      return PersonalKnowledgeModelService.loadDomainDataWithBlob({
+        userId: params.userId,
+        domain: parsedScope.domain,
+        vaultKey: params.vaultKey,
+        vaultOwnerToken: params.vaultOwnerToken,
+        segmentIds: segIds,
+      });
+    }
+    const blob = await PersonalKnowledgeModelService.getDomainData(
       params.userId,
       parsedScope.domain,
       params.vaultOwnerToken,
-      effectiveSegmentIds,
+      segIds,
     );
+    if (!blob) return { blob: null, data: null };
+    const data = await PersonalKnowledgeModelService.loadDomainData({
+      userId: params.userId,
+      domain: parsedScope.domain,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+      segmentIds: segIds,
+    });
+    return { blob, data };
+  };
+
+  let effectiveSegmentIds = segmentIds;
+  let loaded = await loadDomainAndBlob(effectiveSegmentIds);
+  if (!loaded.blob && !isDomainWideScope && effectiveSegmentIds.length > 0) {
+    effectiveSegmentIds = [];
+    loaded = await loadDomainAndBlob(effectiveSegmentIds);
   }
+  let encryptedDomainBlob = loaded.blob;
   if (!encryptedDomainBlob) {
     throw new ConsentExportNoDataError(
       `No approved PKM information is available for ${parsedScope.domain.replaceAll("_", " ")}.`,
@@ -352,13 +381,7 @@ export async function buildConsentExportForScope(params: {
     },
   });
 
-  let domainData = await PersonalKnowledgeModelService.loadDomainData({
-    userId: params.userId,
-    domain: parsedScope.domain,
-    vaultKey: params.vaultKey,
-    vaultOwnerToken: params.vaultOwnerToken,
-    segmentIds: effectiveSegmentIds,
-  });
+  let domainData = loaded.data;
   let payload = buildPayload(domainData || {}, effectiveSegmentIds);
 
   if (
@@ -366,25 +389,11 @@ export async function buildConsentExportForScope(params: {
     !isDomainWideScope &&
     effectiveSegmentIds.length > 0
   ) {
-    const fullDomainBlob = await PersonalKnowledgeModelService.getDomainData(
-      params.userId,
-      parsedScope.domain,
-      params.vaultOwnerToken,
-      [],
-    );
-    if (fullDomainBlob) {
-      const fullDomainData = await PersonalKnowledgeModelService.loadDomainData(
-        {
-          userId: params.userId,
-          domain: parsedScope.domain,
-          vaultKey: params.vaultKey,
-          vaultOwnerToken: params.vaultOwnerToken,
-          segmentIds: [],
-        },
-      );
-      encryptedDomainBlob = fullDomainBlob;
+    const fullLoaded = await loadDomainAndBlob([]);
+    if (fullLoaded.blob) {
+      encryptedDomainBlob = fullLoaded.blob;
       effectiveSegmentIds = [];
-      domainData = fullDomainData;
+      domainData = fullLoaded.data;
       payload = buildPayload(domainData || {}, effectiveSegmentIds);
     }
   }

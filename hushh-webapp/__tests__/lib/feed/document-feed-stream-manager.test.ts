@@ -39,7 +39,8 @@ const RESET = "event: feed_reset\ndata: {}\n\n";
 const changed = (id: string) => `event: feed_changed\nid: e\ndata: {"request_id":"${id}"}\n\n`;
 const PAYOUT = `event: payout_changed\ndata: {"kinds":["wallet"],"request_ids":["${REQUEST}"]}\n\n`;
 const ALL_KINDS = [...PAYOUT_KINDS];
-const FULL = { general: true, consent: true };
+const PERIODIC_REPAIR = { general: true, consent: true, reconcileSms: true };
+const FULL = { ...PERIODIC_REPAIR, reconcileConnections: true };
 const targeted = (requestId: string) => ({ general: false, consent: true, requestId });
 const encoder = new TextEncoder();
 
@@ -245,6 +246,19 @@ describe("document feed stream manager", () => {
     manager.stop();
   });
 
+  it("preserves an emergency reread hint through a burst of ordinary Feed changes", async () => {
+    const { manager, transport, deps } = setup();
+    manager.start();
+    await tick();
+    transport.last().push(HELLO + 'event: feed_changed\ndata: {}\n\nevent: feed_changed\ndata: {"emergency_sms":true}\n\n');
+    await tick(10_000);
+    expect(deps.dispatchFeed.mock.calls).toEqual([
+      [{ general: true, consent: false }],
+      [{ general: true, consent: false, reconcileSms: true }],
+    ]);
+    manager.stop();
+  });
+
   it("repairs the Feed on the periodic clock only while no healthy stream covers this tab", async () => {
     const { manager, transport, deps } = setup();
     manager.start();
@@ -258,8 +272,8 @@ describe("document feed stream manager", () => {
     await tick();
     expect(manager.phase()).toBe("backoff");
     manager.repairIfUncovered();
-    expect(deps.dispatchFeed).toHaveBeenCalledExactlyOnceWith(FULL);
-    // Not a burst: the clock itself is the next reread.
+    expect(deps.dispatchFeed).toHaveBeenCalledExactlyOnceWith(PERIODIC_REPAIR);
+    // The fallback clock repairs Feed without purging the broader graph caches.
     await tick(10);
     expect(deps.dispatchFeed).toHaveBeenCalledTimes(1);
 
@@ -546,6 +560,15 @@ describe("leader and follower tabs", () => {
       expect(lastState(tab.deps)).toBe("live");
     }
 
+    for (const tab of [leader, follower]) tab.deps.dispatchFeed.mockClear();
+    leader.transport.last().push('event: feed_changed\ndata: {"connection_graph":true}\n\n');
+    await tick();
+    for (const tab of [leader, follower]) {
+      expect(tab.deps.dispatchFeed).toHaveBeenCalledExactlyOnceWith({
+        general: true, consent: true, reconcileConnections: true, connectionGraphChanged: true,
+      });
+    }
+
     leader.manager.stop();
     await tick();
     expect(lastState(follower.deps)).not.toBe("live");
@@ -554,6 +577,28 @@ describe("leader and follower tabs", () => {
     await tick();
     expect(lastState(follower.deps)).toBe("live");
     follower.manager.stop();
+  });
+
+  it("retains a confirmed graph mutation when recovery hints share its trailing burst", async () => {
+    const app = setup();
+    app.manager.start();
+    await tick();
+    try {
+      app.transport.last().push(HELLO);
+      await tick();
+      app.deps.dispatchFeed.mockClear();
+      app.transport.last().push(RESET);
+      await tick();
+      expect(app.deps.dispatchFeed.mock.calls).toEqual([[FULL]]);
+      app.transport.last().push('event: feed_changed\ndata: {"connection_graph":true}\n\n' + RESET);
+      await tick();
+      expect(app.deps.dispatchFeed.mock.calls).toEqual([[FULL], [{ ...FULL, connectionGraphChanged: true }]]);
+      await tick(10_000);
+      expect(app.deps.dispatchFeed.mock.calls[0][0]).toEqual(FULL);
+      expect(app.deps.dispatchFeed.mock.calls.at(-1)?.[0]).toEqual({ ...FULL, connectionGraphChanged: true });
+    } finally {
+      app.manager.stop();
+    }
   });
 
   it("a hidden leader frees its stream for a visible tab and repairs once on return", async () => {

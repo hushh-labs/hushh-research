@@ -54,6 +54,23 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
 
 ## 1. Backend Producer
 
+The authenticated shared Agent Chat client records a bounded, metadata-only
+attempt observation for One and its four authored specialist tabs. A server
+`RUN_STARTED` records the start; an uninterrupted `RUN_FINISHED` or `RUN_ERROR`
+records the first reported terminal. These are client reports, not proof of a
+tool effect. Confirmation and receipt continuations share the original capture
+and activity epoch. A recovered interrupt without that capture remains unknown.
+Transport loss, detached readers, missing terminals and a conversation-wide Stop
+acknowledgement never supply an inferred terminal. No prompt, result, attachment
+or free-form message identifier enters this observation path. The volatile
+buffer and server collection budget still limit completeness; this contract
+does not promise durable capture or within-minutes email delivery.
+
+SDK run observations likewise distinguish a recoverable model-call error from
+an unhandled runner error. Only the latter emits failed-run metadata, with the
+original capture epoch; neither callback reads error bodies or grants email
+authority. Failed runs release their in-memory capture just like completed runs.
+
 - Kai producers emit SSE using the canonical envelope from `consent-protocol/api/routes/kai/_streaming.py`. Agent Chat uses its existing AG-UI bridge; do not wrap AG-UI events in a second Kai envelope.
 - Always set explicit `event:` and canonical JSON `data`.
 - Mark terminal events with `terminal=true`.
@@ -82,10 +99,19 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
 - Consume streams with `hushh-webapp/lib/streaming/kai-stream-client.ts`.
 - Never add route-specific ad hoc parsers.
 - In Agent Chat, consume the existing AG-UI protocol through `hushh-webapp/lib/services/agent-chat-client.ts`; assistant text deltas are the source of incremental response text, not tool progress or provider payloads.
+- Approved provider thought summaries (`REASONING_MESSAGE_CONTENT` marked `husshThoughtSummary: true`) remain optional, display-only telemetry. When the selected model emits a summary on an ordinary turn, the assistant bubble surfaces a compact top-right info trigger that opens a responsive modal/sheet with the live or settled thought summary; turns without model thoughts, private receipt turns, and consent-shared turns omit the trigger. Thought summaries stay in owner-and-vault-epoch-scoped memory only and never enter SDK message snapshots, plaintext browser storage, or unredacted history endpoints.
 - Agent Chat's 90-second byte-idle watchdog begins after response headers and a
   stream body arrive. Cold pod admission retains its separate HTTP deadline;
   admission is not a silent model stream. Cancellation invalidates the run so
   late admission cannot dispatch a cancelled turn or restart its watchdog.
+- Chat memory accounting uses the content-free AG-UI custom event
+  `hussh.chat_context_usage`. `modelCallId` identifies one assembled model request;
+  an estimate and its final `provider_usage` update share that ID. The client keeps
+  the provider value when present and otherwise uses the final estimate at run
+  settlement. LTM accounting UPSERTs by request ID, so duplicate transport frames
+  cannot count twice. The event carries numeric input, output-reserve and context
+  budgets, never prompt text or private memory. Background STM/LTM work never
+  supplies assistant deltas or a save-status card.
 - Agent Chat settles a turn from an explicit `RUN_FINISHED` or `RUN_ERROR`. After a clean transport EOF without either event, the client allows 500 ms for already received parser callbacks, then aborts a stuck SDK transport and reports one incomplete result. The workspace reconciles persisted turn history before offering another attempt. An intentional review-card detach remains a separate pending state, not a stream failure. Terminal callbacks are guarded so a late frame cannot create a second completion.
 - Managed `TEXT_CONTENT_FILTERED` and `TEXT_AUTHORITY_ENDED` errors use fixed
   client notices and do not imply backend capacity strain. Keep partial answer
@@ -486,7 +512,7 @@ an aborted preparation cannot dispatch later. The panel reports connection
 until that dispatch point, then waits for the machine's response.
 
 HTTP edges may keep the upstream alive after browser abort. The explicit
-[turn stop](../contracts/api-contracts.md#direct-puppy-turn-cancellation) joins
+[turn stop](../contracts/api-one-capabilities.md#direct-puppy-turn-cancellation) joins
 that existing producer using the same request identity. Duplicate stops do not
 interrupt cleanup or dispatch another turn. A stopped producer ends the upstream
 with `PUPPY_CANCELLED`; the bounded browser stop wait reports

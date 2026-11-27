@@ -345,17 +345,6 @@ Kai growth analytics is only considered production-grade when all of these are t
 
 The original production export materialization blocker is resolved. Replacement Android ingestion requires its own package/stream-specific exported rows; legacy iOS, web or Android rows do not prove it.
 
-## Prospective Career and document request observations
-
-`one_career_action` and `one_document_request_action` require closed action and
-result enums. Verify actual UI handler → owner/vault-fenced terminal observer →
-sanitized transport and canonical private projection. The Career operation,
-document request button/requester, owner-operation and governed-event tests cover
-success/error observations, no false success for an uncommitted save, partial
-application receipts, stale/missing owners and exclusion of private contents.
-These mocks prove source contracts, not deployment, GA4 alias support or earlier
-unrecorded activity. Generic attempt errors do not prove a remote write absent.
-
 ## Android release analytics
 
 - Native custom events use `App.getInfo().version` and bounded `app_build`
@@ -377,12 +366,14 @@ unrecorded activity. Generic attempt errors do not prove a remote write absent.
   stream, backend environment and exact measurement dates. No device was attached
   during the 7 October local audit.
 
-## Calendar booking observation boundary
+## Calendar booking result observations
 
-The actual Main Calendar dialog uses review then confirmation. Verify provider
-creation separately from board/expiry blocks and definite review-stage errors;
-never classify an uncertain execute response as failed or confirmed. The nearest
-booking-operation, Calendar account board, governed-event and private-projection
-tests cover this boundary, one terminal emission, owner/vault/unmount retirement
-and private metadata exclusion. Source mocks do not prove deployment, provider
-side effects, GA4 processing or historical coverage.
+`one_calendar_action` / `booking_create` carries only route ID and finite action/result.
+`success` requires a provider-confirmed create response with a nonempty event ID;
+that ID and all meeting/account/attendee content remain private. Known authoritative
+prewrite blocks are `expected_error`; a definite failed review before execution is
+`error`. An unknown post-execution outcome is neither a failed nor a confirmed
+booking and emits no result KPI. Owner generation, vault epoch and current account
+context fence attribution; one attempt emits at most one result. Failure coverage
+is therefore partial. The nearest component and governed transport tests prove
+these source semantics; runtime capture and GA4 availability need release evidence.

@@ -21,13 +21,7 @@ const review = (): CalendarBoardBookingReview => ({
 });
 const result = { action: "create", event: { id: "PRIVATE_EVENT_ID" } };
 function mount() {
-  return render(<CalendarBookingDialog opening={opening} accounts={[account]} people={new Map()} userId="owner-a" token="synthetic-token" timeZone="UTC" alternatives={[]} onClose={state.closed} onConfirmed={state.confirmed} onConflict={vi.fn()} onRequireWrite={vi.fn()} />);
-}
-async function prepare() {
-  const view = mount();
-  fireEvent.click(screen.getByRole("button", { name: "Review meeting" }));
-  await screen.findByRole("button", { name: "Schedule personal block" });
-  return view;
+  return render(<CalendarBookingDialog opening={opening} accounts={[account]} people={new Map()} accountPeople={new Map()} userId="owner-a" token="synthetic-token" timeZone="UTC" alternatives={[]} onClose={state.closed} onConfirmed={state.confirmed} onConflict={vi.fn()} onRequireWrite={vi.fn()} />);
 }
 beforeEach(() => {
   vi.clearAllMocks();
@@ -40,8 +34,8 @@ beforeEach(() => {
 });
 afterEach(() => { publishValidatedAuthSessionOwner(null); vi.useRealTimers(); });
 
-it("does not count review or cancellation as a booking", async () => {
-  await prepare();
+it("does not count opening or cancellation as a booking", () => {
+  mount();
   expect(state.track).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   expect(state.closed).toHaveBeenCalledOnce();
@@ -50,8 +44,8 @@ it("does not count review or cancellation as a booking", async () => {
 });
 
 it("records one provider-confirmed create and excludes private fields", async () => {
-  await prepare();
-  const button = screen.getByRole("button", { name: "Schedule personal block" });
+  mount();
+  const button = screen.getByRole("button", { name: "Schedule meeting" });
   fireEvent.click(button); fireEvent.click(button);
   await waitFor(() => expect(state.confirmed).toHaveBeenCalledOnce());
   expect(state.execute).toHaveBeenCalledOnce();
@@ -62,15 +56,15 @@ it("records one provider-confirmed create and excludes private fields", async ()
 it("records a board conflict as an expected prewrite block", async () => {
   state.review.mockResolvedValue({ ...review(), plan: { ...review().plan, board_conflicts: [{ account_id: account.account_id, account_email: account.google_email, start_at: opening.start_at, end_at: opening.end_at }] } });
   mount();
-  fireEvent.click(screen.getByRole("button", { name: "Review meeting" }));
+  fireEvent.click(screen.getByRole("button", { name: "Schedule meeting" }));
   await waitFor(() => expect(state.track).toHaveBeenCalledExactlyOnceWith("one_calendar_action", { route_id: "one_calendar", action: "booking_create", result: "expected_error" }));
   expect(state.execute).not.toHaveBeenCalled();
 });
 
 it("records an expired review as an expected prewrite block", async () => {
-  await prepare();
-  vi.setSystemTime(new Date("2026-11-27T12:11:00Z"));
-  fireEvent.click(screen.getByRole("button", { name: "Schedule personal block" }));
+  state.review.mockResolvedValue({ ...review(), expires_at: "2026-11-27T11:59:00Z" });
+  mount();
+  fireEvent.click(screen.getByRole("button", { name: "Schedule meeting" }));
   await waitFor(() => expect(state.track).toHaveBeenCalledExactlyOnceWith("one_calendar_action", { route_id: "one_calendar", action: "booking_create", result: "expected_error" }));
   expect(state.execute).not.toHaveBeenCalled();
 });
@@ -78,7 +72,7 @@ it("records an expired review as an expected prewrite block", async () => {
 it("records only the definite review-stage failure as error", async () => {
   state.review.mockRejectedValue(new Error("PRIVATE_PROVIDER_DIAGNOSTIC"));
   mount();
-  fireEvent.click(screen.getByRole("button", { name: "Review meeting" }));
+  fireEvent.click(screen.getByRole("button", { name: "Schedule meeting" }));
   await waitFor(() => expect(state.track).toHaveBeenCalledExactlyOnceWith("one_calendar_action", { route_id: "one_calendar", action: "booking_create", result: "error" }));
   expect(state.execute).not.toHaveBeenCalled();
   expect(JSON.stringify(state.track.mock.calls)).not.toContain("PRIVATE");
@@ -88,10 +82,10 @@ it.each(["review", "execute"] as const)("retains an authoritative %s-stage prewr
   const failure = new GoogleCalendarError("PRIVATE_PROVIDER_DIAGNOSTIC", stage === "review" ? "calendar_destination_read_only" : "calendar_availability_changed", stage === "review" ? 403 : 409);
   if (stage === "review") {
     state.review.mockRejectedValue(failure);
-    mount(); fireEvent.click(screen.getByRole("button", { name: "Review meeting" }));
+    mount(); fireEvent.click(screen.getByRole("button", { name: "Schedule meeting" }));
   } else {
     state.execute.mockRejectedValue(failure);
-    await prepare(); fireEvent.click(screen.getByRole("button", { name: "Schedule personal block" }));
+    mount(); fireEvent.click(screen.getByRole("button", { name: "Schedule meeting" }));
   }
   await waitFor(() => expect(state.track).toHaveBeenCalledExactlyOnceWith("one_calendar_action", { route_id: "one_calendar", action: "booking_create", result: "expected_error" }));
   expect(JSON.stringify(state.track.mock.calls)).not.toContain("PRIVATE");
@@ -100,8 +94,8 @@ it.each(["review", "execute"] as const)("retains an authoritative %s-stage prewr
 it.each(["timeout", "missing-id", "wrong-action"] as const)("leaves %s after execution unconfirmed", async mode => {
   if (mode === "timeout") state.execute.mockRejectedValue(new Error("PRIVATE_PROVIDER_TIMEOUT"));
   else state.execute.mockResolvedValue(mode === "missing-id" ? { action: "create", event: {} } : { action: "cancel", event: { id: "PRIVATE_EVENT_ID" } });
-  await prepare();
-  fireEvent.click(screen.getByRole("button", { name: "Schedule personal block" }));
+  mount();
+  fireEvent.click(screen.getByRole("button", { name: "Schedule meeting" }));
   await waitFor(() => expect(state.execute).toHaveBeenCalledOnce());
   await act(async () => {});
   expect(state.track).not.toHaveBeenCalled();
@@ -111,8 +105,8 @@ it.each(["missing-owner", "changed-owner", "vault-epoch", "unmounted"] as const)
   if (guard === "missing-owner") publishValidatedAuthSessionOwner(null);
   let finish!: (value: unknown) => void;
   state.execute.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
-  const view = await prepare();
-  fireEvent.click(screen.getByRole("button", { name: "Schedule personal block" }));
+  const view = mount();
+  fireEvent.click(screen.getByRole("button", { name: "Schedule meeting" }));
   await waitFor(() => expect(state.execute).toHaveBeenCalledOnce());
   if (guard === "changed-owner") publishValidatedAuthSessionOwner("owner-b");
   if (guard === "vault-epoch") state.epoch++;

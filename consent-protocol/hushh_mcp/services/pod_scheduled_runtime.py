@@ -6,15 +6,20 @@ from hushh_mcp.services.pod_scheduled_tasks import ScheduleAccess, ScheduledTask
 
 
 def active_scheduled_tasks() -> ScheduledTasks:
+    from hushh_mcp.services import pod_owner_cloud
     from hushh_mcp.services.pod_memory_service import _resolve_log
+    from hushh_mcp.services.pod_owner_cloud import hosted_ace_runtime
     from hushh_mcp.services.pod_platform import workload_platform
     from hushh_mcp.services.pod_role import require_serving_role
+    from hushh_mcp.services.pod_sandbox_scheduled_delivery import SandboxScheduledDelivery
     from hushh_mcp.services.pod_scheduled_authority import ScheduledGrantAuthority
     from hushh_mcp.services.pod_scheduled_delivery import (
         GcpScheduledDelivery,
         ResidentScheduledDelivery,
     )
     from hushh_mcp.services.pod_scheduled_files import ScheduledFileOrganization
+    from hushh_mcp.services.pod_scheduled_mail import CAPABILITY, ScheduledMailFollowup
+    from hushh_mcp.services.pod_scheduled_one import ScheduledOneTask
     from hushh_mcp.services.pod_session_authority import active_session_authority
     from hushh_mcp.services.pod_upgrade_admission import ADMISSION, pod_incarnation
 
@@ -45,15 +50,30 @@ def active_scheduled_tasks() -> ScheduledTasks:
         await authority.require_held()
 
     grants = ScheduledGrantAuthority(authority, owner, check)
-    resident_delivery = ResidentScheduledDelivery() if workload_platform() == "ace" else None
-    delivery = (
-        resident_delivery if resident_delivery is not None else GcpScheduledDelivery(log._store)
-    )
+    hosted_ace = getattr(pod_owner_cloud, "hosted_ace_runtime", lambda: False)()
+    sandbox = hosted_ace or hosted_ace_runtime() or workload_platform() == "ace"
+    resident_delivery: ResidentScheduledDelivery | None = None
+    if sandbox:
+        resident_delivery = ResidentScheduledDelivery()
+        external = SandboxScheduledDelivery(fallback=resident_delivery)
+        try:
+            external.require_ready()
+            delivery = external
+        except ScheduleRefused:
+            delivery = resident_delivery
+    else:
+        delivery = GcpScheduledDelivery(log._store)
 
     runtime = ScheduledTasks(
         access=ScheduleAccess(owner, authority.hushh_id, incarnation, check),
         log=log,
-        capabilities={"agent_files.organize_file.v1": ScheduledFileOrganization(check)},
+        capabilities={
+            CAPABILITY: ScheduledMailFollowup(grants, log, check),
+            "agent_files.organize_file.v1": ScheduledFileOrganization(
+                check, sandbox_log=log if sandbox else None, sandbox_pod_id=authority.hushh_id
+            ),
+            "agent_one.execute_task.v1": ScheduledOneTask(grants, log, check),
+        },
         delivery=delivery,
         admission=ADMISSION,
         check_grant=grants.check_grant,

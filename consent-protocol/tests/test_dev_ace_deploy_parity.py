@@ -37,12 +37,15 @@ def _run_ace_block(
     has_master_secret: bool = True,
     has_ed25519_secrets: bool = True,
     edge_has_public_keys: bool = True,
+    cloud_run_no_traffic: str = "false",
+    cloud_run_tag: str = "",
     inject_dev_sim: str = "",
     inject_byoc_live: str = "",
     check: bool = True,
 ) -> subprocess.CompletedProcess[str] | dict[str, str]:
     dev_block = _extract_block("# BEGIN DEV ACE SANDBOX PARITY", "# END DEV ACE SANDBOX PARITY")
     uat_block = _extract_block("# BEGIN UAT ACE SANDBOX PARITY", "# END UAT ACE SANDBOX PARITY")
+    prod_block = _extract_block("# BEGIN PROD ACE SANDBOX PARITY", "# END PROD ACE SANDBOX PARITY")
     closure_block = _extract_block(
         "# BEGIN CAPABILITY DEPENDENCY CLOSURE GATE",
         "# END CAPABILITY DEPENDENCY CLOSURE GATE",
@@ -61,6 +64,8 @@ def _run_ace_block(
 set -euo pipefail
 _DEPLOY_ENV="{deploy_env}"
 _BACKEND_SERVICE="consent-protocol"
+_CLOUD_RUN_NO_TRAFFIC="{cloud_run_no_traffic}"
+_CLOUD_RUN_TAG="{cloud_run_tag}"
 commerce_preview_prefix="{commerce_prefix}"
 _REGION="us-central1"
 PROJECT_ID="{resolved_project}"
@@ -109,6 +114,11 @@ owner_feed_signing_alg=""
 owner_feed_ed25519_kid=""
 dev_owner_feed_private_secret=""
 dev_owner_feed_public_keys_secret=""
+consent_audit_chain=""
+consent_audit_signing_alg=""
+consent_audit_ed25519_kid=""
+dev_consent_audit_private_secret=""
+dev_consent_audit_public_keys_secret=""
 
 gcloud() {{
   if [[ "$1" == "run" && "$2" == "services" && "$3" == "describe" ]]; then
@@ -130,7 +140,7 @@ gcloud() {{
     if [[ "$3" == "sandbox-edge-identity-master-key" && "{str(has_master_secret).lower()}" == "true" ]]; then
       return 0
     fi
-    if [[ "$3" =~ ^(CONSENT_ED25519_|OWNER_FEED_ED25519_) && "{str(has_ed25519_secrets).lower()}" == "true" ]]; then
+    if [[ "$3" =~ ^(CONSENT_ED25519_|OWNER_FEED_ED25519_|CONSENT_AUDIT_ED25519_) && "{str(has_ed25519_secrets).lower()}" == "true" ]]; then
       return 0
     fi
     return 1
@@ -155,6 +165,7 @@ if [[ "${{_DEPLOY_ENV}}" == "dev" && -z "${{commerce_preview_prefix:-}}" ]]; the
 {dev_block}
 fi
 {uat_block}
+{prod_block}
 {closure_block}
 
 printf 'HUSSH_AGENT_SANDBOX_CUTOVER_ENABLED=%s\\n' "${{agent_sandbox_cutover_enabled}}"
@@ -278,11 +289,38 @@ def test_capability_closure_forbids_dev_simulation_or_byoc_live_outside_dev(
     assert "BYOC live provisioning flags must stay unset" in byoc_leak.stderr
 
 
-@pytest.mark.parametrize("deploy_env", ["production", "prod", "manual", ""])
-def test_non_dev_uat_lanes_emit_zero_ace_bindings(deploy_env: str) -> None:
+@pytest.mark.parametrize("deploy_env", ["prod", "manual", ""])
+def test_non_governed_lanes_emit_zero_ace_bindings(deploy_env: str) -> None:
     result = _run_ace_block(deploy_env=deploy_env)
     assert isinstance(result, dict)
     assert all(value == "" for value in result.values())
+
+
+def test_production_ace_bindings_and_dark_stage_hub_url_in_hushh_pda() -> None:
+    live_result = _run_ace_block(deploy_env="production", project_id="hushh-pda")
+    assert isinstance(live_result, dict)
+    assert live_result["HUSSH_AGENT_SANDBOX_CUTOVER_ENABLED"] == "1"
+    assert live_result["HUSSH_POD_STORAGE_GATEWAY_GCS_BUCKET"] == "hussh-hosted-pods-prod"
+    assert (
+        live_result["HUSSH_HUB_STORAGE_PREFIX_BASE_URL"]
+        == "https://consent-protocol.example.run.app/api/one/pod/storage-gateway"
+    )
+    assert live_result["CONSENT_ED25519_KID"] == "hushh-consent-prod-1"
+    assert live_result["OWNER_FEED_ED25519_KID"] == "hushh-owner-feed-prod-1"
+    assert live_result["HUSHH_DEV_SIMULATION_ENABLED"] == ""
+    assert live_result["HUSSH_USER_GCP_LIVE"] == ""
+
+    stage_result = _run_ace_block(
+        deploy_env="production",
+        project_id="hushh-pda",
+        cloud_run_no_traffic="true",
+        cloud_run_tag="stage",
+    )
+    assert isinstance(stage_result, dict)
+    assert (
+        stage_result["HUSSH_HUB_STORAGE_PREFIX_BASE_URL"]
+        == "https://stage---consent-protocol.example.run.app/api/one/pod/storage-gateway"
+    )
 
 
 def test_uat_in_non_uat_project_emits_zero_ace_bindings() -> None:
@@ -291,14 +329,20 @@ def test_uat_in_non_uat_project_emits_zero_ace_bindings() -> None:
     assert all(value == "" for value in result.values())
 
 
-@pytest.mark.parametrize("deploy_env", ["dev", "uat"])
+def test_production_in_non_prod_project_emits_zero_ace_bindings() -> None:
+    result = _run_ace_block(deploy_env="production", project_id="hushh-pda-uat")
+    assert isinstance(result, dict)
+    assert all(value == "" for value in result.values())
+
+
+@pytest.mark.parametrize("deploy_env", ["dev", "uat", "production"])
 def test_commerce_preview_emits_zero_ace_bindings(deploy_env: str) -> None:
     result = _run_ace_block(deploy_env=deploy_env, commerce_prefix="SCOPE_COMMERCE_SANDBOX_")
     assert isinstance(result, dict)
     assert all(value == "" for value in result.values())
 
 
-@pytest.mark.parametrize("deploy_env", ["dev", "uat"])
+@pytest.mark.parametrize("deploy_env", ["dev", "uat", "production"])
 @pytest.mark.parametrize(
     ("edge_url", "has_seal", "has_master"),
     [
@@ -317,7 +361,7 @@ def test_ace_block_skips_cleanly_when_edge_or_secret_missing(
         has_master_secret=has_master,
     )
     assert isinstance(result, dict)
-    if deploy_env == "uat":
+    if deploy_env in {"uat", "production"}:
         assert all(value == "" for value in result.values())
     else:
         assert result["HUSSH_AGENT_SANDBOX_CUTOVER_ENABLED"] == ""

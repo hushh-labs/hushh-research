@@ -16,6 +16,7 @@ import { haversineMeters } from "@/lib/one-location/marker-interpolation";
 import { splitCheckInPlaceLabel } from "@/lib/one-location/check-in-place-label";
 import { recordSavedPlaceChanges } from "@/lib/one-location/saved-place-activity";
 import { snapshotLiveActivityOwner } from "@/lib/pkm/live-activity/live-activity-journal";
+import { normalizeCheckedInPlaceCategory, type CheckedInPlaceCategory } from "@/lib/one-location/nearby-places";
 import {
   normalizeSavedLocationAddressDetails,
   type SavedLocationAddressDetails,
@@ -92,6 +93,7 @@ export type SavedLocation = {
   /** Venue identity and visit time, when recorded by a check-in. */
   placeName?: string | null;
   placeId?: string | null;
+  placeCategory?: CheckedInPlaceCategory | null;
   checkedInAt?: string | null;
   /** Explicit saves from the check-out flow belong in Checked In Places. */
   savedFrom?: "check_in";
@@ -182,6 +184,18 @@ function isValidLocation(value: unknown): value is SavedLocation {
   );
 }
 
+/** A tolerant reader must never silently remove unreadable records on a write. */
+function savedLocationsForWrite(domainData: Record<string, unknown>): SavedLocation[] {
+  const stored = asRecord(domainData[SAVED_PLACES_KEY]).locations;
+  if (stored === undefined) return [];
+  if (!Array.isArray(stored) || !stored.every(isValidLocation)) {
+    throw new Error(
+      "Review your existing saved places before saving changes. Your records have been preserved.",
+    );
+  }
+  return stored;
+}
+
 function locationsFromDomain(
   domainData: Record<string, unknown> | null | undefined,
 ): SavedLocation[] {
@@ -196,6 +210,7 @@ function locationsFromDomain(
     addressDetails: sanitizeAddressDetails(location.addressDetails),
     placeName: typeof location.placeName === "string" ? location.placeName : null,
     placeId: typeof location.placeId === "string" ? location.placeId : null,
+    placeCategory: normalizeCheckedInPlaceCategory(location.placeCategory),
     checkedInAt:
       typeof location.checkedInAt === "string" &&
       Number.isFinite(Date.parse(location.checkedInAt))
@@ -266,6 +281,7 @@ async function mutateSavedLocations(params: {
     beforeEffect: params.context.beforeEffect,
     build: (writeContext) => {
       const updatedAt = new Date().toISOString();
+      savedLocationsForWrite(writeContext.currentDomainData);
       previousLocations = locationsFromDomain(writeContext.currentDomainData);
       persistedLocations = params.mutate(previousLocations);
       return savedPlacesWrite(
@@ -363,20 +379,9 @@ export async function saveRequestedLocationWorkflowPlace(params: {
     beforeEffect: params.beforeEffect,
     idempotencyScope: `one.location.pre_vault_finalize.v1:${runId}:${params.finalize.draftDigest}`,
     build: (context) => {
-      const stored = asRecord(
-        context.currentDomainData[SAVED_PLACES_KEY],
-      ).locations;
-      if (
-        stored !== undefined &&
-        (!Array.isArray(stored) || !stored.every(isValidLocation))
-      ) {
-        throw new Error(
-          "Review your existing saved places before this setup can save. Your records have been preserved.",
-        );
-      }
       // This setup appends one private place. It does not normalize, migrate or
       // silently filter records the owner already saved.
-      const existing: SavedLocation[] = stored ?? [];
+      const existing = savedLocationsForWrite(context.currentDomainData);
       // A stable run identity never overwrites Home, Work or an unrelated place.
       const locations = existing.some((location) => location.id === entry.id)
         ? existing
@@ -487,6 +492,7 @@ export async function addSavedLocation(params: {
     savedFrom?: "check_in";
     placeName?: string | null;
     placeId?: string | null;
+    placeCategory?: CheckedInPlaceCategory | null;
     checkedInAt?: string | null;
   };
 }): Promise<SavedLocation[]> {
@@ -519,6 +525,7 @@ export async function addSavedLocation(params: {
     savedAt: new Date().toISOString(),
     placeName: cleanText(input.placeName, 200),
     placeId: cleanText(input.placeId, 300),
+    placeCategory: normalizeCheckedInPlaceCategory(input.placeCategory),
     checkedInAt:
       input.checkedInAt && Number.isFinite(Date.parse(input.checkedInAt))
         ? input.checkedInAt
@@ -624,6 +631,7 @@ export async function updateSavedLocation(params: {
         ...entry,
         placeName: previous?.placeName ? cleanText(input.label, 200) : null,
         placeId: previous?.placeId ?? null,
+        placeCategory: normalizeCheckedInPlaceCategory(previous?.placeCategory),
         checkedInAt: previous?.checkedInAt ?? null,
         ...(previous?.savedFrom ? { savedFrom: previous.savedFrom } : {}),
       };

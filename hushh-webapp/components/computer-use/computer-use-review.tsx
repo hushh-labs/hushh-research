@@ -10,6 +10,7 @@ const COPY = {
   session_remember: { title: "Remember this sign-in?", action: "Remember this site" },
   session_restore: { title: "Use stored sign-in?", action: "Use for this task" },
   provider_safety: { title: "Review this browser action", action: "Allow this action" },
+  credential_fill: { title: "Use this saved login?", action: "Use for this sign-in" },
 } as const;
 
 /** Owner-only, transient review. Cookies and session values never reach this component. */
@@ -21,7 +22,9 @@ export function ComputerUseReview({ review, pending, open, onClose, onConfirm }:
   onConfirm: (reviewId: string) => void;
 }) {
   const copy = COPY[review.purpose];
-  const description = review.purpose === "model_process"
+  const description = review.purpose === "credential_fill"
+    ? "Use the selected saved login on this website. Passwords and verification codes stay hidden from the AI model. Website actions keep their separate approvals."
+    : review.purpose === "model_process"
     ? `Allow ${review.model} to process browser screens${review.details.length ? " and these selected details" : ""} for this task.`
     : review.purpose === "disclose"
       ? "Review the destination and action. Sign-in secrets stay out of this review."

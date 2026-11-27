@@ -200,7 +200,7 @@ class AccessEarnings:
                     row["purchase_id"],
                 )
             unfulfilled = await c.fetch(
-                "SELECT * FROM scope_commerce_purchases WHERE status IN ('awaiting_payment','reserved','preparing') AND fulfillment_deadline<=clock_timestamp() ORDER BY fulfillment_deadline LIMIT $1 FOR UPDATE",
+                "SELECT * FROM scope_commerce_purchases WHERE status IN ('awaiting_payment','awaiting_owner','reserved','preparing') AND fulfillment_deadline<=clock_timestamp() ORDER BY fulfillment_deadline LIMIT $1 FOR UPDATE",
                 limit,
             )
             for row in unfulfilled:

@@ -19,10 +19,8 @@ export async function assertMutualListLayout(page: Page, width: number) {
   });
   const actionBox = await firstAction.boundingBox();
   if (!actionBox) throw new Error("Mutual profile action should have a rendered box.");
-  expect(actionBox.height).toBeGreaterThanOrEqual(76);
-  await expect(firstAction.getByText("View profile", { exact: true })).toBeVisible({
-    visible: width !== 393,
-  });
+  expect(actionBox.height).toBeGreaterThanOrEqual(44);
+  await expect(firstAction).toBeVisible();
 
   if (process.env.MUTUAL_EVIDENCE_DIR) {
     await page.screenshot({

@@ -1,5 +1,9 @@
 "use client";
 
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
+import { QUIET_FLOW_ACTION_CLASSNAME } from "@/components/app-ui/flow-actions";
+import { PERSON_ROW_FEEDBACK_CLASSNAME } from "@/components/connections/person-selection-surface";
+
 import { ContactRow } from "@/components/one-location/redesign/contact-picker/check-in-contact-row";
 
 /**
@@ -22,6 +26,10 @@ import { ContactRow } from "@/components/one-location/redesign/contact-picker/ch
  *   publish path as a normal share (no new crypto, no new consent surface).
  */
 
+import { NativeLocationLayer, useNativeLocationEnabled } from "./native-location-workspace";
+import type { NativeWorkspaceSurfaceSection } from "@/lib/capacitor/native-workspace-surface";
+import { useBackLayer } from "@/lib/navigation/back-layers";
+import { ROUTES } from "@/lib/navigation/routes";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocalOnboardingActionHandler, canonicalActionBinding, type LocalOnboardingActionContext, type LocalActionPreparation, type LocalActionContinuation } from "@/lib/agent/local-onboarding-actions";
 import { pendingAudienceBinding } from "@/lib/one-location/command-continuation";
@@ -35,7 +43,7 @@ import {
 
 import { circleMemberCountLabel } from "@/lib/one-location/circle-member-count";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { Button } from "@/components/ui/button";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
@@ -141,6 +149,9 @@ export function CheckInFlow({
   onClose: () => void;
   entrySource?: "nearby";
 }) {
+  const native = useNativeLocationEnabled();
+  const [nativeMapOpen, setNativeMapOpen] = useState(false);
+  const [nativeNoteOpen, setNativeNoteOpen] = useState(false);
   const discardPrivateCheckInOperation =
     vm.onDiscardPrivateCheckInOperation;
   const [submitting, setSubmitting] = useState(false);
@@ -230,14 +241,14 @@ export function CheckInFlow({
       setSeeded(true);
       if (!selection.ready.length) {
         toast.error(
-          "No one in this Circle can receive it yet.",
+          "No one in this Circle can receive it yet.", { className: connectTypography.toast },
         );
       }
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Could not load this Circle.",
+          : "Could not load this Circle.", { className: connectTypography.toast },
       );
     } finally {
       setCircleLoadingId(null);
@@ -518,7 +529,44 @@ export function CheckInFlow({
     onClose();
   };
 
-  return (
+  useBackLayer(ROUTES.ONE_LOCATION, native && (nativeMapOpen || nativeNoteOpen) ? 4 : native ? 3 : 0, () => {
+    if (busy) return true;
+    if (nativeMapOpen) setNativeMapOpen(false);
+    else if (nativeNoteOpen) setNativeNoteOpen(false);
+    else close();
+    return true;
+  });
+  const nativeSections: NativeWorkspaceSurfaceSection[] = [
+    { key: "location", title: "Check-In", rows: [
+      { key: "location", label: confirmedPoint ? "Location confirmed for this share" : point ? pointIsFresh ? "Live location ready" : "Location needs a refresh" : "No location yet",
+        detail: point ? `${accuracy ?? "Location found"} · ${confirmedPoint ? "Using the spot you confirmed" : vm.formatDateTime(point.capturedAt)}` : "Find your location to check in." },
+      ...(vm.myLocationError ? [{ key: "location-error", label: vm.myLocationError }] : []),
+      ...(confirmationExpired || recipientKeyChanged ? [{ key: "review-expired", label: recipientKeyChanged ? "A selected person's secure key changed" : "That review expired", detail: "Edit and confirm again." }] : []),
+      { key: "refresh", label: confirmedPoint ? "Recenter map" : point ? "Refresh location" : "Find my location", enabled: !busy, pending: vm.busy === "selfLocation", web: Boolean(confirmedPoint), run: confirmedPoint ? () => { setMapViewportResetKey(value => value + 1); setNativeMapOpen(true); } : vm.onShowMyLocation },
+      ...(point ? [{ key: "map", label: "Review location map", detail: "Google Maps", web: true, run: () => setNativeMapOpen(true) }] : []),
+      ...(entrySource === "nearby" ? [{ key: "nearby-disclosure", label: "Nearby and private sharing are separate", detail: "Nearby sees your name only. Selected people get this share." }] : []),
+    ] },
+    { key: "circles", title: "Who should know?", rows: selectableCircles.map(circle => ({ key: circle.id, label: circle.name, detail: circleMemberCountLabel(circle.memberCount), selected: circleSelection?.circle.id === circle.id && circleFullySelected,
+      enabled: !busy && !retryLocked && !circleLoadingId, pending: circleLoadingId === circle.id, run: () => selectCircle(circle.id) })) },
+    { key: "people", rows: filtered.map(recipient => ({ key: recipient.userId, label: vm.recipientLabel(recipient), person: { name: vm.recipientLabel(recipient), photoUrl: recipient.photoUrl },
+      detail: completedRecipientIds.includes(recipient.userId) ? "Sent" : vm.isRecipientShareReady(recipient) ? checkedIds.includes(recipient.userId) ? "Selected" : undefined : "Location setup needed",
+      selected: checkedIds.includes(recipient.userId), enabled: !busy && !retryLocked && !completedRecipientIds.includes(recipient.userId) && vm.isRecipientShareReady(recipient), run: () => toggle(recipient.userId) })) },
+    { key: "details", rows: [
+      { key: "duration", label: "How long", enabled: !busy && !retryLocked, choices: durationOptions.map(option => ({ key: option.key, label: option.label, selected: option.active, run: option.onClick })) },
+      { key: "note", label: "Message", detail: message || DEFAULT_CHECK_IN_MESSAGE, enabled: !busy && !retryLocked, run: () => setNativeNoteOpen(true) },
+      { key: "privacy", label: retryLocked ? "Encrypted. Sends again to the people it missed." : "Encrypted with your location." },
+      ...(retryLocked ? [{ key: "reconfirm", label: "Edit and confirm again", enabled: !busy, run: editAndReconfirm }] : []),
+      { key: "submit", label: point ? selectedReadyCount ? `Check in with ${selectedReadyCount} ${selectedReadyCount === 1 ? "person" : "people"}` : "Choose who should know" : "Find your location first", prominent: true, enabled: canSubmit && !busy, pending: busy, run: () => submit() },
+      { key: "cancel", label: "Cancel", enabled: !busy, run: close },
+    ] },
+  ];
+  return <NativeLocationLayer flow="check-in" navigationDepth={nativeNoteOpen ? 4 : 3} title="Check-In" viewKey={nativeNoteOpen ? "check-in:note" : "check-in:details"} sections={nativeNoteOpen ? [] : nativeSections}
+    search={!nativeNoteOpen ? { label: "Search people", query: search, change: setSearch } : undefined}
+    textEditor={nativeNoteOpen ? { key: "check-in-note", label: "Message", placeholder: DEFAULT_CHECK_IN_MESSAGE, maximum: CHECK_IN_MESSAGE_MAX_LENGTH, value: message, normalize: value => value.slice(0, CHECK_IN_MESSAGE_MAX_LENGTH), change: setMessage,
+      enabled: !retryLocked && !busy, busy, submitLabel: "Done", submit: () => setNativeNoteOpen(false), cancel: () => setNativeNoteOpen(false) } : undefined}
+    webChild={nativeMapOpen}>
+    {native && nativeMapOpen ? <div className="space-y-4"><TaskFlowHeader title="Review location" description="Google Maps" /><Button onClick={() => setNativeMapOpen(false)}>Done</Button>{point ? vm.renderMapPreview(point, false, `check-in:${mapViewportResetKey}`) : null}</div> : native ? null : (
+
     <div>
       {/* The last Location flow still drawing its own <h1>, which is how it
           ended up with a title treatment no other screen has: 28px/bold from a
@@ -538,7 +586,7 @@ export function CheckInFlow({
         <button
           type="button"
           onClick={close}
-          className="-mr-3 inline-flex min-h-11 shrink-0 items-center justify-center rounded-full px-3 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
+          className="-mr-3 inline-flex min-h-11 shrink-0 items-center justify-center rounded-full px-3 text-[color:var(--app-accent)] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
         >
           <TrailingAction as="span" data-location-type-role="utility-action">Cancel</TrailingAction>
         </button>
@@ -663,10 +711,11 @@ export function CheckInFlow({
                 aria-pressed={selected}
                 className={cn(
                   "flex min-h-[58px] w-full items-center gap-3 px-4 py-2.5 text-left",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                   index < selectableCircles.length - 1 &&
                     "border-b border-black/[0.06] dark:border-white/[0.08]",
-                  selected &&
-                    "bg-[color:var(--app-accent-soft)]",
+                  selected && "bg-[color:var(--app-accent)]/[0.045]",
+                  !circleLoadingId && !busy && PERSON_ROW_FEEDBACK_CLASSNAME,
                 )}
               >
                 <span
@@ -857,9 +906,11 @@ export function CheckInFlow({
       {retryLocked ? (
         <Button
           type="button"
-          variant="outline"
-          size="prominent"
-          className="mb-3 h-auto w-full min-h-[50px] whitespace-normal py-3 text-center"
+          variant="ghost"
+          size="standard"
+          data-location-action-fit=""
+          className={cn(QUIET_FLOW_ACTION_CLASSNAME, "mb-3 h-auto w-full py-3 text-center")}
+          disableHoverRipple
           disabled={busy}
           onClick={editAndReconfirm}
         >
@@ -873,12 +924,13 @@ export function CheckInFlow({
         onClick={() => void submit()}
         disabled={!canSubmit || busy}
         aria-busy={busy || undefined}
-        className="h-auto min-h-[54px] w-full whitespace-normal py-4 text-center"
+        data-location-action-fit=""
+        className="h-auto min-h-[54px] w-full py-4 text-center"
       >
         <ButtonLabel as="span">
           {point
             ? recipientKeyChanged
-              ? "Their security key changed - confirm again"
+              ? "Confirm again"
               : confirmationExpired
                 ? "Confirm your location again"
                 : !pointIsFresh
@@ -896,5 +948,6 @@ export function CheckInFlow({
         </ButtonLabel>
       </Button>
     </div>
-  );
+  )}
+  </NativeLocationLayer>;
 }

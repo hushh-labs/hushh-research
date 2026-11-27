@@ -135,9 +135,9 @@ describe("Connectors pane switches", () => {
   it("still styles an ordinary trailing action as a pill, so the guard is not vacuous", () => {
     renderInConnectorsPane();
     const connect = screen.getByRole("button", { name: "Connect" });
-    const pill = rulesRestyling(connect).find((rule) =>
-      rule.includes('[data-slot="settings-row-trailing"] button'),
-    );
+    // A pill may compose matching rules and use :is(button, a). Inspect
+    // its applied declarations, not one spelling of the selector.
+    const pill = rulesRestyling(connect).join("\n");
     expect(pill).toMatch(/\bbackground\b/);
     expect(pill).toMatch(/\bwidth\b/);
   });

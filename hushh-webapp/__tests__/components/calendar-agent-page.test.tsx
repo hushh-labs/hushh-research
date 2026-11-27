@@ -4,6 +4,7 @@ import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import * as calendarPresentation from "@/components/calendar/native-calendar-workspace";
 import { CalendarAgentPage } from "@/components/calendar/calendar-agent-page";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import nativeRoutes from "@/native-route-inventory.json";
@@ -81,18 +82,6 @@ describe("CalendarAgentPage", () => {
     expect(screen.queryByRole("button", { name: "Enable scheduling" })).toBeNull();
   });
 
-  it("shows one connect action and names every product Google will ask about", async () => {
-    mocks.status.mockResolvedValue({ configured: true, connected: false, status: "disconnected", scope_csv: "" });
-    render(<CalendarAgentPage />);
-    await waitForConnectButton();
-    expect(screen.queryByRole("checkbox")).toBeNull();
-    expect(screen.queryByText(/Optional\. Setup asks/)).toBeNull();
-    const disclosure = screen.getByTestId("calendar-setup-permissions");
-    for (const product of ["Calendar", "Google Meet", "Google Drive", "Gmail"]) {
-      expect(disclosure).toHaveTextContent(new RegExp(`${product}:`));
-    }
-  });
-
   it("opens the connected workspace with the existing chat and disconnect handlers", async () => {
     mocks.status.mockResolvedValue({
       configured: true,
@@ -155,7 +144,7 @@ describe("CalendarAgentPage", () => {
     await waitFor(() => expect(mocks.status).toHaveBeenCalledTimes(2));
   });
 
-  it("keeps additional accounts available after the default Calendar disconnects", async () => {
+  it("pairs the manual Calendar disconnect only after confirmation and keeps additional accounts available", async () => {
     const second = { account_id: "second", google_email: "second@example.com", status: "connected" as const, connected: true, access_level: "manage" as const, calendar_list_access: true };
     mocks.status.mockResolvedValue({
       configured: true, connected: true, status: "connected", google_email: "default@example.com",
@@ -163,16 +152,22 @@ describe("CalendarAgentPage", () => {
         { account_id: "default", google_email: "default@example.com", status: "connected", connected: true, access_level: "manage", calendar_list_access: true }, second,
       ],
     });
-    mocks.disconnect.mockResolvedValue({
-      configured: true, connected: false, status: "disconnected", google_email: null,
-      access_level: null, scope_csv: "", accounts: [second],
-    });
+    let complete!: (value: unknown) => void;
+    mocks.disconnect.mockReturnValueOnce(new Promise(resolve => { complete = resolve; }));
 
     render(<CalendarAgentPage />);
     fireEvent.click(await screen.findByRole("button", { name: "Disconnect Calendar" }));
     fireEvent.click(screen.getByRole("button", { name: "Disconnect", exact: true }));
 
     await waitFor(() => expect(mocks.disconnect).toHaveBeenCalledOnce());
+    expect(mocks.captureAttempt).toHaveBeenCalledExactlyOnceWith("calendar.connection.disconnect", "calendar-user");
+    expect(mocks.attemptStarted).toHaveBeenCalledOnce();
+    expect(mocks.attemptSettled).not.toHaveBeenCalled();
+    await act(async () => complete({
+      configured: true, connected: false, status: "disconnected", google_email: null,
+      access_level: null, scope_csv: "", accounts: [second],
+    }));
+    expect(mocks.attemptSettled).toHaveBeenCalledExactlyOnceWith("returned");
     expect(screen.getByRole("button", { name: "Add Calendar account" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Try Calendar Agent with One" })).toBeTruthy();
     expect(screen.queryByTestId("calendar-connect-hero")).toBeNull();
@@ -288,11 +283,14 @@ describe("CalendarAgentPage", () => {
   });
 
   it.each([["workspace", false], ["onboarding", false], ["workspace", true], ["onboarding", true]] as const)("shows disconnected %s with correct native audit (native=%s)", async (journeyVariant, native) => {
+    const routePresentation = vi.spyOn(calendarPresentation, "NativeCalendarRoute");
     mocks.native = native;
     mocks.status.mockResolvedValue({ configured: true, connected: false, status: "disconnected", scope_csv: "" });
     render(<CalendarAgentPage journeyVariant={journeyVariant} />);
     const connect = await waitForConnectButton();
     expect(screen.getByTestId("calendar-connect-hero")).toBeTruthy();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByText(/Optional\. Setup asks/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Disconnect Calendar" })).toBeNull();
     expect(connect.getAttribute("data-voice-control-id")).toBe("open_calendar_connector");
     expect(connect.getAttribute("data-voice-action-id")).toBe(journeyVariant === "onboarding" ? "setup.connect_calendar" : null);
@@ -302,6 +300,17 @@ describe("CalendarAgentPage", () => {
       expect(screen.queryByText(/Summarize my calendar for this week/)).toBeNull();
     }
     if (native) {
+      expect(routePresentation.mock.lastCall?.[0].model.rootOnly).toBe(false);
+      const disclosure = screen.getByTestId("calendar-setup-permissions");
+      for (const product of ["Calendar", "Google Meet", "Google Drive", "Gmail"]) {
+        expect(disclosure).toHaveTextContent(product);
+      }
+      expect(mocks.startNativeConnect).not.toHaveBeenCalled();
+      mocks.startNativeConnect.mockRejectedValueOnce(new Error("Stop at provider boundary"));
+      fireEvent.click(connect);
+      await waitFor(() => expect(mocks.startNativeConnect).toHaveBeenCalledExactlyOnceWith({
+        idToken: "firebase-token", accessLevel: "manage", includeCalendarList: true, includeMeetingFiles: true,
+      }));
       const route = journeyVariant === "onboarding" ? "/one/setup/calendar" : "/one/calendar";
       const entry = nativeRoutes.routes.find(candidate => candidate.route === route);
       expect(entry?.classification).toBe("native-required-functional");
@@ -310,6 +319,8 @@ describe("CalendarAgentPage", () => {
       expect(beacon).toHaveAttribute("data-native-data-state", "empty-valid");
       expect(beacon).toHaveAttribute("data-native-route-id", entry.expectedRoute);
       expect(beacon).toHaveAttribute("data-native-auth-state", "authenticated");
+    } else {
+      expect(screen.queryByTestId("calendar-setup-permissions")).not.toBeInTheDocument();
     }
   });
 
@@ -625,6 +636,8 @@ describe("CalendarAgentPage", () => {
         "one_calendar_action",
         expect.objectContaining({ result: "expected_error" }),
       );
+      expect(mocks.attemptStarted).toHaveBeenCalledOnce();
+      expect(mocks.attemptSettled).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
@@ -648,6 +661,8 @@ describe("CalendarAgentPage", () => {
       { route_id: "one_calendar", action: "connected", result: "expected_error" },
     ));
     expect(mocks.completeNativeConnect).not.toHaveBeenCalled();
+    expect(mocks.captureAttempt).toHaveBeenCalledExactlyOnceWith("calendar.connection.connect", "calendar-user");
+    expect(mocks.attemptSettled).toHaveBeenCalledExactlyOnceWith("cancelled");
   });
 
   it("accepts a native additional Calendar account when the legacy default is disconnected", async () => {
@@ -664,6 +679,7 @@ describe("CalendarAgentPage", () => {
     }));
     expect(mocks.startNativeConnect).toHaveBeenCalledWith(expect.objectContaining({ additional: true, includeMeetingFiles: true }));
     expect(mocks.connectCalendar).toHaveBeenCalledWith(expect.objectContaining({ includeGuestPhotos: true, includeMeetingFiles: true }));
+    expect(mocks.attemptSettled).toHaveBeenCalledExactlyOnceWith("returned");
   });
 
   it("preserves the structured free-window selection in the existing chat handoff", async () => {

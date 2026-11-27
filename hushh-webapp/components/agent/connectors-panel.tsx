@@ -1,5 +1,6 @@
 "use client";
 import { ConnectorRow } from "./connector-list-row";
+import { GOOGLE_APPS_CLEARANCE_NOTE, isProductionVisitorPostureEnabled } from "@/lib/agent/production-visitor-posture";
 
 import {
   useCallback,
@@ -21,7 +22,6 @@ import {
   SearchIcon,
   XIcon,
 } from "@/components/icons";
-import { ProfilePaneConnectorsIcon } from "@/components/profile/profile-pane-icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
@@ -40,12 +40,13 @@ import {
 } from "@/lib/navigation/use-deep-link-return";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
-import { CONNECTOR_ARTWORK, connectorArtworkId } from "@/lib/profile/connector-artwork";
+import { ConnectorVectorGlyph } from "./connector-brand-mark";
 import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connection-status";
 import { googleCalendarPermissions, type CalendarPermission } from "@/lib/calendar/calendar-permissions";
 import { CalendarPermissionList } from "@/components/calendar/calendar-permission-list";
 import { usePkmDomainResource } from "@/lib/pkm/pkm-domain-resource";
-import { disconnectVaultPlaid, vaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
+import { summarizePlaidVaultProjection } from "@/lib/kai/plaid-vault/projection-summary";
+import { connectVaultPlaid, disconnectVaultPlaid, refreshVaultConnections, vaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
 import {
   createGmailOAuthPopupAttempt,
   openGmailOAuthPopup,
@@ -174,7 +175,8 @@ export type ConnectorDetailAction = { label: string; disabled: boolean; run: () 
 /** Feature facts and existing commands, not a native UI schema or service port. */
 export type ConnectorDetailPresentation =
   | { kind: "private-google" | "private-stripe"; status: string; purpose: string; message: string; notes: readonly string[];
-      busy: boolean; actions: readonly ConnectorDetailAction[]; permissions?: readonly CalendarPermission[] }
+      busy: boolean; actions: readonly ConnectorDetailAction[]; permissions?: readonly CalendarPermission[];
+      background?: { enabled: boolean | null; description: string; busy: boolean; change: (next: boolean) => void } | null }
   | { kind: "social"; network: "instagram" | "linkedin"; link: string; current: () => boolean; inputRevision: () => number; changeLink: (link: string, expectedRevision?: number) => boolean }
   | { kind: "drive"; account: string; status: string; message: string; notes: readonly string[]; connected: boolean; busy: boolean; mutationPending: () => boolean;
       actions: readonly ConnectorDetailAction[]; background: { enabled: boolean | null; description: string; busy: boolean; change: (next: boolean) => void; retry?: ConnectorDetailAction } | null;
@@ -182,9 +184,10 @@ export type ConnectorDetailPresentation =
         confirm: ConnectorDetailAction; cancel: ConnectorDetailAction } | null;
       files: readonly { key: string; name: string; status: string; background: boolean; changeBackground?: (next: boolean) => void; sync?: ConnectorDetailAction; remove: ConnectorDetailAction }[];
       collection: DriveCollectionModel | null; groups: DriveDataPacketsModel | null; packets: DrivePacketCatalogModel; packet: OwnerPacketPageModel; publications: PacketPublicationsModel; trust: TrustedDocumentRulesModel }
-  | { kind: "gmail"; account: string; status: string; message: string; connected: boolean;
-      sendAllowed: boolean; draftsAllowed: boolean; connect?: ConnectorDetailAction; disconnect?: ConnectorDetailAction;
-      retry?: ConnectorDetailAction; enableDrafts?: ConnectorDetailAction; cancelSignIn?: ConnectorDetailAction }
+  | { kind: "gmail"; account: string; status: string; message: string; note?: string; connected: boolean;
+      sendAllowed: boolean; draftsAllowed: boolean; modifyAllowed: boolean; connect?: ConnectorDetailAction; disconnect?: ConnectorDetailAction;
+      retry?: ConnectorDetailAction; enableSend?: ConnectorDetailAction; enableDrafts?: ConnectorDetailAction;
+      enableModify?: ConnectorDetailAction; enableAll?: ConnectorDetailAction; cancelSignIn?: ConnectorDetailAction }
   | { kind: "calendar"; description: string; status: string; message: string; helper: string | null;
       permissions: readonly CalendarPermission[]; enableChanges?: ConnectorDetailAction;
       connection: ConnectorDetailAction; retry?: ConnectorDetailAction; cancelSignIn?: ConnectorDetailAction }
@@ -203,6 +206,7 @@ export type ConnectorsPanelPresentation = {
   catalog: {
     query: string; search: (query: string) => void; show: () => void;
     status: "locked" | "loading" | "unavailable" | "ready";
+    notice?: string;
     groups: readonly { title: "Connected" | "Available"; entries: readonly ConnectorListEntry[] }[];
     retry: () => Promise<boolean>;
   };
@@ -251,45 +255,17 @@ function ConnectorActionLabel({ entry }: { entry: ConnectorListEntry }) {
   );
 }
 
-const CONNECTOR_LOGOS: Record<string, string> = Object.fromEntries(Object.entries(CONNECTOR_ARTWORK)
-  .filter(([, value]) => value.file.endsWith(".svg")).map(([id, value]) => [id, value.file.slice(0, -4)]));
-const MONOCHROME_LOGOS = new Set(Object.entries(CONNECTOR_ARTWORK).filter(([, value]) => value.monochrome).map(([id]) => id));
-
 /**
  * Profile's leading glyph: the connector's own mark, bare, in the same 28px
  * well and 22px optical size as every other Profile row icon. No tile.
  * A connector without a mark takes the registry's connections glyph.
  */
 function ProfileConnectorGlyph({ id }: { id: string }) {
-  const key = connectorArtworkId(id), artwork = key ? CONNECTOR_ARTWORK[key] : null;
-  return (
-    <span className="inline-flex size-6 shrink-0 items-center justify-center" aria-hidden="true">
-      {artwork && "crop" in artwork ? (
-        <svg viewBox={`${artwork.crop.left} ${artwork.crop.top} ${artwork.crop.width} ${artwork.crop.height}`} className="size-[22px]" aria-hidden="true">
-          <image href={`/icons/connectors/${artwork.file}`} width="1920" height="1080" />
-        </svg>
-      ) : artwork ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={`/icons/connectors/${artwork.file}`} alt="" className={`size-[22px] object-contain${artwork.monochrome ? " dark:invert" : ""}`} />
-      ) : (
-        <ProfilePaneConnectorsIcon size={22} />
-      )}
-    </span>
-  );
+  return <ConnectorVectorGlyph id={id} variant="profile" />;
 }
 
 function ConnectorGlyph({ id }: { id: string }) {
-  const logo = CONNECTOR_LOGOS[id];
-  return (
-    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-background text-foreground shadow-sm" aria-hidden="true">
-      {logo ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={`/icons/connectors/${logo}.svg`} alt="" className={`size-6 object-contain${MONOCHROME_LOGOS.has(id) ? " dark:invert" : ""}`} />
-      ) : (
-        <span className="text-sm font-semibold">{id === "instagram" ? "IG" : id === "linkedin" ? "in" : "•"}</span>
-      )}
-    </span>
-  );
+  return <ConnectorVectorGlyph id={id} variant="tile" />;
 }
 
 /**
@@ -660,6 +636,9 @@ function OwnerConnectorsPanel({
   const plaidConnections = vaultKey && vaultOwnerToken && financial.data
     ? Object.values(vaultConnections(financial.data.data))
     : [];
+  const plaidProjection = summarizePlaidVaultProjection(
+    vaultKey && vaultOwnerToken ? financial.data?.data : null,
+  );
   const refresh = useCallback(async (signal?: AbortSignal, verifyDrive = false) => {
     const token = currentToken.current;
     if (!token) {
@@ -1514,10 +1493,12 @@ function OwnerConnectorsPanel({
       }
     });
   };
-  const connectMail = (purpose: "send" | "compose" = "send") => {
+  const connectMail = (purpose: "full" | "send" | "compose" | "modify" = "full") => {
     const signal = controller.current?.signal;
     if (!user || !applicationOwnerId || !signal || signal.aborted || mailLock.current) return;
     const native = Capacitor.isNativePlatform();
+    if (native && purpose === "modify") return;
+    const nativePurpose: "send" | "compose" = purpose === "compose" ? "compose" : "send";
     const attempt = createGmailOAuthPopupAttempt(applicationOwnerId, purpose === "send" ? "send" : "read");
     const popup = native ? null : openGmailOAuthPopup(attempt);
     if (!native && !popup) {
@@ -1545,7 +1526,7 @@ function OwnerConnectorsPanel({
           const start = await GmailReceiptsService.startNativeConnect({
             idToken,
             userId: applicationOwnerId,
-            purpose,
+            purpose: nativePurpose,
           });
           if (signal.aborted || !start.configured) return;
           let result: Awaited<ReturnType<typeof HushhAuth.connectGmail>>;
@@ -1553,7 +1534,7 @@ function OwnerConnectorsPanel({
             result = await HushhAuth.connectGmail({
               serverClientId: start.server_client_id,
               purpose: start.purpose,
-              preserveSend: purpose === "compose" && gmail.status?.send_permission_granted === true,
+              preserveSend: nativePurpose === "compose" && gmail.status?.send_permission_granted === true,
               preserveModify: gmail.status?.modify_permission_granted === true,
             });
           } catch (error) {
@@ -1575,7 +1556,7 @@ function OwnerConnectorsPanel({
             serverAuthCode: result.serverAuthCode,
             // Native completion records the ordinary connection capability;
             // compose is an additive provider grant retained by the plugin.
-            purpose: purpose === "compose" ? "read" : purpose,
+            purpose: nativePurpose === "compose" ? "read" : nativePurpose,
           });
         } else if (popup) {
           const start = await GmailReceiptsService.startConnect({
@@ -1633,7 +1614,17 @@ function OwnerConnectorsPanel({
                   ? status.compose_permission_granted
                     ? "Gmail drafts enabled. Review your draft in Chat before saving."
                     : "Gmail drafts permission was not granted. Try again."
-                  : "Mail connected. You can send after reviewing each email."
+                  : purpose === "modify"
+                    ? status.modify_permission_granted
+                      ? "Gmail organization enabled. Review changes in Chat before applying."
+                      : "Gmail organization permission was not granted. Try again."
+                    : purpose === "full" && !native
+                      ? status.send_permission_granted &&
+                        status.compose_permission_granted &&
+                        status.modify_permission_granted
+                        ? "All Mail permissions enabled."
+                        : "Mail connected. You can enable remaining permissions anytime."
+                      : ""
                 : "Mail is not connected yet. You can retry.",
             );
         }
@@ -1676,6 +1667,7 @@ function OwnerConnectorsPanel({
       accessLevel,
       includeCalendarList: true,
       includeMeetingFiles: true,
+      includeMailAccess: true,
       signal,
       cancelSignal: attemptCancel.signal,
     });
@@ -2070,6 +2062,9 @@ function OwnerConnectorsPanel({
     (gmail.status?.connected || gmail.status?.needs_reauth)
       ? connectorAccountDetail(gmail.status.google_email, gmail.status.needs_reauth ? "needs_reauth" : "connected")
       : undefined;
+  // Connected / sign-in-needed lines that already name the account carry the
+  // state themselves; only then is the separate status line redundant.
+  const mailStatusInAccount = Boolean(mailAccountDetail && gmail.status?.google_email?.trim());
   const calendarAccountDetail = calendar.loaded && !calendar.error &&
     (calendar.connected || calendarNeedsReconnect)
       ? connectorAccountDetail(calendar.status?.google_email, calendarNeedsReconnect ? "needs_reauth" : "connected")
@@ -2189,6 +2184,9 @@ function OwnerConnectorsPanel({
     {
       id: "plaid",
       name: "Plaid",
+      accountDetail: plaidConnections.length
+        ? `${plaidConnections.length} connected ${plaidConnections.length === 1 ? "bank" : "banks"}`
+        : undefined,
       connected: plaidConnections.length > 0,
       onOpen: () => showConnector("plaid"),
       pending: disconnecting.plaid ? "disconnect" : undefined,
@@ -2199,7 +2197,9 @@ function OwnerConnectorsPanel({
           ? "Checking connection…"
           : plaidConnections.some((item) => item.status === "needs_relink")
             ? "Sign-in needed"
-            : undefined,
+            : plaidConnections.length
+              ? "Connected"
+              : "Link bank & investment accounts",
     },
     ...(surface === "profile" ? ["instagram", "linkedin"].map((id): ConnectorListEntry => ({
       id,
@@ -2382,6 +2382,7 @@ function OwnerConnectorsPanel({
   const driveBackgroundDescription = liveBackgroundChange === "saving" ? "Saving…" : liveBackground === null ?
     liveBackgroundError ? "Couldn’t check background access." : "Checking background access…" : liveBackgroundChange ?
       `Couldn’t turn ${liveBackgroundChange}. Try again.` : liveBackground ? "Agent One works while you’re away." : "Paused while you’re away.";
+  const showGoogleClearanceNote = isProductionVisitorPostureEnabled();
   const driveDetail: Extract<ConnectorDetailPresentation, { kind: "drive" }> = {
     kind: "drive", account: drive?.accountLabel || "Search and read files",
     status: loading ? "Checking Drive…" : !statusChecked ? "Connection status unavailable" : drive ?
@@ -2389,6 +2390,7 @@ function OwnerConnectorsPanel({
     message: drivePopupPending ? "Preparing secure Google sign-in…" : driveBusy ? "Updating Drive…" : driveMessage,
     connected: drive?.status === "connected", busy: driveBusy, mutationPending: () => driveLock.current || drivePublications.mutationPending(),
     notes: [
+      ...(showGoogleClearanceNote ? [GOOGLE_APPS_CLEARANCE_NOTE] : []),
       ...(overview?.features.google_drive_live === true && (drive?.status !== "connected" || drive.profile !== "live") ? [overview.driveAgentPackagesEnabled === true ?
         "Agent One prepares packets from your Drive automatically." : "Full Drive access lets One find and share matching files for approved document requests. You can turn background access off anytime."] : []),
       ...(canConnectDrive && driveConnectionProfile === "selected" && !hasDriveGrant ? ["You can choose files after connecting. One cannot search your entire Drive with this access."] : []),
@@ -2425,22 +2427,38 @@ function OwnerConnectorsPanel({
     collection: collectionActive ? driveCollection : null, groups: groupsActive ? driveGroups : null,
     packets: drivePackets, packet: ownerPacket, publications: drivePublications, trust: documentTrust,
   };
+  const isNativeMailSurface = Capacitor.isNativePlatform();
+  const missingMailPermissionsCount = gmail.status?.connected
+    ? [
+        gmail.status.send_permission_granted !== true,
+        gmail.status.compose_permission_granted !== true,
+        !isNativeMailSurface && gmail.status.modify_permission_granted !== true,
+      ].filter(Boolean).length
+    : 0;
   const mailDetail: Extract<ConnectorDetailPresentation, { kind: "gmail" }> = {
     kind: "gmail", account: gmail.status?.google_email || "Gmail",
     status: gmail.loadingStatus ? "Checking Mail…" : gmail.statusError ? "Status unavailable" : gmail.status?.needs_reauth ? "Sign-in needed" : gmail.status?.connected ? "Connected" : "Not connected",
-    message: mailBusy ? "Updating Mail…" : mailMessage, connected: gmail.status?.connected === true,
-    sendAllowed: gmail.status?.send_permission_granted === true, draftsAllowed: gmail.status?.compose_permission_granted === true,
+    message: mailBusy ? "Updating Mail…" : mailMessage,
+    ...(showGoogleClearanceNote ? { note: GOOGLE_APPS_CLEARANCE_NOTE } : {}),
+    connected: gmail.status?.connected === true,
+    sendAllowed: gmail.status?.send_permission_granted === true,
+    draftsAllowed: gmail.status?.compose_permission_granted === true,
+    modifyAllowed: gmail.status?.modify_permission_granted === true,
     ...(!gmail.status?.connected || gmail.status?.needs_reauth ? { connect: detailAction("Connect Mail", mailBusy || gmail.loadingStatus, () => { void connectMail(); }) } : {}),
     ...(gmail.status?.connected || gmail.status?.needs_reauth ? { disconnect: detailAction("Disconnect Mail", mailBusy, () => setConfirm("mail"), true) } : {}),
     ...(gmail.statusError ? { retry: detailAction("Retry Mail", mailBusy, () => { void gmail.refreshStatus({ force: true, reconcile: false }); }) } : {}),
+    ...(gmail.status?.connected && !gmail.status.send_permission_granted ? { enableSend: detailAction("Enable Gmail sending", mailBusy || gmail.loadingStatus, () => { void connectMail("send"); }) } : {}),
     ...(gmail.status?.connected && !gmail.status.compose_permission_granted ? { enableDrafts: detailAction("Enable Gmail drafts", mailBusy || gmail.loadingStatus, () => { void connectMail("compose"); }) } : {}),
+    ...(gmail.status?.connected && !isNativeMailSurface && !gmail.status.modify_permission_granted ? { enableModify: detailAction("Enable Gmail organize", mailBusy || gmail.loadingStatus, () => { void connectMail("modify"); }) } : {}),
+    ...(gmail.status?.connected && !isNativeMailSurface && missingMailPermissionsCount >= 2 ? { enableAll: detailAction("Enable all Mail permissions", mailBusy || gmail.loadingStatus, () => { void connectMail("full"); }) } : {}),
     ...(mailPopupPending ? { cancelSignIn: detailAction("Cancel sign-in", false, () => mailPopupCancel.current?.abort()) } : {}),
   };
+  const baseCalendarHelper = !calendar.error && !calendar.connected && !calendarNeedsReconnect ? "Private by default. Disconnect anytime." : calendar.connected ? "Disconnect anytime." : null;
   const calendarPermissions = googleCalendarPermissions(calendar.status);
   const calendarDetail: Extract<ConnectorDetailPresentation, { kind: "calendar" }> = {
     kind: "calendar", description: calendarDescription, status: calendarStatusLabel,
     message: calendarPopupPending ? "Finish signing in with Google in the window that opened." : calendarBusy ? "Updating Calendar…" : calendarMessage,
-    helper: !calendar.error && !calendar.connected && !calendarNeedsReconnect ? "Private by default. Disconnect anytime." : calendar.connected ? "Disconnect anytime." : null,
+    helper: [baseCalendarHelper, showGoogleClearanceNote ? GOOGLE_APPS_CLEARANCE_NOTE : null].filter(Boolean).join(" ") || null,
     connection: calendar.connected ? detailAction("Disconnect Calendar", calendarBusy, () => setConfirm("calendar"), true) :
       detailAction(calendarConnectLabel, calendarBusy, () => { void connectCalendar(); }),
     permissions: calendar.connected ? calendarPermissions.rows : [],
@@ -2450,14 +2468,123 @@ function OwnerConnectorsPanel({
     ...(calendar.error ? { retry: detailAction("Retry", false, () => { void calendar.refresh(); }) } : {}),
     ...(calendarPopupPending ? { cancelSignIn: detailAction("Cancel sign-in", false, () => calendarPopupCancel.current?.abort()) } : {}),
   };
+  async function connectPlaidFromChat() {
+    if (inProfile) {
+      onBack();
+      router.push(ROUTES.KAI_PORTFOLIO_SOURCES);
+      return;
+    }
+    if (!applicationOwnerId || !vaultOwnerToken || !vaultKey || plaidBusy ||
+        liveUnlockOwner.current !== unlockOwner || changesInFlight.current.has("plaid:connect")) return;
+    changesInFlight.current.add("plaid:connect");
+    setPlaidBusy(true);
+    setPlaidMessage("Connecting bank…");
+    try {
+      const result = await connectVaultPlaid({
+        userId: applicationOwnerId,
+        vaultOwnerToken,
+        vaultKey,
+        originSurface: "agentone_chat",
+      });
+      if (liveUnlockOwner.current !== unlockOwner) return;
+      setPlaidMessage(result.status === "connected" ? "Bank connected." :
+        result.status === "blocked" ? result.reason : "");
+      if (result.status === "connected") {
+        await financial.refresh({ force: true });
+        const { syncPlaidPostureToPersonalWikiBestEffort } = await import(
+          "@/lib/kai/plaid-vault/wiki-posture-sync"
+        );
+        await syncPlaidPostureToPersonalWikiBestEffort({
+          userId: applicationOwnerId,
+          vaultKey,
+          vaultOwnerToken,
+          financial: financial.data?.data,
+        });
+      }
+    } catch {
+      if (liveUnlockOwner.current === unlockOwner) setPlaidMessage("Could not connect that bank. Try again.");
+    } finally {
+      if (liveUnlockOwner.current === unlockOwner) {
+        changesInFlight.current.delete("plaid:connect");
+        setPlaidBusy(false);
+      }
+    }
+  }
+
+  async function refreshPlaidLive() {
+    if (!applicationOwnerId || !vaultOwnerToken || !vaultKey || plaidBusy ||
+        liveUnlockOwner.current !== unlockOwner || changesInFlight.current.has("plaid:refresh")) return;
+    changesInFlight.current.add("plaid:refresh");
+    setPlaidBusy(true);
+    setPlaidMessage("Refreshing live bank data…");
+    try {
+      const outcome = await refreshVaultConnections({
+        userId: applicationOwnerId,
+        vaultKey,
+        vaultOwnerToken,
+        financial: financial.data?.data,
+        force: true,
+      });
+      if (liveUnlockOwner.current !== unlockOwner) return;
+      await financial.refresh?.({ force: true });
+      if (outcome.refreshed > 0) {
+        const { syncPlaidPostureToPersonalWikiBestEffort } = await import(
+          "@/lib/kai/plaid-vault/wiki-posture-sync"
+        );
+        await syncPlaidPostureToPersonalWikiBestEffort({
+          userId: applicationOwnerId,
+          vaultKey,
+          vaultOwnerToken,
+          financial: financial.data?.data,
+        });
+      }
+      if (liveUnlockOwner.current !== unlockOwner) return;
+      setPlaidMessage(
+        outcome.needsRelink.length > 0
+          ? "Reconnect needed before refreshing."
+          : outcome.refreshed > 0
+            ? "Live bank snapshot updated."
+            : outcome.failed > 0
+              ? "Could not refresh live bank data. Try again."
+              : "Bank records are already up to date.",
+      );
+    } catch {
+      if (liveUnlockOwner.current === unlockOwner) setPlaidMessage("Could not refresh live bank data. Try again.");
+    } finally {
+      if (liveUnlockOwner.current === unlockOwner) {
+        changesInFlight.current.delete("plaid:refresh");
+        setPlaidBusy(false);
+      }
+    }
+  }
+
   const plaidDetail: Extract<ConnectorDetailPresentation, { kind: "plaid" }> = {
     kind: "plaid", status: financial.error ? "Could not check bank connections." : financial.loading ? "Checking bank connections…" : plaidConnections.length ? `${plaidConnections.length} connected ${plaidConnections.length === 1 ? "bank" : "banks"}` : "No banks connected",
-    message: plaidBusy ? "Disconnecting bank…" : plaidMessage,
+    message:
+      plaidBusy && changesInFlight.current.has("plaid:refresh")
+        ? "Refreshing live bank data…"
+        : plaidBusy && !changesInFlight.current.has("plaid:connect")
+          ? "Disconnecting bank…"
+          : plaidMessage,
     banks: Object.entries(vaultConnections(financial.data?.data)).map(([itemId, connection]) => ({
-      key: itemId, name: connection.institution_name || "Bank connection", status: connection.status === "needs_relink" ? "Reconnect needed" : "Connected",
+      key: itemId, name: connection.institution_name || "Bank connection",
+      status: [
+        connection.status === "needs_relink" ? "Reconnect needed" : "Connected",
+        plaidProjection.byItemId[itemId]?.summaryLabel ?? null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
       disconnect: detailAction("Disconnect", plaidBusy, () => setConfirm(`plaid:${itemId}`), true),
     })),
-    ...(!plaidConnections.length && !financial.loading && !financial.error ? { connect: detailAction("Connect a bank", false, () => { onBack(); router.push(ROUTES.KAI_PORTFOLIO_SOURCES); }) } : {}),
+    ...(!financial.loading && !financial.error
+      ? {
+          connect: detailAction(
+            plaidConnections.length > 0 ? "Add bank" : "Connect a bank",
+            plaidBusy,
+            () => { void connectPlaidFromChat(); },
+          ),
+        }
+      : {}),
   };
   const curatedDetail: Extract<ConnectorDetailPresentation, { kind: "curated" }> | null = selectedCatalog ? {
     kind: "curated", name: selectedCatalog.displayName, description: selectedCatalog.description,
@@ -2500,6 +2627,11 @@ function OwnerConnectorsPanel({
       </Button>
     </div>
   ) : null;
+  const googleClearanceNote = showGoogleClearanceNote ? (
+    <p role="note" data-testid="connector-google-clearance-note" className="text-xs leading-5 text-muted-foreground">{GOOGLE_APPS_CLEARANCE_NOTE}</p>
+  ) : null;
+  const showCatalogGoogleNote = showGoogleClearanceNote && (!query || matchingEntries.some((entry) => ["google_drive", "gmail", "calendar"].includes(entry.id)));
+  const googleClearanceBanner = showCatalogGoogleNote ? googleClearanceNote : null;
   const webBody = (
     <div
       ref={panelRootRef}
@@ -2558,6 +2690,7 @@ function OwnerConnectorsPanel({
         ) : !activeConnector && inProfile ? (
           <>
             {catalogState}
+            {googleClearanceBanner}
             {listSections.map(([heading, items]) =>
               items.length === 0 ? null : (
                 <SettingsGroup key={heading} title={heading} testId={`profile-connectors-${heading.toLowerCase()}`}>
@@ -2588,6 +2721,7 @@ function OwnerConnectorsPanel({
               />
             </label>
             {catalogState}
+            {googleClearanceBanner}
             {listSections.map(([heading, items]) =>
               query && items.length === 0 ? null : (
                 <section key={heading} aria-label={heading} className="space-y-2">
@@ -2654,12 +2788,18 @@ function OwnerConnectorsPanel({
               <h3 id="connection-mail-title" className="font-semibold">
                 Gmail
               </h3>
-              {mailAccountDetail ? (
+              {mailAccountDetail && !mailStatusInAccount ? (
                 <p className="break-all text-sm text-muted-foreground">{mailAccountDetail}</p>
               ) : null}
-              <p role="status" className="text-sm">
-                {mailDetail.status}
+              {/* "Connected as <email>" already says connected, so the status
+                  line carries the account instead of repeating the state. */}
+              <p
+                role="status"
+                className={mailStatusInAccount ? "break-all text-sm text-muted-foreground" : "text-sm"}
+              >
+                {mailStatusInAccount ? mailAccountDetail : mailDetail.status}
               </p>
+              {googleClearanceNote}
               <div className="flex flex-wrap gap-2">
                 {(!gmail.status?.connected || gmail.status?.needs_reauth) && (
                   <Button
@@ -2668,6 +2808,16 @@ function OwnerConnectorsPanel({
                     onClick={() => connectMail()}
                   >
                     Connect Mail
+                  </Button>
+                )}
+                {mailDetail.enableAll && (
+                  <Button
+                    className={touch}
+                    disabled={mailDetail.enableAll.disabled}
+                    aria-label="Enable all Mail permissions"
+                    onClick={mailDetail.enableAll.run}
+                  >
+                    Enable all permissions
                   </Button>
                 )}
                 {(gmail.status?.connected || gmail.status?.needs_reauth) && (
@@ -2699,12 +2849,24 @@ function OwnerConnectorsPanel({
               {gmail.status?.connected && (
                 <div className="divide-y rounded-lg border border-border px-3 text-sm" aria-label="Gmail permissions">
                   <div className="flex min-h-11 items-center justify-between gap-3"><span>Read mail</span><span className="text-muted-foreground">Allowed</span></div>
-                  <div className="flex min-h-11 items-center justify-between gap-3"><span>Send mail</span><span className="text-muted-foreground">{gmail.status.send_permission_granted ? "Allowed · review required" : "Not enabled"}</span></div>
+                  <div className="flex min-h-11 flex-wrap items-center justify-between gap-2 py-1">
+                    <span>Send mail</span>
+                    {gmail.status.send_permission_granted ? <span className="text-muted-foreground">Allowed · review required</span>
+                      : <Button size="compact" variant="outline" aria-label="Enable Gmail sending" disabled={mailBusy || gmail.loadingStatus}
+                        onClick={() => connectMail("send")}>Enable</Button>}
+                  </div>
                   <div className="flex min-h-11 flex-wrap items-center justify-between gap-2 py-1">
                     <span>Drafts</span>
                     {gmail.status.compose_permission_granted ? <span className="text-muted-foreground">Allowed · review required</span>
                       : <Button size="compact" variant="outline" aria-label="Enable Gmail drafts" disabled={mailBusy || gmail.loadingStatus}
                         onClick={() => connectMail("compose")}>Enable</Button>}
+                  </div>
+                  <div className="flex min-h-11 flex-wrap items-center justify-between gap-2 py-1">
+                    <span>Organize mail</span>
+                    {gmail.status.modify_permission_granted ? <span className="text-muted-foreground">Allowed · review required</span>
+                      : isNativeMailSurface ? <span className="text-muted-foreground">Web only</span>
+                        : <Button size="compact" variant="outline" aria-label="Enable Gmail organize" disabled={mailBusy || gmail.loadingStatus}
+                          onClick={() => connectMail("modify")}>Enable</Button>}
                   </div>
                 </div>
               )}
@@ -2755,6 +2917,7 @@ function OwnerConnectorsPanel({
                     : "Full Drive access lets One find and share matching files for approved document requests. You can turn background access off anytime."}
                 </p>
               )}
+              {googleClearanceNote}
               <div className="flex flex-wrap gap-2">
                 {canConnectDrive && (!hasDriveGrant ||
                   drive?.status === "needs_reauth" ||
@@ -3036,6 +3199,7 @@ function OwnerConnectorsPanel({
                       Disconnect anytime.
                     </p>
                   ) : null}
+                  {googleClearanceNote}
                   {calendarPopupPending && (
                     <Button
                       size="compact"
@@ -3067,27 +3231,56 @@ function OwnerConnectorsPanel({
               </section>
             )}
             {activeConnector === "plaid" && (
-              <section className="space-y-3" aria-label="Plaid connection details">
+              <section className="space-y-3 rounded-2xl border border-border bg-card/40 p-4" aria-label="Plaid connection details">
+                <div className="flex items-center gap-2.5">
+                  <ConnectorVectorGlyph id="plaid" variant="profile" />
+                  <h3 className="font-semibold text-foreground">Plaid</h3>
+                </div>
                 <p className="text-sm text-muted-foreground">
                   {plaidDetail.status}
                 </p>
                 {Object.entries(vaultConnections(financial.data?.data)).map(([itemId, connection]) => (
-                  <div key={itemId} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border p-3">
+                  <div key={itemId} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border bg-background/60 p-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-normal">{connection.institution_name || "Bank connection"}</p>
-                      <p className="text-xs text-muted-foreground">{connection.status === "needs_relink" ? "Reconnect needed" : "Connected"}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {[
+                          connection.status === "needs_relink" ? "Reconnect needed" : "Connected",
+                          plaidProjection.byItemId[itemId]?.summaryLabel ?? null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
                     </div>
                     <Button className={touch} size="compact" variant="outline" disabled={plaidBusy} onClick={() => setConfirm(`plaid:${itemId}`)}>
                       Disconnect
                     </Button>
                   </div>
                 ))}
+                {plaidConnections.length > 0 && plaidProjection.hasData ? (
+                  <div
+                    data-testid="plaid-live-projection-summary"
+                    className="space-y-1 rounded-xl border border-border bg-background/60 p-3 text-xs text-muted-foreground"
+                  >
+                    <p className="font-medium text-foreground">Account summary</p>
+                    {plaidProjection.totalsLine ? <p>{plaidProjection.totalsLine}</p> : null}
+                    {plaidProjection.projectedScopesLine ? <p>{plaidProjection.projectedScopesLine}</p> : null}
+                    <p>Active ongoing shares update automatically on sync.</p>
+                  </div>
+                ) : null}
                 <p role="status" aria-live="polite" className="text-sm text-muted-foreground">{plaidDetail.message}</p>
-                {!plaidConnections.length && !financial.loading && !financial.error && (
-                  <Button className={touch} size="compact" variant="outline" onClick={() => { onBack(); router.push(ROUTES.KAI_PORTFOLIO_SOURCES); }}>
-                    Connect a bank
-                  </Button>
-                )}
+                <div className="flex flex-wrap gap-2">
+                  {plaidConnections.length > 0 && !financial.loading && !financial.error && (
+                    <Button className={touch} size="compact" variant="outline" disabled={plaidBusy} onClick={() => { void refreshPlaidLive(); }}>
+                      Refresh live
+                    </Button>
+                  )}
+                  {!financial.loading && !financial.error && (
+                    <Button className={touch} size="compact" variant="outline" disabled={plaidBusy} onClick={() => { void connectPlaidFromChat(); }}>
+                      {plaidConnections.length > 0 ? "Add bank" : "Connect a bank"}
+                    </Button>
+                  )}
+                </div>
               </section>
             )}
             {selectedCatalog && !["google_drive", "gmail", "calendar", "plaid", ...(inProfile ? ["instagram", "linkedin"] : [])].includes(activeConnector ?? "") && (
@@ -3122,6 +3315,7 @@ function OwnerConnectorsPanel({
     catalog: {
       query: search, search: value => { if (currentPresentation() && value.length <= 256) setSearch(value); }, show: guardPresentation(() => setActiveConnector(null)),
       status: !vaultOwnerToken ? "locked" : catalogLoadFailed ? "unavailable" : !overview && !statusChecked ? "loading" : "ready",
+      ...(showCatalogGoogleNote ? { notice: GOOGLE_APPS_CLEARANCE_NOTE } : {}),
       groups: listSections.map(([title, items]) => ({ title, entries: items.map(entry => ({ ...entry,
         ...(entry.onOpen ? { onOpen: guardPresentation(entry.onOpen) } : {}),
         ...(entry.action ? { action: { ...entry.action, onClick: guardPresentation(() => { if (!entry.action?.disabled) entry.action?.onClick(); }) } } : {}),

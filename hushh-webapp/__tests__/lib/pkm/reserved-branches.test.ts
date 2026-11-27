@@ -18,7 +18,7 @@ import {
   touchedReservedBranches,
   writer,
 } from "@/lib/pkm/reserved-branches";
-import { buildGmailWorkspaceRoute, gmailDeepLinkWorkspace } from "@/lib/navigation/routes";
+import { buildGmailWorkspaceRoute, gmailDeepLinkWorkspace, ROUTES } from "@/lib/navigation/routes";
 import { collectDomainRows } from "@/lib/pkm/memory-complete-rows";
 import { excludePrivatePkmDomains, isPrivatePkmExportScope } from "@/lib/consent/pkm-scope-policy";
 
@@ -59,7 +59,8 @@ describe("reserved-branch contract packaging", () => {
     expect(offerRouteProblems(contract.entries)).toEqual([]);
   });
 
-  it("opens identity facts on Mail's KYC tab, a tab the Mail page opens from the link", () => {
+  it("offers identity facts on the link the Mail page forwards to the KYC screen", () => {
+    const legacyLink = "/one/gmail?workspace=kyc";
     for (const [domain, branch] of [
       ["identity", "identity_profile"],
       ["identity", "identity_documents"],
@@ -67,13 +68,16 @@ describe("reserved-branch contract packaging", () => {
     ] as const) {
       const entry = contract.entries.find((item) => item.domain === domain && item.branch_prefix === branch);
       expect(entry?.offer_action, `${domain}.${branch}`).toMatchObject({
-        route_pattern: buildGmailWorkspaceRoute("kyc"),
+        route_pattern: legacyLink,
         action_id: "route.one_gmail_kyc",
       });
     }
-    const [routePath, query] = buildGmailWorkspaceRoute("kyc").split("?");
+    // KYC is not a Mail tab: the link still names a workspace the Mail page recognises, and the Mail
+    // page forwards it, while links built today go straight to the KYC screen.
+    const [routePath, query] = legacyLink.split("?");
     expect(routePath).toBe("/one/gmail");
     expect(gmailDeepLinkWorkspace(new URLSearchParams(query).get("workspace"))).toBe("kyc");
+    expect(buildGmailWorkspaceRoute("kyc")).toBe(ROUTES.ONE_KYC);
   });
 
   it("refuses an offer to a route nobody declares (negative control)", () => {
@@ -83,7 +87,7 @@ describe("reserved-branch contract packaging", () => {
       // A real action, pointed somewhere it does not go.
       { domain: "identity", branch_prefix: "y", offer_action: { route_pattern: "/one/gmail?workspace=receipts", action_id: "route.one_gmail_kyc" } },
       // A path the route index does not know.
-      { domain: "identity", branch_prefix: "z", offer_action: { route_pattern: "/one/kyc", action_id: "route.one_gmail_kyc" } },
+      { domain: "identity", branch_prefix: "z", offer_action: { route_pattern: "/one/kyc-archive", action_id: "route.one_gmail_kyc" } },
     ];
     expect(offerRouteProblems(forged)).toHaveLength(3);
   });
@@ -266,8 +270,10 @@ describe("reserved-branch loader", () => {
     });
     expect(agent.rows).toEqual([]);
     expect(agent.withheld).toEqual(["one_living_sources"]);
-    expect(excludePrivatePkmDomains({ one_living_sources: { x: 1 }, food: { y: 2 } })).toEqual({ food: { y: 2 } });
+    expect(excludePrivatePkmDomains({ one_living_sources: { x: 1 }, source_library: { y: 2 }, one_wiki: { z: 3 }, food: { y: 2 } })).toEqual({ food: { y: 2 } });
     expect(isPrivatePkmExportScope("attr.one_living_sources.x")).toBe(true);
+    expect(isPrivatePkmExportScope("attr.source_library.catalog")).toBe(true);
+    expect(isPrivatePkmExportScope("attr.one_wiki.pages.career")).toBe(true);
   });
 
   it("restricts every send_to_model value other than full in agent exports", () => {

@@ -24,7 +24,7 @@ it("stages UAT Auth and Analytics without a production identity, then preserves 
     `<plist><dict><key>PROJECT_ID</key><string>${project}</string>` +
     `<key>GCM_SENDER_ID</key><string>${sender}</string><key>GOOGLE_APP_ID</key><string>${appId}</string>` +
     "<key>BUNDLE_ID</key><string>com.hushh.app</string><key>API_KEY</key><string>fixture</string>" +
-    "<key>CLIENT_ID</key><string>fixture</string><key>REVERSED_CLIENT_ID</key><string>fixture</string></dict></plist>";
+    "<key>CLIENT_ID</key><string>fixture.apps.googleusercontent.com</string><key>REVERSED_CLIENT_ID</key><string>com.googleusercontent.apps.fixture</string></dict></plist>";
   const shared = plist("hushh-pda", "1006304528804", "1:1006304528804:ios:eb2720b5eda7da4bcfd931");
   const analytics = plist("hushh-pda-uat", "745506018753", "1:745506018753:ios:efea0fede200b1d1778b40");
   const localAnalytics = path.join(appRoot, ".env.local.d/ios/uat-analytics/GoogleService-Info.plist");
@@ -41,6 +41,8 @@ it("stages UAT Auth and Analytics without a production identity, then preserves 
     vi.stubEnv("NEXT_PUBLIC_FIREBASE_PROJECT_ID", "hushh-pda-uat");
     vi.stubEnv("NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID", "745506018753");
     mkdirSync(path.dirname(localAnalytics), { recursive: true });
+    mkdirSync(appPath, { recursive: true });
+    copyFileSync(path.join(process.cwd(), "ios/App/App/Info.plist"), path.join(appPath, "Info.plist"));
     writeFileSync(path.join(root, "GoogleService-Info.plist"), analytics);
     writeFileSync(localAnalytics, shared);
     expect(sync).toThrow(/invalid Firebase plist for hushh-pda-uat/);
@@ -95,6 +97,43 @@ it("stages UAT Auth and Analytics without a production identity, then preserves 
 });
 
 describe("native Firebase config sync CLI", () => {
+  it("moves the iOS Google callback with the selected Firebase client and preserves other links", () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), "native-google-client-")));
+    const appRoot = path.join(root, "app");
+    const info = path.join(appRoot, "ios/App/App/Info.plist");
+    try {
+      vi.stubEnv("NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID", "12345");
+      mkdirSync(path.dirname(info), { recursive: true });
+      writeFileSync(info, `<plist version="1.0"><dict><key>GIDClientID</key><string>old.apps.googleusercontent.com</string><key>CFBundleURLTypes</key><array><dict><key>CFBundleURLSchemes</key><array><string>com.googleusercontent.apps.old</string></array></dict><dict><key>CFBundleURLName</key><string>messages</string><key>CFBundleURLSchemes</key><array><string>hushh</string></array></dict></array><key>NSCameraUsageDescription</key><string>Keep this declaration.</string></dict></plist>`);
+      const writeConfig = (client: string) => writeFileSync(path.join(root, "GoogleService-Info.plist"),
+        `<plist version="1.0"><dict><key>BUNDLE_ID</key><string>com.hushh.app</string><key>PROJECT_ID</key><string>dev-fixture</string><key>GCM_SENDER_ID</key><string>12345</string><key>GOOGLE_APP_ID</key><string>1:12345:ios:fixture</string><key>CLIENT_ID</key><string>${client}.apps.googleusercontent.com</string><key>REVERSED_CLIENT_ID</key><string>com.googleusercontent.apps.${client}</string></dict></plist>`);
+      const sync = () => syncNativeFirebaseConfigs({ appRoot, monorepoRoot: root, platform: "ios", expectedProjectId: "dev-fixture" });
+      for (const client of ["dev-client", "production-client"]) {
+        writeConfig(client);
+        sync();
+        const updated = readFileSync(info, "utf8");
+        expect(updated).toContain(`<string>${client}.apps.googleusercontent.com</string>`);
+        expect(updated).toContain(`<string>com.googleusercontent.apps.${client}</string>`);
+        expect(updated).toContain("<string>hushh</string>");
+        expect(updated).toContain("<string>Keep this declaration.</string>");
+        const bytes = readFileSync(info);
+        sync();
+        expect(readFileSync(info)).toEqual(bytes);
+      }
+      const before = readFileSync(info);
+      const sdk = path.join(appRoot, "ios/App/App/GoogleService-Info.plist");
+      const priorSdk = readFileSync(sdk);
+      writeConfig("mismatched-client");
+      const source = path.join(root, "GoogleService-Info.plist");
+      writeFileSync(source, readFileSync(source, "utf8").replace("com.googleusercontent.apps.mismatched-client", "com.googleusercontent.apps.foreign"));
+      expect(sync).toThrow(/Google.*client|client.*Google/i);
+      expect(readFileSync(info)).toEqual(before);
+      expect(readFileSync(sdk)).toEqual(priorSdk);
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
   it.each(["ios", "android"])("validates %s configs with the build overlay instead of the shell identity", (platform) => {
     const fixtureRoot = realpathSync(mkdtempSync(path.join(tmpdir(), "hushh-native-overlay-")));
     // Every recursive cleanup target is this newly created, absolute temp fixture.
@@ -108,6 +147,7 @@ describe("native Firebase config sync CLI", () => {
         "scripts/native/ios-firebase-config.mjs",
         "scripts/native/ios-firebase-bridge.mjs",
         "scripts/native/sync-native-firebase-configs.mjs",
+        "scripts/native/sync-ios-google-signin.py",
         "scripts/testing/reviewer-test-identity.mjs",
       ]) {
         const destination = path.join(appRoot, relative);
@@ -115,12 +155,17 @@ describe("native Firebase config sync CLI", () => {
         copyFileSync(path.join(process.cwd(), relative), destination);
       }
       writeFileSync(path.join(appRoot, "capacitor.config.ts"), "export {};\n");
+      if (platform === "ios") {
+        const info = path.join(appRoot, "ios/App/App/Info.plist");
+        mkdirSync(path.dirname(info), { recursive: true });
+        copyFileSync(path.join(process.cwd(), "ios/App/App/Info.plist"), info);
+      }
       writeFileSync(path.join(appRoot, `.env.native.${platform}.local`),
         "APP_RUNTIME_PROFILE=dev\nNEXT_PUBLIC_FIREBASE_PROJECT_ID=dev-fixture\nNEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=12345\n");
       const writeConfig = (project: string) => {
         if (platform === "ios") {
           writeFileSync(path.join(fixtureRoot, "GoogleService-Info.plist"),
-            `<plist><dict><key>BUNDLE_ID</key><string>com.hushh.app</string><key>PROJECT_ID</key><string>${project}</string><key>GCM_SENDER_ID</key><string>12345</string><key>GOOGLE_APP_ID</key><string>1:12345:ios:native-fixture</string></dict></plist>`);
+            `<plist><dict><key>BUNDLE_ID</key><string>com.hushh.app</string><key>PROJECT_ID</key><string>${project}</string><key>GCM_SENDER_ID</key><string>12345</string><key>GOOGLE_APP_ID</key><string>1:12345:ios:native-fixture</string><key>CLIENT_ID</key><string>fixture.apps.googleusercontent.com</string><key>REVERSED_CLIENT_ID</key><string>com.googleusercontent.apps.fixture</string></dict></plist>`);
         } else {
           writeFileSync(path.join(fixtureRoot, "google-services.json"), JSON.stringify({
             project_info: { project_id: project, project_number: "12345" },
@@ -284,10 +329,15 @@ describe("native Firebase selected project guard", () => {
     try {
       vi.stubEnv("NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID", "12345");
       mkdirSync(appRoot);
-      writeFileSync(path.join(root, "GoogleService-Info.plist"), "<plist><dict><key>BUNDLE_ID</key><string>com.hushh.app</string><key>PROJECT_ID</key><string>foreign-project</string><key>GCM_SENDER_ID</key><string>12345</string><key>GOOGLE_APP_ID</key><string>1:12345:ios:synthetic</string></dict></plist>");
+      writeFileSync(path.join(root, "GoogleService-Info.plist"), "<plist><dict><key>BUNDLE_ID</key><string>com.hushh.app</string><key>PROJECT_ID</key><string>foreign-project</string><key>GCM_SENDER_ID</key><string>12345</string><key>GOOGLE_APP_ID</key><string>1:12345:ios:synthetic</string><key>CLIENT_ID</key><string>fixture.apps.googleusercontent.com</string><key>REVERSED_CLIENT_ID</key><string>com.googleusercontent.apps.fixture</string></dict></plist>");
+      if (platform === "ios") {
+        const info = path.join(appRoot, "ios/App/App/Info.plist");
+        mkdirSync(path.dirname(info), { recursive: true });
+        copyFileSync(path.join(process.cwd(), "ios/App/App/Info.plist"), info);
+      }
       writeFileSync(path.join(root, "google-services.json"), JSON.stringify({ project_info: { project_id: "foreign-project", project_number: "12345" }, client: [{ client_info: { android_client_info: { package_name: "com.hussh.app" }, mobilesdk_app_id: "1:12345:android:synthetic" } }] }));
       expect(() => syncNativeFirebaseConfigs({ appRoot, monorepoRoot: root, platform, expectedProjectId: "selected-project" })).toThrow(/project mismatch/);
-      expect(existsSync(path.join(appRoot, "ios"))).toBe(false);
+      expect(existsSync(path.join(appRoot, "ios/App/App/GoogleService-Info.plist"))).toBe(false);
       expect(existsSync(path.join(appRoot, "android"))).toBe(false);
       expect(() => syncNativeFirebaseConfigs({ appRoot, monorepoRoot: root, platform, expectedProjectId: "foreign-project" })).not.toThrow();
     } finally {

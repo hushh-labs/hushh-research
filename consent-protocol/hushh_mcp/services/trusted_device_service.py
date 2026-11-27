@@ -309,6 +309,22 @@ class PostgresTrustedDeviceStore:
         )
         return rows[0] if rows else None
 
+    def get_active_device_by_public_key(
+        self, *, user_id: str, device_public_key: str
+    ) -> dict[str, Any] | None:
+        rows = (
+            self._db.table("trusted_devices")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("device_public_key", device_public_key)
+            .eq("status", "active")
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return rows[0] if rows else None
+
     def revoke_device(self, *, user_id: str, device_id: str, now_ms: int) -> bool:
         result = self._db.execute_raw(
             """UPDATE trusted_devices
@@ -916,6 +932,57 @@ class TrustedDeviceService:
             "status": str(row.get("status") or "active"),
         }
 
+    MAX_ACTIVE_WEB_BROWSERS = 5
+
+    def _find_active_by_public_key(
+        self, *, user_id: str, device_public_key: str
+    ) -> dict[str, Any] | None:
+        finder = getattr(self._store, "get_active_device_by_public_key", None)
+        if callable(finder):
+            return finder(user_id=user_id, device_public_key=device_public_key)
+        for row in self._store.list_devices(user_id=user_id):
+            if (
+                row.get("status") == "active"
+                and str(row.get("device_public_key") or "") == device_public_key
+            ):
+                return row
+        return None
+
+    def _enforce_active_web_browser_cap(
+        self, *, user_id: str, keep_device_id: str, now_ms: int
+    ) -> list[str]:
+        active_web = [
+            row
+            for row in self._store.list_devices(user_id=user_id)
+            if row.get("status") == "active"
+            and str(row.get("platform") or "").strip().lower() == "web"
+            and str(row.get("device_id") or "") != keep_device_id
+        ]
+        active_web.sort(
+            key=lambda row: max(
+                int(row.get("last_used_at") or 0),
+                int(row.get("created_at") or 0),
+            ),
+            reverse=True,
+        )
+        overflow = active_web[max(self.MAX_ACTIVE_WEB_BROWSERS - 1, 0) :]
+        pruned_ids: list[str] = []
+        for stale in overflow:
+            stale_id = str(stale.get("device_id") or "")
+            if not stale_id or not _DEVICE_ID_RE.fullmatch(stale_id):
+                continue
+            if self._store.revoke_device(user_id=user_id, device_id=stale_id, now_ms=now_ms):
+                invalidate_active_device_cache(user_id, stale_id)
+                self._store.audit(
+                    user_id=user_id,
+                    device_id=stale_id,
+                    event_type="web_session_pruned",
+                    created_at=now_ms,
+                    metadata={"reason": "active_web_cap", "kept_device_id": keep_device_id},
+                )
+                pruned_ids.append(stale_id)
+        return pruned_ids
+
     def self_enroll(
         self, *, user_id: str, device_public_key: str, device_name: str, platform: str
     ) -> dict[str, Any]:
@@ -925,6 +992,13 @@ class TrustedDeviceService:
         session, and the key it registers is the one it will prove possession of at
         the pod. The macOS Hermes path keeps its approval flow; this one is for the
         app, and it never carries Puppy inference.
+
+        Idempotent on `(user_id, device_public_key)`: if an active device with the
+        same public key and platform already exists, reuse its `device_id` and
+        refresh `last_used_at`/`device_name` rather than spawning duplicate rows.
+        For `platform="web"`, keep at most `MAX_ACTIVE_WEB_BROWSERS` active rows
+        by auto-revoking oldest dormant browser sessions while never touching
+        macOS, iOS, or Android devices.
         """
         _validate_public_key(device_public_key)
         clean_name = device_name.strip()
@@ -939,7 +1013,20 @@ class TrustedDeviceService:
                 "Self-enrolment is for the app on web, iOS or Android.",
             )
         now_ms = _now_ms()
-        device_id = f"tdv_{secrets.token_urlsafe(24)}"
+        existing = self._find_active_by_public_key(
+            user_id=user_id, device_public_key=device_public_key
+        )
+        if (
+            existing is not None
+            and str(existing.get("platform") or "").strip().lower() == clean_platform
+        ):
+            device_id = str(existing["device_id"])
+            created_at = int(existing.get("created_at") or now_ms)
+            event_type = "device_self_enrolled_refreshed"
+        else:
+            device_id = f"tdv_{secrets.token_urlsafe(24)}"
+            created_at = now_ms
+            event_type = "device_self_enrolled"
         self._store.upsert_device(
             {
                 "device_id": device_id,
@@ -947,23 +1034,65 @@ class TrustedDeviceService:
                 "device_public_key": device_public_key,
                 "device_name": clean_name,
                 "platform": clean_platform,
-                "created_at": now_ms,
+                "created_at": created_at,
                 "last_used_at": now_ms,
             }
         )
         self._store.audit(
             user_id=user_id,
             device_id=device_id,
-            event_type="device_self_enrolled",
+            event_type=event_type,
             created_at=now_ms,
             metadata={"platform": clean_platform},
         )
+        if clean_platform == "web":
+            self._enforce_active_web_browser_cap(
+                user_id=user_id, keep_device_id=device_id, now_ms=now_ms
+            )
         return {
             "device_id": device_id,
             "platform": clean_platform,
             "device_name": clean_name,
             "status": "active",
-            "created_at": now_ms,
+            "created_at": created_at,
+        }
+
+    def prune_web_devices(
+        self, *, user_id: str, keep_device_id: str | None = None
+    ) -> dict[str, Any]:
+        """Revoke all active `platform="web"` sessions for the owner except `keep_device_id`.
+
+        Never touches `macos`, `ios`, or `android` linked devices.
+        """
+        clean_keep = (
+            keep_device_id.strip()
+            if isinstance(keep_device_id, str) and _DEVICE_ID_RE.fullmatch(keep_device_id.strip())
+            else None
+        )
+        now_ms = _now_ms()
+        revoked_ids: list[str] = []
+        for row in self._store.list_devices(user_id=user_id):
+            if row.get("status") != "active":
+                continue
+            if str(row.get("platform") or "").strip().lower() != "web":
+                continue
+            dev_id = str(row.get("device_id") or "")
+            if not dev_id or dev_id == clean_keep or not _DEVICE_ID_RE.fullmatch(dev_id):
+                continue
+            if self._store.revoke_device(user_id=user_id, device_id=dev_id, now_ms=now_ms):
+                invalidate_active_device_cache(user_id, dev_id)
+                self._store.audit(
+                    user_id=user_id,
+                    device_id=dev_id,
+                    event_type="web_session_pruned",
+                    created_at=now_ms,
+                    metadata={"reason": "owner_bulk_prune", "kept_device_id": clean_keep},
+                )
+                revoked_ids.append(dev_id)
+        return {
+            "revoked_count": len(revoked_ids),
+            "revoked_device_ids": revoked_ids,
+            "kept_device_id": clean_keep,
         }
 
     def audit_event(

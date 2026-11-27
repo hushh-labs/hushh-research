@@ -5,25 +5,17 @@ import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { XIcon } from "@/components/icons";
 import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
+import { formatCurrency } from "@/lib/kai/market-value-format";
 import { cn } from "@/lib/utils";
 import type { HoldingMobileCardViewModel } from "@/components/kai/holdings/holding-mobile-card";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import { StockHistoryPanel, type StockHistoryLoader } from "@/components/kai/charts/stock-history-panel";
 import { HoldingEntryList } from "./holding-entry-list";
+import { HoldingGainLoss } from "./holding-gain-loss";
 
-function formatCurrency(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return "—";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
-function formatSignedPercent(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return "—";
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${value.toFixed(2)}%`;
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
+function money(value: number | null, currency?: string): string {
+  return value === null || !Number.isFinite(value) ? "—" : formatCurrency(value, currency);
 }
 
 function formatShares(value: number): string {
@@ -47,6 +39,7 @@ interface HoldingDetailsDrawerProps {
   onEditEntry?: (id: string) => void;
   onToggleDeleteEntry?: (id: string) => void;
   onAddEntry?: () => void;
+  onManageEntries?: () => void;
 }
 
 function DetailRow({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) {
@@ -70,20 +63,9 @@ export function HoldingDetailsDrawer({
   onEditEntry,
   onToggleDeleteEntry,
   onAddEntry,
+  onManageEntries,
 }: HoldingDetailsDrawerProps) {
-  const gainLossPct = holding?.gainLossPct ?? null;
-  const gainLossTone =
-    gainLossPct === null
-      ? "text-foreground"
-      : gainLossPct > 0
-      ? "text-emerald-600 dark:text-emerald-400"
-      : gainLossPct < 0
-      ? "text-rose-600 dark:text-rose-400"
-      : "text-foreground";
-
-  const gainLossValue = holding
-    ? `${formatCurrency(holding.gainLossValue)} (${formatSignedPercent(holding.gainLossPct)})`
-    : "—";
+  useMarketCurrency();
   const hasHistory = Boolean(holding && !holding.isCash && holding.identifierType !== "cusip"
     && /^[A-Z][A-Z0-9.-]{0,15}$/.test(holding.symbol));
 
@@ -112,8 +94,10 @@ export function HoldingDetailsDrawer({
             <div className="min-w-0">
               <div className="px-5 py-4">
                 <p className={financeStyles.description}>Market value</p>
-                <p className={financeStyles.value}>{formatCurrency(holding?.marketValue ?? null)}</p>
-                <p className={cn("mt-2 text-sm tabular-nums", gainLossTone)}>{gainLossValue} · Unrealized gain / loss</p>
+                <p className={financeStyles.value}>{money(holding?.marketValue ?? null, holding?.currency)}</p>
+                {holding ? <p className="ui-text-row-description mt-2 tabular-nums">
+                  Unrealized gain / loss · <HoldingGainLoss holding={holding} showPercentage />
+                </p> : null}
               </div>
 
               {hasHistory && holding ? <div className="px-5 pb-4">
@@ -123,9 +107,9 @@ export function HoldingDetailsDrawer({
             <div className={financeStyles.holdingDetails}>
               <dl aria-label="Holding details" className={cn(financeStyles.facts, "px-5 pb-3")}>
                 <DetailRow label="Shares" value={holding ? formatShares(holding.shares) : "—"} />
-                <DetailRow label="Average Price" value={formatCurrency(holding?.averagePrice ?? null)} />
-                <DetailRow label={holding?.valuationKind === "statement" ? "Statement price" : "Reported price"} value={formatCurrency(holding?.currentPrice ?? null)} />
-                <DetailRow label="Cost basis" value={formatCurrency(holding?.costBasis ?? null)} />
+                <DetailRow label="Average Price" value={money(holding?.averagePrice ?? null, holding?.currency)} />
+                <DetailRow label={holding?.valuationKind === "statement" ? "Statement price" : "Reported price"} value={money(holding?.currentPrice ?? null, holding?.currency)} />
+                <DetailRow label="Cost basis" value={money(holding?.costBasis ?? null, holding?.currency)} />
                 <DetailRow
                   label="Portfolio Weight"
                   value={holding ? `${holding.portfolioWeightPct.toFixed(2)}%` : "—"}
@@ -134,8 +118,11 @@ export function HoldingDetailsDrawer({
                 <DetailRow label="Valuation source" value={holding?.source || "Not supplied by source"} />
                 <DetailRow label={holding?.valuationKind === "statement" ? "Statement as of" : "Price as of"} value={formatObservationDate(holding?.quoteAsOf || holding?.statementAsOf)} />
               </dl>
-              {entries ? <HoldingEntryList entries={entries} editable={canManageHoldings}
-                onEdit={onEditEntry} onToggleDelete={onToggleDeleteEntry} onAdd={onAddEntry} /> : null}
+              {entries ? <>
+                <HoldingEntryList entries={entries} compact={Boolean(onManageEntries)} editable={canManageHoldings && !onManageEntries}
+                  onEdit={onEditEntry} onToggleDelete={onToggleDeleteEntry} onAdd={onAddEntry} />
+                {canManageHoldings && onManageEntries ? <div className="flex justify-end px-5 pb-4"><ShellActionSurface variant="pill" className="min-h-11" onClick={onManageEntries}>Manage</ShellActionSurface></div> : null}
+              </> : null}
             </div>
           </div>
         </div>

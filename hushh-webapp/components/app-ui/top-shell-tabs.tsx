@@ -4,6 +4,8 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useImperativeHandle,
+  type Ref,
   useState,
   useMemo,
   useRef,
@@ -44,12 +46,14 @@ export function TopShellTabs({
   navigationMode = "replace",
   onValueChange,
   disabled = false,
+  selectionRef,
 }: {
   tabSet: TopShellTabSet;
   navigationMode?: "push" | "replace";
   /** Local workspaces keep their state in the mounted pager. */
   onValueChange?: (value: string) => void;
   disabled?: boolean;
+  selectionRef?: Ref<(value: string) => void>;
 }) {
   const router = useRouter();
   const interactionIntents = useInteractionIntents();
@@ -101,6 +105,7 @@ export function TopShellTabs({
     tabSet.id === "calendar" ||
     tabSet.id === "location" ||
     tabSet.id === "connect" ||
+    tabSet.id === "connect-views" ||
     tabSet.id === "consent" ||
     tabSet.id === "finance" ||
     tabSet.id === "ria";
@@ -209,6 +214,10 @@ export function TopShellTabs({
     ],
   );
 
+  useImperativeHandle(selectionRef, () => (value: string) => {
+    selectIndex(tabSet.tabs.findIndex((tab) => tab.value === value), false);
+  }, [selectIndex, tabSet.tabs]);
+
   return (
     <div
       className={cn(
@@ -273,7 +282,7 @@ export function TopShellTabs({
               disabled={disabled}
               data-ui-role="agent-tab"
               data-voice-control-id={
-                tabSet.id === "ria" ? `ria_route_tab_${tab.value}` : undefined
+                tab.voiceControlId ?? (tabSet.id === "ria" ? `ria_route_tab_${tab.value}` : undefined)
               }
               aria-controls={topShellTabDomId(tabSet, "panel", tab.value)}
               aria-selected={isActive}

@@ -88,6 +88,9 @@ class ScheduledTasks:
             if previous["state"] == "pending_delivery":
                 await self._offer(previous, caller_check=caller_check)
             return await self.get(schedule_id)
+        validate = getattr(capability, "validate_request", None)
+        if validate:
+            validate(request)
         terms = await capability.prepare(request.parameters)
         await self.check()
 

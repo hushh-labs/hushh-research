@@ -38,8 +38,8 @@ describe("canonical person avatar", () => {
     expect(connectionAvatarInitials(name)).toBe(initials);
   });
 
-  it("keeps contact and verification badges on separate visible avatar corners", () => {
-    const { container } = render(<ConnectionPersonAvatar label="Aadhi" fromContacts verified />);
+  it("explains both badges on hover within a profile avatar", async () => {
+    const { container } = render(<ConnectionPersonAvatar label="Aadhi" userId="aadhi" fromContacts verified />);
     const avatar = container.querySelector('[data-slot="avatar"]');
     const contact = screen.getByLabelText("Connected from your contacts");
     const verification = screen.getByLabelText("Verified advisor");
@@ -48,6 +48,40 @@ describe("canonical person avatar", () => {
     expect(avatar).toHaveClass("overflow-visible");
     expect(contact).toHaveClass("-bottom-0.5", "-right-0.5", "size-3");
     expect(verification).toHaveClass("-top-0.5");
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "View Aadhi's profile" })).toHaveAccessibleDescription(
+      "Advisor verified by Hussh. Matched from your contacts.",
+    );
+
+    fireEvent.pointerMove(contact, { pointerType: "mouse" });
+    // Via contacts keeps its title and explanation, and opens below the icon.
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Matched from your contacts.",
+    );
+    expect(document.querySelector('[data-slot="tooltip-content"]')).toHaveAttribute("data-side", "bottom");
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("tooltip")).toBeNull());
+    fireEvent.pointerMove(verification, { pointerType: "mouse" });
+    // Verified Advisor is its own explanation: the title alone, also below.
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(/^Verified Advisor$/);
+    expect(document.querySelector('[data-slot="tooltip-content"]')).toHaveAttribute("data-side", "bottom");
+  });
+
+  it("opens a compact profile from its larger target without activating the parent row", () => {
+    const onRow = vi.fn();
+    const onProfile = vi.fn();
+    window.addEventListener("hussh:person-profile-preview", onProfile);
+    try {
+      render(<div onClick={onRow}><ConnectionPersonAvatar label="Aadhi" userId="aadhi" size="compact" minimumHitArea /></div>);
+      const button = screen.getByRole("button", { name: "View Aadhi's profile" });
+      expect(button).toHaveClass("size-11");
+      fireEvent.click(button);
+      expect(onProfile).toHaveBeenCalledOnce();
+      expect((onProfile.mock.calls[0][0] as CustomEvent).detail.userId).toBe("aadhi");
+      expect(onRow).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("hussh:person-profile-preview", onProfile);
+    }
   });
 
   it("opens a compact profile from its larger target without activating the parent row", () => {

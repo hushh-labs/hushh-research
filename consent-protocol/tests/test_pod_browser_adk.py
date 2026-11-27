@@ -458,3 +458,156 @@ async def _assert_closed_and_private(monkeypatch, manifest, model, runtime, proc
             control=runtime, processing=process, goal=process.task_goal
         )
     assert len(requests) == completed_request_count + 1
+
+
+async def test_native_credential_hands_keep_only_handles_origins_and_explicit_targets_in_adk(
+    monkeypatch,
+):
+    """Pinned ADK tools/provider adaptation, with no provider or website network."""
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from google.adk.models import Gemini
+    from google.genai import types
+
+    from hushh_mcp.hushh_adk.manifest import ManifestLoader
+    from hushh_mcp.services.pod_browser.adk_task import NativeAdkBrowserModel
+    from hushh_mcp.services.pod_browser.credential_contracts import CredentialDescriptor
+    from hushh_mcp.services.pod_browser.information import (
+        BrowserInformation,
+        BrowserModelProcessing,
+    )
+
+    monkeypatch.setenv("POD_COMPUTER_USE_ENABLED", "true")
+    manifest = ManifestLoader.load(
+        str(Path(__file__).resolve().parents[1] / "hushh_mcp/agents/computer_use/agent.yaml")
+    )
+    runtime = control(auth=Authority(approved=True))
+    descriptor = CredentialDescriptor(
+        handle="cred_" + "a" * 32,
+        origin="https://example.com",
+        record_revision=3,
+        autonomy_policy="autonomous",
+        policy_generation=2,
+        custody_generation=1,
+    )
+    selected = []
+
+    class Credentials:
+        owner_pending = False
+
+        def require_available(self):
+            pass
+
+        async def catalog(self, origin):
+            assert origin == descriptor.origin
+            return (descriptor,)
+
+        async def use(self, request):
+            selected.append(request)
+            return {"state": "submitted", "origin": descriptor.origin}
+
+    runtime.credentials = Credentials()
+    consent = _BrowserConsent()
+    processing = BrowserModelProcessing(
+        BrowserInformation(SimpleNamespace(), consent),
+        runtime.binding,
+        (),
+        readiness().model_name,
+        readiness().model_transport,
+        (descriptor.origin,),
+        "Sign in to the approved website.",
+    )
+    approve_browser_processing(consent, processing)
+    requests = []
+
+    async def generate(**request):
+        requests.append(request)
+        name, args = (
+            ("saved_website_logins", {"origin": descriptor.origin})
+            if len(requests) == 1
+            else (
+                "use_saved_website_login",
+                {
+                    "handle": descriptor.handle,
+                    "origin": descriptor.origin,
+                    "username_x": 10,
+                    "username_y": 10,
+                    "password_x": 10,
+                    "password_y": 40,
+                    "submit_x": 10,
+                    "submit_y": 70,
+                },
+            )
+            if len(requests) == 2
+            else (
+                "finish_task",
+                {
+                    "outcome": "needs_owner",
+                    "summary": "The website may require another sign-in step.",
+                },
+            )
+        )
+        return types.GenerateContentResponse(
+            candidates=[
+                types.Candidate(
+                    content=types.Content(
+                        role="model",
+                        parts=[types.Part(function_call=types.FunctionCall(name=name, args=args))],
+                    ),
+                    finish_reason=types.FinishReason.STOP,
+                )
+            ]
+        )
+
+    model = Gemini(model=processing.model_name)
+    model.__dict__["api_client"] = SimpleNamespace(
+        vertexai=False, aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate))
+    )
+    native = NativeAdkBrowserModel(manifest, model)
+    try:
+        result = await native.run(control=runtime, processing=processing, goal=processing.task_goal)
+        assert result.outcome == "needs_owner" and len(requests) == 3
+        assert len(selected) == 1 and selected[0].targets.password.model_dump() == {
+            "x": 10,
+            "y": 40,
+        }
+        tool_responses = [
+            part.function_response
+            for content in requests[-1]["contents"]
+            for part in content.parts or []
+            if part.function_response
+        ]
+        catalog = next(
+            response.response
+            for response in tool_responses
+            if response.name == "saved_website_logins"
+        )
+        assert catalog == {"logins": [{"handle": descriptor.handle, "origin": descriptor.origin}]}
+        declarations = [
+            declaration
+            for tool in requests[0]["config"].tools
+            for declaration in tool.function_declarations or []
+        ]
+        hand = next(
+            declaration
+            for declaration in declarations
+            if declaration.name == "use_saved_website_login"
+        )
+        assert set(hand.parameters_json_schema["properties"]) == {
+            "handle",
+            "origin",
+            "username_x",
+            "username_y",
+            "password_x",
+            "password_y",
+            "submit_x",
+            "submit_y",
+            "otp_x",
+            "otp_y",
+        }
+        # No source values or per-record custody metadata enter ADK history.
+        assert "record_revision" not in str(catalog) and "autonomy_policy" not in str(catalog)
+    finally:
+        await native.release_task(runtime.binding)
+        await runtime.stop()

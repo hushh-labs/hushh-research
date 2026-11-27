@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { AppStreamPanel } from "@/components/app-ui/stream-progress-panel";
 import { StreamingProgressView } from "@/components/kai/views/streaming-progress-view";
 import { RoundTabsCard } from "@/components/kai/views/round-tabs-card";
 
@@ -58,7 +59,7 @@ describe("Kai stream presentation", () => {
     expect(screen.queryByText(/<analysis>|<claim|<portfolio_impact/)).not.toBeInTheDocument();
   });
 
-  it("uses the canonical segmented tab contract for analyst selection", () => {
+  it("keeps every analyst result available through independent disclosures", () => {
     render(
       <RoundTabsCard
         roundNumber={1}
@@ -73,9 +74,51 @@ describe("Kai stream presentation", () => {
       />,
     );
 
-    expect(screen.getByRole("tablist", { name: "Initial Deep Analysis analysts" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: "Sentiment" }));
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Sentiment · round 1" }));
     expect(screen.getByText("Sentiment result")).toBeInTheDocument();
     expect(screen.queryByText("Fundamental result")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Fundamental · round 1" }));
+    expect(screen.getByText("Fundamental result")).toBeInTheDocument();
+    expect(screen.getByText("Sentiment result")).toBeInTheDocument();
+  });
+
+  it("collapses Activity and Reasoning smoothly in-place without remounting triggers when the answer arrives", () => {
+    const progressItems = [{ id: "step-1", label: "Search", message: "Checking records", status: "done" as const }];
+    const thinkingItems = [{ id: "think-1", message: "Synthesizing timeline", status: "done" as const }];
+
+    const { rerender } = render(
+      <AppStreamPanel
+        isStreaming
+        progressItems={progressItems}
+        thinkingItems={thinkingItems}
+        responseText=""
+      />,
+    );
+
+    const activityTriggerBefore = screen.getByRole("button", { name: /activity/i });
+    const reasoningTriggerBefore = screen.getByRole("button", { name: /reasoning/i });
+    expect(activityTriggerBefore).toHaveAttribute("data-state", "open");
+    expect(reasoningTriggerBefore).toHaveAttribute("data-state", "open");
+
+    rerender(
+      <AppStreamPanel
+        isStreaming={false}
+        progressItems={progressItems}
+        thinkingItems={thinkingItems}
+        responseText="Here is your summary."
+      />,
+    );
+
+    const activityTriggerAfter = screen.getByRole("button", { name: /activity/i });
+    const reasoningTriggerAfter = screen.getByRole("button", { name: /reasoning/i });
+    expect(activityTriggerAfter).toBe(activityTriggerBefore);
+    expect(reasoningTriggerAfter).toBe(reasoningTriggerBefore);
+    expect(activityTriggerAfter).toHaveAttribute("data-state", "closed");
+    expect(reasoningTriggerAfter).toHaveAttribute("data-state", "closed");
+
+    fireEvent.click(activityTriggerAfter);
+    expect(activityTriggerAfter).toHaveAttribute("data-state", "open");
+    expect(screen.getByText("Checking records")).toBeInTheDocument();
   });
 });

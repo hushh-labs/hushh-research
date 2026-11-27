@@ -11,45 +11,44 @@ unrestricted access to accounts or storage.
 
 ```mermaid
 flowchart TB
-  client["Web and native clients"]
-  control["Control plane: identity, consent, placement, releases"]
-  shared["Explicit Shared runtime"]
-  private["Owner container: One and specialists"]
+  client["Web and native clients (one.hussh.si)"]
+  localCache["Encrypted IndexedDB Replica<br/>0ms - 150ms Passive Reads"]
+  control["Zero-Knowledge Control Plane<br/>Identity, PCHP Consent, Wake Doorbell, Releases"]
+  edge["Stateless TLS Edge Gateway<br/>sub-2s Self-Heal & 12h Session"]
+  private["Single-Container Sovereign Agent One Pod<br/>Confidential Sandbox (Dev & UAT) · BYOC (GCP/Azure) · Local Puppy"]
   model["Verified model connection"]
-  pkm["Encrypted PKM and scoped exports"]
+  pkm["Zero-Knowledge Central Encrypted PKM Mirror<br/>Sub-50ms Sync, Scope Paid Sharing & MCP at $0 Wake Cost"]
   storage["Owner encrypted storage and recovery"]
+  sentinel["Shared System Sentinel Egress Gate + HMAC Audit<br/>Out-of-Sandbox Company Key Mediation"]
   services["Consented connected services"]
   client --> control
-  client --> shared
-  client <-->|Admitted private session| private
+  client --> localCache
+  localCache <--> pkm
+  client <-->|Admitted 12h session| edge
+  edge --> private
   control -->|Signed coordination| private
-  shared --> model
   private --> model
   control --> pkm
-  private -->|Scoped hub requests| control
+  private <-->|Encrypted PKM commits| pkm
   private --> storage
-  shared --> services
-  private --> services
+  private --> sentinel
+  sentinel --> services
 ```
 
 ## Responsibilities
 
 | Component | Owns | Does not establish |
 | --- | --- | --- |
-| App and native shell | Interaction, local unlock, approved encryption, review | Authority merely because a control is visible |
-| Control plane | Identity, placement, consent, grants, operations and releases | Permission to read every owner's plaintext |
-| One and specialists | Task coordination and bounded execution | New authority from a model's request |
-| PKM and export services | Encrypted memory, scope metadata and consented exports | General plaintext model access |
-| Owner storage | Qualified recovery and Files custody | A working backup without verified restoration |
-| Delivery tooling | Exact-source validation and explicit releases | Automatic deployment when source merges |
+| App and native shell | Interaction on `one.hussh.si`, local unlock, `0ms - 150ms` (`<100ms` target) encrypted IndexedDB read replica (`hushh-owner-ui-cache`), approved encryption, review | Authority merely because a control is visible |
+| Zero-knowledge control plane | Identity (`id.hussh.si` / `id.hussh.ai`), placement, PCHP consent grants, zero-content wake doorbells, marketplace settlement, and releases | Permission to read any owner's plaintext |
+| Zero-Knowledge Central Encrypted PKM Mirror | Durable owner-encrypted ciphertext for `hussh` One accounts (`<50ms` cross-device sync, `get_encrypted_scoped_export` MCP, and Scope Paid Sharing without waking sleeping pods; customer-bucket isolation reserved for BYOC) | Any `hussh`-held vault decryption key |
+| Single-container sovereign runtime | `One` and bounded specialists (`Kai`, `Nav`, Mail, Calendar, Drive, Files, Browser, Scheduled Tasks, Live Voice) inside a single `2 vCPU / 4 GiB` container (`$0/hr` asleep) across Confidential Sandbox (Dev and UAT), BYOC, and Local Puppy | New authority from a model's request or shared-hub fallback for sovereign pod state |
+| Shared Sentinel egress gate | Out-of-sandbox destination allowlisting, tamper-evident HMAC audit logs, and stateless injection of `hussh` operator secrets (Google Web OAuth, Plaid, market data, and model keys) outside user pods | Storage of user tokens or plaintext payloads |
+| Delivery tooling | Exact-source validation, digest-verified TestFlight signing inputs, and explicit releases | Automatic deployment when source merges |
 
 ## A turn through the system
 
-The client establishes its owner and current account authority, unlocks information
-when required, and submits a task to the admitted runtime. One uses its existing
-ADK tree to select a specialist or tool. That tool validates the operation's consent,
-owner binding and current state. Consequential effects require the applicable
-review; uncertain outcomes are reconciled rather than replayed.
+The client establishes its owner and current account authority and unlocks information when required. Passive UI reads (Chats sidebar, Rolling Main Chat, Files, and Personal Wiki) render immediately in `0ms - 150ms` (`<100ms` target) from the device's owner-scoped encrypted IndexedDB replica (`hushh-owner-ui-cache`) across reload and idle lock without blocking behind a waking sandbox. Active turns route over 12-hour `pst1.` placement-bound sessions through the stateless TLS Edge Gateway while sandboxes pre-warm silently in the background. One uses its existing ADK tree to select a specialist or tool. That tool validates the operation's consent, owner binding and current state. Consequential effects require the applicable review; uncertain outcomes are reconciled rather than replayed.
 
 The [runtime view](views/runtime.md) details composition. The
 [information boundaries](views/information-boundary.md) distinguish encrypted
@@ -62,7 +61,4 @@ The current root agent is One; Kai is its finance specialist. Some implementatio
 identifiers retain Kai-era names for compatibility. These names do not define a
 second top-level product.
 
-Shared and private hosting have distinct custody and capability contracts.
-Missing placement is not Shared. Browser and Puppy require their own installed
-acceptance. Read [capability availability](../product/capabilities.md) before
-interpreting a source diagram as a deployment promise.
+Dev cutover lanes retire `Hussh Shared` into `Hussh Confidential Sandbox` (Google Cloud default, Dev Preview) alongside `Bring Your Own Cloud` (GCP/Azure) and `Local Puppy`, while UAT and Production retain existing `Shared` and `BYOC` separation until Phase 4 acceptance ([#9744](https://github.com/hushh-labs/hushh-research/issues/9744)). Missing placement is not Shared. Browser and Puppy require their own installed acceptance. Read [capability availability](../product/capabilities.md) before interpreting a source diagram as a deployment promise. Related tracking issues: [#9744](https://github.com/hushh-labs/hushh-research/issues/9744) · [#9511](https://github.com/hushh-labs/hushh-research/issues/9511) · [#9736](https://github.com/hushh-labs/hushh-research/issues/9736) · [#9517](https://github.com/hushh-labs/hushh-research/issues/9517) · [#9370](https://github.com/hushh-labs/hushh-research/issues/9370) · [#5507](https://github.com/hushh-labs/hushh-research/issues/5507).

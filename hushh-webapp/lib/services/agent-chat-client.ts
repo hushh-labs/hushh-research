@@ -1,3 +1,15 @@
+import { parseConsentAccess, type AgentChatConsentAccess } from "@/lib/agent/chat-consent-access";
+export { parseConsentAccess, type AgentChatConsentAccess } from "@/lib/agent/chat-consent-access";
+import { loadAgentTurnFinancialProjection } from "@/lib/kai/plaid-vault/agent-turn-nws";
+import {
+  PLAID_TOOL_DECLARATIONS,
+  PLAID_TOOL_NAMES,
+  executePlaidConnectorClientTool,
+  normalizePlaidToolRequest,
+  type PlaidConnectorEnvelope,
+  type PlaidToolName,
+} from "@/lib/kai/plaid-vault/plaid-chat-client-tools";
+import { ACCOUNT_CONTEXT_TOOL, ACCOUNT_CONTEXT_CONTRACT, parseAccountContextRequest, readAccountContext, type AccountContextRequest } from "./account-chat-context";
 import { browserTimeZone, chatTurnTimeZone } from "@/lib/agent/chat-turn-time-zone";
 import { browserTaskProgress, privateToolProgressArgs } from "@/lib/computer-use/chat-progress";
 import { queuedInputPorts } from "@/lib/agent/queued-input-ports";
@@ -5,6 +17,7 @@ import { createAgentStreamLiveness } from "./agent-chat-liveness";
 import { AGENT_RESPONSE_REFUSAL_MESSAGE } from "./agent-event-boundary";
 import { publicAgentOutput } from "./agent-output-privacy";
 import { ApiService, type ApiFetchOptions } from "@/lib/services/api-service";
+import { captureProductAttempt, type ProductAttempt } from "@/lib/observability/product-activity-client";
 import { assertNoUnguardedSecrets } from "@/lib/pkm/secret-span-guard";
 import { serverNow } from "@/lib/agent/server-clock";
 import { projectCustomConnectorTurnConfigurations, type CustomConnectorConfiguration } from "@/lib/connections/custom-connector-schema";
@@ -22,10 +35,13 @@ import { describeDirectiveForOwner } from "@/lib/agent/action-directive-summary"
 import { parseMcpCallReview, type McpCallApproval, type McpCallReviewReference } from "@/lib/agent/mcp-call-review";
 import { REACTION_TOOL_NAME, parseMessageReaction, type MessageReactionResult } from "@/lib/agent/agent-message-reaction";
 import { FOLLOW_UP_TOOL_NAME, parseFollowUpSuggestions } from "@/lib/agent/follow-up-suggestions";
-import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { snapshotAuthSessionGeneration, snapshotValidatedAuthSessionOwner, snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { isFirebaseSessionOwnerCurrent } from "@/lib/auth/firebase-session-owner";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import { subscribeDurableOwnerReset } from "@/lib/services/secure-durable-resource-service";
 import { resolveTurnLocation } from "@/lib/agent/turn-location";
+import { parseGmailReviewDirective, type PendingEmailDraftContext } from "@/lib/chat/email-agent-contract";
+import { emailMemoryCommitPayload, parseEmailMemorySaveDirective, type EmailMemoryCommitReceipt, type EmailMemoryProjection } from "@/lib/chat/email-memory-bridge";
 import {
   QUEUED_INPUT_EVENT,
   parseQueuedInputNotice,
@@ -58,13 +74,44 @@ import {
   type AgentStructuredExperience,
 } from "@/lib/agent/agui-structured-experiences";
 import { ownerStyleRequestField, type OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
+import { readGoalPlanProposal } from "@/lib/goals/goal-plan-proposal";
+import type { GoalPlanInput } from "@/lib/services/goals-pkm-service";
 import { ownerAiRunErrorMessage } from "@/lib/agent/owner-ai-turn-errors";
+import {
+  WIKI_TOOL_DECLARATIONS,
+  WIKI_TOOL_NAMES,
+  buildSharedWikiHotDigestContext,
+  executeSharedWikiRecallTool,
+  normalizeWikiRecallRequest,
+  type WikiRecallEnvelope,
+  type WikiToolName,
+} from "@/lib/files/wiki/recall-client-tools";
+import {
+  clearActiveSharedWiki,
+  ensureActiveSharedWiki,
+  peekActiveSharedWiki,
+} from "@/lib/files/wiki/active-shared-wiki";
+import { SharedWikiOwnerMigrator } from "@/lib/files/wiki/migration-and-maintenance";
+import type { SharedWikiLibrary } from "@/lib/files/wiki/library";
+import { invalidateFilesMutationCache } from "@/lib/files/files-cache";
+import { LIVE_MIRROR_PACKET_HEADER } from "@/lib/pkm/live-mirror-agent-facts";
+import { PENDING_CHAT_TURNS_HEADER } from "@/lib/pkm/live-activity/live-activity-agent-context";
 import { managedChatRunErrorMessage, MODEL_CAPACITY_MESSAGE } from "@/lib/agent/managed-chat-run-errors";
 import { ownerPodTurnErrorMessage, refusalCode } from "@/lib/agent/owner-pod-turn-errors";
 import { wakingChatTransport } from "@/lib/agent/one-chat-transport";
+import {
+  parsePortfolioContextRequest,
+  PORTFOLIO_CONTEXT_CONTRACT,
+  PORTFOLIO_CONTEXT_TOOL,
+  readPortfolioContext,
+  type PortfolioContextRequest,
+} from "@/lib/kai/portfolio-chat-context";
+import { PORTFOLIO_SWITCH_CONTRACT } from "@/lib/agent/finance-chat-experiences";
 import type { ReceiptCanonicalIndex } from "@/lib/profile/gmail-receipt-memory-index";
 import { RECEIPT_FUNCTIONS, RECEIPT_TOOL_DECLARATIONS, type ReceiptAnalysisRequest, type ReceiptFunction } from "@/lib/mail/receipt-analysis";
 import { receiptCallRequest, receiptCallRunner, settleReceiptCalls, type ReceiptSetupState } from "./agent-chat-receipt-calls";
+
+import { parseMainLocationProposal, type MainLocationContinuation, type MainLocationProposal } from "@/lib/agent/main-chat-location-contract";
 
 export type AgentChatMessage = {
   id: string;
@@ -78,6 +125,9 @@ export type AgentChatMessage = {
   metadata?: {
     kind?: string;
     display?: string;
+    locationChatProposal?: MainLocationProposal;
+    locationReplyFor?: string;
+    locationConversationText?: boolean;
     structuredExperience?: {
       activityType?: string;
       content?: unknown;
@@ -99,51 +149,6 @@ export type AgentChatMessage = {
     consentAccess?: AgentChatConsentAccess;
   } | null;
 };
-
-/**
- * `metadata.consentAccess` on an answer that used another person's shared
- * information (contract C3). Names and human labels only, never values.
- */
-export type AgentChatConsentAccess = {
-  bundleId: string;
-  state: "live" | "ended";
-  /** Why access ended; null while it is live. */
-  outcome: "revoked" | "expired" | null;
-  personName: string | null;
-  labels: string[];
-};
-
-function endedReason(value: unknown): "revoked" | "expired" | null {
-  return value === "revoked" || value === "expired" ? value : null;
-}
-
-/**
- * Read `metadata.consentAccess`, falling back to the response's
- * `consentAccessEnded` map for the reason. Anything malformed reads as absent.
- */
-export function parseConsentAccess(
-  value: unknown,
-  endedByBundle: Readonly<Record<string, unknown>> = {},
-): AgentChatConsentAccess | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const record = value as Record<string, unknown>;
-  const bundleId = typeof record.bundleId === "string" ? record.bundleId.trim() : "";
-  if (!bundleId) return undefined;
-  const outcome = endedReason(record.outcome) ?? endedReason(endedByBundle[bundleId]);
-  const labels = Array.isArray(record.labels)
-    ? record.labels.filter((label): label is string => typeof label === "string" && Boolean(label.trim()))
-      .map((label) => label.trim().slice(0, 120)).slice(0, 20)
-    : [];
-  const personName = typeof record.personName === "string" && record.personName.trim()
-    ? record.personName.trim().slice(0, 120) : null;
-  return {
-    bundleId,
-    state: record.state === "ended" || outcome ? "ended" : "live",
-    outcome,
-    personName,
-    labels,
-  };
-}
 
 function utf8ToBase64(text: string): string {
   const bytes = new TextEncoder().encode(text);
@@ -181,6 +186,8 @@ export function buildAgentUserMessageContent(
 export type AgentChatConversation = {
   id: string;
   title: string;
+  category?: string | null;
+  category_source?: "auto" | "custom" | string | null;
   status: string;
   model?: string | null;
   message_count: number;
@@ -219,6 +226,8 @@ export type SpecialistDirectiveEvent = {
   stateChanged: boolean;
 };
 
+export { parseGmailReviewDirective, type GmailReviewDirective } from "@/lib/chat/email-agent-contract";
+
 export type AgentSource = {
   agentId: string;
   label: string;
@@ -226,10 +235,11 @@ export type AgentSource = {
 };
 
 export type AgentChatStreamHandlers = {
+  onGoalPlanProposal?: (proposal: GoalPlanInput) => void;
   /** Invocation metadata triggers owner-pod rediscovery, never private browser content. */
   onBrowserTaskCreated?: () => void;
   /** Receipt detail/answer is current-turn only, excluded from replay and PKM. */
-  onReceiptPrivate?: () => void;
+  onReceiptPrivate?: (kind?: "portfolio" | "account") => void;
   /** At most once per turn: receipts need Gmail connected, or a sync on this device. */
   onReceiptSetupNeeded?: (state: ReceiptSetupState) => void;
   /** Ephemeral native review: never append its references or receipt to history/debug events. */
@@ -250,12 +260,15 @@ export type AgentChatStreamHandlers = {
   onToolStart?: (payload: AgentChatToolEvent) => void;
   onToolWaiting?: (payload: AgentChatToolEvent) => void;
   onToolResult?: (payload: AgentChatToolEvent) => void;
+  onLocationProposal?: (proposal: MainLocationProposal) => void;
   /** Request ids a server tool reported as waiting on the owner; the workspace renders each as a pending-consent card. */
   onPendingConsentRequests?: (requestIds: string[]) => void;
   onToken?: (token: string) => void;
   /** Provider-authored thought summary only; never raw thoughts or continuation signatures. */
   onThinkingSummary?: (chunk: string) => void;
   onComplete?: (payload: { conversationId: string; model?: string }) => void;
+  /** Numerical full-request accounting; no prompt or memory text. */
+  onContextUsage?: (usage: { modelCallId: string; inputTokens: number; tokenCountMethod: string }) => void;
   onInterrupt?: (payload: { conversationId: string }) => void;
   onError?: (message: string) => void;
   onSources?: (sources: AgentSource[]) => void;
@@ -509,15 +522,7 @@ export function parseParkedAppActionDirective(content: unknown): ParkedAppAction
  */
 export function parsePendingConsentRequestIds(toolName: string, content: unknown): string[] {
   if (toolName !== "list_pending_information_requests") return [];
-  let result: unknown = content;
-  if (typeof result === "string") {
-    try {
-      result = JSON.parse(result);
-    } catch {
-      return [];
-    }
-  }
-  const record = asRecord(result);
+  const record = unwrapParkedActionResult(content);
   if (!record || record.status !== "ok") return [];
   const ids = Array.isArray(record.pendingRequestIds) ? record.pendingRequestIds : [];
   return ids
@@ -568,6 +573,21 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Connectors",
     message: "Checking your saved connectors.",
     activity: "Checking your connectors",
+  },
+  manage_connector: {
+    label: "Connectors",
+    message: "Checking your connector setup.",
+    activity: "Checking connector setup",
+  },
+  sync_plaid_connector: {
+    label: "Plaid",
+    message: "Synced live balances from your linked institutions.",
+    activity: "Syncing live Plaid balances",
+  },
+  read_plaid_mirror: {
+    label: "Plaid",
+    message: "Checked your connected financial accounts.",
+    activity: "Reading connected accounts",
   },
   probe_private_connector: {
     label: "Connectors",
@@ -624,6 +644,32 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Asking the finance specialist.",
     activity: "Checking your finances",
   },
+  [ACCOUNT_CONTEXT_TOOL]: { label: "Account", activity: "Reading your account", message: "Reading your account for this answer." },
+  show_market_gainers: {
+    label: "Top gainers",
+    message: "Opening the market gainers card.",
+    activity: "Opening top gainers",
+  },
+  show_portfolio_card: {
+    label: "Portfolio",
+    message: "Opening the portfolio card.",
+    activity: "Opening portfolio",
+  },
+  [PORTFOLIO_CONTEXT_TOOL]: {
+    label: "Portfolio",
+    message: "Reading saved portfolio details.",
+    activity: "Reading portfolio",
+  },
+  show_portfolio_upload: {
+    label: "Portfolio upload",
+    message: "Opening the portfolio upload card.",
+    activity: "Opening portfolio upload",
+  },
+  show_stock_preview: {
+    label: "Stock analysis preview",
+    message: "Opening the stock analysis preview.",
+    activity: "Opening stock analysis preview",
+  },
   wallet: {
     label: "Wallet",
     message: "Checking your wallet.",
@@ -644,6 +690,26 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Saving this to your memory.",
     activity: "Saving to your memory",
   },
+  search_wiki: {
+    label: "Personal wiki",
+    message: "Searching your personal notes.",
+    activity: "Searching your notes",
+  },
+  read_wiki_page: {
+    label: "Personal wiki",
+    message: "Reading your personal note.",
+    activity: "Reading a personal note",
+  },
+  trace_claim: {
+    label: "Personal wiki",
+    message: "Checking note sources and updates.",
+    activity: "Checking note sources",
+  },
+  optimize_personal_memory: {
+    label: "Memory optimization",
+    message: "Consolidating and optimizing your personal memory.",
+    activity: "Optimizing memory",
+  },
   read_my_profile_status: {
     label: "Profile",
     message: "Checking your profile.",
@@ -653,6 +719,11 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Location",
     message: "Checking the location request.",
     activity: "Checking location",
+  },
+  propose_location_action: {
+    label: "Location review",
+    message: "Preparing the location action for review.",
+    activity: "Preparing location review",
   },
   list_my_location_circles: {
     label: "Location circles",
@@ -759,6 +830,16 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Finding free time on your calendar.",
     activity: "Finding free time",
   },
+  calendar_shared_free_slots: {
+    label: "Google Calendar",
+    message: "Checking free time across your Calendar accounts.",
+    activity: "Finding shared free time",
+  },
+  calendar_opening_detail: {
+    label: "Google Calendar",
+    message: "Reading a saved free-time option.",
+    activity: "Showing a free-time option",
+  },
   propose_calendar_event: {
     label: "Google Calendar",
     message: "Preparing an event for your confirmation.",
@@ -774,6 +855,46 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Preparing a cancellation for your confirmation.",
     activity: "Preparing a cancellation",
   },
+  files: {
+    label: "Private Files",
+    message: "Working with your private files.",
+    activity: "Checking Private Files",
+  },
+  search_files: {
+    label: "Private Files",
+    message: "Searching your private files.",
+    activity: "Searching Private Files",
+  },
+  read_file: {
+    label: "Private Files",
+    message: "Reading a private file.",
+    activity: "Reading a private file",
+  },
+  write_file: {
+    label: "Private Files",
+    message: "Saving a private file.",
+    activity: "Saving a private file",
+  },
+  create_folder: {
+    label: "Private Files",
+    message: "Creating a private folder.",
+    activity: "Creating a folder",
+  },
+  organize_file: {
+    label: "Private Files",
+    message: "Organizing your private files.",
+    activity: "Organizing a file",
+  },
+  propose_file_schedule: {
+    label: "Private Files",
+    message: "Preparing a file schedule for your review.",
+    activity: "Preparing a file schedule",
+  },
+  propose_goal_plan: {
+    label: "Goal plan",
+    message: "Preparing a goal plan for you to review.",
+    activity: "Preparing a goal plan",
+  },
   open_gmail_email_draft: {
     label: "Gmail",
     message: "Opening an email draft.",
@@ -783,6 +904,61 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Gmail",
     message: "Opening a reply draft.",
     activity: "Drafting a reply",
+  },
+  open_gmail_reply_draft: {
+    label: "Gmail",
+    message: "Opening a threaded reply draft.",
+    activity: "Drafting a reply",
+  },
+  open_gmail_forward_draft: {
+    label: "Gmail",
+    message: "Opening a forwarded email draft.",
+    activity: "Drafting a forward",
+  },
+  gmail_search_mail: {
+    label: "Gmail",
+    message: "Searching your Gmail.",
+    activity: "Searching your Gmail",
+  },
+  gmail_scan_receipts: {
+    label: "Gmail",
+    message: "Scanning your Gmail receipts and invoices.",
+    activity: "Scanning receipts and invoices",
+  },
+  gmail_read_thread: {
+    label: "Gmail",
+    message: "Reading the email conversation.",
+    activity: "Reading an email thread",
+  },
+  gmail_read_attachment: {
+    label: "Gmail",
+    message: "Reading the email attachment.",
+    activity: "Reading an email attachment",
+  },
+  gmail_list_needs_reply: {
+    label: "Gmail",
+    message: "Checking emails waiting on your reply.",
+    activity: "Checking replies needed",
+  },
+  gmail_mailbox_insights: {
+    label: "Gmail",
+    message: "Checking your Gmail status and insights.",
+    activity: "Checking Gmail insights",
+  },
+  gmail_manage_labels: {
+    label: "Gmail",
+    message: "Updating your Gmail labels.",
+    activity: "Managing Gmail labels",
+  },
+  gmail_manage_drafts: {
+    label: "Gmail",
+    message: "Managing your Gmail drafts.",
+    activity: "Managing Gmail drafts",
+  },
+  gmail_manage_settings: {
+    label: "Gmail",
+    message: "Managing your Gmail settings.",
+    activity: "Managing Gmail settings",
   },
   propose_gmail_mailbox_change: {
     label: "Gmail",
@@ -904,14 +1080,16 @@ const WORKSPACE_PROVIDER_NAMES: Record<string, string> = {
   gmail: "Gmail",
   drive: "Google Drive",
   calendar: "Google Calendar",
+  plaid: "Plaid",
+  stripe: "Stripe",
+  custom: "Connectors",
 };
 
 /**
- * Connector setup and reads name the Google product once the call's provider
- * is known, so "lets connect to Google Drive" reads "Google Drive · Checking
- * Google Drive access" rather than a generic connector row. Only the fixed
- * enum above ever labels a step; any other provider value keeps the generic
- * presentation.
+ * Connector setup and reads name the product once the call's provider is
+ * known, so "connect our bank account" reads "Plaid · Checking Plaid" rather
+ * than a generic connector row. Only the fixed enum above ever labels a step;
+ * any other provider value keeps the generic presentation.
  */
 function workspaceToolPresentation(
   toolName: string,
@@ -925,6 +1103,13 @@ function workspaceToolPresentation(
   if (toolName === "read_workspace_tool") {
     return { label: name, message: `Reading ${name}.`, activity: `Reading ${name}` };
   }
+  if (toolName === "manage_connector") {
+    return {
+      label: name,
+      message: provider === "custom" ? "Checking your saved connectors." : `Preparing ${name} setup.`,
+      activity: provider === "custom" ? "Checking your connectors" : `Preparing ${name}`,
+    };
+  }
   return null;
 }
 
@@ -937,17 +1122,40 @@ export type RestoredActivityStep = {
   message: string;
   status: "done" | "waiting" | "blocked";
   tag?: "Read" | "Needs review" | "Public";
-  provider?: "gmail" | "drive" | "calendar";
+  provider?: "gmail" | "drive" | "calendar" | "plaid" | "stripe";
   toolName: string;
   /** Opaque owner connector id; the workspace resolves its name from the owner's vault. */
   connectorId?: string;
 };
 
+const DIRECT_MAIL_READ_TOOLS = new Set([
+  "gmail_search_mail",
+  "gmail_scan_receipts",
+  "gmail_read_thread",
+  "gmail_read_attachment",
+  "gmail_list_needs_reply",
+  "gmail_mailbox_insights",
+]);
+
 /** A specialist read's Activity sentence: chosen by its receipt status, never by the card it renders. */
 function specialistReadMessage(toolName: string, status: unknown, metadataOnly = false): string {
-  const source = toolName === "ask_email_agent" ? "Mail" : "Drive";
-  if (status === "ok") return source === "Drive" && metadataOnly ? "Drive search finished." : `${source} read finished.`;
+  const source = toolName === "ask_email_agent" || DIRECT_MAIL_READ_TOOLS.has(toolName) ? "Mail" : "Drive";
+  if (status === "ok") {
+    if (toolName === "gmail_search_mail") return "Mail search finished.";
+    if (toolName === "gmail_scan_receipts") return "Scanned Mail receipts and invoices.";
+    if (toolName === "gmail_read_thread") return "Mail thread read.";
+    if (toolName === "gmail_read_attachment") return "Mail attachment read.";
+    if (toolName === "gmail_list_needs_reply") return "Checked emails needing a reply.";
+    if (toolName === "gmail_mailbox_insights") return "Checked Gmail status and insights.";
+    return source === "Drive" && metadataOnly ? "Drive search finished." : `${source} read finished.`;
+  }
+  if (status === "no_match" && source === "Mail") return "No matching emails found.";
   if (status === "input_required") return `${source} needs more detail.`;
+  if (status === "connect_required") return `${source} isn't connected yet.`;
+  if (status === "reconnect_required") return `${source} needs to be reconnected.`;
+  if (status === "permission_denied" || status === "permission_required") {
+    return `${source} needs permission to continue.`;
+  }
   // The Email specialist read no mail and handed a receipts question back to One.
   if (status === "receipt_functions_required" && source === "Mail") return "Handed to your receipts; no mail was read.";
   return `${source} could not complete that read.`;
@@ -976,8 +1184,8 @@ export function parseRestoredTurnActivity(descriptor: unknown): RestoredActivity
     if (!mcp && !presentation) return [];
     if (!["done", "waiting", "blocked", "interrupted"].includes(String(rawStatus))) return [];
     const status = rawStatus === "interrupted" ? "blocked" : rawStatus as "done" | "waiting" | "blocked";
-    const provider = ["gmail", "drive", "calendar"].includes(String(step.provider))
-      ? step.provider as "gmail" | "drive" | "calendar" : undefined;
+    const provider = ["gmail", "drive", "calendar", "plaid", "stripe"].includes(String(step.provider))
+      ? step.provider as "gmail" | "drive" | "calendar" | "plaid" | "stripe" : undefined;
     if (mcp) {
       const connectorId = typeof step.connectorId === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(step.connectorId)
         ? step.connectorId : undefined;
@@ -996,7 +1204,7 @@ export function parseRestoredTurnActivity(descriptor: unknown): RestoredActivity
     if (!presentation) return [];
     let message = presentation.message;
     if (rawStatus === "interrupted") message = "This step did not finish.";
-    else if (toolName === "discover_workspace_tools" || toolName === "read_workspace_tool") message = "Connector access checked.";
+    else if (toolName === "discover_workspace_tools" || toolName === "read_workspace_tool" || toolName === "manage_connector") message = "Connector access checked.";
     else if (toolName === "inspect_private_connectors") message = "One checked your connectors.";
     else if (toolName === "probe_private_connector") message = "One checked that server.";
     else if (toolName === "read_selected_drive_search_result") {
@@ -1004,7 +1212,12 @@ export function parseRestoredTurnActivity(descriptor: unknown): RestoredActivity
         : step.readStatus === "input_required" ? "Choose the file again."
           : "Drive file could not be checked.";
     }
-    else if (toolName === "ask_email_agent" || toolName === "ask_documents_agent" || toolName === "inspect_selected_drive_files") {
+    else if (
+      toolName === "ask_email_agent" ||
+      DIRECT_MAIL_READ_TOOLS.has(toolName) ||
+      toolName === "ask_documents_agent" ||
+      toolName === "inspect_selected_drive_files"
+    ) {
       message = step.readStatus === "status_checked" ? "Drive status checked." : specialistReadMessage(toolName, step.readStatus);
     }
     return [{ id, toolName, label: presentation.label, message, status, ...(provider ? { provider } : {}) }];
@@ -1116,21 +1329,7 @@ export type AgentChatConsentContinuation = {
   sharedInformation?: string;
 };
 
-/**
- * The person's unsent mail draft as it is on screen, so a follow-up turn can
- * revise it. It grants nothing: One can only open a replacement review card,
- * and sending still needs the person's Send click on that card.
- */
-export type PendingEmailDraftContext = {
-  to: string;
-  cc: string;
-  bcc: string;
-  subject: string;
-  body: string;
-  driveFileId?: string;
-  /** A reply to the selected Gmail request; its envelope stays server-derived. */
-  sourceBound: boolean;
-};
+export type { PendingEmailDraftContext } from "@/lib/chat/email-agent-contract";
 
 /** Start the first catalog read beside memory preparation, without adding a cache. */
 export function prepareAgentChatConnectorConfigurations(input: {
@@ -1167,7 +1366,11 @@ export function prepareAgentChatConnectorConfigurations(input: {
   };
 }
 
-export async function streamAgentChat(input: {
+export function streamAgentChat(input: Parameters<typeof streamAgentChatAttempt>[0]) {
+  return streamAgentChatAttempt(input);
+}
+
+async function streamAgentChatAttempt(input: {
   userId: string;
   message: string;
   /** Stable id for this turn's user message, so a resend is recognised as the same one. */
@@ -1206,6 +1409,10 @@ export async function streamAgentChat(input: {
   /** One saved Drive result, checked against the current owner and live Drive before use. */
   driveSearchSelection?: { jobId: string; position: number };
   pendingEmailDraft?: PendingEmailDraftContext | null;
+  /** Same canonical, owner-authorized RAM document; never a legacy-domain fallback. */
+  emailMemoryProjection?: EmailMemoryProjection | null;
+  /** A confirmed commit locator; ingress independently checks the PKM ledger. */
+  emailMemoryCommit?: EmailMemoryCommitReceipt;
   /**
    * Deprecated compatibility input. Ignored: receipt detail is admitted only
    * through a current owner-authorized dedicated function continuation.
@@ -1214,11 +1421,16 @@ export async function streamAgentChat(input: {
   screenContext?: Record<string, unknown> | null;
   /** The specialist tab this turn came from; steers One's first choice, grants nothing. */
   specialistFocus?: "email" | "location" | "information" | "finance";
+  /** True when this turn belongs to the user's canonical rolling Main chat stream. */
+  mainChat?: boolean;
+  locationChatReview?: boolean;
+  locationChatConversation?: boolean;
+  locationChatContinuation?: MainLocationContinuation;
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
   /** A keyed native interrupt recovered from the pod; never a new user turn. */
   resumeMcpReview?: { interruptId: string; reference: McpCallReviewReference; approval: McpCallApproval | null };
-}): Promise<{
+}, carriedAttempt?: ProductAttempt | null): Promise<{
   conversationId: string | null;
   model: string | null;
   text: string;
@@ -1247,6 +1459,11 @@ export async function streamAgentChat(input: {
   const communicationPreferences = ownerStyleRequestField(input.communicationPreferences);
   const threadId = input.conversationId || crypto.randomUUID();
   const handlers = input.handlers ?? {};
+  const locationReviewProps = input.locationChatReview ? {
+    locationChatReview: true,
+    ...(input.locationChatConversation ? { locationChatConversation: true } : {}),
+    ...(input.locationChatContinuation ? { locationChatContinuation: input.locationChatContinuation } : {}),
+  } : {};
   const mcpOwner = snapshotValidatedAuthSessionOwner();
   const mcpVaultEpoch = snapshotVaultSessionEpoch();
   const ownerSessionCurrent = () => Boolean(
@@ -1271,6 +1488,14 @@ export async function streamAgentChat(input: {
     input.signal?.throwIfAborted();
     if (!turnSessionCurrent()) throw new Error("Your vault session changed. Unlock and try again.");
   };
+  const focusOwner = { email: "agent_email", location: "agent_location", information: "agent_personal_information", finance: "agent_kai" } as const;
+  // A recovered interrupt has no original capture admission. Never acquire a
+  // new epoch for old work. In-page resumes share this exact attempt instead.
+  const activityAttempt = carriedAttempt !== undefined ? carriedAttempt
+    : input.resumeMcpReview ? null : captureProductAttempt(
+      `chat:${input.specialistFocus ? focusOwner[input.specialistFocus] : "agent_one"}`,
+      input.userId, input.messageId,
+    );
   // Owner-authored names from the owner's own vault, keyed by opaque id. The
   // provider-authored tool name never labels a step: a server can write anything.
   const connectorNames = new Map<string, string>();
@@ -1287,6 +1512,11 @@ export async function streamAgentChat(input: {
   // Callers may have started their catalog read beside Soul preparation. For
   // other callers, overlap it with the derived key and optional location read.
   const initialConnectorProjection = connectorProjection();
+  const financialProjection = input.vaultKey && input.vaultOwnerToken &&
+    (input.pkmContext || !input.specialistFocus || input.specialistFocus === "finance") &&
+    !input.consentContinuation && !input.financeShare && !input.feedAttention && !recovered
+    ? loadAgentTurnFinancialProjection(input, mcpSessionCurrent)
+    : Promise.resolve({ nwsReport: null, plaidPosture: "" });
   void initialConnectorProjection.catch(() => undefined);
   const availableActionIds = (() => {
     const screen = input.screenContext || {};
@@ -1319,16 +1549,116 @@ export async function streamAgentChat(input: {
     }];
   });
   tools.push(...RECEIPT_TOOL_DECLARATIONS);
+  // Keep client-declared Plaid tool schemas byte-identical across normal turns
+  // and consent continuations so Gemini 4 implicit prefix caching stays hot
+  // (~90% reuse instead of dropping to 0% on a 2-tool schema hash shift).
+  const plaidToolsEligible = Boolean(
+    input.vaultKey &&
+      input.vaultOwnerToken &&
+      !input.financeShare &&
+      !input.feedAttention &&
+      !recovered,
+  );
+  if (plaidToolsEligible) {
+    tools.push(...(PLAID_TOOL_DECLARATIONS as unknown as Tool[]));
+  }
+  const plaidEligible = Boolean(plaidToolsEligible && !input.consentContinuation);
+  const wikiToolsEligible = plaidToolsEligible;
+  const wikiEligible = Boolean(wikiToolsEligible && !input.consentContinuation);
+  const resolveTurnSharedWiki = async (): Promise<{
+    wiki: SharedWikiLibrary | null;
+    wikiHotDigest: string;
+    migrationState: string;
+  }> => {
+    if (!wikiEligible || !mcpSessionCurrent()) {
+      return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+    }
+    try {
+      const access = await import("./pod-app-access");
+      if (
+        !(await access.introMayReachHub(() =>
+          ApiService.getPersonalAgentStatus(),
+        ))
+      ) {
+        clearActiveSharedWiki();
+        return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+      }
+      if (!mcpSessionCurrent()) {
+        return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+      }
+      const bound = peekActiveSharedWiki();
+      if (bound) {
+        const initialized = await bound.store.readyIfInitialized(input.signal);
+        if (!initialized || !mcpSessionCurrent()) {
+          if (!initialized) clearActiveSharedWiki();
+          return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+        }
+        const [digest, mig] = await Promise.all([
+          buildSharedWikiHotDigestContext(bound, undefined, input.signal).catch(
+            () => "",
+          ),
+          new SharedWikiOwnerMigrator(bound)
+            .getMigrationStatus(input.signal)
+            .catch(() => null),
+        ]);
+        return {
+          wiki: bound,
+          wikiHotDigest: digest,
+          migrationState: mig?.state ?? "v1_markdown_only",
+        };
+      }
+      const ensured = ensureActiveSharedWiki({
+        userId: input.userId,
+        vaultKey: input.vaultKey,
+        vaultOwnerToken: input.vaultOwnerToken,
+        vaultEpoch: mcpVaultEpoch,
+        readToken: () => (mcpSessionCurrent() ? input.vaultOwnerToken : null),
+      });
+      if (!ensured) {
+        return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+      }
+      const initialized = await ensured.store.readyIfInitialized(input.signal);
+      if (!initialized || !mcpSessionCurrent()) {
+        if (!initialized) clearActiveSharedWiki();
+        return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+      }
+      const [digest, mig] = await Promise.all([
+        buildSharedWikiHotDigestContext(ensured, undefined, input.signal).catch(
+          () => "",
+        ),
+        new SharedWikiOwnerMigrator(ensured)
+          .getMigrationStatus(input.signal)
+          .catch(() => null),
+      ]);
+      return {
+        wiki: ensured,
+        wikiHotDigest: digest,
+        migrationState: mig?.state ?? "v1_markdown_only",
+      };
+    } catch {
+      return { wiki: null, wikiHotDigest: "", migrationState: "v1_markdown_only" };
+    }
+  };
   // Chat history is sealed with a key derived from the vault key; the server
   // refuses the turn without it and holds it for this request only.
   // The coarse position is resolved beside the key so it adds no serial wait.
   let chatKeyHeaders: Record<string, string>;
   let turnLocation: Awaited<ReturnType<typeof resolveTurnLocation>>;
+  let turnWiki: {
+    wiki: SharedWikiLibrary | null;
+    wikiHotDigest: string;
+    migrationState: string;
+  } = {
+    wiki: null,
+    wikiHotDigest: "",
+    migrationState: "v1_markdown_only",
+  };
   try {
-    [chatKeyHeaders, turnLocation] = await Promise.all([
+    [chatKeyHeaders, turnLocation, , turnWiki] = await Promise.all([
       oneChatKeyHeaders(input.vaultKey),
       resolveTurnLocation(),
       initialConnectorProjection,
+      resolveTurnSharedWiki(),
     ]);
   } catch (error) {
     // A vault-owner token without a vault key is not an unlocked chat. Nothing
@@ -1338,6 +1668,50 @@ export async function streamAgentChat(input: {
     }
     throw error;
   }
+  // Reuse an already-bound Wiki session synchronously on consent continuations
+  // so client-declared Wiki tool schemas stay byte-identical with normal turns
+  // (keeping Gemini 4 implicit prefix caching hot without adding a pre-turn fetch).
+  const warmContinuationWiki =
+    !turnWiki.wiki &&
+    wikiToolsEligible &&
+    Boolean(input.consentContinuation) &&
+    mcpSessionCurrent()
+      ? peekActiveSharedWiki()
+      : null;
+  const sharedWikiSession = turnWiki.wiki ?? warmContinuationWiki;
+  if (sharedWikiSession) {
+    tools.push(...(WIKI_TOOL_DECLARATIONS as unknown as Tool[]));
+  }
+  const effectivePkmContext = (() => {
+    const raw = input.pkmContext;
+    const wikiPrimaryServing =
+      Boolean(turnWiki.wikiHotDigest) &&
+      (turnWiki.migrationState === "wiki_primary_with_v1_rollback" ||
+        turnWiki.migrationState === "wiki_primary");
+    if (!raw || !wikiPrimaryServing) return raw;
+    const soulMatch = /(?:^|\n\n)#\s*(?:memory\.md|one\.memory\.md\.v1)\b/i.exec(raw);
+    if (!soulMatch) return raw;
+    const soulStart =
+      soulMatch[0].startsWith("\n\n") ? soulMatch.index + 2 : soulMatch.index;
+    const prefix = raw.slice(0, soulStart).trim();
+    const afterSoulStart = raw.slice(soulStart);
+    const markers = [
+      `\n\n${PENDING_CHAT_TURNS_HEADER}`,
+      "\n\nRecent activity in One today (seen on this device, not saved memory):",
+      `\n\n${LIVE_MIRROR_PACKET_HEADER}`,
+    ];
+    let tailIndex = -1;
+    for (const marker of markers) {
+      const idx = afterSoulStart.indexOf(marker);
+      if (idx !== -1 && (tailIndex === -1 || idx < tailIndex)) {
+        tailIndex = idx;
+      }
+    }
+    const suffix =
+      tailIndex !== -1 ? afterSoulStart.slice(tailIndex + 2).trim() : "";
+    const kept = [prefix, suffix].filter(Boolean).join("\n\n");
+    return kept || undefined;
+  })();
   const chatKey = Object.values(chatKeyHeaders)[0] ?? "";
   const onLostTransport = () => {
     if (runTerminal || streamLost || failure || intentionallyStoppedAtConfirmation ||
@@ -1359,7 +1733,7 @@ export async function streamAgentChat(input: {
           markTiming("wire-start");
           return true;
         },
-      } as ApiFetchOptions, () => handlers.onStreamHealth?.({ kind: "waking" }), () => {});
+      } as ApiFetchOptions, () => handlers.onStreamHealth?.({ kind: "waking" }), () => {}, turnSessionCurrent);
       markTiming("response-headers");
       return response;
     },
@@ -1415,7 +1789,10 @@ export async function streamAgentChat(input: {
   const terminalRun = new Promise<void>((resolve) => {
     settleTerminalRun = resolve;
   });
+  const contextUsage = new Map<string, { modelCallId: string; inputTokens: number; tokenCountMethod: string }>();
   const finishTerminalRun = () => {
+    for (const usage of contextUsage.values()) handlers.onContextUsage?.(usage);
+    contextUsage.clear();
     settleTerminalRun?.();
     settleTerminalRun = null;
   };
@@ -1431,20 +1808,99 @@ export async function streamAgentChat(input: {
     handlers.onError?.(failure.message);
     finishTerminalRun();
   };
-  const runUntilTerminal = async (parameters: Parameters<HttpAgent["runAgent"]>[0], resumeSignal?: AbortSignal) => {
-    if (input.signal?.aborted || resumeSignal?.aborted) {
-      throw new DOMException("Agent turn cancelled", "AbortError");
+  const POD_CHAT_BUSY_RETRY_DELAYS_MS = [150, 350, 750] as const;
+  const isPodChatBusySignal = (candidate: unknown): boolean => {
+    if (!candidate) return false;
+    if (typeof candidate === "string") {
+      return (
+        refusalCode(parseRecord(candidate)) === "POD_CHAT_BUSY" ||
+        /\bPOD_CHAT_BUSY\b/.test(candidate)
+      );
     }
-    assertTurnSessionCurrent();
-    runTerminal = false;
-    streamLost = false;
-    liveness.start();
-    try {
-      await agent.runAgent(parameters, subscriber);
-    } finally {
-      liveness.stop();
+    if (typeof candidate !== "object") return false;
+    const record = candidate as { code?: unknown; message?: unknown; payload?: unknown };
+    if (record.code === "POD_CHAT_BUSY") return true;
+    if (refusalCode(asRecord(record.payload) ?? parseRecord(record.payload)) === "POD_CHAT_BUSY") {
+      return true;
     }
-    if (!runTerminal) loseStream();
+    if (typeof record.message === "string") {
+      if (
+        refusalCode(parseRecord(record.message)) === "POD_CHAT_BUSY" ||
+        /\bPOD_CHAT_BUSY\b/.test(record.message)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const sleepWithSignals = (delayMs: number, ...signals: Array<AbortSignal | undefined>): Promise<void> =>
+    new Promise((resolve, reject) => {
+      if (signals.some((sig) => sig?.aborted)) {
+        reject(new DOMException("Agent turn cancelled", "AbortError"));
+        return;
+      }
+      let settled = false;
+      const cleanup = () => {
+        for (const sig of signals) {
+          sig?.removeEventListener("abort", onAbort);
+        }
+      };
+      const onAbort = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        cleanup();
+        reject(new DOMException("Agent turn cancelled", "AbortError"));
+      };
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve();
+      }, delayMs);
+      for (const sig of signals) {
+        sig?.addEventListener("abort", onAbort, { once: true });
+      }
+    });
+  let suppressTransientPodBusy = false;
+  let transientPodBusy = false;
+  let attemptProducedOutput = false;
+  const runUntilTerminal = async (parameters: NonNullable<Parameters<HttpAgent["runAgent"]>[0]>, resumeSignal?: AbortSignal) => {
+    for (let retryIndex = 0; ; retryIndex += 1) {
+      if (input.signal?.aborted || resumeSignal?.aborted) {
+        throw new DOMException("Agent turn cancelled", "AbortError");
+      }
+      assertTurnSessionCurrent();
+      runTerminal = false;
+      streamLost = false;
+      transientPodBusy = false;
+      attemptProducedOutput = false;
+      suppressTransientPodBusy = retryIndex < POD_CHAT_BUSY_RETRY_DELAYS_MS.length;
+      liveness.start();
+      try {
+        await agent.runAgent({ ...parameters, forwardedProps: { ...parameters.forwardedProps, ...locationReviewProps } }, subscriber);
+      } catch (err) {
+        if (
+          suppressTransientPodBusy &&
+          !attemptProducedOutput &&
+          (transientPodBusy || isPodChatBusySignal(err))
+        ) {
+          transientPodBusy = true;
+        } else {
+          throw err;
+        }
+      } finally {
+        liveness.stop();
+        suppressTransientPodBusy = false;
+      }
+      if (transientPodBusy) {
+        const delayMs = POD_CHAT_BUSY_RETRY_DELAYS_MS[retryIndex] ?? 750;
+        await sleepWithSignals(delayMs, input.signal, resumeSignal);
+        continue;
+      }
+      if (!runTerminal) loseStream();
+      return;
+    }
   };
   const stopAfterConfirmation = () => {
     if (intentionallyStoppedAtConfirmation) return;
@@ -1460,13 +1916,32 @@ export async function streamAgentChat(input: {
     agent.abortRun();
   };
   const toolNames = new Map<string, string>();
-  const receiptCalls = new Map<string, Promise<{ toolCallId: string; toolName: ReceiptFunction; request: ReceiptAnalysisRequest; result: unknown }>>();
+  const receiptCalls = new Map<string, Promise<{
+    toolCallId: string;
+    toolName: ReceiptFunction | typeof PORTFOLIO_CONTEXT_TOOL | typeof ACCOUNT_CONTEXT_TOOL;
+    request: ReceiptAnalysisRequest | PortfolioContextRequest | AccountContextRequest;
+    result: unknown;
+  }>>();
+  const plaidCalls = new Map<
+    string,
+    Promise<{
+      toolCallId: string;
+      toolName: PlaidToolName;
+      request: Record<string, unknown>;
+      result: PlaidConnectorEnvelope;
+    }>
+  >();
+  const plaidArgs = new Map<string, string>();
   let receiptPrivate = false;
   let receiptReset = false;
   const receiptSessionCurrent = () => !receiptReset && mcpSessionCurrent();
+  const portfolioContextEnabled = Boolean(input.vaultKey && input.vaultOwnerToken && input.message.trim() &&
+    !recovered && !input.consentContinuation && !input.financeShare && !input.feedAttention);
+  const accountContextEnabled = portfolioContextEnabled;
   const runReceiptCall = receiptCallRunner({ userId: input.userId, vaultKey: input.vaultKey, vaultOwnerToken: input.vaultOwnerToken,
     isCurrent: receiptSessionCurrent }, state => handlers.onReceiptSetupNeeded?.(state));
   let reactionShown = false;
+  let sawConnectorSetupCard = false;
   const toolArgs = new Map<string, Record<string, unknown>>();
   const interruptsByToolCall = new Map<string, string>();
   const mcpReviews = new Map<string, {
@@ -1480,6 +1955,16 @@ export async function streamAgentChat(input: {
   // Parse the confirmation from its own streamed deltas instead.
   const confirmationArgs = new Map<string, string>();
   const receiptArgs = new Map<string, string>();
+  const wikiCalls = new Map<
+    string,
+    Promise<{
+      toolCallId: string;
+      toolName: WikiToolName;
+      request: Record<string, unknown>;
+      result: WikiRecallEnvelope;
+    }>
+  >();
+  const wikiArgs = new Map<string, string>();
   const publishedMcpReviews = new Set<string>();
   const emittedStateDirectivePaths = new Set<string>();
   const toolPayload = (callId: string, name: string, args: Record<string, unknown> = {}): AgentChatToolEvent => {
@@ -1536,11 +2021,13 @@ export async function streamAgentChat(input: {
               timezone,
               turnLocation,
               pkmContext: input.pkmContext,
+              emailMemoryProjection: input.emailMemoryProjection,
+              ...(input.emailMemoryCommit ? { emailMemoryCommit: emailMemoryCommitPayload(input.emailMemoryCommit) } : {}),
               communicationPreferences,
               personSelectionHandle: input.personSelectionHandle,
               gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
               ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
-              ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}), emailDraftContract: 2,
+              ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}), emailDraftContract: 2, emailAgentContract: 1, calendarReviewContract: 1, emailReadReceiptContract: 2,
               screenContext: input.screenContext,
             },
             resume: [{ interruptId, status, payload }],
@@ -1564,6 +2051,143 @@ export async function streamAgentChat(input: {
     const { request } = admission;
     receiptCalls.set(toolCallId, runReceiptCall(operation, request).then(result => ({ toolCallId, toolName: operation, request, result })));
   };
+  const startAccountContextCall = (toolCallId: string) => {
+    if (receiptCalls.has(toolCallId)) return;
+    const streamed = receiptArgs.get(toolCallId);
+    receiptArgs.delete(toolCallId);
+    receiptPrivate = true;
+    handlers.onReceiptPrivate?.("account");
+    let request: AccountContextRequest | null = null;
+    try { request = parseAccountContextRequest(JSON.parse(streamed || "null")); } catch { /* closed schema */ }
+    if (!request || !accountContextEnabled || !receiptSessionCurrent() || receiptCalls.size) {
+      failure = new Error("The account read could not be verified. Please ask again.");
+      handlers.onError?.(failure.message);
+      agent.abortRun(); finishTerminalRun(); return;
+    }
+    const admitted = request;
+    receiptCalls.set(toolCallId, readAccountContext(input.userId, receiptSessionCurrent)
+      .then(result => ({ toolCallId, toolName: ACCOUNT_CONTEXT_TOOL, request: admitted, result })));
+  };
+  const startWikiCall = (
+    toolCallId: string,
+    operation: WikiToolName,
+    args: unknown,
+  ) => {
+    if (wikiCalls.has(toolCallId)) return;
+    const buffered = wikiArgs.get(toolCallId);
+    wikiArgs.delete(toolCallId);
+    let parsedArgs: unknown = args;
+    if (buffered && buffered !== "!") {
+      try {
+        parsedArgs = JSON.parse(buffered);
+      } catch {
+        parsedArgs = args;
+      }
+    }
+    if (!receiptSessionCurrent() || wikiCalls.size >= 6 || buffered === "!") {
+      failure = new Error("Personal wiki recall doesn't match this owner turn. Ask again.");
+      handlers.onError?.(failure.message);
+      agent.abortRun();
+      finishTerminalRun();
+      return;
+    }
+    let request: Record<string, unknown>;
+    try {
+      request = normalizeWikiRecallRequest(operation, parsedArgs);
+    } catch {
+      failure = new Error("Personal wiki recall doesn't match this owner turn. Ask again.");
+      handlers.onError?.(failure.message);
+      agent.abortRun();
+      finishTerminalRun();
+      return;
+    }
+    wikiCalls.set(
+      toolCallId,
+      executeSharedWikiRecallTool(sharedWikiSession, operation, request, {
+        isUnlocked: receiptSessionCurrent,
+        signal: input.signal,
+      }).then((result) => ({
+        toolCallId,
+        toolName: operation,
+        request,
+        result,
+      })),
+    );
+  };
+  const startPlaidCall = (
+    toolCallId: string,
+    operation: PlaidToolName,
+    args: unknown,
+  ) => {
+    if (plaidCalls.has(toolCallId)) return;
+    const buffered = plaidArgs.get(toolCallId);
+    plaidArgs.delete(toolCallId);
+    let parsedArgs: unknown = args;
+    if (buffered && buffered !== "!") {
+      try {
+        parsedArgs = JSON.parse(buffered);
+      } catch {
+        parsedArgs = args;
+      }
+    }
+    if (!receiptSessionCurrent() || plaidCalls.size >= 4 || buffered === "!") {
+      failure = new Error("Plaid connector request doesn't match this owner turn. Ask again.");
+      handlers.onError?.(failure.message);
+      agent.abortRun();
+      finishTerminalRun();
+      return;
+    }
+    let request: Record<string, unknown>;
+    try {
+      request = normalizePlaidToolRequest(operation, parsedArgs);
+    } catch {
+      failure = new Error("Plaid connector request doesn't match this owner turn. Ask again.");
+      handlers.onError?.(failure.message);
+      agent.abortRun();
+      finishTerminalRun();
+      return;
+    }
+    plaidCalls.set(
+      toolCallId,
+      executePlaidConnectorClientTool(operation, request, {
+        userId: input.userId,
+        vaultKey: input.vaultKey,
+        vaultOwnerToken: input.vaultOwnerToken,
+        isCurrent: receiptSessionCurrent,
+        signal: input.signal,
+      }).then((result) => ({
+        toolCallId,
+        toolName: operation,
+        request,
+        result,
+      })),
+    );
+  };
+  const startPortfolioContextCall = (toolCallId: string) => {
+    if (receiptCalls.has(toolCallId)) return;
+    const streamed = receiptArgs.get(toolCallId);
+    receiptArgs.delete(toolCallId);
+    receiptPrivate = true;
+    handlers.onReceiptPrivate?.("portfolio");
+    let request: PortfolioContextRequest | null = null;
+    try {
+      request = parsePortfolioContextRequest(JSON.parse(streamed || "null"));
+    } catch {
+      // The server projects a closed request. Malformed arguments have no authority.
+    }
+    const { userId, vaultKey, vaultOwnerToken } = input;
+    if (!request || !portfolioContextEnabled || !vaultKey || !vaultOwnerToken ||
+        !receiptSessionCurrent() || receiptCalls.size) {
+      failure = new Error("The portfolio read could not be verified. Please ask again.");
+      handlers.onError?.(failure.message);
+      agent.abortRun();
+      finishTerminalRun();
+      return;
+    }
+    receiptCalls.set(toolCallId, readPortfolioContext({ userId, vaultKey, vaultOwnerToken, threadId }, request, receiptSessionCurrent)
+      .catch(() => ({ status: "unavailable", reason: "source_unavailable" }))
+      .then(result => ({ toolCallId, toolName: PORTFOLIO_CONTEXT_TOOL, request, result })));
+  };
   const subscriber: AgentSubscriber = {
     ...publicOutputSubscriber,
     onEvent: ({ event }) => {
@@ -1571,14 +2195,37 @@ export async function streamAgentChat(input: {
       // not evidence that the server task ended; reconnect must discover it.
       if (detached || streamLost || input.signal?.aborted) return { stopPropagation: true };
       serverEvents += 1;
-      if (event.type === "RUN_FINISHED" || event.type === "RUN_ERROR") serverTerminal = true;
+      const isSuppressedTransientBusyEvent =
+        suppressTransientPodBusy &&
+        !attemptProducedOutput &&
+        event.type === "RUN_ERROR" &&
+        (event as { code?: unknown }).code === "POD_CHAT_BUSY";
+      if ((event.type === "RUN_FINISHED" || event.type === "RUN_ERROR") && !isSuppressedTransientBusyEvent) {
+        serverTerminal = true;
+      }
       if (event.type === "TOOL_CALL_END") {
         const id = event.toolCallId;
         const name = typeof id === "string" ? toolNames.get(id) : undefined;
+        if (typeof id === "string" && name === ACCOUNT_CONTEXT_TOOL) {
+          startAccountContextCall(id);
+          return { stopPropagation: true };
+        }
+        if (typeof id === "string" && name === PORTFOLIO_CONTEXT_TOOL) {
+          startPortfolioContextCall(id);
+          return { stopPropagation: true };
+        }
         if (typeof id === "string" && RECEIPT_FUNCTIONS.includes(name as ReceiptFunction)) {
           // Native snapshots redact arguments and may replace streamed IDs.
           // Consume the bounded streamed call before the SDK's message lookup.
           startReceiptCall(id, name as ReceiptFunction, {});
+          return { stopPropagation: true };
+        }
+        if (typeof id === "string" && WIKI_TOOL_NAMES.includes(name as WikiToolName)) {
+          startWikiCall(id, name as WikiToolName, {});
+          return { stopPropagation: true };
+        }
+        if (typeof id === "string" && PLAID_TOOL_NAMES.includes(name as PlaidToolName)) {
+          startPlaidCall(id, name as PlaidToolName, {});
           return { stopPropagation: true };
         }
       }
@@ -1597,6 +2244,7 @@ export async function streamAgentChat(input: {
     },
     onRunStartedEvent: () => {
       runStarted = true;
+      activityAttempt?.started();
       noteChatKeyAccepted();
       handlers.onStart?.({ conversationId: threadId });
     },
@@ -1607,21 +2255,39 @@ export async function streamAgentChat(input: {
       return publicOutputSubscriber.onMessagesSnapshotEvent?.(snapshot);
     },
     onTextMessageContentEvent: ({ event }) => {
-      if (event.delta.length > 0) markTiming("first-text");
+      if (event.delta.length > 0) {
+        attemptProducedOutput = true;
+        markTiming("first-text");
+      }
       text += event.delta;
       handlers.onToken?.(event.delta);
     },
     onCustomEvent: ({ event }) => {
+      if (event.name === "hussh.chat_context_usage") {
+        const usage = event.value as Record<string, unknown> | null;
+        if (usage && typeof usage.modelCallId === "string" && typeof usage.inputTokens === "number" &&
+          Number.isFinite(usage.inputTokens) && usage.inputTokens >= 0 && typeof usage.tokenCountMethod === "string") {
+          const previous = contextUsage.get(usage.modelCallId);
+          if (!previous || previous.tokenCountMethod !== "provider_usage") {
+            contextUsage.set(usage.modelCallId, { modelCallId: usage.modelCallId, inputTokens: usage.inputTokens, tokenCountMethod: usage.tokenCountMethod });
+          }
+        }
+        return;
+      }
       if (event.name !== QUEUED_INPUT_EVENT) return;
       const notice = parseQueuedInputNotice(event.value);
       if (notice) handlers.onQueuedInput?.(notice);
     },
     onToolCallStartEvent: ({ event }) => {
+      attemptProducedOutput = true;
       toolNames.set(event.toolCallId, event.toolCallName);
       // Follow-ups are chips under the answer, not a step the person waits on.
       if (event.toolCallName === FOLLOW_UP_TOOL_NAME || event.toolCallName === REACTION_TOOL_NAME) return;
       if (event.toolCallName === "adk_request_confirmation") confirmationArgs.set(event.toolCallId, "");
-      if (RECEIPT_FUNCTIONS.includes(event.toolCallName as ReceiptFunction)) receiptArgs.set(event.toolCallId, "");
+      if (event.toolCallName === ACCOUNT_CONTEXT_TOOL || event.toolCallName === PORTFOLIO_CONTEXT_TOOL ||
+          RECEIPT_FUNCTIONS.includes(event.toolCallName as ReceiptFunction)) receiptArgs.set(event.toolCallId, "");
+      if (WIKI_TOOL_NAMES.includes(event.toolCallName as WikiToolName)) wikiArgs.set(event.toolCallId, "");
+      if (PLAID_TOOL_NAMES.includes(event.toolCallName as PlaidToolName)) plaidArgs.set(event.toolCallId, "");
       handlers.onToolStart?.(toolPayload(event.toolCallId, event.toolCallName));
     },
     onToolCallArgsEvent: ({ event }) => {
@@ -1629,6 +2295,18 @@ export async function streamAgentChat(input: {
       if (receiptBuffered !== undefined) {
         const next = receiptBuffered + (event.delta ?? "");
         receiptArgs.set(event.toolCallId, next.length <= 4096 ? next : "!");
+        return;
+      }
+      const wikiBuffered = wikiArgs.get(event.toolCallId);
+      if (wikiBuffered !== undefined) {
+        const next = wikiBuffered + (event.delta ?? "");
+        wikiArgs.set(event.toolCallId, next.length <= 4096 ? next : "!");
+        return;
+      }
+      const plaidBuffered = plaidArgs.get(event.toolCallId);
+      if (plaidBuffered !== undefined) {
+        const next = plaidBuffered + (event.delta ?? "");
+        plaidArgs.set(event.toolCallId, next.length <= 4096 ? next : "!");
         return;
       }
       const buffered = confirmationArgs.get(event.toolCallId);
@@ -1639,8 +2317,24 @@ export async function streamAgentChat(input: {
       else confirmationArgs.set(event.toolCallId, next);
     },
     onToolCallEndEvent: ({ event, toolCallName, toolCallArgs }) => {
+      if (toolCallName === ACCOUNT_CONTEXT_TOOL) {
+        startAccountContextCall(event.toolCallId);
+        return;
+      }
+      if (toolCallName === PORTFOLIO_CONTEXT_TOOL) {
+        startPortfolioContextCall(event.toolCallId);
+        return;
+      }
       if (RECEIPT_FUNCTIONS.includes(toolCallName as ReceiptFunction)) {
         startReceiptCall(event.toolCallId, toolCallName as ReceiptFunction, toolCallArgs);
+        return;
+      }
+      if (WIKI_TOOL_NAMES.includes(toolCallName as WikiToolName)) {
+        startWikiCall(event.toolCallId, toolCallName as WikiToolName, toolCallArgs);
+        return;
+      }
+      if (PLAID_TOOL_NAMES.includes(toolCallName as PlaidToolName)) {
+        startPlaidCall(event.toolCallId, toolCallName as PlaidToolName, toolCallArgs);
         return;
       }
       if (toolCallName === FOLLOW_UP_TOOL_NAME || toolCallName === REACTION_TOOL_NAME) return;
@@ -1677,7 +2371,8 @@ export async function streamAgentChat(input: {
           return;
         }
       }
-      const safeArgs = privateToolProgressArgs(toolCallName, toolCallArgs);
+      const safeArgs = toolCallName === "propose_file_schedule" || toolCallName === "propose_goal_plan" || toolCallName === "propose_location_action"
+        ? {} : privateToolProgressArgs(toolCallName, toolCallArgs);
       toolArgs.set(event.toolCallId, safeArgs);
       handlers.onToolWaiting?.(
         toolPayload(event.toolCallId, toolCallName, safeArgs),
@@ -1685,16 +2380,47 @@ export async function streamAgentChat(input: {
     },
     onToolCallResultEvent: ({ event }) => {
       const toolName = toolNames.get(event.toolCallId) || "";
+      if (toolName === "propose_location_action") {
+        if (input.locationChatReview && turnSessionCurrent()) {
+          const proposal = parseMainLocationProposal(event.content);
+          if (proposal) handlers.onLocationProposal?.(proposal);
+        }
+        handlers.onToolResult?.(toolPayload(event.toolCallId, toolName));
+        return;
+      }
+      if (toolName === "propose_goal_plan") {
+        const proposal = readGoalPlanProposal(event.content);
+        if (proposal) handlers.onGoalPlanProposal?.(proposal);
+        handlers.onToolResult?.(toolPayload(event.toolCallId, toolName));
+        return;
+      }
       if (toolName === "start_browser_task") {
         const result = browserTaskProgress(event.content, input.userId);
         if (result.accepted) handlers.onBrowserTaskCreated?.();
         handlers.onToolResult?.({ ...toolPayload(event.toolCallId, toolName, {}), ...result.event });
         return;
       }
-      if (RECEIPT_FUNCTIONS.includes(toolName as ReceiptFunction)) {
+      if (toolName === ACCOUNT_CONTEXT_TOOL || toolName === PORTFOLIO_CONTEXT_TOOL || RECEIPT_FUNCTIONS.includes(toolName as ReceiptFunction)) {
         const payload = toolPayload(event.toolCallId, toolName);
         payload.raw = { protocol: "ag-ui", toolName };
-        payload.message = "Receipt function finished for this turn.";
+        payload.message = toolName === ACCOUNT_CONTEXT_TOOL ? "Private account read finished." : toolName === PORTFOLIO_CONTEXT_TOOL ? "Private portfolio read finished." : "Receipt function finished for this turn.";
+        handlers.onToolResult?.(payload);
+        return;
+      }
+      if (WIKI_TOOL_NAMES.includes(toolName as WikiToolName)) {
+        const payload = toolPayload(event.toolCallId, toolName);
+        payload.raw = { protocol: "ag-ui", toolName };
+        payload.message = "Personal note checked for this turn.";
+        handlers.onToolResult?.(payload);
+        return;
+      }
+      if (PLAID_TOOL_NAMES.includes(toolName as PlaidToolName)) {
+        const payload = toolPayload(event.toolCallId, toolName);
+        payload.raw = { protocol: "ag-ui", toolName };
+        payload.message =
+          toolName === "sync_plaid_connector"
+            ? "Live Plaid balances synced for this turn."
+            : "Connected financial accounts checked for this turn.";
         handlers.onToolResult?.(payload);
         return;
       }
@@ -1747,7 +2473,8 @@ export async function streamAgentChat(input: {
       const workspaceConnectorTool =
         toolName === "discover_workspace_tools" ||
         toolName === "read_workspace_tool" ||
-        toolName === "inspect_private_connectors";
+        toolName === "inspect_private_connectors" ||
+        toolName === "manage_connector";
       if (toolName === "read_selected_drive_search_result") {
         const result = unwrapParkedActionResult(event.content);
         const payload = toolPayload(event.toolCallId, toolName);
@@ -1774,19 +2501,26 @@ export async function streamAgentChat(input: {
       }
       // External-read receipts are display-only, even if an invalid result attempts to
       // smuggle a parked navigation/send directive alongside it.
-      if (toolName === "ask_email_agent" || toolName === "ask_documents_agent" || toolName === "inspect_selected_drive_files") {
+      const isDirectMailRead = DIRECT_MAIL_READ_TOOLS.has(toolName);
+      if (toolName === "ask_email_agent" || isDirectMailRead || toolName === "ask_documents_agent" || toolName === "inspect_selected_drive_files") {
         const experience = parseAgentToolResultExperience(toolName, event.content);
         const payload = toolPayload(event.toolCallId, toolName);
         payload.execution = "server";
         // The row reads the result's own receipt, so a brief card, a receipt card or no card all report the same read.
-        const receipt = asRecord(unwrapParkedActionResult(event.content)?.structured);
-        const own = receipt?.connector === (toolName === "ask_email_agent" ? "mail" : "drive") ? receipt : null;
+        const unwrapped = unwrapParkedActionResult(event.content);
+        const receipt = asRecord(unwrapped?.structured);
+        const isMail = toolName === "ask_email_agent" || isDirectMailRead;
+        const own = receipt?.connector === (isMail ? "mail" : "drive") ? receipt : null;
+        const statusForMessage = unwrapped?.status === "no_match" ? "no_match" : own?.status;
         payload.message = toolName === "inspect_selected_drive_files"
           ? parseRecord(event.content)?.status === "ok" ? "Drive status checked." : "Drive status could not be checked."
-          : specialistReadMessage(toolName, own?.status, own?.metadata_only === true);
+          : specialistReadMessage(toolName, statusForMessage, own?.metadata_only === true);
         payload.raw = { protocol: "ag-ui", toolName };
         handlers.onToolResult?.(payload);
-        if (experience) {
+        if (experience && unwrapped?.status !== "no_match") {
+          if (experience.type === "one.workspace_connector_setup.v1") {
+            sawConnectorSetupCard = true;
+          }
           handlers.onStructuredExperience?.(experience, event.toolCallId);
         }
         return;
@@ -1814,6 +2548,9 @@ export async function streamAgentChat(input: {
         };
         handlers.onToolResult?.(payload);
         if (experience) {
+          if (experience.type === "one.workspace_connector_setup.v1") {
+            sawConnectorSetupCard = true;
+          }
           handlers.onStructuredExperience?.(experience, event.toolCallId);
         }
         return;
@@ -1824,6 +2561,25 @@ export async function streamAgentChat(input: {
         toolArgs.get(event.toolCallId) || {},
       );
       payload.raw.result = event.content;
+      if (toolName === "get_my_location") {
+        const parsedLocation = parseRecord(event.content);
+        if (parsedLocation?.status === "needs_location_permission") {
+          payload.message = "Location permission needed.";
+        }
+      }
+      if (
+        toolName === "files" ||
+        toolName === "create_folder" ||
+        toolName === "organize_file" ||
+        toolName === "write_file" ||
+        toolName === "optimize_personal_memory"
+      ) {
+        const parsedResult = parseRecord(event.content);
+        const resultStatus = typeof parsedResult?.status === "string" ? parsedResult.status : "";
+        if (resultStatus !== "error" && resultStatus !== "failed" && resultStatus !== "blocked") {
+          invalidateFilesMutationCache(input.userId);
+        }
+      }
       handlers.onToolResult?.(payload);
       const pendingIds = parsePendingConsentRequestIds(toolName, event.content);
       if (pendingIds.length > 0) {
@@ -1882,6 +2638,9 @@ export async function streamAgentChat(input: {
         toolArgs.get(event.toolCallId),
       );
       if (experience) {
+        if (experience.type === "one.workspace_connector_setup.v1") {
+          sawConnectorSetupCard = true;
+        }
         // Redelivery can assign a new transport message while retaining the
         // same invocation. One invocation owns one evolving card.
         const eventId = event.toolCallId.trim() ||
@@ -1951,6 +2710,10 @@ export async function streamAgentChat(input: {
             typeof val.delegateAgentId === "string"
           ) {
             const directivePayload = (val.payload || {}) as Record<string, unknown>;
+            if (directivePayload.kind === "email_memory_save" &&
+                (val.delegateAgentId !== "agent_email" || !parseEmailMemorySaveDirective(directivePayload))) continue;
+            if (directivePayload.type === "gmail.review_requested" &&
+                (val.delegateAgentId !== "agent_email" || !parseGmailReviewDirective(directivePayload))) continue;
             const directiveEvent: SpecialistDirectiveEvent = {
               delegateAgentId: val.delegateAgentId,
               directive: {
@@ -1958,7 +2721,7 @@ export async function streamAgentChat(input: {
                 payload: directivePayload,
               },
               message: String(directivePayload.summary || val.message || ""),
-              stateChanged: true,
+              stateChanged: directivePayload.kind !== "email_memory_save" && directivePayload.type !== "gmail.review_requested",
             };
             handlers.onSpecialistDirective?.(directiveEvent);
             continue;
@@ -1979,14 +2742,14 @@ export async function streamAgentChat(input: {
       }
     },
     onRunFinishedEvent: (params) => {
-      if (runTerminal || streamLost || failure || intentionallyStoppedAtConfirmation || detached) return;
+      if (runTerminal || streamLost || failure || intentionallyStoppedAtConfirmation || detached || input.signal?.aborted) return;
       runTerminal = true;
       if (params.outcome === "cancelled") {
         failure = new DOMException("Agent turn cancelled", "AbortError");
         finishTerminalRun();
         return;
       }
-      if (receiptCalls.size) {
+      if (receiptCalls.size || wikiCalls.size || plaidCalls.size) {
         // Native long-running calls are persisted before RUN_FINISHED. The
         // outer loop alone submits their value-free replies and resumes.
         finishTerminalRun();
@@ -2029,10 +2792,10 @@ export async function streamAgentChat(input: {
               // A lost acknowledgement must not cause an automatic second mutation.
               attempted = true;
               if (resumeHandlers) {
-                await streamAgentChat({ ...input, message: "", attachments: [], signal,
+                await streamAgentChatAttempt({ ...input, message: "", attachments: [], signal,
                   handlers: resumeHandlers,
                   resumeMcpReview: { interruptId, reference: review.reference, approval },
-                });
+                }, activityAttempt);
                 return;
               }
               const abortResume = () => { liveness.stop(); agent.abortRun(); };
@@ -2044,10 +2807,12 @@ export async function streamAgentChat(input: {
                   forwardedProps: {
                     ...await connectorProjection(),
                     timezone, turnLocation, pkmContext: input.pkmContext, communicationPreferences,
+                    emailMemoryProjection: input.emailMemoryProjection,
+                    ...(input.emailMemoryCommit ? { emailMemoryCommit: emailMemoryCommitPayload(input.emailMemoryCommit) } : {}),
                     personSelectionHandle: input.personSelectionHandle,
                     gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
                     ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
-                    ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}), emailDraftContract: 2,
+                    ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}), emailDraftContract: 2, emailAgentContract: 1, calendarReviewContract: 1, emailReadReceiptContract: 2,
                     screenContext: input.screenContext,
                     ...(approval ? { mcpApproval: {
                       directiveId: approval.directiveId, connectorId: approval.connectorId,
@@ -2075,17 +2840,28 @@ export async function streamAgentChat(input: {
         finishTerminalRun();
         return;
       }
+      activityAttempt?.settled("returned");
       handlers.onComplete?.({ conversationId: threadId });
       finishTerminalRun();
     },
     onRunErrorEvent: ({ event }) => {
       if (runTerminal || streamLost || failure || detached) return;
+      if (
+        suppressTransientPodBusy &&
+        !attemptProducedOutput &&
+        event.code === "POD_CHAT_BUSY"
+      ) {
+        runTerminal = true;
+        transientPodBusy = true;
+        return;
+      }
       runTerminal = true;
       if (intentionallyStoppedAtConfirmation) {
         finishTerminalRun();
         return;
       }
       const refusal = chatKeyRefusalCode(event.code || "");
+      activityAttempt?.settled("failed");
       const strain = classifyBackendStrain({ code: event.code });
       if (strain) handlers.onStreamHealth?.({ kind: "backend_strain", strain });
       failure = refusal
@@ -2102,16 +2878,38 @@ export async function streamAgentChat(input: {
         finishTerminalRun();
         return;
       }
+      if (
+        suppressTransientPodBusy &&
+        !attemptProducedOutput &&
+        isPodChatBusySignal(error)
+      ) {
+        transientPodBusy = true;
+        return;
+      }
       const refusal = chatKeyRefusalCode((error as Error & { payload?: unknown }).payload)
         ?? chatKeyRefusalCode(error.message || "");
       // @ag-ui/client puts a refused request's HTTP status on the error.
       const httpStatus = (error as Error & { status?: unknown }).status;
       const strain = classifyBackendStrain({ httpStatus: typeof httpStatus === "number" ? httpStatus : null });
       if (strain && !refusal) handlers.onStreamHealth?.({ kind: "backend_strain", strain });
-      failure = refusal
-        ? routeChatKeyRefusal(refusal, mcpVaultEpoch,
-            !runStarted && (error as Error & { status?: number }).status === 403)
-        : new Error(formatAgentChatErrorMessage(error.message || "", (error as Error & { code?: string }).code));
+      if (refusal) {
+        failure = routeChatKeyRefusal(
+          refusal,
+          mcpVaultEpoch,
+          !runStarted && (error as Error & { status?: number }).status === 403,
+        );
+      } else {
+        const nextFailure = new Error(
+          formatAgentChatErrorMessage(
+            error.message || "",
+            (error as Error & { code?: string }).code,
+          ),
+        );
+        if (typeof httpStatus === "number") {
+          Object.assign(nextFailure, { status: httpStatus });
+        }
+        failure = nextFailure;
+      }
       handlers.onError?.(failure.message);
       finishTerminalRun();
     },
@@ -2138,21 +2936,38 @@ export async function streamAgentChat(input: {
   });
   const unsubscribeReceiptReset = subscribeDurableOwnerReset(owner => { if (owner === input.userId) receiptReset = true; });
   try {
+    const [connectors, { nwsReport, plaidPosture }] = await Promise.all([
+      initialConnectorProjection,
+      financialProjection,
+    ]);
+    assertTurnSessionCurrent();
     await runUntilTerminal({
       tools,
       context: [],
       forwardedProps: {
-        ...await initialConnectorProjection,
+        ...connectors,
+        ...(nwsReport ? { nwsReport } : {}),
+        ...(plaidEligible ? { plaidClientReady: true } : {}),
+        ...(plaidPosture ? { plaidPosture } : {}),
         timezone,
         turnLocation,
-        pkmContext: input.pkmContext,
+        pkmContext: effectivePkmContext,
+        emailMemoryProjection: input.emailMemoryProjection,
+        ...(input.emailMemoryCommit ? { emailMemoryCommit: emailMemoryCommitPayload(input.emailMemoryCommit) } : {}),
         communicationPreferences,
         personSelectionHandle: input.personSelectionHandle,
         gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
         ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
         ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}),
         // The mail draft envelope version this client reads. The server reads it per request, so resumed runs send it too.
-        emailDraftContract: 2,
+        emailDraftContract: 2, emailAgentContract: 1, calendarReviewContract: 1, emailReadReceiptContract: 2,
+        ...(portfolioContextEnabled ? {
+          portfolioContextContract: PORTFOLIO_CONTEXT_CONTRACT,
+          portfolioSwitchContract: PORTFOLIO_SWITCH_CONTRACT,
+        } : {}),
+        ...(sharedWikiSession ? { wikiClientReady: true } : {}),
+        ...(turnWiki.wikiHotDigest ? { wikiHotDigest: turnWiki.wikiHotDigest } : {}),
+        ...(accountContextEnabled ? { accountContextContract: ACCOUNT_CONTEXT_CONTRACT } : {}),
         screenContext: input.screenContext,
         ...(input.consentContinuation ? { consentContinuation: input.consentContinuation } : {}),
         ...(input.financeShare ? { financeShare: input.financeShare } : {}),
@@ -2165,6 +2980,7 @@ export async function streamAgentChat(input: {
           receipt: input.resumeMcpReview.approval.receipt,
         } } : {}),
         ...(input.specialistFocus ? { specialistFocus: input.specialistFocus } : {}),
+        ...(input.mainChat ? { mainChat: true } : {}),
         // Only the native app asks the server for a "One replied" push when it
         // stops reading; a web tab's closed stream must not wake a phone.
         notifyOnDetach: Capacitor.isNativePlatform(),
@@ -2175,15 +2991,152 @@ export async function streamAgentChat(input: {
     if (receiptCalls.size && !failure && !detached && !input.signal?.aborted) {
       const receiptToolResults = await settleReceiptCalls(receiptCalls.values(), input.signal, () => handlers.onStreamHealth?.({ kind: "activity" }));
       receiptCalls.clear();
-      if (mcpReviews.size) throw new Error("Receipt analysis must complete in its own authorized turn. Ask again.");
-      if (!receiptSessionCurrent()) throw new Error("Receipt authority changed. Unlock and ask again.");
+      const accountRead = receiptToolResults.some(item => item.toolName === ACCOUNT_CONTEXT_TOOL);
+      const portfolioRead = receiptToolResults.some(item => item.toolName === PORTFOLIO_CONTEXT_TOOL);
+      const privateReadLabel = accountRead ? "Account read" : portfolioRead ? "Portfolio read" : "Receipt analysis";
+      if (mcpReviews.size) throw new Error(`${privateReadLabel} must complete in its own authorized turn. Ask again.`);
+      if (!receiptSessionCurrent()) throw new Error(`${privateReadLabel} authority changed. Unlock and ask again.`);
       // Only the receipt replies: replaying run A's question made the bridge start a second run beside the receipt call.
       agent.setMessages(receiptToolResults.map(item => ({ id: crypto.randomUUID(), role: "tool" as const, toolCallId: item.toolCallId,
         content: JSON.stringify({ schema: "receipt_result.v1", operation: item.toolName, ephemeral_result: true }) })));
       await runUntilTerminal({ tools, context: [], forwardedProps: {
-        timezone, screenContext: input.screenContext, communicationPreferences, receiptToolResults, emailDraftContract: 2,
+        timezone, screenContext: input.screenContext, communicationPreferences, receiptToolResults, emailDraftContract: 2, emailAgentContract: 1, calendarReviewContract: 1, emailReadReceiptContract: 2,
+        ...(portfolioRead ? { portfolioContextContract: PORTFOLIO_CONTEXT_CONTRACT } : {}),
+        ...(accountRead ? { accountContextContract: ACCOUNT_CONTEXT_CONTRACT } : {}),
       } });
-      if (!receiptSessionCurrent()) throw new Error("Receipt authority changed. Ask again.");
+      if (!receiptSessionCurrent()) throw new Error(`${privateReadLabel} authority changed. Ask again.`);
+    }
+    for (
+      let wikiRound = 0;
+      wikiRound < 3 && wikiCalls.size && !failure && !detached && !input.signal?.aborted;
+      wikiRound += 1
+    ) {
+      const wikiToolResults = await Promise.all(wikiCalls.values());
+      wikiCalls.clear();
+      if (mcpReviews.size) {
+        throw new Error(
+          "Personal wiki recall must complete in its own authorized turn. Ask again.",
+        );
+      }
+      if (!receiptSessionCurrent()) {
+        throw new Error("Vault authority changed. Unlock and ask again.");
+      }
+      for (const item of wikiToolResults) {
+        const donePayload = toolPayload(item.toolCallId, item.toolName);
+        donePayload.raw = { protocol: "ag-ui", toolName: item.toolName };
+        donePayload.message = "Personal note checked for this turn.";
+        handlers.onToolResult?.(donePayload);
+      }
+      agent.setMessages(
+        wikiToolResults.map((item) => ({
+          id: crypto.randomUUID(),
+          role: "tool" as const,
+          toolCallId: item.toolCallId,
+          content: JSON.stringify({
+            schema: "wiki_result.v1",
+            operation: item.toolName,
+            ephemeral_result: true,
+          }),
+        })),
+      );
+      await runUntilTerminal({
+        tools,
+        context: [],
+        forwardedProps: {
+          timezone,
+          screenContext: input.screenContext,
+          communicationPreferences,
+          ...(sharedWikiSession ? { wikiClientReady: true } : {}),
+          ...(turnWiki.wikiHotDigest ? { wikiHotDigest: turnWiki.wikiHotDigest } : {}),
+          ...(plaidEligible ? { plaidClientReady: true } : {}),
+          ...(plaidPosture ? { plaidPosture } : {}),
+          wikiToolResults,
+          emailDraftContract: 2,
+          emailAgentContract: 1,
+          calendarReviewContract: 1,
+          emailReadReceiptContract: 2,
+        },
+      });
+      if (!receiptSessionCurrent()) {
+        throw new Error("Vault authority changed. Unlock and ask again.");
+      }
+    }
+    for (
+      let plaidRound = 0;
+      plaidRound < 3 && plaidCalls.size && !failure && !detached && !input.signal?.aborted;
+      plaidRound += 1
+    ) {
+      const plaidToolResults = await Promise.all(plaidCalls.values());
+      plaidCalls.clear();
+      if (mcpReviews.size) {
+        throw new Error(
+          "Plaid connector sync must complete in its own authorized turn. Ask again.",
+        );
+      }
+      if (!receiptSessionCurrent()) {
+        throw new Error("Vault authority changed. Unlock and ask again.");
+      }
+      for (const item of plaidToolResults) {
+        const donePayload = toolPayload(item.toolCallId, item.toolName);
+        donePayload.raw = { protocol: "ag-ui", toolName: item.toolName };
+        donePayload.message =
+          item.toolName === "sync_plaid_connector"
+            ? item.result.status === "connect_required"
+              ? "Plaid Link is ready."
+              : "Live Plaid balances synced."
+            : "Connected financial accounts checked.";
+        handlers.onToolResult?.(donePayload);
+        if (
+          !sawConnectorSetupCard &&
+          (item.toolName === "sync_plaid_connector" || item.result.status === "connect_required")
+        ) {
+          sawConnectorSetupCard = true;
+          handlers.onStructuredExperience?.(
+            {
+              type: "one.workspace_connector_setup.v1",
+              provider: "plaid",
+              status:
+                item.result.status === "connect_required"
+                  ? "connect_required"
+                  : "manage_available",
+            },
+            item.toolCallId,
+          );
+        }
+      }
+      agent.setMessages(
+        plaidToolResults.map((item) => ({
+          id: crypto.randomUUID(),
+          role: "tool" as const,
+          toolCallId: item.toolCallId,
+          content: JSON.stringify({
+            schema: "plaid_result.v1",
+            operation: item.toolName,
+            ephemeral_result: true,
+          }),
+        })),
+      );
+      await runUntilTerminal({
+        tools,
+        context: [],
+        forwardedProps: {
+          timezone,
+          screenContext: input.screenContext,
+          communicationPreferences,
+          ...(sharedWikiSession ? { wikiClientReady: true } : {}),
+          ...(turnWiki.wikiHotDigest ? { wikiHotDigest: turnWiki.wikiHotDigest } : {}),
+          ...(plaidEligible ? { plaidClientReady: true } : {}),
+          ...(plaidPosture ? { plaidPosture } : {}),
+          plaidToolResults,
+          emailDraftContract: 2,
+          emailAgentContract: 1,
+          calendarReviewContract: 1,
+          emailReadReceiptContract: 2,
+        },
+      });
+      if (!receiptSessionCurrent()) {
+        throw new Error("Vault authority changed. Ask again.");
+      }
     }
     await terminalRun;
   } catch (error) {
@@ -2223,14 +3176,23 @@ export const PRIVATE_AGENT_INTRO_REPLY =
  */
 export async function streamAgentIntro(input: {
   message: string;
+  confirmedNativeGuest?: boolean;
   screenContext?: Record<string, unknown> | null;
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
 }): Promise<{ conversationId: string | null; model: string | null; text: string }> {
   const threadId = crypto.randomUUID();
   const handlers = input.handlers ?? {};
+  const authEpisode = snapshotAuthSessionGeneration();
+  const principal = snapshotValidatedAuthSessionPrincipal();
+  const current = () => Boolean(authEpisode && isValidatedAuthSessionOwnerCurrent(authEpisode)
+    && (!principal || isFirebaseSessionOwnerCurrent(principal))
+    && !input.signal?.aborted);
   const access = await import("./pod-app-access");
-  if (!(await access.introMayReachHub(() => ApiService.getPersonalAgentStatus()))) {
+  if (!current() || !(await access.introMayReachHub(
+    () => ApiService.getPersonalAgentStatusForRouting({ fresh: true, signal: input.signal }),
+    input.confirmedNativeGuest,
+  )) || !current()) {
     handlers.onToken?.(PRIVATE_AGENT_INTRO_REPLY);
     handlers.onComplete?.({ conversationId: threadId });
     return { conversationId: null, model: null, text: PRIVATE_AGENT_INTRO_REPLY };
@@ -2252,7 +3214,10 @@ export async function streamAgentIntro(input: {
     loseStream();
     agent.abortRun();
   };
-  const liveness = createAgentStreamLiveness((init) => nativeStreamFetch("/api/one/agent-chat", init), onLostTransport);
+  const liveness = createAgentStreamLiveness(
+    (init) => nativeStreamFetch("/api/one/agent-chat", { ...init, isEffectCurrent: current }),
+    onLostTransport,
+  );
   const agent = new HttpAgent({
     url: "/api/one/agent-chat",
     threadId,
@@ -2269,11 +3234,12 @@ export async function streamAgentIntro(input: {
       return publicOutputSubscriber.onMessagesSnapshotEvent?.(snapshot);
     },
     onTextMessageContentEvent: ({ event }) => {
+      if (input.signal?.aborted) return;
       text += event.delta;
       handlers.onToken?.(event.delta);
     },
     onRunFinishedEvent: (params) => {
-      if (runTerminal || streamLost || failure) return;
+      if (runTerminal || streamLost || failure || input.signal?.aborted) return;
       runTerminal = true;
       if (params.outcome === "cancelled") {
         failure = new DOMException("Agent turn cancelled", "AbortError");
@@ -2282,13 +3248,13 @@ export async function streamAgentIntro(input: {
       handlers.onComplete?.({ conversationId: threadId });
     },
     onRunErrorEvent: ({ event }) => {
-      if (runTerminal || streamLost || failure) return;
+      if (runTerminal || streamLost || failure || input.signal?.aborted) return;
       runTerminal = true;
       failure = new Error(formatAgentChatErrorMessage(event.message || "", event.code || undefined));
       handlers.onError?.(failure.message);
     },
     onRunFailed: ({ error }) => {
-      if (runTerminal || streamLost || failure) return;
+      if (runTerminal || streamLost || failure || input.signal?.aborted) return;
       failure = new Error(formatAgentChatErrorMessage(error.message || "", (error as Error & { code?: string }).code));
       handlers.onError?.(failure.message);
     },
@@ -2301,12 +3267,13 @@ export async function streamAgentIntro(input: {
     await agent.runAgent({
       tools: [],
       context: [],
-      forwardedProps: { screenContext: input.screenContext, timezone: browserTimeZone() },
+      forwardedProps: { screenContext: input.screenContext, timezone: browserTimeZone(), emailAgentContract: 1, calendarReviewContract: 1 },
     }, subscriber);
   } finally {
     liveness.stop();
     input.signal?.removeEventListener("abort", abort);
   }
+  if (input.signal?.aborted) throw new DOMException("Agent turn cancelled", "AbortError");
   if (!runTerminal) loseStream();
   if (failure) throw failure;
   return { conversationId: threadId, model: null, text };
@@ -2335,21 +3302,34 @@ export async function listAgentChatConversations(input: {
   return Array.isArray(payload.conversations) ? payload.conversations : [];
 }
 
+export type AgentChatHistoryPageMeta = {
+  hasMore: boolean;
+  oldestCursor: string | null;
+};
+
+export type AgentChatHistoryList = AgentChatMessage[] & {
+  _pageMeta?: AgentChatHistoryPageMeta;
+};
+
 export async function getAgentChatHistory(input: {
   conversationId: string;
   vaultOwnerToken: string;
   vaultKey: string;
   limit?: number;
-}): Promise<AgentChatMessage[]> {
+  before?: string;
+}): Promise<AgentChatHistoryList> {
   const response = await sendWithChatKey(() => ApiService.getAgentChatHistory(input));
   if (!response.ok) {
-    throw new Error(await readError(response));
+    const error = new Error(await readError(response)) as Error & { status?: number };
+    error.status = response.status;
+    throw error;
   }
   const payload = (await response.json()) as {
     messages?: Array<Omit<AgentChatMessage, "metadata"> & {
       metadata?: {
         kind?: string;
         display?: string;
+        locationChatProposal?: unknown;
         structuredExperience?: {
           activityType?: string;
           content?: unknown;
@@ -2364,17 +3344,43 @@ export async function getAgentChatHistory(input: {
         consentAccess?: unknown;
       } | null;
     }>;
+    has_more?: boolean;
+    oldest_cursor?: string | null;
     /** Shared requests whose access has ended: {bundle_id: "revoked" | "expired"}. */
     consentAccessEnded?: unknown;
   };
-  if (!Array.isArray(payload.messages)) return [];
+  if (!Array.isArray(payload.messages)) {
+    const empty: AgentChatHistoryList = [];
+    Object.defineProperty(empty, "_pageMeta", {
+      value: { hasMore: false, oldestCursor: null },
+      enumerable: false,
+    });
+    return empty;
+  }
+  const limitUsed = input.limit ?? 50;
+  const inferredHasMore =
+    typeof payload.has_more === "boolean"
+      ? payload.has_more
+      : payload.messages.length >= limitUsed;
+  const inferredCursor =
+    typeof payload.oldest_cursor === "string" && payload.oldest_cursor.trim()
+      ? payload.oldest_cursor.trim()
+      : inferredHasMore && payload.messages[0]?.id
+        ? String(payload.messages[0].id)
+        : null;
+  const pageMeta: AgentChatHistoryPageMeta = {
+    hasMore: Boolean(inferredHasMore && inferredCursor),
+    oldestCursor: inferredCursor,
+  };
   const endedByBundle = payload.consentAccessEnded && typeof payload.consentAccessEnded === "object"
     && !Array.isArray(payload.consentAccessEnded)
     ? payload.consentAccessEnded as Record<string, unknown>
     : {};
-  return payload.messages
+  const mapped: AgentChatHistoryList = payload.messages
     .filter((message) => ["user", "assistant", "system", "tool"].includes(message.role))
     .map((message) => {
+      const locationChatProposal = message.role === "assistant"
+        ? parseMainLocationProposal(message.metadata?.locationChatProposal) : null;
       const attachments = message.role === "user"
         ? parseStoredTextAttachments(message.metadata?.attachments)
         : [];
@@ -2394,6 +3400,7 @@ export async function getAgentChatHistory(input: {
           ? {
               kind: message.metadata.kind,
               display: message.metadata.display,
+              ...(locationChatProposal ? { locationChatProposal } : {}),
               structuredExperience: message.metadata.structuredExperience,
               structuredExperienceId: message.metadata.structuredExperienceId,
               structuredExperiences: message.metadata.structuredExperiences,
@@ -2412,6 +3419,11 @@ export async function getAgentChatHistory(input: {
           : message.metadata,
       };
     });
+  Object.defineProperty(mapped, "_pageMeta", {
+    value: pageMeta,
+    enumerable: false,
+  });
+  return mapped;
 }
 
 /**
@@ -2665,9 +3677,10 @@ export async function setAgentChatFeedback(input: {
   }
 }
 
-export async function renameAgentChatConversation(input: {
+export async function updateAgentChatConversation(input: {
   conversationId: string;
-  title: string;
+  title?: string;
+  category?: string | null;
   vaultOwnerToken: string;
   vaultKey: string;
 }): Promise<AgentChatConversation> {
@@ -2676,6 +3689,15 @@ export async function renameAgentChatConversation(input: {
     throw new Error(await readError(response));
   }
   return (await response.json()) as AgentChatConversation;
+}
+
+export async function renameAgentChatConversation(input: {
+  conversationId: string;
+  title: string;
+  vaultOwnerToken: string;
+  vaultKey: string;
+}): Promise<AgentChatConversation> {
+  return updateAgentChatConversation(input);
 }
 
 export async function deleteAgentChatConversation(input: {

@@ -39,7 +39,7 @@ dependencies = [
     "grpcio-status==1.76.0",
     "gunicorn==25.3.0",
     "jsonschema>=4.26,<5",
-    "httpx>=0.27.1,<0.29",
+    "httpx[http2]>=0.27.1,<0.29",
     "httpcore>=1.0.9,<2",
     "mcp==1.30.0",
     "opentelemetry-api>=1.45.1",
@@ -70,10 +70,10 @@ dependencies = [
     "sqlalchemy>=2.0.0",
     "sse-starlette>=2.1.0",
     # ZoneInfo needs the IANA database in slim Linux images, including browser aliases.
-    "tzdata==2026.1",
+    "tzdata==2026.6",
     "uvicorn>=0.34.0",
     # WorkOS enterprise SSO (behind an adapter; see docs/architecture/enterprise-sso-workos-adr.md).
-    "workos==10.5.0",
+    "workos==10.9.0",
     "wrapt>=1.14.0",
     "yfinance>=0.2.36",
     "phonenumbers>=9.0.28",
@@ -87,6 +87,10 @@ dependencies = [
     "idna>=3.10,<4",
     "certifi>=2026.10.19",
     "exchange-calendars>=4.11,<5",
+    "semantic-router[fastembed]==1.1.1",
+    "google-api-python-client==2.201.0",
+    "langchain==1.3.13",
+    "langchain-google-genai==4.4.2",
 ]
 
 [dependency-groups]
@@ -247,6 +251,10 @@ module = [
     # A pure table plus one classifier. Cheap to check, and its return types are
     # what `google_maps_service` builds a response contract on.
     "hushh_mcp.services.place_taxonomy",
+    # Preserve typed return contracts for extracted route-to-service boundaries.
+    "hushh_mcp.services.pod_lifecycle_log",
+    "hushh_mcp.services.relay_nonce_store",
+    "hushh_mcp.services.scope_commerce_requests",
 ]
 follow_imports = "normal"
 

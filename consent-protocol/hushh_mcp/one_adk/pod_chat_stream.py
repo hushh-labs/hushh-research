@@ -7,12 +7,13 @@ an owner-bound producer only during preparation, before the run registry opens.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections import deque
 from collections.abc import AsyncGenerator
 from contextlib import aclosing
 
-from ag_ui.core import BaseEvent, RunAgentInput, RunErrorEvent
+from ag_ui.core import BaseEvent, EventType, RunAgentInput, RunErrorEvent
 from ag_ui.encoder import EventEncoder
 
 from hushh_mcp.one_adk.output_privacy import safe_exception_event
@@ -21,6 +22,8 @@ from hushh_mcp.services.chat_key import MAX_BINDING_SECONDS, current_request_cha
 
 _PRODUCERS: set[asyncio.Task[None]] = set()
 _OWNED_PRODUCERS: dict[tuple[str, str], asyncio.Task[None]] = {}
+_OWNED_TERMINAL: set[tuple[str, str]] = set()
+_OWNED_SETTLED_EVENTS: dict[tuple[str, str], asyncio.Event] = {}
 _MAX_FRAMES = 64
 _MAX_BYTES = 1024 * 1024
 logger = logging.getLogger(__name__)
@@ -101,7 +104,14 @@ async def pod_chat_events(
 ) -> AsyncGenerator[bytes, None]:
     buffer = _TransportFrames()
     key = (owner_id, admitted.thread_id)
-    if key in _OWNED_PRODUCERS:
+    existing = _OWNED_PRODUCERS.get(key)
+    if existing is not None and not existing.done() and key in _OWNED_TERMINAL:
+        settled_event = _OWNED_SETTLED_EVENTS.get(key)
+        if settled_event is not None:
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(settled_event.wait(), timeout=2.0)
+        existing = _OWNED_PRODUCERS.get(key)
+    if existing is not None and not existing.done():
         event = RunErrorEvent(
             code="POD_CHAT_BUSY",
             message="Your private agent is finishing active work. Try again shortly.",
@@ -118,6 +128,11 @@ async def pod_chat_events(
             async with asyncio.timeout(timeout), aclosing(agent.run(admitted)) as stream:
                 # Exhaust the run: a terminal event precedes encrypted cleanup.
                 async for event in stream:
+                    if getattr(event, "type", None) in (
+                        EventType.RUN_FINISHED,
+                        EventType.RUN_ERROR,
+                    ):
+                        _OWNED_TERMINAL.add(key)
                     await buffer.publish(event)
         except Exception as exc:
             buffer.fail(exc)
@@ -128,11 +143,17 @@ async def pod_chat_events(
         _PRODUCERS.discard(task)
         if _OWNED_PRODUCERS.get(key) is task:
             del _OWNED_PRODUCERS[key]
+        _OWNED_TERMINAL.discard(key)
+        settled_event = _OWNED_SETTLED_EVENTS.pop(key, None)
+        if settled_event is not None:
+            settled_event.set()
         if not task.cancelled() and task.exception() is not None:
             logger.error("pod_chat.producer_failed")
         buffer.finished = True
         buffer.wake.set()
 
+    _OWNED_TERMINAL.discard(key)
+    _OWNED_SETTLED_EVENTS[key] = asyncio.Event()
     producer = asyncio.create_task(produce())
     _PRODUCERS.add(producer)
     _OWNED_PRODUCERS[key] = producer

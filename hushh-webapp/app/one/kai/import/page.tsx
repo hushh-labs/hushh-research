@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense } from "react";
 
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
@@ -10,29 +10,10 @@ import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { KaiFlow } from "@/components/kai/kai-flow";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
-import { useStepProgress } from "@/lib/progress/step-progress-context";
 
 function KaiImportPageContent() {
   const { user, userId, loading: authLoading } = useAuth();
   const { vaultOwnerToken } = useVault();
-  const [initialized, setInitialized] = useState(false);
-  const { registerSteps, completeStep, reset } = useStepProgress();
-
-  useEffect(() => {
-    if (authLoading) return;
-
-    if (!initialized) {
-      registerSteps(1);
-      setInitialized(true);
-    }
-
-    if (user) {
-      completeStep();
-    }
-
-    return () => reset();
-  }, [authLoading, completeStep, initialized, registerSteps, reset, user]);
-
   if (authLoading || !user || !userId) {
     return null;
   }
@@ -41,7 +22,7 @@ function KaiImportPageContent() {
     <FullscreenFlowShell
       as="div"
       width="agent"
-      className="relative"
+      className="app-type-compact relative shrink-0"
     >
       <NativeTestBeacon
         routeId="/one/kai/import"

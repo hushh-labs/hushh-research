@@ -3,6 +3,7 @@
 import {
   createContext,
   useContext,
+  useRef,
   type ComponentPropsWithoutRef,
   type ReactNode,
 } from "react";
@@ -30,7 +31,10 @@ import {
   PageHeader,
   SectionHeader,
 } from "@/components/app-ui/page-sections";
-import { RiaRouteSelector } from "@/components/ria/layout/ria-route-selector";
+import { useAuth } from "@/hooks/use-auth";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
+import { NativeWorkspaceRoute, type NativeWorkspaceSurfaceSection } from "@/lib/capacitor/native-workspace-surface";
+import { RiaRouteSelector, useRiaRouteTabs } from "@/components/ria/layout/ria-route-selector";
 import {
   SurfaceCard,
   SurfaceInset,
@@ -43,6 +47,8 @@ import { isRiaVerified, riaVerificationStatusOf } from "@/lib/ria/ria-verificati
 
 const RIA_AGENT_HEADER_CLASSNAME =
   "[&>div:first-child]:!gap-3.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center";
+
+const COMPATIBILITY_NOTICE = "This surface is running in degraded compatibility mode until the full IAM contract is available in the active environment.";
 
 const RiaPrimaryWorkspaceContext = createContext(false);
 
@@ -69,11 +75,13 @@ export function RiaPrimaryWorkspaceShell({
 }) {
   const pathname = usePathname();
 
+  const frame = useRef<HTMLDivElement>(null);
+  const selection = useRef<((value: string) => void) | null>(null);
   if (!isRiaPrimaryWorkspacePath(pathname)) return <>{children}</>;
 
-  return (
+  const body = (
     <RiaPrimaryWorkspaceContext.Provider value>
-      <AppPageShell as="main" fitContent width="agent" headerContentSpacing="compact">
+      <AppPageShell as="main" ref={frame} fitContent width="agent" headerContentSpacing="compact">
         <AppPageHeaderRegion className="space-y-[var(--page-header-section-gap)]">
           <PageHeader
             title="Advisor"
@@ -82,12 +90,47 @@ export function RiaPrimaryWorkspaceShell({
             actionsInlineMobile
             className={RIA_AGENT_HEADER_CLASSNAME}
           />
-          <RiaRouteSelector />
+          <RiaRouteSelector selectionRef={selection} />
         </AppPageHeaderRegion>
         {children}
       </AppPageShell>
     </RiaPrimaryWorkspaceContext.Provider>
   );
+  return customNativePresentationEnabled()
+    ? <AdvisorGateProjection frame={frame} selection={selection}>{body}</AdvisorGateProjection>
+    : body;
+}
+
+function AdvisorGateProjection({ frame, selection, children }: {
+  frame: React.RefObject<HTMLDivElement | null>;
+  selection: React.RefObject<((value: string) => void) | null>;
+  children: ReactNode;
+}) {
+  const { userId } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname()?.replace(/\/+$/, "");
+  const tabs = useRiaRouteTabs();
+  const { riaCapability, riaOnboardingStatus, loading, refreshing } = usePersonaState();
+  const setup = riaCapability === "setup";
+  const verification = (!refreshing || Boolean(riaOnboardingStatus)) &&
+    !isRiaVerified(riaVerificationStatusOf(riaOnboardingStatus));
+  // Picks owns the redirect to onboarding for setup-only advisors.
+  const picks = pathname === ROUTES.RIA_PICKS;
+  const active = !loading && (picks ? !setup && verification : pathname === ROUTES.RIA_CLIENTS && (setup || verification));
+  const gate = setup ? RIA_COPY.clients.setupGate : RIA_COPY.clients.verifyGate;
+  const sections: NativeWorkspaceSurfaceSection[] = [{
+    key: "advisor-access", title: setup ? "Compatibility Mode" : RIA_COPY.clients.verifyGate.eyebrow,
+    rows: [
+      { key: "reason", label: gate.title, detail: gate.description, symbol: setup ? "exclamationmark.triangle" : "lock.shield" },
+      { key: "status", label: setup ? COMPATIBILITY_NOTICE : RIA_COPY.clients.verifyGate.body },
+      ...(setup ? [] : [{ key: "verify", label: RIA_COPY.clients.verifyGate.cta, prominent: true,
+        web: true, run: () => router.push(ROUTES.RIA_ONBOARDING) }]),
+    ],
+  }];
+  return <NativeWorkspaceRoute owner={userId} workspace="ria" path={picks ? ROUTES.RIA_PICKS : ROUTES.RIA_CLIENTS} active={active}
+    title="Advisor" sections={sections} frame={frame} tabs={tabs ? { label: "Advisor", options: tabs.tabs.map((tab) => ({
+      key: tab.value, label: tab.label, selected: tab.value === tabs.activeValue, run: () => selection.current?.(tab.value),
+    })) } : undefined}>{children}</NativeWorkspaceRoute>;
 }
 
 export function RiaPageShell({
@@ -245,8 +288,7 @@ export function RiaCompatibilityState({
       />
       <RiaSurface tone="warning" className="border-dashed">
         <p className="text-sm leading-6 text-muted-foreground">
-          This surface is running in degraded compatibility mode until the full IAM contract is
-          available in the active environment.
+          {COMPATIBILITY_NOTICE}
         </p>
       </RiaSurface>
     </section>

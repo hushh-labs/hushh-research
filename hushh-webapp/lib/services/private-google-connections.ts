@@ -1,6 +1,13 @@
 import { ApiService } from './api-service';
 import type { GoogleConnector } from '@/lib/one/connector-credential-seal';
 
+// No grant or mailbox identifiers are exposed to other browser surfaces.
+export const PRIVATE_MAIL_GRANTS_CHANGED = 'one:private-mail-grants-changed';
+
+export function notifyMailGrantsChanged() {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(PRIVATE_MAIL_GRANTS_CHANGED));
+}
+
 export class PrivateGoogleUnsupportedError extends Error {
   readonly code = 'PRIVATE_GOOGLE_OPERATION_UNAVAILABLE';
   constructor(operation: string) {
@@ -19,8 +26,42 @@ export type PrivateGoogleStatus = {
   connectorId: GoogleConnector;
   status: 'connected' | 'needs_reauth' | 'absent';
   accessLevel: 'read' | 'manage' | null;
-  capabilities: { read: boolean; manage: boolean };
+  capabilities: { read: boolean; manage: boolean; readOther?: boolean; calendarList?: boolean };
 };
+
+export type PrivateMailAccount = PrivateGoogleStatus & {
+  accountId: string; credentialId: string; email: string | null; provider: 'google'; isDefault: boolean; receiptSyncAvailable?: boolean;
+};
+
+export async function privateMailAccounts(signal?: AbortSignal): Promise<PrivateMailAccount[]> {
+  const response = await ApiService.ownerPodRequest('connectors/gmail/accounts', { method: 'GET', ...(signal && { signal }) });
+  if (!response.ok) throw new Error('Your private agent could not load your mailboxes. Update your agent if this continues.');
+  const value: unknown = await response.json();
+  const accounts = (value as { accounts?: unknown } | null)?.accounts;
+  if (!Array.isArray(accounts) || accounts.length > 20) throw new Error('Unsupported mailbox list.');
+  const ids = new Set<string>();
+  return accounts.map((item: Omit<PrivateMailAccount, 'connectorId'>) => {
+    if (!item || !/^[a-f0-9]{32}$/.test(item.accountId) || ids.has(item.accountId) ||
+        !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(item.credentialId) ||
+        item.provider !== 'google' || !['connected', 'needs_reauth'].includes(item.status) ||
+        typeof item.isDefault !== 'boolean' || (item.email !== null && typeof item.email !== 'string'))
+      throw new Error('Unsupported mailbox list.');
+    ids.add(item.accountId);
+    return { ...item, connectorId: 'gmail', capabilities: { read: item.status === 'connected' && item.capabilities?.read === true, manage: item.status === 'connected' && item.capabilities?.manage === true } };
+  });
+}
+
+export async function disconnectPrivateMailAccount(accountId: string, credentialId: string): Promise<{ disconnected: boolean; providerRevoked: boolean | null }> {
+  if (!/^[a-f0-9]{32}$/.test(accountId)) throw new Error('Unsupported mailbox.');
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(credentialId)) throw new Error('Unsupported mailbox connection.');
+  const response = await ApiService.ownerPodRequest(`connectors/gmail/accounts/${accountId}?credential_id=${credentialId}`, { method: 'DELETE' });
+  if (!response.ok) throw new Error('Your private agent could not disconnect this mailbox.');
+  const value = await response.json() as { accountId?: string; status?: string; providerRevoked?: unknown };
+  if (value.accountId !== accountId || !['absent', 'connected', 'needs_reauth'].includes(value.status ?? '') ||
+      ![true, false, null].includes(value.providerRevoked as boolean | null)) throw new Error('Your private agent could not confirm the disconnect. Refresh Mail.');
+  if (value.status === 'absent' || value.status === 'needs_reauth') notifyMailGrantsChanged();
+  return { disconnected: value.status === 'absent', providerRevoked: value.providerRevoked as boolean | null };
+}
 
 /** Display only grants confirmed by the owner-authenticated pod response. */
 export async function privateGoogleStatus(connector: GoogleConnector): Promise<PrivateGoogleStatus> {
@@ -33,22 +74,48 @@ export async function privateGoogleStatus(connector: GoogleConnector): Promise<P
   return {
     connectorId: connector, status: value.status!,
     accessLevel: connected && (value.accessLevel === 'read' || value.accessLevel === 'manage') ? value.accessLevel : null,
-    capabilities: { read: connected && value.capabilities?.read === true, manage: connected && value.capabilities?.manage === true },
+    capabilities: {
+      read: connected && value.capabilities?.read === true,
+      manage: connected && value.capabilities?.manage === true,
+      ...(connector === 'contacts' && { readOther: connected && value.capabilities?.readOther === true }),
+      ...(connector === 'calendar' && { calendarList: connected && value.capabilities?.calendarList === true }),
+    },
   };
 }
 
 export async function disconnectPrivateGoogle(connector: GoogleConnector): Promise<void> {
   const response = await ApiService.ownerPodRequest(`connectors/${connector}`, { method: 'DELETE' });
   if (!response.ok) throw new Error('Your private agent could not disconnect Google.');
+  if (connector === 'gmail') notifyMailGrantsChanged();
 }
 
-export async function confirmPrivateGoogleAction(proposalId: string, kind: 'calendar' | 'gmail_mailbox'): Promise<Record<string, unknown>> {
+export async function confirmPrivateGoogleAction(proposalId: string, kind: 'calendar' | 'gmail_mailbox', reviewContract?: 1): Promise<Record<string, unknown>> {
   const prefix = kind === 'calendar' ? 'gcal' : 'gmod';
   if (!new RegExp(`^${prefix}_[A-Za-z0-9_-]{16,64}$`).test(proposalId)) throw new Error('This action belongs to a different agent. Ask your private agent again.');
-  const response = await ApiService.ownerPodRequest(`actions/${proposalId}/confirm`, { method: 'POST' });
+  const response = await ApiService.ownerPodRequest(`actions/${proposalId}/confirm`, {
+    method: 'POST',
+    ...(kind === 'calendar' && reviewContract === 1 ? {
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ review_contract: 1 }),
+    } : {}),
+  });
   if (!response.ok) throw new Error('Your private agent could not confirm this change. Check the provider before trying again.');
   const value = await response.json() as { proposalId?: string; kind?: string; result?: unknown };
   if (value.proposalId !== proposalId || value.kind !== kind || !value.result || typeof value.result !== 'object' || Array.isArray(value.result))
     throw new Error('Your private agent could not confirm the outcome. Check the provider before trying again.');
   return value.result as Record<string, unknown>;
+}
+
+export async function readPrivateCalendarReplyStatus(proposalId: string): Promise<{
+  calendar: 'created' | 'prepared' | 'expired' | 'outcome_unknown';
+  gmail: 'sent' | 'not_sent' | 'outcome_unknown';
+}> {
+  if (!/^gcal_[A-Za-z0-9_-]{16,64}$/.test(proposalId)) throw new Error('Invalid Calendar review');
+  const response = await ApiService.ownerPodRequest(`actions/${proposalId}/status`, { method: 'GET' });
+  if (!response.ok) throw new Error('The Calendar review could not be checked.');
+  const value = await response.json();
+  if (value?.proposalId !== proposalId || value?.kind !== 'calendar' ||
+    !['created', 'prepared', 'expired', 'outcome_unknown'].includes(value.calendar) ||
+    !['sent', 'not_sent', 'outcome_unknown'].includes(value.gmail)) throw new Error('Invalid Calendar outcome');
+  return { calendar: value.calendar, gmail: value.gmail };
 }

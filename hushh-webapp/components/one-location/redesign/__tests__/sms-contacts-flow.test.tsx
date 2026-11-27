@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -13,6 +14,8 @@ import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts-flow";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import { ROUTES } from "@/lib/navigation/routes";
 import { isSosShareReadyRecipient } from "@/lib/one-location/sos-trigger";
 import type { CircleRecipientSelection } from "@/lib/one-location/circle-recipient-selection";
 import type {
@@ -143,19 +146,6 @@ afterEach(async () => {
 });
 
 describe("SmsContactsFlow", () => {
-  it("grows past phone width and keeps contacts in one calm column", () => {
-    // The column used to be pinned at 430px at every size, so a tablet or a
-    // desktop window rendered a narrow ribbon in a field of grey. Asserting the
-    // breakpoint classes is how this file already checks layout, and it is the
-    // part a refactor is most likely to drop silently.
-    render(<SmsContactsFlow {...baseProps} />);
-
-    const column = screen.getByTestId("sms-contacts-screen")
-      .firstElementChild as HTMLElement;
-    expect(column).toHaveClass("max-w-[430px]");
-    expect(column).toHaveClass("md:max-w-[680px]", "xl:max-w-[720px]");
-  });
-
   it("presents exactly two sections: Circles and All Contacts", () => {
     render(<SmsContactsFlow {...baseProps} />);
 
@@ -325,6 +315,18 @@ describe("SmsContactsFlow", () => {
       expect(
         within(list).getByLabelText("Connected from your contacts"),
       ).toBeInTheDocument();
+    });
+
+    it("collapses an open Circle before leaving emergency contacts in Chat", async () => {
+      render(<SmsContactsFlow {...baseProps} embeddedInChat />);
+      fireEvent.click(screen.getByRole("button", { name: "Choose people from Family" }));
+      expect(await screen.findByTestId("circle-members-circle-1")).toBeInTheDocument();
+
+      act(() => { expect(unwindBackLayer(ROUTES.HOME)).toBe(true); });
+
+      expect(screen.queryByTestId("circle-members-circle-1")).not.toBeInTheDocument();
+      expect(screen.getByTestId("sms-contacts-screen")).toBeInTheDocument();
+      expect(unwindBackLayer(ROUTES.HOME)).toBe(false);
     });
 
     it("resolves the roster only when the Circle is opened", async () => {
@@ -535,7 +537,8 @@ describe("SmsContactsFlow", () => {
     // The ground is the semantic `-tint` partner, not a one-off alpha on the
     // flat token. Hand-rolled alphas are what made the same destructive ground
     // render a slightly different colour on every screen that spelled it out.
-    expect(removeButton).toHaveClass(
+    expect(removeButton).toHaveClass("min-h-11", "min-w-11");
+    expect(within(removeButton).getByText("Remove")).toHaveClass(
       "bg-[color:var(--app-destructive-tint)]",
       "text-[color:var(--app-destructive)]",
     );

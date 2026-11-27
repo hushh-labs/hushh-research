@@ -125,11 +125,12 @@ it("rejects expired and too-short windows instead of manufacturing a slot", () =
 
 describe("Calendar slot proposal constraints", () => {
   const slot = { ownerId: "owner", accountEmail: "owner@example.com", date: "2030-01-17", windowStart: "2030-01-17T10:00:00Z", windowEnd: "2030-01-17T12:00:00Z", durationMinutes: 30 as const, timeZone: "Europe/London" };
-  const proposal = { action: "create", title: "Meeting", attendees: ["guest@example.com"], startAt: slot.windowStart, endAt: "2030-01-17T10:30:00Z", conflicts: [] };
+  const proposal = { accountId: "default", action: "create", title: "Meeting", attendees: ["guest@example.com"], startAt: slot.windowStart, endAt: "2030-01-17T10:30:00Z", conflicts: [] };
   it.each([
     { startAt: "2030-01-17T09:45:00Z", endAt: "2030-01-17T10:15:00Z" },
     { startAt: "2030-01-17T11:45:00Z", endAt: "2030-01-17T12:15:00Z" },
     { endAt: "2030-01-17T11:00:00Z" }, { startAt: null }, { endAt: "invalid" },
+    { accountId: "account-b" }, { accountId: undefined },
     { action: "cancel" }, { attendees: [] }, { conflicts: [{ title: "Busy" }] },
     { expiresAt: "2030-01-17T08:00:00Z" },
   ])("rejects an invalid or unavailable proposal: %j", changes => {

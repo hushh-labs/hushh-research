@@ -1,3 +1,4 @@
+import { pull } from "./profile-pane-gesture-fixture";
 import { registerBackLayer } from "@/lib/navigation/back-layers";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useLayoutEffect, useRef, useState } from "react";
@@ -6,11 +7,14 @@ import { ProfilePane } from "@/components/app-ui/profile-pane";
 import { previewProfilePane } from "@/lib/navigation/profile-pane";
 
 const vault = vi.hoisted(() => ({ isVaultUnlocked: false }));
-const native = vi.hoisted(() => ({ enabled: false }));
+const native = vi.hoisted(() => ({ enabled: false, scoreSupported: true }));
 vi.mock("@/lib/capacitor/native-presentation-policy", () => ({ customNativePresentationEnabled: () => native.enabled }));
 vi.mock("@/lib/capacitor/native-drawers", async (original) => ({
   ...await original<typeof import("@/lib/capacitor/native-drawers")>(),
   nativeDrawersPlatformEligible: () => native.enabled,
+  nativeDrawers: () => ({
+    getCapabilities: async () => ({ profileNetWorthScore: native.scoreSupported }),
+  }),
 }));
 const url = vi.hoisted(() => ({
   query: "profile_pane=1&profile_panel=preferences",
@@ -38,9 +42,9 @@ let pendingFrames = new Map<number, FrameRequestCallback>();
 let nextFrameId = 1;
 beforeEach(() => {
   native.enabled = false;
+  native.scoreSupported = true;
   vault.isVaultUnlocked = false;
   url.query = "profile_pane=1&profile_panel=preferences";
-  vault.isVaultUnlocked = false;
   pendingFrames = new Map();
   profilePage.renders = 0;
   vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
@@ -53,13 +57,15 @@ beforeEach(() => {
   });
 });
 
-it("closes the native presentation with its browser entry even while the shell's open prop lags", () => {
+it("closes the native presentation with its browser entry even while the shell's open prop lags", async () => {
   native.enabled = true;
   vault.isVaultUnlocked = true;
   window.history.replaceState({ __hushhProfilePane: { depth: 2, parentPanel: null } }, "", "/one?profile_pane=1&profile_panel=preferences");
   const view = render(<ProfilePane open onOpenChange={vi.fn()} />);
-  expect(screen.getByTestId("pane-body")).toHaveAttribute("data-native-open", "true");
-  act(() => {
+  expect(await screen.findByTestId("pane-body")).toHaveAttribute("data-native-open", "true");
+  // Native capability admission crosses an async boundary; flush its React work
+  // before asserting the browser entry's committed close state.
+  await act(async () => {
     window.history.replaceState(null, "", "/one");
     window.dispatchEvent(new PopStateEvent("popstate"));
   });
@@ -84,16 +90,16 @@ function paintFirstFrames() {
   paintFrame();
 }
 
-function pull(type: string, target: Element, x: number, y: number, time: number) {
-  const point = { identifier: 1, clientX: x, clientY: y };
-  const event = new Event(type, { bubbles: true, cancelable: true });
-  Object.defineProperties(event, {
-    touches: { value: type === "touchend" ? [] : [point] },
-    changedTouches: { value: [point] },
-    timeStamp: { value: time },
-  });
-  fireEvent(target, event);
-}
+it("uses the React Profile renderer for an older native drawer", async () => {
+  native.enabled = true;
+  native.scoreSupported = false;
+  vault.isVaultUnlocked = true;
+  const view = render(<ProfilePane open owner="owner-a" onOpenChange={vi.fn()} />);
+  await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+  paintFirstFrames();
+  expect(await screen.findByTestId("pane-body")).not.toHaveAttribute("data-native-open");
+  view.unmount();
+});
 
 it("keeps the drag preview inert and does not mount protected Profile content before admission", () => {
   vi.useFakeTimers();

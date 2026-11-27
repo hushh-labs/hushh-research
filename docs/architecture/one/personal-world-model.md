@@ -395,26 +395,27 @@ Invitation storage contains a random token hash, one or two keyed contact commit
 Native Google results never enter memory as grounded content; only the owner's declaration from a Yes or Edit is saved. Only independently supplied permitted source drafts use `profile_review_v1`; checked/edited facts and their exact sources pass through the existing review and acknowledged-save contract. A provider receipt without successful retrieval cannot support a source fact.
 
 
-## Apollo/AgentOne knowledge graph implementation plan
+## Personal knowledge graph boundaries
 
-“Apollo” is treated here as the application graph; this change does not integrate Apollo.io or a new third-party enrichment database.
+"Apollo" refers here to the internal application graph model; this surface does not integrate Apollo.io or any third-party enrichment database.
 
-1. Project **Subject → Claim → Source**, plus topic membership, from approved PKM only. Use stable PKM domain/entity identities and normalized source identities.
-2. Carry a snapshot/content revision. Invalidate graph projections when a source or fact is edited, deleted, retracted, or becomes inaccessible.
-3. Extend the existing review/PKM schema with structured evidence basis, observation/publication dates, source-use rights, and supersession/contradiction relationships. Do not silently append unreviewed metadata to the current exact save payload.
-4. Add graph/topic filters and inspectable source/claim nodes, with uncertainty and history. Reuse the existing Soul.md and PKM edit/delete flows.
-5. Clear decrypted projection state on logout, vault lock, key rotation, or owner change. Keep graph persistence encrypted and canonical.
-6. Add graph sharing through explicit consent grants. Invitation claims never imply permission to share.
+**Live in current runtime:**
+- Resumable native search, typed candidate assessments, and independently supplied URL Context sources projected into a sectioned fact and source review list.
+- Stable PKM domain/entity persistence (`one_memory` and `_pwm_claims`), encrypted invitation tokens, and immediate decrypted-projection clearing on logout, vault lock, key rotation, or owner switch.
 
-The current page is a sectioned fact/source list, not an interactive graph. Authorized private-account imports, licensed breach metadata, calibrated probabilities and an interactive graph remain future work. Resumable native search, typed candidate assessments and independently supplied URL Context sources are implemented. Existing Instagram/LinkedIn VM workers live in `hushh-labs/HusshOne`; the Instagram scrape endpoint can initiate Follow requests and both need auth/retention hardening before any owner-scoped read-only PWM integration. They are not invoked by this release.
+**Proposed extensions (not shipped in current runtime):**
+1. Project **Subject -> Claim -> Source** and topic membership directly from approved PKM snapshots with revision invalidation when a source or fact is edited, deleted, or retracted.
+2. Extend the review/PKM schema with structured evidence basis, observation/publication dates, source-use rights, and supersession/contradiction links without silently altering the exact save payload.
+3. Add interactive graph/topic filters and inspectable source/claim nodes backed by the existing Soul.md edit/delete flows and explicit consent-gated sharing (invitation claims never imply sharing permission).
+4. Evaluate authorized private-account imports, calibrated probabilities, and direct-source adapters. Existing Instagram/LinkedIn VM workers in `hushh-labs/HusshOne` are not invoked by this release and require read-only auth/retention hardening before any owner-scoped integration.
 
 ## Source and exposure references
 
 - [Google Search grounding](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/grounding/grounding-with-google-search) and [URL Context](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/url-context): native retrieval capabilities and receipt/display requirements.
-- [Dedupe active labeling](https://docs.dedupe.io/en/latest/API-documentation.html), [Splink evaluation](https://moj-analytical-services.github.io/splink/api_docs/evaluation.html), and [confidence calibration](https://proceedings.mlr.press/v70/guo17a.html): references for future labeled evaluation. PWM's deterministic source-trail score is capped at 4 and is not a calibrated probability or a claim verification.
+- [Dedupe active labeling](https://docs.dedupe.io/en/latest/API-documentation.html), [Splink evaluation](https://moj-analytical-services.github.io/splink/api_docs/evaluation.html), and [confidence calibration](https://proceedings.mlr.press/v70/guo17a.html): methodology references for proposed labeled evaluation. PWM's deterministic source-trail score is capped at 4 and is not a calibrated probability or a claim verification.
 - [Google Cloud service terms](https://cloud.google.com/terms/service-terms): grounding reuse has specific restrictions; owner confirmation alone does not remove provider restrictions.
-- [Wikidata access and CC0](https://www.wikidata.org/wiki/Wikidata:Data_access), [Crossref REST metadata](https://www.crossref.org/documentation/retrieve-metadata/rest-api/), and [GitHub public users API](https://docs.github.com/en/rest/users/users#get-a-user): candidates for future direct-source adapters, not wired into this release.
-- [Have I Been Pwned API](https://haveibeenpwned.com/API/v3): future authorized exact-identifier breach metadata checks; no collection or display of leaked passwords/tokens. No provider configured means unavailable. “No hit” never means never breached or currently safe.
+- [Wikidata access and CC0](https://www.wikidata.org/wiki/Wikidata:Data_access), [Crossref REST metadata](https://www.crossref.org/documentation/retrieve-metadata/rest-api/), and [GitHub public users API](https://docs.github.com/en/rest/users/users#get-a-user): candidates for proposed direct-source adapters, not wired into this release.
+- [Have I Been Pwned API](https://haveibeenpwned.com/API/v3): candidate for proposed authorized exact-identifier breach metadata checks; no collection or display of leaked passwords/tokens. No provider configured means unavailable. "No hit" never means never breached or currently safe.
 
 ## Release evidence
 

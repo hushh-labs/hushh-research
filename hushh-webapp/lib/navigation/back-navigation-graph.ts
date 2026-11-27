@@ -179,6 +179,7 @@ export function profileOriginCrumbLabel(backHref: string): string {
     [ROUTES.GMAIL]: "Mail",
     [ROUTES.PKM]: "Memory",
     [ROUTES.PKM_RECENT]: "Recently learned",
+    [ROUTES.PKM_LOGINS]: "Website logins",
     [ROUTES.PKM_LOCATION]: "Location",
     [ROUTES.PKM_LOCATION_DETAIL]: "Detail",
     [ROUTES.ONE_MARKETPLACE]: "Marketplace",
@@ -186,7 +187,9 @@ export function profileOriginCrumbLabel(backHref: string): string {
     [ROUTES.CONSENTS]: "Consent Center",
     [ROUTES.ONE_FEED]: "Feed",
     [ROUTES.ONE_MESSAGES]: "Messages",
-    [ROUTES.ONE_TODOS]: "To-do List",
+    [ROUTES.ONE_TASKS]: "Tasks",
+    [ROUTES.ONE_GOALS]: "Goals",
+    [ROUTES.EMAIL_AGENT]: "Mail Agent",
     [ROUTES.ONE_KYC]: "KYC",
     [KAI_MARKET_PATH]: "Finance",
     [ROUTES.CONNECT]: "Connect",
@@ -237,6 +240,18 @@ function resolveCapabilitySetupBackHref(
 
 export const BACK_NAVIGATION_RULES: BackRule[] = [
   ...ONE_LEAF_WORKSPACE_BACK_RULES,
+  {
+    id: "reference-design-system",
+    resolve: (pathname) => {
+      if (pathname !== ROUTES.DESIGN_SYSTEM) return undefined;
+      return {
+        backHref: ROUTES.HOME,
+        width: "content",
+        align: "start",
+        items: [{ label: "Design System" }],
+      };
+    },
+  },
   {
     id: "legal-terms-privacy",
     resolve: (pathname) => {
@@ -591,9 +606,18 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         .split("/")
         .filter(Boolean)[0];
       const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
-      const managementReturn = pathname === ROUTES.ONE_SETUP_CLOUD
-        && searchParams?.get("return_to") === ROUTES.PROFILE_HOSTING
-        ? ROUTES.PROFILE_HOSTING : undefined;
+      const rawReturnTo = normalizeInternalRouteHref(searchParams?.get("return_to"));
+      const isHostingOrigin = (href: string | null | undefined) =>
+        Boolean(
+          href &&
+            (href === ROUTES.PROFILE_HOSTING ||
+              href.startsWith(`${ROUTES.PROFILE_HOSTING}?`) ||
+              href.includes("profile_panel=hosting")),
+        );
+      const managementReturn =
+        pathname === ROUTES.ONE_SETUP_CLOUD && isHostingOrigin(rawReturnTo)
+          ? rawReturnTo ?? undefined
+          : undefined;
       const setupBackHref = originHref || managementReturn || ROUTES.ONE_SETUP;
       return {
         backHref: setupBackHref,
@@ -602,7 +626,10 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         hideBack: false,
         items: [
           { label: "One", href: ROUTES.ONE_HOME },
-          { label: setupBackHref === ROUTES.PROFILE_HOSTING ? "Hosting" : "Setup", href: setupBackHref },
+          {
+            label: isHostingOrigin(setupBackHref) ? "Hosting" : "Setup",
+            href: setupBackHref,
+          },
           ...(capabilitySegment
             ? [
                 {
@@ -739,6 +766,25 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
             ? { label: "Profile", href: ROUTES.PROFILE }
             : { label: "One", href: ROUTES.ONE_HOME },
           { label: "KYC" },
+        ],
+      };
+    },
+  },
+  {
+    id: "one-email-agent",
+    resolve: (pathname, searchParams) => {
+      if (pathname !== ROUTES.EMAIL_AGENT) return undefined;
+      const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
+      const fromProfile = originHref === ROUTES.PROFILE;
+      return {
+        backHref: resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
+        width: "profile",
+        align: "center",
+        items: [
+          fromProfile
+            ? { label: "Profile", href: ROUTES.PROFILE }
+            : { label: "One", href: ROUTES.ONE_HOME },
+          { label: "Mail Agent" },
         ],
       };
     },
@@ -881,6 +927,13 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
     id: "one-feed",
     resolve: (pathname, searchParams) => {
       if (pathname !== ROUTES.ONE_FEED) return undefined;
+      const selectedRecord = ["funding_event", "statement_id", "institution_id", "analysis_id"].find(key => searchParams?.get(key) !== null && searchParams?.get(key) !== undefined);
+      if (selectedRecord) return {
+        backHref: ROUTES.ONE_FEED,
+        width: "profile",
+        align: "center",
+        items: [{ label: "Feed", href: ROUTES.ONE_FEED }, { label: selectedRecord === "analysis_id" ? "Analysis" : selectedRecord === "statement_id" ? "Statement" : selectedRecord === "institution_id" ? "Institution" : "Transfer" }],
+      };
       const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
       const fromProfile = originHref === ROUTES.PROFILE;
       return {
@@ -923,14 +976,26 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
     },
   },
   {
-    id: "one-todos",
-    resolve: (pathname) => {
-      if (pathname !== ROUTES.ONE_TODOS) return undefined;
+    id: "one-goals",
+    resolve: (pathname) => pathname === ROUTES.ONE_GOALS ? {
+      backHref: ROUTES.ONE_HOME,
+      width: "profile",
+      align: "center",
+      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Goals" }],
+    } : undefined,
+  },
+  {
+    id: "one-tasks",
+    resolve: (pathname, searchParams) => {
+      if (pathname !== ROUTES.ONE_TASKS) return undefined;
+      const fromGoals = searchParams?.get("from") === "goals";
       return {
-        backHref: ROUTES.ONE_HOME,
+        backHref: fromGoals ? ROUTES.ONE_GOALS : ROUTES.ONE_HOME,
         width: "profile",
         align: "center",
-        items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "To-do List" }],
+        items: fromGoals
+          ? [{ label: "Goals", href: ROUTES.ONE_GOALS }, { label: "Tasks" }]
+          : [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Tasks" }],
       };
     },
   },
@@ -981,6 +1046,15 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
           { label: "Recently learned" },
         ],
       };
+    },
+  },
+  {
+    id: "pkm-logins",
+    resolve: (pathname) => {
+      if (pathname !== ROUTES.PKM_LOGINS) return undefined;
+      return { backHref: ROUTES.PKM, width: "profile", align: "center", items: [
+        { label: "One", href: ROUTES.ONE_HOME }, { label: "Memory", href: ROUTES.PKM }, { label: "Website logins" },
+      ] };
     },
   },
   {

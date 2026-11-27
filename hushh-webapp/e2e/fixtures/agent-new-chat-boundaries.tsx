@@ -9,7 +9,17 @@ export function useAuth() {
   const anonymous = location.search.includes("anonymous=1");
   return { user: anonymous ? null : user, userId: anonymous ? null : user.uid, loading: false, sessionVerificationRequired: false };
 }
+const vaultOwnerToken = "fixture-vault-owner";
+const unlockedVault = {
+  isVaultUnlocked: true,
+  vaultKey: "12".repeat(32),
+  vaultOwnerToken,
+  tokenExpiresAt: null,
+  getVaultOwnerToken: () => vaultOwnerToken,
+};
+
 export function useVault() {
+  if (location.search.includes("vault=1")) return unlockedVault;
   return { isVaultUnlocked: false, vaultKey: null, vaultOwnerToken: null, tokenExpiresAt: null, getVaultOwnerToken: () => null };
 }
 export const VaultContext = createContext(null);

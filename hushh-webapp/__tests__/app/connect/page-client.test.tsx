@@ -8,6 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 const mocks = vi.hoisted(() => ({
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   listMutualConnections: vi.fn(),
   listConnections: vi.fn(),
   listConnectionsPage: vi.fn(),
+  periodicTask: vi.fn(),
   listRequests: vi.fn(),
   sendRequest: vi.fn(),
   cancel: vi.fn(),
@@ -65,6 +67,11 @@ vi.mock("@/lib/capacitor", () => ({
     }),
     openAppSettings: async () => ({ opened: false }),
   },
+}));
+
+vi.mock("@/lib/perf/use-periodic-task", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/perf/use-periodic-task")>()),
+  usePeriodicTask: mocks.periodicTask,
 }));
 
 vi.mock("@/lib/capacitor/platform", () => ({
@@ -437,6 +444,7 @@ describe("Location command connection prerequisite", () => {
     );
     expect(mocks.toastSuccess).toHaveBeenCalledWith(
       "1 incoming request needs your review.",
+      { className: connectTypography.toast },
     );
     expect(mocks.sendRequest).toHaveBeenCalledOnce();
   });
@@ -467,8 +475,9 @@ beforeEach(() => {
   CacheService.getInstance().invalidateUser("me");
   // A fresh URL per test: the outer tab is read from it, so a leaked
   // `?tab=circles` would silently render the wrong surface for everything
-  // that ran after it.
-  mocks.searchParams = new URLSearchParams();
+  // that ran after it. Directory-focused suites pass `view=discover`; bare
+  // `/connect` arrival tests clear searchParams explicitly.
+  mocks.searchParams = new URLSearchParams("view=discover");
   mocks.listConnections.mockResolvedValue([]);
   mocks.listConnectionsPage.mockImplementation(async (options) => {
     const allItems = await mocks.listConnections(options);
@@ -570,6 +579,115 @@ describe("P0 connection reconciliation", () => {
     );
     await waitFor(() => expect(mocks.listRequests).toHaveBeenCalledOnce());
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+  });
+
+  it("repairs a deleted unrelated directory result when the visible directory becomes due", async () => {
+    mocks.searchDirectory.mockResolvedValueOnce({ items: [{ userId: "stranger", displayName: "Departing Stranger", relationship: "none" }], page: 1, hasMore: false });
+    render(<ConnectPageClient />);
+    await screen.findByText("Departing Stranger");
+    mocks.searchDirectory.mockResolvedValue({ items: [], page: 1, hasMore: false });
+    const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 120_001);
+    try {
+      const repair = mocks.periodicTask.mock.calls.findLast(([id]) => id === "connect-directory-availability:me");
+      expect(repair?.[3]).toEqual({ enabled: true });
+      act(() => { repair?.[2](); });
+      await waitFor(() => expect(screen.queryByText("Departing Stranger")).toBeNull());
+    } finally { now.mockRestore(); }
+  });
+
+  it("fences stale directory responses while deletion roster reconciliation is still pending", async () => {
+    const activePage = { items: [{ userId: "active", displayName: "Active Directory Friend", relationship: "none" }], page: 1, hasMore: false };
+    let finishOld!: (value: typeof activePage) => void;
+    let finishRoster: ((value: unknown) => void) | undefined;
+    let finishOutgoing: ((value: unknown) => void) | undefined;
+    mocks.searchDirectory.mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve; }))
+      .mockResolvedValue(activePage);
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.listRequests).toHaveBeenCalled());
+    mocks.listConnectionsPage.mockImplementationOnce(() => new Promise(resolve => { finishRoster = resolve; }));
+    mocks.listRequests.mockImplementationOnce(() => new Promise(resolve => { finishOutgoing = resolve; }));
+    try {
+      act(() => dispatchConnectionGraphChanged("me", { broadcast: false }));
+      await screen.findByText("Active Directory Friend");
+      expect(finishRoster).toBeDefined();
+      expect(finishOutgoing).toBeDefined();
+      await act(async () => finishOld({ ...activePage, items: [{ userId: "retired", displayName: "Retired Directory Friend", relationship: "none" }] }));
+      expect(screen.queryByText("Retired Directory Friend")).toBeNull();
+      expect(screen.getByText("Active Directory Friend")).toBeVisible();
+    } finally {
+      await act(async () => {
+        finishRoster?.({ items: [], page: 1, hasMore: false, totalCount: 0, audience: "all" });
+        finishOutgoing?.([]);
+      });
+    }
+  });
+
+  it.each(["live event", "foreground check"])(
+    "removes a retired connection and updates the count through a %s",
+    async (trigger) => {
+      const retired = {
+        connectionId: "connection-retired",
+        userId: "retired",
+        displayName: "Retired Friend",
+      };
+      const active = {
+        connectionId: "connection-active",
+        userId: "active",
+        displayName: "Active Friend",
+      };
+      let items = [retired, active];
+      mocks.listConnectionsPage.mockImplementation(async ({ accountCheck }) => ({
+        items: accountCheck ? items : [retired, active],
+        page: 1, hasMore: false, totalCount: accountCheck ? items.length : 2, audience: "all",
+      }));
+      render(<ConnectPageClient />);
+      fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+      await screen.findByText("Retired Friend");
+      expect(screen.getByRole("tab", { name: /My connections 2/ })).toBeInTheDocument();
+
+      items = [active];
+      if (trigger === "live event") {
+        act(() => dispatchConnectionGraphChanged("me", { broadcast: false }));
+      } else {
+        const availability = mocks.periodicTask.mock.calls.findLast(
+          ([id]) => id === "connect-account-availability:me",
+        );
+        expect(availability?.[3]).toEqual({ enabled: true });
+        await act(async () => { await availability?.[2](); });
+      }
+
+      await screen.findByRole("tab", { name: /My connections 1/ });
+      expect(screen.queryByText("Retired Friend")).toBeNull();
+      expect(screen.getByText("Active Friend")).toBeVisible();
+      expect(mocks.listConnectionsPage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ accountCheck: trigger === "live event" ? "reconcile" : "observe" }),
+      );
+    },
+  );
+
+  it("keeps loaded connection pages when the foreground account check finds no change", async () => {
+    mocks.listConnectionsPage.mockImplementation(async ({ page }) => ({
+      items: [{
+        connectionId: `connection-${page}`,
+        userId: `person-${page}`,
+        displayName: `Friend on page ${page}`,
+      }],
+      page, hasMore: page === 1, totalCount: 2, audience: "all",
+    }));
+    render(<ConnectPageClient />);
+    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("button", { name: "Load more connections" }));
+    await screen.findByText("Friend on page 2");
+
+    const availability = mocks.periodicTask.mock.calls.findLast(
+      ([id]) => id === "connect-account-availability:me",
+    );
+    expect(availability?.[3]).toEqual({ enabled: true });
+    await act(async () => { await availability?.[2](); });
+
+    expect(screen.getByText("Friend on page 2")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Load more connections" })).toBeNull();
   });
 
   it("keeps directory cards visible during a background graph refresh", async () => {
@@ -815,18 +933,18 @@ describe("Connect — directory under rate limits", () => {
 });
 
 describe("Connect — People", () => {
-  it("starts with discovery and keeps saved connections adjacent", async () => {
+  it("starts on My connections (first tab) by default and keeps Find people adjacent", async () => {
+    mocks.searchParams = new URLSearchParams();
     render(<ConnectPageClient />);
-    await screen.findByText("Person 0");
-    const viewTabs = within(screen.getByRole("tablist", { name: "Connection views" })).getAllByRole("tab");
+    const viewTabs = within(screen.getByRole("tablist", { name: "Connection views navigation" })).getAllByRole("tab");
     expect(viewTabs[0]).toHaveTextContent("My connections");
     expect(viewTabs[1]).toHaveTextContent("Find people");
-    expect(screen.getByRole("tab", { name: "Find people" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: /My connections/ })).toHaveAttribute("aria-selected", "false");
-    expect(screen.getByLabelText("Search people")).toBeVisible();
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
-    expect(screen.getByLabelText("Search people")).not.toBeVisible();
+    expect(screen.getByRole("tab", { name: /My connections/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Find people" })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByLabelText("Search my connections by name, email or phone")).toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: "Find people" }), { button: 0, ctrlKey: false });
+    await screen.findByText("Person 0");
+    expect(screen.getByLabelText("Search people")).toBeVisible();
   });
 
 
@@ -835,10 +953,10 @@ describe("Connect — People", () => {
     mocks.listConnectionsPage.mockImplementation(async options => ({ items: [], page: 1, hasMore: false, totalCount: 0, audience: options.audience }));
     render(<ConnectPageClient />);
     fireEvent.change(screen.getByLabelText("Search people"), { target: { value: "Avery" } });
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
     fireEvent.change(screen.getByLabelText("Search my connections by name, email or phone"), { target: { value: "Rao" } });
     await waitFor(() => expect(mocks.listConnectionsPage).toHaveBeenCalledWith(expect.objectContaining({ query: "Rao", audience: "all", page: 1 })));
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Find people" }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: "Find people" }), { button: 0, ctrlKey: false });
     expect(screen.getByLabelText("Search people")).toHaveValue("Avery");
     expect(mocks.sendRequest).not.toHaveBeenCalled();
     expect(mocks.syncContactSignals).not.toHaveBeenCalled();
@@ -920,15 +1038,17 @@ describe("Connect — People", () => {
     expect(screen.getByText("Person 0")).toBeTruthy();
   });
 
-  it("shows contact badges in one connection list without changing server order", async () => {
+  it("explains both connection badges independently without opening the profile or changing server order", async () => {
     mocks.listConnections.mockResolvedValue([
       {
         connectionId: "c-contact",
         userId: "u-contact",
+        publicPersonRef: "person-ref-contact",
         displayName: "Asha Contact",
         photoUrl: null,
         createdAt: "2026-08-25T00:00:00Z",
         connectedFromContacts: true,
+        isRia: true,
       },
       { connectionId: "c-other", userId: "u-other", displayName: "Manual Friend", photoUrl: null, createdAt: "invalid", connectedFromContacts: false },
       { connectionId: "c-legacy", userId: "u-legacy", displayName: "Legacy Friend", photoUrl: null, createdAt: null },
@@ -936,7 +1056,7 @@ describe("Connect — People", () => {
     ]);
 
     render(<ConnectPageClient />);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
 
     await screen.findByText("Asha Contact");
     const list = screen.getByTestId("connect-my-connections-group");
@@ -945,11 +1065,67 @@ describe("Connect — People", () => {
     expect(rows.map(row => row.getAttribute("data-voice-label"))).toEqual([
       "Asha Contact", "Manual Friend", "Legacy Friend", "Second Contact",
     ]);
-    expect(within(rows[0]).getByLabelText("Connected from your contacts")).toBeTruthy();
-    expect(within(rows[3]).getByLabelText("Connected from your contacts")).toBeTruthy();
-    expect(within(rows[1]).queryByLabelText("Connected from your contacts")).toBeNull();
-    expect(within(rows[2]).queryByLabelText("Connected from your contacts")).toBeNull();
+    const avatar = rows[0].querySelector('[data-avatar-size="compact"]') as HTMLElement;
+    const contactBadge = within(avatar).getByRole("button", { name: "Via contacts" });
+    const riaBadge = within(avatar).getByRole("button", { name: "Verified Advisor" });
+    const profileButton = within(rows[0]).getByRole("button", { name: "Open Asha Contact's profile" });
+    expect(profileButton).not.toContainElement(contactBadge);
+    expect(profileButton).not.toContainElement(riaBadge);
+    expect(within(rows[3]).getByRole("button", { name: "Via contacts" })).toBeVisible();
+    expect(within(rows[3]).queryByRole("button", { name: "Verified Advisor" })).toBeNull();
+    for (const row of rows.slice(1, 3)) {
+      expect(within(row).queryByRole("button", { name: "Via contacts" })).toBeNull();
+      expect(within(row).queryByRole("button", { name: "Verified Advisor" })).toBeNull();
+    }
     expect(within(list).getAllByText("Connected")).toHaveLength(2);
+
+    expect(within(rows[0]).queryByText("Via contacts")).toBeNull();
+    fireEvent.click(contactBadge);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Matched from your contacts.");
+    fireEvent.blur(contactBadge);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    fireEvent.click(riaBadge);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/^Verified Advisor$/);
+    fireEvent.keyDown(riaBadge, { key: "Escape" });
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    expect(mocks.routerPush).not.toHaveBeenCalled();
+  });
+
+  it("restores a roster profile return without redirecting its search to discovery", async () => {
+    mocks.searchParams = new URLSearchParams("tab=all&view=connections&directory=advisors&q=Retained");
+    const page = render(<ConnectPageClient />);
+    expect(screen.getByRole("tab", { name: /My RIAs/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByLabelText("Search my connections by name, email or phone")).toHaveValue("Retained");
+    mocks.searchParams = new URLSearchParams("tab=all&view=connections&directory=advisors&q=Changed");
+    page.rerender(<ConnectPageClient />);
+    await waitFor(() => expect(screen.getByLabelText("Search my connections by name, email or phone")).toHaveValue("Changed"));
+    expect(screen.getByRole("tab", { name: /My RIAs/ })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("shows a safe label for a contact-synced connection whose name is an SSO account ID", async () => {
+    const ssoAccountId = "sso_0123456789abcdef0123456789abcdef";
+    mocks.listConnections.mockResolvedValue([
+      {
+        connectionId: "c-sso",
+        userId: ssoAccountId,
+        publicPersonRef: "person-ref-sso",
+        displayName: ssoAccountId,
+        photoUrl: null,
+        createdAt: null,
+        connectedFromContacts: true,
+      },
+    ]);
+
+    render(<ConnectPageClient />);
+    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+
+    const list = await screen.findByTestId("connect-my-connections-group");
+    const openProfile = await within(list).findByRole("button", { name: "Open Hussh member's profile" });
+    expect(within(list).queryByText(ssoAccountId)).toBeNull();
+    fireEvent.click(openProfile);
+    const profileHref = mocks.routerPush.mock.calls.at(-1)?.[0] as string;
+    expect(new URL(profileHref, "https://app.invalid").pathname).toBe("/people/person-ref-sso");
   });
 
   it("opens a connection's person profile from My connections", async () => {
@@ -965,12 +1141,12 @@ describe("Connect — People", () => {
     ]);
 
     render(<ConnectPageClient />);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
 
     const myConnections = await screen.findByTestId(
       "connect-my-connections-group",
     );
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
     const connectionName =
       await within(myConnections).findByText("Scoped Friend");
     expect(within(myConnections).queryByRole("heading", { name: "From contacts" })).toBeNull();
@@ -988,9 +1164,9 @@ describe("Connect — People", () => {
 
     fireEvent.click(connectionName);
 
-    expect(mocks.routerPush).toHaveBeenCalledWith(
-      "/people/person-ref-scoped?from=%2Fone%2Fconnect",
-    );
+    const profileHref = mocks.routerPush.mock.calls.at(-1)?.[0] as string;
+    expect(new URL(profileHref, "https://app.invalid").searchParams.get("from"))
+      .toBe("/one/connect?tab=all&view=connections&directory=people");
     expect(mocks.routerPush).not.toHaveBeenCalledWith(
       expect.stringContaining("/one/profile/access/connection"),
     );
@@ -1033,7 +1209,7 @@ describe("Connect — People", () => {
     }));
 
     render(<ConnectPageClient />);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
 
     expect(await screen.findByRole("tab", { name: /My connections 5000/ })).toHaveAttribute("aria-selected", "true");
     fireEvent.click(
@@ -1045,8 +1221,8 @@ describe("Connect — People", () => {
     expect(screen.getByRole("tab", { name: /My connections 5000/ })).toBeTruthy();
     const rows = within(screen.getByTestId("connect-my-connections-group")).getAllByTestId("connect-person-row");
     expect(rows).toHaveLength(2);
-    expect(within(rows[0]).queryByLabelText("Connected from your contacts")).toBeNull();
-    expect(within(rows[1]).getByLabelText("Connected from your contacts")).toBeTruthy();
+    expect(within(rows[0]).queryByRole("button", { name: "Via contacts" })).toBeNull();
+    expect(within(rows[1]).getByRole("button", { name: "Via contacts" })).toBeVisible();
     expect(mocks.listConnectionsPage).toHaveBeenCalledWith(
       expect.objectContaining({ page: 2, limit: 50, audience: "all" }),
     );
@@ -1084,7 +1260,7 @@ describe("Connect — People", () => {
         totalCount: 2,
       });
     render(<ConnectPageClient />);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
     expect(await screen.findByText("Kept Friend")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Refresh contacts" }));
     expect(
@@ -1149,10 +1325,10 @@ describe("Connect — People", () => {
     });
 
     render(<ConnectPageClient />);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
 
     expect(await screen.findByText("Current Person")).toBeTruthy();
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
     fireEvent.click(
       screen.getByRole("button", { name: "Load more connections" }),
     );
@@ -1259,7 +1435,7 @@ describe("Connect — People", () => {
     });
 
     render(<ConnectPageClient />);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
 
     expect(await screen.findByText("Current Person")).toBeTruthy();
     expect(mocks.listConnectionsPage).toHaveBeenCalledTimes(1);
@@ -1378,10 +1554,10 @@ describe("Connect — People", () => {
     });
 
     render(<ConnectPageClient />);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
 
     expect(await screen.findByText("First Person")).toBeTruthy();
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
     fireEvent.click(
       screen.getByRole("button", { name: "Load more connections" }),
     );
@@ -1586,7 +1762,7 @@ describe("Connect — People", () => {
   it("restores directory and mutual-list position while rechecking people after profile visits", async () => {
     mocks.searchParams = new URLSearchParams("tab=all&view=connections&q=Original");
     const target = { userId: "kushal", publicPersonRef: "person-kushal", displayName: "Kushal", photoUrl: null, email: null,
-      relationship: "connected", mutualConnectionCount: 3, mutualConnectionPreview: null };
+      relationship: "none" as const, mutualConnectionCount: 3, mutualConnectionPreview: null };
     mocks.searchDirectory.mockResolvedValue({ items: [target], page: 1, hasMore: false });
     mocks.listMutualConnections.mockImplementation(async ({ page }: { page: number }) => ({
       person: { publicPersonRef: "person-kushal", displayName: "Kushal" }, page, hasMore: page === 1, totalCount: 3,
@@ -1597,7 +1773,7 @@ describe("Connect — People", () => {
     root.dataset.appScrollRoot = "true";
     document.body.appendChild(root);
     const view = render(<ConnectPageClient />);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Find people" }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: "Find people" }));
     await screen.findByText("Kushal");
     fireEvent.change(screen.getByLabelText("Search people"), { target: { value: "Kushal" } });
     chooseDirectory("RIAs");
@@ -1631,7 +1807,7 @@ describe("Connect — People", () => {
     await act(async () => dispatchConnectionGraphChanged("me"));
     await screen.findByRole("alert");
     expect(screen.queryByRole("button", { name: "Open Second mutual's profile" })).toBeNull();
-    mocks.searchParams = new URLSearchParams("tab=all");
+    mocks.searchParams = new URLSearchParams("tab=all&view=discover");
     returned.rerender(<ConnectPageClient />);
     expect((screen.getByLabelText("Search people") as HTMLInputElement).value).toBe("Kushal");
     expect(screen.getByRole("button", { name: /Current directory: RIAs/ })).toBeVisible();
@@ -1682,6 +1858,22 @@ describe("Connect — People", () => {
     view.unmount();
     render(<ConnectPageClient />);
     expect(screen.queryByText("Other account peer")).toBeNull();
+  });
+
+  it("removes a deleted person from an open Connections list after a viewer-scoped graph hint", async () => {
+    mocks.searchParams = new URLSearchParams("tab=all&view=connections");
+    const live = { connectionId: "live-edge", userId: "live", displayName: "Current Friend", photoUrl: null };
+    const retired = { connectionId: "retired-edge", userId: "retired", displayName: "Deleted Friend", photoUrl: null };
+    mocks.listConnections.mockResolvedValue([live, retired]);
+    render(<ConnectPageClient />);
+    await screen.findByText("Deleted Friend");
+
+    mocks.listConnections.mockResolvedValue([live]);
+    await act(async () => dispatchConnectionGraphChanged("other-owner", { broadcast: false }));
+    expect(screen.getByText("Deleted Friend")).toBeVisible();
+    await act(async () => dispatchConnectionGraphChanged("me", { broadcast: false }));
+    await waitFor(() => expect(screen.queryByText("Deleted Friend")).toBeNull());
+    expect(screen.getByText("Current Friend")).toBeVisible();
   });
 
   it("restores a typed search query after the page remounts", async () => {
@@ -1808,6 +2000,41 @@ describe("Connect — People", () => {
       expect(await screen.findByText(name)).toBeTruthy();
     }
     expect(screen.queryByText('No one matches "N"')).toBeNull();
+  });
+
+  it("submits Find people on Enter and hides rows for the previous query", async () => {
+    mocks.searchDirectory.mockResolvedValueOnce({
+      items: [person("previous", "Other Person")],
+      hasMore: true,
+      page: 1,
+    }).mockResolvedValueOnce({
+      items: [person("match", "Dinesh Kumar")],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    await screen.findByText("Other Person");
+
+    vi.useFakeTimers();
+    try {
+      const search = screen.getByLabelText("Search people");
+      fireEvent.change(search, { target: { value: "Ne" } });
+      expect(screen.queryByText("Other Person")).toBeNull();
+      fireEvent.keyDown(search, { key: "Enter", isComposing: true });
+      expect(mocks.searchDirectory).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        fireEvent.keyDown(search, { key: "Enter" });
+      });
+      expect(screen.getByText("Dinesh Kumar")).toBeVisible();
+      expect(mocks.searchDirectory).toHaveBeenLastCalledWith(expect.objectContaining({
+        query: "Ne",
+        page: 1,
+        typedSearch: true,
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("preserves the directory's A-Z order rather than re-sorting the page", async () => {
@@ -2515,13 +2742,13 @@ describe("Connect — People", () => {
 
     render(<ConnectPageClient />);
 
-    fireEvent.mouseDown(await screen.findByRole("tab", { name: /My connections 2/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("tab", { name: /My connections 2/ }), { button: 0, ctrlKey: false });
     expect(screen.getByText("Verified Adviser")).toBeTruthy();
     expect(screen.getByText("Ordinary Person")).toBeTruthy();
 
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Find people", exact: true }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: "Find people", exact: true }), { button: 0, ctrlKey: false });
     chooseDirectory("RIAs");
-    fireEvent.mouseDown(await screen.findByRole("tab", { name: /My RIAs/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("tab", { name: /My RIAs/ }), { button: 0, ctrlKey: false });
 
     // The heading counts the list it is actually showing. Counting one list
     // and rendering another is the exact shape of the original Connect search
@@ -2557,12 +2784,12 @@ describe("Connect — People", () => {
     });
 
     render(<ConnectPageClient />);
-    fireEvent.mouseDown(await screen.findByRole("tab", { name: /My connections 1/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("tab", { name: /My connections 1/ }), { button: 0, ctrlKey: false });
 
     expect(await screen.findByText("People Only Row")).toBeTruthy();
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Find people", exact: true }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: "Find people", exact: true }), { button: 0, ctrlKey: false });
     chooseDirectory("RIAs");
-    fireEvent.mouseDown(await screen.findByRole("tab", { name: /My RIAs/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("tab", { name: /My RIAs/ }), { button: 0, ctrlKey: false });
 
     expect(await screen.findByRole("tab", { name: /My RIAs 0/ })).toBeTruthy();
     expect(screen.queryByText("People Only Row")).toBeNull();
@@ -2585,9 +2812,9 @@ describe("Connect — People", () => {
     render(<ConnectPageClient />);
     expect(await screen.findByRole("tab", { name: /My connections 1/ })).toBeTruthy();
 
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Find people", exact: true }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: "Find people", exact: true }), { button: 0, ctrlKey: false });
     chooseDirectory("RIAs");
-    fireEvent.mouseDown(await screen.findByRole("tab", { name: /My RIAs/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("tab", { name: /My RIAs/ }), { button: 0, ctrlKey: false });
 
     expect(await screen.findByRole("tab", { name: /My RIAs 0/ })).toBeTruthy();
     expect(screen.queryByText("Unannotated Person")).toBeNull();
@@ -2607,7 +2834,7 @@ describe("Connect — People", () => {
     ]);
 
     const { container } = render(<ConnectPageClient />);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
 
     expect(await screen.findByText("Photo Friend")).toBeTruthy();
     const myConnections = container.querySelector(
@@ -2790,7 +3017,7 @@ describe("Connect — the phone-width geometry QA reported", () => {
       { connectionId: "ankit-second", userId: "ankit-second-user", publicPersonRef: "ankit-second-person", displayName: "Ankit Kumar Singh" },
     ]);
     render(<ConnectPageClient />);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
     const actions = await screen.findAllByRole("button", { name: "Message Ankit Kumar Singh" });
 
     fireEvent.click(actions[1]);
@@ -2804,7 +3031,7 @@ describe("Connect — the phone-width geometry QA reported", () => {
   it("keeps Message and confirmed removal on the exact saved person", async () => {
     mocks.listConnections.mockResolvedValue([{ connectionId: "c-1", userId: "u-rashid", publicPersonRef: "person-ref-rashid", displayName: "Abdul Rashid" }]);
     render(<ConnectPageClient />);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
     fireEvent.click(await screen.findByRole("button", { name: "Message Abdul Rashid" }));
     expect(mocks.messageSelection).toHaveBeenCalledWith({ personRef: "person-ref-rashid" });
     fireEvent.click(screen.getByRole("button", { name: "Options for Abdul Rashid" }));
@@ -2829,7 +3056,7 @@ describe("Connect — the phone-width geometry QA reported", () => {
     );
 
     const { container } = render(<ConnectPageClient />);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
     expect(await screen.findByText("My connections")).toBeTruthy();
 
     const list = container.querySelector(
@@ -3026,7 +3253,7 @@ describe("Connect — inviting someone who is not on One yet", () => {
     fireEvent.click(await screen.findByText("Invite them to One"));
 
     await waitFor(() =>
-      expect(mocks.toastSuccess).toHaveBeenCalledWith("Invite link copied."),
+      expect(mocks.toastSuccess).toHaveBeenCalledWith("Invite link copied.", { className: connectTypography.toast }),
     );
   });
 
@@ -3051,6 +3278,7 @@ describe("Connect — inviting someone who is not on One yet", () => {
     await waitFor(() =>
       expect(mocks.toastError).toHaveBeenCalledWith(
         "This browser cannot share links.",
+      { className: connectTypography.toast },
       ),
     );
   });
@@ -3064,6 +3292,7 @@ describe("Connect — inviting someone who is not on One yet", () => {
     await waitFor(() =>
       expect(mocks.toastError).toHaveBeenCalledWith(
         "Could not share the invite.",
+      { className: connectTypography.toast },
       ),
     );
   });
@@ -3193,11 +3422,12 @@ describe("Connect — Circles", () => {
   });
 
   it("opens on People when the URL says nothing", async () => {
+    mocks.searchParams = new URLSearchParams();
     render(<ConnectPageClient />);
 
     // The default is not written to the URL on mount: doing that would eat one
     // router.back() step for every arrival.
-    expect(screen.getByLabelText("Search people")).toBeVisible();
+    expect(screen.getByLabelText("Search my connections by name, email or phone")).toBeVisible();
     // Both surfaces live in one swipeable pager (as Finance and Consent do);
     // the one the URL did not ask for is present but inert and hidden.
     const circles = screen.getByTestId("connect-circles-tab");
@@ -3271,8 +3501,8 @@ describe("Connect — Circles", () => {
     expect(String(mocks.routerPush.mock.calls[0][0])).toContain("tab=all");
   });
 
-  it("switches to Circles without exposing selection mode", async () => {
-    render(<ConnectPageClient />);
+  it("returns from Circles to the loaded directory without starting another read", async () => {
+    const { rerender } = render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
 
     expect(screen.queryByRole("button", { name: "Select people" })).toBeNull();
@@ -3281,9 +3511,36 @@ describe("Connect — Circles", () => {
 
     await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
     expect(String(mocks.routerPush.mock.calls[0][0])).toContain("tab=circles");
+    mocks.searchParams = new URL(
+      String(mocks.routerPush.mock.calls.at(-1)![0]),
+      "http://localhost",
+    ).searchParams;
+    rerender(<ConnectPageClient />);
     expect(
       screen.queryByRole("button", { name: "Cancel selecting people" }),
     ).toBeNull();
+
+    const reads = mocks.searchDirectory.mock.calls.length;
+    await act(async () => {
+      fireEvent.click(screen.getByRole("tab", { name: "Connections", exact: true }));
+      mocks.searchParams = new URL(
+        String(mocks.routerPush.mock.calls.at(-1)![0]),
+        "http://localhost",
+      ).searchParams;
+      rerender(<ConnectPageClient />);
+    });
+    expect(screen.getByRole("button", { name: "Explore your network" })).toBeVisible();
+    expect(mocks.searchDirectory).toHaveBeenCalledTimes(reads);
+  });
+
+  it("supersedes a pending Circle navigation before the route echo", async () => {
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("tab", { name: "Circles" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Connections", exact: true }));
+    expect(mocks.routerPush.mock.calls.map(call => String(call[0]))).toEqual([
+      expect.stringContaining("tab=circles"), expect.stringContaining("tab=all"),
+    ]);
   });
 
   it("keeps directory tab switches local while Circles stays linkable", async () => {
@@ -3422,14 +3679,7 @@ describe("Connect — contact sync", () => {
     ).toBeInTheDocument();
     expect(mocks.sendRequest).not.toHaveBeenCalled();
 
-    const proceed = within(sheet).getByRole("link", {
-      name: "Proceed to connections",
-    });
-    expect(proceed).toHaveAttribute("href", "/one/connect?tab=all&view=connections");
-    proceed.addEventListener("click", (event) => event.preventDefault(), {
-      once: true,
-    });
-    fireEvent.click(proceed);
+    fireEvent.click(within(sheet).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(sheet).not.toBeInTheDocument());
     expect(mocks.syncContactSignals).toHaveBeenCalledTimes(1);
   });
@@ -3583,7 +3833,7 @@ describe("My connections before the first page answers", () => {
     const firstPage = deferred<TestConnectionPage>();
     mocks.listConnectionsPage.mockImplementation(() => firstPage.promise);
     render(<ConnectPageClient />);
-    fireEvent.mouseDown(await screen.findByRole("tab", { name: "My connections", exact: true }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("tab", { name: "My connections", exact: true }), { button: 0, ctrlKey: false });
     expect(screen.queryByRole("tab", { name: /My connections 0/ })).toBeNull();
     expect(screen.queryByText("No connections yet")).toBeNull();
 
@@ -3621,7 +3871,7 @@ describe("My connections before the first page answers", () => {
     );
     mocks.listConnectionsPage.mockImplementation(() => new Promise(() => {}));
     render(<ConnectPageClient />);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections 1/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: /My connections 1/ }), { button: 0, ctrlKey: false });
     expect(screen.getByText("Cached Friend")).toBeVisible();
     expect(screen.getByRole("tab", { name: /My connections 1/ })).toBeTruthy();
   });
@@ -3664,7 +3914,7 @@ describe("Connect saved search isolation", () => {
       return { items: [{ connectionId: label, userId: label, displayName: label }], page: 1, hasMore: options.query === "A", totalCount: options.query ? 1 : 7, audience: "all" };
     });
     const view = render(<ConnectPageClient />);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
     await screen.findByText("Browse friend");
     const field = screen.getByLabelText("Search my connections by name, email or phone");
     fireEvent.change(field, { target: { value: "A" } });
@@ -3678,7 +3928,7 @@ describe("Connect saved search isolation", () => {
     expect(mocks.sendRequest).not.toHaveBeenCalled();
     view.unmount();
     render(<ConnectPageClient />);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
     expect(screen.getByText("Browse friend")).toBeVisible();
     expect(screen.queryByText("B result")).toBeNull();
   });
@@ -3698,7 +3948,7 @@ describe("Connect saved view entry and removal", () => {
   it("confirms and removes an exact search match absent from the browse page", async () => {
     mocks.listConnectionsPage.mockImplementation(async options => ({ items: options.query ? [{ connectionId: "off-page-id", userId: "off-page-user", displayName: "Searched Friend" }] : [], page: 1, hasMore: false, totalCount: options.query ? 1 : 0, audience: "all" }));
     render(<ConnectPageClient />);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("tab", { name: /My connections/ }), { button: 0, ctrlKey: false });
     fireEvent.change(screen.getByLabelText("Search my connections by name, email or phone"), { target: { value: "Searched" } });
     fireEvent.click(await screen.findByRole("button", { name: "Options for Searched Friend" }));
     const dialog = screen.getByRole("alertdialog");

@@ -1,11 +1,12 @@
 "use client";
 
+import { subscribeNativeShellInset } from "@/lib/capacitor/native-presentation-regions";
 import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeftIcon } from "@/components/icons";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { NativeChromeLease, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, retireOwnedNativeChrome, measureNativeChromeGeometry } from "@/lib/capacitor/native-chrome";
+import { NativeChromeLease, chromeLifecycleEventApplies, chromeInvalidationApplies, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, retireOwnedNativeChrome, measureNativeChromeGeometry } from "@/lib/capacitor/native-chrome";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
 import { nativeDocumentId, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { useVoiceSurfaceMetadata, getVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
@@ -80,6 +81,7 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
     void (async () => {
       try {
         const capability = await getNativeChromeCapabilities();
+        if (nativeDocumentId() !== recoveryDocument) { cancelled = true; return; }
         if (cancelled || !capability || capability.contractVersion !== NATIVE_CONTROL_CONTRACT_VERSION ||
             capability.independentControls !== true || !capability.families.includes("back")) {
           if (!cancelled) setHidden(hasOutstandingNativeChrome());
@@ -92,8 +94,17 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
             isCurrentNativeControlAppearance(active.projection) &&
             !nativeShellOverlayBlocked() && !isSessionChromeSuppressed() && !getVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions &&
             document.visibilityState !== "hidden", () => callback.current()).catch(() => undefined);
-        })), retain(nativeChrome.addListener("invalidated", invalidate)),
-        retain(nativeChrome.addListener("readmissionRequested", readmit)), retain(subscribeNativeSessionPrivacy(invalidate))]);
+        })), retain(nativeChrome.addListener("invalidated", event => {
+          if (chromeInvalidationApplies(event, recoveryDocument, capability.documentScopedLifecycleEvents === true,
+              capability.leaseScopedInvalidationEvents === true, lease.current?.projection)) invalidate();
+        })),
+        retain(nativeChrome.addListener("readmissionRequested", event => {
+          if (chromeLifecycleEventApplies(event, recoveryDocument, capability.documentScopedLifecycleEvents === true)) readmit();
+        })), retain(subscribeNativeSessionPrivacy(invalidate))]);
+        if (!cancelled && nativeDocumentId() !== recoveryDocument) {
+          cancelled = true;
+          handles.splice(0).forEach(handle => { void handle.remove(); });
+        }
         if (!cancelled) {
           setInPlaceUpdates(capability.inPlaceUpdates === true);
           setBackReplacement(capability.backReplacement === true);
@@ -118,11 +129,13 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
     })();
     document.addEventListener("visibilitychange", invalidate);
     window.addEventListener("resize", reconcileGeometry);
+    const stopShellInset = subscribeNativeShellInset(reconcileGeometry);
     const observer = new ResizeObserver(reconcileGeometry);
     if (slot.current) observer.observe(slot.current);
     return () => {
       cancelled = true;
       handles.forEach((handle) => { void handle.remove(); });
+      stopShellInset();
       observer.disconnect();
       window.removeEventListener("resize", reconcileGeometry);
       document.removeEventListener("visibilitychange", invalidate);
@@ -154,8 +167,8 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
           // Uncertainty, owner, overlay or actual geometry changes require
           // removal. Cached capability never authorizes keeping a stale view.
           // Inactive cleanup cannot take authority from a newer mounted slot.
-          if (projection) await retireNativeChrome(activeEpoch);
-          else if (retiring) await retireOwnedNativeChrome(retiring.projection);
+          if (retiring) await retireOwnedNativeChrome(retiring.projection);
+          else if (projection) await retireNativeChrome(activeEpoch);
           if (cancelled) return;
           // A successful but delayed acknowledgement cannot overtake a newer
           // mounted owner that prepared after this removal reserved its fence.
@@ -239,7 +252,7 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
   }, [prepared, hidden, inPlaceUpdates, theme, allowed]);
 
   return <div ref={slot} className="pointer-events-auto flex h-11 w-11 items-center justify-center">
-    <ShellActionSurface ref={button} variant="icon" aria-label={label} onClick={onBack}
+    <ShellActionSurface data-workspace-back ref={button} variant="icon" aria-label={label} onClick={onBack}
       disabled={hidden} aria-hidden={hidden || undefined} tabIndex={hidden ? -1 : undefined}
       style={{ visibility: hidden ? "hidden" : undefined }}
       className={customNativePresentationEnabled()

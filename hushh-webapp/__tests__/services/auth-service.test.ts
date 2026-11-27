@@ -6,7 +6,7 @@ vi.mock("@/lib/auth/google-signup-token", () => ({
   googleSignupConfigured: () => Boolean(process.env.NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID),
 }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { PHONE_CONFLICT_COPY } from "@/lib/auth/phone-conflict-copy";
+import { PHONE_CONFLICT_COPY, resolvePhoneFailureMessage } from "@/lib/auth/phone-conflict-copy";
 
 const {
   mockAuth,
@@ -45,6 +45,7 @@ const {
     },
   },
   mockAuth: {
+    app: { options: { projectId: "demo-project", apiKey: "demo-key" } },
     currentUser: null as any,
     onAuthStateChanged: vi.fn(),
   },
@@ -192,7 +193,7 @@ function enableLocalDevPhoneTest() {
   );
   vi.stubEnv(
     "NEXT_PUBLIC_FIREBASE_PHONE_AUTH_LOCAL_TEST_PHONE",
-    "+918080469407",
+    "+12025550100",
   );
   vi.stubEnv("NEXT_PUBLIC_FIREBASE_PHONE_AUTH_LOCAL_TEST_CODE", "000000");
   vi.stubGlobal("window", {
@@ -529,6 +530,7 @@ describe("AuthService.restoreNativeSession", () => {
     mockCapacitor.isNativePlatform.mockReturnValue(true);
     mockCapacitor.getPlatform.mockReturnValue("ios");
     mockAuth.currentUser = null;
+    mockAuth.app.options = { ...mockFirebaseApp.options };
     mockAuth.onAuthStateChanged.mockReset();
     mockGetApps.mockReturnValue([mockFirebaseApp] as any);
     mockInitializeApp.mockReturnValue(mockFirebaseApp as any);
@@ -856,7 +858,7 @@ describe("AuthService.restoreNativeSession", () => {
     } as any;
 
     const result = await AuthService.startPhoneLinkVerification(
-      "+918080469407",
+      "+12025550100",
       {
         recaptchaVerifier: {} as any,
       },
@@ -865,7 +867,7 @@ describe("AuthService.restoreNativeSession", () => {
     expect(verifyPhoneNumber).not.toHaveBeenCalled();
     expect(result).toEqual({
       autoVerified: false,
-      verificationId: "local-dev-phone:%2B918080469407",
+      verificationId: "local-dev-phone:%2B12025550100",
     });
   });
 
@@ -879,7 +881,7 @@ describe("AuthService.restoreNativeSession", () => {
 
     const verifiedUser = await AuthService.confirmLocalDevPhoneVerification({
       verificationCode: "000000",
-      verificationId: "local-dev-phone:%2B918080469407",
+      verificationId: "local-dev-phone:%2B12025550100",
     });
 
     expect(verifiedUser).toBe(mockAuth.currentUser);
@@ -988,6 +990,19 @@ describe("AuthService.restoreNativeSession", () => {
     expect(signInWithCredential).not.toHaveBeenCalled();
   });
 
+  it("rejects a successful phone response that identifies another Firebase UID", async () => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    const current = { uid: "web-user", phoneNumber: null, getIdToken: vi.fn().mockResolvedValue("email-session"), reload: vi.fn() };
+    mockAuth.currentUser = current as any;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ localId: "other-user", phoneNumber: "+16505550101" })));
+    await expect(AuthService.confirmPhoneLinkVerification({
+      verificationCode: "123456", verificationId: "link-verification-id",
+      expectedUserId: current.uid, phoneNumber: "+16505550101",
+    })).rejects.toMatchObject({ code: "phone_verification_failed" });
+    expect(current.reload).not.toHaveBeenCalled();
+    expect(signInWithCredential).not.toHaveBeenCalled();
+  });
+
   it("retains fresh conflict proof without replaying the SMS or replacing the primary session", async () => {
     mockCapacitor.isNativePlatform.mockReturnValue(false);
     const current = { uid: "web-user", phoneNumber: "+16505550100", getIdToken: vi.fn().mockResolvedValue("email-session") };
@@ -1025,8 +1040,10 @@ describe("AuthService.restoreNativeSession", () => {
     expect(signInWithCredential).not.toHaveBeenCalled();
   });
 
-  it("mints a web phone claim token without linking the primary Firebase user", async () => {
+  it("mints a web phone claim in the selected Auth project without linking the primary user", async () => {
     mockCapacitor.isNativePlatform.mockReturnValue(false);
+    mockAuth.app.options = { projectId: "isolated-auth", apiKey: "isolated-auth-key" };
+    mockInitializeApp.mockReturnValue({ name: "hushh-phone-claim", options: mockAuth.app.options });
     const getIdToken = vi.fn().mockResolvedValue("phone-claim-id-token");
     vi.mocked(PhoneAuthProvider.credential).mockReturnValue(
       "phone-credential" as any,
@@ -1046,6 +1063,7 @@ describe("AuthService.restoreNativeSession", () => {
       "claim-verification-id",
       "123456",
     );
+    expect(mockInitializeApp).toHaveBeenCalledWith(mockAuth.app.options, "hushh-phone-claim");
     expect(setPersistence).toHaveBeenCalledWith(
       mockPhoneClaimAuth,
       "in-memory-persistence",
@@ -1058,6 +1076,17 @@ describe("AuthService.restoreNativeSession", () => {
     expect(getIdToken).toHaveBeenCalledWith(true);
     expect(firebaseSignOut).toHaveBeenCalledWith(mockPhoneClaimAuth);
     expect(claimToken).toBe("phone-claim-id-token");
+  });
+
+  it("refuses a cached phone-proof app from another Auth project before sign-in", async () => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    mockAuth.app.options = { projectId: "isolated-auth", apiKey: "isolated-auth-key" };
+    mockGetApps.mockReturnValue([{ ...mockFirebaseApp, name: "hushh-phone-claim" }]);
+    await expect(AuthService.getPhoneClaimIdToken({
+      verificationCode: "123456", verificationId: "claim-verification-id",
+    })).rejects.toThrow(/sign-in service changed/);
+    expect(mockSignInWithCredential).not.toHaveBeenCalled();
+    expect(mockInitializeApp).not.toHaveBeenCalled();
   });
 
   it("blocks replacing with a phone number already linked to the current user", async () => {
@@ -1205,6 +1234,24 @@ describe("AuthService native Google provider parity", () => {
     expect(toast.success).toHaveBeenCalledWith("Signed in successfully", {
       id: "toast-id",
     });
+  });
+
+  it("recognizes the iOS Google SDK cancellation and preserves provider failures", async () => {
+    const { toast } = await import("sonner");
+    mockCapacitor.getPlatform.mockReturnValue("ios");
+    mockFirebaseAuthentication.signInWithGoogle.mockRejectedValueOnce(
+      new Error("The user canceled the sign-in flow."),
+    );
+
+    await expect(AuthService.signInWithGoogle()).rejects.toMatchObject({ code: "auth/user-cancelled" });
+    expect(toast.dismiss).toHaveBeenCalledWith("toast-id");
+    expect(toast.error).not.toHaveBeenCalled();
+
+    const failure = new Error("Network connection lost");
+    mockFirebaseAuthentication.signInWithGoogle.mockRejectedValueOnce(failure);
+    await expect(AuthService.signInWithGoogle()).rejects.toBe(failure);
+    expect(toast.error).toHaveBeenCalled();
+    expect(mockSignInWithPopup).not.toHaveBeenCalled();
   });
 
   it("dismisses the Android loading toast silently when the user cancels", async () => {
@@ -1542,5 +1589,30 @@ describe("document request identity", () => {
     mockLinkWithPopup.mockRejectedValue({ code: "auth/credential-already-in-use" });
     await expect(AuthService.linkGoogleIdentity("b", () => true)).rejects.toThrow("identity_already_linked");
     expect(mockSignInWithPopup).not.toHaveBeenCalled();
+  });
+
+  it("maps Firebase and test-transport phone verification failures to clear guidance instead of generic fallback", () => {
+    const fallback = "Couldn't send the verification code. Please try again.";
+    expect(resolvePhoneFailureMessage({ code: "auth/captcha-check-failed" }, fallback)).toContain(
+      "Browser security verification could not complete",
+    );
+    expect(resolvePhoneFailureMessage({ code: "auth/invalid-app-credential" }, fallback)).toContain(
+      "Browser security verification could not complete",
+    );
+    expect(resolvePhoneFailureMessage({ code: "auth/unauthorized-domain" }, fallback)).toContain(
+      "Browser security verification could not complete",
+    );
+    expect(resolvePhoneFailureMessage({ code: "auth/quota-exceeded" }, fallback)).toContain(
+      "SMS verification has reached its temporary limit",
+    );
+    expect(resolvePhoneFailureMessage({ code: "network-request-failed" }, fallback)).toContain(
+      "Check your connection",
+    );
+    expect(resolvePhoneFailureMessage({}, fallback, "PHONE_TEST_START_UNAVAILABLE")).toContain(
+      "temporarily unavailable",
+    );
+    expect(resolvePhoneFailureMessage({ code: "phone-already-linked-to-current-user" }, fallback)).toBe(
+      "This phone number is already linked to your account.",
+    );
   });
 });

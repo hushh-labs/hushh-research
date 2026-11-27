@@ -3,7 +3,6 @@
 Health check endpoints.
 """
 
-import asyncio
 import hmac
 import logging
 import os
@@ -16,8 +15,12 @@ from fastapi.responses import JSONResponse
 from api.middlewares.rate_limit import limiter
 from api.utils.firebase_admin import ensure_firebase_auth_admin, get_firebase_auth_app
 from api.utils.firebase_auth import review_mint_developer_claims
-from db.connection import get_pool
 from hushh_mcp.services.phone_test_transport import phone_test_transport_readiness
+from hushh_mcp.services.runtime_health_service import (
+    count_failed_pods,
+    get_pool,
+    probe_database_ready,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -200,27 +203,6 @@ def _agent_model() -> dict[str, object]:
 # forever -- a check that reports green because it measures nothing. It is listed
 # anyway to match that declared contract (the reconcile sweep already treats it as
 # a stalled status), so the write side lands without a second edit here.
-POD_FLEET_FAILED_STATUSES = ("provisioning_failed",)
-
-# The failure signature that is real TODAY: a row left wedged in ``provisioning``.
-# ``provision()`` records that status before minting the standing read and re-raises
-# on failure without clearing it, so a stalled provision is visible as an old
-# ``provisioning`` row. Caveat, stated where it lives rather than in a runbook:
-# personal_agent_registry.updated_at has no ON UPDATE trigger and
-# personal_agent_registry_repo.py never sets it, so it is effectively the row's
-# creation time -- meaning a RE-provision of an old row looks wedged for the few
-# seconds it is in flight. Accepted, because this signal is reported, never gating.
-POD_FLEET_STALE_PROVISIONING_SECONDS = 900
-
-POD_FLEET_FAILED_COUNT_SQL = """
-SELECT count(*)
-  FROM personal_agent_registry
- WHERE status = ANY($1::text[])
-    OR (status = 'provisioning'
-        AND updated_at < now() - make_interval(secs => $2::double precision))
-"""
-
-
 async def _pod_fleet_check() -> str | None:
     """Count pods the fleet failed to stand up. ``None`` when the signal is off.
 
@@ -250,17 +232,7 @@ async def _pod_fleet_check() -> str | None:
         return None
 
     try:
-        pool = await asyncio.wait_for(get_pool(), timeout=2.0)
-        async with pool.acquire() as conn:
-            raw = await asyncio.wait_for(
-                conn.fetchval(
-                    POD_FLEET_FAILED_COUNT_SQL,
-                    list(POD_FLEET_FAILED_STATUSES),
-                    float(POD_FLEET_STALE_PROVISIONING_SECONDS),
-                ),
-                timeout=2.0,
-            )
-        failed = int(raw or 0)
+        failed = await count_failed_pods(pool_getter=get_pool, timeout=2.0)
     except Exception as exc:
         # Includes UndefinedTableError wherever the parked migration is unapplied.
         logger.warning("health_ready.pod_fleet_unavailable error=%s", type(exc).__name__)
@@ -317,9 +289,7 @@ async def health_ready(request: Request):
 
     # Database: a short-timeout SELECT 1 through the shared pool.
     try:
-        pool = await asyncio.wait_for(get_pool(), timeout=2.0)
-        async with pool.acquire() as conn:
-            await asyncio.wait_for(conn.fetchval("SELECT 1"), timeout=2.0)
+        await probe_database_ready(pool_getter=get_pool, timeout=2.0)
         checks["database"] = "ok"
     except Exception as exc:
         ready = False

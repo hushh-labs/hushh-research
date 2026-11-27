@@ -3,19 +3,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IDBFactory } from "fake-indexeddb";
 import { webcrypto } from "node:crypto";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { clearCachedGmailReceipts } from "@/lib/profile/gmail-receipts-cache";
 import { loadReceiptSnapshot } from "@/lib/mail/receipt-store";
+import { DurableResourceError } from "@/lib/services/durable-resource-error";
+import { MailReceiptResourceService } from "@/lib/services/mail-receipt-resource-service";
 import { SecureDurableResourceService as Durable } from "@/lib/services/secure-durable-resource-service";
 import type { ReceiptListItem } from "@/lib/services/gmail-receipts-service";
 import { GmailReceiptRequestError } from "@/lib/services/gmail-receipts-service";
 
 const fixture = vi.hoisted(() => ({
   user: { uid: "synthetic-owner", getIdToken: vi.fn().mockResolvedValue("synthetic-id-token") },
+  capture: vi.fn(), started: vi.fn(), settled: vi.fn(),
   scan: vi.fn(), success: vi.fn(), clearMemory: vi.fn(), completion: 0,
   gmail: { status: { connected: true, configured: true, google_sub: "synthetic-account", receipt_sync_available: true, connection_state: "connected", last_sync_status: "completed" },
     loadingStatus: false, statusError: null, syncRun: null, sync: vi.fn(), refreshStatus: vi.fn(),
     presentation: { isConnected: true, state: "connected", badgeLabel: "Connected" } },
 }));
+vi.mock("@/lib/observability/product-activity-client", () => ({ captureProductAttempt: fixture.capture }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/one/gmail", useRouter: () => ({ push: vi.fn(), replace: vi.fn() }), useSearchParams: () => new URLSearchParams() }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: fixture.user, userId: fixture.user.uid, loading: false }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: "12".repeat(32), vaultOwnerToken: "synthetic-owner-token", isVaultUnlocked: true }) }));
@@ -58,6 +63,8 @@ beforeEach(() => {
   syncEntries = 0; vi.useRealTimers();
   configure({ asyncUtilTimeout: 10000 });
   vi.restoreAllMocks(); fixture.scan.mockReset(); fixture.success.mockClear(); fixture.clearMemory.mockClear(); fixture.completion = 0;
+  fixture.capture.mockReset().mockReturnValue({ started: fixture.started, settled: fixture.settled });
+  fixture.started.mockClear(); fixture.settled.mockClear();
   publishValidatedAuthSessionOwner(session.userId); clearCachedGmailReceipts(session.userId);
   Object.defineProperty(window, "indexedDB", { value: new IDBFactory(), configurable: true });
   Object.defineProperty(globalThis, "crypto", { value: webcrypto, configurable: true });
@@ -70,6 +77,87 @@ afterEach(async () => {
   await vi.dynamicImportSettled();
   vi.restoreAllMocks(); vi.useRealTimers();
   configure({ asyncUtilTimeout: 1000 });
+});
+
+describe("manual saved receipt restore activity", () => {
+  const unavailable = () => new DurableResourceError("storage_unavailable", "version", "Synthetic local storage failure");
+
+  async function retryRestore() {
+    await waitFor(() => expect(screen.getByTestId("receipt-sync-toolbar")).toHaveTextContent("Saved receipts couldn’t be opened"));
+    expect(fixture.capture).not.toHaveBeenCalled();
+    const retry = screen.getByRole("button", { name: "Try again" });
+    expect(retry).toHaveAttribute("data-voice-action-id", "profile.gmail.restore_saved_receipts");
+    fireEvent.click(retry);
+  }
+
+  it("reports one manual restore only after the current encrypted snapshot opens", async () => {
+    fixture.scan.mockResolvedValue(response([receipt]));
+    const view = open(); await sync(); await waitFor(() => expect(fixture.completion).toBe(1));
+    view.unmount(); clearCachedGmailReceipts(session.userId);
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const hydrate = MailReceiptResourceService.hydrate.bind(MailReceiptResourceService);
+    vi.spyOn(MailReceiptResourceService, "hydrate").mockRejectedValueOnce(unavailable())
+      .mockImplementationOnce(async (...args) => { await gate; return hydrate(...args); });
+    open(); await retryRestore();
+    expect(fixture.capture.mock.calls).toEqual([["profile.gmail.restore_saved_receipts", session.userId]]);
+    expect(fixture.started).toHaveBeenCalledOnce();
+    expect(fixture.settled).not.toHaveBeenCalled();
+    await act(async () => { release(); });
+    await waitFor(() => expect(screen.getByText("Plaid")).toBeVisible());
+    expect(fixture.settled.mock.calls).toEqual([["returned"]]);
+    expect(fixture.capture).toHaveBeenCalledOnce();
+  }, 30000);
+
+  it.each([
+    ["known storage failure", unavailable, "failed"],
+    ["paused restore", () => new DOMException("Synthetic deadline", "AbortError"), null],
+  ] as const)("handles %s without starting another scan", async (_description, makeError, outcome) => {
+    let rejectRestore!: (error: Error) => void;
+    const pending = new Promise<never>((_, reject) => { rejectRestore = reject; });
+    vi.spyOn(MailReceiptResourceService, "hydrate").mockRejectedValueOnce(unavailable()).mockReturnValueOnce(pending);
+    open(); await retryRestore();
+    expect(fixture.started).toHaveBeenCalledOnce();
+    expect(fixture.settled).not.toHaveBeenCalled();
+    await act(async () => { rejectRestore(makeError()); });
+    expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
+    expect(fixture.settled.mock.calls).toEqual(outcome ? [[outcome]] : []);
+    expect(fixture.scan).not.toHaveBeenCalled();
+  });
+
+  it("does not report a restore when no saved snapshot is available", async () => {
+    fixture.scan.mockResolvedValue(response([]));
+    vi.spyOn(MailReceiptResourceService, "hydrate").mockRejectedValueOnce(unavailable()).mockResolvedValueOnce(null);
+    open(); await retryRestore();
+    await waitFor(() => expect(fixture.scan).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByTestId("receipt-sync-toolbar")).toHaveAttribute("aria-busy", "false"));
+    expect(fixture.started).toHaveBeenCalledOnce();
+    expect(fixture.settled).not.toHaveBeenCalled();
+    expect(fixture.capture).toHaveBeenCalledOnce();
+  });
+
+  it("does not settle an earlier vault epoch after credentials rotate", async () => {
+    let rejectRestore!: (error: Error) => void;
+    const pending = new Promise<never>((_, reject) => { rejectRestore = reject; });
+    vi.spyOn(MailReceiptResourceService, "hydrate").mockRejectedValueOnce(unavailable()).mockReturnValueOnce(pending);
+    open(); await retryRestore();
+    expect(fixture.started).toHaveBeenCalledOnce();
+    await act(async () => { advanceVaultSessionEpoch(); rejectRestore(unavailable()); });
+    expect(fixture.settled).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
+  });
+
+  it("leaves a late rejection after unmount without a terminal outcome", async () => {
+    let rejectRestore!: (error: Error) => void;
+    const pending = new Promise<never>((_, reject) => { rejectRestore = reject; });
+    vi.spyOn(MailReceiptResourceService, "hydrate").mockRejectedValueOnce(unavailable()).mockReturnValueOnce(pending);
+    const view = open(); await retryRestore();
+    expect(fixture.started).toHaveBeenCalledOnce();
+    view.unmount();
+    await act(async () => { rejectRestore(unavailable()); });
+    expect(fixture.settled).not.toHaveBeenCalled();
+    expect(fixture.scan).not.toHaveBeenCalled();
+  });
 });
 
 describe("receipt sync durable completion", () => {

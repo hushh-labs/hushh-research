@@ -99,11 +99,13 @@ const connections = () =>
       photoUrl: null,
       createdAt: "2026-09-28T12:00:00Z",
       connectedFromContacts: index === 1,
+      isRia: index === 1,
     }),
   );
 const people = () => ["Avery Stone", "Blake Rivera", "Drew Morgan"].map(
   (displayName, index) => ({
     userId: `directory-${index}`,
+    isRia: dataset().directoryAdvisor === "1" && index === 1,
     publicPersonRef: `person_directory_${index}`,
     displayName: dataset().longDirectoryIdentity === "1" && index === 0
       ? "Avery Featherstonehaugh-Rajendran"
@@ -122,7 +124,11 @@ const people = () => ["Avery Stone", "Blake Rivera", "Drew Morgan"].map(
 
 export class ConnectionsServiceRequestError extends Error { status = 500; }
 export const ConnectionsService = {
-  listNetwork: async () => ({ person: null, items: [], page: 1, hasMore: false }),
+  listNetwork: async () => {
+    const data = dataset();
+    data.networkListReads = String(Number(data.networkListReads ?? 0) + 1);
+    return { person: null, items: data.networkActions === "1" ? people().map(person => ({ ...person, networkDegree: 2 })) : [], page: 1, hasMore: false };
+  },
   listMutualConnections: async ({ personRef, page }: { personRef: string; page: number }) => {
     if (personRef === "person_directory_1" && dataset().delayedSingleMutual === "1") {
       document.documentElement.dataset.singleMutualPending = "1";
@@ -260,7 +266,7 @@ export const useContactSync = () => ({
   result: null,
   setResultsOpen: noop,
   resultsSheetProps: null,
-  discoverabilityConsentDialogProps: null,
+  discoverabilityConsentDialogProps: { open: false },
 });
 export const ContactSyncResultsSheet = () => null;
 export const ContactDiscoverabilityConsentDialog = () => null;
@@ -279,9 +285,9 @@ export const useOptionalOneLocationInteractionSurface = () => null;
 export const app = null;
 export const auth = { currentUser: user };
 export const DirectMessagesService = {
-  routeHref: async (input: { personRef: string }) => {
+  routeSelection: async (input: { personRef: string }) => {
     document.body.dataset.messageRecipient = input.personRef;
-    return "/one/messages?token=dm1.fixture";
+    return { token: "dm1.fixture", kind: "person", ref: input.personRef };
   },
 };
 export const getRecaptchaVerifier = noop;

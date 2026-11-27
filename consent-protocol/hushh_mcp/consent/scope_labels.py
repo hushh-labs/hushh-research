@@ -230,9 +230,20 @@ def human_scope_label(scope: str | None, label: str | None = None) -> str:
     return _segments_label(domain, segments)
 
 
+_FINANCIAL_LIVE_MIRROR_LABELS: dict[str, str] = {
+    "accounts": "Bank accounts",
+    "liabilities": "Credit & loans",
+    "cashflow": "Cash flow & recurring bills",
+}
+
+
 def _segments_label(domain: str, segments: list[str]) -> str:
     if not segments:
         return _whole_domain_label(domain)
+    if domain == "financial" and len(segments) == 1:
+        canonical = _FINANCIAL_LIVE_MIRROR_LABELS.get(segments[0].lower())
+        if canonical:
+            return canonical
     leaf = segments[-1]
     if _is_generic(leaf):
         parent = next((s for s in reversed(segments[:-1]) if not _is_generic(s)), None)

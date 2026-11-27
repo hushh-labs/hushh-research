@@ -10,6 +10,7 @@ from ag_ui.core import ToolMessage, UserMessage
 from ag_ui_adk import ADKAgent, AGUIToolset
 from google.adk.agents import LlmAgent
 from google.adk.apps import App, ResumabilityConfig
+from google.adk.events import Event
 from google.adk.models.base_llm import BaseLlm
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
@@ -22,6 +23,7 @@ from hushh_mcp.one_adk.receipt_client_tools import (
     receipt_before_model,
 )
 from hushh_mcp.one_adk.receipt_turn_admission import admit_receipt_continuation
+from hushh_mcp.one_adk.tool_history import validate_one_tool_result_history
 from tests.test_receipt_client_tools import (
     APP,
     NAME,
@@ -31,6 +33,7 @@ from tests.test_receipt_client_tools import (
     THREAD,
     NoSweepSessionManager,
     SealedReadbackService,
+    StubReceiptModel,
     run_input,
 )
 
@@ -128,6 +131,67 @@ async def test_continuation_with_the_whole_snapshot_resumes_once_and_stores_one_
         and any(QUESTION in (part.text or "") for part in event.content.parts or [])
     ]
     assert len(questions) == 2
+
+
+async def test_one_hub_resumes_the_receipt_and_reloads_the_redacted_history():
+    from hushh_mcp.one_adk.agent_tree import build_one_text_agent
+    from hushh_mcp.one_adk.agui_factory import build_authenticated_agui
+
+    store = SealedReadbackService()
+    model = StubReceiptModel(model="synthetic-receipt-probe", streamed_function_call=True)
+    root = build_one_text_agent(
+        model=model, allow_workspace_tools=True, include_thought_summaries=True
+    )
+    agent = build_authenticated_agui(root, store, app_name=APP, user_id_extractor=lambda _: OWNER)
+    kinds = await _receipt_turn(agent, store, "hub", resend_snapshot=False)
+    assert "RUN_FINISHED" in kinds and "RUN_ERROR" not in kinds
+    assert model.calls == 2 and model.observations[-1]["private_label_seen"]
+
+    followup = UserMessage(id="ordinary-user", role="user", content="An ordinary follow-up")
+    events = [event async for event in agent.run(run_input("ordinary-run", [followup]))]
+    kinds = [str(getattr(event.type, "value", event.type)) for event in events]
+    assert "RUN_FINISHED" in kinds and "RUN_ERROR" not in kinds
+    assert model.calls == 3 and not model.observations[-1]["private_label_seen"]
+
+
+@pytest.mark.parametrize("mismatch", ["call_id", "branch", "operation", "payload", "name"])
+def test_receipt_placeholder_requires_the_exact_preceding_call_and_safe_shape(mismatch):
+    call = Event(
+        author="one",
+        invocation_id="synthetic",
+        content=types.Content(
+            role="model",
+            parts=[types.Part(function_call=types.FunctionCall(id="receipt", name=NAME))],
+        ),
+    )
+    placeholder = {
+        "schema": "receipt_result.v1",
+        "operation": "list_recent_receipts" if mismatch == "operation" else NAME,
+        "ephemeral_result": True,
+    }
+    if mismatch == "payload":
+        placeholder["unexpected_value"] = "synthetic"
+    result = Event(
+        author="user",
+        invocation_id="synthetic",
+        branch="different" if mismatch == "branch" else None,
+        content=types.Content(
+            role="user",
+            parts=[
+                types.Part(
+                    function_response=types.FunctionResponse(
+                        id="other" if mismatch == "call_id" else "receipt",
+                        name="wrong_name" if mismatch == "name" else "unknown",
+                        response=placeholder,
+                    )
+                )
+            ],
+        ),
+    )
+    with pytest.raises(ValueError, match="preceding matching call"):
+        validate_one_tool_result_history(
+            SimpleNamespace(session=SimpleNamespace(events=[call, result])), None
+        )
 
 
 async def test_an_invalid_receipt_call_never_reaches_the_device():

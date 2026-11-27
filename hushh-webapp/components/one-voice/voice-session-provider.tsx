@@ -16,6 +16,7 @@
  * `pending_action.resolved executed` in the reducer.
  */
 
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import {
   createContext,
   useCallback,
@@ -27,6 +28,8 @@ import {
   type ReactNode,
 } from "react";
 import { usePathname } from "next/navigation";
+import { ROUTES } from "@/lib/navigation/routes";
+import { MAIN_CHAT_LOCATION_ENABLED } from "@/lib/agent/main-chat-location-contract";
 import { Capacitor } from "@capacitor/core";
 
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
@@ -802,7 +805,7 @@ export function VoiceSessionProvider({
         info.code === 1006 &&
         info.resumable &&
         !hasOpenPendingAction(before);
-      const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+      const offline = !isNetworkOnline();
       const active = appInteractionCoordinator.getLifecycleSnapshot().state === "active";
       const eligible =
         latest.current.enabled &&
@@ -1428,6 +1431,7 @@ export function VoiceSessionProvider({
             firebaseIdToken: firebaseProofRef.current,
             conversationId: input.conversationId,
             client: clientKind,
+            ...(MAIN_CHAT_LOCATION_ENABLED && pathnameRef.current === ROUTES.HOME ? { locationChatReview: true } : {}),
           };
         },
         onFrame: (frame) => handleFrame(session, frame),
@@ -1722,7 +1726,7 @@ export function VoiceSessionProvider({
       ) return;
       pendingNetworkReconnectRef.current = conversationId;
       if (
-        navigator.onLine !== false &&
+        isNetworkOnline() &&
         appInteractionCoordinator.getLifecycleSnapshot().state === "active" &&
         reconnectRetryTimerRef.current === null
       ) {
@@ -1743,7 +1747,7 @@ export function VoiceSessionProvider({
         !latest.current.isVaultUnlocked ||
         !latest.current.vaultOwnerToken ||
         !latest.current.userId ||
-        navigator.onLine === false ||
+        !isNetworkOnline() ||
         appInteractionCoordinator.getLifecycleSnapshot().state !== "active" ||
         reconnectsRef.current >= MAX_AUTO_RECONNECTS
       ) return;

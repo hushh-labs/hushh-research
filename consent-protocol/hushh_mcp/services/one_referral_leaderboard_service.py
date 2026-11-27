@@ -9,6 +9,7 @@ other profile names are resolved through the viewer-permitted directory.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from sqlalchemy import text
@@ -17,6 +18,12 @@ from db.db_client import get_db_connection
 from hushh_mcp.operons.referral_scoring.points import (
     is_within_a_flash_window,
 )
+from hushh_mcp.services.directory_identity_service import (
+    DirectoryIdentityUnavailableError,
+    active_directory_user_ids,
+    exclude_retired_account_ids,
+)
+from hushh_mcp.services.one_owner_admission import firebase_uids_for_owner_reads
 from hushh_mcp.services.one_referral_circle_service import get_team_rankings
 from hushh_mcp.services.one_referral_display_handle_service import (
     ANONYMOUS_PLACEHOLDER,
@@ -27,6 +34,8 @@ from hushh_mcp.services.one_referral_rewards_service import (
     lifetime_joined_count,
     lifetime_qualified_count,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _latest_snapshot(connection) -> tuple[str, datetime] | None:
@@ -45,6 +54,27 @@ def _latest_snapshot(connection) -> tuple[str, datetime] | None:
 
 def _handle_or_placeholder(handles: dict, user_id: str) -> str:
     return handles.get(user_id) or ANONYMOUS_PLACEHOLDER
+
+
+def _current_name_owners(user_ids: list[str]) -> set[str]:
+    """Recheck exact ownership locally after provider I/O, without upgrading owners."""
+    if not user_ids:
+        return set()
+    with get_db_connection() as connection:
+        filtered = connection.execute(
+            text("""
+            SELECT COALESCE(row_security_active(to_regclass('public.account_generations')), false)
+                OR COALESCE(row_security_active(to_regclass('public.account_deletion_tombstones')), false)
+        """)
+        ).scalar()
+        if filtered:
+            raise DirectoryIdentityUnavailableError()
+
+        def execute_many(statement, parameters):
+            return list(connection.execute(text(statement), parameters).mappings())
+
+        owners = exclude_retired_account_ids(user_ids, execute_many)
+        return set(firebase_uids_for_owner_reads(sorted(owners), connection=connection))
 
 
 def get_individual_leaderboard(
@@ -112,12 +142,36 @@ def get_individual_leaderboard(
         page_user_ids = [row.user_id for row in rows]
         if viewer_row is not None:
             page_user_ids.append(viewer_row.user_id)
-        handles = get_display_handles(page_user_ids)
 
+    # Verify current lifecycle even for chosen aliases. Snapshot ranks/scores are
+    # historical publications; an old alias is not evidence of a current account.
+    # Release the snapshot connection before the bounded provider read.
+    try:
+        active_members = active_directory_user_ids(
+            page_user_ids, use_cache=False, notify_connections=False
+        )
+    except DirectoryIdentityUnavailableError:
+        logger.warning("referral.names_unavailable count=%d", len(page_user_ids))
+        active_members = set()
+    handles = get_display_handles([uid for uid in page_user_ids if uid in active_members])
     profiles = get_leaderboard_profiles(
-        [uid for uid in page_user_ids if not handles.get(uid)],
+        [uid for uid in page_user_ids if uid in active_members and not handles.get(uid)],
         viewer_user_id=viewer_user_id,
     )
+    if active_members:
+        try:
+            current_owners = _current_name_owners(
+                sorted(active_members | ({viewer_user_id} if viewer_user_id else set()))
+            )
+        except Exception as exc:  # No fresh proof authorizes an old alias or cached profile.
+            logger.warning("referral.names_recheck_unavailable error=%s", type(exc).__name__)
+            current_owners = set()
+        handles = {owner: handle for owner, handle in handles.items() if owner in current_owners}
+        profiles = (
+            {owner: profile for owner, profile in profiles.items() if owner in current_owners}
+            if viewer_user_id in current_owners
+            else {}
+        )
     entries = [
         {
             "rank": row.rank,

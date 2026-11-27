@@ -109,9 +109,19 @@ def _retire_unlisted(conn: Any, monitor: Monitor, thread_hmac: str, listed: list
             text("""SELECT message_hmac FROM calendar_email_followup_scanned_messages
             WHERE user_id=:user_id AND account_id=:account_id
               AND thread_hmac=:thread_hmac AND outcome='assessed'
-              AND assessment_version<:version
+            AND EXISTS (
+              SELECT 1 FROM calendar_email_followup_requests r
+              WHERE r.user_id=:user_id AND r.account_id=:account_id
+                AND r.source_message_hmac=calendar_email_followup_scanned_messages.message_hmac
+                AND r.suppressed_at IS NULL AND r.merged_into IS NULL
+                AND r.assessment_version<:version)
               AND message_hmac<>ALL(CAST(:listed AS TEXT[]))"""),
-            {**scope, "thread_hmac": thread_hmac, "version": ASSESSMENT_VERSION, "listed": listed},
+            {
+                **scope,
+                "thread_hmac": thread_hmac,
+                "version": ASSESSMENT_VERSION,
+                "listed": listed,
+            },
         )
         .scalars()
         .all()
@@ -138,14 +148,26 @@ class _ScanOutcomes:
             with self.db.engine.begin() as conn:  # type: ignore[attr-defined]
                 row = (
                     conn.execute(
-                        text("""SELECT body_digest,assessment_version,outcome
-                        FROM calendar_email_followup_scanned_messages
-                        WHERE user_id=:user_id AND account_id=:account_id
-                          AND message_hmac=:message_hmac"""),
+                        # A message settled under an earlier contract that backs no
+                        # visible request was already judged not to be Calendar work.
+                        # Only a message that still backs an older-contract request
+                        # is read again, so a version bump never re-reads a mailbox.
+                        text("""SELECT s.body_digest,s.outcome,
+                        CASE WHEN s.outcome='assessed' THEN COALESCE((
+                          SELECT min(r.assessment_version) FROM calendar_email_followup_requests r
+                          WHERE r.user_id=s.user_id AND r.account_id=s.account_id
+                            AND r.source_message_hmac=s.message_hmac
+                            AND r.suppressed_at IS NULL AND r.merged_into IS NULL
+                        ),GREATEST(s.assessment_version,:version))
+                        ELSE s.assessment_version END AS assessment_version
+                        FROM calendar_email_followup_scanned_messages s
+                        WHERE s.user_id=:user_id AND s.account_id=:account_id
+                          AND s.message_hmac=:message_hmac"""),
                         {
                             "user_id": monitor.user_id,
                             "account_id": monitor.account_id,
                             "message_hmac": message_hmac,
+                            "version": ASSESSMENT_VERSION,
                         },
                     )
                     .mappings()
@@ -328,7 +350,13 @@ class _ScanOutcomes:
                           ON c.user_id=s.user_id AND c.account_id=s.account_id
                          AND c.thread_hmac=s.thread_hmac
                         WHERE s.user_id=:user_id AND s.account_id=:account_id
-                          AND s.outcome='assessed' AND s.assessment_version<:version
+                          AND s.outcome='assessed'
+                          AND EXISTS (
+                            SELECT 1 FROM calendar_email_followup_requests r
+                            WHERE r.user_id=s.user_id AND r.account_id=s.account_id
+                              AND r.source_message_hmac=s.message_hmac
+                              AND r.suppressed_at IS NULL AND r.merged_into IS NULL
+                              AND r.assessment_version<:version)
                           AND s.internal_date_ms>=:cutoff
                         GROUP BY c.id,c.thread_ref_ciphertext
                         ORDER BY latest DESC,c.id LIMIT :fetch"""),

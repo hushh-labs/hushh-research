@@ -306,3 +306,20 @@ def test_command_reads_go_through_the_signed_data_door(monkeypatch):
     assert result == {"status": "observed"}
     assert seen["name"] == "location" and seen["scope"] == scope
     assert seen["command_read"]["kind"] == "settings"
+
+
+def test_metadata_identity_disabled_skips_metadata_server_and_keeps_signature(
+    fixed_pod_key, monkeypatch
+):
+    monkeypatch.setenv("HUSSH_ID", "ha1_golden")
+    monkeypatch.setenv("HUSSH_POD_METADATA_IDENTITY_DISABLED", "1")
+    session = _Session(metadata=True)
+    client = PodHubClient(base_url="https://hub.example", session=session)
+
+    client.get("/api/one/agent-prompt", params={"channel": "default"})
+
+    assert len(session.sent) == 1
+    sent = session.sent[0]
+    assert sent["url"] == "https://hub.example/api/one/agent-prompt"
+    assert "Authorization" not in sent["headers"]
+    assert _hub_verifies(sent, query_pairs=[("channel", "default")])

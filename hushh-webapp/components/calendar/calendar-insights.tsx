@@ -1,6 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { isNetworkOnline } from "@/lib/runtime/network-status";
+import { NativeCalendarLayer, calendarNativeDayControls, useNativeCalendarEnabled, type CalendarNativeSection, type CalendarNativeRow } from "./native-calendar-workspace";
+import { shiftCalendarDate } from "./calendar-schedule-presentation";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Bar, BarChart, XAxis } from "recharts";
@@ -48,7 +51,7 @@ function Artifact({ item, onOpen, onDownload }: { item: MeetingArtifact; onOpen:
   if (item.state !== "available" || (item.kind !== "recording" && item.kind !== "notes")) return null;
   const link = safeMeetingProviderUrl(item.url);
   return <div className="space-y-2 border-b py-3 last:border-0">
-    <strong className="block break-words">{item.title || (item.kind === "recording" ? "Meeting recording" : "Meeting notes")}</strong>
+    <strong className={`${styles.rowTitle} block break-words`}>{item.title || (item.kind === "recording" ? "Meeting recording" : "Meeting notes")}</strong>
     {item.provenance === "calendar_linked" ? <span className={styles.muted}>Linked from this Calendar event</span> : item.provenance === "approved_request" ? <span className={styles.muted}>Shared after the organizer approved your request</span> : null}
     <div className="flex flex-wrap items-center gap-3">
       {link ? <Button variant="ghost" size="compact" className={presentationStyles.utility} onClick={() => onOpen(item)}>Open<ExternalLink className="size-3" /></Button> : <span className={styles.muted}>Google did not provide an opening link.</span>}
@@ -63,13 +66,15 @@ function Artifact({ item, onOpen, onDownload }: { item: MeetingArtifact; onOpen:
 export function CalendarInsights({ userId, account, today, zone, connectionRevision, refreshRevision = 0, refreshControl = "inline", initialLibrary, getIdToken, getVaultOwnerToken = noVaultToken, onAllowMeetingFiles, onFollowupMailConnect, onReviewFollowupMeeting, followupRequestId, onFollowupIntentHandled }: {
   userId: string; account: GoogleCalendarAccount; today: string; zone: string;
   connectionRevision?: number; refreshRevision?: number; refreshControl?: "inline" | "external"; initialLibrary?: CalendarMeetingReturnContext | null;
-  getIdToken: () => Promise<string>; getVaultOwnerToken?: () => string | null;
+  getIdToken: () => Promise<string>; getVaultOwnerToken?: () => string | null; recoverVaultOwnerToken?: () => Promise<string | null>;
   onAllowMeetingFiles?: (accountId: string, context: CalendarMeetingReturnContext) => void;
   onFollowupMailConnect?: (accountId: string) => Promise<boolean>;
   onReviewFollowupMeeting?: (request: FollowupRequest, startAt: string, endAt: string, timeZone: string) => void;
   followupRequestId?: string | null;
   onFollowupIntentHandled?: () => void;
 }) {
+  const nativeEnabled = useNativeCalendarEnabled();
+  const [nativePage, setNativePage] = useState({ key: "", page: 0 });
   const [view, setView] = useState<"overview" | "followups" | "library" | "meeting">(initialLibrary ? "library" : "overview");
   const [day, setDay] = useState(initialLibrary?.day || today);
   const previousToday = useRef(today);
@@ -89,7 +94,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [revision, setRevision] = useState(0);
-  const [canRefresh, setCanRefresh] = useState(() => typeof document === "undefined" || (document.visibilityState !== "hidden" && navigator.onLine));
+  const [canRefresh, setCanRefresh] = useState(() => typeof document === "undefined" || (document.visibilityState !== "hidden" && isNetworkOnline()));
   const refreshBudget = useRef(5);
   const autoAdvance = useRef(0);
   const lastForeground = useRef(0);
@@ -141,7 +146,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
   const lastSelectedId = useRef<string | null>(null);
 
   const refresh = useCallback(() => {
-    if (document.visibilityState === "hidden" || !navigator.onLine) return;
+    if (document.visibilityState === "hidden" || !isNetworkOnline()) return;
     lifetime.current?.abort();
     refreshTarget.current = viewRef.current === "library" && libraryRef.current ? Math.max(1, loadedPageCount.current) : 0;
     refreshChecked.current = 0;
@@ -159,7 +164,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
   }, [refreshRevision, refresh]);
   useEffect(() => {
     const resume = () => {
-      const active = document.visibilityState !== "hidden" && navigator.onLine;
+      const active = document.visibilityState !== "hidden" && isNetworkOnline();
       setCanRefresh(active);
       if (!active) { lifetime.current?.abort(); setLoading(false); return; }
       if (Date.now() - lastForeground.current < 1000) return;
@@ -462,37 +467,29 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
       <span className={styles.muted}>{requestStatus(meeting) || focusedStatus(meeting, filter)}</span>
     </span><ChevronRight className="size-4" />
   </button>;
-  const errorCard = error ? <SectionCard><p role="alert">{error}</p><CalendarCompactAction onClick={refresh}>Try again</CalendarCompactAction></SectionCard> : null;
+  const errorCard = error ? <SectionCard><p role="alert" className={styles.muted}>{error}</p><CalendarCompactAction onClick={refresh}>Try again</CalendarCompactAction></SectionCard> : null;
 
-  return <div className={styles.insights} data-view={view} aria-busy={loading}>
+  const renderPresentation = (followups: ReactNode, followupSection?: CalendarNativeSection, followupCovered = false) => {
+  const content = <div className={styles.insights} data-connect-type-scale="page" data-view={view} aria-busy={loading}>
     {refreshControl === "inline" ? <div className="flex justify-end"><Button variant="ghost" size="compact" className={presentationStyles.utility}
       disabled={loading || !canRefresh} onClick={() => { refreshBudget.current = 5; autoAdvance.current = 0; refresh(); }}>Refresh</Button></div> : null}
-    {!canRefresh ? <p role="status">Updates paused while this page is hidden or offline.</p> : null}
+    {!canRefresh ? <p role="status" className={styles.muted}>Updates paused while this page is hidden or offline.</p> : null}
     {view !== "overview" ? <div className={styles.breadcrumb}><Button variant="ghost" size="icon-touch"
       aria-label={view === "meeting" ? "Back to recordings and notes" : "Back to Insights"} onClick={back}>
       <ChevronLeft className="size-4" /></Button>Insights / {view === "meeting" ? "Recordings & Notes" : view === "followups" ? "Follow-ups" : "Meeting library"}</div> : null}
-    {view === "overview" || view === "followups" ? <CalendarFollowups
-      userId={userId} accountId={account.account_id} accountEmail={account.google_email || "this account"}
-      zone={zone} expanded={view === "followups"} getIdToken={getIdToken}
-      getVaultOwnerToken={getVaultOwnerToken} onConnectMail={onFollowupMailConnect}
-      refreshRevision={refreshRevision} onViewAll={() => setView("followups")} onReviewMeeting={(request, startAt, endAt, timeZone) => onReviewFollowupMeeting?.(request, startAt, endAt, timeZone)}
-      deepLinkRequestId={followupRequestId} onDeepLinkHandled={onFollowupIntentHandled} /> : null}
+    {followups}
     {view === "overview" ? <>
-      <p className={styles.muted}>Understand your time. Make room for what matters.</p>
       {loading && !overview ? <p role="status" className={styles.muted}>Checking Insights…</p> : null}
       {errorCard}
       <SectionCard title="Executive snapshot" description="This week · scheduled time, not attendance statistics">
         {overview ? <><div className={styles.metrics}><div><strong>{overview.meeting_count}</strong><span>Scheduled events</span></div><div><strong>{hours(overview.meeting_minutes)}</strong><span>Scheduled time</span></div><div><strong>{hours(overview.recurring.reduce((sum, row) => sum + row.minutes, 0))}</strong><span>Recurring time</span></div></div>{!overview.complete ? <p className={styles.muted}>Partial calendar coverage. Totals include only loaded events.</p> : null}</> : error ? <p className={styles.muted}>Snapshot unavailable.</p> : <Skeleton aria-label="Snapshot loading" className="h-16 w-full" />}
       </SectionCard>
       <SectionCard title="Your week at a glance">
-        {overview ? <ChartContainer className="h-40 w-full" config={{ minutes: { label: "Scheduled minutes", color: "var(--app-accent)" } }}><BarChart accessibilityLayer data={overview.days}><XAxis dataKey="date" tickFormatter={value => new Date(String(value) + "T12:00:00").toLocaleDateString(undefined, { weekday: "short" })} tickLine={false} axisLine={false} /><ChartTooltip trigger={CHART_TOOLTIP_TRIGGER} content={<ChartTooltipContent />} /><Bar dataKey="minutes" fill="var(--color-minutes)" radius={[4, 4, 0, 0]} isAnimationActive={false} /></BarChart></ChartContainer> : error ? <p className={styles.muted}>Weekly chart unavailable.</p> : <Skeleton className="h-40 w-full" />}
+        {overview ? <ChartContainer className={`${styles.chart} h-40 w-full`} config={{ minutes: { label: "Scheduled minutes", color: "var(--app-accent)" } }}><BarChart accessibilityLayer data={overview.days}><XAxis dataKey="date" tickFormatter={value => new Date(String(value) + "T12:00:00").toLocaleDateString(undefined, { weekday: "short" })} tickLine={false} axisLine={false} /><ChartTooltip trigger={CHART_TOOLTIP_TRIGGER} content={<ChartTooltipContent className={styles.chartTooltip} labelClassName={styles.rowTitle} />} /><Bar dataKey="minutes" fill="var(--color-minutes)" radius={[4, 4, 0, 0]} isAnimationActive={false} /></BarChart></ChartContainer> : error ? <p className={styles.muted}>Weekly chart unavailable.</p> : <Skeleton className="h-40 w-full" />}
       </SectionCard>
       <SectionCard title="Schedule risks"><p>{overview ? String(overview.overlaps) + " overlapping pairs · " + String(overview.back_to_back) + " back-to-back pairs" : "Schedule risks have not been checked."}</p><p className={styles.muted}>Based on scheduled, timed events in calendars you can read.</p></SectionCard>
-      <SectionCard title="Recurring commitments">{overview?.recurring.length ? overview.recurring.map((row, index) => <div className={styles.row} key={index}><span className={styles.copy}>{row.title}</span><span className={styles.muted}>{hours(row.minutes)}/week</span></div>) : <p className={styles.muted}>No recurring commitments in the loaded events.</p>}</SectionCard>
+      <SectionCard title="Recurring commitments">{overview?.recurring.length ? overview.recurring.map((row, index) => <div className={styles.row} key={index}><span className={`${styles.copy} ${styles.rowTitle}`}>{row.title}</span><span className={styles.muted}>{hours(row.minutes)}/week</span></div>) : <p className={styles.muted}>No recurring commitments in the loaded events.</p>}</SectionCard>
       <button ref={entryRef} type="button" className={styles.entry} onClick={() => { autoAdvance.current = 0; setCursor(null); setView("library"); }}><span className={styles.icon}><Video className="size-5" /></span><span className={styles.copy}><strong>Recordings &amp; Notes</strong><span className={styles.muted}>Find recordings and notes by meeting day</span></span><ChevronRight className="size-4" /></button>
-      <SectionCard title="Focus opportunities" description="Gaps of at least one hour · weekdays, 9 AM–5 PM">
-        {overview?.focus.length ? overview.focus.map(window => <p key={window.start_at} className="py-2">{new Date(window.start_at).toLocaleString(undefined, { timeZone: zone, weekday: "short", hour: "numeric", minute: "2-digit" })}–{new Date(window.end_at).toLocaleTimeString(undefined, { timeZone: zone, hour: "numeric", minute: "2-digit" })}</p>) : <p className={styles.muted}>No verified focus windows to show.</p>}
-      </SectionCard>
     </> : view === "followups" ? null : view === "library" ? <>
       <div><h2 className={styles.heading}>Recordings &amp; Notes</h2><p className={styles.muted}>Every timed meeting on this day, with file access checked separately.</p></div>
       <CalendarDateNavigation date={day} today={today} onChange={changeDay} label="Recording and notes date" />
@@ -518,13 +515,13 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
       {!detail && !error && canRefresh ? <p role="status" className={styles.muted}>Checking meeting files…</p> : null}
       {errorCard}
       {detail && !detail.complete ? <p role="status" className={styles.muted}>{limitationText[detail.discovery] || "Some files could not be checked. Refresh later."}</p> : null}
-      {!visibleArtifacts.length && selectedDisplayed && !requestSectionShown ? <SectionCard><p>{requestStatus(selectedDisplayed, verifiedKinds.size > 0) || focusedStatus(selectedDisplayed, filter)}</p></SectionCard> : null}
+      {!visibleArtifacts.length && selectedDisplayed && !requestSectionShown ? <SectionCard><p className={styles.muted}>{requestStatus(selectedDisplayed, verifiedKinds.size > 0) || focusedStatus(selectedDisplayed, filter)}</p></SectionCard> : null}
       {detail ? <div className={styles.details}>{visibleArtifacts.some(item => item.kind === "recording") ? <SectionCard title="Recordings">{visibleArtifacts.filter(item => item.kind === "recording").map(item => <Artifact key={item.file_id} item={item} onOpen={file => fileAction(file, "open")} onDownload={file => fileAction(file, "download")} />)}</SectionCard> : null}
         {visibleArtifacts.some(item => item.kind === "notes") ? <SectionCard title="Meeting notes">{visibleArtifacts.filter(item => item.kind === "notes").map(item => <Artifact key={item.file_id} item={item} onOpen={file => fileAction(file, "open")} onDownload={file => fileAction(file, "download")} />)}</SectionCard> : null}</div> : null}
       {requestOutcome?.requests.length && !requestSectionShown ? <p role="status" className={styles.muted}>{requestStatus(selectedDisplayed || selected!, verifiedKinds.size > 0) || "Only files verified for the selected Google account appear above."}</p> : null}
       {(requestOutcome?.artifacts.some(item => item.state === "permission_required") ||
         detail?.artifacts.some(item => item.state === "permission_required")) && onAllowMeetingFiles ?
-        <SectionCard><p>The selected Google account needs permission to check shared file names and metadata. File content stays in Google Drive.</p>
+        <SectionCard><p className={styles.muted}>The selected Google account needs permission to check shared file names and metadata. File content stays in Google Drive.</p>
           <CalendarCompactAction onClick={() => onAllowMeetingFiles(account.account_id, returnContext())}>Allow recording and notes access</CalendarCompactAction>
         </SectionCard> : null}
       {requestSectionShown && selected ? <CalendarRequestSection request={request} offered={offeredKinds}
@@ -532,4 +529,72 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
         onConnect={() => markCalendarMeetingOAuthReturn(userId, returnContext())} /> : null}
     </>}
   </div>;
+  if (!nativeEnabled) return content;
+  const sections: CalendarNativeSection[] = [];
+  if (refreshControl === "inline") sections.push({ key: "insights-refresh", rows: [{ key: "refresh-insights", label: "Refresh", enabled: !loading && canRefresh, run: () => { refreshBudget.current = 5; autoAdvance.current = 0; refresh(); } }] });
+  if (!canRefresh) sections.push({ key: "paused", rows: [{ key: "paused", label: "Updates paused while this page is hidden or offline." }] });
+  if (error) sections.push({ key: "insights-error", rows: [{ key: "error", label: error }, { key: "retry", label: "Try again", run: refresh }] });
+  if (canRefresh && loading && view !== "followups" && (view === "overview" ? !overview : view === "library" ? !library : !detail)) sections.push({ key: "insights-loading", rows: [{ key: "loading", label: "Insights loading", pending: true }] });
+  const pageRows = (key: string, title: string, rows: CalendarNativeRow[]) => {
+    const page = nativePage.key === key ? Math.min(nativePage.page, Math.max(0, Math.ceil(rows.length / 20) - 1)) : 0;
+    const visible = rows.slice(page * 20, (page + 1) * 20);
+    if (page > 0) visible.push({ key: `${key}:previous`, label: "Previous entries", run: () => setNativePage({ key, page: page - 1 }) });
+    if ((page + 1) * 20 < rows.length) visible.push({ key: `${key}:next`, label: "More entries", run: () => setNativePage({ key, page: page + 1 }) });
+    if (visible.length) sections.push({ key, title, rows: visible });
+  };
+  if (view === "overview") {
+    if (followupSection?.rows.length) sections.push(followupSection);
+    sections.push({ key: "snapshot", title: "Executive snapshot · This week", layout: "metrics", rows: [
+      { key: "scheduled", label: overview ? String(overview.meeting_count) : "—", detail: "Scheduled events", pending: !overview && !error },
+      { key: "time", label: overview ? hours(overview.meeting_minutes) : "—", detail: "Scheduled time", pending: !overview && !error },
+      { key: "recurring-time", label: overview ? hours(overview.recurring.reduce((sum, row) => sum + row.minutes, 0)) : "—", detail: "Recurring time", pending: !overview && !error },
+    ] });
+    sections.push({ key: "snapshot-scope", rows: [{ key: "snapshot-scope", label: "Scheduled time, not attendance statistics",
+      detail: overview && !overview.complete ? "Partial calendar coverage. Totals include only loaded events." : undefined }] });
+    sections.push({ key: "risks", title: "Schedule risks", rows: [{ key: "risks", label: overview ? `${overview.overlaps} overlapping pairs · ${overview.back_to_back} back-to-back pairs` : "Schedule risks have not been checked.", detail: "Based on scheduled, timed events in calendars you can read." }] });
+    pageRows("recurring", "Recurring commitments", overview?.recurring.length ? overview.recurring.map((row, index) => ({ key: `recurring:${index}`, label: row.title, detail: `${hours(row.minutes)}/week` })) : [{ key: "no-recurring", label: "No recurring commitments in the loaded events." }]);
+    sections.push({ key: "library-entry", rows: [{ key: "recordings-notes", label: "Recordings & Notes", detail: "Find recordings and notes by meeting day", run: () => { autoAdvance.current = 0; setCursor(null); setView("library"); } }] });
+    pageRows("focus", "Focus opportunities", overview?.focus.length ? overview.focus.map((window, index) => ({ key: `focus:${index}`, label: `${new Date(window.start_at).toLocaleString(undefined, { timeZone: zone, weekday: "short", hour: "numeric", minute: "2-digit" })}–${new Date(window.end_at).toLocaleTimeString(undefined, { timeZone: zone, hour: "numeric", minute: "2-digit" })}`, detail: "Weekdays, 9 AM–5 PM · at least one hour" })) : [{ key: "no-focus", label: "No verified focus windows to show." }]);
+  } else if (view === "library") {
+    sections.push({ key: "library-navigation", rows: [{ key: "back-insights", label: "Back to Insights", run: back }] },
+      calendarNativeDayControls({ previous: () => changeDay(shiftCalendarDate(day, -1)), today: () => changeDay(today), next: () => changeDay(shiftCalendarDate(day, 1)) }),
+      { key: "library-filters", rows: [{ key: "library-filter", label: "Recording and notes filters", choiceStyle: "segmented", choices: (["all", "recording", "notes"] as const).map(value => ({
+        key: value, label: value === "all" ? "All" : value === "recording" ? "Recordings" : "Notes", selected: filter === value, run: () => changeFilter(value),
+      })) }] });
+    const statusRows: CalendarNativeRow[] = [{ key: "library-scope", label: "Every timed meeting on this day, with file access checked separately." }];
+    if (library) statusRows.push({ key: "library-count", label: `${query ? "Search results: " : ""}${library.meetings.length} meetings loaded · ${availableMeetings.length} Available · ${unavailableMeetings.length} Not available yet.`, detail: !library.calendar_complete ? "Calendar coverage is incomplete; totals reflect loaded meetings only." : undefined });
+    if (loading && library) statusRows.push({ key: "checking", label: "Checking for updates…", pending: true });
+    if (filter !== "all") statusRows.push({ key: "filter-detail", label: `All meetings remain listed. The ${filter === "recording" ? "recording" : "notes"} filter focuses the file detail.` });
+    if (library?.limitations.length) statusRows.push({ key: "limitations", label: limitationText[library.limitations[0] || ""] || "Some meeting files could not be checked." });
+    else if (library && !library.complete && !library.next_cursor) statusRows.push({ key: "incomplete", label: "This check is incomplete. Refresh to try again." });
+    if (library?.meeting_file_access === "missing" && onAllowMeetingFiles) statusRows.push({ key: "allow-files", label: "Allow recording and notes access", web: true, run: () => onAllowMeetingFiles(account.account_id, { accountId: account.account_id, day, timeZone: zone, filter, query }) });
+    if (library?.calendar_complete && !library.meetings.length && !loading && !error) statusRows.push({ key: "library-empty", label: query ? "No matching meetings for this day. Clear search to see all meetings." : "No timed meetings for this day." });
+    sections.push({ key: "library-status", rows: statusRows });
+    for (const [group, label, meetings] of [["available", "Available", availableMeetings], ["unavailable", "Not available yet", unavailableMeetings]] as const)
+      pageRows(`${group}:${libraryKey}`, `${label} (${meetings.length})`, meetings.map(meeting => ({ key: `meeting:${meeting.occurrence_id}`, label: meeting.title,
+        symbol: meeting.artifact_kinds.includes("recording") ? "video" : "doc.text", trailing: meeting.artifact_kinds.map(kind => kind === "recording" ? "Recording" : "Notes").join(" · ") || undefined,
+        detail: [meetingTime(meeting, zone), `Organizer: ${meeting.organizer?.displayName || meeting.organizer?.email || "Unavailable"}`, requestStatus(meeting) || focusedStatus(meeting, filter)].filter(Boolean).join(" · "),
+        web: true, run: () => { lastSelectedId.current = meeting.occurrence_id; setSelected(meeting); setDetail(null); setView("meeting"); },
+      })));
+    if (library?.next_cursor) sections.push({ key: "library-next", rows: [{ key: "continue-checking", label: "Continue checking this day", detail: "More Calendar pages remain. Continue this day for complete totals.", enabled: !loading, run: () => setCursor(library.next_cursor) }] });
+  }
+  return <NativeCalendarLayer key={view === "followups" ? "overview" : view} active title={view === "overview" ? "Insights" : view === "followups" ? "Follow-ups" : "Recordings & Notes"} sections={sections}
+    search={view === "library" ? { query, label: "Search meetings on this day", change: changeQuery } : undefined}
+    calendarDate={view === "library" ? { key: "library", label: "Recording and notes date", value: day, timeZone: zone, enabled: true, change: changeDay } : undefined}
+    calendarWeek={view === "overview" ? { key: account.account_id, afterSection: "snapshot-scope", title: "Your week at a glance", state: overview ? "ready" : error ? "unavailable" : "loading",
+      days: overview?.days.map(day => ({ date: day.date, minutes: day.minutes, meetings: day.meetings, label: new Date(`${day.date}T12:00:00`).toLocaleDateString(undefined, { weekday: "short" }) })) ?? [] } : undefined}
+    webChild={view === "meeting" || view === "followups" || followupCovered} fallback={content} />;
+  };
+  if (view !== "overview" && view !== "followups") return renderPresentation(null);
+  const followups = <CalendarFollowups
+    key={`${userId}:${account.account_id}:${connectionRevision}:${account.grant_generation}:${account.provider_subject_sha256}`}
+    userId={userId} accountId={account.account_id} accountEmail={account.google_email || "this account"}
+    zone={zone} expanded={view === "followups"} getIdToken={getIdToken}
+    connectionRevision={connectionRevision} providerBinding={`${account.grant_generation}:${account.provider_subject_sha256}`}
+    onConnectMail={onFollowupMailConnect}
+    refreshRevision={refreshRevision} onViewAll={() => setView("followups")}
+    onReviewMeeting={(request, startAt, endAt, timeZone) => onReviewFollowupMeeting?.(request, startAt, endAt, timeZone)}
+    deepLinkRequestId={followupRequestId} onDeepLinkHandled={onFollowupIntentHandled}
+    renderPresentation={nativeEnabled ? renderPresentation : undefined} />;
+  return nativeEnabled ? followups : renderPresentation(followups);
 }

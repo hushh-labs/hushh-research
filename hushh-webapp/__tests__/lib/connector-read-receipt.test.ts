@@ -86,7 +86,7 @@ describe("connector read receipts", () => {
     expect(value).toEqual({ type: "one.connector_read.v1", connector: "mail", status: "ok",
       sourceRefs: ["mail:1", "mail:2"], truncated: true, metadataOnly: false });
     expect(JSON.stringify(value)).not.toContain("PRIVATE");
-    // The kind must agree with the declared scope in both directions.
+    // A metadata-only receipt cannot claim to have read message text.
     expect(parseConnectorReadReceipt({ ...body, metadata_only: true })).toBeNull();
     expect(parseConnectorReadReceipt({ ...body,
       sources: [{ source_ref: "mail:1", label: "Mail", kind: "thread" }] })).toBeNull();
@@ -94,13 +94,29 @@ describe("connector read receipts", () => {
       sources: [{ source_ref: "mail:1", label: "Mail", kind: "document" }] })).toBeNull();
   });
 
+  it("keeps up to 60 Mail sources with mixed metadata and message evidence", () => {
+    const sources = Array.from({ length: 60 }, (_, index) => ({
+      source_ref: `mail:${index + 1}`, label: "Mail", kind: index === 0 ? "message" : "metadata",
+    }));
+    expect(parseConnectorReadReceipt({ ...receipt, metadata_only: false, sources,
+      truncation_reasons: ["more_pages", "failed_reads"] })).toMatchObject({
+      sourceRefs: sources.map(source => source.source_ref),
+      metadataOnly: false,
+      truncationReasons: ["more_pages", "failed_reads"],
+    });
+    expect(parseConnectorReadReceipt({ ...receipt, metadata_only: false }))
+      .toMatchObject({ sourceRefs: ["mail:1"], metadataOnly: false });
+  });
+
   it.each([
     { schema_version: "future" }, { connector: "drive" }, { status: "invented" },
     { token: "PRIVATE" }, { sources: [{ source_ref: "https://evil.invalid", label: "Mail", kind: "metadata" }] },
     { sources: [{ source_ref: "mail:1", label: "PRIVATE_FILENAME", kind: "metadata" }] },
-    { sources: [{ source_ref: "mail:26", label: "Mail", kind: "metadata" }] },
+    { sources: [{ source_ref: "mail:61", label: "Mail", kind: "metadata" }] },
     { sources: [...receipt.sources, ...receipt.sources] }, { status: "reconnect_required" },
-    { metadata_only: false }, { truncated: "false" },
+    { truncated: "false" }, { truncation_reasons: ["private query"] },
+    { truncation_reasons: ["more_pages", "more_pages"] },
+    { truncated: false, truncation_reasons: ["more_pages"] },
   ])("rejects malformed or widening receipt %j", (override) => {
     expect(parseConnectorReadReceipt({ ...receipt, ...override })).toBeNull();
   });
@@ -218,5 +234,97 @@ describe("connector read receipts", () => {
     } })).toBeNull();
     expect(parseConnectorReadReceipt({ ...listing, owner_compile_query: null,
       owner_compile_window: null })).not.toHaveProperty("ownerCompileAvailable");
+  });
+
+  it("projects and restores Plaid, Stripe, and custom manage_connector cards safely", () => {
+    expect(parseAgentToolResultExperience(
+      "manage_connector",
+      { status: "connect_required", provider: "plaid", connected: false },
+      { provider: "plaid", operation: "connect" },
+    )).toEqual({
+      type: "one.workspace_connector_setup.v1",
+      provider: "plaid",
+      status: "connect_required",
+    });
+
+    expect(parseAgentToolResultExperience(
+      "manage_connector",
+      { status: "manage_available", provider: "stripe", connected: true },
+      { provider: "stripe", operation: "status" },
+    )).toEqual({
+      type: "one.workspace_connector_setup.v1",
+      provider: "stripe",
+      status: "manage_available",
+    });
+
+    expect(parseAgentToolResultExperience(
+      "manage_connector",
+      { status: "connect_required", provider: "venmo" },
+      { provider: "venmo" },
+    )).toBeNull();
+
+    expect(parseAgentToolResultExperience(
+      "manage_connector",
+      { status: "connect_required", provider: "plaid" },
+      { provider: "stripe" },
+    )).toBeNull();
+  });
+
+  it("parses direct Gmail REST tool results with bounded live_sources while keeping durable receipts opaque", () => {
+    const mailResult = {
+      status: "ok",
+      structured: {
+        schema_version: "specialist_read.v1",
+        connector: "mail",
+        status: "ok",
+        sources: [
+          { source_ref: "mail:1", kind: "message", label: "Mail" },
+          { source_ref: "mail:2", kind: "message", label: "Mail" },
+        ],
+        truncated: false,
+        metadata_only: false,
+      },
+      live_sources: [
+        {
+          ordinal: 1,
+          source_ref: "mail:1",
+          sender: "Ravi Gupta\x00",
+          subject: "Term sheet notes",
+          received_at: "2026-10-09T08:30:00Z",
+          unread: true,
+          has_body: true,
+          attachments: ["TermSheet.pdf"],
+        },
+        {
+          ordinal: 99,
+          source_ref: "mail:99",
+          sender: "Invalid",
+          subject: "Dropped",
+        },
+      ],
+    };
+
+    const parsed = parseAgentToolResultExperience("gmail_search_mail", mailResult);
+    expect(parsed).toMatchObject({
+      type: "one.connector_read.v1",
+      connector: "mail",
+      status: "ok",
+      metadataOnly: false,
+      sourceRefs: ["mail:1", "mail:2"],
+      liveSources: [
+        {
+          ordinal: 1,
+          sourceRef: "mail:1",
+          sender: "Ravi Gupta",
+          subject: "Term sheet notes",
+          receivedAt: "2026-10-09T08:30:00Z",
+          unread: true,
+          hasBody: true,
+          attachments: ["TermSheet.pdf"],
+        },
+      ],
+    });
+    // Durable receipt parser strictly ignores live_sources and never accepts extra keys.
+    expect(parseConnectorReadReceipt({ ...mailResult.structured, live_sources: mailResult.live_sources })).toBeNull();
   });
 });

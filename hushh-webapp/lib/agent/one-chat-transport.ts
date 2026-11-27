@@ -6,23 +6,31 @@
  */
 import { sendWhileAgentWakes } from "@/lib/agent/owner-pod-wake";
 import { ApiService } from "@/lib/services/api-service";
+import { hasRecentAgentAnswer } from "@/lib/services/pod-chat-turn-transport";
 
 export function wakingChatTransport(
   init: RequestInit | undefined,
   onWaking: () => void,
   onChatAdmission: (hushhId: string) => void,
+  isCurrent?: () => boolean,
 ): Promise<Response> {
   return sendWhileAgentWakes(
-    () => ApiService.agentChatRequest("/api/one/agent-chat", init ?? {}, true, onChatAdmission),
+    () => ApiService.agentChatRequest("/api/one/agent-chat", init ?? {}, true, onChatAdmission, isCurrent),
     {
       signal: init?.signal,
       onWaking,
-      isOwnerAgent: async () =>
-        (await import("@/lib/services/pod-app-access")).usesOwnerPod(() =>
-          typeof ApiService.getPersonalAgentStatusForRouting === "function"
+      isAlreadyAwake: () => hasRecentAgentAnswer(),
+      isOwnerAgent: async () => {
+        const { usesOwnerPod } = await import("@/lib/services/pod-app-access");
+        if (isCurrent && !isCurrent()) return false;
+        const ownAgent = await usesOwnerPod(() => {
+          if (isCurrent && !isCurrent()) throw new Error("POD_OWNER_CHANGED");
+          return typeof ApiService.getPersonalAgentStatusForRouting === "function"
             ? ApiService.getPersonalAgentStatusForRouting()
-            : ApiService.getPersonalAgentStatus(),
-        ),
+            : ApiService.getPersonalAgentStatus();
+        });
+        return ownAgent && (isCurrent?.() ?? true);
+      },
     },
   );
 }

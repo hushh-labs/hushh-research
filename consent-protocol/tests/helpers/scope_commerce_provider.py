@@ -197,6 +197,11 @@ class _FundingAdapter(_OperationAdapter):
                 "payment_status": "unpaid",
                 "url": "https://checkout.stripe.com/c/fixture",
             }
+            if "bank_quote_id" in request["metadata"]:
+                assert request["payment_method_configuration"] == "pmc_fixture"
+                assert "payment_method_types" not in request
+                assert "allowed_payment_method_types" not in request
+                session["payment_method_types"] = ["us_bank_account"]
             self.sessions[session["id"]] = session
             return session
         if kind == "refund":
@@ -266,6 +271,7 @@ def _funding_service(store, adapter):
             frontend_origin="https://example.test",
             countries={"US": CountryPayoutPolicy(1, 730, 0, 0)},
             fee_configuration_ref="fixture-fees",
+            bank_checkout_configuration_id="pmc_fixture",
         ),
     )
 

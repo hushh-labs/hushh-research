@@ -73,8 +73,13 @@ export function upsertStatementSnapshot(
   limit: number = STATEMENT_SNAPSHOT_LIMIT,
 ): AnyObj[] {
   const snapshotId = String(snapshot.id ?? "");
-  const others = (Array.isArray(existing) ? existing : [])
-    .map(asRecord)
-    .filter((entry) => String(entry.id ?? "") !== snapshotId);
-  return [snapshot, ...others].slice(0, limit);
+  const entries = (Array.isArray(existing) ? existing : []).map(asRecord);
+  const previousSource = asRecord(entries.find((entry) => String(entry.id ?? "") === snapshotId)?.source);
+  const source = asRecord(snapshot.source);
+  const savedSnapshot =
+    !source.file_name && typeof previousSource.file_name === "string" && previousSource.file_name.trim()
+      ? { ...snapshot, source: { ...source, file_name: previousSource.file_name } }
+      : snapshot;
+  const others = entries.filter((entry) => String(entry.id ?? "") !== snapshotId);
+  return [savedSnapshot, ...others].slice(0, limit);
 }

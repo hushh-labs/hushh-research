@@ -68,7 +68,8 @@ describe("CircleGrowActions", () => {
     const choice = await screen.findByRole("button", {
         name: /Select Asha Meena for Circle invitation/i,
       });
-    expect(choice).toHaveAccessibleDescription("From your contacts");
+    expect(choice).toHaveAccessibleDescription("Connected from your contacts");
+    expect(screen.getByText("Connected from your contacts")).toHaveClass("sr-only");
     fireEvent.click(choice);
     fireEvent.click(screen.getByRole("button", { name: "Invite 1 person" }));
 

@@ -4,6 +4,7 @@ import * as React from "react"
 import { XIcon } from "@/components/icons"
 import { Dialog as SheetPrimitive } from "radix-ui"
 
+import { useTypographyScope } from "@/lib/morphy-ux/ui/typography-scope"
 import { cn } from "@/lib/utils"
 import { useNativeNavigationOverlayRef } from "@/lib/capacitor/native-navigation"
 
@@ -186,6 +187,7 @@ function SheetContent(
     ...props
   }: SheetContentProps,
 ) {
+  const typographyScope = useTypographyScope()
   const sheet = React.useContext(SheetContext)
   const {
     setSheetContentRef,
@@ -227,9 +229,11 @@ function SheetContent(
       <SheetPrimitive.Content
         ref={nativeContentRef}
         data-slot="sheet-content"
+        data-typography-scope={typographyScope}
         data-sheet-side={side}
         data-stationary-side-frame={stationaryChrome && (side === "left" || side === "right") ? side : undefined}
         className={cn(
+          typographyScope,
           "data-[state=open]:animate-in data-[state=closed]:animate-out fixed z-(--z-sheet) flex flex-col gap-4 border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)] transition-[transform,opacity] data-[state=closed]:duration-100 data-[state=closed]:ease-[cubic-bezier(0.4,0,1,1)] data-[state=open]:duration-140 data-[state=open]:ease-[cubic-bezier(0.16,1,0.3,1)]",
           // A full-height side sheet reaches the top of the window; on the
           // phone that is under the status bar and the Dynamic Island unless
@@ -313,7 +317,7 @@ function SheetContent(
           <SheetPrimitive.Close
             data-slot="sheet-close"
             className={cn(
-              "ring-offset-background focus-visible:ring-ring absolute right-4 z-10 rounded-full border border-transparent bg-transparent p-2 text-[color:var(--app-secondary-label)] transition-colors after:absolute after:-inset-1.5 after:content-[''] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-hidden disabled:pointer-events-none",
+              "ring-offset-background focus-visible:ring-ring absolute right-4 z-10 rounded-full border border-transparent bg-transparent p-2 text-[color:var(--app-secondary-label)] transition-colors after:absolute after:-inset-1.5 after:content-[''] hover:text-[color:var(--app-label)] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-hidden disabled:pointer-events-none",
               // Absolute against the sheet's box, so the padding above does
               // not move it: a sheet that reaches the top of the window keeps
               // its close control below the status bar (bottom sheets start

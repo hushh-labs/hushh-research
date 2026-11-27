@@ -41,7 +41,7 @@ class BrowserBinding(StrictContract):
     pod_id: str = Field(min_length=1, max_length=256)
     incarnation: str = Field(min_length=1, max_length=256)
     task_id: str = Field(min_length=1, max_length=128)
-    environment: Literal["development"]
+    environment: Literal["development", "uat"]
     expires_at: int = Field(gt=0)
 
 
@@ -68,9 +68,21 @@ class BrowserExecutionScope(StrictContract):
             raise BrowserRefused("BROWSER_ACTION_SCOPE_REFUSED")
 
 
+_CLOUD_SHARED_CONTAINER_SANDBOX: dict[str, bool] = {
+    "gcp": True,
+    "ace": True,
+    "azure": False,
+    "aws": False,
+}
+
+
+def expected_chromium_sandbox_for_cloud(cloud: str) -> bool | None:
+    return _CLOUD_SHARED_CONTAINER_SANDBOX.get(cloud)
+
+
 class BrowserReadiness(StrictContract):
     version: Literal[1, 2] = 1
-    cloud: Literal["gcp", "azure"]
+    cloud: Literal["gcp", "azure", "aws", "ace"]
     component_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
     boundary: Literal["isolated_browser", "shared_owner_container"] = "isolated_browser"
     chromium_sandbox: bool = True
@@ -85,12 +97,17 @@ class BrowserReadiness(StrictContract):
     model_transport_verified: bool = False
     model_name: str = Field(default="", max_length=128)
     model_transport: str = Field(default="", max_length=256)
+    credential_entry_verified: bool = False
+    credential_cleanup_verified: bool = False
+    credential_isolation_verified: bool = False
 
     def require_ready(self) -> None:
         if self.version == 2:
+            expected_sandbox = expected_chromium_sandbox_for_cloud(self.cloud)
             if (
                 self.boundary != "shared_owner_container"
-                or self.chromium_sandbox != (self.cloud == "gcp")
+                or expected_sandbox is None
+                or self.chromium_sandbox is not expected_sandbox
                 or self.isolated
                 or self.direct_egress_denied
                 or self.private_access_denied

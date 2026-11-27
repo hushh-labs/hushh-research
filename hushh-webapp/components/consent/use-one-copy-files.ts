@@ -10,28 +10,41 @@ import { documentHash } from "@/lib/consent/document-hosting-crypto";
 import { downloadFileBlob } from "@/lib/utils/native-download";
 import { shareFile } from "@/lib/share/share-file";
 import { isShareCancellationError } from "@/lib/share/share-link";
+import { captureProductAttempt, type ProductAttempt } from "@/lib/observability/product-activity-client";
 
 export function useOneCopyStatus(session: DocumentSession, requestId: string, close: () => boolean, acceptStatus: (copy: OneCopy) => void) {
   const [copy, setCopy] = useState<OneCopy | null>(() => OneCopyPresentationService.peekStatus(session, requestId));
   const scope = useRef({ session, requestId });
   const [error, setError] = useState(false);
   const [revision, setRevision] = useState(0);
-  const refresh = useCallback(() => setRevision(value => value + 1), []);
+  const requested = useRef<{ session: DocumentSession; requestId: string; attempt: ProductAttempt } | null>(null);
+  const refresh = useCallback((manual = false) => {
+    if (manual && session.isCurrent()) {
+      const attempt = captureProductAttempt("document.copy.refresh", session.userId); attempt.started();
+      requested.current = { session, requestId, attempt };
+    }
+    setRevision(value => value + 1);
+  }, [session, requestId]);
   useEffect(() => {
     const controller = new AbortController(); let serial = 0; let ticks = 0;
     scope.current = { session, requestId };
     setCopy(OneCopyPresentationService.peekStatus(session, requestId)); setError(false);
-    const load = async (force = false) => {
+    const load = async (force = false, attempt?: ProductAttempt) => {
       const ticket = ++serial;
       try {
         const value = await OneCopyPresentationService.status(session, requestId, controller.signal, force);
         requireDocumentSession(session, controller.signal);
         if (ticket !== serial) return;
+        attempt?.settled("returned");
         setCopy(value); setError(false); acceptStatus(value);
         if (value.status === "revoked") close();
-      } catch { if (!controller.signal.aborted && session.isCurrent()) { close(); setError(true); } }
+      } catch (error) { if (ticket === serial && !controller.signal.aborted && session.isCurrent()) {
+        if (!(error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name))) attempt?.settled("failed");
+        close(); setError(true);
+      } }
     };
-    void load(revision > 0);
+    const intent = requested.current; requested.current = null;
+    void load(revision > 0, intent?.session === session && intent.requestId === requestId ? intent.attempt : undefined);
     const focus = () => { close(); void load(true); };
     const hidden = () => { if (document.visibilityState === "hidden") close(); };
     window.addEventListener("focus", focus); document.addEventListener("visibilitychange", hidden);
@@ -45,7 +58,7 @@ export function useOneCopyStatus(session: DocumentSession, requestId: string, cl
   return { copy: visible ? copy : OneCopyPresentationService.peekStatus(session, requestId), error: visible && error, refresh };
 }
 
-type Preview = { sha256?: string; fileRef: string; bytes: Uint8Array; controller: AbortController };
+type Preview = { sha256?: string; fileRef: string; bytes: Uint8Array; controller: AbortController; attempt: ProductAttempt };
 async function saveOriginal(session: DocumentSession, bytes: Uint8Array, file: OneCopyFile, signal: AbortSignal) {
   const name = file.name.replace(/[\\/\u0000-\u001f\u007f]/g, "_").replace(/^\.+/, "_").slice(0, 180) || "document";
   const mime = /^[\w.+-]+\/[\w.+-]+$/.test(file.mimeType) ? file.mimeType : "application/octet-stream";
@@ -79,9 +92,11 @@ export function useOneCopyFileActions(session: DocumentSession, requestId: strin
     if (shown && !value.files.some(file => file.fileRef === shown.fileRef && file.status === "ready" && file.sha256 === shown.sha256)) close();
   }, [close]);
   const open = async (file: OneCopyFile, download: boolean, trigger?: HTMLElement) => {
-    if (active.current) return;
+    if (active.current || !session.isCurrent()) return;
     close(); if (trigger) returnFocus.current = trigger; const controller = new AbortController(); active.current = controller;
+    const attempt = captureProductAttempt(download ? "document.copy.download" : "document.copy.preview", session.userId); attempt.started();
     setPending({ fileRef: file.fileRef, download }); setNotice(null); let bytes: Uint8Array | null = null;
+    let handingOff = false;
     try {
       // The clicked snapshot describes the immutable file; the content endpoint authorizes this read now.
       const current = file;
@@ -99,11 +114,16 @@ export function useOneCopyFileActions(session: DocumentSession, requestId: strin
       // The OS chooser owns its own lifecycle; the network deadline ends before handoff.
       const readable = bytes as Uint8Array | null;
       if (!readable) throw new Error("one_copy_unavailable");
-      if (download) setNotice(await saveOriginal(session, readable, current, controller.signal));
-      else { const next = { fileRef: file.fileRef, sha256: current.sha256, bytes: readable, controller }; previewRef.current = next; setPreview(next); bytes = null; }
+      if (download) {
+        handingOff = true;
+        setNotice(await saveOriginal(session, readable, current, controller.signal));
+        if (session.isCurrent() && !controller.signal.aborted) attempt.settled("returned");
+      } else { const next = { fileRef: file.fileRef, sha256: current.sha256, bytes: readable, controller, attempt }; previewRef.current = next; setPreview(next); bytes = null; }
     } catch (error) {
       const timedOut = error instanceof Error && error.name === "TimeoutError";
       const owned = active.current === controller;
+      const abortedRead = !handingOff && error instanceof Error && error.name === "AbortError";
+      if (owned && !timedOut && !abortedRead && !controller.signal.aborted && session.isCurrent()) attempt.settled(isShareCancellationError(error) ? "cancelled" : "failed");
       if (timedOut) controller.abort();
       if (owned && (!controller.signal.aborted || timedOut) && session.isCurrent()) { close(); setNotice(timedOut ? "File took too long. Try again." : isShareCancellationError(error) ? "File was not saved." : "This copy is unavailable. Try again or open Drive."); }
     } finally { (bytes as Uint8Array | null)?.fill(0); if (active.current === controller) { active.current = null; setPending(null); } }

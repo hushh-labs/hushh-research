@@ -51,6 +51,11 @@ def _retained_referral_config(
     return {keys[0]: True, **dict(zip(keys[1:], expected_values, strict=True))}
 
 
+DEV_PLG_FLAGS = (
+    "one_plg_dev_export_enabled",
+    "one_plg_activity_dev_enabled",
+)
+
 UAT_PLG_FLAGS = (
     "one_plg_uat_export_enabled",
     "one_plg_activity_uat_enabled",
@@ -63,19 +68,15 @@ def _retained_plg_config(
 ) -> dict[str, bool]:
     """Preserve explicit pilot settings without importing another lane's activation."""
     retained: dict[str, bool] = {}
-    foreign_uat_flags = (
-        "one_plg_dev_export_enabled",
-        "one_plg_activity_dev_enabled",
-        "one_plg_owner_export_enabled",
-    ) if environment == "uat" else ()
     for key in (
         "one_plg_export_enabled",
         "one_plg_activity_enabled",
         "one_plg_activity_all_registered",
         "one_plg_audience_enabled",
         "one_plg_subscription_enabled",
+        "one_plg_owner_export_enabled",
+        *DEV_PLG_FLAGS,
         *UAT_PLG_FLAGS,
-        *foreign_uat_flags,
     ):
         if key not in existing:
             continue
@@ -87,7 +88,26 @@ def _retained_plg_config(
         else:
             raise ValueError("PLG activation must be an explicit boolean")
     enabled = {key for key, value in retained.items() if value}
-    if environment == "uat" and enabled:
+    if environment == "dev" and enabled:
+        if (
+            project != "hushh-pda-dev"
+            or existing.get("environment") != "dev"
+            or existing.get("google_cloud_project") != project
+            or not enabled
+            <= {
+                *DEV_PLG_FLAGS,
+                "one_plg_activity_enabled",
+                "one_plg_attempt_email_enabled",
+            }
+            or (
+                "one_plg_activity_enabled" in enabled
+                and "one_plg_activity_dev_enabled" not in enabled
+            )
+        ):
+            raise ValueError(
+                "PLG activation belongs only to its verified dev, uat or production environment and project"
+            )
+    elif environment == "uat" and enabled:
         if (
             project != "hushh-pda-uat"
             or existing.get("environment") != "uat"
@@ -98,20 +118,26 @@ def _retained_plg_config(
                 and "one_plg_activity_uat_enabled" not in enabled
             )
         ):
-            raise ValueError("PLG activation does not match the UAT environment and project")
+            raise ValueError(
+                "PLG activation does not match the UAT environment and project"
+            )
     elif enabled and (
         environment != "production"
         or project != "hushh-pda"
         or existing.get("environment") != "production"
         or existing.get("google_cloud_project") != "hushh-pda"
-        or enabled.intersection(UAT_PLG_FLAGS)
+        or enabled.intersection({*DEV_PLG_FLAGS, *UAT_PLG_FLAGS})
     ):
         raise ValueError(
-            "PLG activation belongs only to the production environment and project"
+            "PLG activation belongs only to its verified dev, uat or production environment and project"
         )
-    if environment == "uat":
+    if environment in {"dev", "uat"}:
         return retained
-    return {key: value for key, value in retained.items() if key not in UAT_PLG_FLAGS}
+    return {
+        key: value
+        for key, value in retained.items()
+        if key not in {*DEV_PLG_FLAGS, *UAT_PLG_FLAGS}
+    }
 
 
 def _retained_dev_inference_bridge(
@@ -157,20 +183,26 @@ def _retained_document_delivery(
     values = {key: existing.get(key, "") for key in keys}
     if not enabled and not any(values.values()):
         return {enabled_key: False}
-    expected_project = {"uat": "hushh-pda-uat", "production": "hushh-pda"}.get(environment)
+    expected_project = {"uat": "hushh-pda-uat", "production": "hushh-pda"}.get(
+        environment
+    )
     if (
         expected_project is None
         or project != expected_project
         or existing.get("environment") != environment
         or existing.get("google_cloud_project") != project
     ):
-        raise ValueError("Document delivery belongs to a different environment and project")
+        raise ValueError(
+            "Document delivery belongs to a different environment and project"
+        )
     if (
         values[keys[0]] != f"{project}-document-delivery"
         or not isinstance(values[keys[1]], str)
         or not re.fullmatch(r"[0-9a-f]{64}", values[keys[1]])
     ):
-        raise ValueError("Document delivery requires an explicit qualified storage binding")
+        raise ValueError(
+            "Document delivery requires an explicit qualified storage binding"
+        )
     return {enabled_key: enabled, **values}
 
 
@@ -262,6 +294,24 @@ def retained_settings(
             existing, project=project, environment=environment
         ),
     }
+    auth_project = existing.get("firebase_auth_project_id")
+    if auth_project is not None:
+        expected = {
+            "dev": "hushh-pda-dev",
+            "uat": "hushh-pda-uat",
+            "production": "hushh-pda",
+        }.get(environment)
+        if (
+            not expected
+            or project != expected
+            or auth_project != expected
+            or existing.get("environment") != environment
+            or existing.get("google_cloud_project") != project
+        ):
+            raise ValueError(
+                "Firebase Auth selection belongs to a different environment"
+            )
+        retained["firebase_auth_project_id"] = auth_project
     key = "auth_db_listener_isolation_enabled"
     if key in existing:
         value = existing[key]

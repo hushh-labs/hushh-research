@@ -8,7 +8,8 @@ import {
   type LocalOnboardingActionContext,
   type LocalOnboardingActionResult,
 } from "@/lib/agent/local-onboarding-actions";
-import { buildConnectedSystemRoute } from "@/lib/navigation/routes";
+import { buildConnectedSystemRoute, normalizeStaticExportPathname, ROUTES } from "@/lib/navigation/routes";
+import { locationReviewForLegacyAction, type MainLocationProposal } from "@/lib/agent/main-chat-location-contract";
 import { resolveSearchActionTarget } from "@/lib/search/search-route-context";
 import {
   parseVoiceCard,
@@ -56,6 +57,8 @@ export type ExecuteAgentGatewayActionInput = {
   switchPersona?: (target: Persona) => Promise<unknown>;
   executionContext?: LocalOnboardingActionContext;
   signal?: AbortSignal;
+  /** Supplied by admitted Main Chat turns to display older Location reviews inline. */
+  openMainChatLocationReview?: (proposal: MainLocationProposal) => boolean;
   /**
    * Narrow authorization issued by the generated goal runner. It never makes
    * an arbitrary off-screen control executable; it only permits the Analysis
@@ -81,11 +84,9 @@ function hasPublishedActionInventory(
   return Array.from(new Set(actionIds));
 }
 
-function isActionInActiveInventory(
-  input: ExecuteAgentGatewayActionInput,
-): boolean {
-  const activeLayer = input.surfaceMetadata?.interactionLayer;
-  const routeIsBlockedByActiveLayer = Boolean(
+function hasBlockingInteractionLayer(surfaceMetadata: VoiceSurfaceMetadata | null | undefined): boolean {
+  const activeLayer = surfaceMetadata?.interactionLayer;
+  return Boolean(
     activeLayer &&
       activeLayer.lifecycle !== "closing" &&
       (activeLayer.blocksUnderlyingActions ||
@@ -93,7 +94,12 @@ function isActionInActiveInventory(
         activeLayer.modality === "blocking" ||
         activeLayer.agentContinuity !== "interactive"),
   );
+}
 
+function isActionInActiveInventory(
+  input: ExecuteAgentGatewayActionInput,
+): boolean {
+  const routeIsBlockedByActiveLayer = hasBlockingInteractionLayer(input.surfaceMetadata);
   // Navigation is reachable from any screen. Deciding WHICH actions count as
   // navigation has to match `is_navigation_action` in action_gateway.py
   // exactly, because the relay offers an action on that basis and the browser
@@ -505,7 +511,19 @@ async function executeAgentGatewayActionImpl(
   input: ExecuteAgentGatewayActionInput,
 ): Promise<AgentActionRuntimeResult> {
   const routeBefore = input.appRuntimeState.route;
-  if (!isActionInActiveInventory(input)) {
+  const action = getKaiActionById(input.actionId);
+  const review = input.openMainChatLocationReview && action?.execution_target.status === "wired" &&
+    (action.execution_target.path !== "route" || action.execution_policy === "allow_direct") &&
+    !input.executionContext?.operationId && routeBefore.screen === "chat" &&
+    normalizeStaticExportPathname(routeBefore.pathname.replace(/[?#].*$/, "")) === ROUTES.HOME
+    ? locationReviewForLegacyAction(action.action_id, action.execution_target.path, input.slots) : null;
+  // Selection-only journeys already have a generated navigation step reachable
+  // from Chat. Its admission can open the same review here. A caller's explicit
+  // inventory and all pre-claim mutations still require their original action.
+  const selectionNavigation = review?.selectionOnly && !input.allowedActionIds && !hasBlockingInteractionLayer(input.surfaceMetadata)
+    ? resolveNavigationJourney(input.actionId, action)?.navigationActionId : undefined;
+  if (!isActionInActiveInventory(input) &&
+      !(selectionNavigation && isActionInActiveInventory({ ...input, actionId: selectionNavigation }))) {
     return unavailableOnActiveSurfaceResult(input);
   }
   const connectedSystemResult = executeConnectedSystemAgentAction(
@@ -516,7 +534,6 @@ async function executeAgentGatewayActionImpl(
     return connectedSystemResult;
   }
 
-  const action = getKaiActionById(input.actionId);
   if (!action) {
     return buildResult({
       status: "invalid",
@@ -529,7 +546,7 @@ async function executeAgentGatewayActionImpl(
   }
 
   if (action.command?.domain === "location" && action.execution_target.status === "wired" && action.execution_target.path === "local_handler"
-    && !input.executionContext?.operationId) {
+    && !input.executionContext?.operationId && !review) {
     if (input.signal?.aborted) return buildResult({ status: "failed", actionId: action.action_id,
       routeBefore: routeBefore.pathname, resultSummary: "Action was interrupted." });
     // Chat and typed app actions use the same preparation/confirmation owner.
@@ -613,6 +630,24 @@ async function executeAgentGatewayActionImpl(
       screenBefore: routeBefore.screen,
       resultSummary: "That action is not wired for execution yet.",
       reason: action.execution_target.status,
+    });
+  }
+
+  if (review) {
+    if (hasBlockingInteractionLayer(input.surfaceMetadata)) return unavailableOnActiveSurfaceResult(input);
+    if (input.signal?.aborted || effectiveRuntimeState.auth.user_id !== input.userId ||
+        !input.openMainChatLocationReview?.({ id: crypto.randomUUID(), ...review.draft })) {
+      return buildResult({
+        status: "blocked", actionId: action.action_id, label: action.label,
+        routeBefore: routeBefore.pathname, screenBefore: routeBefore.screen,
+        resultSummary: "Open the Location review again in your active chat.",
+        reason: "main_chat_review_unavailable",
+      });
+    }
+    return buildResult({
+      status: "started", actionId: action.action_id, label: action.label,
+      routeBefore: routeBefore.pathname, screenBefore: routeBefore.screen,
+      resultSummary: "Review the Location action here in Chat.",
     });
   }
 

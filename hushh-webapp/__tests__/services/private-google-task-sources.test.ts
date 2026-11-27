@@ -9,6 +9,18 @@ const pod = vi.mocked(ApiService.ownerPodRequest);
 
 describe("bounded private Google task reads", () => {
   beforeEach(() => vi.clearAllMocks());
+  it.each([undefined, 1] as const)("confirms the exact private Calendar review with contract %s", async reviewContract => {
+    const proposalId = `gcal_${"a".repeat(24)}`;
+    pod.mockResolvedValue(Response.json({ proposalId, kind: "calendar", result: { action: "create", event: {} } }));
+    await GoogleCalendarService.executeProposal({
+      vaultOwnerToken: "fixture-vault", userId: "owner", proposalId,
+      ...(reviewContract === 1 ? { reviewContract } : {}),
+    });
+    expect(pod).toHaveBeenCalledExactlyOnceWith(`actions/${proposalId}/confirm`, reviewContract === 1 ? {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ review_contract: 1 }),
+    } : { method: "POST" });
+    expect(ApiService.apiFetch).not.toHaveBeenCalled();
+  });
   it("routes Calendar content only to the owner's pod without sending a hub/vault token", async () => {
     pod.mockResolvedValue(Response.json({ events: [], time_zone: "Asia/Kolkata", truncated: false }));
     const input = { vaultOwnerToken: "fixture-vault", startAt: "2026-11-03T00:00:00Z", endAt: "2026-11-10T00:00:00Z" };

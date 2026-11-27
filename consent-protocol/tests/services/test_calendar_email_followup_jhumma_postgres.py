@@ -167,7 +167,8 @@ async def _scan_and_assert_initial(store, engine, selected, transport, provider)
             break
     assert outcome["state"] == "complete"
     listing = await restarted.list_conversations(
-        await restarted.monitor(user_id=OWNER, account_id=selected)
+        await restarted.monitor(user_id=OWNER, account_id=selected),
+        now=datetime(2026, 10, 11, tzinfo=UTC),
     )
     assert listing["total_conversations"] == 1
     detail = await restarted.detail(
@@ -181,8 +182,26 @@ async def _scan_and_assert_initial(store, engine, selected, transport, provider)
     assert doc["reminder_at"] == "2026-10-25T03:30:00+00:00"
     assert call["proposed_date"] == "2026-10-27"
     assert call["booking_state"] == "not_booked"
-    assert call["reminder_at"] is None
+    # A proposed call is reminded the day before (26 Oct 09:00 IST), so there is
+    # still time to schedule it; it stays unbooked until the owner confirms.
+    assert call["reminder_at"] == "2026-10-26T03:30:00+00:00"
     assert provider["read_ids"].count("msg-jhumma") >= 1
+
+    # A proposal stored before meetings had reminders gets its reminder on the next
+    # finished pass, once, without touching what the owner decided.
+    with engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE calendar_email_followup_requests SET reminder_at=NULL,
+            state='needs_review' WHERE id=CAST(:id AS UUID)"""),
+            {"id": call["id"]},
+        )
+    monitor = await restarted.monitor(user_id=OWNER, account_id=selected)
+    scan_day = datetime(2026, 10, 11, tzinfo=UTC)
+    assert await restarted.refresh_meeting_reminders(monitor, now=scan_day) == 1
+    assert await restarted.refresh_meeting_reminders(monitor, now=scan_day) == 0
+    healed = await restarted.detail(monitor, listing["conversations"][0]["id"])
+    call = next(item for item in healed["requests"] if item["kind"] == "meeting")
+    assert call["reminder_at"] == "2026-10-26T03:30:00+00:00"
 
     return restarted, listing, doc, call
 
@@ -392,7 +411,6 @@ async def _assert_booking_requires_confirmation(restarted, selected, call, listi
         ),
         response=Response(),
         firebase_uid=OWNER,
-        owner={"user_id": OWNER},
     )
     assert selected_accounts == [selected]
     calendar.get_event.assert_awaited_once_with(
@@ -427,7 +445,6 @@ async def test_jhumma_complete_body_restart_reminder_and_correction(followup_pg,
         ),
         response=Response(),
         firebase_uid=OWNER,
-        owner={"user_id": OWNER},
     )
 
     messages = _mock_messages()

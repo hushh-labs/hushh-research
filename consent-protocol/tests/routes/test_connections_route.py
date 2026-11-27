@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -30,7 +30,41 @@ def test_network_routes_bind_viewer_and_validate_private_read_contract():
         assert response.status_code == 200
         assert response.headers["cache-control"] == "private, no-store"
         service.return_value.browse.assert_called_once_with(
-            "user-a", person_ref=person_ref, degree=3, query="Alice", page=2, limit=20
+            "user-a",
+            person_ref=person_ref,
+            degree=3,
+            query="Alice",
+            page=2,
+            limit=20,
+            include_suggestions=False,
+        )
+        service.return_value.browse.reset_mock()
+        service.return_value.browse.return_value = {
+            "items": [
+                {
+                    "publicPersonRef": person_ref,
+                    "networkDegree": 3,
+                }
+            ],
+            "page": 2,
+            "hasMore": False,
+        }
+        suggestions = client.get(
+            "/api/one/connections/network",
+            params={"degree": 3, "page": 2, "include_suggestions": True},
+        )
+        assert suggestions.status_code == 200
+        assert suggestions.headers["cache-control"] == "private, no-store"
+        assert suggestions.json()["items"][0]["networkDegree"] == 3
+        assert "suggestionReason" not in suggestions.json()["items"][0]
+        service.return_value.browse.assert_called_once_with(
+            "user-a",
+            person_ref=None,
+            degree=3,
+            query="",
+            page=2,
+            limit=20,
+            include_suggestions=True,
         )
         for params in (
             {"degree": 0},
@@ -82,6 +116,23 @@ def test_network_routes_require_auth_and_return_neutral_permission_failure():
         )
         assert response.status_code == 404
         assert response.json()["detail"]["message"] == "This network is unavailable."
+
+
+def test_person_context_returns_canonical_reference_without_public_caching():
+    with patch("api.routes.one.connections.ConnectionsService") as service:
+        service.return_value.get_person_context.return_value = {
+            "person": {
+                "userId": "peer",
+                "publicPersonRef": "public-peer",
+                "relationship": "connected",
+            },
+            "request": None,
+        }
+        response = _client().get("/api/one/connections/peer/context")
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "private, no-store"
+        assert response.json()["person"]["publicPersonRef"] == "public-peer"
+        service.return_value.get_person_context.assert_called_once_with("user-a", "peer")
 
 
 def test_mutual_list_binds_viewer_and_bounds_pagination_without_public_caching():
@@ -159,8 +210,10 @@ def test_create_request_returns_typed_conflict_when_pair_is_already_connected():
     }
 
 
-@pytest.mark.parametrize("name_only", [False, True])
-def test_directory_lists_items(name_only):
+@pytest.mark.parametrize(
+    ("name_only", "typed_search"), [(False, False), (True, False), (False, True)]
+)
+def test_directory_lists_items(name_only, typed_search):
     client = _client()
     with patch("api.routes.one.connections.ConnectionsService") as svc_cls:
         svc_cls.return_value.search_directory.return_value = {
@@ -170,12 +223,18 @@ def test_directory_lists_items(name_only):
         }
         resp = client.get(
             "/api/one/connections/directory",
-            params={"query": "bo", **({"name_only": "true"} if name_only else {})},
+            params={"query": "bo", "name_only": name_only, "typed_search": typed_search},
         )
     assert resp.status_code == 200
     assert resp.json() == {"items": [], "page": 1, "hasMore": False}
     svc_cls.return_value.search_directory.assert_called_once_with(
-        "user-a", query="bo", page=1, limit=20, audience="all", name_only=name_only
+        "user-a",
+        query="bo",
+        page=1,
+        limit=20,
+        audience="all",
+        name_only=name_only,
+        typed_search=typed_search,
     )
 
 
@@ -193,6 +252,27 @@ def test_directory_identity_outage_returns_retryable_503():
     }
 
 
+def test_contact_sync_reports_provider_outage_as_retryable():
+    with (
+        patch("api.routes.one.connections.ConnectionsService") as service,
+        patch("api.routes.one.connections.ActorIdentityService") as identity,
+        patch("api.routes.one.connections.RIAIAMService") as directory,
+    ):
+        identity.return_value.sync_contact_sync_requester_from_firebase = AsyncMock(
+            return_value=None
+        )
+        directory.return_value.match_one_network_contact_lookups_exact = AsyncMock(
+            return_value=[{"lookup_id": "contact1", "user_id": "peer"}]
+        )
+        service.return_value.sync_contact_matches.side_effect = DirectoryIdentityUnavailableError()
+        response = _client().post(
+            "/api/one/connections/contact-sync",
+            json={"lookups": [{"lookup_id": "contact1", "hash": "a" * 64, "last4": "1234"}]},
+        )
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "DIRECTORY_IDENTITY_UNAVAILABLE"
+
+
 def test_connections_no_params_preserves_legacy_complete_shape():
     client = _client()
     with patch("api.routes.one.connections.ConnectionsService") as svc_cls:
@@ -205,7 +285,8 @@ def test_connections_no_params_preserves_legacy_complete_shape():
     svc_cls.return_value.list_connections_page.assert_not_called()
 
 
-def test_connections_paging_filters_ria_before_returning_a_bounded_page():
+@pytest.mark.parametrize("account_check", [None, "observe", "reconcile"])
+def test_connections_paging_filters_ria_before_returning_a_bounded_page(account_check):
     client = _client()
     with patch("api.routes.one.connections.ConnectionsService") as svc_cls:
         svc_cls.return_value.list_connections_page.return_value = {
@@ -215,12 +296,20 @@ def test_connections_paging_filters_ria_before_returning_a_bounded_page():
             "totalCount": 5000,
             "audience": "ria",
         }
-        resp = client.get("/api/one/connections?page=2&limit=100&query=alex&audience=ria")
+        params = {"page": 2, "limit": 100, "query": "alex", "audience": "ria"}
+        if account_check:
+            params["account_check"] = account_check
+        resp = client.get("/api/one/connections", params=params)
     assert resp.status_code == 200
     assert resp.json()["totalCount"] == 5000
     assert resp.headers["cache-control"] == "private, no-store"
     svc_cls.return_value.list_connections_page.assert_called_once_with(
-        "user-a", page=2, limit=100, query="alex", audience="ria"
+        "user-a",
+        page=2,
+        limit=100,
+        query="alex",
+        audience="ria",
+        **({"account_check": account_check} if account_check else {}),
     )
 
 

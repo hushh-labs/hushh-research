@@ -44,6 +44,41 @@ class CommercialAccess:
 
         return await self._transaction(operation, conn)
 
+    async def lookup_many_by_consent_tokens(self, tokens: list[str], conn=None) -> dict[str, dict]:
+        """Batch-lookup purchases by consent tokens with frozen-lot dispute check in one query."""
+        digests = sorted({hashlib.sha256(str(tok).encode()).hexdigest() for tok in tokens if tok})
+        if not digests:
+            return {}
+
+        async def operation(c):
+            rows = await c.fetch(
+                """
+                SELECT p.*, clock_timestamp() AS admission_now,
+                       EXISTS(
+                         SELECT 1
+                         FROM scope_commerce_allocations a
+                         JOIN scope_commerce_funding_lots f USING(lot_id)
+                         WHERE a.purchase_id = p.purchase_id AND f.frozen
+                       ) AS _has_frozen_lot
+                FROM scope_commerce_purchases p
+                WHERE p.consent_token_hash = ANY($1::text[])
+                """,
+                digests,
+            )
+            by_hash: dict[str, dict] = {}
+            for raw in rows or []:
+                row = dict(raw)
+                frozen = bool(row.pop("_has_frozen_lot", False))
+                token_hash = str(row.get("consent_token_hash") or "")
+                cleaned = {k: v for k, v in row.items() if k != "staged_export"}
+                if frozen:
+                    cleaned["status"] = "payment_disputed"
+                if token_hash:
+                    by_hash[token_hash] = cleaned
+            return by_hash
+
+        return await self._transaction(operation, conn)
+
     async def request_status(self, request_id, buyer_app_id):
         purchase = await self.lookup_by_request(request_id)
         if purchase:

@@ -1,5 +1,6 @@
 "use client";
 
+import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { FilesService, type OrganizationJob } from "./service";
@@ -26,7 +27,7 @@ export function useFilesJobReconciliation({
     let index = 0;
     let inFlight = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const active = () => document.visibilityState !== "hidden" && navigator.onLine &&
+    const active = () => document.visibilityState !== "hidden" && isNetworkOnline() &&
       appInteractionCoordinator.getLifecycleSnapshot().state === "active";
     const schedule = () => {
       if (!lifetime.signal.aborted && !signal.aborted && Date.now() < deadline)

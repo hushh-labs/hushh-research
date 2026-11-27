@@ -85,18 +85,34 @@ struct HushhSessionPrivacyState {
 struct HushhSessionPrivacyDocumentState {
     private var observed = Set<String>()
     private var retired = Set<String>()
+    private var committed: String?
 
     mutating func observe(_ documentId: String) {
         if !documentId.isEmpty && !retired.contains(documentId) { observed.insert(documentId) }
     }
 
+    mutating func commit(_ documentId: String) {
+        guard !documentId.isEmpty, !retired.contains(documentId) else { return }
+        if let committed, committed != documentId {
+            retired.insert(committed)
+            observed.remove(committed)
+        }
+        committed = documentId
+        observed.insert(documentId)
+    }
+
     mutating func restart() {
         retired.formUnion(observed)
         observed.removeAll()
+        committed = nil
     }
 
     func accepts(_ documentId: String) -> Bool {
         observed.contains(documentId) && !retired.contains(documentId)
+    }
+
+    func isCommitted(_ documentId: String) -> Bool {
+        committed == documentId && accepts(documentId)
     }
 }
 
@@ -315,9 +331,19 @@ final class HushhSessionPrivacyShield: NSObject {
         documents.observe(documentId)
     }
 
+    func commitDocument(_ documentId: String) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        documents.commit(documentId)
+    }
+
     func acceptsDocument(_ documentId: String) -> Bool {
         dispatchPrecondition(condition: .onQueue(.main))
         return documents.accepts(documentId)
+    }
+
+    func isCommittedDocument(_ documentId: String) -> Bool {
+        dispatchPrecondition(condition: .onQueue(.main))
+        return documents.isCommitted(documentId)
     }
 
     private var hasWindowCover: Bool {
@@ -762,6 +788,10 @@ public class HushhSessionPrivacyPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         onMain {
+            guard self.isCurrentCommittedDocument(documentId) else {
+                call.reject("The document is not the committed application page.", "STALE_DOCUMENT")
+                return
+            }
             HushhSessionPrivacyShield.shared.observeDocument(documentId)
             let snapshot = HushhSessionPrivacyShield.shared.snapshot()
             call.resolve(snapshot.payload)
@@ -781,6 +811,7 @@ public class HushhSessionPrivacyPlugin: CAPPlugin, CAPBridgedPlugin {
         else { call.reject("INVALID_PREPARATION"); return }
         onMain {
             let shield = HushhSessionPrivacyShield.shared
+            guard self.isCurrentCommittedDocument(document) else { call.reject("STALE_DOCUMENT"); return }
             guard shield.authorizePreparation(document: document, generation: generation,
                 sessionRevision: revision, profile: profile, compositionRevision: composition,
                 visitId: call.getString("visitId"), formScene: call.getString("formScene"), body: call.getString("body") ?? "drawer") else { call.reject("PREPARATION_REFUSED"); return }
@@ -796,6 +827,7 @@ public class HushhSessionPrivacyPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         onMain {
+            guard self.isCurrentCommittedDocument(documentId) else { call.reject("STALE_DOCUMENT"); return }
             HushhSessionPrivacyShield.shared.completeSessionValidation(
                 generation: requestedGeneration,
                 documentId: documentId,
@@ -816,5 +848,11 @@ public class HushhSessionPrivacyPlugin: CAPPlugin, CAPBridgedPlugin {
         } else {
             DispatchQueue.main.async(execute: work)
         }
+    }
+
+    private func isCurrentCommittedDocument(_ documentId: String) -> Bool {
+        guard let host = bridge?.viewController as? MyViewController,
+              host.authorizesNativeDocument(documentId) else { return false }
+        return true
     }
 }

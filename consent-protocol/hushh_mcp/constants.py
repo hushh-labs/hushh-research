@@ -206,6 +206,15 @@ class ConsentScope(str, Enum):
         if cls.is_retired_scope(scope):
             return False
 
+        # Exact registered owner-item scopes are structurally valid tokens,
+        # though they remain non-discoverable and non-requestable externally.
+        # Their issuance and reads separately require owner-started DB lineage.
+        # The ordinary private-path guard below must not retire these records.
+        from hushh_mcp.consent.pkm_scope_policy import is_owner_item_grant_scope
+
+        if scope.startswith("attr.credentials.") and is_owner_item_grant_scope(scope):
+            return True
+
         # Check static scopes first
         if scope in ACTIVE_RESERVED_SCOPE_VALUES:
             return True

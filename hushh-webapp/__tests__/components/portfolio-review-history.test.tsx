@@ -3,6 +3,7 @@ import { expect, it, vi } from "vitest";
 import { PortfolioReviewView } from "@/components/kai/views/portfolio-review-view";
 import { DashboardMasterView } from "@/components/kai/views/dashboard-master-view";
 import type { PortfolioData } from "@/components/kai/types/portfolio";
+import { ApiService } from "@/lib/services/api-service";
 
 const saved = vi.hoisted(() => ({ domain: null as Record<string, unknown> | null, current: {} as Record<string, unknown>, cache: vi.fn(), reload: vi.fn() }));
 vi.mock("@/lib/kai/brokerage/use-portfolio-sources", () => ({ usePortfolioSources: ({ initialStatementPortfolio }: { initialStatementPortfolio: PortfolioData }) => ({
@@ -108,4 +109,49 @@ it.each([8245, 0])("targets filtered invalid entries and keeps the new stock dra
       expect.objectContaining({ symbol: "GOOG", quantity: 10, price: 1600, market_value: 16000 }),
       expect.objectContaining({ symbol: "AAPL", quantity: 10, price: 100, market_value: 1000 }),
     ]) }));
+});
+
+it.each(["mobile", "desktop"])("opens Manage entries directly from the %s holdings list", (layout) => {
+  const history = vi.spyOn(ApiService, "getKaiStockPriceHistory")
+    .mockResolvedValue({ points: [], stale: false, retrievedAt: null });
+  try {
+    const portfolio: PortfolioData = { total_value: 242, account_summary: { ending_value: 242 }, holdings: [
+      { symbol: "AAA", name: "Example Alloy", quantity: 11, price: 11, market_value: 121, acquisition_date: "2026-11-04" },
+      { symbol: "AAA", name: "Example Alloy", quantity: 11, price: 11, market_value: 121, acquisition_date: "2026-11-09" },
+    ] };
+    render(<DashboardMasterView userId="synthetic-owner" vaultOwnerToken="synthetic-token" portfolioData={portfolio} onReupload={vi.fn()} section="holdings" />);
+    fireEvent.click(screen.getByRole("button", { name: "Edit", exact: true }));
+    const list = within(layout === "mobile" ? screen.getByTestId("portfolio-holdings-mobile-list") : screen.getByRole("table"));
+    fireEvent.click(list.getByRole("button", { name: "Manage entries for AAA" }));
+    const sheet = screen.getByRole("dialog", { name: "Manage entries" });
+    expect(sheet).toHaveAttribute("data-state", "open");
+    expect(within(sheet).getByText("22 shares across 2 entries")).toBeVisible();
+    expect(screen.queryByRole("dialog", { name: "AAA" })).toBeNull();
+
+    fireEvent.click(within(sheet).getByRole("button", { name: "Done" }));
+    expect(screen.queryByRole("dialog", { name: "AAA" })).toBeNull();
+    fireEvent.click(list.getByText("AAA", { exact: true }));
+    expect(screen.getByRole("dialog", { name: "AAA" })).toHaveAttribute("data-state", "open");
+  } finally {
+    history.mockRestore();
+  }
+});
+
+it("manages the lots of one position from a Manage entries sheet and keeps each acquisition date", async () => {
+  saved.domain = null;
+  render(<PortfolioReviewView userId="synthetic-owner" onSaveComplete={vi.fn()} onReimport={vi.fn()}
+    portfolioData={{ total_value: 242, account_summary: { ending_value: 242 }, holdings: [
+      { symbol: "AAA", name: "Example Alloy", quantity: 11, price: 11, market_value: 121, acquisition_date: "2026-11-04" },
+      { symbol: "AAA", name: "Example Alloy", quantity: 11, price: 11, market_value: 121, acquisition_date: "2026-11-09" },
+    ] }} />);
+  expect(screen.queryByRole("button", { name: /^2 entries/ })).toBeNull();
+  fireEvent.click(screen.getAllByRole("button", { name: "Manage entries for AAA" })[0]!);
+  const sheet = screen.getByRole("dialog");
+  expect(within(sheet).getByText("22 shares across 2 entries")).toBeVisible();
+  expect(within(sheet).getByText("Acquired 2026-11-04")).toBeVisible();
+  expect(within(sheet).getByText("Acquired 2026-11-09")).toBeVisible();
+  fireEvent.click(within(sheet).getByRole("button", { name: "Remove entry 1" }));
+  expect(within(sheet).getByText(/Entry 1 · Pending removal/)).toBeVisible();
+  expect(within(sheet).getByText("Acquired 2026-11-09")).toBeVisible();
+  expect(saved.domain).toBeNull();
 });

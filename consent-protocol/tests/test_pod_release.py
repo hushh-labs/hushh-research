@@ -215,6 +215,17 @@ def test_release_requires_verified_installed_digest(release):
     assert not upgrade_is_supported(checked, "sha256:" + "a" * 64)
 
 
+def test_qualified_owner_update_host_excludes_managed_and_vm_hosts():
+    from hushh_mcp.services.pod_release import qualified_owner_update_host
+
+    assert qualified_owner_update_host("user_gcp", {})
+    assert qualified_owner_update_host("user_azure", {})
+    assert not qualified_owner_update_host("gcp", {})
+    assert not qualified_owner_update_host(None, {})
+    assert not qualified_owner_update_host("user_azure", {"hostKind": "azure_vm"})
+    assert not qualified_owner_update_host("user_gcp", {"vmHost": {"installation": {}}})
+
+
 def test_installed_notes_require_the_exact_retained_image_and_environment(release, monkeypatch):
     monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
     digest = release["image"].rsplit("@", 1)[1]

@@ -56,7 +56,7 @@ PURPOSE = "ai_selection"
 HKDF_INFO = b"hussh/ai-selection/v1"
 MAX_API_KEY_CHARS = 512
 #: The providers this agent can run a person's turns on with their own key.
-SUPPORTED_PROVIDERS: tuple[str, ...] = ("gemini", "openai", "azure_openai")
+SUPPORTED_PROVIDERS: tuple[str, ...] = ("gemini", "openai")
 GEMINI_TRANSPORTS = frozenset({"developer_api", "vertex_api_key"})
 
 STALE_SELECTION = "STALE_SELECTION"
@@ -160,16 +160,7 @@ def _parse_plaintext(raw: bytes) -> dict[str, Any]:
     project = _optional_text(body.get("vertexProject"), limit=64)
     location = _optional_text(body.get("vertexLocation"), limit=64)
     endpoint = _optional_text(body.get("azureEndpoint"), limit=256)
-    if provider == "azure_openai":
-        from hushh_mcp.runtime_providers.owner_azure_key import configuration  # noqa: PLC0415
-
-        if not endpoint or not model or transport is not None or project or location:
-            raise AiSelectionRefused(BAD_ENVELOPE)
-        try:
-            endpoint = configuration(endpoint, model).endpoint
-        except ValueError:
-            raise AiSelectionRefused(BAD_ENVELOPE) from None
-    elif endpoint:
+    if endpoint:
         raise AiSelectionRefused(BAD_ENVELOPE)
     if provider == "openai" and (transport not in {None, "developer_api"} or project or location):
         raise AiSelectionRefused(BAD_ENVELOPE)

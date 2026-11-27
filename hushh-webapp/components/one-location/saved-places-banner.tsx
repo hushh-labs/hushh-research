@@ -32,7 +32,7 @@ export function SavedPlacesBanner({ busy, onSave, onDismiss }: SavedPlacesBanner
         type="button"
         aria-label="Dismiss saved places reminder"
         onClick={onDismiss}
-        className="col-start-3 row-start-1 flex h-11 w-11 items-center justify-center rounded-full text-[color:var(--app-secondary-label)] hover:bg-[color:var(--app-neutral-fill)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)] disabled:opacity-50 sm:col-start-4"
+        className="col-start-3 row-start-1 flex h-11 w-11 items-center justify-center rounded-full text-[color:var(--app-secondary-label)] hover:text-[color:var(--app-primary-label)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)] disabled:opacity-50 sm:col-start-4"
       >
         <X className="h-4 w-4" aria-hidden="true" />
       </button>

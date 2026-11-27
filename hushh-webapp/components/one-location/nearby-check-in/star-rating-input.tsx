@@ -89,6 +89,7 @@ export function StarRatingInput({
             >
               <Star
                 aria-hidden="true"
+                weight={filled ? "fill" : "regular"}
                 className={cn(
                   filled
                     ? CHECK_IN_STAR_GLYPH_ON_CLASSNAME

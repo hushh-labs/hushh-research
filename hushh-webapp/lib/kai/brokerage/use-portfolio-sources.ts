@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 
 import { Capacitor } from "@capacitor/core";
@@ -43,16 +44,25 @@ import {
   loadFinancialForVault,
   refreshVaultConnections,
 } from "@/lib/kai/plaid-vault/vault-sync";
+import { selectLinkedNetWorthScore } from "@/lib/kai/plaid-vault/nws";
+import type { LinkedNetWorthScore } from "@/lib/kai/plaid-vault/types";
+import {
+  isVaultSessionEpochCurrent,
+  snapshotVaultSessionEpoch,
+  subscribeVaultSessionEpoch,
+} from "@/lib/vault/session-epoch";
 
 interface UsePortfolioSourcesParams {
   userId: string | null | undefined;
   vaultOwnerToken?: string | null;
   vaultKey?: string | null;
   initialStatementPortfolio?: PortfolioData | null;
+  trackPortfolioReady?: boolean;
 }
 
 interface ReloadOptions {
   background?: boolean;
+  force?: boolean;
 }
 
 interface PlaidRefreshActionResult {
@@ -64,6 +74,7 @@ export interface UsePortfolioSourcesResult {
   isLoading: boolean;
   error: string | null;
   plaidStatus: PlaidPortfolioStatusResponse | null;
+  linkedNetWorthScore: LinkedNetWorthScore | null;
   statementPortfolio: PortfolioData | null;
   plaidPortfolio: PortfolioData | null;
   statementSnapshots: StatementSnapshotOption[];
@@ -123,11 +134,22 @@ export function usePortfolioSources({
   vaultOwnerToken,
   vaultKey,
   initialStatementPortfolio = null,
+  trackPortfolioReady = true,
 }: UsePortfolioSourcesParams): UsePortfolioSourcesResult {
   const [statementPortfolio, setStatementPortfolio] = useState<PortfolioData | null>(
     initialStatementPortfolio
   );
   const [plaidStatus, setPlaidStatus] = useState<PlaidPortfolioStatusResponse | null>(null);
+  const [nwsSnapshot, setNwsSnapshot] = useState<{
+    ownerId: string;
+    epoch: number;
+    value: LinkedNetWorthScore;
+  } | null>(null);
+  const vaultEpoch = useSyncExternalStore(
+    subscribeVaultSessionEpoch,
+    snapshotVaultSessionEpoch,
+    snapshotVaultSessionEpoch,
+  );
   const [plaidPortfolio, setPlaidPortfolio] = useState<PortfolioData | null>(null);
   const [statementSnapshots, setStatementSnapshots] = useState<StatementSnapshotOption[]>([]);
   const [activeStatementSnapshotId, setActiveStatementSnapshotId] = useState<string | null>(null);
@@ -138,10 +160,14 @@ export function usePortfolioSources({
   const [isChangingSource, setIsChangingSource] = useState(false);
   const [isChangingStatementSnapshot, setIsChangingStatementSnapshot] =
     useState(false);
-  const reloadInflightRef = useRef<Promise<void> | null>(null);
+  const reloadRef = useRef<{
+    ownerId: typeof userId;
+    epoch: number;
+    startedAt: number;
+    request: Promise<void> | null;
+  } | null>(null);
   const sourceChangeInflightRef = useRef<Promise<void> | null>(null);
   const statementSnapshotChangeInflightRef = useRef<Promise<void> | null>(null);
-  const lastReloadStartedAtRef = useRef(0);
   const growthPortfolioReadyKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -173,7 +199,7 @@ export function usePortfolioSources({
         domain: "financial",
         vaultKey,
         vaultOwnerToken: vaultOwnerToken || undefined,
-      }).catch(() => null));
+      }));
 
     const expectedDataVersion =
       cachedBlob?.dataVersion ?? PersonalKnowledgeModelService.peekCachedEncryptedBlob(userId)?.dataVersion;
@@ -220,6 +246,12 @@ export function usePortfolioSources({
       });
 
       startTransition(() => {
+        const score = selectLinkedNetWorthScore(params.financial);
+        if (isVaultSessionEpochCurrent(vaultEpoch)) {
+          setNwsSnapshot(userId && vaultKey && vaultOwnerToken && score
+            ? { ownerId: userId, epoch: vaultEpoch, value: score }
+            : null);
+        }
         setStatementPortfolio(loadedStatement);
         setStatementSnapshots(loadedStatementSnapshots);
         setActiveStatementSnapshotId(loadedActiveStatementSnapshotId);
@@ -228,7 +260,7 @@ export function usePortfolioSources({
         setActiveSource(nextActiveSource);
       });
     },
-    [initialStatementPortfolio]
+    [initialStatementPortfolio, userId, vaultKey, vaultOwnerToken, vaultEpoch]
   );
 
   const refreshDerivedMarketCaches = useCallback(async () => {
@@ -249,18 +281,21 @@ export function usePortfolioSources({
     }).catch(() => undefined);
   }, [userId, vaultKey, vaultOwnerToken]);
 
-  const reload = useCallback(async (options?: ReloadOptions) => {
+  const reload = useCallback(async function reload(options?: ReloadOptions): Promise<void> {
+    if (!isVaultSessionEpochCurrent(vaultEpoch)) return;
     const isBackground = options?.background === true;
-    if (reloadInflightRef.current) {
-      return reloadInflightRef.current;
+    const previous = reloadRef.current;
+    const sameSession = previous?.ownerId === userId && previous?.epoch === vaultEpoch;
+    if (sameSession && previous.request) {
+      if (!options?.force) return previous.request;
+      await previous.request;
+      if (reloadRef.current?.request) return reloadRef.current.request;
+      return reload(options);
     }
     const now = Date.now();
     const minReloadGapMs = isBackground ? 2000 : 400;
-    if (now - lastReloadStartedAtRef.current < minReloadGapMs) {
-      return;
-    }
+    if (!options?.force && sameSession && now - previous.startedAt < minReloadGapMs) return;
 
-    lastReloadStartedAtRef.current = now;
     const request = (async () => {
       if (!userId || !vaultOwnerToken) {
         startTransition(() => {
@@ -283,6 +318,7 @@ export function usePortfolioSources({
         // server copy used to be re-saved here without a change plan, which
         // the server refused (428) on every unlock.
         const financialContext = await loadFinancialContext();
+        if (!isVaultSessionEpochCurrent(vaultEpoch)) return;
         const nextFinancial = financialContext.financial;
         const nextPlaidStatus = buildVaultPlaidStatus(nextFinancial, userId);
         const storedStatementPortfolio = getStatementPortfolio(nextFinancial);
@@ -300,6 +336,7 @@ export function usePortfolioSources({
         });
       } catch {
         startTransition(() => {
+          if (isVaultSessionEpochCurrent(vaultEpoch)) setNwsSnapshot(null);
           setError("Portfolio sources are unavailable right now. Please try again.");
         });
       } finally {
@@ -311,15 +348,16 @@ export function usePortfolioSources({
       }
     })();
 
-    reloadInflightRef.current = request;
+    const reloadEntry = { ownerId: userId, epoch: vaultEpoch, startedAt: now, request };
+    reloadRef.current = reloadEntry;
     try {
       await request;
     } finally {
-      if (reloadInflightRef.current === request) {
-        reloadInflightRef.current = null;
+      if (reloadRef.current === reloadEntry) {
+        reloadRef.current = { ...reloadEntry, request: null };
       }
     }
-  }, [applyFinancialSnapshot, loadFinancialContext, userId, vaultOwnerToken]);
+  }, [applyFinancialSnapshot, loadFinancialContext, userId, vaultOwnerToken, vaultEpoch]);
 
   useEffect(() => {
     void reload();
@@ -364,12 +402,19 @@ export function usePortfolioSources({
       if (!userId || !vaultOwnerToken || !vaultKey) {
         throw new Error("Unlock your Vault before changing your portfolio.");
       }
+      const isCurrent = () => isVaultSessionEpochCurrent(vaultEpoch);
+      const requireCurrentVault = () => {
+        if (!isCurrent()) throw new Error("Unlock your Vault before changing your portfolio.");
+      };
+      requireCurrentVault();
       let notReady = false;
       const result = await PkmWriteCoordinator.saveMergedDomain({
         userId,
         domain: "financial",
         vaultKey,
         vaultOwnerToken,
+        beforeEffect: async () => requireCurrentVault(),
+        mayPublish: isCurrent,
         confirmation: {
           confirmedByUser: true,
           surface: confirmationSurface(),
@@ -383,6 +428,7 @@ export function usePortfolioSources({
               domainData: context.currentDomainData,
               summary: buildFinancialDomainSummary(context.currentDomainData),
               mergeDecision: REPLACE_FINANCIAL,
+              unchanged: true,
             };
           }
           return {
@@ -392,6 +438,7 @@ export function usePortfolioSources({
           };
         },
       });
+      requireCurrentVault();
       if (notReady) throw new Error(params.notReadyMessage);
       if (!result.success) {
         throw new Error(
@@ -400,11 +447,11 @@ export function usePortfolioSources({
       }
       return toFinancialDomain(result.fullBlob.financial);
     },
-    [userId, vaultKey, vaultOwnerToken]
+    [userId, vaultKey, vaultOwnerToken, vaultEpoch]
   );
 
   useEffect(() => {
-    if (!userId || isLoading || !activePortfolio || !hasPortfolioHoldings(activePortfolio)) {
+    if (!trackPortfolioReady || !userId || isLoading || !activePortfolio || !hasPortfolioHoldings(activePortfolio)) {
       return;
     }
 
@@ -421,7 +468,7 @@ export function usePortfolioSources({
       dedupeKey: `growth:investor:portfolio_ready:${nextKey}`,
       dedupeWindowMs: 5_000,
     });
-  }, [activePortfolio, activeSource, availableSources, isLoading, userId]);
+  }, [activePortfolio, activeSource, availableSources, isLoading, trackPortfolioReady, userId]);
 
   const changeActiveSource = useCallback(
     async (nextSource: PortfolioSource) => {
@@ -607,6 +654,8 @@ export function usePortfolioSources({
     isLoading,
     error,
     plaidStatus,
+    linkedNetWorthScore: vaultKey && vaultOwnerToken && nwsSnapshot?.ownerId === userId &&
+      nwsSnapshot?.epoch === vaultEpoch ? nwsSnapshot.value : null,
     statementPortfolio,
     plaidPortfolio,
     statementSnapshots,

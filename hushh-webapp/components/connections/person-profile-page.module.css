@@ -23,6 +23,44 @@
   overflow-wrap: anywhere;
 }
 
+.page[data-calendar-profile],
+.page[data-calendar-profile] :is(.actionCards, .manage) {
+  --type-button-label-size: var(--profile-type-action-size);
+  --type-button-label-line: var(--profile-type-action-line);
+  --type-button-label-weight: var(--profile-type-action-weight);
+  --type-compact-button-label-size: var(--profile-type-action-size);
+  --type-compact-button-label-line: var(--profile-type-action-line);
+  --type-compact-button-label-weight: var(--profile-type-action-weight);
+}
+
+.page[data-calendar-profile] :is(.available, .history) {
+  --type-row-label-size: var(--profile-type-label-size);
+  --type-row-label-line: var(--profile-type-label-line);
+  --type-row-label-compact-size: var(--profile-type-label-size);
+  --type-row-label-compact-line: var(--profile-type-label-line);
+}
+
+.page[data-calendar-profile] .heading {
+  --foundation-title2-size: var(--type-section-label-size);
+  --foundation-title2-line: var(--type-section-label-line);
+  --foundation-title2-weight: var(--type-section-label-weight);
+  --foundation-title3-size: var(--type-section-label-size);
+  --foundation-title3-line: var(--type-section-label-line);
+  --foundation-title3-weight: var(--type-section-label-weight);
+}
+
+.page[data-calendar-profile] :is(.status, .role, .empty) {
+  --type-helper-text-size: var(--type-row-description-size);
+  --type-helper-text-line: var(--type-row-description-line);
+}
+
+
+
+.page[data-calendar-profile] .contactLines a {
+  font-size: var(--type-row-description-size);
+  line-height: var(--type-row-description-line);
+}
+
 .hero {
   --profile-file-question: color-mix(in oklab, var(--app-purple) 55%, var(--app-destructive));
   --profile-cover-base: #e9eefb;
@@ -58,7 +96,6 @@
 .identityStatus { display: flex; align-items: center; gap: 8px; min-height: 44px; }
 .status { --type-helper-text-size: 11px; --type-helper-text-line: 17px; padding: 4px 9px; }
 .status svg { width: 12px; height: 12px; }
-.connectionMenu { min-height: 44px; height: 44px; padding: 0 12px; font-size: 12px; line-height: 15.6px; font-weight: 500; }
 .nameActions { display: flex; justify-content: space-between; align-items: center; gap: 22px; min-width: 0; margin: 13px 0 22px; }
 .identity { min-width: 0; }
 .name { margin: 0; max-width: 100%; overflow-wrap: anywhere; }
@@ -116,14 +153,7 @@
 .categoryIcon[data-tone="purple"] { color: var(--app-purple); }
 .categoryIcon[data-tone="orange"] { color: var(--app-warning); }
 .history { --type-row-label-size: 13px; --type-row-label-line: 20px; }
-.historyGroup { border: 1px solid var(--border); border-radius: 17px; padding: 16px; }
-.historyRow { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px 0; }
-.historyRow:first-child { padding-top: 0; }
-.historyRow:last-child { padding-bottom: 0; }
-.historyActions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.historyTitle { margin: 0; }
-.historySupporting { margin: 4px 0 0; }
-.pagination { font-size: var(--type-helper-text-size); line-height: var(--type-helper-text-line); display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.pagination { font-size: var(--type-helper-text-size); line-height: var(--type-helper-text-line); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .review { display: flex; align-items: center; justify-content: flex-end; min-width: 0; }
 .review button { min-height: 44px; max-width: 100%; }
 .review button:disabled { opacity: 1; }
@@ -161,6 +191,16 @@
   .section { gap: 10px; }
   .empty { --type-helper-text-size: 12px; min-height: 62px; padding: 13px; }
   .available { --type-input-value-size: 16px; }
-  .historyRow { flex-direction: column; align-items: stretch; }
-  .historyActions { align-items: flex-start; }
+}
+
+.connectedBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--app-neutral-fill);
+  color: var(--app-secondary-label);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 550;
 }

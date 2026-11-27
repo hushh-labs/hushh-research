@@ -1,18 +1,28 @@
 # Wallet UI contract
 
-Current presentation (26 October 2026): two collections, **My cards** and
-**Shared with me**. Add opens an adaptive sheet; selecting a card opens its
-details with Share and Manage access. The existing service, consent, encrypted
-storage, recipient verification and reveal contracts remain authoritative.
+Current web presentation (25 November 2026): **Cards**, **Add** and **Sharing**
+tabs, restored from the presentation immediately before PR #8470
+(`c0bf05df4f173052d678955c97970bcb8a044ba8`). Cards uses the existing scroll-reveal
+deck and inline selected-card details; Add hosts the existing form in its own tab;
+Sharing composes Wallet-wide permissions and both sharing histories. Active
+received shares keep the existing protected View card action in history details;
+changing the presentation does not bypass recipient verification or revocation.
 
-The older measurements below describe the preceding Connect-alignment change
-based on `dcc4f611e39c80a0001df0ada3f47e85b445421e`; they are historical evidence,
-not verification of this collection layout.
+This is a presentation restoration on current UAT, not a service rollback. The
+current owner/session/vault fences, encrypted persistence, pending save/retry,
+removal recovery, recipient verification and revocation remain authoritative.
+Native Wallet keeps its current owned scenes, adaptive form and retirement
+contracts. No backend API/schema or persistence path changes are introduced.
+
+The collection/grid and adaptive web sheet descriptions and measurements below
+record the preceding October presentation. They are historical where they differ
+from the restored web layout; they do not verify this restoration. In particular,
+web Add is now a tab and selected web cards no longer open a detail sheet.
 
 ## Save feedback and completion
 
-A valid submission closes Add immediately and displays an unsaved pending tile
-in My cards while the existing `WalletService.addCard` pipeline runs. Network
+A valid submission returns to Cards immediately and displays an unsaved pending status
+above the deck while the existing `WalletService.addCard` pipeline runs. Network
 validation, stable registration/draft identity, encryption, atomic PKM writes,
 confirmation receipts and Secrets filing remain in their existing services.
 The tile does not increase the saved-card count and cannot reveal, share or
@@ -168,8 +178,8 @@ accessible role, disabled and focus behavior unless a row says otherwise.
 | Saved card details | Card details; Card number; Name on card; Card network; Expiry (MM/YY); Issuing region; Not provided; Copy card number / name on card / card network / expiry date / issuing region; Copied.; “Could not copy. Try again.” | Ordinary DOM shows masked PAN. Copy PAN freshly checks owner, vault, selected card and visible context before clipboard. Copy disabled during an operation; absent values retain a 44px alignment spacer. No Copy CVV or full-PAN Reveal control here. |
 | Owner CVV row | CVV; •••; Show / Show CVV; Reading…; Hide / Hide CVV; Not saved; “Could not show CVV. Try again.” | Explicit owner-only encrypted read. Auto conceal after 45 seconds; hidden/lock/inactive/epoch changes retire it. No recipient/export projection. |
 | Remove confirmation | Remove card; “Remove {nickname or network ending last4}?”; “This removes the card and its details from your vault on every device. You can add it again later.”; Keep card; Remove card; “Removing card…”; “Card removed.”; “The card could not be removed.” | Keep, X, Escape or outside dismissal: no deletion. Confirm waits for accepted encrypted PKM deletion before visual removal and quiet reread. Failed mutation does not delete locally. Busy guard retains captured owner/card context. |
-| Add acquisition | Scan card; Scan to add card; Take photo; Choose from photos; “Place your card inside the frame.”; “Camera unavailable. Choose a photo or enter your card details.”; Cancel | Browser camera is inline; native picker/camera is OS-owned. Picker cancellation keeps the form. Capture releases stream on cancel/background. No image upload. |
-| Add crop/OCR | Crop card photo; four 44px handles; Read card; Use full photo; Cancel scan; “Reading on your device…”; recognized/unclear/read-failed notices | Crop and OCR are local with optional iOS Vision. Invalid corners disable Read. Cancel/Back retires photo/worker. Recognized, needs-review, missing and owner-edited values remain distinguishable; OCR never saves or overwrites an edit. |
+| Add acquisition | Take photo; Choose from photos; Scan card; Scan back of card; Close scanner; 1 of 2 · Front of card; 2 of 2 · Back of card; “Place your card inside the frame.”; “Camera unavailable. Choose a photo or enter your card details.”; Cancel | Add initially shows only the photo and camera actions. Take photo expands a front/back scanner; each side is cropped and read locally before the merged draft fills the existing editable fields. Native picker/camera is OS-owned; its temporary OS handoff is not a scan cancellation. Back/Close/lock retires both readings; picker cancellation keeps the form. No image upload. |
+| Add crop/OCR | Crop card photo; four 44px handles; Read card; Use full photo; Cancel scan; “Reading on your device…”; recognized/unclear/read-failed notices | Crop and OCR are local with optional iOS Vision. Invalid corners disable Read. Cancel/Back retires photo/worker. Recognized, needs-review, missing and owner-edited values remain distinguishable. Conflicting front/back fields remain for manual correction. OCR never saves or overwrites an edit; CVV remains manual. |
 | Add review | Card number (“XXXX XXXX XXXX XXXX”); Name on card; Expiry (MM/YY) (“MM/YY”); Card network; Auto-detect / “Auto-detect · {network}”; Other; Issuing region; “Select region…”; CVV (“3 or 4 digits”); “Only visible to you in Wallet.”; “Network options could not load. Auto-detect is still available.”; Retry network options | Number/expiry caret and grouping stay local. Name uppercases, max 80. Network lookup sends six-digit prefix, length, optional choice; region/CVV validation occurs locally. Optional manual CVV appears only for approved owner web Add; compact chat Add omits it. |
 | Add commit | Add to Wallet; Saving…; Cancel; validation list (`ERROR_COPY`); “Check your card details.”; “Your card could not be saved. Please try again.” | Invalid fields focus errors and keep draft. Pending save consumes Back and disables controls. Same draft ID survives failure/uncertainty. Accepted encrypted write clears raw fields, rotates ID, selects saved card in Cards; artwork may resolve later without another Save. Cancel is local reset. |
 | Embedded/standalone Profile | “Your profile, one scan away”; “Add a Hussh One pass to Apple Wallet.”; Name; Username; optional Headline; Primary contact (Mail/Phone/LinkedIn/Link); “Shown first after a scan.”; More details / “{count} added”; Company/college; Location (city/region); Summary; Skills; GitHub; Portfolio; “You choose what shows”; “Only what you pick is visible. Change or switch it off anytime.”; Create profile / Save changes; Cancel | Auto-bootstrap is insert-only and may go straight to manage. Optional-field errors open the disclosure and focus the field. Save validates allowlist/URLs/contact; failed save keeps draft. Embedded page adds no second shell; standalone keeps its own route. |

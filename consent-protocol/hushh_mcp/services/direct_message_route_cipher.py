@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import secrets
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -15,7 +16,25 @@ from hushh_mcp.services.direct_messages_service import DirectMessageCipher, Dire
 class DirectMessageRouteCipher:
     @staticmethod
     def _key() -> bytes:
+        configured = os.getenv("DIRECT_MESSAGE_ROUTE_KEY_V1")
+        if configured is not None:
+            try:
+                encoded = configured.strip()
+                key = base64.b64decode(
+                    encoded + "=" * (-len(encoded) % 4), altchars=b"-_", validate=True
+                )
+                if len(key) != 32:
+                    raise ValueError("Invalid navigation key length")
+                return key
+            except (ValueError, TypeError) as exc:
+                raise DirectMessagesError(
+                    "DIRECT_MESSAGE_ROUTE_UNAVAILABLE",
+                    "Conversation links are temporarily unavailable. Please try again.",
+                    status_code=503,
+                ) from exc
         # A purpose-specific key keeps navigation and stored message envelopes separate.
+        # Preserve the legacy derivation until its exact bytes have been moved
+        # into independent route-key custody. Never rederive the configured key.
         return hashlib.sha256(
             b"hussh-direct-message-route-v1\0" + DirectMessageCipher._key()
         ).digest()

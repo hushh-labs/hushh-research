@@ -25,7 +25,7 @@ export interface MapNameLabelPoint {
 
 export interface MapNameLabelCandidate {
   key: string;
-  /** Already shortened for display -- a first name, not a full name. */
+  /** Short name for people and full venue name for a selected place. */
   text: string;
   kind: MapNameLabelKind;
   point: MapNameLabelPoint;
@@ -68,6 +68,8 @@ export interface PlacedMapNameLabel extends MapNameLabelCandidate {
   x: number;
   /** Pixels from the map box's top edge, at the pin's own latitude. */
   y: number;
+  /** Available pill width for the selected venue. Person pills keep their compact cap. */
+  maxWidthPx?: number;
 }
 
 /**
@@ -85,6 +87,12 @@ export const MAP_NAME_LABEL_HEIGHT_PX = 26;
 export const MAP_NAME_LABEL_GAP_PX = 8;
 export const MAP_NAME_LABEL_MAX_WIDTH_PX = 156;
 export const MAP_NAME_LABEL_MIN_WIDTH_PX = 52;
+const MAP_PLACE_LABEL_MAX_WIDTH_PX = 288;
+const MAP_PLACE_LABEL_EDGE_GAP_PX = 8;
+/** Two 21px lines plus padding and borders. */
+const MAP_PLACE_LABEL_HEIGHT_PX = 52;
+/** Selected venues can contain uppercase words at the Location row-title size. */
+const PLACE_GLYPH_WIDTH_PX = 10;
 /**
  * Two pins closer together than this share one story, and two pills that close
  * cannot say which name belongs to which pin even when the boxes miss each
@@ -223,11 +231,11 @@ interface LabelBox {
 
 function pillBox(
   anchor: { x: number; y: number },
-  text: string,
+  widthPx: number,
   pinOffsetPx: number,
   labelHeightPx: number,
 ): LabelBox {
-  const halfWidth = estimateMapNameLabelWidthPx(text) / 2;
+  const halfWidth = widthPx / 2;
   const bottom = anchor.y - pinOffsetPx;
   return {
     left: anchor.x - halfWidth,
@@ -360,7 +368,22 @@ export function layoutMapNameLabels(
       continue;
     }
 
-    const box = pillBox(anchor, label.text, pinOffsetPx, labelHeightPx);
+    // A place can wrap near the viewport edge or the desktop drawer. Keep its
+    // tail anchored to the selected coordinate while giving it room on both sides.
+    const placeWidth = label.kind === "place"
+      ? Math.floor(Math.min(
+          MAP_PLACE_LABEL_MAX_WIDTH_PX,
+          PILL_CHROME_WIDTH_PX + Array.from(label.text).length * PLACE_GLYPH_WIDTH_PX,
+          2 * (Math.min(anchor.x - insetLeft, rightEdge - anchor.x) - MAP_PLACE_LABEL_EDGE_GAP_PX),
+        ))
+      : undefined;
+    if (placeWidth !== undefined && placeWidth < MAP_NAME_LABEL_MIN_WIDTH_PX) continue;
+    const box = pillBox(
+      anchor,
+      placeWidth ?? estimateMapNameLabelWidthPx(label.text),
+      pinOffsetPx,
+      placeWidth === undefined ? labelHeightPx : MAP_PLACE_LABEL_HEIGHT_PX,
+    );
     if (box.left < insetLeft || box.right > rightEdge) continue;
     if (box.top < insetTop) continue;
 
@@ -374,7 +397,7 @@ export function layoutMapNameLabels(
     if (reservedBoxes.some((other) => other.key !== label.key && overlaps(other.box, box, gapPx))) continue;
 
     boxes.push(box);
-    placed.push({ ...label, x: anchor.x, y: anchor.y });
+    placed.push({ ...label, x: anchor.x, y: anchor.y, maxWidthPx: placeWidth });
   }
 
   return placed;

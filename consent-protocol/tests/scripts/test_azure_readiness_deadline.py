@@ -4,6 +4,7 @@ import asyncio
 import json
 import threading
 from copy import deepcopy
+from importlib import import_module
 from unittest.mock import Mock
 
 import httpx
@@ -42,6 +43,9 @@ async def test_credential_construction_cannot_block_deadline_or_dispatch_late(mo
 
 @pytest.mark.parametrize("cleanup", ["error", "timeout"])
 async def test_valid_nonce_is_not_ready_when_client_cleanup_fails(monkeypatch, cleanup):
+    # Load the SDK's lazy Responses models before timing the cleanup case.
+    import_module("openai.resources.responses")
+
     async def handler(request):
         return httpx.Response(200, json=response())
 
@@ -63,7 +67,13 @@ async def test_valid_nonce_is_not_ready_when_client_cleanup_fails(monkeypatch, c
 
     monkeypatch.setattr(probe, "AsyncOpenAI", client)
     result = await probe.run_probe(timeout_seconds=1.0)
-    assert result["status"] == "unavailable" and result["http_status"] == 200
+    # Distinguish a pre-dispatch failure from the cleanup branch under suite load.
+    diagnostic = {
+        key: result.get(key)
+        for key in ("status", "http_status", "stage", "error_class", "deadline_expired", "phase_ms")
+    }
+    diagnostic["requests"] = len(requests)
+    assert result["status"] == "unavailable" and result["http_status"] == 200, diagnostic
     assert result["error_class"] == ("TimeoutError" if cleanup == "timeout" else "RuntimeError")
     assert result["deadline_expired"] is (cleanup == "timeout")
     assert probe.readiness_event(result, "synthetic-deployment")["result"] == "failed"

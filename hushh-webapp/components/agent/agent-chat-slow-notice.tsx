@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 
 import { ProgressRowIcon, ResumeRowIcon, SyncRowIcon } from "@/components/icons";
 import {
@@ -62,7 +62,7 @@ const SLOW_NOTICE_CLASS_NAMES = {
 export function createSlowNoticeToastPort(onPersonDismiss: () => void): SlowNoticePort {
   return {
     show: (view) => {
-      toast.message(view.title, {
+      toast.noticeText(view.title, {
         id: SLOW_NOTICE_TOAST_ID,
         duration: Infinity,
         closeButton: true,
@@ -71,7 +71,7 @@ export function createSlowNoticeToastPort(onPersonDismiss: () => void): SlowNoti
         testId: SLOW_NOTICE_TEST_ID,
         classNames: SLOW_NOTICE_CLASS_NAMES,
         onDismiss: onPersonDismiss,
-      });
+      }, "message");
     },
     clear: () => {
       toast.dismiss(SLOW_NOTICE_TOAST_ID);
@@ -80,11 +80,33 @@ export function createSlowNoticeToastPort(onPersonDismiss: () => void): SlowNoti
 }
 
 /** One notice controller per chat surface, taken down when the surface unmounts. */
-export function useAgentChatSlowNotice(): SlowTurnNotice {
+export function useAgentChatSlowNotice(
+  onStateChange?: (state: SlowNoticeState | null) => void,
+): SlowTurnNotice {
   const [notice] = useState(() => {
-    const controller: SlowTurnNotice = new SlowTurnNotice(
-      createSlowNoticeToastPort(() => controller.dismissedByPerson()),
-    );
+    const basePort = createSlowNoticeToastPort(() => controller.dismissedByPerson());
+    const controller: SlowTurnNotice = new SlowTurnNotice({
+      show: (view) => {
+        onStateChange?.(view.state);
+        // Routine thinking, startup, and stream reconnects belong inline in the
+        // chat turn and avatar status pill rather than a floating toast that
+        // collides over the agent header. Reserve the toast strictly for
+        // genuine server-declared capacity or unavailability notices.
+        if (
+          view.state === "slow" ||
+          view.state === "waking" ||
+          view.state === "connecting"
+        ) {
+          basePort.clear();
+          return;
+        }
+        basePort.show(view);
+      },
+      clear: () => {
+        onStateChange?.(null);
+        basePort.clear();
+      },
+    });
     return controller;
   });
   useEffect(() => () => notice.dispose(), [notice]);

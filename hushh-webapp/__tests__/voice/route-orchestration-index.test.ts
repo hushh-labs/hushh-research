@@ -25,6 +25,8 @@ describe("One route orchestration index", () => {
       (entry) => entry.route_pattern === "/login",
     );
     expect(login?.action_ids).toEqual([
+      "auth.deletion_done",
+      "auth.deletion_start_fresh",
       "auth.open_privacy",
       "auth.open_terms",
       "auth.sign_in_apple",
@@ -71,6 +73,7 @@ describe("One route orchestration index", () => {
       instruction_id: "route.chat.root",
       context_policy: "minimal",
       action_ids: [
+        "analysis.confirm_preview",
         "calendar.invitation.review",
         "onboarding.claim_one",
         "wallet.add",

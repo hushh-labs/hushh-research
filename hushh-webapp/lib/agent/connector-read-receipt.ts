@@ -14,6 +14,27 @@ const STATUSES = [
   "permission_denied", "source_changed", "response_too_large", "invalid_argument", "unavailable",
 ] as const;
 
+const MAIL_TRUNCATION_REASONS = [
+  "more_pages", "failed_reads", "shortened_body", "incomplete_attachment_inventory",
+  "source_limit", "attachment_unresolved",
+] as const;
+type MailTruncationReason = (typeof MAIL_TRUNCATION_REASONS)[number];
+
+function isMailTruncationReason(value: unknown): value is MailTruncationReason {
+  return MAIL_TRUNCATION_REASONS.some(reason => reason === value);
+}
+
+export type LiveMailSource = {
+  ordinal: number;
+  sourceRef: string;
+  sender: string;
+  subject: string;
+  receivedAt: string | null;
+  unread: boolean;
+  hasBody: boolean;
+  attachments: string[];
+};
+
 export type ConnectorReadExperience = {
   type: typeof CONNECTOR_READ_EXPERIENCE_TYPE;
   connector: "mail" | "drive";
@@ -21,6 +42,9 @@ export type ConnectorReadExperience = {
   sourceRefs: string[];
   truncated: boolean;
   metadataOnly: boolean;
+  truncationReasons?: MailTruncationReason[];
+  /** Ephemeral display rows for live Mail turns only; stripped before persistence. */
+  liveSources?: LiveMailSource[];
   sourcePages?: (number | null)[];
   backgroundSearchAvailable?: boolean;
   backgroundSearchQuery?: string;
@@ -35,7 +59,13 @@ export type ConnectorReadExperience = {
 export const WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE =
   "one.workspace_connector_setup.v1" as const;
 
-export type WorkspaceConnectorProvider = "drive" | "gmail" | "calendar" | "custom";
+export type WorkspaceConnectorProvider =
+  | "drive"
+  | "gmail"
+  | "calendar"
+  | "custom"
+  | "plaid"
+  | "stripe";
 
 export type WorkspaceConnectorSetupExperience = {
   type: typeof WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE;
@@ -84,6 +114,52 @@ export function parseWorkspaceConnectorSetup(
         ...(saved ? { saved } : {}),
       }
       : null;
+  }
+  if (toolName === "manage_connector") {
+    const outer = parseRecord(value);
+    if (!outer) return null;
+    const result = [outer.result, outer.content, outer.data]
+      .map(parseRecord)
+      .find((candidate) => candidate?.status) ?? outer;
+    const rawStatus = String(result.status || "");
+    const setupStatus: WorkspaceConnectorSetupExperience["status"] | null =
+      rawStatus === "connect_required" || rawStatus === "permission_required"
+        ? "connect_required"
+        : ["manage_available", "api_available", "ok", "setup_available"].includes(rawStatus)
+          ? "manage_available"
+          : null;
+    if (!setupStatus) return null;
+    const args = parseRecord(toolArguments);
+    const resultProvider = result.provider;
+    const argumentProvider = args?.provider;
+    if (resultProvider && argumentProvider && resultProvider !== argumentProvider) {
+      return null;
+    }
+    const provider = resultProvider ?? argumentProvider;
+    if (
+      provider !== "plaid" &&
+      provider !== "stripe" &&
+      provider !== "drive" &&
+      provider !== "gmail" &&
+      provider !== "calendar" &&
+      provider !== "custom"
+    ) {
+      return null;
+    }
+    if (provider === "custom") {
+      const saved = parseSavedConnectors(result.saved);
+      return {
+        type: WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE,
+        provider: "custom",
+        status: "manage_available",
+        ...(saved ? { saved } : {}),
+      };
+    }
+    return {
+      type: WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE,
+      provider,
+      status: setupStatus,
+    };
   }
   if (toolName !== "discover_workspace_tools" && toolName !== "read_workspace_tool") {
     return null;
@@ -147,7 +223,15 @@ export function parseWorkspaceConnectorSetupDescriptor(
     const saved = parseSavedConnectors(input?.saved);
     return { type: WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE, provider, status, ...(saved ? { saved } : {}) };
   }
-  if (provider !== "drive" && provider !== "gmail" && provider !== "calendar") return null;
+  if (
+    provider !== "drive" &&
+    provider !== "gmail" &&
+    provider !== "calendar" &&
+    provider !== "plaid" &&
+    provider !== "stripe"
+  ) {
+    return null;
+  }
   if (status !== "connect_required" && status !== "manage_available") return null;
   return { type: WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE, provider, status };
 }
@@ -176,10 +260,51 @@ export function parseDriveOwnerCompileWindow(value: unknown): DriveOwnerCompileW
   return input as DriveOwnerCompileWindow;
 }
 
+export function parseLiveMailSources(value: unknown): LiveMailSource[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  const parsed: LiveMailSource[] = [];
+  const seen = new Set<string>();
+  for (const raw of value.slice(0, 15)) {
+    const item = record(raw);
+    if (!item) continue;
+    const ordinal = typeof item.ordinal === "number" && Number.isInteger(item.ordinal) &&
+      item.ordinal >= 1 && item.ordinal <= 25 ? item.ordinal : null;
+    const sourceRef = typeof item.source_ref === "string" &&
+      /^mail:(?:[1-9]|1[0-9]|2[0-5])$/.test(item.source_ref) ? item.source_ref : null;
+    const sender = typeof item.sender === "string"
+      ? item.sender.replace(/[\x00-\x1f\x7f]/g, " ").trim().slice(0, 120) : "";
+    const subject = typeof item.subject === "string"
+      ? item.subject.replace(/[\x00-\x1f\x7f]/g, " ").trim().slice(0, 180) : "";
+    if (ordinal === null || !sourceRef || seen.has(sourceRef) || !sender || !subject) continue;
+    seen.add(sourceRef);
+    const receivedAt = typeof item.received_at === "string" && item.received_at.length <= 64
+      ? item.received_at : null;
+    const attachments = Array.isArray(item.attachments)
+      ? item.attachments
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => entry.replace(/[\x00-\x1f\x7f]/g, " ").trim().slice(0, 120))
+        .filter(Boolean)
+        .slice(0, 4)
+      : [];
+    parsed.push({
+      ordinal,
+      sourceRef,
+      sender,
+      subject,
+      receivedAt,
+      unread: item.unread === true,
+      hasBody: item.has_body === true,
+      attachments,
+    });
+  }
+  return parsed.length > 0 ? parsed : undefined;
+}
+
 export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperience | null {
   const input = record(value);
   if (!input || Object.keys(input).some((key) => ![
     "schema_version", "connector", "status", "sources", "truncated", "metadata_only",
+    "truncation_reasons",
     "owner_compile_available", "owner_compile_query", "owner_compile_window",
     "background_search_available", "background_search_query",
   ].includes(key))) return null;
@@ -214,6 +339,12 @@ export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperien
     ((ownerCompileQuery == null) !== (ownerCompileWindow == null)) ||
     (input.owner_compile_available === true &&
       (input.connector !== "drive" || input.status !== "ok" || input.metadata_only !== true))) return null;
+  const reasons = input.truncation_reasons;
+  if (reasons != null && (!Array.isArray(reasons) ||
+      reasons.length > MAIL_TRUNCATION_REASONS.length ||
+      !reasons.every(isMailTruncationReason) ||
+      new Set(reasons).size !== reasons.length ||
+      (reasons.length > 0 && (input.connector !== "mail" || !input.truncated)))) return null;
   const refs: string[] = [];
   const pages: (number | null)[] = [];
   for (const value of input.sources) {
@@ -221,11 +352,10 @@ export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperien
     if (!source || Object.keys(source).some((key) => !["source_ref", "kind", "label", "page"].includes(key)) ||
       typeof source.source_ref !== "string") return null;
     if (input.connector === "mail") {
-      // Message and thread reads carry readable text, so the backend labels
-      // their sources "message"; listings and searches stay "metadata". The
-      // kind must agree with metadata_only so a receipt cannot mislabel scope.
-      if (source.kind !== (input.metadata_only ? "metadata" : "message") || source.label !== "Mail" ||
-        !/^mail:(?:[1-9]|1[0-9]|2[0-5])$/.test(source.source_ref) || source.page != null) return null;
+      // A text read may include metadata matches and attachment-only evidence.
+      const validKind = source.kind === "metadata" || (!input.metadata_only && source.kind === "message");
+      if (!validKind || source.label !== "Mail" ||
+        !/^mail:(?:[1-9]|[1-5][0-9]|60)$/.test(source.source_ref) || source.page != null) return null;
     } else {
       if (source.kind !== (input.metadata_only ? "metadata" : "document") || source.label !== "Document" ||
         !/^document:[a-f0-9]{32}$/.test(source.source_ref) ||
@@ -239,6 +369,7 @@ export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperien
     type: CONNECTOR_READ_EXPERIENCE_TYPE, connector: input.connector as "mail" | "drive",
     status: input.status as ConnectorReadExperience["status"], sourceRefs: refs,
     truncated: input.truncated, metadataOnly: input.metadata_only,
+    ...(reasons?.length ? { truncationReasons: reasons } : {}),
     ...(input.connector === "drive" ? { sourcePages: pages } : {}),
     ...(validBackgroundSearch ? { backgroundSearchAvailable: true,
       backgroundSearchQuery: backgroundQuery as string } : {}),

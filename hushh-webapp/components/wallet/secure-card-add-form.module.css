@@ -72,12 +72,16 @@
 
 .field input { background-color: var(--app-card-surface-default-solid); }
 
-.scanIntro { display:flex; justify-content:center; padding:12px; border:1px solid transparent; border-radius:var(--app-card-radius-feature); background:transparent; overflow:hidden; }
-.scanArtwork { display:flex; flex-direction:column; align-items:center; width:100%; max-width:280px; padding:0; border:0; border-radius:12px; background:transparent; cursor:pointer; }
+.scanIntro { display:flex; justify-content:center; padding:20px 12px; }
+.scanArtwork { display:flex; flex-direction:column; align-items:center; gap:8px; width:100%; max-width:360px; padding:16px 20px 20px; border:1px solid var(--app-card-border-standard); border-radius:var(--app-card-radius-feature); background:var(--app-card-surface-default-solid); cursor:pointer; }
 .scanArtwork:focus-visible { outline:2px solid var(--app-accent); outline-offset:4px; }
 .scanArtwork:disabled { opacity:.55; cursor:default; }
-.scanVisual { position:relative; display:block; width:100%; max-width:260px; aspect-ratio:1; }
-.scanReference { display:block; width:100%; height:100%; object-fit:contain; }
+.scanVisual { display:block; width:100%; max-width:240px; aspect-ratio:14/9; color:var(--app-accent); }
+.scanCardOutline { display:block; width:100%; height:100%; }
+.scanCardBody { fill:var(--app-card-surface-default-solid); stroke:var(--app-secondary-label); stroke-width:1.5; }
+.scanCardChip { fill:var(--app-card-border-standard); }
+.scanCardDetails { stroke:var(--app-secondary-label); opacity:.5; }
+.scanDescription { font-family:var(--font-app-body); font-size:13px; line-height:18px; font-weight:400; color:var(--app-secondary-label); text-align:center; }
 
 @layer base {
   .scanActions .scanAction { font-size: 12px !important; line-height: 18px !important; }
@@ -110,3 +114,10 @@
 .sheetActions [data-action-priority="secondary"] { flex:1; max-width:100px; }
 .sheetActions [data-action-priority="primary"] button { font-size:14px; line-height:20px; }
 @container wallet-form (min-width:460px) { .sheetActions { padding:0; } }
+
+.scanPanel { padding:12px; border:1px solid var(--app-card-border-standard); border-radius:var(--app-card-radius-feature); background:var(--app-card-surface-default-solid); }
+.scanStepHeader { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.scanStepHeader p { font-family:var(--font-app-body); font-size:14px; line-height:20px; font-weight:600; }
+.scanPanel .scanIntro { padding:8px; }
+.scanPanel .scanArtwork { border:0; padding:8px 12px; }
+.scanPanel .scanActions { justify-content:center; }

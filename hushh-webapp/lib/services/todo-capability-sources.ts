@@ -9,7 +9,7 @@ import { getOneCapability } from "@/lib/onboarding/one-capabilities";
 import { normalizeInternalRouteHref } from "@/lib/navigation/routes";
 import type { TaskCapability, TaskCoverage, TaskEvidence } from "@/lib/todos/task-suggestion-model";
 import { walletCardRequestHref } from "@/lib/wallet/card-request";
-import { ownerContentIsPrivate } from "./private-agent-specialist-chat";
+import { ownerRequiresByocIsolation } from "@/lib/one/byoc-isolation";
 import { privateMailTasks } from "./private-google-task-sources";
 
 export type CapabilityRead = { coverage: TaskCoverage; evidence: TaskEvidence[] };
@@ -18,6 +18,7 @@ export type TaskReadContext = {
   isCurrent: () => boolean; mailConnected: boolean; calendarConnected: boolean;
   mailStatusKnown: boolean; calendarStatusKnown: boolean;
   signal?: AbortSignal;
+  selectedCapabilities?: readonly TaskCapability[];
 };
 const hrefFor = (id: TaskCapability) => getOneCapability(id)?.href ?? "/one";
 const result = (capability: TaskCapability, count: number, evidence: TaskEvidence[] = [], status: TaskCoverage["status"] = "ready"): CapabilityRead => ({ coverage: { capability, count, status }, evidence });
@@ -50,8 +51,7 @@ async function readWallet(context: TaskReadContext): Promise<CapabilityRead> {
 
 async function readAdvisor(context: TaskReadContext, idToken: string): Promise<CapabilityRead> {
   const persona = await RiaService.getPersonaState(idToken, { userId: context.userId, force: true });
-  // A non-advisor persona does not prove that no advisor relationship exists.
-  if (!persona.personas.includes("ria")) return result("ria", 0, [], "unavailable");
+  if (!persona.personas.includes("ria")) return result("ria", 0, [], "not_connected");
   const home = await RiaService.getHome(idToken, { userId: context.userId, force: true });
   const rows = home.needs_attention.flatMap(item => {
     const href = normalizeInternalRouteHref(item.href);
@@ -63,7 +63,7 @@ async function readAdvisor(context: TaskReadContext, idToken: string): Promise<C
 async function readMail(context: TaskReadContext, idToken: string): Promise<CapabilityRead> {
   if (!context.mailStatusKnown) return result("gmail", 0, [], "unavailable");
   if (!context.mailConnected) return result("gmail", 0, [], "not_connected");
-  if (await ownerContentIsPrivate()) {
+  if (await ownerRequiresByocIsolation()) {
     const mail = await privateMailTasks(context);
     const rows = mail.items.map(item => evidence("gmail", `mail:${item.key}`, item.title, item.title));
     return result("gmail", rows.length, rows, mail.complete ? "ready" : "incomplete");
@@ -79,7 +79,7 @@ async function readMail(context: TaskReadContext, idToken: string): Promise<Capa
 async function readInvitations(context: TaskReadContext, idToken: string): Promise<CapabilityRead> {
   if (!context.calendarStatusKnown) return result("calendar", 0, [], "unavailable");
   if (!context.calendarConnected) return result("calendar", 0, [], "not_connected");
-  if (await ownerContentIsPrivate()) return result("calendar", 0, [], "incomplete");
+  if (await ownerRequiresByocIsolation()) return result("calendar", 0, [], "incomplete");
   const data = await GoogleCalendarService.invitations({ firebaseIdToken: idToken, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, signal: context.signal, isEffectCurrent: context.isCurrent });
   const rows = await Promise.all(data.events.filter(row => row.response_status === "needsAction" && row.can_respond).map(async row =>
     evidence("calendar", `rsvp:${await sourceKey(context.userId, `${row.calendar_id}:${row.id}`)}`, row.title, `Respond to ${row.title}`)));
@@ -88,7 +88,8 @@ async function readInvitations(context: TaskReadContext, idToken: string): Promi
 
 function readMemory(context: TaskReadContext): CapabilityRead {
   const view = peekLiveMirror(context.userId);
-  if (!view || view.ownerId !== context.userId || !isVaultSessionEpochCurrent(view.vaultEpoch)) return result("pkm", 0, [], "unavailable");
+  if (!view) return result("pkm", 0, [], "incomplete");
+  if (view.ownerId !== context.userId || !isVaultSessionEpochCurrent(view.vaultEpoch)) return result("pkm", 0, [], "unavailable");
   const conflicts = view.conflicts?.length ?? 0;
   const changes = view.sources.reduce((count, source) => count + (source.pendingChanges ?? 0), 0);
   const rows = conflicts || changes ? [evidence("pkm", `memory:${view.builtAt}`, `${conflicts} memory disagreements and ${changes} pending source updates need review.`)] : [];
@@ -96,6 +97,7 @@ function readMemory(context: TaskReadContext): CapabilityRead {
 }
 
 export async function readTodoCapabilities(context: TaskReadContext): Promise<CapabilityRead[]> {
+  if (context.selectedCapabilities?.length === 0) return [];
   const epoch = snapshotVaultSessionEpoch();
   const idToken = await context.getIdToken();
   const current = () => context.isCurrent() && isVaultSessionEpochCurrent(epoch);
@@ -106,9 +108,10 @@ export async function readTodoCapabilities(context: TaskReadContext): Promise<Ca
     ["gmail", () => readMail(context, idToken)], ["calendar", () => readInvitations(context, idToken)],
     ["pkm", async () => readMemory(context)],
   ];
-  const results = await Promise.allSettled(tasks.map(([, read]) => read()));
+  const selected = tasks.filter(([capability]) => !context.selectedCapabilities || context.selectedCapabilities.includes(capability));
+  const results = await Promise.allSettled(selected.map(([, read]) => read()));
   if (!current()) throw new DOMException("Session changed", "AbortError");
-  return tasks.map(([capability], index) => {
+  return selected.map(([capability], index) => {
     const value = results[index];
     return value?.status === "fulfilled" ? value.value : result(capability, 0, [], "unavailable");
   });

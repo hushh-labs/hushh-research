@@ -69,6 +69,14 @@ Shared web and WebView product text defaults to self-hosted **Plus Jakarta Sans*
 Calendar's connected content, invitation portal and Insights now use the
 product family through their local presentation context. Its prior Inter
 overrides are recorded for comparison in the Calendar contract.
+The three Calendar dialogs (Board event detail, Schedule meeting, Invitation
+details) name Connect's `surface` class beside `presentationStyles.portal`.
+Next's CSS Modules drop the external `scale` class from a `.portal` -> `.scope`
+-> `scale` composes chain, so a portal that relied on it rendered the global
+17/15/13 scale. Verified in a Next render at 1440 and 393: title 20/28/600, row
+14/21/550, description 12/18/400, label 15/22/550, action 12/18/550, input
+14/22 (16 at 620 and below). The Vite layout harness cannot see this class of
+defect.
 Display
 and body aliases resolve to that same family. Shipped normal and italic faces
 are 400, 600, and 700 with `font-display: swap`. Emoji/unsupported glyphs use
@@ -219,8 +227,7 @@ Nearby Check in and Add time use the shared anchored task-sheet context: titles
 active Checked in status uses the 17/22 headline role; long place labels wrap.
 The map keeps its non-modal panel and 416px desktop rail.
 
-At the checked revision **Connect owns `data-connect-type-scale="page"`** and
-workspace tokens. **The whole Feed AppPageShell has
+At the checked revision **Connect defines the v14 workspace roles**. Calendar reuses the shared type tokens in its workspace and portals, which also carry `data-connect-type-scale="page"`. **The whole Feed AppPageShell has
 `data-profile-type-scale="page"`**. Older CSS comments naming Connect and only
 Feed Needs you lag these executable callers. Follow imports and winning CSS,
 not those comments or an isolated fixture's absent context.
@@ -256,6 +263,30 @@ Sources: [Connect root](../../app/connect/page-client.tsx),
 [history](../../components/feed/feed-row.tsx),
 [actionable](../../components/feed/feed-actionable-row.tsx),
 [Profile selectors](../../app/globals.css).
+
+## Connect scale inside four Profile pages
+
+Appearance & preferences, Your account, Hosting and Help & feedback opt into
+Connect's row, group and field values. `ProfileStackEntry.typeScale: "connect"`
+puts `data-connect-type-scale="profile"` on that screen's stack content; Profile
+home and every other Profile screen keep the 10/13/12 scale above. One `@layer
+base` block in [globals.css](../../app/globals.css) applies it inside the pane
+and wins over the earlier Profile rules by specificity.
+
+| Role | Size / line height / weight |
+| --- | --- |
+| Group heading | 14 / 22 / 600 |
+| Row title, email-card heading, CTA, segment label | 14 / 21 / 550 |
+| Description, helper, trailing value | 12 / 18 / 400 |
+| Inline action, `data-profile-role="action"` button | 12 / 18 / 550 |
+| Form label | 15 / 22 / 550 |
+| Input, select, textarea | 14 / 22 / 400 at every width |
+
+Fields stay 14 on phones, unlike Connect's 16 at 620px and below: they sit
+beside their labels in a pane at most 430px wide, and 16px truncates "No
+preference" at 320px. Weight 550 paints the SemiBold face. The Appearance card
+shares the writing rows' 6px inset, 22px icon and 5px gap so both cards keep one
+icon column, text edge and right edge.
 
 ## Rendering pipeline and every local branch
 

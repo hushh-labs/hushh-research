@@ -64,6 +64,20 @@ export const SHEET_SURFACE_CLASSNAME =
  */
 export const DIALOG_SURFACE_CLASSNAME = "w-full max-h-[min(92dvh,760px)]";
 
+export const SAVE_LOCATION_SURFACE_BORDER_CLASSNAME =
+  "border-black/[0.06] dark:border-white/[0.08]";
+// The dialog primitive's arbitrary shadow survives class merging.
+export const SAVE_LOCATION_SURFACE_SHADOW_CLASSNAME =
+  "!shadow-[0_24px_60px_-12px_rgba(16,24,40,0.35),0_8px_20px_-8px_rgba(16,24,40,0.24)] dark:!shadow-[0_24px_60px_-12px_rgba(0,0,0,0.7)]";
+
+// Both Location onboarding steps use the compact save-place frame on desktop.
+export const COMPACT_ONBOARDING_DIALOG_SIZE_CLASSNAME =
+  "!h-[min(620px,calc(100dvh-48px))] !max-h-[min(620px,calc(100dvh-48px))] sm:!max-w-[min(1040px,calc(100vw-48px))]";
+export const COMPACT_ONBOARDING_INSETS_CLASSNAME =
+  "px-4 pb-[max(env(safe-area-inset-bottom,0px),12px)] pt-[max(var(--app-safe-area-top-effective,0px),8px)] sm:px-6";
+export const COMPACT_ONBOARDING_COLUMNS_CLASSNAME =
+  "md:grid-cols-[minmax(0,1fr)_340px] md:gap-x-6";
+
 /**
  * The width at which this surface stops being a bottom sheet and becomes a
  * centred dialog. The same 640px boundary Tailwind's `sm:` switches on -- one

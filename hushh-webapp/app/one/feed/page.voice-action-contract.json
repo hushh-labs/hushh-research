@@ -1,0 +1,77 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "one_feed",
+  "surface_title": "Feed",
+  "defaults": {
+    "speaker_persona": "one",
+    "reachability": {
+      "active_personas": [
+        "investor",
+        "ria"
+      ],
+      "routes": [
+        "/one/feed"
+      ],
+      "screens": [
+        "one_feed"
+      ],
+      "hidden_navigable": false,
+      "navigation_prerequisites": []
+    }
+  },
+  "actions": [
+    {
+      "action_id": "feed.search_activity",
+      "label": "Search Feed",
+      "meaning": "Opens the owner\u2019s read-only Feed search and applies an explicitly supplied query and known agent scope. Urgent emergencies remain pinned. Does not grant access, mark activity read, alter notifications or invent people or results.",
+      "aliases": [
+        "search my feed",
+        "find earlier activity",
+        "filter feed by agent"
+      ],
+      "search_keywords": [
+        "feed search",
+        "activity history",
+        "agent filter"
+      ],
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "feed.search_activity"
+      },
+      "control_ids": [
+        "feed.search.open",
+        "feed.search.query",
+        "feed.search.scope"
+      ],
+      "state_exposure": [
+        "search open",
+        "selected public agent scope"
+      ],
+      "goal": {
+        "goal_id": "goal.feed.search_activity",
+        "slot_schema": {
+          "query": "string_optional",
+          "scope": "string_optional"
+        },
+        "required_inputs": [],
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "feed.search_activity",
+            "label": "Search Feed",
+            "settlement_target": {
+              "route": "/one/feed",
+              "screen": "one_feed"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

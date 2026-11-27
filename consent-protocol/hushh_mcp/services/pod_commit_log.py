@@ -43,6 +43,7 @@ import tempfile
 import threading
 import time
 import urllib.parse
+from collections import OrderedDict
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Optional, Protocol
@@ -374,10 +375,13 @@ class LocalObjectStore:
         with self._lock():
             return read_local_bounded(self._path(key), max_bytes=max_bytes)
 
-    async def get_with_generation(self, key: str) -> tuple[Optional[bytes], ObjectVersion]:
+    def get_with_generation_blocking(self, key: str) -> tuple[Optional[bytes], ObjectVersion]:
         with self._lock():
             data, generation = self._read_pair(self._path(key))
         return data, decimal_version(generation)
+
+    async def get_with_generation(self, key: str) -> tuple[Optional[bytes], ObjectVersion]:
+        return self.get_with_generation_blocking(key)
 
     async def get_bounded_with_generation(
         self, key: str, *, max_bytes: int
@@ -407,7 +411,7 @@ class LocalObjectStore:
                 raise FileExistsError(f"record object already exists: {key}")
             self._commit_pair(key, data, current, generation)
 
-    async def put_if_generation(
+    def put_if_generation_blocking(
         self, key: str, data: bytes, expected: ObjectVersion
     ) -> Optional[ObjectVersion]:
         wanted = decimal_generation(expected)
@@ -416,6 +420,11 @@ class LocalObjectStore:
             if generation != wanted:
                 return None
             return decimal_version(self._commit_pair(key, data, current, generation))
+
+    async def put_if_generation(
+        self, key: str, data: bytes, expected: ObjectVersion
+    ) -> Optional[ObjectVersion]:
+        return self.put_if_generation_blocking(key, data, expected)
 
     async def delete(self, key: str) -> bool:
         with self._lock():
@@ -451,13 +460,28 @@ class GcsObjectStore:
     # Statuses that mean "this credential is not accepted", whatever the cache
     # believes about its remaining life.
     _CREDENTIAL_REFUSED = (401, 403)
+    # GCS enforces a 1-mutation/second per-object rate limit (429) on hot pointers
+    # such as head.json and hot.md.enc; retrying with ifGenerationMatch preserves CAS.
+    _WRITE_RETRYABLE_STATUSES = (429, 500, 502, 503)
+    _WRITE_RETRY_BACKOFF_SECONDS = (0.25, 0.55, 1.1)
 
-    def __init__(self, bucket: str, prefix: str = "", *, session: Any = None) -> None:
+    def __init__(
+        self,
+        bucket: str,
+        prefix: str = "",
+        *,
+        session: Any = None,
+        token_provider: Optional[Callable[[], tuple[str, int]]] = None,
+    ) -> None:
         if not bucket:
             raise ValueError("a bucket is required")
+        from hushh_mcp.services.pod_emulator_endpoints import resolve_gcp_storage_origin
+
+        self._storage_origin, self._is_emulator = resolve_gcp_storage_origin()
         self._bucket = bucket
         self._prefix_segments = object_prefix_segments(prefix)
         self._prefix = "/".join(self._prefix_segments)
+        self._token_provider = token_provider
         # The credential is minted per store instance, not per HTTP call. Reads
         # run on worker threads, so the cache is guarded -- but only the cache:
         # the mint itself deliberately runs OUTSIDE the lock (see _token).
@@ -474,6 +498,12 @@ class GcsObjectStore:
 
             session = PodStorageTransport()
         self._session = session
+
+    def _object_api_url(self, quoted_key: str) -> str:
+        return f"{self._storage_origin}/storage/v1/b/{self._bucket}/o/{quoted_key}"
+
+    def _upload_api_url(self) -> str:
+        return f"{self._storage_origin}/upload/storage/v1/b/{self._bucket}/o"
 
     @staticmethod
     def _generation_value(value: Any) -> int:
@@ -557,6 +587,13 @@ class GcsObjectStore:
 
     def _mint_token(self) -> tuple[str, int]:
         """One metadata round trip: the credential and the seconds it is usable."""
+        if self._token_provider is not None:
+            token, ttl = self._token_provider()
+            if not isinstance(token, str) or not token.strip() or len(token) > 16384:
+                raise RuntimeError("pod storage credential unavailable")
+            return token, max(0, int(ttl) - self._TOKEN_REFRESH_MARGIN_SECONDS)
+        if self._is_emulator and not (os.getenv("GCE_METADATA_HOST") or "").strip():
+            return "floci-gcp-emulator-token", 3600 - self._TOKEN_REFRESH_MARGIN_SECONDS
         response = self._session.get(
             google_metadata_access_endpoint(),  # refuses on Azure, before any request
             headers={"Metadata-Flavor": "Google"},
@@ -637,16 +674,19 @@ class GcsObjectStore:
         data, _ = await self.get_with_generation(key)
         return data
 
-    async def get_with_generation(self, key: str) -> tuple[Optional[bytes], ObjectVersion]:
-        data, generation = await asyncio.to_thread(self._get_with_generation, key)
+    def get_with_generation_blocking(self, key: str) -> tuple[Optional[bytes], ObjectVersion]:
+        data, generation = self._get_with_generation(key)
         return data, decimal_version(generation)
+
+    async def get_with_generation(self, key: str) -> tuple[Optional[bytes], ObjectVersion]:
+        return await asyncio.to_thread(self.get_with_generation_blocking, key)
 
     async def get_bounded_with_generation(
         self, key: str, *, max_bytes: int
     ) -> tuple[Optional[bytes], ObjectVersion]:
         from hushh_mcp.services.pod_bounded_object import read_gcs_bounded_version
 
-        url = f"https://storage.googleapis.com/storage/v1/b/{self._bucket}/o/{urllib.parse.quote(self._key(key), safe='')}"
+        url = self._object_api_url(urllib.parse.quote(self._key(key), safe=""))
         return await asyncio.to_thread(
             read_gcs_bounded_version,
             self._session,
@@ -659,14 +699,14 @@ class GcsObjectStore:
     async def get_bounded(self, key: str, *, max_bytes: int) -> bytes | None:
         from hushh_mcp.services.pod_bounded_object import read_gcs_bounded
 
-        url = f"https://storage.googleapis.com/storage/v1/b/{self._bucket}/o/{urllib.parse.quote(self._key(key), safe='')}"
+        url = self._object_api_url(urllib.parse.quote(self._key(key), safe=""))
         return await asyncio.to_thread(
             read_gcs_bounded, self._session, self._authorized, url, max_bytes
         )
 
     def _get_with_generation(self, key: str) -> tuple[Optional[bytes], int]:
         quoted = urllib.parse.quote(self._key(key), safe="")
-        url = f"https://storage.googleapis.com/storage/v1/b/{self._bucket}/o/{quoted}"
+        url = self._object_api_url(quoted)
         if not self._media_states_generation:
             # This egress path already proved it strips the header. Probing it
             # again would download the whole body only to discard it.
@@ -701,37 +741,52 @@ class GcsObjectStore:
         if created is None:
             raise FileExistsError(f"record object already exists: {key}")
 
+    def put_if_generation_blocking(
+        self, key: str, data: bytes, expected: ObjectVersion
+    ) -> Optional[ObjectVersion]:
+        return self._put_if_generation(key, data, decimal_generation(expected))
+
     async def put_if_generation(
         self, key: str, data: bytes, expected: ObjectVersion
     ) -> Optional[ObjectVersion]:
-        generation = decimal_generation(expected)
-        return await run_write_to_completion(self._put_if_generation, key, data, generation)
+        return await run_write_to_completion(self.put_if_generation_blocking, key, data, expected)
 
     def _put_if_generation(self, key: str, data: bytes, expected: int) -> Optional[ObjectVersion]:
         name = self._key(key)
-        response = self._authorized(
-            lambda headers: self._session.post(
-                f"https://storage.googleapis.com/upload/storage/v1/b/{self._bucket}/o",
-                params={
-                    "uploadType": "media",
-                    "name": name,
-                    "ifGenerationMatch": str(expected),
-                },
-                headers={**headers, "Content-Type": "application/octet-stream"},
-                data=data,
-                timeout=60,
-                allow_redirects=False,
+        max_attempts = len(self._WRITE_RETRY_BACKOFF_SECONDS) + 1
+        response: Any = None
+        for attempt in range(max_attempts):
+            response = self._authorized(
+                lambda headers: self._session.post(
+                    self._upload_api_url(),
+                    params={
+                        "uploadType": "media",
+                        "name": name,
+                        "ifGenerationMatch": str(expected),
+                    },
+                    headers={**headers, "Content-Type": "application/octet-stream"},
+                    data=data,
+                    timeout=60,
+                    allow_redirects=False,
+                )
             )
-        )
-        if getattr(response, "status_code", 0) == 412:
-            return None  # lost the race; the caller retries from a fresh pointer
-        if response.status_code not in (200, 201):
-            raise RuntimeError("pod storage write unconfirmed")
-        return decimal_version(self._generation(response.json()))
+            status = getattr(response, "status_code", 0)
+            if status == 412:
+                return None  # lost the race; the caller retries from a fresh pointer
+            if status in (200, 201):
+                return decimal_version(self._generation(response.json()))
+            if status in self._WRITE_RETRYABLE_STATUSES and attempt + 1 < max_attempts:
+                close = getattr(response, "close", None)
+                if callable(close):
+                    close()
+                time.sleep(self._WRITE_RETRY_BACKOFF_SECONDS[attempt])
+                continue
+            break
+        raise RuntimeError("pod storage write unconfirmed")
 
     async def delete(self, key: str) -> bool:
         quoted = urllib.parse.quote(self._key(key), safe="")
-        url = f"https://storage.googleapis.com/storage/v1/b/{self._bucket}/o/{quoted}"
+        url = self._object_api_url(quoted)
         response = await asyncio.to_thread(
             self._authorized,
             lambda headers: self._session.delete(
@@ -756,6 +811,23 @@ def _record_sha(seq: int, kind: str, payload: Any, prev_sha: Optional[str]) -> s
     return hashlib.sha256(body).hexdigest()
 
 
+_REMOTE_STORE_TYPE_NAMES = frozenset(
+    {
+        "GcsObjectStore",
+        "PrefixTokenObjectStore",
+        "S3ObjectStore",
+        "AzureBlobObjectStore",
+    }
+)
+_REMOTE_OPEN_LEASE_SECONDS = 2.0
+_RECORD_BLOB_CACHE_MAX_ENTRIES = 512
+_RECORD_BLOB_CACHE_MAX_BYTES = 16 * 1024 * 1024
+
+
+def _is_remote_object_store(store: Any) -> bool:
+    return type(store).__name__ in _REMOTE_STORE_TYPE_NAMES
+
+
 class PodCommitLog:
     """Append-only, sealed, chained. The pod's one durable truth."""
 
@@ -768,6 +840,8 @@ class PodCommitLog:
         *,
         max_retries: int = 8,
         owner_id: Optional[str] = None,
+        open_lease_seconds: Optional[float] = None,
+        cache_immutable_records: Optional[bool] = None,
     ) -> None:
         if len(seal_key) != _KEY_LEN:
             raise ValueError("the log key must be exactly 32 bytes")
@@ -775,6 +849,53 @@ class PodCommitLog:
         self._aead = AESGCM(seal_key)
         self._max_retries = max_retries
         self._owner_id = owner_id
+        remote = _is_remote_object_store(store)
+        self._open_lease_seconds = (
+            float(open_lease_seconds)
+            if open_lease_seconds is not None
+            else (_REMOTE_OPEN_LEASE_SECONDS if remote else 0.0)
+        )
+        self._cache_immutable_records = (
+            bool(cache_immutable_records) if cache_immutable_records is not None else remote
+        )
+        self._open_verified_at: Optional[float] = None
+        self._blob_cache: OrderedDict[str, bytes] = OrderedDict()
+        self._blob_cache_bytes = 0
+
+    def _invalidate_read_caches(self) -> None:
+        self._open_verified_at = None
+        self._blob_cache.clear()
+        self._blob_cache_bytes = 0
+
+    def _record_open_verified(self) -> None:
+        if self._open_lease_seconds > 0.0:
+            self._open_verified_at = time.monotonic()
+
+    def _cache_sealed_blob(self, key: str, blob: bytes) -> None:
+        if not self._cache_immutable_records:
+            return
+        size = len(blob)
+        if size > _RECORD_BLOB_CACHE_MAX_BYTES // 4:
+            return
+        existing = self._blob_cache.pop(key, None)
+        if existing is not None:
+            self._blob_cache_bytes -= len(existing)
+        while self._blob_cache and (
+            len(self._blob_cache) >= _RECORD_BLOB_CACHE_MAX_ENTRIES
+            or self._blob_cache_bytes + size > _RECORD_BLOB_CACHE_MAX_BYTES
+        ):
+            _, evicted = self._blob_cache.popitem(last=False)
+            self._blob_cache_bytes -= len(evicted)
+        self._blob_cache[key] = blob
+        self._blob_cache_bytes += size
+
+    def _get_cached_blob(self, key: str) -> Optional[bytes]:
+        if not self._cache_immutable_records:
+            return None
+        blob = self._blob_cache.get(key)
+        if blob is not None:
+            self._blob_cache.move_to_end(key)
+        return blob
 
     # -- sealing ----------------------------------------------------------------------
 
@@ -796,6 +917,7 @@ class PodCommitLog:
         if head_bytes is None:
             return None
         if self._read_fence(head_bytes) is not None:
+            self._invalidate_read_caches()
             raise PodLogFenced("the log is closed for erasure")
         try:
             head = json.loads(head_bytes)
@@ -820,6 +942,7 @@ class PodCommitLog:
                 raise ValueError("digest")
             return head
         except (ValueError, TypeError, UnicodeError) as exc:
+            self._invalidate_read_caches()
             raise PodLogTampered("the log head is malformed") from exc
 
     def _read_fence(self, raw: bytes) -> Optional[dict[str, Any]]:
@@ -844,10 +967,18 @@ class PodCommitLog:
             and not any(ord(char) < 32 or ord(char) == 127 for char in value)
         )
 
-    async def require_open(self) -> None:
+    async def require_open(self, *, force: bool = False) -> None:
         """Check ordinary read admission; this does not drain in-flight work."""
+        if (
+            not force
+            and self._open_lease_seconds > 0.0
+            and self._open_verified_at is not None
+            and (time.monotonic() - self._open_verified_at) < self._open_lease_seconds
+        ):
+            return
         raw, _ = await self._store.get_with_generation(self.HEAD)
         self._read_head(raw)
+        self._record_open_verified()
 
     async def require_fenced(self, *, owner_id: str, attempt_id: str) -> None:
         """Verify an existing authenticated fence without exposing prior history."""
@@ -899,6 +1030,7 @@ class PodCommitLog:
             or not self._valid_identity(attempt_id)
         ):
             raise PodLogFenced("log erasure authority unavailable")
+        self._invalidate_read_caches()
         for _ in range(self._max_retries):
             raw, generation = await self._store.get_with_generation(self.HEAD)
             previous_fence = self._read_fence(raw) if raw is not None else None
@@ -907,7 +1039,7 @@ class PodCommitLog:
                     raise PodLogFenced("log erasure attempt does not match")
                 return
             head = self._read_head(raw)
-            await self._replay_head(head)
+            await self._replay_head(head, use_cache=False)
             payload = {
                 "kind": "pod_log_erasure_fence",
                 "owner_id": owner_id,
@@ -934,6 +1066,7 @@ class PodCommitLog:
             if observed != marker or observed_generation != written:
                 raise PodLogConflict("log erasure fence persistence unconfirmed")
             self._read_fence(observed)
+            self._invalidate_read_caches()
             return
         raise PodLogConflict("the log head kept moving during erasure fencing")
 
@@ -953,11 +1086,15 @@ class PodCommitLog:
         for _ in range(self._max_retries):
             head_bytes, generation = await self._store.get_with_generation(self.HEAD)
             head = self._read_head(head_bytes)
+            self._record_open_verified()
             if expected_seq is not None and (head["seq"] if head else 0) != expected_seq:
                 raise PodLogConflict("the caller's log snapshot is stale")
             if head is not None:
                 # Refuse a corrupt predecessor before publishing any successor.
-                blob = await self._store.get(head["key"])
+                blob = self._get_cached_blob(head["key"])
+                from_cache = blob is not None
+                if blob is None:
+                    blob = await self._store.get(head["key"])
                 if blob is None:
                     raise PodLogTampered("the log head references a missing record")
                 predecessor = self._unseal(blob)
@@ -967,7 +1104,10 @@ class PodCommitLog:
                     or predecessor["seq"] != head["seq"]
                     or predecessor.get("sha") != head["sha"]
                 ):
+                    self._invalidate_read_caches()
                     raise PodLogTampered("the log head and predecessor disagree")
+                if not from_cache:
+                    self._cache_sealed_blob(head["key"], blob)
             seq = (int(head["seq"]) + 1) if head else 1
             prev_key = head["key"] if head else None
             prev_sha = head["sha"] if head else None
@@ -981,10 +1121,13 @@ class PodCommitLog:
                 "sha": _record_sha(seq, kind, payload, prev_sha),
             }
             key = f"records/{seq:012d}-{secrets.token_hex(4)}.bin"
-            await self._store.put(key, self._seal(record))
+            sealed = self._seal(record)
+            await self._store.put(key, sealed)
 
             new_head = _canonical({"seq": seq, "key": key, "sha": record["sha"]})
             if await self._store.put_if_generation(self.HEAD, new_head, generation) is not None:
+                self._cache_sealed_blob(key, sealed)
+                self._record_open_verified()
                 return record
             # Lost the race: our record object is an orphan the chain never
             # references. Re-read the pointer and try again.
@@ -994,10 +1137,14 @@ class PodCommitLog:
         """Every record, oldest first, chain-verified. Raises on tampering."""
         head_bytes, _ = await self._store.get_with_generation(self.HEAD)
         head = self._read_head(head_bytes)
-        records = await self._replay_head(head)
+        self._record_open_verified()
+        records, fetched_remote, newly_fetched = await self._replay_head_tracked(head)
         # A fence may have won while chain I/O was in flight. Do not release a
         # captured history after observing the durable closure.
-        await self.require_open()
+        if fetched_remote:
+            await self.require_open(force=True)
+        for key, blob in newly_fetched:
+            self._cache_sealed_blob(key, blob)
         return records
 
     async def replay_since(
@@ -1022,10 +1169,14 @@ class PodCommitLog:
             self._read_head(_canonical({"seq": cursor.seq, "key": cursor.key, "sha": cursor.sha}))
         raw, _ = await self._store.get_with_generation(self.HEAD)
         head = self._read_head(raw)
-        records = await self._replay_head(
+        self._record_open_verified()
+        records, fetched_remote, newly_fetched = await self._replay_head_tracked(
             head, cursor=cursor, max_records=max_records, max_bytes=max_bytes
         )
-        await self.require_open()
+        if fetched_remote:
+            await self.require_open(force=True)
+        for key, blob in newly_fetched:
+            self._cache_sealed_blob(key, blob)
         next_cursor = PodLogCursor(head["seq"], head["key"], head["sha"]) if head else None
         return records, next_cursor
 
@@ -1039,16 +1190,59 @@ class PodCommitLog:
             self._read_head(_canonical({"seq": cursor.seq, "key": cursor.key, "sha": cursor.sha}))
         raw, _ = await self._store.get_with_generation(self.HEAD)
         head = self._read_head(raw)
-        await replay_chain(
+        self._record_open_verified()
+        _, fetched_remote, newly_fetched = await self._replay_head_tracked(
             head,
-            read_record=self._store.get,
-            unseal=self._unseal,
-            record_sha=_record_sha,
             cursor=cursor,
             visit_reverse=visit_reverse,
         )
-        await self.require_open()
+        if fetched_remote:
+            await self.require_open(force=True)
+        for key, blob in newly_fetched:
+            self._cache_sealed_blob(key, blob)
         return PodLogCursor(head["seq"], head["key"], head["sha"]) if head else None
+
+    async def _replay_head_tracked(
+        self,
+        head: Optional[dict[str, Any]],
+        *,
+        cursor: PodLogCursor | None = None,
+        max_records: int | None = None,
+        max_bytes: int | None = None,
+        visit_reverse: Callable[[dict[str, Any]], None] | None = None,
+        use_cache: bool = True,
+    ) -> tuple[list[dict[str, Any]], bool, list[tuple[str, bytes]]]:
+        fetched_remote = False
+        newly_fetched: list[tuple[str, bytes]] = []
+        allow_cache = use_cache and self._cache_immutable_records
+
+        async def _read_record(key: str) -> Optional[bytes]:
+            nonlocal fetched_remote
+            if allow_cache:
+                cached = self._get_cached_blob(key)
+                if cached is not None:
+                    return cached
+            fetched_remote = True
+            blob = await self._store.get(key)
+            if blob is not None and allow_cache:
+                newly_fetched.append((key, blob))
+            return blob
+
+        try:
+            records = await replay_chain(
+                head,
+                read_record=_read_record,
+                unseal=self._unseal,
+                record_sha=_record_sha,
+                cursor=cursor,
+                max_records=max_records,
+                max_bytes=max_bytes,
+                visit_reverse=visit_reverse,
+            )
+        except (PodLogTampered, PodLogFenced):
+            self._invalidate_read_caches()
+            raise
+        return records, fetched_remote, newly_fetched
 
     async def _replay_head(
         self,
@@ -1057,13 +1251,15 @@ class PodCommitLog:
         cursor: PodLogCursor | None = None,
         max_records: int | None = None,
         max_bytes: int | None = None,
+        use_cache: bool = True,
     ) -> list[dict[str, Any]]:
-        return await replay_chain(
+        records, _, newly_fetched = await self._replay_head_tracked(
             head,
-            read_record=self._store.get,
-            unseal=self._unseal,
-            record_sha=_record_sha,
             cursor=cursor,
             max_records=max_records,
             max_bytes=max_bytes,
+            use_cache=use_cache,
         )
+        for key, blob in newly_fetched:
+            self._cache_sealed_blob(key, blob)
+        return records

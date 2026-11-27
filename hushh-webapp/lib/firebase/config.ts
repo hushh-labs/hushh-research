@@ -35,9 +35,16 @@ if (
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 
+const sandboxPhoneTests =
+  process.env.NODE_ENV === "development" &&
+  process.env.NEXT_PUBLIC_APP_ENV === "uat" &&
+  firebaseConfig.projectId === "hushh-akshat-sandbox-auth" &&
+  typeof window !== "undefined" &&
+  ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname);
+
 const disablePhoneAuthAppVerificationForTesting =
-  process.env.NEXT_PUBLIC_APP_ENV === "development" &&
-  process.env.NEXT_PUBLIC_FIREBASE_PHONE_AUTH_DISABLE_APP_VERIFICATION === "true";
+  process.env.NEXT_PUBLIC_FIREBASE_PHONE_AUTH_DISABLE_APP_VERIFICATION === "true" &&
+  (process.env.NEXT_PUBLIC_APP_ENV === "development" || sandboxPhoneTests);
 
 if (disablePhoneAuthAppVerificationForTesting) {
   auth.settings.appVerificationDisabledForTesting = true;

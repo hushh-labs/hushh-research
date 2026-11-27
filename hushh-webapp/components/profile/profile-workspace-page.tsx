@@ -1,7 +1,8 @@
 "use client";
 
-import { LivingMemoryDocument } from "@/components/profile/living-memory-document";
-import { MarketingPreferencePanel } from "@/components/account/marketing-preference-panel";
+import { isNetworkOnline } from "@/lib/runtime/network-status";
+import { EMAIL_UPDATES_DESCRIPTION, MarketingPreferencePanel } from "@/components/account/marketing-preference-panel";
+import { AttemptEmailPanel } from "@/components/account/attempt-email-panel";
 import { useMarketingPreference } from "@/components/account/use-marketing-preference";
 
 import { useDocumentFeedStream } from "@/lib/feed/use-document-feed-stream";
@@ -29,6 +30,7 @@ import accountStyles from "@/components/profile/profile-your-account.module.css"
 import auxiliaryTabStyles from "@/components/profile/profile-auxiliary-tabs.module.css";
 import secondaryTypographyStyles from "@/components/profile/profile-secondary-typography.module.css";
 import { AgentSettingsPanel } from "@/components/profile/agent-settings-panel";
+import { ByocCloudSetupPage } from "@/components/connections/byoc-cloud-setup-page";
 import { useNativeProfileFeatures } from "./use-native-profile-features";
 import { NativeProfilePresentation } from "./native-profile-menu";
 import { AccountConfirmationPreparation } from "./account-confirmation-preparation";
@@ -71,15 +73,12 @@ import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
 import {
   PkmAccessManagerPanel,
   PkmAccessConnectionDetailPanel,
-  PkmDataManagerPanel,
   PkmDomainDetailPanel,
 } from "@/components/profile/pkm-data-manager";
-import { SharedWithYouGroup } from "@/components/profile/shared-with-you-group";
 import { useMemorySharedModel } from "@/components/profile/use-memory-shared-model";
 import { PersonalWorldModelPage, usePersonalWorldModelModel } from "@/components/profile/personal-world-model-page";
 import { useNativeWorldModel } from "@/components/profile/use-native-world-model";
 import { DocumentRequestPricingCard } from "@/components/consent/document-request-pricing-card";
-import { SecretsListGroup } from "@/components/secrets/secrets-list-group";
 import { useSecretsListModel } from "@/components/secrets/use-secrets-list-model";
 import {
   ProfileStackNavigator,
@@ -104,6 +103,7 @@ import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-avai
 import { ProfileAppearancePreferences } from "@/components/profile/profile-appearance-preferences";
 import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
 import { ProfileAppearanceControls } from "@/components/profile/profile-appearance-controls";
+import { ExperimentalNativeInterface } from "@/components/profile/experimental-native-interface";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import {
   AlertDialog,
@@ -172,6 +172,7 @@ import {
 } from "@/lib/navigation/profile-routes";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import {
+  buildProfilePaneHref,
   popProfilePaneLocation,
   profileLegalParentForPresentation,
   profilePanelParentForPresentation,
@@ -181,6 +182,9 @@ import {
   stripProfilePaneTransientParams,
   type ProfilePaneLocation,
 } from "@/lib/navigation/profile-pane";
+import { useProfileNetWorthScore } from "./use-profile-net-worth-score";
+import { profileRouteRequiresUnlockedVault } from "./profile-vault-policy";
+import { NetWorthScoreCard, netWorthScoreDisplay } from "@/components/profile/net-worth-score-card";
 import { backProfilePane } from "@/lib/navigation/profile-pane-back";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import {
@@ -196,9 +200,11 @@ import { getProvider, ProviderIcon } from "@/components/profile/provider-identit
 import { EmailIdentityMark } from "@/components/app-ui/email-identity-mark";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { cn } from "@/lib/utils";
+import { validateDisplayName } from "@/components/profile/display-name-editor";
 import { DisplayNameEditor } from "@/components/profile/display-name-editor";
 import { NativeDisplayNameEditor } from "@/components/profile/native-display-name-editor";
 import { NativePhoneVerificationFlow } from "@/components/profile/native-phone-verification-flow";
+import { useAccountPhoneBinding } from "@/components/profile/use-account-phone-binding";
 import { AccountService } from "@/lib/services/account-service";
 import {
   AccountResetNotConfirmedError,
@@ -229,7 +235,7 @@ import {
   type SupportMessageKind,
 } from "@/lib/services/support-service";
 import { ReferralsPanel } from "@/components/profile/referrals-panel";
-import TrustedDevicesPage from "@/components/profile/trusted-devices-page";
+import TrustedDevicesPage, { TrustedDeviceConfirmation } from "@/components/profile/trusted-devices-page";
 import { useTrustedDevicesModel } from "./use-trusted-devices-model";
 import { useNativeTrustedDevices } from "./use-native-trusted-devices";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
@@ -488,30 +494,6 @@ function describePasskeyWrapper(wrapper: VaultWrapper): string {
   return formatPasskeyLabel(wrapper);
 }
 
-function profileRouteRequiresUnlockedVault(
-  panel: ProfilePanel | null,
-  detail: ProfileDetail | null,
-): boolean {
-  if (
-    panel === "my-data" ||
-    panel === "payouts" ||
-    panel === "world-model" ||
-    panel === "request-pricing" ||
-    panel === "connected-systems" ||
-    panel === "connectors" ||
-    panel === "gmail"
-  ) {
-    return true;
-  }
-  if (panel === "security") {
-    return true;
-  }
-  return (
-    panel === "preferences" &&
-    (detail === "kai-preferences" || detail === "gemini")
-  );
-}
-
 function profileRouteNeedsWorkspaceData(panel: ProfilePanel | null): boolean {
   return panel === "my-data";
 }
@@ -600,6 +582,11 @@ function ProfilePageContent({
     return true;
   }, [isDeleting, isResetting, dismissAccountConfirmation, onNativeMenuClose]);
   const [editingDisplayName, setEditingDisplayName] = useState(false);
+  const [chatNameDraft, setChatNameDraft] = useState<{ owner: NonNullable<ReturnType<typeof snapshotValidatedAuthSessionOwner>>; value: string } | null>(null);
+  const closeDisplayNameEditor = useCallback(() => {
+    setEditingDisplayName(false);
+    setChatNameDraft(null);
+  }, []);
   const [nativeNameHost, setNativeNameHost] = useState<HTMLDivElement | null>(null);
   const [nativePhoneHost, setNativePhoneHost] = useState<HTMLDivElement | null>(null);
   const [nativeAccountException, setNativeAccountException] = useState<"photo" | "name" | null>(null);
@@ -731,6 +718,12 @@ function ProfilePageContent({
       ? null
       : profileRouteState.panel;
   const activeDetail = activePanel ? profileRouteState.detail : null;
+  const nws = useProfileNetWorthScore({
+    visible: activePanel === "net-worth-score" || (activePanel === null && (presentation !== "native-page" || nativeMenuOpen)),
+    onProfileRoot: activePanel === null, applicationOwnerId, isVaultUnlocked, vaultKey, vaultOwnerToken,
+    open: () => openVaultBackedPanel("net-worth-score"),
+    returnPath: () => buildProfilePaneHref(pathname, searchParams, { panel: "net-worth-score", detail: null }),
+  });
   const emailPreference = useMarketingPreference(activePanel === "account" ? applicationOwnerId ?? null : null, "account");
   const phoneVaultEpoch = snapshotVaultSessionEpoch();
   const phoneVisit = useMemo(() => ({ active: false, id: Symbol("phone-visit"), userId: applicationOwnerId, owner: snapshotValidatedAuthSessionPrincipal(),
@@ -776,9 +769,9 @@ function ProfilePageContent({
   }, [presentation, nativeMenuOpen, activePanel, activeDetail, showDeleteConfirm, showResetConfirm, dismissAccountConfirmation]);
   useEffect(() => {
     if (activePanel !== "account" || activeDetail) {
-      setNativeAccountException(null); setEditingDisplayName(false);
+      setNativeAccountException(null); closeDisplayNameEditor();
     }
-  }, [activePanel, activeDetail, applicationOwnerId]);
+  }, [activePanel, activeDetail, applicationOwnerId, closeDisplayNameEditor]);
   useEffect(() => {
     if (!editingDisplayName && nativeAccountException === "name") setNativeAccountException(null);
   }, [editingDisplayName, nativeAccountException]);
@@ -988,7 +981,8 @@ function ProfilePageContent({
   const [nativeWorldModelAvailable, setNativeWorldModelAvailable] = useState(false);
   const { agentSettingsActive, agentSettings, nativeAgentSettings, nativeConnectors, nativeConnectorsActive,
     setNativeConnectorsAvailable, nativePayoutActive, nativePayout, setNativePaymentsAvailable, setNativePaymentsFailed } = useNativeProfileFeatures({
-    panel: activePanel, native: presentation === "native-page", open: nativeMenuOpen, secure: vaultAccess.canMutateSecureData, owner: nativeDetailOwner, userId: applicationOwnerId || null, connectors: retainedConnectors });
+    panel: activePanel, native: presentation === "native-page", open: nativeMenuOpen, secure: vaultAccess.canMutateSecureData, owner: nativeDetailOwner, userId: applicationOwnerId || null, connectors: retainedConnectors,
+    onOpenOwnCloud: () => updateProfileView({ panel: "hosting", detail: "hosting-own-cloud" }, "push") });
   useBackLayer(pathname, nativeConnectorsActive && nativeConnectors.nested ? 3 : 0, nativeConnectors.back, { profile_pane: "1" });
   const nativeWorldModelActive = presentation === "native-page" && nativeMenuOpen && nativeWorldModelAvailable &&
     activePanel === "world-model" && vaultAccess.canMutateSecureData;
@@ -1251,9 +1245,22 @@ function ProfilePageContent({
     ],
   );
 
+  const openCanonicalMemoryRoute = useCallback(() => {
+    onNativeMenuClose?.();
+    router.push(ROUTES.PKM);
+  }, [onNativeMenuClose, router]);
+
+  useEffect(() => {
+    if (legacyProfileRedirectHref || activePanel !== "my-data" || activeDetail) {
+      return;
+    }
+    onNativeMenuClose?.();
+    router.replace(ROUTES.PKM);
+  }, [activeDetail, activePanel, legacyProfileRedirectHref, onNativeMenuClose, router]);
+
   const nativeWorldModel = useNativeWorldModel({ active: nativeWorldModelActive, owner: nativeDetailOwner, model: worldModel,
     onAccount: () => updateProfileView({ panel: "account", detail: null }, "push"),
-    onMemory: () => updateProfileView({ panel: "my-data", detail: null }, "push") });
+    onMemory: openCanonicalMemoryRoute });
   const changeRetainedConnector = useRetainedProfileConnectorNavigation({ pane: isPanePresentation, pathname, query: searchParams, detail: activeDetail, updateView: updateProfileView });
   useBackLayer(pathname, nativeWorldModelActive && nativeWorldModel.nested ? 3 : 0, nativeWorldModel.back,
     isPanePresentation ? { profile_pane: "1" } : undefined);
@@ -1306,11 +1313,11 @@ function ProfilePageContent({
   const [nativeVoiceAvailable, setNativeVoiceAvailable] = useState(false);
   const voiceParent = profilePanelParentForPresentation("preferences", panePresentation?.history);
   const [nativeRuntimeAvailable, setNativeRuntimeAvailable] = useState(false);
-  const runtimeSettings = useGeminiRuntimeSettingsModel({ userId: applicationOwnerId, vaultKey, vaultOwnerToken,
+  const runtimeSettings = useGeminiRuntimeSettingsModel({ userId: applicationOwnerId, vaultKey, vaultOwnerToken, getCurrentVaultOwnerToken: getVaultOwnerToken,
     needsVaultCreation: vaultAccess.needsVaultCreation, needsUnlock: vaultAccess.needsUnlock,
     onRequestVaultCreation: () => requestVaultUnlock("profile_data"), onRequestVaultUnlock: () => requestVaultUnlock("profile_data"),
     enabled: activePanel === "preferences" && activeDetail === "gemini" && (presentation !== "native-page" || nativeMenuOpen) });
-  const nativeRuntimeEligible = runtimeSettings.placement === "shared" && !runtimeSettings.otherProvider && nativeRuntimeAvailable && voiceParent !== null && presentation === "native-page" && nativeMenuOpen &&
+  const nativeRuntimeEligible = runtimeSettings.placement === "shared" && runtimeSettings.addingProvider !== "openai" && nativeRuntimeAvailable && voiceParent !== null && presentation === "native-page" && nativeMenuOpen &&
     activePanel === "preferences" && activeDetail === "gemini" && isVaultUnlocked;
   const nativeRuntime = useNativeRuntimeSettings(runtimeSettings, nativeDetailOwner, nativeRuntimeEligible);
   const nativeRuntimeActive = nativeRuntimeEligible && !nativeRuntime.failed;
@@ -1713,7 +1720,7 @@ function ProfilePageContent({
   // Returns what actually happened so the voice wrapper narrates the same
   // outcome the screen shows. "unknown" (a lost response after a possible
   // commit) is kept distinct from "failed"; neither is ever spoken as deleted.
-  const handleDeleteAccount = async (): Promise<LifecycleOutcome> => {
+  const handleDeleteAccount = async (reviewedCloudPlanSha256?: string): Promise<LifecycleOutcome> => {
     const owner = snapshotValidatedAuthSessionPrincipal();
     if (!user || !owner || owner.firebaseUid !== user.uid) return "auth_failed";
 
@@ -1765,6 +1772,7 @@ function ProfilePageContent({
               vaultOwnerToken: token,
               sessionUser: user,
               vaultKey,
+              ...(reviewedCloudPlanSha256 ? { reviewedCloudPlanSha256 } : {}),
             });
           })(),
           {
@@ -1988,6 +1996,7 @@ function ProfilePageContent({
       ProfilePanel,
       | "my-data"
       | "payouts"
+      | "net-worth-score"
       | "world-model"
       | "request-pricing"
       | "connected-systems"
@@ -2036,7 +2045,7 @@ function ProfilePageContent({
       return { kind: "rejected" };
     }
 
-    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    if (!isNetworkOnline()) {
       setSupportComposerState({
         status: "error",
         message: "You're offline. Reconnect to send your message.",
@@ -2221,32 +2230,61 @@ function ProfilePageContent({
     : contactDiscoverable
       ? "Verified people with your number can find and connect with you automatically. No location or personal information is shared."
       : "Hidden from contact sync";
-  const phoneSummaryText = phoneNumber
-    ? formatMaskedPhoneNumber(phoneNumber)
-    : phoneNumberStatus === "missing"
-      ? "No phone number yet"
-      : phoneNumberStatus === "unavailable"
-        ? "Phone number temporarily unavailable"
-        : "Checking phone number…";
-  const phoneLookupPending = !phoneNumber && phoneNumberStatus !== "missing";
+  const {
+    status: accountPhoneStatus,
+    linkedPhone: accountLinkedPhone,
+    providerPhone: accountProviderPhone,
+    refreshProviderPhone,
+    acceptVerifiedUser,
+  } = useAccountPhoneBinding({
+    active: activePanel === "account",
+    ownerId: applicationOwnerId,
+    firebaseUid: user?.uid,
+    appPhone: phoneNumber,
+    appStatus: phoneNumberStatus,
+  });
+  const phoneLookupPending = accountPhoneStatus === "loading" || accountPhoneStatus === "unavailable";
+  const phoneNeedsVerification = accountPhoneStatus === "needs-verification";
+  const accountSavedPhone = phoneNumberStatus === "verified" ? phoneNumber : null;
+  const manageSavedPhone = phoneNeedsVerification && Boolean(accountSavedPhone);
+  const phoneAvailabilityText = accountPhoneStatus === "unavailable"
+    ? "Phone number temporarily unavailable"
+    : "Checking phone number…";
+  const phoneSummaryText = accountSavedPhone
+    ? formatMaskedPhoneNumber(accountSavedPhone)
+    : phoneNeedsVerification
+      ? "Finish phone verification"
+      : accountPhoneStatus === "missing"
+        ? "No phone number yet"
+        : phoneAvailabilityText;
+  const phoneAction = accountLinkedPhone ? "Change" : manageSavedPhone ? "Manage"
+    : phoneNeedsVerification ? "Verify" : phoneLookupPending ? "Retry" : "Add";
+  const phoneDetailTitle = phoneLookupPending ? "Phone number" : `${phoneAction} phone number`;
+  const phoneEntryHint = accountLinkedPhone ? "Enter the new phone number."
+    : manageSavedPhone ? "Enter your saved number or a new number." : "Enter your phone number.";
   const retryPhoneLookup = useCallback(async () => {
     const owner = snapshotValidatedAuthSessionOwner();
     if (!owner || owner.userId !== applicationOwnerId) {
       return { status: "blocked" as const, summary: "Sign in to check your phone number." };
     }
     try {
-      const phone = await resolveVerifiedPhoneNumber();
+      const [phone, firebaseUser] = await Promise.all([resolveVerifiedPhoneNumber(), refreshProviderPhone()]);
       if (!isValidatedAuthSessionOwnerCurrent(owner)) {
         return { status: "blocked" as const, summary: "Your account changed. Try again." };
       }
-      if (phone) return { status: "succeeded" as const, summary: "Your saved phone number is available." };
+      if (firebaseUser && phone) {
+        return { status: "succeeded" as const, summary: firebaseUser.phoneNumber === phone
+          ? "Your verified phone number is available."
+          : "Your saved phone number is verified. Open Phone number to manage it." };
+      }
       const snapshot = AccountIdentityService.peekCachedIdentity(applicationOwnerId);
-      if (snapshot && !snapshot.isStale && backendPhoneIsMissing(snapshot.data, applicationOwnerId)) {
-        return { status: "succeeded" as const, summary: "You can add a verified phone number." };
+      if (firebaseUser && snapshot && !snapshot.isStale && backendPhoneIsMissing(snapshot.data, applicationOwnerId)) {
+        return { status: "succeeded" as const, summary: firebaseUser.phoneNumber
+          ? "You can finish verifying your phone number." : "You can add a verified phone number." };
       }
     } catch { /* Keep an unavailable lookup retryable. */ }
     return { status: "failed" as const, summary: "Couldn't load your phone number. Try again." };
-  }, [resolveVerifiedPhoneNumber, applicationOwnerId]);
+  }, [resolveVerifiedPhoneNumber, refreshProviderPhone, applicationOwnerId]);
   const emailVerified = Boolean(user?.emailVerified);
 
   const gmailStatusLabel = gmailPresentation.badgeLabel;
@@ -2291,14 +2329,6 @@ function ProfilePageContent({
         actionId: "route.profile_request_pricing",
         role: "card",
         voiceAliases: ["request pricing", "Drive price", "document price"],
-      },
-      {
-        id: "profile_my_data",
-        label: "Memory",
-        purpose: "opens saved details and sharing.",
-        actionId: "route.profile_my_data",
-        role: "card",
-        voiceAliases: ["my data", "saved details"],
       },
       {
         id: "profile_preferences",
@@ -2430,7 +2460,7 @@ function ProfilePageContent({
       activePanel === "preferences"
         ? preferenceControls
         : activePanel === "account" && phoneLookupPending
-          ? phoneNumberStatus === "unavailable" ? [{
+          ? accountPhoneStatus === "unavailable" ? [{
               id: activeDetail === "phone" ? "profile-phone-detail-retry" : "profile-phone-retry",
               label: "Retry phone lookup",
               purpose: "retrieves the saved verified phone without starting OTP verification.",
@@ -2474,7 +2504,6 @@ function ProfilePageContent({
           "Agent updates",
           "Payments and earnings",
           "Request pricing",
-          "Memory",
           "Access & sharing",
           ...(localCrmEnabled ? ["Connected Systems"] : []),
           "Mail receipts",
@@ -2512,8 +2541,9 @@ function ProfilePageContent({
                   "Propose Salesforce CRM update",
                 ]
               : activePanel === "account"
-                ? phoneNumber ? ["Change phone number"] : phoneNumberStatus === "missing"
-                  ? ["Add phone number"] : phoneNumberStatus === "unavailable" ? ["Retry phone lookup"] : []
+                ? phoneLookupPending
+                  ? accountPhoneStatus === "unavailable" ? ["Retry phone lookup"] : []
+                  : [phoneDetailTitle]
                 : activePanel === "preferences" || activePanel === "hosting" || activePanel === "software-updates"
                   ? []
                   : activePanel === "security"
@@ -2640,8 +2670,9 @@ function ProfilePageContent({
         pkm_agent_lab_available: canShowPkmAgentLab,
         marketplace_opt_in: marketplaceOptIn,
         security_summary: securitySummaryText,
-        phone_verified: Boolean(phoneNumber),
-        phone_lookup_status: phoneNumberStatus,
+        phone_verified: Boolean(accountSavedPhone),
+        phone_linked_for_sign_in: activePanel === "account" ? Boolean(accountLinkedPhone) : null,
+        phone_lookup_status: activePanel === "account" ? accountPhoneStatus : phoneNumberStatus,
         email_verified: emailVerified,
         preference_voice_actions_available:
           activePanel === "preferences" ? false : null,
@@ -2661,8 +2692,9 @@ function ProfilePageContent({
         gmail_state: gmailPresentation.state,
         marketplace_opt_in: marketplaceOptIn,
         security_summary: securitySummaryText,
-        phone_verified: Boolean(phoneNumber),
-        phone_lookup_status: phoneNumberStatus,
+        phone_verified: Boolean(accountSavedPhone),
+        phone_linked_for_sign_in: activePanel === "account" ? Boolean(accountLinkedPhone) : null,
+        phone_lookup_status: activePanel === "account" ? accountPhoneStatus : phoneNumberStatus,
         email_verified: emailVerified,
         pkm_agent_lab_available: canShowPkmAgentLab,
         vault_needs_creation: vaultAccess.needsVaultCreation === true,
@@ -2685,9 +2717,12 @@ function ProfilePageContent({
     marketplaceOptIn,
     passphraseDialogOpen,
     pendingConsents,
-    phoneNumber,
+    accountSavedPhone,
+    phoneDetailTitle,
     phoneLookupPending,
     phoneNumberStatus,
+    accountLinkedPhone,
+    accountPhoneStatus,
     profileSummary.totalAttributes,
     profileSummary.totalDomains,
     savingMarketplaceOptIn,
@@ -2703,8 +2738,21 @@ function ProfilePageContent({
   useLocalOnboardingActionHandler(
     "profile.retry_phone_lookup",
     retryPhoneLookup,
-    { enabled: Boolean(user) && activePanel === "account" && phoneLookupPending && phoneNumberStatus === "unavailable" },
+    { enabled: Boolean(user) && activePanel === "account" && phoneLookupPending && accountPhoneStatus === "unavailable" },
   );
+
+  useLocalOnboardingActionHandler("profile.update_display_name", async (slots) => {
+    const value = typeof slots?.display_name === "string" ? slots.display_name : "";
+    const owner = snapshotValidatedAuthSessionOwner();
+    if (!applicationOwnerId || owner?.userId !== applicationOwnerId || !isValidatedAuthSessionOwnerCurrent(owner))
+      return { status: "blocked", summary: "Sign in again before editing your account." };
+    const invalid = validateDisplayName(value);
+    if (invalid) return { status: "blocked", summary: invalid };
+    if (editingDisplayName) return { status: "blocked", summary: "Finish or close the current name edit first." };
+    setChatNameDraft({ owner, value });
+    setEditingDisplayName(true);
+    return { status: "started", summary: "Your proposed display name is ready in the account editor. Review it and choose Save. Your name has not changed yet." };
+  }, { enabled: Boolean(user) && activePanel === "account" && !activeDetail });
 
   // Profile's three remaining unwired actions. Registered here rather than in
   // the global registrar because each genuinely needs this page's state --
@@ -3485,54 +3533,6 @@ function ProfilePageContent({
     }
   };
 
-  const myDataContent = (
-    <div
-      className={cn(
-        "space-y-4 sm:space-y-5",
-        isPanePresentation && "profile-account-content",
-        isPanePresentation && accountStyles.paneAccountContent,
-        isPanePresentation && accountStyles.managedContent,
-      )}
-    >
-      <PkmDataManagerPanel
-        signedIn={Boolean(user)}
-        loading={profileManagerLoading}
-        metadataReady={pkmMetadataReady}
-        metadataError={pkmError}
-        sharingReady={consentCenterReady}
-        sharingError={consentCenterError}
-        needsVaultCreation={vaultAccess.needsVaultCreation}
-        needsUnlock={vaultAccess.needsUnlock}
-        summary={profileSummary}
-        domains={domainPresentations}
-        loadingManifestsByDomain={loadingDomainManifests}
-        manifestErrorsByDomain={domainManifestErrors}
-        onOpenSharing={() =>
-          updateProfileView({ panel: "my-data", detail: "sharing" }, "push")
-        }
-        onOpenImport={() => router.push(ROUTES.KAI_IMPORT)}
-        onRefresh={() => {
-          void refreshPkmMetadata(true);
-          void refreshConsentCenter(true);
-          void refreshVisibleDomainManifests(true);
-        }}
-        onOpenDomain={(domain) =>
-          updateProfileView(
-            {
-              panel: "my-data",
-              detail: `domain:${domain.key}`,
-            },
-            "push",
-          )
-        }
-      />
-      {isVaultUnlocked ? (
-        <SharedWithYouGroup vaultOwnerToken={vaultOwnerToken} model={memoryShared.shared} received={memoryShared.received} />
-      ) : null}
-      {isVaultUnlocked ? <SecretsListGroup onUnlock={() => undefined} model={memorySecrets} /> : null}
-    </div>
-  );
-
   const accessContent = (
     <div
       className={cn(
@@ -3627,6 +3627,7 @@ function ProfilePageContent({
   ) => {
     const activeUser = verifiedUser ?? user;
     if (!phoneVisitIsCurrent() || activeUser?.uid !== phoneVisit.owner?.firebaseUid) return;
+    if (verifiedUser) acceptVerifiedUser(verifiedUser);
     await AccountIdentityService.syncCurrentUser(activeUser);
     if (!phoneVisitIsCurrent()) return;
     updateProfileView({ panel: "account", detail: null }, "replace");
@@ -3634,9 +3635,13 @@ function ProfilePageContent({
 
   const accountPhoneProps = {
     ownerKey: phoneVisit.id, isCurrent: phoneVisitIsCurrent,
-    mode: phoneNumber ? "replace" as const : "link" as const, currentPhoneNumber: phoneNumber,
-    startVerification: phoneNumber ? startPhoneReplacement : startPhoneVerification,
-    confirmVerification: phoneNumber ? confirmPhoneReplacement : confirmPhoneVerification,
+    mode: accountProviderPhone ? "replace" as const : "link" as const,
+    currentPhoneNumber: accountLinkedPhone,
+    startVerification: (phone: string, options?: { resendCode?: boolean }) => {
+      const start = accountProviderPhone ? startPhoneReplacement : startPhoneVerification;
+      return start(phone, { ...options, transport: "sms" });
+    },
+    confirmVerification: accountProviderPhone ? confirmPhoneReplacement : confirmPhoneVerification,
     confirmTransfer: confirmPhoneTransfer, confirmLinkedDeletion: confirmPhoneLinkedDeletion,
     ...phoneRecoveryHandoff(user, signOut),
     onCompleted: handleAccountPhoneCompleted, onBackStepChange: bindPhoneBackStep, onNavigationGuardChange: bindPhoneNavigationGuard, onCancel: popProfileStack,
@@ -3652,7 +3657,6 @@ function ProfilePageContent({
       )}
     >
       {presentation === "native-page" && nativeAccountException !== "photo" ? <ProfileAvatarEditor /> : null}
-      <MarketingPreferencePanel model={emailPreference} />
       <SettingsGroup title="Identity">
         <SettingsRow
           icon={PROFILE_ICONS.name}
@@ -3664,7 +3668,7 @@ function ProfilePageContent({
               {editingDisplayName ? "Close" : "Edit"}
             </span>
           }
-          onClick={() => setEditingDisplayName((open) => !open)}
+          onClick={() => { closeDisplayNameEditor(); if (!editingDisplayName) setEditingDisplayName(true); }}
         />
         {editingDisplayName ? (
           <div
@@ -3677,8 +3681,9 @@ function ProfilePageContent({
             {presentation === "native-page" ? <div ref={setNativeNameHost} /> : <DisplayNameEditor
               user={user}
               ownerId={applicationOwnerId}
-              onSaved={() => setEditingDisplayName(false)}
-              onCancel={() => setEditingDisplayName(false)}
+              initialDraft={chatNameDraft && chatNameDraft.owner.userId === applicationOwnerId && isValidatedAuthSessionOwnerCurrent(chatNameDraft.owner) ? chatNameDraft.value : undefined}
+              onSaved={() => { closeDisplayNameEditor(); setChatNameDraft(null); }}
+              onCancel={() => { closeDisplayNameEditor(); setChatNameDraft(null); }}
             />}
           </div>
         ) : null}
@@ -3694,10 +3699,10 @@ function ProfilePageContent({
           title="Phone number"
           description={phoneSummaryText}
           voiceControlId={phoneLookupPending ? "profile-phone-retry" : undefined}
-          disabled={!phoneNumber && phoneNumberStatus === "loading"}
+          disabled={accountPhoneStatus === "loading"}
           trailing={
             <span className="profile-account-inline-action">
-              {phoneNumber ? "Change" : phoneLookupPending ? "Retry" : "Add"}
+              {phoneAction}
             </span>
           }
           chevron
@@ -3733,10 +3738,14 @@ function ProfilePageContent({
       </SettingsGroup>
       <SettingsGroup title="Payments">
         <SettingsRow icon={FinanceAgentIcon} iconTone="capability"
-          title="Payments and earnings" description="Purchase balance, earnings and transactions."
+          title="Payouts" description="Bank setup, earnings and transactions."
           voiceControlId="profile_payouts" voiceActionId="route.profile_payouts"
-          voiceLabel="Payments and earnings" voicePurpose="Opens purchase balance, payout setup and transaction history."
+          voiceLabel="Payouts" voicePurpose="Opens payout setup and transaction history."
           chevron onClick={() => openVaultBackedPanel("payouts")} />
+      </SettingsGroup>
+      <SettingsGroup title="Email preferences">
+        <MarketingPreferencePanel model={emailPreference} />
+        <AttemptEmailPanel owner={activePanel === "account" ? applicationOwnerId ?? null : null} />
       </SettingsGroup>
       <SettingsGroup title="Account actions">
         <SettingsRow
@@ -3809,6 +3818,7 @@ function ProfilePageContent({
       </SettingsGroup>
       </>
       )}
+      <ExperimentalNativeInterface />
       <SettingsGroup title="Notifications">
         <p className="px-4 py-3 text-sm text-muted-foreground">
           Manage device alerts for messages, shares, and requests.
@@ -4261,8 +4271,65 @@ function ProfilePageContent({
         activePanel === "hosting"
           ? "Where Agent One runs."
           : "Your version and available updates.",
-      content: <AgentSettingsPanel kind={activePanel} userId={applicationOwnerId} controller={agentSettings} />,
+      content: (
+        <AgentSettingsPanel
+          kind={activePanel}
+          userId={applicationOwnerId}
+          controller={agentSettings}
+          onOpenDetail={(nextDetail) =>
+            updateProfileView({ panel: activePanel, detail: nextDetail }, "push")
+          }
+        />
+      ),
     });
+    if (activePanel === "hosting" && activeDetail === "hosting-details") {
+      profileStackEntries.push({
+        key: "detail:hosting-details",
+        title: "Hosting details",
+        description: "Active cloud runtime and background controls.",
+        content: (
+          <AgentSettingsPanel
+            kind="hosting"
+            userId={applicationOwnerId}
+            controller={agentSettings}
+            detail="hosting-details"
+            onOpenDetail={(nextDetail) =>
+              updateProfileView({ panel: "hosting", detail: nextDetail }, "push")
+            }
+          />
+        ),
+      });
+    } else if (activePanel === "hosting" && activeDetail === "hosting-own-cloud") {
+      profileStackEntries.push({
+        key: "detail:hosting-own-cloud",
+        title: "Bring your own cloud",
+        description: "Run Agent One in your own Google Cloud or Microsoft Azure project.",
+        content: (
+          <Suspense fallback={null}>
+            <ByocCloudSetupPage embedded initialIntent="own" owningRoute={pathname}
+              backQuery={isPanePresentation ? { profile_pane: "1" } : undefined}
+              onFinish={() => popProfileStack()} />
+          </Suspense>
+        ),
+      });
+    } else if (activePanel === "software-updates" && activeDetail === "update-details") {
+      profileStackEntries.push({
+        key: "detail:update-details",
+        title: "Version details",
+        description: "Build and verification status.",
+        content: (
+          <AgentSettingsPanel
+            kind="software-updates"
+            userId={applicationOwnerId}
+            controller={agentSettings}
+            detail="update-details"
+            onOpenDetail={(nextDetail) =>
+              updateProfileView({ panel: "software-updates", detail: nextDetail }, "push")
+            }
+          />
+        ),
+      });
+    }
   } else if (!routeBlockedByVault && activePanel === "account") {
     profileStackEntries.push({
       key: "panel:account",
@@ -4273,17 +4340,19 @@ function ProfilePageContent({
     if (activeDetail === "phone") {
       profileStackEntries.push({
         key: "detail:phone",
-        title: phoneNumber ? "Change phone number" : phoneLookupPending ? "Phone number" : "Add phone number",
-        description: phoneNumber
+        title: phoneDetailTitle,
+        description: accountLinkedPhone
           ? "Verify a new number."
-          : phoneLookupPending ? undefined : "Add a verified number.",
+          : phoneLookupPending ? undefined
+            : manageSavedPhone ? "Link your saved number to sign-in or verify a new number."
+              : "Verify your number for this account.",
         content: phoneLookupPending ? (
           <div className="flex flex-col gap-4">
-            <p role="status">{phoneSummaryText}</p>
+            <p role="status">{phoneAvailabilityText}</p>
             <Button
               data-voice-control-id="profile-phone-detail-retry"
               onClick={() => void retryPhoneLookup()}
-              disabled={phoneNumberStatus === "loading"}
+              disabled={accountPhoneStatus === "loading"}
             >
               Try again
             </Button>
@@ -4298,11 +4367,7 @@ function ProfilePageContent({
                 "gap-5",
                 isPanePresentation && accountStyles.phoneDetail,
               )}
-              helperText={
-                phoneNumber
-                  ? "Enter the new phone number."
-                  : "Enter your phone number."
-              }
+              helperText={phoneEntryHint}
             />}
             <div id="recaptcha-container" className="min-h-0" />
           </>
@@ -4322,9 +4387,15 @@ function ProfilePageContent({
             isPanePresentation && accountStyles.managedContent,
           )}
         >
-          <PaymentsAndEarnings key={applicationOwnerId} commerce={nativePayout.commerce} answer={nativePayout.answer} />
+          <PaymentsAndEarnings key={applicationOwnerId} answer={nativePayout.answer} />
         </div>
       ),
+    });
+  } else if (!routeBlockedByVault && activePanel === "net-worth-score") {
+    profileStackEntries.push({
+      key: "panel:net-worth-score",
+      title: "Net Worth Score",
+      content: <NetWorthScoreCard report={nws.report} status={nws.status} primary={nws.primary} secondary={nws.secondary} detail />,
     });
   } else if (!routeBlockedByVault && activePanel === "world-model") {
     // The Profile pane is how /one/profile/world-model is presented (proxy.ts
@@ -4346,7 +4417,7 @@ function ProfilePageContent({
           <PersonalWorldModelPage
             embedded
             model={worldModel}
-            onManageDetails={() => openVaultBackedPanel("my-data")}
+            onManageDetails={openCanonicalMemoryRoute}
             onOpenAccount={openAccountPanel}
           />
         </div>
@@ -4389,10 +4460,9 @@ function ProfilePageContent({
       title: "Memory",
       description: "Saved details and sharing.",
       content: (
-        <div className="space-y-4">
-          <LivingMemoryDocument />
-          {myDataContent}
-        </div>
+        <p role="status" className="py-4 text-sm text-muted-foreground">
+          Opening Memory…
+        </p>
       ),
     });
     if (selectedDomain) {
@@ -4609,8 +4679,9 @@ function ProfilePageContent({
       profileStackEntries.push({
         key: "detail:trusted-devices",
         title: "Trusted devices",
-        description: "Devices connected to Agent One.",
-        content: <TrustedDevicesPage panePresentation={isPanePresentation} model={devicesModel} />,
+        description: "Devices connected to your private agent.",
+        content: <TrustedDevicesPage panePresentation={isPanePresentation} model={devicesModel}
+          renderConfirmation={presentation !== "native-page" || !nativeDevicesAvailable} />,
       });
     }
   } else if (!routeBlockedByVault && activePanel === "gmail") {
@@ -4658,7 +4729,6 @@ function ProfilePageContent({
     account: openAccountPanel,
     payouts: () => openVaultBackedPanel("payouts"),
     "request-pricing": () => openVaultBackedPanel("request-pricing"),
-    "my-data": () => openVaultBackedPanel("my-data"),
     "world-model": () => openVaultBackedPanel("world-model"),
     preferences: openPreferencesPanel,
     security: openSecurityPanel,
@@ -4704,6 +4774,8 @@ function ProfilePageContent({
 
       <AppPageContentRegion>
         <SurfaceStack compact>
+          <NetWorthScoreCard report={nws.report} status={nws.status} primary={nws.primary}
+            secondary={nws.secondary} onOpen={() => openVaultBackedPanel("net-worth-score")} />
           <div className="profile-home-content">
             {menuGroups.map(group => <SettingsGroup key={group.id} title={group.title} separatorInset rowSizing="uniform">
               {group.entries.map(entry => <SettingsRow key={entry.id}
@@ -4842,9 +4914,9 @@ function ProfilePageContent({
           ? undefined
           : {
               routeId: profileNativeRouteId,
-              marker: "native-route-profile",
+              marker: activePanel === "world-model" ? "native-route-profile-world-model" : "native-route-profile",
               authState: user ? "authenticated" : "pending",
-              dataState: authLoading ? "loading" : "loaded",
+              dataState: authLoading ? "loading" : activePanel === "world-model" ? worldModel.nativeDataState : "loaded",
             }
       }
     >
@@ -4965,7 +5037,7 @@ function ProfilePageContent({
               {deleteDialogTitle}
             </AlertDialogTitle>
             <AlertDialogDescription className={accountStyles.accountDialogDescription}>
-              {cloudCleanupRequired ? "Cloud cleanup is required before account deletion." : deleteDialogDescription}
+              {cloudCleanupRequired ? "Review cloud cleanup to continue account deletion." : deleteDialogDescription}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {cloudCleanupRequired && applicationOwnerId ? <AccountCloudCleanup key={applicationOwnerId} userId={applicationOwnerId} token={vaultOwnerToken ?? null}
@@ -5051,7 +5123,7 @@ function ProfilePageContent({
     { id: "account-identity", title: "Identity", rows: [
       { id: "account-name", label: "Display name", detail: user.displayName || "Not available", enabled: true, artworkId: "account-name", trailing: "Edit" },
       { id: "account-mail", label: "Mail", detail: user.email || "Not available", enabled: true, readOnly: true, artworkId: "account-mail" },
-      { id: "account-phone", label: "Phone number", detail: phoneSummaryText, enabled: !!phoneNumber || phoneNumberStatus !== "loading", artworkId: "account-phone", trailing: phoneNumber ? "Change" : phoneLookupPending ? "Retry" : "Add", chevron: true },
+      { id: "account-phone", label: "Phone number", detail: phoneSummaryText, enabled: accountPhoneStatus !== "loading", artworkId: "account-phone", trailing: phoneAction, chevron: true },
       { id: "account-provider", label: "Sign-in provider", detail: provider.name, enabled: true, readOnly: true },
       ...(walletCardEntryEnabled ? [{ id: "account-wallet", label: WALLET_CARD_COPY.profileEntry.title,
         detail: WALLET_CARD_COPY.profileEntry.description, enabled: true, artworkId: "account-wallet", chevron: true }] : []),
@@ -5059,17 +5131,18 @@ function ProfilePageContent({
     { id: "account-payments", title: "Payments", rows: [
       { id: "account-payments-open", label: "Payments and earnings", enabled: true, artworkId: "account-wallet", chevron: true },
     ] },
-    { id: "account-email-updates", title: "Optional One email updates", rows: emailPreference.value ? [
-      { id: "email-updates-choice", label: "One tips and product updates", detail: emailPreference.error ?? "Useful tips, demos and news. Unsubscribe anytime.",
+    { id: "account-email-updates", title: "Email preferences", rows: emailPreference.value ? [
+      { id: "email-updates-choice", label: "Email updates", detail: emailPreference.error ?? EMAIL_UPDATES_DESCRIPTION,
         enabled: !!emailPreference.value && !emailPreference.busy, pending: emailPreference.loading || emailPreference.busy, toggle: true,
         options: [{ id: "email-updates-on", label: "On", selected: emailPreference.enabledDraft },
           { id: "email-updates-off", label: "Off", selected: !emailPreference.enabledDraft }] },
-      { id: "email-updates-frequency", label: "Email frequency", enabled: !!emailPreference.value && !emailPreference.busy,
+      ...(emailPreference.showFrequency ? [{ id: "email-updates-frequency", label: "Email frequency", enabled: !emailPreference.busy,
         options: [{ id: "email-updates-weekly", label: "Weekly digest", selected: emailPreference.frequencyDraft === "weekly" },
           { id: "email-updates-daily", label: "Daily tips", selected: emailPreference.frequencyDraft === "daily" },
-          { id: "email-updates-news", label: "Product updates only", selected: emailPreference.frequencyDraft === "updates" }] },
-      { id: "email-updates-save", label: emailPreference.busy ? "Saving…" : emailPreference.saved ? "Email preference saved" : "Save email preference", enabled: !emailPreference.busy &&
-        (emailPreference.enabledDraft !== emailPreference.value.enabled || emailPreference.frequencyDraft !== emailPreference.value.frequency), pending: emailPreference.busy },
+          { id: "email-updates-news", label: "Product updates only", selected: emailPreference.frequencyDraft === "updates" }] }] : []),
+      ...(emailPreference.hasChanges || emailPreference.busy ? [
+        { id: "email-updates-save", label: emailPreference.busy ? "Saving…" : "Save email preference", enabled: !emailPreference.busy, pending: emailPreference.busy },
+      ] : []),
     ] : [{ id: "email-updates-retry", label: emailPreference.loading ? "Loading email preference…" : "Retry email preference",
       detail: emailPreference.error ?? undefined, enabled: !emailPreference.loading, pending: emailPreference.loading }] },
     { id: "account-operations", title: "Account actions", rows: [
@@ -5105,7 +5178,7 @@ function ProfilePageContent({
     referrals={{ active: nativeReferralActive, pages: nativeReferrals.pages, rows: nativeReferrals.rows, editor: nativeReferrals.editor, formScene: nativeReferrals.formScene,
       root: () => updateProfileView({ panel: null, detail: null }, "replace") }}
     workspace={activePanel === "hosting" || activePanel === "software-updates" ? { kind: activePanel,
-      active: agentSettingsActive && !showVaultUnlock, pages: nativeAgentSettings.pages, rows: nativeAgentSettings.rows,
+      active: agentSettingsActive && !showVaultUnlock && activeDetail !== "hosting-own-cloud", pages: nativeAgentSettings.pages, rows: nativeAgentSettings.rows,
       back: () => { if (nativeAgentSettings.navigationBlocked()) return false; if (!nativeAgentSettings.back()) popProfileStack(); return true; },
       ancestor: () => { if (nativeAgentSettings.root()) return true; return false; },
       root: () => { if (!nativeAgentSettings.root()) return false; updateProfileView({ panel: null, detail: null }, "replace"); return true; }
@@ -5147,11 +5220,11 @@ function ProfilePageContent({
       editor: destinationId => nativePricingEditorOpen ?
         <NativeRequestPricingEditor userId={applicationOwnerId} model={nativePricingModel} destinationId={destinationId}
           onClose={() => setNativePricingEditorOpen(false)} onFallback={() => { setNativePricingEditorOpen(false); setNativePricingFailed(true); }} /> : null }}
-    detailOverlay={<>{nativeAccountException === "photo" ? <ProfileAvatarEditor openOnMount optionsOnMount
+    detailOverlay={<>{devicesActive && nativeDevicesAvailable ? <TrustedDeviceConfirmation model={devicesModel} /> : null}{nativeAccountException === "photo" ? <ProfileAvatarEditor openOnMount optionsOnMount
       onPresentationClose={() => setNativeAccountException(null)} /> : null}{vaultOverlays}</>}
     phone={{ active: activePanel === "account" && activeDetail === "phone" && !showVaultUnlock && nativeMenuOpen && !phoneLookupPending,
       editor: options => <NativePhoneVerificationFlow {...options} {...accountPhoneProps} webHost={nativePhoneHost}
-        confirmLabel="Save phone number" helperText={phoneNumber ? "Enter the new phone number." : "Enter your phone number."}
+        confirmLabel="Save phone number" helperText={phoneEntryHint}
         className={cn("gap-5", isPanePresentation && accountStyles.phoneDetail)} /> }}
     legal={{ active: activePanel === "legal" && (!activeDetail || legalParent !== null) && !showVaultUnlock, ...nativeLegal,
       root: () => updateProfileView({ panel: null, detail: null }, "replace") }}
@@ -5218,7 +5291,7 @@ function ProfilePageContent({
       },
       ...(accountConfirmation ? { back: dismissAccountConfirmation } : {}), rows: new Map([
         ["account-photo", () => setNativeAccountException("photo")],
-        ["account-name", () => setEditingDisplayName(true)],
+        ["account-name", () => { setChatNameDraft(null); setEditingDisplayName(true); }],
         ["account-phone", () => { if (phoneLookupPending) { void retryPhoneLookup(); return; } updateProfileView({ panel: "account", detail: "phone" }, "push"); }],
         ["account-wallet", () => router.push(ROUTES.ONE_WALLET_CARD)],
         ["account-payments-open", () => openVaultBackedPanel("payouts")],
@@ -5227,7 +5300,9 @@ function ProfilePageContent({
         ["email-updates-weekly", () => emailPreference.edit(emailPreference.enabledDraft, "weekly")],
         ["email-updates-daily", () => emailPreference.edit(emailPreference.enabledDraft, "daily")],
         ["email-updates-news", () => emailPreference.edit(emailPreference.enabledDraft, "updates")],
-        ["email-updates-save", () => { void emailPreference.save(emailPreference.enabledDraft, emailPreference.frequencyDraft); }],
+        ["email-updates-save", () => {
+          if (emailPreference.hasChanges) void emailPreference.save(emailPreference.enabledDraft, emailPreference.frequencyToSave);
+        }],
         ["email-updates-retry", () => { void emailPreference.refresh(); }],
         ["account-reset", handleResetClick],
         ["account-delete", handleDeleteClick],
@@ -5238,9 +5313,9 @@ function ProfilePageContent({
           else if (showResetConfirm) await handleResetAccount();
         }],
       ]), editor: destinationId => editingDisplayName && activePanel === "account" && !activeDetail ?
-        <NativeDisplayNameEditor user={user} ownerId={applicationOwnerId} destinationId={destinationId} portalFallback webHost={nativeNameHost}
+        <NativeDisplayNameEditor user={user} ownerId={applicationOwnerId} initialDraft={chatNameDraft && chatNameDraft.owner.userId === applicationOwnerId && isValidatedAuthSessionOwnerCurrent(chatNameDraft.owner) ? chatNameDraft.value : undefined} destinationId={destinationId} portalFallback webHost={nativeNameHost}
           onWebFallback={() => setNativeAccountException("name")}
-          onSaved={() => setEditingDisplayName(false)} onCancel={() => setEditingDisplayName(false)} /> : null }}
+          onSaved={() => { closeDisplayNameEditor(); setChatNameDraft(null); }} onCancel={() => { closeDisplayNameEditor(); setChatNameDraft(null); }} /> : null }}
     menu={{ owner: applicationOwnerId, ready: isVaultUnlocked, open: nativeMenuOpen, surfaceOpen: nativeMenuOpen,
       ...(agentSettingsActive ? { navigationLocked: nativeAgentSettings.navigationBlocked() } : nativePayoutActive ? { navigationLocked: nativePayout.busy } : nativeConnectorsActive ? { navigationLocked: nativeConnectors.blocking } : nativeWorldModelActive ? { navigationLocked: nativeWorldModel.blocking } : nativeMemoryActive ? { navigationLocked: nativeMemory.busy } : nativeRuntimeActive ? { navigationLocked: runtimeSettings.isSaving || runtimeSettings.isRemoving || runtimeSettings.credentialValidation.status === "checking" } : {}),
       enabled: !isDeleting && !isResetting && !(devicesActive && devicesModel.busy) && !(nativeFinanceActive && nativeFinance.busy) &&
@@ -5252,7 +5327,11 @@ function ProfilePageContent({
             nativeMemoryActive && nativeMemory.navigationBlocked() || nativeRuntimeActive && runtimeSettings.operationPending()) return false;
         return closeNativeProfile();
       },
-      groups: menuGroups, actions: menuActions }}
+      groups: menuGroups, actions: menuActions,
+      ...(nws.unlocked ? { scoreCard: {
+        ...netWorthScoreDisplay(nws.report), status: nws.status, primary: nws.primary, secondary: nws.secondary,
+        onOpen: () => openVaultBackedPanel("net-worth-score"),
+      } } : {}) }}
     page={{ pane: true, contentInset: "profile", bodyClassName: "profile-pane-scroll-root",
       title: nativeActiveHeading?.owner === nativeDetailOwner ? nativeActiveHeading.title : typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile",
       owner: applicationOwnerId, context: JSON.stringify([applicationOwnerId, snapshotVaultSessionEpoch(), activePanel, activeDetail]),

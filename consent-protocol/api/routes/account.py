@@ -7,6 +7,7 @@ Endpoints for account lifecycle management.
 
 Routes:
     POST /api/account/welcome - One-time first-account welcome to verified email
+    GET /api/account/identity - Read the current owner's saved account identity
     POST /api/account/identity/refresh - Refresh backend identity shadow from Firebase Auth
     POST /api/account/phone/claim - Claim a Firebase-verified phone for the signed-in actor
     GET /api/account/email-aliases - List verified/pending account email aliases
@@ -60,6 +61,7 @@ from api.utils.firebase_auth import (
     current_auth_lane,
     refuse_foreign_review_mint,
     verify_account_cleanup_bearer,
+    verify_account_cleanup_status_bearer,
     verify_firebase_principal,
 )
 from hushh_mcp.services import account_firebase_mutations
@@ -92,6 +94,15 @@ from hushh_mcp.services.actor_identity_service import (
     ActorIdentitySyncUnavailableError,
 )
 from hushh_mcp.services.phone_test_transport import (
+    _SIMULATION_PHONE_PREFIX as _SIMULATION_PHONE_PREFIX,
+)
+from hushh_mcp.services.phone_test_transport import (
+    _configured_dev_phone_test_code as _configured_dev_phone_test_code,
+)
+from hushh_mcp.services.phone_test_transport import (
+    _configured_dev_phone_test_numbers as _configured_dev_phone_test_numbers,
+)
+from hushh_mcp.services.phone_test_transport import (
     _configured_phone_test_code as _configured_phone_test_code,
 )
 from hushh_mcp.services.phone_test_transport import (
@@ -105,6 +116,9 @@ from hushh_mcp.services.phone_test_transport import (
 )
 from hushh_mcp.services.phone_test_transport import (
     _phone_test_enabled as _phone_test_enabled,
+)
+from hushh_mcp.services.phone_test_transport import (
+    _phone_test_expected_code as _phone_test_expected_code,
 )
 from hushh_mcp.services.support_email_service import (
     SupportEmailDeliveryUncertainError,
@@ -140,7 +154,7 @@ async def account_deletion_cleanup_status(
     response.headers["Cache-Control"] = "private, no-store"
     selected = str(operation_id) if operation_id is not None else None
     identity = await run_in_threadpool(
-        verify_account_cleanup_bearer, authorization, operation_id=selected
+        verify_account_cleanup_status_bearer, authorization, operation_id=selected
     )
     operation = await run_in_threadpool(
         journal.inspect_for_identity, identity, operation_id=selected
@@ -495,6 +509,12 @@ class TrustedDeviceSelfEnrollRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class TrustedDevicePruneWebRequest(BaseModel):
+    keep_device_id: str | None = Field(default=None, alias="keepDeviceId", max_length=120)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class TrustedDeviceVaultHandoffRequest(BaseModel):
     vault_handoff_wrapped_key: str = Field(min_length=40, max_length=64)
     vault_handoff_iv: str = Field(min_length=16, max_length=24)
@@ -738,6 +758,27 @@ async def trusted_device_self_enroll(
             device_public_key=payload.device_public_key,
             device_name=payload.device_name,
             platform=payload.platform,
+        )
+    except TrustedDeviceError as exc:
+        _raise_trusted_device_error(exc)
+
+
+@router.post("/trusted-devices/prune-web")
+async def trusted_device_prune_web(
+    payload: TrustedDevicePruneWebRequest | None = None,
+    firebase_uid: str = Depends(require_firebase_auth),
+    authorization: str | None = Header(None, alias="Authorization"),
+):
+    """Revoke dormant web browser sessions while leaving linked computers/apps intact."""
+    browser_uid = await _verify_browser_enrollment_identity(authorization)
+    if browser_uid != firebase_uid:
+        raise HTTPException(status_code=401, detail="Invalid Firebase ID token")
+    keep_device_id = payload.keep_device_id if payload is not None else None
+    try:
+        return await run_in_threadpool(
+            TrustedDeviceService().prune_web_devices,
+            user_id=firebase_uid,
+            keep_device_id=keep_device_id,
         )
     except TrustedDeviceError as exc:
         _raise_trusted_device_error(exc)
@@ -1403,6 +1444,28 @@ class IdentityRefreshRequest(BaseModel):
     verified_phone_number: str | None = Field(default=None, pattern=r"^\+[1-9][0-9]{6,14}$")
 
 
+@router.get("/identity")
+async def read_account_identity(
+    response: Response,
+    owner_id: str = Depends(require_firebase_auth_read_only),
+):
+    """Read the admitted owner's committed identity without provider sync or writes."""
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        identities = await ActorIdentityService().get_many([owner_id])
+    except Exception as exc:
+        logger.warning("account.identity.read_unavailable error=%s", type(exc).__name__)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "ACCOUNT_IDENTITY_UNAVAILABLE",
+                "message": "Account details are temporarily unavailable. Please retry.",
+            },
+            headers={"Cache-Control": "private, no-store"},
+        ) from None
+    return {"success": True, "user_id": owner_id, "identity": identities.get(owner_id)}
+
+
 @router.post("/identity/refresh")
 async def refresh_account_identity(
     firebase_uid: str = Depends(require_firebase_auth),
@@ -1414,7 +1477,7 @@ async def refresh_account_identity(
 
     When ``force`` is false the cached identity shadow is returned if it is
     fresh, avoiding a synchronous Firebase Auth round-trip and DB upsert. This
-    keeps read-only callers (such as the phone-mandate guard) fast while
+    keeps cached callers (such as the phone-mandate guard) fast while
     callers that need guaranteed freshness keep the default forced refresh.
     """
     if request and request.verified_phone_number is not None:
@@ -1622,6 +1685,7 @@ class DeleteAccountRequest(BaseModel):
     )
     cleanup: AccountCloudCleanupRequest | None = None
     continuation_id: UUID | None = None
+    reviewed_cloud_plan_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 class EmailAliasVerificationStartRequest(BaseModel):
@@ -1684,20 +1748,41 @@ async def _verify_phone_claim_id_token(
 async def prepare_phone_transfer(
     payload: PhoneTransferPrepareRequest, firebase_uid: str = Depends(require_firebase_auth)
 ):
-    from hushh_mcp.services.phone_transfer_authority import refuse
+    from hushh_mcp.services.phone_transfer_service import prepare
 
     _require_phone_verification_owner(payload.expected_user_id, firebase_uid)
-    raise refuse("PHONE_ALREADY_VERIFIED")
+    proof: dict = {}
+    phone, uid = await _verify_phone_claim_id_token(
+        payload.phone_id_token, transfer=True, proof_metadata=proof
+    )
+    if not uid:
+        raise HTTPException(status_code=401, detail={"code": "INVALID_PHONE_ID_TOKEN"})
+    return await prepare(
+        firebase_uid,
+        phone,
+        proof["event"],
+        uid,
+        get_firebase_auth_app(),
+        proof_valid_until=proof["valid_until"],
+    )
 
 
 @router.post("/phone/transfer/confirm")
 async def confirm_phone_transfer(
     payload: PhoneTransferConfirmRequest, firebase_uid: str = Depends(require_firebase_auth)
 ):
-    from hushh_mcp.services.phone_transfer_authority import refuse
+    from hushh_mcp.services.phone_transfer_service import confirm
 
     _require_phone_verification_owner(payload.expected_user_id, firebase_uid)
-    raise refuse("PHONE_ALREADY_VERIFIED")
+    proof: dict = {}
+    phone, uid = await _verify_phone_claim_id_token(
+        payload.phone_id_token, transfer=True, proof_metadata=proof
+    )
+    if not uid:
+        raise HTTPException(status_code=401, detail={"code": "INVALID_PHONE_ID_TOKEN"})
+    return await confirm(
+        firebase_uid, phone, proof["event"], uid, str(payload.transfer_id), get_firebase_auth_app()
+    )
 
 
 @router.get("/phone/transfer/{transfer_id}")
@@ -1864,7 +1949,7 @@ async def claim_account_phone(
     payload: PhoneClaimRequest,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
-    """Persist a Firebase phone-auth session as the app-level verified phone claim."""
+    """Finalize a phone already linked to the signed-in Firebase identity."""
     _require_phone_verification_owner(payload.expected_user_id, firebase_uid)
     phone_number, phone_session_uid = await _verify_phone_claim_id_token(payload.phone_id_token)
     from hushh_mcp.services.phone_transfer_service import assert_claim_available, refuse
@@ -1905,12 +1990,37 @@ async def claim_account_phone(
             },
         )
 
+    if phone_session_uid != protected_identity:
+        if phone_session_cleanup == "pending" and phone_session_uid:
+            await _delete_firebase_auth_user(
+                phone_session_uid,
+                intent_kind="phone_orphan",
+                expected_phone_digest=account_deletion_phone_digest(phone_number),
+            )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PHONE_VERIFICATION_CHANGED",
+                "message": "Link this phone to your signed-in account and verify it again.",
+            },
+        )
+
     try:
-        identity = await ActorIdentityService().claim_verified_phone(
-            user_id=firebase_uid, phone_number=phone_number
+        identity = await ActorIdentityService().finalize_verified_phone_from_firebase(
+            firebase_uid, phone_number
         )
     except ActorIdentityPhoneClaimConflictError:
-        raise refuse("PHONE_ALREADY_VERIFIED") from None
+        raise refuse("PHONE_TRANSFER_CONFIRMATION_REQUIRED") from None
+    except ValueError:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PHONE_VERIFICATION_CHANGED",
+                "message": "The linked phone changed. Please verify it again.",
+            },
+        ) from None
+    except ActorIdentitySyncUnavailableError:
+        identity = None
     if not identity:
         raise HTTPException(
             status_code=503,
@@ -1920,17 +2030,7 @@ async def claim_account_phone(
             },
         )
 
-    logger.info(
-        "Account phone claim persisted user=%s phone_session_uid_present=%s",
-        firebase_uid,
-        bool(phone_session_uid),
-    )
-    if phone_session_cleanup == "pending" and phone_session_uid:
-        phone_session_cleanup = await _delete_firebase_auth_user(
-            phone_session_uid,
-            intent_kind="phone_orphan",
-            expected_phone_digest=account_deletion_phone_digest(phone_number),
-        )
+    logger.info("Account phone claim persisted user=%s", firebase_uid)
     return {
         "success": True,
         "user_id": firebase_uid,
@@ -2211,6 +2311,12 @@ async def delete_account(
         if target != "both":
             raise HTTPException(status_code=422, detail={"code": "FULL_ACCOUNT_CLEANUP_REQUIRED"})
         return await account_cloud_cleanup(user_id, payload.cleanup)
+    if payload and payload.reviewed_cloud_plan_sha256:
+        if target != "both":
+            raise HTTPException(status_code=422, detail={"code": "FULL_ACCOUNT_CLEANUP_REQUIRED"})
+        return await _perform_account_deletion(
+            user_id, target=target, reviewed_cloud_plan_sha256=payload.reviewed_cloud_plan_sha256
+        )
     return await _perform_account_deletion(user_id, target=target)
 
 
@@ -2238,6 +2344,7 @@ async def _delete_account_result(
     target: str,
     reviewed_inventory_sha256: str | None = None,
     accept_local_erasure: bool = False,
+    reviewed_cloud_plan_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Preserve the erasure service's result, including a definite pre-transaction failure."""
     service = AccountService()
@@ -2250,6 +2357,8 @@ async def _delete_account_result(
             if reviewed_inventory_sha256 is not None or accept_local_erasure
             else {}
         )
+        if reviewed_cloud_plan_sha256 is not None:
+            review_kwargs["reviewed_cloud_plan_sha256"] = reviewed_cloud_plan_sha256
         return cast(
             dict[str, Any], await service.delete_account(user_id, target=target, **review_kwargs)
         )
@@ -2273,6 +2382,7 @@ async def _perform_account_deletion(
     target: str,
     reviewed_inventory_sha256: str | None = None,
     accept_local_erasure: bool = False,
+    reviewed_cloud_plan_sha256: str | None = None,
 ):
     """Shared erasure lifecycle. Authority is checked by the calling route."""
     logger.warning("⚠️ DELETE ACCOUNT REQUESTED for user %s target=%s", user_id, target)
@@ -2281,6 +2391,11 @@ async def _perform_account_deletion(
         target=target,
         reviewed_inventory_sha256=reviewed_inventory_sha256,
         accept_local_erasure=accept_local_erasure,
+        **(
+            {"reviewed_cloud_plan_sha256": reviewed_cloud_plan_sha256}
+            if reviewed_cloud_plan_sha256 is not None
+            else {}
+        ),
     )
 
     if result.get("success") is True and result.get("cleanup_pending") is True:

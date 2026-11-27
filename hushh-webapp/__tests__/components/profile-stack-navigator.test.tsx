@@ -207,4 +207,72 @@ describe("ProfileStackNavigator", () => {
     expect(stalePane.scrollTo).not.toHaveBeenCalled();
     nativeRoot.root.remove();
   });
+
+  it("resets scroll to top on same-key detail drill-in via scrollKey and restores list scroll on back", async () => {
+    const paneRoot = mountScrollRoot("data-profile-pane-scroll-root");
+    const { rerender } = render(
+      <ProfileStackNavigator
+        rootContent={<div>Root</div>}
+        resetScroll={false}
+        entries={[
+          {
+            key: "panel:connectors",
+            scrollKey: "panel:connectors",
+            title: "Connectors",
+            content: <div>Connectors list</div>,
+          },
+        ]}
+      />,
+    );
+
+    paneRoot.scrollTo.mockClear();
+    paneRoot.root.scrollTop = 420;
+
+    rerender(
+      <ProfileStackNavigator
+        rootContent={<div>Root</div>}
+        resetScroll={false}
+        entries={[
+          {
+            key: "panel:connectors",
+            scrollKey: "panel:connectors:detail:stripe",
+            title: "Connectors",
+            content: <div>Stripe detail</div>,
+          },
+        ]}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(paneRoot.scrollTo).toHaveBeenCalledWith({
+        top: 0,
+        behavior: "auto",
+      }),
+    );
+
+    paneRoot.root.scrollTop = 90;
+    paneRoot.scrollTo.mockClear();
+
+    rerender(
+      <ProfileStackNavigator
+        rootContent={<div>Root</div>}
+        resetScroll={false}
+        entries={[
+          {
+            key: "panel:connectors",
+            scrollKey: "panel:connectors",
+            title: "Connectors",
+            content: <div>Connectors list</div>,
+          },
+        ]}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(paneRoot.scrollTo).toHaveBeenCalledWith({
+        top: 420,
+        behavior: "auto",
+      }),
+    );
+  });
 });

@@ -250,6 +250,7 @@ def send_connection_graph_changed_push(
     *,
     transition_id: str,
     connection_id: str = "",
+    publish_live: bool = True,
 ) -> int:
     """Silently reconcile an activated graph edge on all of one user's devices."""
 
@@ -261,18 +262,19 @@ def send_connection_graph_changed_push(
     message_id = f"connection-graph-changed:{transition_id}:{user_id}"
     deep_link = CONNECTION_REQUEST_LIST_LINK
     data = {"message_id": message_id, "connection_id": connection_id, "sync_only": "true"}
-    _publish_connection_user_event(
-        user_id,
-        {
-            "type": "connection_graph_changed",
-            "user_id": user_id,
-            "title": "Connections updated",
-            "body": "Your connections changed.",
-            "deep_link": deep_link,
-            "request_url": deep_link,
-            **data,
-        },
-    )
+    if publish_live:
+        _publish_connection_user_event(
+            user_id,
+            {
+                "type": "connection_graph_changed",
+                "user_id": user_id,
+                "title": "Connections updated",
+                "body": "Your connections changed.",
+                "deep_link": deep_link,
+                "request_url": deep_link,
+                **data,
+            },
+        )
     return send_user_data_push(
         user_id,
         notification_type="connection_graph_changed",

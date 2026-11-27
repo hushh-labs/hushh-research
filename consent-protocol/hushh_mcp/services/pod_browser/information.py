@@ -121,7 +121,7 @@ class ScopedProjectionReader:
 
 
 def selected_projection(field: InformationField, source: dict) -> dict:
-    if field.domain in {"secrets", "runtime_secrets", "wallet", "identity"}:
+    if field.domain in {"secrets", "runtime_secrets", "wallet", "identity", "credentials"}:
         raise BrowserRefused("BROWSER_SECRET_INFORMATION_REFUSED")
     value = source
     for segment in field.path.split("."):
@@ -159,7 +159,7 @@ class BrowserInformation:
         await self._consent.check_binding(binding)
         result = {}
         for field in fields:
-            if field.domain in {"secrets", "runtime_secrets", "wallet", "identity"}:
+            if field.domain in {"secrets", "runtime_secrets", "wallet", "identity", "credentials"}:
                 raise BrowserRefused("BROWSER_SECRET_INFORMATION_REFUSED")
             source = await self._source.read(binding, field)
             result[field.scope] = selected_projection(field, source)

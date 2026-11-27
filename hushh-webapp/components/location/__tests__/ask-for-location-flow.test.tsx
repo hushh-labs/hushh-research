@@ -190,6 +190,7 @@ describe("AskForLocationFlow", () => {
       "You already asked Priya Sharma",
     );
     expect(screen.getByText("Waiting for their answer")).toBeInTheDocument();
+    await waitFor(() => expect(harness.toast.success).toHaveBeenCalledWith("Location Request sent"));
   });
 
   it("shows an existing pending request instead of a second Ask button", async () => {

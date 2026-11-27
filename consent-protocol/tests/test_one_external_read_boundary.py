@@ -538,6 +538,9 @@ def test_post_read_guard_refuses_an_invented_tool_even_if_model_ignores_empty_to
         "calendar_event_detail",
         "calendar_availability",
         "calendar_free_slots",
+        "calendar_shared_free_slots",
+        "calendar_opening_detail",
+        "search_my_contacts",
     ],
 )
 def test_each_calendar_read_blocks_a_later_action_in_the_same_turn(read_name):
@@ -1496,6 +1499,50 @@ def test_calendar_invitation_continuation_admits_only_exact_client_review_tool()
     assert before_external_read_tool(exact, {}, context)["status"] == "blocked"
 
 
+def test_scheduling_contacts_admits_one_exact_openings_read_after_the_lookup():
+    from hushh_mcp.agents.calendar.tools import calendar_free_slots, propose_calendar_event
+    from hushh_mcp.pod_connectors.contacts_tool import (
+        STATE_CONTACT_CALENDAR_READ,
+        search_my_contacts,
+    )
+
+    context = SimpleNamespace(
+        invocation_id="read",
+        user_id="owner",
+        state={STATE_EXECUTION_SURFACE: "typed_chat"},
+    )
+    assert before_external_read_tool(FunctionTool(search_my_contacts), {}, context) is None
+    exact = FunctionTool(calendar_free_slots)
+    window = {
+        "start_at": "2026-11-13T12:00:00Z",
+        "end_at": "2026-11-13T14:00:00Z",
+        "duration_minutes": 30,
+    }
+    # The Contacts tool writes this only after a successful scheduling lookup.
+    context.state[STATE_CONTACT_CALENDAR_READ] = {"invocation": "read", **window, "limit": 3}
+    assert before_external_read_tool(exact, window, context)["status"] == "blocked"
+    proposal = FunctionTool(propose_calendar_event)
+    request = SimpleNamespace(
+        tools_dict={tool.name: tool for tool in (exact, proposal)},
+        config=types.GenerateContentConfig(),
+    )
+    before_external_read_model(context, request)
+    assert set(request.tools_dict) == {"calendar_free_slots", "propose_calendar_event"}
+    assert (
+        before_external_read_tool(SimpleNamespace(name="calendar_free_slots"), {}, context)[
+            "status"
+        ]
+        == "blocked"
+    )
+    assert (
+        before_external_read_tool(exact, {**window, "duration_minutes": 60}, context)["status"]
+        == "blocked"
+    )
+    assert before_external_read_tool(exact, window, context) is None
+    assert before_external_read_tool(exact, window, context)["status"] == "blocked"
+    assert before_external_read_tool(proposal, {}, context) is None
+
+
 @pytest.mark.parametrize(
     "name",
     ["propose_calendar_event", "propose_calendar_reschedule", "propose_calendar_cancellation"],
@@ -1531,8 +1578,15 @@ async def test_calendar_read_then_booking_prepares_review_without_executing_and_
     monkeypatch,
     needs_permission,
 ):
+    from hushh_mcp.agents.calendar import request_scope
     from hushh_mcp.agents.calendar import tools as calendar_tools
     from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
+
+    monkeypatch.setattr(
+        "hushh_mcp.agents.calendar.request_scope.scope_receipt",
+        lambda _: {"actions": ["create", "reschedule", "cancel", "respond"], "continuation": False},
+    )
+    monkeypatch.setattr(request_scope, "request_scope", AsyncMock(return_value=("create",)))
 
     plan = {
         "title": "PRIVATE_PROPOSAL_TITLE",
@@ -1617,5 +1671,198 @@ async def test_calendar_read_then_booking_prepares_review_without_executing_and_
         assert "PRIVATE_PROPOSAL" not in projected.model_dump_json()
         assert "hussh:pending_directive:calendar" not in projected.state
         assert session.state["hussh:pending_directive:calendar"]
+    finally:
+        await runner.close()
+
+
+@pytest.mark.parametrize(
+    ("status", "expected", "absent"),
+    [
+        ("connect_required", "Gmail isn’t connected yet", "reconnected"),
+        ("reconnect_required", "Gmail needs to be reconnected", "isn’t connected yet"),
+        ("permission_denied", "Gmail needs reading permission", "isn’t connected yet"),
+    ],
+)
+async def test_mail_connection_state_ends_turn_in_one_model_call_without_status_leak(
+    monkeypatch, status, expected, absent
+):
+    from hushh_mcp.one_adk import external_read_boundary as boundary
+
+    monkeypatch.setattr(boundary, "connector_feature_enabled", lambda *_: True)
+
+    async def ask_email_agent(request: str, tool_context: ToolContext) -> dict:
+        return {
+            "status": status,
+            "text": "Connect Mail in Connectors (connected: false, connection_state: needs_reauth)",
+            "structured": {"connector": "mail", "status": status, "sources": []},
+        }
+
+    model = _Model(
+        [
+            [
+                types.Part(
+                    function_call=types.FunctionCall(
+                        name="ask_email_agent",
+                        args={"request": "Which emails need a reply?"},
+                    )
+                )
+            ],
+            [types.Part(text="WRONG: model second call leaked (connection_state: needs_reauth).")],
+        ]
+    )
+    agent = agent_tree.build_one_text_agent(model=model)
+    agent.instruction = "Fixture root."
+    agent.tools = [ask_email_agent]
+    sessions = InMemorySessionService()
+    await sessions.create_session(app_name="one", user_id="owner", session_id=f"mail-{status}")
+    runner = Runner(agent=agent, app_name="one", session_service=sessions)
+    try:
+        events = [
+            event
+            async for event in runner.run_async(
+                user_id="owner",
+                session_id=f"mail-{status}",
+                new_message=types.Content(
+                    role="user", parts=[types.Part(text="Which emails need a reply?")]
+                ),
+                state_delta={STATE_EXECUTION_SURFACE: "typed_chat"},
+            )
+        ]
+        visible = " ".join(
+            part.text
+            for event in events
+            if event.content
+            for part in event.content.parts or []
+            if part.text and not part.thought
+        )
+        assert expected in visible and absent not in visible
+        assert "WRONG" not in visible and "connection_state" not in visible
+        assert len(model._advertised) == 1
+    finally:
+        await runner.close()
+
+
+@pytest.mark.parametrize(
+    ("reason_code", "expected"),
+    [
+        ("google_not_connected", "Google Calendar isn’t connected yet"),
+        ("google_reauthorization_required", "Google Calendar needs to be reconnected"),
+        ("google_permission_required", "Google Calendar needs your permission"),
+    ],
+)
+async def test_calendar_connection_state_ends_turn_in_one_model_call_and_keeps_directive(
+    reason_code, expected
+):
+    async def calendar_events(tool_context: ToolContext) -> dict:
+        tool_context.state["hussh:pending_directive:calendar"] = {
+            "kind": "action",
+            "delegateAgentId": "agent_calendar",
+            "payload": {"type": "calendar.connect", "reasonCode": reason_code},
+        }
+        return {
+            "status": "connection_required",
+            "reason_code": reason_code,
+            "message": "Connect Google Calendar.",
+        }
+
+    model = _Model(
+        [
+            [_call("calendar_events")],
+            [types.Part(text="WRONG: redundant second model call on calendar.")],
+        ]
+    )
+    agent = agent_tree.build_one_text_agent(model=model)
+    agent.instruction = "Fixture root."
+    agent.tools = [calendar_events]
+    sessions = InMemorySessionService()
+    await sessions.create_session(app_name="one", user_id="owner", session_id=f"cal-{reason_code}")
+    runner = Runner(agent=agent, app_name="one", session_service=sessions)
+    try:
+        events = [
+            event
+            async for event in runner.run_async(
+                user_id="owner",
+                session_id=f"cal-{reason_code}",
+                new_message=types.Content(
+                    role="user", parts=[types.Part(text="What is tomorrow?")]
+                ),
+                state_delta={STATE_EXECUTION_SURFACE: "typed_chat"},
+            )
+        ]
+        visible = " ".join(
+            part.text
+            for event in events
+            if event.content
+            for part in event.content.parts or []
+            if part.text and not part.thought
+        )
+        assert expected in visible and "WRONG" not in visible
+        assert len(model._advertised) == 1
+        session = await sessions.get_session(
+            app_name="one", user_id="owner", session_id=f"cal-{reason_code}"
+        )
+        assert session.state["hussh:pending_directive:calendar"]["payload"]["reasonCode"] == (
+            reason_code
+        )
+    finally:
+        await runner.close()
+
+
+async def test_mail_connection_detour_with_pkm_memory_answers_memory_without_json_leak(monkeypatch):
+    from hushh_mcp.one_adk import external_read_boundary as boundary
+    from hushh_mcp.one_adk.agent_tree import STATE_PKM_CONTEXT
+    from hushh_mcp.one_adk.request_secrets import store_request_secret
+
+    monkeypatch.setattr(boundary, "connector_feature_enabled", lambda *_: True)
+
+    async def ask_email_agent(request: str, tool_context: ToolContext) -> dict:
+        return {
+            "status": "reconnect_required",
+            "structured": {"connector": "mail", "status": "reconnect_required"},
+        }
+
+    model = _Model(
+        [
+            [
+                types.Part(
+                    function_call=types.FunctionCall(
+                        name="ask_email_agent",
+                        args={"request": "Anything from advisor?"},
+                    )
+                )
+            ],
+            [types.Part(text="Your advisor preference is saved in memory.")],
+        ]
+    )
+    agent = agent_tree.build_one_text_agent(model=model)
+    agent.tools = [ask_email_agent]
+    sessions = InMemorySessionService()
+    await sessions.create_session(app_name="one", user_id="owner", session_id="mail-memory")
+    runner = Runner(agent=agent, app_name="one", session_service=sessions)
+    try:
+        events = [
+            event
+            async for event in runner.run_async(
+                user_id="owner",
+                session_id="mail-memory",
+                new_message=types.Content(
+                    role="user", parts=[types.Part(text="What is my advisor preference?")]
+                ),
+                state_delta={
+                    STATE_EXECUTION_SURFACE: "typed_chat",
+                    STATE_PKM_CONTEXT: store_request_secret("# Profile\n- Preference: fiduciary."),
+                },
+            )
+        ]
+        answer = " ".join(
+            part.text
+            for event in events
+            if event.content
+            for part in event.content.parts or []
+            if part.text and not part.thought
+        )
+        assert "Your advisor preference is saved in memory." in answer
+        assert "CURRENT MAIL READ DID NOT PROVIDE MAILBOX EVIDENCE" in model._instructions[1]
+        assert "without raw status field names or JSON keys" in model._instructions[1]
     finally:
         await runner.close()

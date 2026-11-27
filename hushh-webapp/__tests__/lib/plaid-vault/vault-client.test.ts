@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiFetch = vi.fn();
+const ownerPodRequest = vi.fn();
 
 vi.mock("@/lib/services/api-service", () => ({
-  ApiService: { apiFetch: (...args: unknown[]) => apiFetch(...args) },
+  ApiService: {
+    apiFetch: (...args: unknown[]) => apiFetch(...args),
+    ownerPodRequest: (...args: unknown[]) => ownerPodRequest(...args),
+  },
 }));
 
 import {
@@ -25,6 +29,7 @@ function jsonResponse(status: number, body: unknown): Response {
 describe("plaid vault client", () => {
   beforeEach(() => {
     apiFetch.mockReset();
+    ownerPodRequest.mockReset();
   });
 
   it("posts each endpoint under /api/kai/plaid/vault with the vault-owner token", async () => {
@@ -84,5 +89,24 @@ describe("plaid vault client", () => {
     expect(redactTokens("bad access-production-1234-abcd and HCT:xyz.abc and Bearer abc.def")).toBe(
       "bad [redacted] and [redacted] and [redacted]"
     );
+  });
+
+  it("routes Plaid vault calls to ownerPodRequest when NEXT_PUBLIC_POD_PLAID_VAULT_ENABLED=true", async () => {
+    vi.stubEnv("NEXT_PUBLIC_POD_PLAID_VAULT_ENABLED", "true");
+    try {
+      ownerPodRequest.mockResolvedValue(
+        jsonResponse(200, { link_token: "link-sandbox-pod", expiration: "2026-12-01" })
+      );
+      const result = await createVaultLinkToken({
+        vaultOwnerToken: "HCT:owner",
+        request: { platform: "web", redirect_uri: "https://one.hussh.si/one/finance" },
+      });
+      expect(result.link_token).toBe("link-sandbox-pod");
+      expect(ownerPodRequest).toHaveBeenCalledTimes(1);
+      expect(ownerPodRequest.mock.calls[0]?.[0]).toBe("plaid/vault/link-token");
+      expect(apiFetch).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

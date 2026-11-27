@@ -1,5 +1,20 @@
 # Backend Semantic Boundary
 
+### Declared: Calendar request review ceiling
+
+The existing Calendar manifest owns `request_scope` meaning through a tool-free
+single turn over authenticated current/queued owner messages only. It uses the
+same admitted model as One. The host validates the closed action set, exact quote
+provenance and owner/conversation/invocation/message binding; it never classifies
+read-only language with keywords or infers an action from provider content.
+Before any read it freezes an expiring private receipt, initially denying reviews
+while assessment is pending. Missing, failed or expired authority cannot stage a
+booking, RSVP review or manage-permission card. Existing OAuth consent and the
+exact browser-confirmed executor remain independent. Scope refusal is recorded
+as `calendar.proposal_refused`, never as a successful provider action. Provider-free
+Chat runner tests cover enforcement; actual model interpretation and deployed
+provider behavior require separate read-only qualification.
+
 ### Declared: recipient-requested Finance object review
 
 `one_adk/finance_share_context.py` admits an explicit recipient-selected curated
@@ -231,6 +246,29 @@ Any new semantic backend feature must declare:
 - phase of live eval required before promotion
 
 If a feature cannot provide that declaration, it is not agent-only compliant.
+
+### Declared: Browser saved website sign-in
+
+- Owner: One delegates the existing task to its Browser specialist. Authored
+  instructions are `hushh_mcp/agents/one/agent.yaml` and
+  `hushh_mcp/agents/computer_use/agent.yaml`; there is no additional router.
+- Contract: the native `saved_website_logins` and `use_saved_website_login` hands
+  in `services/pod_browser/credential_tools.py` expose verified origins, opaque
+  handles and the explicit `CredentialUseRequest` target contract. The model
+  identifies the sign-in surface and targets. Passwords, usernames and TOTP
+  values are never model inputs or tool arguments.
+- Validators: current task/control epoch, exact HTTPS origin and explicit
+  masked input targets; current owner-item grant, recipient key, source and
+  record generations; saved use policy; one-use native form request commitment;
+  observation suppression, cleanup, action budget and replay fencing. Ambiguous
+  selection and unsupported authentication return to the owner controls. These
+  checks cannot infer a substitute DOM target or authorize unrelated actions.
+- Before capability promotion: run synthetic native-model sign-in, ambiguous
+  selection, malicious-page and manual-fallback journeys on each exact qualified
+  cloud image, followed by Web/iOS/Android owner acceptance. Current controlled
+  Chromium, ADK contract and PostgreSQL checks prove their bounded contracts;
+  they do not replace live model or installed-image acceptance. Credential
+  qualification remains closed until that evidence exists.
 
 ### Declared: Agent One portfolio review
 
@@ -1338,3 +1376,20 @@ agent is added.
   retries forever.
 - Live eval before promotion: mocked contract tests for the host policy only.
   Durable-fact quality on real owner activity is unmeasured.
+
+### Declared: connector connection-readiness preflight and post-tool boundary
+
+- Owner: Email, Drive, Calendar, and One ADK turn orchestration
+  (`GmailReceiptsService.preflight_mail_read_status`,
+  `PodLocalEmailReadPort.preflight_mail_read_status`,
+  `EmailChatService.handle_delegated_turn`, `agent_tree.ask_email_agent` /
+  `ask_documents_agent`, `pod_connector_tools.calendar_turn_refusal`, and
+  `external_read_boundary`).
+- Non-semantic gate only: inspects stored OAuth connection status (`status`,
+  `revoked`, granted scopes), Data Door grant presence, and pod placement
+  (`private_pod_runtime` vs `owner_cloud_agent`) strictly before invoking a
+  specialist planner LLM or emitting a post-tool `One` summary call.
+- Never inspects user message phrasing, intent keywords, or mailbox/file/event
+  text; semantically choosing which connector or operation the user asked for
+  remains exclusively inside the ADK model layers.
+

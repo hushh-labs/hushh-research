@@ -1,5 +1,6 @@
 "use client";
 
+import connectTypography from "@/lib/morphy-ux/ui/connect-type-scale.module.css";
 import { toast } from "sonner";
 
 import {
@@ -71,7 +72,7 @@ export function createConnectCircleActions({
           kind,
           ...(customTypeLabel ? { customTypeLabel } : {}),
         });
-        toast.success(existingCircleId ? "Circle updated." : `${circle.name} created.`);
+        toast.success(existingCircleId ? "Circle updated." : `${circle.name} created.`, { className: connectTypography.toast });
         return circle;
       }),
 
@@ -91,7 +92,7 @@ export function createConnectCircleActions({
         toast.success(
           result.joined
             ? `You're in ${result.circle.name}.`
-            : `You're already in ${result.circle.name}.`,
+            : `You're already in ${result.circle.name}.`, { className: connectTypography.toast },
         );
         return result.circle;
       }),
@@ -125,7 +126,7 @@ export function createConnectCircleActions({
           circleId,
           name,
         });
-        toast.success("Circle renamed.");
+        toast.success("Circle renamed.", { className: connectTypography.toast });
         return circle;
       }),
 
@@ -172,7 +173,7 @@ export function createConnectCircleActions({
           circleId,
           inviteeUserIds,
         });
-        if (notify) toast.success("Circle members updated.");
+        if (notify) toast.success("Circle members updated.", { className: connectTypography.toast });
         return added;
       }),
 
@@ -191,21 +192,21 @@ export function createConnectCircleActions({
           circleId,
           memberUserId,
         });
-        toast.success("Removed from the Circle.");
+        toast.success("Removed from the Circle.", { className: connectTypography.toast });
       }),
 
     leaveCircle: (circleId: string, notify = true) =>
       guard("Could not leave the Circle.", async () => {
         await OneLocationService.leaveNamedCircle({ vaultOwnerToken, circleId });
-        if (notify) toast.success("You left the Circle.");
+        if (notify) toast.success("You left the Circle.", { className: connectTypography.toast });
       }),
 
     copyCode: async (code: string) => {
       if (await copyToClipboard(code)) {
-        toast.success("Circle code copied.");
+        toast.success("Circle code copied.", { className: connectTypography.toast });
         return;
       }
-      toast.error("Could not copy the Circle code.");
+      toast.error("Could not copy the Circle code.", { className: connectTypography.toast });
     },
 
     shareCode: async (circle: OneLocationCircleOverview, code: string) => {
@@ -228,9 +229,9 @@ export function createConnectCircleActions({
           dialogTitle: "Share Circle code",
           url: joinUrl,
         });
-        if (delivery === "copied") toast.success("Circle code copied.");
+        if (delivery === "copied") toast.success("Circle code copied.", { className: connectTypography.toast });
       } catch {
-        toast.error("Could not share the Circle code.");
+        toast.error("Could not share the Circle code.", { className: connectTypography.toast });
       }
     },
 
@@ -240,7 +241,7 @@ export function createConnectCircleActions({
           vaultOwnerToken,
           circleId,
         });
-        if (notify) toast.success("Circle deleted.");
+        if (notify) toast.success("Circle deleted.", { className: connectTypography.toast });
       }),
   };
 }

@@ -67,6 +67,7 @@ vi.mock("@/lib/services/api-service", async () => {
   const ApiService = {
     apiFetch: record.hubFetch,
     getPersonalAgentStatus: async () => calls.hosting,
+    getPersonalAgentStatusForRouting: async () => calls.hosting,
     ownerPodRequest: direct,
     agentChatRequest: (path: string, init: RequestInit) =>
       access.agentChatRequest(path, init, {

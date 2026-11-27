@@ -22,6 +22,7 @@ def test_connection_email_verification_comes_from_counterpart_identity(verified)
         ]
 
     with (
+        patch("hushh_mcp.services.connections_service.active_directory_user_ids", side_effect=set),
         patch.object(service, "_execute_many", side_effect=rows),
         patch.object(service, "_verified_ria_user_ids", return_value=set()),
         patch.object(service, "_public_person_refs", return_value={}),
@@ -30,4 +31,4 @@ def test_connection_email_verification_comes_from_counterpart_identity(verified)
 
     assert result[0]["email"] == "peer@example.test"
     assert result[0]["emailVerified"] is (verified is True)
-    assert "a.email_verified" in statements[0]
+    assert "a.email_verified" in statements[1]

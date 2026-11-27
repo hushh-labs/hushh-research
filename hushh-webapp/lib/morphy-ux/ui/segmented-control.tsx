@@ -196,10 +196,23 @@ export function SegmentedControl({
         className
       )}
     >
-      {isSliding ? <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 inset-y-1 rounded-full bg-black/[0.05] dark:bg-white/[0.07]" /> : null}
-      {isSliding && activeIndex >= 0 ? <span aria-hidden="true" data-slot="segmented-selection"
-        className="pointer-events-none absolute inset-y-[7px] left-[3px] rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.12)] dark:bg-neutral-800 dark:shadow-[0_1px_2px_rgba(0,0,0,0.4)] transition-transform duration-150 ease-out motion-reduce:transition-none"
-        style={{ width: `calc((100% - 6px) / ${options.length})`, transform: `translateX(${activeIndex * 100}%)` }} /> : null}
+      {isSliding ? (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 inset-y-1 rounded-full bg-black/[0.045] ring-1 ring-inset ring-black/[0.05] dark:bg-white/[0.07] dark:ring-white/[0.08]"
+        />
+      ) : null}
+      {isSliding && activeIndex >= 0 ? (
+        <span
+          aria-hidden="true"
+          data-slot="segmented-selection"
+          className="pointer-events-none absolute inset-y-[7px] left-[3px] rounded-full bg-white shadow-[0_1px_2.5px_rgba(0,0,0,0.10),0_0_0_0.5px_rgba(0,0,0,0.04)] transition-transform duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none dark:bg-white/[0.16] dark:shadow-[0_1px_2.5px_rgba(0,0,0,0.38),inset_0_0.5px_0_rgba(255,255,255,0.12)]"
+          style={{
+            width: `calc((100% - 6px) / ${options.length})`,
+            transform: `translate3d(${activeIndex * 100}%, 0, 0)`,
+          }}
+        />
+      ) : null}
       {options.map((option, index) => {
         const isActive = value === option.value;
         const Icon = option.icon;
@@ -223,21 +236,21 @@ export function SegmentedControl({
             onClick={() => moveTo(index)}
             className={cn(
               // Base styles
-              "relative flex items-center justify-center rounded-full select-none",
+              "group/segment relative flex items-center justify-center rounded-full select-none",
               isSliding ? "gap-1" : "gap-1.5",
-              // A press is flat: colour and the ripple, never a scale. The
-              // duration comes off the motion scale (a 500ms transition once
-              // left the segment sagging under the thumb).
-              "transition-[color,background-color,box-shadow] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-              "overflow-hidden font-normal tracking-tight",
-              isSliding ? "z-10 h-full min-w-0 px-0.5" : config.segment,
+              // Critically damped color/shadow transitions; Dual-Envelope keeps
+              // the 44pt hit area on `sliding` while clipping paint & ripples
+              // strictly inside the 30pt inner capsule (`inset-y-[7px]`).
+              "transition-[color,background-color,box-shadow] duration-[180ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
+              isSliding ? "z-10 h-full min-w-0 overflow-visible px-0.5 focus-visible:outline-none" : config.segment,
+              !isSliding && "overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+              "font-normal tracking-tight",
               mobileColumns === 2 && !isSliding && "min-h-11",
 
               // Active state
-              isActive && (isSliding ? "text-slate-950 dark:text-white" : [
-                "bg-white text-neutral-900 font-semibold shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)]",
-                "dark:bg-white/[0.16] dark:text-white dark:shadow-[0_1px_2px_rgba(0,0,0,0.25)]",
+              isActive && (isSliding ? "text-slate-950 font-semibold dark:text-white" : [
+                "bg-white text-neutral-900 font-semibold shadow-[0_1px_2.5px_rgba(0,0,0,0.08),0_0_0_0.5px_rgba(0,0,0,0.04)]",
+                "dark:bg-white/[0.16] dark:text-white dark:shadow-[0_1px_2.5px_rgba(0,0,0,0.34),inset_0_0.5px_0_rgba(255,255,255,0.1)]",
               ]),
 
               // Inactive state
@@ -254,12 +267,23 @@ export function SegmentedControl({
               !isExpanding && "flex-1",
             )}
           >
+            {isSliding ? (
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "pointer-events-none absolute inset-x-[1px] inset-y-[7px] rounded-full transition-colors duration-150",
+                  !isActive &&
+                    "[@media(hover:hover)_and_(pointer:fine)]:group-hover/segment:bg-foreground/[0.045]",
+                  "group-focus-visible/segment:ring-2 group-focus-visible/segment:ring-[color:var(--app-focus-ring)]",
+                )}
+              />
+            ) : null}
             {/* Icon */}
             {Icon && (
               <Icon
                 className={cn(
                   config.icon,
-                  "transition-transform duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
+                  "relative z-10 transition-transform duration-[180ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
                   isActive && !isSliding && "scale-105",
                   iconClassName,
                 )}
@@ -271,7 +295,7 @@ export function SegmentedControl({
             {isExpanding ? (
               <div
                 className={cn(
-                  "overflow-hidden transition-[opacity,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] flex items-center",
+                  "relative z-10 overflow-hidden transition-[opacity,transform] duration-[180ms] ease-[cubic-bezier(0.22,1,0.36,1)] flex items-center",
                   isActive
                     ? "w-auto max-w-[100px] opacity-100 ml-0.5"
                     : "w-0 max-w-0 opacity-0"
@@ -282,13 +306,18 @@ export function SegmentedControl({
                 </span>
               </div>
             ) : (
-              <span className={cn("whitespace-nowrap", labelClassName)}>
+              <span className={cn("relative z-10 whitespace-nowrap", labelClassName)}>
                 {option.label}
               </span>
             )}
 
-            {/* Material 3 Ripple */}
-            <MaterialRipple variant="link" effect="glass" />
+            {/* Contained Silk Ripple — strictly clipped to the painted capsule */}
+            <MaterialRipple
+              variant="none"
+              effect="glass"
+              disableHover
+              className={isSliding ? "inset-x-[1px] inset-y-[7px] rounded-full" : undefined}
+            />
           </button>
         );
       })}

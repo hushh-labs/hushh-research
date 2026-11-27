@@ -1,3 +1,10 @@
+.surface {
+  composes: conversationMetrics from "../../direct-messages/direct-messages-page.module.css";
+}
+.transcript { padding-inline: var(--messages-pane-inset); }
+.attachButton {
+  composes: attachButton from "../../direct-messages/direct-messages-page.module.css";
+}
 .composer {
   composes: composer from "../../direct-messages/direct-messages-page.module.css";
   --chat-accent: var(--chat-ios-accent);
@@ -13,7 +20,7 @@
 .composer :global([data-conversation-composer]) {
   align-items: center;
   width: 100%;
-  gap: 6px;
+  gap: var(--messages-composer-gap);
 }
 .composer :global([data-slot="input-group"]) {
   background: transparent;
@@ -21,9 +28,11 @@
   box-shadow: none;
 }
 .composer :global([data-conversation-composer] textarea) {
-  font-size: 16px;
-  line-height: 24px;
-  padding-inline: 0;
+  min-height: var(--messages-control-size);
+  max-height: var(--messages-editor-max-size);
+  font-size: var(--messages-body-size);
+  line-height: var(--messages-editor-line);
+  padding: var(--messages-editor-inset-block) 0;
   background: transparent;
   color: var(--chat-text);
 }
@@ -40,6 +49,7 @@
 }
 
 .composer > p { width: 100%; }
+.latestControl { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: var(--messages-row-gap); z-index: 10; }
 
 .composer :global([data-conversation-composer] > button:not([type="submit"])) {
   border: 0;

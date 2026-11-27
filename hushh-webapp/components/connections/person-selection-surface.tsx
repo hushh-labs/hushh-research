@@ -3,6 +3,10 @@
 import { useId, type ButtonHTMLAttributes, type Ref } from "react";
 import { cn } from "@/lib/utils";
 
+/** Match the light hover and press treatment of shared settings rows. */
+export const PERSON_ROW_FEEDBACK_CLASSNAME =
+  "transition-colors motion-reduce:transition-none [@media(hover:hover)]:hover:bg-[color:color-mix(in_srgb,var(--app-label)_4%,transparent)] active:bg-[color:color-mix(in_srgb,var(--app-label)_6.5%,transparent)]";
+
 /** A selection action and an avatar are sibling buttons with the original row geometry. */
 export function PersonSelectionSurface({ children, className, style, surfaceRef, preserveChildPositioning = false, ...action }: ButtonHTMLAttributes<HTMLButtonElement> & { ref?: Ref<HTMLButtonElement>; surfaceRef?: Ref<HTMLDivElement>; preserveChildPositioning?: boolean }) {
   const contentId = useId();

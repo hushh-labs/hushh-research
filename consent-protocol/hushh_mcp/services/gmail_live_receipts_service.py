@@ -18,7 +18,8 @@ import json
 import logging
 import os
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import parseaddr, parsedate_to_datetime
@@ -35,6 +36,11 @@ from hushh_mcp.agents.email.runtime import (
     run_email_gene,
 )
 from hushh_mcp.runtime_settings import get_core_security_settings
+from hushh_mcp.services.calendar_email_followup_account import (
+    SelectedMailAccessError,
+    SelectedMailGrant,
+    open_selected_mail_grant,
+)
 from hushh_mcp.services.gmail_message_text import MessageTextError, cap_utf8, message_text
 from hushh_mcp.services.gmail_receipt_amounts import SUFFIX_TOTAL as _SUFFIX_TOTAL
 from hushh_mcp.services.gmail_receipt_amounts import TOTAL as _TOTAL
@@ -51,6 +57,7 @@ from hushh_mcp.services.gmail_receipts_service import (
     GmailReceiptsService,
     get_gmail_receipts_service,
 )
+from hushh_mcp.services.google_connection_contract import GoogleConnectionError
 
 _BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
 _logger = logging.getLogger(__name__)
@@ -110,6 +117,38 @@ _EXTRACTOR_RETRIES = 1
 # counted with extractor_not_receipt instead of failing every other receipt on
 # the page. One such message used to block an owner's whole sync (UAT, Oct 22-29).
 _UNVERIFIED = "GMAIL_RECEIPT_EXTRACTION_UNVERIFIED"
+# One answer the model gave for one message could not be used (cut off, not
+# JSON, or off-schema). It is permanent for that answer, so it is never replayed,
+# but it must not decide the other messages on its page: UAT, Nov 26, a single
+# unreadable answer failed every scan of its page (502, not retryable), so the
+# owner's sync stalled on the same page on every attempt.
+_INVALID = "GMAIL_RECEIPT_EXTRACTION_INVALID"
+_UNREADABLE = "extractor_unreadable"  # internal; reported as extractor_not_receipt
+# A page where no answer at all was usable is a failing model, not one odd
+# email. That page still fails, so it can never pass for an empty mailbox.
+_DECODE_STAGES = frozenset({"invalid_json", "schema_mismatch", "empty_response"})
+
+
+def _schema_property_names(node: Any) -> frozenset[str]:
+    """Every property name the extractor's own output schema defines."""
+
+    names: set[str] = set()
+    if isinstance(node, dict):
+        properties = node.get("properties")
+        if isinstance(properties, dict):
+            names.update(str(name) for name in properties)
+        for child in node.values():
+            names.update(_schema_property_names(child))
+    elif isinstance(node, list):
+        for child in node:
+            names.update(_schema_property_names(child))
+    return frozenset(names)
+
+
+_EXTRACTOR_SCHEMA_FIELDS = _schema_property_names(EMAIL_LIVE_RECEIPT_EXTRACTOR_SCHEMA)
+_SCHEMA_KEYWORDS = frozenset(
+    {"required", "type", "enum", "anyOf", "items", "minItems", "maxItems", "additionalProperties"}
+)
 _RETRYABLE_EXTRACTION_CODES = frozenset(
     {
         "GMAIL_RECEIPT_EXTRACTION_TIMEOUT",
@@ -175,6 +214,7 @@ class _ReadAuthority:
     binding: tuple[str, ...]
     access_token: str
     require_access: RequireAccess | None = None
+    selected_grant: SelectedMailGrant | None = None
     # Google can reject a token before its recorded expiry. One request may
     # refresh it once and re-pin the same account's grant; never more.
     token_refreshed: bool = False
@@ -889,6 +929,120 @@ def _validated_projection(
     }
 
 
+class ReceiptReadSession:
+    """One owner-pinned, bounded Gmail read for a reader that needs more than receipts.
+
+    The receipt-notice reader uses this to open the owner's own receipt emails
+    and the other mail from the same providers. It cannot choose a different
+    owner or mailbox: authority, token refresh, the response budget and the
+    sealed source identifiers all stay with :class:`GmailLiveReceiptsService`.
+    """
+
+    def __init__(
+        self,
+        service: GmailLiveReceiptsService,
+        authority: _ReadAuthority,
+        client: httpx.AsyncClient,
+        budget: list[int],
+    ) -> None:
+        self._service = service
+        self._authority = authority
+        self._client = client
+        self._budget = budget
+
+    @property
+    def account(self) -> str:
+        return self._authority.account
+
+    def message_id_for(self, key: str) -> str | None:
+        """Resolve a sealed locator or a signed source id to this mailbox's message id."""
+
+        if not isinstance(key, str):
+            return None
+        if key.startswith("grs1_"):
+            return self._service._open_locator(self._authority, key)
+        message_id = self._service._message_id_from_source(key)
+        if message_id and hmac.compare_digest(
+            key, self._service._source_id(self._authority, message_id)
+        ):
+            return message_id
+        return None
+
+    def locator(self, message_id: str) -> str:
+        """A fresh sealed routing key that opens this message for this owner only."""
+
+        return self._service._sealed_locator(self._authority, message_id)
+
+    def stable_id(self, message_id: str) -> str:
+        """A deterministic identifier for this message that reveals no provider id."""
+
+        return self._service._event_id(self._authority, message_id)[:24]
+
+    async def list_ids(self, query: str, limit: int) -> list[str]:
+        listing = await self._service._get(
+            client=self._client,
+            authority=self._authority,
+            path="/messages",
+            params={
+                "q": query,
+                "maxResults": max(1, min(25, int(limit))),
+                "includeSpamTrash": "false",
+                "fields": "messages(id,threadId)",
+            },
+            budget=self._budget,
+        )
+        found = listing.get("messages") if isinstance(listing, dict) else None
+        if not isinstance(found, list):
+            return []
+        ids: list[str] = []
+        for item in found:
+            message_id = item.get("id") if isinstance(item, dict) else None
+            if isinstance(message_id, str) and _PROVIDER_ID.fullmatch(message_id):
+                ids.append(message_id)
+        return ids
+
+    async def fetch(self, message_ids: list[str]) -> list[dict[str, Any]]:
+        """Full messages; ones deleted since they were listed are skipped, not errors."""
+
+        return await self._service._fetch_messages(
+            client=self._client,
+            authority=self._authority,
+            message_ids=list(message_ids),
+            budget=self._budget,
+            missing=[],
+        )
+
+    async def require_current(self) -> None:
+        await self._service._require_current(
+            authority=self._authority, require_access=self._authority.require_access
+        )
+
+
+def _extraction_failure_detail(error: BaseException) -> str:
+    """Which stage and schema field broke one answer, with no answer or email text.
+
+    Only fixed labels and the extractor schema's own property names are ever
+    returned, so the line is safe to log and exact enough to act on.
+    """
+
+    stage = getattr(error, "stage", None)
+    parts = [f"stage={stage if stage in _DECODE_STAGES else 'value_error'}"]
+    keyword = getattr(error, "keyword", None)
+    if keyword in _SCHEMA_KEYWORDS:
+        parts.append(f"keyword={keyword}")
+    fields = _EXTRACTOR_SCHEMA_FIELDS
+    named = [name for name in getattr(error, "path", ()) if name in fields]
+    if named:
+        parts.append("field=" + ".".join(named))
+    chars = getattr(error, "chars", None)
+    if isinstance(chars, int) and not isinstance(chars, bool):
+        parts.append(f"chars={chars}")
+    closed = getattr(error, "closed", None)
+    if isinstance(closed, bool):
+        parts.append(f"closed={str(closed).lower()}")
+    return " ".join(parts)
+
+
 class GmailLiveReceiptsService:
     """One stateless receipt page/detail read per owner-authorized request."""
 
@@ -899,11 +1053,13 @@ class GmailLiveReceiptsService:
         transport: httpx.AsyncBaseTransport | None = None,
         source_secret: bytes | None = None,
         extractor: Extractor | None = None,
+        model: Any | None = None,
     ) -> None:
         self._gmail = gmail or get_gmail_receipts_service()
         self._transport = transport
         self._source_secret = source_secret
         self._extractor = extractor or self._run_extractor
+        self._model = model
         self._active_scans: dict[str, _ScanLease] = {}
         self._active_owners_guard = asyncio.Lock()
         self._scan_connections = asyncio.Semaphore(_SCAN_CONNECTIONS_PER_WORKER)
@@ -1093,6 +1249,7 @@ class GmailLiveReceiptsService:
                 output_schema=EMAIL_LIVE_RECEIPT_EXTRACTOR_SCHEMA,
                 timeout_seconds=_EXTRACTOR_TIMEOUT_SECONDS,
                 retry_on_failure=False,
+                **({"model": self._model} if self._model is not None else {}),
             )
         except TimeoutError:
             raise GmailApiError(
@@ -1108,6 +1265,9 @@ class GmailLiveReceiptsService:
             while current is not None and id(current) not in seen:
                 seen.add(id(current))
                 if isinstance(current, ValueError):
+                    _logger.warning(
+                        "live_receipt_extraction_invalid %s", _extraction_failure_detail(current)
+                    )
                     raise GmailApiError(
                         "Receipt extraction returned an invalid result.",
                         status_code=502,
@@ -1214,8 +1374,45 @@ class GmailLiveReceiptsService:
             if active is not None and active.identity is identity:
                 self._active_scans.pop(user_id, None)
 
-    async def _authority(self, *, user_id: str, require_access: RequireAccess) -> _ReadAuthority:
+    @staticmethod
+    async def _open_selected_grant(
+        user_id: str, account_id: str, *, force_refresh: bool = False
+    ) -> SelectedMailGrant:
+        try:
+            return await open_selected_mail_grant(
+                user_id=user_id, account_id=account_id, force_refresh=force_refresh
+            )
+        except SelectedMailAccessError as exc:
+            raise GmailApiError(
+                "Check access to the selected mailbox.",
+                status_code=409,
+                code="GMAIL_CONNECTION_CHANGED",
+            ) from exc
+        except GoogleConnectionError as exc:
+            code = (
+                "GMAIL_REAUTH_REQUIRED"
+                if exc.status_code in (401, 403)
+                else "GMAIL_PROVIDER_UNAVAILABLE"
+            )
+            raise GmailApiError(
+                "The selected mailbox is unavailable.", status_code=exc.status_code, code=code
+            ) from exc
+
+    async def _authority(
+        self, *, user_id: str, require_access: RequireAccess, account_id: str = "default"
+    ) -> _ReadAuthority:
         await require_access()
+        if account_id != "default":
+            grant = await self._open_selected_grant(user_id, account_id)
+            return _ReadAuthority(
+                user_id,
+                grant.provider_subject,
+                grant.epoch_digest,
+                grant.mail_binding,
+                grant.token,
+                require_access,
+                selected_grant=grant,
+            )
         # Refresh first, then observe the public grant binding. A refresh changes
         # the connection row revision, so capturing the binding before it would
         # reject this service's own successful refresh.
@@ -1247,6 +1444,16 @@ class GmailLiveReceiptsService:
         self, *, authority: _ReadAuthority, require_access: RequireAccess
     ) -> None:
         await require_access()
+        if authority.selected_grant is not None:
+            try:
+                await authority.selected_grant.require_current()
+            except SelectedMailAccessError as exc:
+                raise GmailApiError(
+                    "The selected mailbox changed.",
+                    status_code=409,
+                    code="GMAIL_CONNECTION_CHANGED",
+                ) from exc
+            return
         current = await self._gmail.read_grant_binding(user_id=authority.user_id)
         if current != authority.binding:
             raise GmailApiError(
@@ -1272,6 +1479,18 @@ class GmailLiveReceiptsService:
             authority.token_refreshed = True
             if authority.require_access is not None:
                 await authority.require_access()
+            if authority.selected_grant is not None:
+                fresh = await self._open_selected_grant(
+                    authority.user_id, authority.selected_grant.account_id, force_refresh=True
+                )
+                if fresh.epoch_digest != authority.connected_at:
+                    raise GmailApiError(
+                        "The selected mailbox changed.",
+                        status_code=409,
+                        code="GMAIL_CONNECTION_CHANGED",
+                    )
+                authority.access_token = fresh.token
+                return
             try:
                 access_token = await self._gmail.get_read_access_token(
                     user_id=authority.user_id, force_refresh=True
@@ -1646,6 +1865,8 @@ class GmailLiveReceiptsService:
                     except GmailApiError as exc:
                         if exc.code == _UNVERIFIED and attempt >= _EXTRACTOR_RETRIES:
                             return None, evidence, "extractor_not_receipt"  # Not verified.
+                        if exc.code == _INVALID:
+                            return None, evidence, _UNREADABLE  # Judged with its page below.
                         if (
                             exc.code not in _RETRYABLE_EXTRACTION_CODES
                             or attempt >= _EXTRACTOR_RETRIES
@@ -1656,7 +1877,31 @@ class GmailLiveReceiptsService:
             return item, evidence, None if item else "extractor_not_receipt"
 
         tasks = [asyncio.create_task(one(message)) for message in messages]
-        return list(await self._await_tasks(tasks))
+        results = list(await self._await_tasks(tasks))
+        unreadable = sum(reason == _UNREADABLE for _item, _evidence, reason in results)
+        if not unreadable:
+            return results
+        assessed = sum(
+            item is not None or reason == "extractor_not_receipt"
+            for item, _evidence, reason in results
+        )
+        if not assessed:
+            raise GmailApiError(
+                "Receipt extraction returned an invalid result.",
+                status_code=502,
+                code=_INVALID,
+            )
+        # One unusable answer is not a receipt we can vouch for, which is how
+        # an unverifiable one is already counted; the other messages still count.
+        _logger.warning(
+            "live_receipt_unreadable_skipped unreadable=%d page_candidates=%d",
+            unreadable,
+            len(results),
+        )
+        return [
+            (item, evidence, "extractor_not_receipt" if reason == _UNREADABLE else reason)
+            for item, evidence, reason in results
+        ]
 
     async def scan(
         self,
@@ -1670,6 +1915,7 @@ class GmailLiveReceiptsService:
         checkpoint: str | None = None,
         incremental: bool = False,
         expected_account: str | None = None,
+        account_id: str = "default",
     ) -> dict[str, Any]:
         # A process-local lease cannot fence another Cloud Run instance. A
         # nonblocking session lock shares the owner lane across instances;
@@ -1696,6 +1942,7 @@ class GmailLiveReceiptsService:
                         checkpoint=checkpoint,
                         incremental=incremental,
                         expected_account=expected_account,
+                        account_id=account_id,
                     )
         except DedicatedConnectionCapacityError:
             raise GmailApiError(
@@ -1724,12 +1971,15 @@ class GmailLiveReceiptsService:
         checkpoint: str | None = None,
         incremental: bool = False,
         expected_account: str | None = None,
+        account_id: str = "default",
     ) -> dict[str, Any]:
         page = max(1, min(_MAX_PAGE, int(page)))
         per_page = max(1, min(_MAX_PER_PAGE, int(per_page)))
         try:
             async with asyncio.timeout(_DEADLINE_SECONDS):
-                authority = await self._authority(user_id=user_id, require_access=require_access)
+                authority = await self._authority(
+                    user_id=user_id, require_access=require_access, account_id=account_id
+                )
                 if expected_account is not None and authority.account != expected_account:
                     raise GmailApiError(
                         "The Mail account changed. Reopen Mail to continue.",
@@ -2007,6 +2257,29 @@ class GmailLiveReceiptsService:
             response_budget=_RESPONSE_BUDGET,
         )
 
+    @asynccontextmanager
+    async def read_session(
+        self,
+        *,
+        user_id: str,
+        require_access: RequireAccess,
+        expected_account: str | None = None,
+        account_id: str = "default",
+    ) -> AsyncIterator[ReceiptReadSession]:
+        authority = await self._authority(
+            user_id=user_id, require_access=require_access, account_id=account_id
+        )
+        if expected_account is not None and authority.account != expected_account:
+            raise GmailApiError(
+                "The Mail account changed. Reopen Mail to continue.",
+                status_code=409,
+                code="GMAIL_RECEIPT_ACCOUNT_CHANGED",
+            )
+        async with httpx.AsyncClient(
+            transport=self._transport, timeout=10, follow_redirects=False
+        ) as client:
+            yield ReceiptReadSession(self, authority, client, [_RESPONSE_BUDGET])
+
     async def detail(
         self,
         *,
@@ -2014,6 +2287,7 @@ class GmailLiveReceiptsService:
         source_id: str,
         consent_token: str,
         require_access: RequireAccess,
+        account_id: str = "default",
     ) -> dict[str, Any]:
         sealed_locator = source_id.startswith("grs1_")
         gmail_message_id = None if sealed_locator else self._message_id_from_source(source_id)
@@ -2025,7 +2299,9 @@ class GmailLiveReceiptsService:
             )
         try:
             async with asyncio.timeout(_DEADLINE_SECONDS):
-                authority = await self._authority(user_id=user_id, require_access=require_access)
+                authority = await self._authority(
+                    user_id=user_id, require_access=require_access, account_id=account_id
+                )
                 if sealed_locator:
                     gmail_message_id = self._open_locator(authority, source_id)
                 if not gmail_message_id or (
@@ -2113,4 +2389,18 @@ def get_gmail_live_receipts_service() -> GmailLiveReceiptsService:
     return _live_receipts_service
 
 
-__all__ = ["GmailLiveReceiptsService", "get_gmail_live_receipts_service"]
+# Pure evidence helpers shared with the receipt-notice reader.
+message_evidence = _evidence
+message_headers = _header_map
+message_iso_date = _iso_date
+preferred_total = _preferred_total
+
+__all__ = [
+    "GmailLiveReceiptsService",
+    "ReceiptReadSession",
+    "get_gmail_live_receipts_service",
+    "message_evidence",
+    "message_headers",
+    "message_iso_date",
+    "preferred_total",
+]

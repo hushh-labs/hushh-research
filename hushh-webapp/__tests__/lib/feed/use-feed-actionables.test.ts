@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { latestFeedSmsGrants } from "@/lib/feed/feed-sms-grants";
 
 import {
-  buildDebateFeedAnalysisHref,
-  classifyDebateFeedState,
+  isDebateSaveActionable,
   isActiveSmsEmergencyGrant,
   isConsentFeedActionable,
   documentDecisionErrorCopy,
@@ -22,6 +22,31 @@ import type {
 
 const ME = "user-me";
 const CONTACT = "user-contact";
+
+describe("latest SMS Feed incident", () => {
+  const grant = (id: string, createdAt: string, extra: Partial<OneLocationGrant> = {}) => ({
+    id, feedSmsConfirmed: true, ownerUserId: CONTACT, recipientUserId: ME, shareKind: "sos", status: "active", createdAt,
+    ...extra,
+  } as OneLocationGrant);
+
+  it("selects before Clear and preserves independent senders", () => {
+    const old = grant("a", "2026-11-13T08:00:00Z");
+    const latest = grant("b", "2026-11-13T08:05:00Z", { status: "revoked", recipientClearedAt: "2026-11-13T08:10:00Z" });
+    const other = grant("c", "2026-11-13T08:06:00Z", { ownerUserId: "other" });
+    const selected = latestFeedSmsGrants([old, other, latest, old], ME);
+    expect(selected.map(value => value.id).sort()).toEqual(["b", "c"]);
+    expect(selected.filter(value => !value.recipientClearedAt).map(value => value.id)).toEqual(["c"]);
+  });
+
+  it("does not revive an older retained alert or replace it with an unconfirmed draft", () => {
+    const old = grant("a", "2026-11-13T08:00:00Z", { feedLatestSms: false });
+    const draft = grant("b", "2026-11-13T08:05:00Z", { feedSmsConfirmed: false });
+    expect(latestFeedSmsGrants([old, draft], ME)).toEqual([]);
+    expect(latestFeedSmsGrants([{ ...old, feedLatestSms: true }, draft], ME).map(value => value.id)).toEqual(["a"]);
+    expect(latestFeedSmsGrants([{ ...old, recipientUserId: "another-owner" }], ME)).toEqual([]);
+    expect(latestFeedSmsGrants([{ ...old, ownerUserId: ME }], ME)).toEqual([]);
+  });
+});
 
 function documentRequest(attention: boolean | undefined): ConsentCenterEntry {
   return {
@@ -194,6 +219,7 @@ describe("isIncomingLocationRequestActionable", () => {
 function grant(overrides: Partial<OneLocationGrant>): OneLocationGrant {
   return {
     id: "grant-1",
+    feedSmsConfirmed: true,
     ownerUserId: CONTACT,
     recipientUserId: ME,
     recipientKeyId: "key-1",
@@ -273,31 +299,12 @@ function debateTask(
   };
 }
 
-describe("classifyDebateFeedState", () => {
-  it("retains a completed analysis as ready until it is dismissed", () => {
-    expect(
-      classifyDebateFeedState(
-        debateTask({ status: "completed", persistenceState: "saved" }),
-      ),
-    ).toBe("ready");
-    expect(
-      classifyDebateFeedState(
-        debateTask({
-          status: "completed",
-          persistenceState: "saved",
-          dismissedAt: "2026-08-31T01:00:00Z",
-        }),
-      ),
-    ).toBeNull();
-  });
-
-  it("keeps running and failed-save states actionable", () => {
-    expect(classifyDebateFeedState(debateTask())).toBe("running");
-    expect(
-      classifyDebateFeedState(
-        debateTask({ status: "completed", persistenceState: "failed" }),
-      ),
-    ).toBe("failed_save");
+describe("isDebateSaveActionable", () => {
+  it("keeps only needed analysis save recovery in the action lane", () => {
+    expect(isDebateSaveActionable(debateTask())).toBe(false);
+    expect(isDebateSaveActionable(debateTask({ status: "canceled", persistenceState: "failed" }))).toBe(false);
+    expect(isDebateSaveActionable(debateTask({ status: "completed", persistenceState: "saved" }))).toBe(false);
+    expect(isDebateSaveActionable(debateTask({ status: "completed", persistenceState: "failed" }))).toBe(true);
   });
 
   it("keeps raw persistence diagnostics out of the retained task", () => {
@@ -312,25 +319,5 @@ describe("classifyDebateFeedState", () => {
     );
     expect(task.persistenceError).not.toContain("422");
     expect(task.persistenceError).not.toContain("json_paths");
-  });
-});
-
-describe("buildDebateFeedAnalysisHref", () => {
-  it("opens a settled run through its durable history identity", () => {
-    const href = buildDebateFeedAnalysisHref("run-1", true);
-    const url = new URL(href, "https://example.test");
-
-    expect(url.searchParams.get("tab")).toBe("analysis");
-    expect(url.searchParams.get("analysis_id")).toBe("run:run-1");
-    expect(url.searchParams.has("run_id")).toBe(false);
-    expect(url.searchParams.has("focus")).toBe(false);
-  });
-
-  it("keeps an active run on the resumable stream route", () => {
-    const href = buildDebateFeedAnalysisHref("run-2", false);
-    const url = new URL(href, "https://example.test");
-
-    expect(url.searchParams.get("focus")).toBe("active");
-    expect(url.searchParams.get("run_id")).toBe("run-2");
   });
 });

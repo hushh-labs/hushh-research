@@ -202,6 +202,7 @@ def withdraw_in_transaction(
         identity,
     )
     store._event(connection, updated, row["user_id"], "document_share_decided")
+    store._notify_setup_changed(connection, updated, only_user_id=user_id)
     return _summary(store, connection, updated)
 
 

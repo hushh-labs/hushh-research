@@ -192,11 +192,12 @@ export function useWalletProfileOwner({ embedded = false, passVariant = "profile
   const adoptCard = useCallback(
     (next: WalletCardRecord | null) => {
       const currentLink = userId ? WalletCardService.readShareLink(userId) : null;
-      if (next?.shareTokenVersion != null && currentLink?.version != null && currentLink.version > next.shareTokenVersion) return;
+      if (next?.shareTokenVersion != null && currentLink?.version != null && currentLink.version > next.shareTokenVersion) return false;
       setCard(next);
       setShareLink(
         userId ? WalletCardService.readShareLink(userId, next) : null,
       );
+      return true;
     },
     [userId],
   );
@@ -221,8 +222,7 @@ export function useWalletProfileOwner({ embedded = false, passVariant = "profile
           vaultOwnerToken, userId, payload: draftToPayload(smartDefaults), avatarUrl,
         });
         if (!isCurrent()) return;
-        adoptCard(result.card);
-        setStage("manage");
+        setStage(adoptCard(result.card) ? "manage" : "error");
         return;
       }
       if (state.card.status === "revoked") {
@@ -234,9 +234,10 @@ export function useWalletProfileOwner({ embedded = false, passVariant = "profile
       if (!WalletCardService.readShareLink(userId, state.card)) {
         const result = await WalletCardService.ensureCard({ vaultOwnerToken, userId });
         if (!isCurrent()) return;
-        adoptCard(result.card);
-      } else adoptCard(state.card);
-      setStage("manage");
+        setStage(adoptCard(result.card) ? "manage" : "error");
+      } else {
+        setStage(adoptCard(state.card) ? "manage" : "error");
+      }
     } catch {
       if (isCurrent()) setStage("error");
     }

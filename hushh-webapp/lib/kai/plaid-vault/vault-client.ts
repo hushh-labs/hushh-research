@@ -21,6 +21,11 @@ import type {
 } from "@/lib/kai/plaid-vault/types";
 
 export const PLAID_VAULT_BASE_PATH = "/api/kai/plaid/vault";
+export const POD_PLAID_VAULT_SUBPATH = "plaid/vault";
+
+function isSovereignPodPlaidVaultEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_POD_PLAID_VAULT_ENABLED === "true";
+}
 
 export type PlaidVaultEndpoint = "link-token" | "exchange" | "snapshot" | "remove";
 
@@ -88,14 +93,21 @@ async function post<T>(
   const token = requireToken(vaultOwnerToken, "A vault-owner token");
   let response: Response;
   try {
-    response = await ApiService.apiFetch(`${PLAID_VAULT_BASE_PATH}/${endpoint}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(body),
-    });
+    const bodyJson = JSON.stringify(body);
+    response = isSovereignPodPlaidVaultEnabled()
+      ? await ApiService.ownerPodRequest(`${POD_PLAID_VAULT_SUBPATH}/${endpoint}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: bodyJson,
+        })
+      : await ApiService.apiFetch(`${PLAID_VAULT_BASE_PATH}/${endpoint}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: bodyJson,
+        });
   } catch (error) {
     const message = error instanceof Error ? error.message : FALLBACK_MESSAGES[endpoint];
     throw new PlaidVaultError(endpoint, 0, message || FALLBACK_MESSAGES[endpoint]);
@@ -123,6 +135,9 @@ export async function createVaultLinkToken(params: {
   if (params.request.sandbox_proof === true) body.sandbox_proof = true;
   // Update mode: the sealed token travels for this one call only.
   if (params.request.access_token) body.access_token = params.request.access_token;
+  if (params.request.origin_surface) body.origin_surface = params.request.origin_surface;
+  if (params.request.additional_product) body.additional_product = params.request.additional_product;
+  if (params.request.select_accounts) body.select_accounts = true;
   return post<PlaidVaultLinkTokenResponse>("link-token", params.vaultOwnerToken, body);
 }
 
@@ -141,11 +156,13 @@ export async function fetchVaultSnapshot(params: {
   vaultOwnerToken: string;
   accessToken: string;
   transactionsCursor?: string | null;
+  transactionsContinuation?: boolean;
 }): Promise<PlaidVaultSnapshot> {
   const accessToken = requireToken(params.accessToken, "A Plaid access token");
   return post<PlaidVaultSnapshot>("snapshot", params.vaultOwnerToken, {
     access_token: accessToken,
     transactions_cursor: params.transactionsCursor ?? null,
+    ...(params.transactionsContinuation ? { transactions_continuation: true } : {}),
   });
 }
 

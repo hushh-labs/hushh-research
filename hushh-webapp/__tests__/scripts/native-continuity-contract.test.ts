@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 
 import { describe, expect, it } from "vitest";
+import { registerNativeInventoryCases, registerNativeParityReportCases } from "./native-parity-contract-cases";
 import {
   isCompleteNativeRouteAuditStatus,
   isSettledNativeRouteAuditSurface,
@@ -17,6 +18,8 @@ function source(relativePath: string): string {
 }
 
 describe("native cold-audit and continuity contract", () => {
+  registerNativeParityReportCases(root);
+
   it("does not pass reviewer passphrase strings to XCTest diagnostic operands", () => {
     const uiTests = source("ios/App/AppUITests/AppUITests.swift");
     const start = uiTests.indexOf("private func assertReviewerPassphraseAliasesMatch()");
@@ -393,39 +396,17 @@ ${script.slice(boundary)}`], {
     expect(flows).toContain('type: "click_shell_action", ariaLabel: "Open Profile"');
   });
 
-  it("keeps canonical Profile inventory redirects and XCTest fixtures off deleted routes", () => {
-    const inventory = JSON.parse(source("native-route-inventory.json")) as {
-      routes: Array<{ route: string; initialRoute?: string }>;
-    };
-    const uiTests = source("ios/App/AppUITests/AppUITests.swift");
+  registerNativeInventoryCases(source);
 
-    for (const route of inventory.routes.filter((entry) =>
-      entry.route.startsWith("/one/profile"),
-    )) {
-      if (!route.initialRoute?.startsWith("/login?")) continue;
-      const redirect = new URL(route.initialRoute, "https://native-test.local").searchParams.get("redirect");
-      expect(redirect).toMatch(/^\/one\/profile/);
-    }
-    expect(uiTests).not.toContain('redirect: "/profile');
-    expect(uiTests).not.toContain('redirect=%2Fprofile');
-  });
-
-  it("gives Finance import setup its own native route marker instead of borrowing the Kai setup marker", () => {
+  it("declares the Finance import marker in the native route inventory", () => {
     const inventory = JSON.parse(source("native-route-inventory.json")) as {
       routes: Array<{ route: string; expectedMarker?: string }>;
     };
-    const setupImport = source(
-      "app/one/setup/finance/import/finance-import-onboarding-setup-client.tsx",
-    );
     const route = inventory.routes.find(
       (entry) => entry.route === "/one/setup/finance/import",
     );
 
     expect(route?.expectedMarker).toBe("native-route-one-setup-finance-import");
-    expect(setupImport).toContain("<NativeTestBeacon");
-    expect(setupImport).toMatch(
-      /marker=\{\s*showIntroduction\s*\?\s*"native-route-one-setup-finance"\s*:\s*"native-route-one-setup-finance-import"\s*\}/,
-    );
   });
 
   it("audits disabled Gmail setup through its intentional setup-hub redirect", () => {

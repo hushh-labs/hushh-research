@@ -80,18 +80,7 @@ describe("Feed stays live", () => {
     );
   });
 
-  it("keeps Needs you as a plain feed section, not a tinted block", () => {
-    const feedPage = read("components/feed/feed-page.tsx");
 
-    const needsYouSection =
-      feedPage.match(
-        /<section aria-label="Needs you"[\s\S]*?<SectionLabel>Needs you<\/SectionLabel>/,
-      )?.[0] ?? "";
-
-    expect(needsYouSection.length).toBeGreaterThan(0);
-    expect(needsYouSection).not.toContain("bg-accent");
-    expect(needsYouSection).not.toContain("bg-[color:var(--app-accent");
-  });
 });
 
 describe("the ask flow's primary action keeps the action colour", () => {

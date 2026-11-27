@@ -197,6 +197,8 @@ def test_observation_projection_follows_split_literals_and_rejects_expressions()
     compile_contract = generator["compile_contract"]
     contract = compile_contract(source, actions_source=actions)
     assert "export_saved" in contract["events"]["one_memory_action"]
+    assert contract["events"]["hushh_mail_signin_screen_view"] == []
+    assert "account_reset_requested" not in contract["events"]
     reviewed = {
         "gmail_connect_started",
         "gmail_connect_result",
@@ -212,8 +214,8 @@ def test_observation_projection_follows_split_literals_and_rejects_expressions()
         "consent_action_submitted",
         "consent_action_result",
     }
-    assert reviewed <= contract["events"].keys()
     assert generator["REVIEWED_SYSTEM_FEATURE_EVENTS"] == reviewed
+    assert reviewed <= contract["events"].keys()
     assert contract["events"]["gmail_connect_started"] == ["incremental", "full"]
     assert contract["events"]["gmail_connect_result"] == ["start", "complete"]
     assert contract["events"]["gmail_sync_requested"] == ["manual"]
@@ -225,9 +227,7 @@ def test_observation_projection_follows_split_literals_and_rejects_expressions()
         "auth_failed",
         "vault_unlock_result",
         "account_delete_completed",
-        "account_reset_requested",
         "api_request_completed",
-        "hushh_mail_signin_screen_view",
     ):
         assert excluded not in contract["events"]
     unreviewed = compile_contract(

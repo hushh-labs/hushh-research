@@ -1,6 +1,6 @@
 import { ApiService } from "@/lib/services/api-service";
 import { resolveShareableAppOrigin } from "@/lib/share/app-origin";
-import { verifyCommerceSandbox } from "@/lib/services/scope-commerce-sandbox";
+import { extractSandboxRemainingCents, resolveCommerceSandboxOrigin, verifyCommerceSandbox } from "@/lib/services/scope-commerce-sandbox";
 import { parseCommerceHostedSession } from "@/lib/services/scope-commerce-return";
 import { validateCommerceHostedUrl } from "@/lib/services/scope-commerce-browser";
 import { parseCommerceReadiness, commerceActionError, type CommerceReadiness } from "@/lib/services/scope-commerce-readiness";
@@ -11,6 +11,24 @@ export type ScopeTariff = {
   scope_handle: string; machine_scope: string; price_cents: number;
   base_duration_seconds: number; tariff_revision: number;
 };
+export type OwnerTariffCatalogSnapshot = {
+  tariffsByKey: Record<string, ScopeTariff>;
+  readiness: CommerceReadiness;
+  fetchedAt: number;
+};
+
+const TARIFF_CATALOG_TTL_MS = 120_000;
+const ownerTariffCatalogCache = new Map<string, OwnerTariffCatalogSnapshot>();
+const ownerTariffCatalogInflight = new Map<string, Promise<OwnerTariffCatalogSnapshot>>();
+const ownerTariffCatalogListeners = new Set<() => void>();
+
+function tariffLookupKey(scopeHandle: string, machineScope: string): string {
+  return `${scopeHandle}::${machineScope}`;
+}
+
+function notifyOwnerTariffCatalog(): void {
+  for (const fn of ownerTariffCatalogListeners) fn();
+}
 export type ScopeQuote = {
   id: string; request_id: string; scope_handle: string; machine_scope: string;
   amount_cents: number; base_price_cents: number; base_duration_seconds: number;
@@ -26,6 +44,7 @@ export type CommerceAccount = {
   enabled: boolean; managed_balances?: boolean; currency: "USD";
   readiness?: CommerceReadiness;
   sandboxVerified?: boolean;
+  sandboxRemainingCents?: number | null;
   balance: { available_cents: number; reserved_cents: number; frozen_cents?: number };
   earnings: { pending_cents: number; available_cents: number; debt_cents?: number; withdrawing_cents?: number };
   seller: { onboarded: boolean; eligible: boolean; country: string | null };
@@ -38,7 +57,7 @@ export type ScopeCommerceRequest = {
   machine_scope: string; scope_handle: string; duration_seconds: number;
   purpose: string; tariff: ScopeTariff | null; purchase: ScopePurchase | null;
   refresh_policy?: string;
-  scope_label?: string; counterpart_label?: string; recipient_label?: string;
+  scope_label?: string; counterpart_label?: string; counterpart_person_ref?: string | null; recipient_label?: string;
   available_balance_cents?: number; shortfall_cents?: number;
   request_deadline?: string | null;
   negative_net_acknowledgement?: NegativeNetTerms | null;
@@ -187,17 +206,109 @@ async function request(token: string, path: string, body?: unknown): Promise<Rec
 }
 
 export const ScopeCommerceService = {
-  async sandboxVerified(token: string) {
-    const origin = resolveShareableAppOrigin();
+  async sandboxStatus(token: string) {
+    const origin = resolveCommerceSandboxOrigin(resolveShareableAppOrigin());
     if (!origin) throw new Error("Sandbox identity could not be verified.");
-    return verifyCommerceSandbox(await request(token, `sandbox-readiness?${new URLSearchParams({ app_origin: origin })}`), origin);
+    const raw = await request(token, `sandbox-readiness?${new URLSearchParams({ app_origin: origin })}`);
+    return {
+      verified: verifyCommerceSandbox(raw, origin),
+      remainingFundingCents: extractSandboxRemainingCents(raw),
+    };
+  },
+  async sandboxVerified(token: string) {
+    const status = await this.sandboxStatus(token);
+    return status.verified;
   },
   async readiness(token: string) { return parseCommerceReadiness(await request(token, "readiness")); },
-  async account(token: string) { return parseCommerceAccount(await request(token, "account")); },
+  async account(token: string, options?: { reconcile?: boolean }) {
+    return parseCommerceAccount(await request(token, options?.reconcile ? "account?reconcile=true" : "account"));
+  },
   async managePayoutAccount(token: string): Promise<string> {
     const result = await request(token, "payouts/manage", {});
     if (typeof result.url !== "string") throw new Error("Payout settings could not be verified.");
     return validateCommerceHostedUrl(result.url, "management");
+  },
+  peekOwnerTariffCatalog(ownerId: string | undefined): OwnerTariffCatalogSnapshot | null {
+    if (!ownerId) return null;
+    return ownerTariffCatalogCache.get(ownerId) ?? null;
+  },
+  peekOwnerTariff(ownerId: string | undefined, handle: string, machineScope: string): { tariff: ScopeTariff | null; readiness: CommerceReadiness } | null {
+    const snap = this.peekOwnerTariffCatalog(ownerId);
+    if (!snap) return null;
+    return {
+      tariff: snap.tariffsByKey[tariffLookupKey(handle, machineScope)] ?? null,
+      readiness: snap.readiness,
+    };
+  },
+  subscribeOwnerTariffCatalog(listener: () => void): () => void {
+    ownerTariffCatalogListeners.add(listener);
+    return () => ownerTariffCatalogListeners.delete(listener);
+  },
+  invalidateOwnerTariffCatalog(ownerId?: string): void {
+    if (!ownerId) {
+      ownerTariffCatalogCache.clear();
+      ownerTariffCatalogInflight.clear();
+    } else {
+      ownerTariffCatalogCache.delete(ownerId);
+      ownerTariffCatalogInflight.delete(ownerId);
+    }
+    notifyOwnerTariffCatalog();
+  },
+  async tariffCatalog(token: string, ownerId: string, options?: { force?: boolean }): Promise<OwnerTariffCatalogSnapshot> {
+    const existing = ownerTariffCatalogCache.get(ownerId);
+    if (!options?.force && existing && Date.now() - existing.fetchedAt < TARIFF_CATALOG_TTL_MS) {
+      return existing;
+    }
+    const inflight = ownerTariffCatalogInflight.get(ownerId);
+    if (!options?.force && inflight) return inflight;
+    const job = (async () => {
+      const raw = await request(token, "tariffs");
+      const list = Array.isArray(raw.tariffs) ? raw.tariffs : [];
+      const tariffsByKey: Record<string, ScopeTariff> = {};
+      for (const entry of list) {
+        const item = record(entry);
+        if (typeof item.scope_handle === "string" && typeof item.machine_scope === "string" &&
+            Number.isSafeInteger(item.base_duration_seconds) && Number(item.base_duration_seconds) > 0) {
+          cents(item.price_cents, 100_000);
+          tariffsByKey[tariffLookupKey(item.scope_handle, item.machine_scope)] = item as unknown as ScopeTariff;
+        }
+      }
+      const readiness = raw.readiness !== undefined
+        ? parseCommerceReadiness(raw.readiness)
+        : await this.readiness(token);
+      const snapshot: OwnerTariffCatalogSnapshot = {
+        tariffsByKey,
+        readiness,
+        fetchedAt: Date.now(),
+      };
+      ownerTariffCatalogCache.set(ownerId, snapshot);
+      notifyOwnerTariffCatalog();
+      return snapshot;
+    })().finally(() => {
+      ownerTariffCatalogInflight.delete(ownerId);
+    });
+    ownerTariffCatalogInflight.set(ownerId, job);
+    return job;
+  },
+  writeThroughOwnerTariff(ownerId: string | undefined, tariff: Omit<ScopeTariff, "tariff_revision"> & { tariff_revision?: number }): void {
+    if (!ownerId) return;
+    const existing = ownerTariffCatalogCache.get(ownerId);
+    if (!existing) return;
+    const key = tariffLookupKey(tariff.scope_handle, tariff.machine_scope);
+    const prevRev = existing.tariffsByKey[key]?.tariff_revision ?? 0;
+    const nextSnapshot: OwnerTariffCatalogSnapshot = {
+      ...existing,
+      fetchedAt: Date.now(),
+      tariffsByKey: {
+        ...existing.tariffsByKey,
+        [key]: {
+          ...tariff,
+          tariff_revision: tariff.tariff_revision ?? prevRev + 1,
+        },
+      },
+    };
+    ownerTariffCatalogCache.set(ownerId, nextSnapshot);
+    notifyOwnerTariffCatalog();
   },
   async tariff(token: string, handle: string, machineScope: string): Promise<ScopeTariff | null> {
     const query = new URLSearchParams({ scope_handle: handle, machine_scope: machineScope });
@@ -209,8 +320,15 @@ export const ScopeCommerceService = {
     cents(tariff.price_cents, 100_000);
     return tariff as unknown as ScopeTariff;
   },
-  async saveTariff(token: string, tariff: Omit<ScopeTariff, "tariff_revision">, key: string) {
-    return request(token, "tariffs", { ...tariff, idempotency_key: key });
+  async saveTariff(token: string, tariff: Omit<ScopeTariff, "tariff_revision">, key: string, ownerId?: string) {
+    const saved = await request(token, "tariffs", { ...tariff, idempotency_key: key });
+    if (ownerId) {
+      this.writeThroughOwnerTariff(ownerId, {
+        ...tariff,
+        ...(typeof saved.tariff_revision === "number" ? { tariff_revision: saved.tariff_revision } : {}),
+      });
+    }
+    return saved;
   },
   async scopeRequest(token: string, id: string): Promise<ScopeCommerceRequest> {
     const result = await request(token, `requests/${identity(id)}`);
@@ -233,6 +351,10 @@ export const ScopeCommerceService = {
       for (const key of ["activation_at", "expires_at", "fulfillment_deadline"]) if (purchase[key] !== undefined && purchase[key] !== null) timestamp(purchase[key]);
     }
     for (const key of ["scope_label", "counterpart_label", "recipient_label"]) if (result[key] !== undefined && typeof result[key] !== "string") throw new Error("The sharing identities could not be verified.");
+    if (result.counterpart_person_ref !== undefined && result.counterpart_person_ref !== null &&
+        (typeof result.counterpart_person_ref !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(result.counterpart_person_ref))) {
+      throw new Error("The shared information destination could not be verified.");
+    }
     for (const key of ["available_balance_cents", "shortfall_cents"]) if (result[key] !== undefined) cents(result[key]);
     if (result.request_deadline !== undefined && result.request_deadline !== null) timestamp(result.request_deadline);
     if (result.negative_net_acknowledgement !== undefined && result.negative_net_acknowledgement !== null) {
@@ -273,11 +395,20 @@ export const ScopeCommerceService = {
     const row = await request(vaultOwnerToken, `purchases/${identity(id)}/export-context`);
     return { ...row, machineScope: String(row.machine_scope || "") };
   },
-  async preparePurchase(id: string, input: { sourceRevisions: { contentRevision: number; manifestRevision: number }; negative_net_acknowledgement?: NegativeNetAcknowledgement }, vaultOwnerToken: string) {
+  async preparePurchase(
+    id: string,
+    input: {
+      sourceRevisions: { contentRevision: number; manifestRevision: number };
+      negative_net_acknowledgement?: NegativeNetAcknowledgement;
+      activate_immediately?: boolean;
+    },
+    vaultOwnerToken: string,
+  ) {
     if (input.negative_net_acknowledgement) validateNegativeNetAcknowledgement(input.negative_net_acknowledgement);
     const row = await request(vaultOwnerToken, `purchases/${identity(id)}/prepare`, {
       source_revisions: { content_revision: input.sourceRevisions.contentRevision, manifest_revision: input.sourceRevisions.manifestRevision },
       ...(input.negative_net_acknowledgement ? { negative_net_acknowledgement: input.negative_net_acknowledgement } : {}),
+      ...(input.activate_immediately ? { activate_immediately: true } : {}),
     });
     return {
       preparationId: String(row.preparation_id || ""), grantId: String(row.grant_id || ""),
@@ -288,7 +419,16 @@ export const ScopeCommerceService = {
       connectorPublicKey: String(row.connector_public_key || ""), connectorKeyId: String(row.connector_key_id || ""),
     };
   },
-  async stagePurchase(id: string, input: { preparation_id: string; envelope: unknown; negative_net_acknowledgement?: NegativeNetAcknowledgement }, vaultOwnerToken: string) {
+  async stagePurchase(
+    id: string,
+    input: {
+      preparation_id: string;
+      envelope: unknown;
+      negative_net_acknowledgement?: NegativeNetAcknowledgement;
+      activate_on_stage?: boolean;
+    },
+    vaultOwnerToken: string,
+  ) {
     if (input.negative_net_acknowledgement) validateNegativeNetAcknowledgement(input.negative_net_acknowledgement);
     return request(vaultOwnerToken, `purchases/${identity(id)}/stage`, input);
   },
@@ -325,7 +465,7 @@ export function formatCommerceMoney(value: number): string {
 }
 
 export function formatCommerceMicroUsd(value: number): string {
-  const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 6, maximumFractionDigits: 6 }).format(value / 1_000_000);
+  const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 6 }).format(value / 1_000_000);
   return commerceCoinAmount(value / (1_000_000 / HUSSH_COINS_PER_USD), usd);
 }
 
@@ -346,20 +486,24 @@ export function parseCommerceDollarInput(value: string, minimum: number): number
 }
 
 const COMMERCE_STATUS_COPY: Record<string, string> = {
-  awaiting_payment: "Owner approved these terms. Payment confirmation is still required before information is released.",
-  reserved: "Payment reserved. The owner must prepare encrypted information before access starts.",
-  preparing: "The owner is preparing encrypted information. Access has not started.",
-  staged: "Encrypted information is prepared. Access starts at the verified activation time.",
-  armed: "Encrypted information is prepared. Access starts at the verified activation time.",
-  active: "Paid access is active for the agreed term.",
-  revoked: "Access ended early. Unused calendar time is being reconciled to the buyer balance.",
-  cancelled: "Sharing cancelled before activation. Reserved funds return to the buyer balance.",
-  expired: "The access term ended.",
-  approved_awaiting_payment: "Terms approved. Payment confirmation and encrypted preparation are still required.",
+  awaiting_payment: "Waiting for payment.",
+  reserved: "Coins reserved. Waiting for your approval.",
+  preparing: "Preparing information. Access hasn't started.",
+  staged: "Shared. Access starts at the scheduled time.",
+  armed: "Shared. Access starts at the scheduled time.",
+  active: "Access is active.",
+  revoked: "Access ended early. Refund for unused time is being checked.",
+  cancelled: "Sharing cancelled. Reserved funds return to the buyer's balance.",
+  expired: "Access has ended.",
+  approved_awaiting_payment: "Approved. Waiting for payment.",
+  awaiting_owner: "Coins reserved. Waiting for your approval.",
+  approved_funded: "Coins reserved. Sharing now.",
 };
-export function scopeCommerceStatusCopy(status: unknown): string {
+export function scopeCommerceStatusCopy(status: unknown, role?: ScopeCommerceRequest["role"]): string {
+  if (role && status === "awaiting_payment") return role === "owner" ? "Waiting for them to confirm the price." : "Review the price to continue.";
+  if (role && status === "reserved") return role === "owner" ? "They’ve confirmed the price. You can now share." : "Waiting for the owner to share.";
   return typeof status === "string" && Object.hasOwn(COMMERCE_STATUS_COPY, status)
-    ? COMMERCE_STATUS_COPY[status]! : "Review payment and encrypted preparation status.";
+    ? COMMERCE_STATUS_COPY[status]! : "Check access and payment status.";
 }
 
 export function commerceActivityStatusCopy(kind: string, status: string): string {

@@ -155,4 +155,24 @@ describe("turn memory field", () => {
     expect(field).toBe(memory);
     expect(field.length).toBeLessThanOrEqual(CONSENTED_MEMORY_MAX_CHARS);
   });
+
+  it("bridges unconsolidated sibling-chat turns between Soul.md and activity while keeping Live Mirror last", () => {
+    const field = composeAgentPkmContext({
+      receipt: "",
+      memory: `# memory.md\n\n- Lives in Pune\n\n${mirror}`,
+      events: activity,
+      now: DAY,
+      pendingTurns: [
+        { conversationId: "chat-a", role: "user", content: "My daughter's recital is on November 22 and my API key is sk-live-secret12345678901234567890" },
+        { conversationId: "chat-a", role: "assistant", content: "Noted your daughter's recital on November 22." },
+      ],
+    })!;
+    expect(field).toContain("RECENT UNCONSOLIDATED CHAT TURNS");
+    expect(field).toContain("daughter's recital is on November 22");
+    expect(field).not.toContain("sk-live-secret12345678901234567890");
+    expect(field.indexOf("# memory.md")).toBeLessThan(field.indexOf("RECENT UNCONSOLIDATED CHAT TURNS"));
+    expect(field.indexOf("RECENT UNCONSOLIDATED CHAT TURNS")).toBeLessThan(field.indexOf("Connected Gmail"));
+    expect(field.indexOf("Connected Gmail")).toBeLessThan(field.indexOf("LIVE MIRROR FACTS v1"));
+    expect(field.endsWith(LIVE_MIRROR_PACKET_END)).toBe(true);
+  });
 });

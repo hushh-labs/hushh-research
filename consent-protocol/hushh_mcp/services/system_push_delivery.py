@@ -177,8 +177,13 @@ def _notification(conn, event: dict, source: dict) -> dict:
         return {
             "user_id": event["recipient_user_id"],
             "notification_type": "calendar_email_follow_up",
-            "title": "Follow-up reminder",
-            "body": "A request from your email needs attention.",
+            # Only the kind of request is named, never anything from the email.
+            "title": "Meeting reminder"
+            if source.get("kind") == "meeting"
+            else "Follow-up reminder",
+            "body": "A meeting from your email is waiting to be scheduled."
+            if source.get("kind") == "meeting"
+            else "A request from your email needs attention.",
             "request_url": "/one/calendar?"
             + urlencode(
                 {

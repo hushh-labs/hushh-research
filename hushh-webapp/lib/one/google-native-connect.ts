@@ -18,13 +18,18 @@ import { snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurre
 import { Capacitor } from "@capacitor/core";
 import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from '@/lib/services/auth-service';
+import { notifyMailGrantsChanged } from '@/lib/services/private-google-connections';
+import { isHostedWebOAuthOrigin, requestHostedBrowserGoogleCode } from './google-mail-browser-connect';
 import { openGoogleConnectorAuth } from './google-connector-auth';
 import { base64UrlEncode } from "./ai-selection-seal";
-import { googleConnectorTransition, type GoogleConnectorTransition, type AuthorizationCodePlaintext, type GoogleClientProfile, type GoogleConnector } from "./connector-credential-seal";
+import { googleConnectorTransition, HOSTED_WEB_GOOGLE_CONNECTORS, type GoogleConnectorTransition, type AuthorizationCodePlaintext, type GoogleClientProfile, type GoogleConnector } from "./connector-credential-seal";
+import type { MailAccountIntent } from './connector-credential-seal';
 
 const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const G = "https://www.googleapis.com/auth/";
 const IDENTITY = ["openid", "email"];
+const OTHER_CONTACTS_SCOPE = `${G}contacts.other.readonly`;
+const CALENDAR_LIST_SCOPE = `${G}calendar.calendarlist.readonly`;
 
 /** What each connector asks for at sign-in; the agent narrows further per use. */
 export const GOOGLE_CONNECTOR_SCOPES: Record<GoogleConnector, string[]> = {
@@ -34,10 +39,17 @@ export const GOOGLE_CONNECTOR_SCOPES: Record<GoogleConnector, string[]> = {
   contacts: [...IDENTITY, `${G}contacts.readonly`],
 };
 
+function connectorScopes(connector: GoogleConnector, includeOtherContacts?: boolean, includeCalendarList?: boolean): string[] {
+  const scopes = GOOGLE_CONNECTOR_SCOPES[connector];
+  if (connector === 'contacts' && includeOtherContacts) return [...scopes, OTHER_CONTACTS_SCOPE];
+  if (connector === 'calendar' && includeCalendarList) return [...scopes, CALENDAR_LIST_SCOPE];
+  return scopes;
+}
+
 export type NativeGoogleClient = { profile: GoogleClientProfile; clientId: string; redirectUri: string };
 
 export type ConnectOutcome =
-  | { ok: true; status: "connected"; legacyCleanup?: 'unconfirmed' }
+  | { ok: true; status: "connected"; legacyCleanup?: 'unconfirmed'; accountId?: string }
   | { ok: false; code: string }
   | { ok: false; code: "PHONE_HANDOFF_REQUIRED"; handoff: PhoneHandoff };
 
@@ -51,8 +63,11 @@ export type GoogleConnectorTransitionReview = {
   scope: 'all_google_project_grants';
 };
 export type GoogleConnectorConnectOptions = {
+  mailAccount?: MailAccountIntent;
   openAuthSession?: OpenAuthSession;
   platform?: string;
+  includeOtherContacts?: boolean;
+  includeCalendarList?: boolean;
   isCurrent?: () => boolean;
   /** Mounted, memory-only owner capability; never recovered from storage. */
   vaultOwnerCapability?: string | null;
@@ -111,18 +126,20 @@ export function googleAuthorizationUrl(input: {
   connector: GoogleConnector;
   challenge: string;
   state: string;
+  includeOtherContacts?: boolean;
+  includeCalendarList?: boolean;
 }): string {
   const params = new URLSearchParams({
     client_id: input.client.clientId,
     redirect_uri: input.client.redirectUri,
     response_type: "code",
-    scope: GOOGLE_CONNECTOR_SCOPES[input.connector].join(" "),
+    scope: connectorScopes(input.connector, input.includeOtherContacts, input.includeCalendarList).join(" "),
     code_challenge: input.challenge,
     code_challenge_method: "S256",
     state: input.state,
     // A refresh token is what the agent keeps; consent makes Google issue one.
     access_type: "offline",
-    prompt: "consent",
+    prompt: "consent select_account",
     // Each connector is its own narrow login, never the union of past grants.
     include_granted_scopes: "false",
   });
@@ -178,13 +195,14 @@ export async function sendConnectorCredentialToAgent(
     return { ok: false, code: ['DEVICE_UNSUPPORTED', 'POD_OWNER_CHANGED', 'PRIVATE_AGENT_UNLOCK_REQUIRED', 'OWNER_SESSION_REQUIRED', 'AGENT_KEY_MISMATCH'].includes(code) ? code : 'AGENT_UNREACHABLE' };
   }
   const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-  if (response.ok && body?.status === "connected") return { ok: true, status: "connected", ...(body.legacyCleanup === 'unconfirmed' ? { legacyCleanup: 'unconfirmed' as const } : {}) };
+  if (response.ok && body?.status === "connected") return { ok: true, status: "connected", ...(typeof body.accountId === 'string' && /^[a-f0-9]{32}$/.test(body.accountId) ? { accountId: body.accountId } : {}), ...(body.legacyCleanup === 'unconfirmed' ? { legacyCleanup: 'unconfirmed' as const } : {}) };
   return { ok: false, code: refusalCode(body, response.status) };
 }
 
 /** Intent only: the phone resolves its own owner and agent, never a QR-supplied endpoint. */
-export function phoneHandoff(connector: GoogleConnector): PhoneHandoff {
-  return { connector, deepLink: `hushh://one/connect/google/${connector}` };
+export function phoneHandoff(connector: GoogleConnector, includeOtherContacts?: boolean, includeCalendarList?: boolean, addMailbox = false): PhoneHandoff {
+  const suffix = connector === 'gmail' && addMailbox ? '/add' : connector === 'contacts' && includeOtherContacts ? '/other' : connector === 'calendar' && includeCalendarList ? '/list' : '';
+  return { connector, deepLink: `hushh://one/connect/google/${connector}${suffix}` };
 }
 
 /** Sign in on this phone, seal the code to the agent, and let the agent redeem it. */
@@ -193,9 +211,15 @@ export async function connectGoogleConnector(
   deps: GoogleConnectorConnectOptions = {},
 ): Promise<ConnectOutcome> {
   const platform = deps.platform ?? Capacitor.getPlatform();
-  if (platform === 'web') return { ok: false, code: "PHONE_HANDOFF_REQUIRED", handoff: phoneHandoff(connector) };
-  const client = nativeGoogleClient(platform);
-  if (!client) return { ok: false, code: platform === 'android' ? 'ANDROID_CONNECTOR_DEV_REQUIRED' : 'NATIVE_CLIENT_NOT_CONFIGURED' };
+  const webOrigin = typeof window !== "undefined" ? window.location.origin : "";
+  const browserSupported =
+    platform === "web" &&
+    (HOSTED_WEB_GOOGLE_CONNECTORS as readonly string[]).includes(connector) &&
+    isHostedWebOAuthOrigin(webOrigin);
+  if (platform === 'web' && !browserSupported && deps.mailAccount?.mode === 'reconnect') return { ok: false, code: 'MAIL_RECONNECT_ON_PHONE' };
+  if (platform === 'web' && !browserSupported) return { ok: false, code: "PHONE_HANDOFF_REQUIRED", handoff: phoneHandoff(connector, deps.includeOtherContacts, deps.includeCalendarList, deps.mailAccount?.mode === 'add') };
+  let client = nativeGoogleClient(platform);
+  if (!client && !browserSupported) return { ok: false, code: platform === 'android' ? 'ANDROID_CONNECTOR_DEV_REQUIRED' : 'NATIVE_CLIENT_NOT_CONFIGURED' };
   const vaultEpoch = snapshotVaultSessionEpoch();
   const principal = snapshotValidatedAuthSessionPrincipal();
   const firebaseUid = AuthService.getCurrentUser()?.uid;
@@ -213,8 +237,27 @@ export async function connectGoogleConnector(
   try {
     const ready = await ApiService.ownerPodRequest(`connectors/${connector}`, { method: 'GET' });
     if (!ready.ok) return { ok: false, code: refusalCode(await ready.json().catch(() => null), ready.status) };
+    if (browserSupported || (connector === "gmail" && !deps.mailAccount)) {
+      const status = await ready.json().catch(() => null);
+      if (!current()) return { ok: false, code: changedCode() };
+      if (connector === "gmail" && !deps.mailAccount && status?.connectorId === "gmail" && status.status === "connected" &&
+          status.capabilities?.manage === true && status.capabilities?.read === true) {
+        return { ok: true, status: "connected" };
+      }
+      if (browserSupported && status?.connectorId === connector) {
+        if (!("browserClientId" in status) || !status.browserClientId) {
+          if (deps.mailAccount?.mode === "reconnect") return { ok: false, code: "MAIL_RECONNECT_ON_PHONE" };
+          return { ok: false, code: "PHONE_HANDOFF_REQUIRED", handoff: phoneHandoff(connector, deps.includeOtherContacts, deps.includeCalendarList, deps.mailAccount?.mode === "add") };
+        }
+        if (typeof status.browserClientId === "string" &&
+            /^[0-9]{4,32}-[a-z0-9]{8,64}\.apps\.googleusercontent\.com$/.test(status.browserClientId)) {
+          client = { profile: "hussh_web", clientId: status.browserClientId, redirectUri: webOrigin };
+        }
+      }
+    }
   } catch { return { ok: false, code: 'AGENT_UNREACHABLE' }; }
   if (!current()) return { ok: false, code: changedCode() };
+  if (!client) return { ok: false, code: "MAIL_BROWSER_NOT_CONFIGURED" };
   let transition: GoogleConnectorTransition;
   try {
     let prepared = await prepareTransition(owner, client, capability, false);
@@ -232,17 +275,25 @@ export async function connectGoogleConnector(
   } catch (error) {
     return { ok: false, code: current() ? (error instanceof Error ? error.message : 'GOOGLE_TRANSITION_UNAVAILABLE') : changedCode() };
   }
-  const { verifier, challenge } = await createPkce();
-  if (!current()) return { ok: false, code: changedCode() };
-  const state = base64UrlEncode(globalThis.crypto.getRandomValues(new Uint8Array(16)));
+  let verifier: string | null = null;
   let code: string;
+  const requestedScopes = connectorScopes(connector, deps.includeOtherContacts, deps.includeCalendarList);
   try {
-    const redirect = await (deps.openAuthSession ?? openGoogleConnectorAuth)(
-      googleAuthorizationUrl({ client, connector, challenge, state }),
-      client.redirectUri,
-    );
     if (!current()) throw new Error(changedCode());
-    code = codeFromRedirect(redirect, state, client.redirectUri);
+    if (browserSupported) {
+      code = await requestHostedBrowserGoogleCode(client.clientId, requestedScopes, current, connector);
+    } else {
+      const pkce = await createPkce();
+      verifier = pkce.verifier;
+      if (!current()) throw new Error(changedCode());
+      const state = base64UrlEncode(globalThis.crypto.getRandomValues(new Uint8Array(16)));
+      const redirect = await (deps.openAuthSession ?? openGoogleConnectorAuth)(
+        googleAuthorizationUrl({ client, connector, challenge: pkce.challenge, state, includeOtherContacts: deps.includeOtherContacts, includeCalendarList: deps.includeCalendarList }),
+        client.redirectUri,
+      );
+      code = codeFromRedirect(redirect, state, client.redirectUri);
+    }
+    if (!current()) throw new Error(changedCode());
   } catch (error) {
     return { ok: false, code: error instanceof Error ? error.message : "SIGN_IN_INCOMPLETE" };
   }
@@ -253,15 +304,24 @@ export async function connectGoogleConnector(
     code,
     codeVerifier: verifier,
     redirectUri: client.redirectUri,
-    scopes: GOOGLE_CONNECTOR_SCOPES[connector],
+    scopes: requestedScopes,
+    ...(deps.mailAccount ? { mailAccount: deps.mailAccount } : {}),
     transition,
   }, firebaseUid, current);
-  return current() ? delivered : { ok: false, code: changedCode() };
+  if (!current()) return { ok: false, code: changedCode() };
+  if (delivered.ok && connector === "gmail") notifyMailGrantsChanged();
+  return delivered;
 }
 
 /** Plain words for every outcome the person can see. */
 export function connectRefusalMessage(code: string, connectorName: string): string {
   switch (code) {
+    case 'MAIL_BROWSER_NOT_CONFIGURED': return 'Browser sign-in is not configured on this private agent yet.';
+    case 'MAIL_ACCOUNT_ALREADY_CONNECTED': return 'This mailbox is already connected. Choose another Google account.';
+    case 'MAIL_ACCOUNT_MISMATCH': return 'Choose the same Google account to reconnect this mailbox.';
+    case 'MAIL_ACCOUNT_CHANGED': return 'This mailbox changed. Refresh Mail before reconnecting.';
+    case 'MAIL_ACCOUNT_LIMIT': return 'You can connect up to 20 mailboxes. Disconnect one before adding another.';
+    case 'MAIL_RECONNECT_ON_PHONE': return 'Open Mail on your phone to reconnect this mailbox.';
     case "PHONE_HANDOFF_REQUIRED": return `Finish connecting ${connectorName} on your phone. Scan the code with the Hussh app.`;
     case "SIGN_IN_CANCELLED": return `${connectorName} was not connected. You can try again any time.`;
     case "SIGN_IN_INCOMPLETE": return `Google did not finish signing you in. Try again.`;

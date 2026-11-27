@@ -257,3 +257,80 @@ def test_live_cloud_closure_verifies_ed25519_verification_keys_and_prod_shared(
     )
     assert broken_report["status"] == "blocked"
     assert any("verification-keys endpoint returned 503" in b for b in broken_report["blockers"])
+
+
+def test_blocks_on_asymmetric_ours_backsync_merge(tmp_path: Path) -> None:
+    mod = _load_module()
+    repo = _init_three_lane_repo(tmp_path)
+
+    _git(repo, "checkout", "uat")
+    svc_dir = repo / "consent-protocol" / "hushh_mcp" / "services"
+    svc_dir.mkdir(parents=True, exist_ok=True)
+    (svc_dir / "uat_only_fix.py").write_text("UAT_SAFEGUARD = True\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "fix(connect): uat deleted account safeguard")
+
+    _git(repo, "checkout", "dev")
+    svc_dir.mkdir(parents=True, exist_ok=True)
+    (svc_dir / "dev_feature.py").write_text("DEV_FEATURE = True\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "feat(one): dev sandbox feature")
+
+    # Simulate a dangerous 'take ours' merge that records uat as merged while dropping uat_only_fix.py!
+    _git(repo, "merge", "-s", "ours", "uat", "-m", "chore(dev): bad ours merge of uat")
+
+    report = mod.build_parity_report(
+        repo,
+        dev_ref="dev",
+        uat_ref="uat",
+        main_ref="main",
+        require_clean_upstream=True,
+    )
+    assert report["code_parity"]["uat_ahead_of_dev"]["count"] == 0
+    assert report["merge_fidelity"]["violation_count"] == 1
+    assert report["status"] == "blocked"
+    assert any("Asymmetric merge fidelity violation" in b for b in report["blockers"])
+
+
+def test_release_manifest_and_serving_parity_enforcement(tmp_path: Path) -> None:
+    mod = _load_module()
+    repo = _init_three_lane_repo(tmp_path)
+    uat_sha = _git(repo, "rev-parse", "uat")
+
+    _git(repo, "checkout", "dev")
+    kai_dir = repo / "hushh-webapp" / "components" / "kai"
+    kai_dir.mkdir(parents=True, exist_ok=True)
+    (kai_dir / "portfolio.tsx").write_text("export const ok = true;\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "feat(finance): portfolio redesign")
+
+    def _stale_dev_fetcher(project: str, _region: str, service: str) -> dict[str, Any] | None:
+        if service == "sandbox-edge-gateway":
+            return None
+        return {
+            "status": {
+                "latestReadyRevisionName": f"{service}-001",
+                "url": f"https://{service}.example.run.app",
+            },
+            "spec": {
+                "template": {
+                    "metadata": {"labels": {"deploy-sha": uat_sha}},
+                    "spec": {"containers": [{"env": []}]},
+                }
+            },
+        }
+
+    report = mod.build_parity_report(
+        repo,
+        dev_ref="dev",
+        uat_ref="uat",
+        main_ref="main",
+        include_live_cloud=True,
+        require_serving_parity=True,
+        live_cloud_fetcher=_stale_dev_fetcher,
+        live_http_prober=lambda _url: (200, {"status": "ok"}),
+    )
+    assert "finance" in report["release_manifest"]["features"]
+    assert report["live_cloud"]["lanes"]["dev"]["branch_ahead_of_serving"] == 1
+    assert report["status"] == "blocked"
+    assert any("Serving parity on dev" in b for b in report["blockers"])

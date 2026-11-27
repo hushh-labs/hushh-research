@@ -102,7 +102,7 @@ describe("One Location onboarding finale — the map is real", () => {
 
     // And the headline stops promising a map.
     expect(
-      screen.getByRole("heading", { name: "Your people." }),
+      screen.getByRole("heading", { name: "Find your circle" }),
     ).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /on the map/ })).toBeNull();
   });
@@ -148,7 +148,7 @@ describe("One Location onboarding finale — the copy", () => {
     // What survives: state, the privacy fact, the circle's name, the code, its
     // expiry, the two invite actions, the way in, the way on.
     expect(
-      screen.getByRole("heading", { name: "Your people." }),
+      screen.getByRole("heading", { name: "Find your circle" }),
     ).toBeTruthy();
     expect(screen.queryByText("Private until you share.")).toBeNull();
     expect(screen.getByText("Your circle code")).toBeTruthy();

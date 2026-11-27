@@ -1,5 +1,9 @@
 const DEVELOPMENT_SLOW_REQUEST_TIMEOUT_MS = 75_000;
 
+// Portfolio review includes owner and placement checks on both sides of inference.
+export const PORTFOLIO_REVIEW_UPSTREAM_TIMEOUT_MS = 120_000;
+export const PORTFOLIO_REVIEW_CLIENT_TIMEOUT_MS = 130_000;
+
 function parsePositiveInteger(value: string | undefined): number | null {
   if (!value) return null;
   const parsed = Number.parseInt(value, 10);

@@ -166,6 +166,19 @@ class _MonitorState:
 
         await asyncio.to_thread(release)
 
+    async def refresh_meeting_reminders(
+        self, monitor: Monitor, *, now: datetime | None = None
+    ) -> int:
+        """Give proposed meetings stored before they had reminders their day-before reminder."""
+
+        def write() -> int:
+            with self.db.engine.begin() as conn:
+                return configure_sql.schedule_meeting_reminders(
+                    conn, monitor.user_id, monitor.account_id, monitor, now=now
+                )
+
+        return await asyncio.to_thread(write)
+
     async def save_checkpoint(
         self,
         monitor: Monitor,
@@ -202,7 +215,8 @@ class _MonitorState:
                               * power(2, LEAST(consecutive_failures, 6)))))
                       WHEN CAST(:terminal AS BOOLEAN) THEN NOW() + make_interval(
                         secs => GREATEST(CAST(:floor AS DOUBLE PRECISION),
-                          COALESCE(CAST(:retry_in AS DOUBLE PRECISION),
+                          LEAST(COALESCE(CAST(:retry_in AS DOUBLE PRECISION),
+                                   CAST(:cadence AS DOUBLE PRECISION)),
                                    CAST(:cadence AS DOUBLE PRECISION))))
                       ELSE NOW() END,
                     lease_until=NOW()+interval '5 minutes', updated_at=NOW()
@@ -250,6 +264,7 @@ class _MonitorConfig:
         notifications_enabled: bool,
         reminder_lead_days: int = 1,
         reminder_hour: int = 9,
+        initialize_only: bool = False,
     ) -> Monitor | None:
         if enabled:
             ZoneInfo(time_zone)
@@ -279,13 +294,11 @@ class _MonitorConfig:
 
         def write() -> Monitor | None:
             with self.db.engine.begin() as conn:
-                if enabled:
-                    # Serialize consent publication, replacement and revoke
-                    # with an opt-in even when no monitor row exists yet.
-                    conn.execute(
-                        text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
-                        {"lock_key": f"google-connection:{user_id}"},
-                    )
+                # Serialize initialization and opt-out even before a row exists.
+                conn.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+                    {"lock_key": f"google-connection:{user_id}"},
+                )
                 current = (
                     conn.execute(
                         text("""SELECT * FROM calendar_email_followup_monitors
@@ -296,8 +309,15 @@ class _MonitorConfig:
                     .first()
                 )
                 if not enabled:
-                    configure_sql.delete_monitor(conn, user_id, account_id)
+                    if not current:
+                        configure_sql.insert_monitor(conn, values)
+                    configure_sql.disable_monitor(conn, user_id, account_id)
                     return None
+                if initialize_only and current:
+                    return self._monitor(dict(current)) if current["enabled"] else None
+                if current and not current["enabled"]:
+                    configure_sql.delete_monitor(conn, user_id, account_id)
+                    current = None
                 if current and current["provider_subject_sha256"] != provider_subject_sha256:
                     # A different Google identity is a different mailbox: nothing
                     # stored for the previous identity may carry over.

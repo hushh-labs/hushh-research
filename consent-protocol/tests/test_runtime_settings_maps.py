@@ -390,7 +390,7 @@ def test_sandbox_pause_preserves_caps_and_rejects_cross_environment_overlay(tmp_
     for replacement in (
         {"scope_commerce_stripe_livemode": True},
         {"scope_commerce_stripe_account_id": "acct_other"},
-        {"scope_commerce_sandbox_policy_json": sandbox | {"reviewer_funding_cap_cents": 2001}},
+        {"scope_commerce_sandbox_policy_json": sandbox | {"reviewer_funding_cap_cents": 1_000_001}},
     ):
         policy_file.write_text(json.dumps(replacement))
         with pytest.raises(ValueError):

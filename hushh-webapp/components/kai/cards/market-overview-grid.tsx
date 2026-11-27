@@ -51,6 +51,8 @@ export interface MarketOverviewMetric {
   quotedAt?: string | null;
   /** Real intraday points (chronological). Absent = render no sparkline. */
   sparkline?: number[];
+  sparklinePoints?: Array<{ t: number; p: number }>;
+  chartTimeZone?: string;
 }
 
 const FALLBACK_ICON: Record<MarketOverviewMetric["tone"], LucideIcon> = {

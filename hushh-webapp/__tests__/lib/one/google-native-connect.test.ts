@@ -20,7 +20,7 @@ import {
   nativeGoogleClient,
 } from "@/lib/one/google-native-connect";
 import { openGoogleConnectorAuth } from "@/lib/one/google-connector-auth";
-import { googleConnectorIntent } from '@/lib/one/google-connector-intent';
+import { googleConnectorIntent, parseGoogleConnectorIntent, googleConnectorWantsCalendarList, googleConnectorWantsOtherContacts } from '@/lib/one/google-connector-intent';
 import { base64UrlEncode } from "@/lib/one/ai-selection-seal";
 
 const TRANSITION = { id: `gct_${'a'.repeat(32)}`, nonce: 'b'.repeat(43) };
@@ -40,6 +40,17 @@ beforeEach(() => {
 });
 
 describe("google native connect", () => {
+  it("reuses a verified private Gmail grant before transition or Google consent", async () => {
+    ownerPodRequest.mockResolvedValueOnce(new Response(JSON.stringify({
+      connectorId: "gmail", status: "connected", capabilities: { read: true, manage: true },
+    })));
+    const openAuthSession = vi.fn();
+    await expect(connectGoogleConnector("gmail", {platform: "ios", vaultOwnerCapability: CAPABILITY, openAuthSession}))
+      .resolves.toEqual({ok: true, status: "connected"});
+    expect(apiFetch).not.toHaveBeenCalled();
+    expect(openAuthSession).not.toHaveBeenCalled();
+  });
+
   it("binds transition authority to the application owner and preserves Firebase proof identity", async () => {
     const ownerId = "acct_" + "f".repeat(32);
     publishValidatedAuthSessionPrincipal({ firebaseUid: owner.uid, ownerId, accountGeneration: 1 });
@@ -131,7 +142,7 @@ describe("google native connect", () => {
   });
 
   it("sends the code and verifier only to the agent's connector door", async () => {
-    ownerPodRequest.mockResolvedValue(new Response(JSON.stringify({ connectorId: "gmail", status: "connected" }), { status: 200 }));
+    ownerPodRequest.mockImplementation(async () => new Response(JSON.stringify({ connectorId: "gmail", status: "connected" }), { status: 200 }));
     const openAuthSession = vi.fn(async (authorizationUrl: string) => {
       const state = new URL(authorizationUrl).searchParams.get("state");
       return `${nativeGoogleClient('ios')!.redirectUri}?code=4/0Acode&state=${state}`;
@@ -144,12 +155,23 @@ describe("google native connect", () => {
     const sent = JSON.parse(String(init.body));
     expect(sent).toMatchObject({ kind: "authorization_code", clientProfile: "hussh_ios", clientId: IOS_CLIENT, code: "4/0Acode" });
     expect(sent.transition).toEqual(TRANSITION);
+    expect(sent.mailAccount).toBeUndefined(); // Existing permission upgrades keep their legacy behavior.
     expect(apiFetch).toHaveBeenCalledWith('/api/one/google/connect/transition/prepare', expect.objectContaining({
       headers: expect.objectContaining({ 'X-Hushh-Consent': CAPABILITY }),
       body: JSON.stringify({ user_id: 'owner', client_profile: 'hussh_ios', confirmed: false }),
     }));
     expect(JSON.stringify(apiFetch.mock.calls)).not.toContain('4/0Acode');
     expect(sent.codeVerifier).toMatch(/^[A-Za-z0-9_-]{43,128}$/);
+  });
+
+  it('keeps reconnect identity inside the credential sent to the owner pod', async () => {
+    const mailAccount = { mode: 'reconnect' as const, accountId: 'a'.repeat(32), credentialId: '11111111-2222-4333-8444-555555555555' };
+    const outcome = await connectGoogleConnector('gmail', { platform: 'ios', vaultOwnerCapability: CAPABILITY, mailAccount,
+      openAuthSession: async url => `${nativeGoogleClient('ios')!.redirectUri}?code=synthetic&state=${new URL(url).searchParams.get('state')}` });
+    expect(outcome.ok).toBe(true);
+    const [, init] = ownerPodRequest.mock.calls.find(([, options]) => options.method === 'PUT')!;
+    expect(JSON.parse(init.body).mailAccount).toEqual(mailAccount);
+    expect(JSON.stringify(apiFetch.mock.calls)).not.toContain(mailAccount.accountId);
   });
 
   it("passes the agent's refusal code through and words it plainly", async () => {
@@ -165,6 +187,35 @@ describe("google native connect", () => {
     expect(outcome).toMatchObject({ ok: false, code: "PHONE_HANDOFF_REQUIRED", handoff: { connector: "calendar" } });
     expect(ownerPodRequest).not.toHaveBeenCalled();
     expect(apiFetch).not.toHaveBeenCalled();
+  });
+
+  it('requests Other Contacts only on an explicit upgrade and carries the intent through phone handoff', async () => {
+    const scope = 'https://www.googleapis.com/auth/contacts.other.readonly';
+    const request = { client: nativeGoogleClient('ios')!, connector: 'contacts' as const, challenge: 'challenge', state: 'state' };
+    const base = new URL(googleAuthorizationUrl(request));
+    const upgrade = new URL(googleAuthorizationUrl({ ...request, includeOtherContacts: true }));
+    expect(base.searchParams.get('scope')?.split(' ')).not.toContain(scope);
+    expect(upgrade.searchParams.get('scope')?.split(' ')).toContain(scope);
+    expect(upgrade.searchParams.get('include_granted_scopes')).toBe('false');
+    const outcome = await connectGoogleConnector('contacts', { platform: 'web', includeOtherContacts: true });
+    expect(outcome).toMatchObject({ ok: false, code: 'PHONE_HANDOFF_REQUIRED' });
+    if (outcome.ok || !('handoff' in outcome)) throw new Error('expected handoff');
+    const { deepLink } = outcome.handoff;
+    expect(googleConnectorIntent(deepLink)).toBe('contacts');
+    expect(googleConnectorWantsOtherContacts(deepLink)).toBe(true);
+    expect(googleConnectorWantsOtherContacts(`${deepLink}?owner=other`)).toBe(false);
+    expect(googleConnectorIntent('hushh://one/connect/google/gmail/other')).toBeNull();
+  });
+
+  it('carries optional subscribed-Calendar consent through the phone handoff without changing a base grant', async () => {
+    const scope = 'https://www.googleapis.com/auth/calendar.calendarlist.readonly';
+    const request = { client: nativeGoogleClient('ios')!, connector: 'calendar' as const, challenge: 'challenge', state: 'state' };
+    expect(new URL(googleAuthorizationUrl(request)).searchParams.get('scope')?.split(' ')).not.toContain(scope);
+    expect(new URL(googleAuthorizationUrl({ ...request, includeCalendarList: true })).searchParams.get('scope')?.split(' ')).toContain(scope);
+    const result = await connectGoogleConnector('calendar', { platform: 'web', includeCalendarList: true });
+    if (result.ok || !('handoff' in result)) throw new Error('expected handoff');
+    expect(googleConnectorIntent(result.handoff.deepLink)).toBe('calendar');
+    expect(googleConnectorWantsCalendarList(result.handoff.deepLink)).toBe(true);
   });
 
   it("uses the separate native public-client adapter and handles cancellation", async () => {
@@ -185,6 +236,9 @@ describe("google native connect", () => {
     expect(ownerPodRequest.mock.calls.some(([, init]) => init.method === 'PUT')).toBe(false);
   });
   it('accepts only connector intent in a QR, without any owner, endpoint or OAuth material', () => {
+    expect(parseGoogleConnectorIntent('hushh://one/connect/google/gmail/add')).toEqual({ connector: 'gmail', addMailbox: true });
+    expect(parseGoogleConnectorIntent('hushh://one/connect/google/drive/add')).toBeNull();
+    expect(parseGoogleConnectorIntent('hushh://one/connect/google/gmail/add?accountId=owner')).toBeNull();
     expect(googleConnectorIntent('hushh://one/connect/google/drive')).toBe('drive');
     for (const suffix of ['?code=secret', '?owner=user', '?endpoint=https://evil', '#verifier']) {
       expect(googleConnectorIntent(`hushh://one/connect/google/drive${suffix}`)).toBeNull();

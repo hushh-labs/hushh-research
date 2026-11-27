@@ -6,6 +6,8 @@ import { Button } from "@/lib/morphy-ux/button";
 import { Card, CardContent } from "@/lib/morphy-ux/card";
 import { Icon } from "@/lib/morphy-ux/ui";
 
+import { formatCurrency } from "@/lib/kai/market-value-format";
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 export interface HoldingPosition {
   symbol: string;
   name: string;
@@ -22,20 +24,12 @@ interface HoldingPositionCardProps {
   onManage: (symbol: string, action: "edit" | "delete") => void;
 }
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
 function tickerFallback(symbol: string): string {
   return symbol.trim().slice(0, 3).toUpperCase() || "KAI";
 }
 
 export function HoldingPositionCard({ holding, onAnalyze, onManage }: HoldingPositionCardProps) {
+  useMarketCurrency();
   const positive = holding.gainLossValue >= 0;
 
   return (

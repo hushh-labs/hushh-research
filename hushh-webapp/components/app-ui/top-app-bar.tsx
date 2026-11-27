@@ -18,9 +18,13 @@
  * evaluates correctly in both environments.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { TopBarRouteAccessoryHost } from "./top-bar-route-accessory";
+import { visitFeedSearchRoute } from "@/lib/feed/feed-search-memory";
+import { openFeedSearch } from "@/lib/feed/feed-search-events";
 import { OnboardingRouteActions } from "@/components/onboarding/onboarding-route-actions";
 import { useNativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
 import {
+  Search,
   BriefcaseBusiness,
   Code2,
   AccentedKeyIcon,
@@ -51,7 +55,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { toast } from "sonner";
+import { nativeFeedbackToast as toast } from "@/lib/capacitor/native-feedback";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
 import { useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
@@ -403,11 +407,12 @@ export interface AppTopShellProps {
 export function AppTopShell({ className, model }: AppTopShellProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { isAuthenticated, user, userId } = useAuth();
+  const { isAuthenticated, user, userId, loading: authLoading, sessionVerificationRequired } = useAuth();
   const { isVaultUnlocked } = useVault();
   const { activePersona, riaCapability, riaEntryRoute, switchPersona } =
     usePersonaState();
   const pathname = usePathname();
+  useEffect(()=>{if(pathname)visitFeedSearchRoute(pathname);},[pathname]);
   // The top bar is suppressed on every setup surface, so its avatar must not
   // spend a pool connection fetching an image nobody is looking at while a
   // first-run person waits on the gate. It still renders from cache, and
@@ -855,6 +860,10 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     () => isPersonaSwitchTopBarRoute(normalizedPathname),
     [normalizedPathname],
   );
+  // Public legal Back carries only the current page's return action. An
+  // unresolved or half-bound account cannot acquire an anonymous control.
+  const publicLegalBack = authLoading === false && sessionVerificationRequired === false &&
+    user === null && userId === null && (normalizedPathname === ROUTES.TERMS || normalizedPathname === ROUTES.PRIVACY);
   const showVaultUnlockAction =
     isAuthenticated && hasVault === true && !isVaultUnlocked &&
     normalizedPathname !== ROUTES.CALENDAR && normalizedPathname !== ROUTES.ONE_SETUP_CALENDAR;
@@ -1068,9 +1077,9 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                     <NativeShellBack
                       label={topShellBreadcrumb.backLabel ?? "Go back"}
                       onBack={handleTopShellBack}
-                      owner={userId}
+                      owner={publicLegalBack ? `legal:${normalizedPathname}` : userId ? `account:${userId}` : null}
                       context={`${normalizedPathname}?${searchParams.toString()}`}
-                      eligible={isAuthenticated && isVaultUnlocked && !showVaultUnlockAction}
+                      eligible={publicLegalBack || (isAuthenticated && isVaultUnlocked && !showVaultUnlockAction)}
                     />
                   ) : showOneHomeBrand ? (
                     <div
@@ -1242,6 +1251,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                       <OnboardingRouteActions key={userId ?? "signed-out"} />
                     ) : (
                       <>
+                        {pathname === "/one/feed" && !["funding_event", "statement_id", "institution_id", "analysis_id"].some(key => searchParams?.has(key)) ? <ShellActionSurface variant="icon" aria-label="Search Feed" data-voice-control-id="feed.search.open" onClick={openFeedSearch}><Search className="h-5 w-5" /></ShellActionSurface> : null}
                         {showVaultUnlockAction ? (
                           <ShellActionSurface
                             variant="icon"
@@ -1252,6 +1262,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                           </ShellActionSurface>
                         ) : null}
 
+                        <TopBarRouteAccessoryHost />
                         <OpenProfileAction avatarUrl={effectiveAvatarUrl} displayName={user?.displayName} />
                       </>
                     )}

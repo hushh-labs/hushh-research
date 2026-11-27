@@ -69,6 +69,8 @@ def test_pod_readiness_does_not_require_the_hub_database(monkeypatch):
         # The data-door broker READS a DB-backed specialist for a pod. A pod
         # holds no DB credential and must never proxy this to other pods.
         "/api/one/pod/specialist",
+        # The Hub custody/capability broker holds regional KEK & STS minting authority.
+        "/api/one/pod/custody",
     ],
 )
 def test_pod_does_not_mount_central_or_unrelated_surface(forbidden_prefix):
@@ -358,6 +360,7 @@ def test_the_wall_sits_inside_observability_and_outside_the_routes():
 # Exact external reachability, independently pinned against ingress policy.
 OWNER_REACHABLE_PATHS = frozenset(
     {
+        "/api/one/pod/answers/compose",
         "/api/one/pod/actions/gmail/proposals",
         "/api/one/pod/actions/{proposal_id}/confirm",
         "/api/one/pod/actions/{proposal_id}/status",
@@ -384,11 +387,32 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/browser/tasks/{task_id}/review",
         "/api/one/pod/browser/tasks/{task_id}/session",
         "/api/one/pod/browser/tasks/{task_id}/downloads/{download_id}",
+        "/api/one/pod/browser/tasks/{task_id}/credentials",
+        "/api/one/pod/browser/tasks/{task_id}/credentials/use",
+        "/api/one/pod/browser/tasks/{task_id}/credentials/transient",
+        # Owner config authority admits recipient-encrypted credential projections
+        # and monotonic revocation metadata, never plaintext credential CRUD.
+        "/api/one/pod/credentials",
+        "/api/one/pod/credentials/{credential_id}",
         "/api/one/pod/connectors/{connector_id}",
+        "/api/one/pod/connectors/gmail/accounts",
+        "/api/one/pod/connectors/gmail/accounts/{account_id}",
         # Bounded To-do metadata; the routes still require an owner app session,
         # pkm.read and the current local Google grant (test_pod_todo_sources.py).
         "/api/one/pod/calendar/events",
         "/api/one/pod/gmail/todos",
+        "/api/one/pod/connectors/gmail/accounts/{account_id}/receipts/{operation}",
+        "/api/one/pod/gmail/followups/brief",
+        "/api/one/pod/gmail/followups/recent",
+        "/api/one/pod/gmail/followups/account",
+        "/api/one/pod/gmail/followups/search",
+        "/api/one/pod/gmail/followups/open",
+        "/api/one/pod/gmail/followups/track",
+        "/api/one/pod/gmail/followups/check",
+        "/api/one/pod/gmail/followups/draft",
+        "/api/one/pod/gmail/followups/document",
+        "/api/one/pod/todos/suggestions",
+        "/api/one/pod/todos/suggestions/status",
         "/health",
         "/health/ready",
         # Capabilities remain private; only liveness is public. Each command/Files route
@@ -397,6 +421,7 @@ OWNER_REACHABLE_PATHS = frozenset(
         # app session, pkm.read, owner-bound chat key and encrypted recovery fence.
         "/api/one/pod/agent-chat",
         "/api/one/pod/agent-chat/capabilities",
+        "/api/one/pod/agent-chat/migration/import",
         "/api/one/pod/agent-chat/history/{conversation_id}/information-requests",
         "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/review",
         "/api/one/pod/agent-chat/conversations/{conversation_id}",
@@ -415,6 +440,20 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/files/chunk",
         "/api/one/pod/files/complete",
         "/api/one/pod/files/mutate",
+        "/api/one/pod/files/wiki/overview",
+        "/api/one/pod/files/wiki/page",
+        "/api/one/pod/files/wiki/opt-in",
+        "/api/one/pod/files/wiki/confirm",
+        "/api/one/pod/files/wiki/projection/derive",
+        "/api/one/pod/files/wiki/forget",
+        "/api/one/pod/files/wiki/migrate",
+        "/api/one/pod/files/wiki/rollback",
+        "/api/one/pod/files/wiki/import",
+        "/api/one/pod/files/wiki/optimize",
+        "/api/one/pod/files/workspaces/status",
+        "/api/one/pod/files/workspaces/execute",
+        "/api/one/pod/files/workspaces/control",
+        "/api/one/pod/files/workspaces/forget",
         "/api/one/pod/tasks",
         "/api/one/pod/tasks/control",
         "/api/one/pod/tasks/review",
@@ -434,10 +473,21 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/session/revoke",
         # Memory and the AI selection: two-door admission; APP_SURFACE_EXACT owns reach.
         "/api/one/pod/ai-selection",
+        "/api/one/pod/ai-selection/activate",
+        "/api/one/pod/ai-selection/deactivate",
+        "/api/one/pod/circle-rules",
+        "/api/one/pod/circle-rules/preview",
+        "/api/one/pod/circle-rules/{rule_id}",
+        "/api/one/pod/circle-rules/{rule_id}/toggle",
         "/api/one/pod/conversation/{conversation_id}/close",
         "/api/one/pod/memory/status",
+        "/api/one/pod/memory/rewrite",
         "/api/one/pod/memory/revoke",
         "/api/one/pod/memory/provider-consent",
+        "/api/one/pod/plaid/vault/link-token",
+        "/api/one/pod/plaid/vault/exchange",
+        "/api/one/pod/plaid/vault/snapshot",
+        "/api/one/pod/plaid/vault/remove",
     }
 )
 
@@ -456,12 +506,16 @@ def _concrete(path: str) -> str:
 
     values = {
         "task_id": "browser_" + "0" * 32,
+        "account_id": "0" * 32,
+        "operation": "scan",
         "download_id": "0" * 32,
+        "credential_id": "cred_" + "0" * 32,
         "command_id": "00000000-0000-4000-8000-000000000001",
         "connector_id": "gmail"
         if path.startswith("/api/one/pod/connectors/")
         else "custom_" + "0" * 32,
         "proposal_id": "gmod_" + "a" * 16,
+        "rule_id": "rule_" + "a" * 16,
         "client_message_id": "message_123",
     }
     return re.sub(r"\{([^}]+)\}", lambda match: values.get(match[1], "sample"), path)
@@ -470,6 +524,25 @@ def _concrete(path: str) -> str:
 def test_the_owner_reachable_surface_is_exactly_these_paths():
     from api.middlewares.pod_ingress import is_app_surface
 
+    # Path reachability does not authorize new verbs. Pin the credential entry
+    # and custody seams independently of their ingress regex and shared prefix.
+    credential_methods = {
+        "/api/one/pod/browser/tasks/{task_id}/credentials": {"GET"},
+        "/api/one/pod/browser/tasks/{task_id}/credentials/use": {"POST"},
+        "/api/one/pod/browser/tasks/{task_id}/credentials/transient": {"POST"},
+        "/api/one/pod/credentials": {"POST"},
+        "/api/one/pod/credentials/{credential_id}": {"GET", "DELETE"},
+    }
+    methods = {
+        path: {
+            method
+            for route in pod_server.app.routes
+            if getattr(route, "path", None) == path
+            for method in getattr(route, "methods", ())
+        }
+        for path in credential_methods
+    }
+    assert methods == credential_methods
     mounted = _paths()
     expected = OWNER_REACHABLE_PATHS | QUEUE_REACHABLE_PATHS | PROVIDER_REACHABLE_PATHS
     assert expected <= mounted, (

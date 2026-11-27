@@ -5,10 +5,10 @@ import { forwardRef } from "react";
 import type { CanonicalIconProps } from "../legacy-ui-icons";
 import { cn } from "@/lib/utils";
 
-/** Deletion glyphs keep Apple's destructive red, independent of row text. */
-export const AppleTrashIcon = forwardRef<SVGSVGElement, CanonicalIconProps>(
+/** Standalone deletion glyphs use Apple red. Paired glyphs can inherit their action’s foreground. */
+export const AppleTrashIcon = forwardRef<SVGSVGElement, CanonicalIconProps & { inheritColor?: boolean }>(
   function AppleTrashIcon(
-    { weight = "regular", className, style, strokeWidth: _strokeWidth, absoluteStrokeWidth: _absoluteStrokeWidth, ...props },
+    { weight = "regular", className, style, inheritColor = false, strokeWidth: _strokeWidth, absoluteStrokeWidth: _absoluteStrokeWidth, ...props },
     ref,
   ) {
     return (
@@ -16,9 +16,9 @@ export const AppleTrashIcon = forwardRef<SVGSVGElement, CanonicalIconProps>(
         {...props}
         ref={ref}
         weight={weight}
-        color="var(--app-destructive)"
-        className={cn(className, "!text-[color:var(--app-destructive)]")}
-        style={{ ...style, color: "var(--app-destructive)" }}
+        color={inheritColor ? "currentColor" : "var(--app-destructive)"}
+        className={cn(className, !inheritColor && "!text-[color:var(--app-destructive)]")}
+        style={inheritColor ? style : { ...style, color: "var(--app-destructive)" }}
         data-canonical-icon="true"
         data-trash-icon="true"
       />

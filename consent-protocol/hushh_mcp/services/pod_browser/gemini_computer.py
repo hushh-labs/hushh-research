@@ -131,7 +131,11 @@ def gemini_after_model(control: BrowserControl):
             call = part.function_call
             if call is None:
                 continue
-            if call.name not in _LEGACY | _NATIVE | {"finish_task"}:
+            if call.name not in _LEGACY | _NATIVE | {
+                "finish_task",
+                "saved_website_logins",
+                "use_saved_website_login",
+            }:
                 raise BrowserRefused("BROWSER_NATIVE_ACTION_UNSUPPORTED")
             if call.name == "drag_and_drop" and any(
                 name in (call.args or {}) for name in ("start_x", "start_y", "end_x", "end_y")

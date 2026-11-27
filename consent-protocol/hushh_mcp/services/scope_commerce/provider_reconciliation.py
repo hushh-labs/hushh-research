@@ -42,6 +42,44 @@ async def _has_retired_owner_guard(connection: Any) -> bool:
 
 
 class ReconciliationCoordinator(ProviderContext):
+    async def reconcile_payer_fundings(
+        self, *, payer_user_id: str, max_operations: int = 3
+    ) -> dict[str, int]:
+        """Reconcile only the authenticated payer's open funding operations on checkout return."""
+        await self._admit(new_activity=False)
+        limit = max(1, min(max_operations, 10))
+
+        async def pending(connection: Any) -> list[dict[str, Any]]:
+            rows = await connection.fetch(
+                """SELECT o.* FROM scope_commerce_provider_operations o
+                JOIN scope_commerce_fundings f ON f.funding_id=o.operation_id
+                JOIN scope_commerce_wallets w ON w.wallet_id=f.wallet_id
+                WHERE w.payer_user_id=$1
+                  AND o.kind='funding'
+                  AND f.status='reserved'
+                  AND (o.lease_until IS NULL OR o.lease_until<clock_timestamp())
+                ORDER BY o.updated_at DESC,o.operation_id LIMIT $2""",
+                payer_user_id,
+                limit,
+            )
+            return [dict(row) for row in rows]
+
+        examined = completed = uncertain = 0
+        for operation in await self.store._transaction(pending):
+            examined += 1
+            request = operation["request_json"]
+            request = json.loads(request) if isinstance(request, str) else request
+            try:
+                if not await self._reconcile_provider_operation(operation, request):
+                    uncertain += 1
+                    await self._defer_operation_reconciliation(operation["operation_id"])
+                    continue
+                completed += 1
+            except (CommerceProviderError, CommerceError):
+                uncertain += 1
+                await self._defer_operation_reconciliation(operation["operation_id"])
+        return {"examined": examined, "reconciled": completed, "uncertain": uncertain}
+
     async def reconcile(self, *, max_operations: int = 20) -> dict[str, int]:
         """Bounded durable drain, safe while admission for new purchases is disabled."""
         await self._admit(new_activity=False)

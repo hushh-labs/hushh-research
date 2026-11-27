@@ -74,9 +74,8 @@ export type CalendarBoardConflict = {
 };
 export type CalendarBoardDay = {
   date: string; time_zone: string; duration_minutes: 15 | 30 | 60;
-  accounts: CalendarBoardAccount[]; complete: boolean; conflicts_complete: boolean;
+  accounts: CalendarBoardAccount[]; people?: CalendarInvitationsResponse["people"]; complete: boolean; conflicts_complete: boolean;
   conflicts: CalendarBoardConflict[]; shared_free_windows: CalendarOpening[]; checked_at: string;
-  people?: Record<string, { userId: string; displayName: string | null; photoUrl: string | null }>;
 };
 export type CalendarEventRef = { account_id: string; calendar_id: string; event_id: string };
 export type CalendarConflictPreview = {
@@ -99,7 +98,7 @@ export type CalendarInvitationsResponse = { account_email?: string; events: Cale
 export type CalendarAttendanceReview = { exact_time?: boolean; response_status?: "accepted" | "declined" | "tentative"; calendar_id?: string; conflicts?: CalendarEventSummary[]; unchecked_calendars?: string[]; openings?: CalendarOpening[]; review_id: string; review_token: string; title: string; start?: CalendarEventTime; end?: CalendarEventTime; recipient: string | null; subject: string | null; message: string | null; rescheduling_link: string | null; sender_label: string | null; expires_at: string };
 export type CalendarAttendanceResult = { calendar: "accepted" | "declined" | "tentative" | "failed" | "unknown"; email: "not_sent" | "sent" | "failed" | "unknown"; calendar_error: string | null; email_error: string | null };
 export type CalendarWindowParams = { vaultOwnerToken: string; date: string; timeZone: string; startTime: string; endTime: string; durationMinutes: 15 | 30 | 60 };
-type AttendanceReviewInput = Omit<CalendarWindowParams, "durationMinutes"> & { durationMinutes: number; accountId?: string; expectedAccountEmail?: string; responseStatus?: "accepted" | "declined" | "tentative"; firebaseIdToken: string; signal?: AbortSignal; isEffectCurrent?: () => boolean; eventId: string; calendarId?: string; offerTimes: boolean; sendMessage?: boolean; mailOnlyRetry?: boolean; exactTime?: boolean; message: string; declineReason?: string };
+type AttendanceReviewInput = Omit<CalendarWindowParams, "durationMinutes"> & { durationMinutes: number; accountId?: string; expectedAccountEmail?: string; responseStatus?: "accepted" | "declined" | "tentative"; firebaseIdToken: string; signal?: AbortSignal; isEffectCurrent?: () => boolean; eventId: string; calendarId?: string; offerTimes: boolean; sendMessage?: boolean; mailOnlyRetry?: boolean; exactTime?: boolean; message: string; declineReason?: string; composeMessage?: boolean };
 
 /** Typed transport for the Calendar API. Components never call fetch directly. */
 export class GoogleCalendarService {
@@ -288,9 +287,15 @@ export class GoogleCalendarService {
     userId: string;
     proposalId: string;
     accountId?: string;
+    reviewContract?: 1;
+    isEffectCurrent?: () => boolean;
   }): Promise<CalendarExecution> {
-    if (await ownerRequiresByocIsolation()) {
-      const value = await confirmPrivateGoogleAction(params.proposalId, 'calendar');
+    const privateOwner = await ownerRequiresByocIsolation();
+    if (params.isEffectCurrent?.() === false) {
+      throw new DOMException("The Calendar account changed.", "AbortError");
+    }
+    if (privateOwner) {
+      const value = await confirmPrivateGoogleAction(params.proposalId, 'calendar', params.reviewContract);
       if (!['create', 'reschedule', 'cancel'].includes(String(value.action)) || !value.event || typeof value.event !== 'object') throw new Error('Your agent could not confirm the Calendar outcome.');
       return value as CalendarExecution;
     }
@@ -298,6 +303,7 @@ export class GoogleCalendarService {
       "/api/one/calendar/proposals/execute",
       {
         method: "POST",
+        isEffectCurrent: params.isEffectCurrent,
         headers: {
           Authorization: `Bearer ${params.vaultOwnerToken}`,
           "Content-Type": "application/json",
@@ -306,6 +312,7 @@ export class GoogleCalendarService {
           user_id: params.userId,
           proposal_id: params.proposalId,
           ...(params.accountId ? { account_id: params.accountId } : {}),
+          ...(params.reviewContract === 1 ? { review_contract: 1 } : {}),
         }),
       },
     );
@@ -391,7 +398,7 @@ export class GoogleCalendarService {
   }
 
   private static attendanceReviewBody(params: Omit<AttendanceReviewInput, "vaultOwnerToken">) {
-    return { ...this.windowBody(params), ...(params.accountId && params.accountId !== "default" ? { account_id: params.accountId } : {}), event_id: params.eventId, calendar_id: params.calendarId || "primary", offer_times: params.offerTimes, send_message: params.sendMessage ?? false, mail_only_retry: params.mailOnlyRetry ?? false, exact_time: params.exactTime ?? false, message: params.message, ...(params.declineReason?.trim() ? { decline_reason: params.declineReason.trim() } : {}), ...(params.expectedAccountEmail ? { expected_account_email: params.expectedAccountEmail } : {}), ...(params.responseStatus ? { response_status: params.responseStatus } : {}) };
+    return { ...this.windowBody(params), ...(params.accountId && params.accountId !== "default" ? { account_id: params.accountId } : {}), event_id: params.eventId, calendar_id: params.calendarId || "primary", offer_times: params.offerTimes, send_message: params.sendMessage ?? false, mail_only_retry: params.mailOnlyRetry ?? false, exact_time: params.exactTime ?? false, message: params.message, compose_message: params.composeMessage ?? false, ...(params.declineReason?.trim() ? { decline_reason: params.declineReason.trim() } : {}), ...(params.expectedAccountEmail ? { expected_account_email: params.expectedAccountEmail } : {}), ...(params.responseStatus ? { response_status: params.responseStatus } : {}) };
   }
 
   static reviewAttendance(params: AttendanceReviewInput): Promise<CalendarAttendanceReview> {

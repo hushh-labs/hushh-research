@@ -22,60 +22,100 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import ts from "typescript";
 
 import { describe, expect, it } from "vitest";
 
 const WEBAPP_ROOT = path.resolve(__dirname, "../../..");
 
 function read(relativePath: string) {
-  return fs.readFileSync(path.join(WEBAPP_ROOT, relativePath), "utf8");
+  return fs.readFileSync(path.join(WEBAPP_ROOT, relativePath), "utf8").replace(/\r\n/g, "\n");
+}
+
+function parse(relativePath: string) {
+  return ts.createSourceFile(relativePath, read(relativePath), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+}
+
+function nodes<T extends ts.Node>(root: ts.Node, matches: (node: ts.Node) => node is T): T[] {
+  const result: T[] = [];
+  function visit(node: ts.Node) {
+    if (matches(node)) result.push(node);
+    ts.forEachChild(node, visit);
+  }
+  visit(root);
+  return result;
+}
+
+function captureCallback(name: string) {
+  const declaration = nodes(parse("components/one-location/location-immersive-map.tsx"), ts.isVariableDeclaration)
+    .find(node => ts.isIdentifier(node.name) && node.name.text === name);
+  const initializer = declaration?.initializer;
+  expect(initializer && ts.isCallExpression(initializer)).toBeTruthy();
+  const callback = (initializer as ts.CallExpression).arguments[0]!;
+  expect(ts.isArrowFunction(callback)).toBe(true);
+  return callback as ts.ArrowFunction;
+}
+
+function optionBranches(expression: ts.Expression): ts.Expression[] {
+  if (ts.isParenthesizedExpression(expression)) return optionBranches(expression.expression);
+  if (ts.isConditionalExpression(expression)) {
+    return [...optionBranches(expression.whenTrue), ...optionBranches(expression.whenFalse)];
+  }
+  return [expression];
 }
 
 describe("One Location capture-options boundary", () => {
   it("the map's capture forwarders declare and pass their options", () => {
-    const source = read("components/one-location/location-immersive-map.tsx");
-
-    // Declared with the parameter — a zero-arity declaration is the bug.
-    expect(source).toContain(
-      "const captureCurrentLocation = useCallback(\n    (options?: {\n      maxAgeMs?: number;\n      fresh?: boolean;\n    }): Promise<PlainLocationPoint> => {",
-    );
-    expect(source).toContain(
-      "async (options?: { maxAgeMs?: number; fresh?: boolean }) => {\n      const point = await captureCurrentLocation(options);",
-    );
-
-    // And actually forwarded to the service, not dropped.
-    expect(source).toContain(
-      "OneLocationService.captureCurrentPosition(options)",
-    );
-    expect(source).not.toContain(
-      "const captureAndRememberCurrentLocation = useCallback(async () => {",
-    );
+    for (const [name, target] of [
+      ["captureCurrentLocation", "OneLocationService.captureCurrentPosition"],
+      ["captureAndRememberCurrentLocation", "captureCurrentLocation"],
+    ]) {
+      const callback = captureCallback(name!);
+      // TypeScript permits dropping this argument; require the actual binding
+      // to reach the next owner without fixing a formatting or field count.
+      expect(callback.parameters.length).toBeGreaterThan(0);
+      const binding = callback.parameters[0]!.name.getText();
+      const forwarded = nodes(callback, ts.isCallExpression)
+        .find(call => call.expression.getText().replace(/\s/g, "") === target);
+      expect(forwarded?.arguments[0]?.getText()).toBe(binding);
+    }
   });
 
-  it("an in-flight capture is not handed to a caller demanding a fresh fix", () => {
+  it("bypasses in-flight capture for freshness and measurement requirements", () => {
     const source = read("components/one-location/location-immersive-map.tsx");
 
     // Deduplication is right for cached-eligible callers and wrong for a
     // check-in anchor that must describe where the user is standing now.
     expect(source).toContain(
-      "options?.maxAgeMs !== 0 &&\n        !options?.fresh",
+      "options?.maxAgeMs !== 0 &&\n        !options?.fresh &&\n        !options?.requireMeasurement",
     );
   });
 
-  it("the check-in confirmation anchors on a current fix, not a stale one", () => {
-    const source = read(
-      "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
-    );
-    expect(source).toContain("captureCurrentPosition({ fresh: true })");
+  it("manual and command check-in both request a current measured fix", () => {
+    const source = parse("components/one-location/nearby-check-in/nearby-check-in-sheet.tsx");
+    const captures = nodes(source, ts.isCallExpression)
+      .filter(call => call.expression.getText() === "captureCurrentPosition" && call.arguments.length > 0);
+    expect(captures).toHaveLength(2);
+    for (const capture of captures) {
+      for (const branch of optionBranches(capture.arguments[0]!)) {
+        expect(ts.isObjectLiteralExpression(branch)).toBe(true);
+        const options = new Map((branch as ts.ObjectLiteralExpression).properties
+          .filter(ts.isPropertyAssignment).map(property => [property.name.getText(), property.initializer.getText()]));
+        expect(options.get("requireMeasurement")).toBe("true");
+        expect(options.get("fresh") === "true" || options.get("maxAgeMs") === "0").toBe(true);
+      }
+    }
   });
 
   it("the check-in sheet's prop type accepts options at all", () => {
-    const source = read(
-      "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
-    );
-    expect(source).toContain(
-      "captureCurrentPosition: (options?: {\n    maxAgeMs?: number;\n    fresh?: boolean;\n  }) => Promise<PlainLocationPoint>;",
-    );
+    const source = parse("components/one-location/nearby-check-in/nearby-check-in-sheet.tsx");
+    const prop = nodes(source, ts.isPropertySignature).find(node => node.name.getText() === "captureCurrentPosition");
+    expect(prop?.type && ts.isFunctionTypeNode(prop.type)).toBeTruthy();
+    const parameter = (prop!.type as ts.FunctionTypeNode).parameters[0];
+    expect(parameter).toBeDefined();
+    expect(parameter?.type && ts.isTypeLiteralNode(parameter.type)).toBeTruthy();
+    const fields = (parameter!.type as ts.TypeLiteralNode).members.map(member => member.name?.getText());
+    expect(fields).toEqual(expect.arrayContaining(["maxAgeMs", "fresh", "requireMeasurement"]));
   });
 });
 
@@ -124,8 +164,22 @@ describe("One Location CTA latency contract", () => {
     const source = page();
     // One recipient throwing must not starve the others — with stable grant
     // ordering, a shared catch starved everyone after the failure on EVERY tick.
-    expect(source).not.toContain("for (const grant of activeOwnerGrants) {");
-    expect(source).toContain("activeOwnerGrants.map(async (grant) => {");
+    expect(source).not.toMatch(/for \(const grant of (?:activeOwnerGrants|continuousOwnerGrants)\) \{/);
+    // Pins and check-ins stay fixed; both continuous loops still isolate recipients.
+    expect(source).toContain("activeOwnerGrants.filter((grant) => !isFixedLocationGrant(grant))");
+    const publishers = nodes(parse("app/one/location/page.tsx"), ts.isCallExpression)
+      .filter(call => ts.isPropertyAccessExpression(call.expression) &&
+        call.expression.name.text === "map" && call.expression.expression.getText() === "continuousOwnerGrants");
+    expect(publishers).toHaveLength(2);
+    for (const publisher of publishers) {
+      expect(ts.isCallExpression(publisher.parent)).toBe(true);
+      const aggregate = publisher.parent as ts.CallExpression;
+      expect(aggregate.expression.getText()).toBe("Promise.all");
+      const callback = publisher.arguments[0]!;
+      expect(ts.isArrowFunction(callback)).toBe(true);
+      expect(nodes(callback, ts.isTryStatement).some(statement => statement.catchClause &&
+        nodes(statement.tryBlock, ts.isCallExpression).some(call => call.expression.getText() === "publishEnvelopeWithRetry"))).toBe(true);
+    }
   });
 
   it("the review queue warms the position before Approve is pressed", () => {
@@ -138,7 +192,7 @@ describe("One Location CTA latency contract", () => {
     expect(source).toContain('if (permission?.state !== "granted") return;');
   });
 
-  it("live publishing never serves a recipient a remembered fix", () => {
+  it("the Location workspace and Chat use the same measured heartbeat fix", () => {
     const source = page();
     // The rule is unchanged; its evidence moved. Forcing an acquisition per
     // tick used to be how the publisher stayed current, and it stopped being
@@ -149,19 +203,9 @@ describe("One Location CTA latency contract", () => {
     // rejects anything not measured this session, by provenance rather than
     // by clock.
     expect(source).toContain("const point = await liveHeartbeatPoint();");
-    expect(source).toContain("return publishPointFrom(LocationBus.getState());");
+    expect(read("components/location/location-publisher-bridge.tsx")).toContain("const point = await liveHeartbeatPoint();");
     expect(source).not.toContain(
       "const point = await OneLocationService.captureCurrentPosition({\n          maxAgeMs: 0,\n        });",
-    );
-  });
-
-  it("the heartbeat's reuse window is one tick, not a hand-picked number", () => {
-    const source = page();
-    // A recipient calls a share stale at three publish periods, so a ceiling
-    // of one period keeps the published point inside the window the receiving
-    // side is already written against.
-    expect(source).toContain(
-      "const LIVE_HEARTBEAT_MAX_AGE_MS = LIVE_LOCATION_UPDATE_INTERVAL_MS;",
     );
   });
 

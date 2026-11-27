@@ -3,6 +3,7 @@
  * replaced. Every account/phone operation goes through the real HTTP API.
  */
 import React, { useSyncExternalStore } from "react";
+export { PhoneAuthCredential } from "@firebase/auth";
 
 type FixtureUser = {
   uid: string; email: string; displayName: string; emailVerified: boolean;
@@ -12,9 +13,11 @@ type FixtureUser = {
   getIdTokenResult: () => Promise<{ signInProvider: string }>;
   reload: () => Promise<void>;
 };
-type Auth = { name: string; currentUser: FixtureUser | null; settings: Record<string, unknown> };
+type Auth = { name: string; app: { name: string; options: Record<string, unknown> }; currentUser: FixtureUser | null; settings: Record<string, unknown> };
 const listeners = new Set<(user: FixtureUser | null) => void>();
-const apps: { name: string; options: Record<string, unknown> }[] = [];
+const apps: { name: string; options: Record<string, unknown> }[] = [
+  { name: "[DEFAULT]", options: { apiKey: "synthetic-only", projectId: "synthetic-auth" } },
+];
 const stores = new Map<string, Auth>();
 let selected = "previous";
 
@@ -30,12 +33,17 @@ async function sdk(path: string, body?: unknown) {
   return value;
 }
 function user(value: { uid: string; provider: string; phone: string | null }): FixtureUser {
-  return { uid: value.uid, email: `${value.uid}@example.test`, displayName: "Synthetic account",
+  const current: FixtureUser = { uid: value.uid, email: `${value.uid}@example.test`, displayName: "Synthetic account",
     emailVerified: true, phoneNumber: value.phone, photoURL: null,
     providerData: [{ providerId: value.provider }],
     getIdToken: async () => (await sdk("token", { uid: value.uid })).token,
     getIdTokenResult: async () => ({ signInProvider: value.provider }),
-    reload: async () => undefined };
+    reload: async () => {
+      const updated = await sdk("reload", { uid: value.uid });
+      if (updated.uid !== value.uid) throw new Error("Recorded provider changed the user");
+      current.phoneNumber = updated.phone;
+    } };
+  return current;
 }
 export function initializeApp(options: Record<string, unknown>, name = "[DEFAULT]") {
   const app = { name, options }; apps.push(app); return app;
@@ -43,12 +51,13 @@ export function initializeApp(options: Record<string, unknown>, name = "[DEFAULT
 export const getApps = () => apps;
 export const getApp = () => apps[0];
 export function getAuth(app = getApp()) {
-  const name = app?.name ?? "[DEFAULT]";
-  if (!stores.has(name)) stores.set(name, { name, currentUser: null, settings: {} });
+  if (!app) throw new Error("Recorded Firebase app is not initialized");
+  const name = app.name;
+  if (!stores.has(name)) stores.set(name, { name, app,
+    currentUser: name === "[DEFAULT]" && initial.user ? user(initial.user) : null, settings: {} });
   return stores.get(name)!;
 }
 const initial = await sdk("state");
-getAuth().currentUser = initial.user ? user(initial.user) : null;
 export function onAuthStateChanged(auth: Auth, listener: (value: FixtureUser | null) => void) {
   listeners.add(listener); queueMicrotask(() => listener(auth.currentUser));
   return () => listeners.delete(listener);
@@ -93,8 +102,17 @@ export class PhoneAuthProvider {
   async verifyPhoneNumber(phone: string, _verifier?: unknown) { return (await sdk("send", { phone })).verificationId; }
   static credential(verificationId: string, verificationCode: string) { return { verificationId, verificationCode }; }
 }
-export async function signInWithCredential(auth: Auth, credential: { verificationId: string; verificationCode: string }) {
-  const result = await sdk("verify", credential);
+export class PhoneAuthCredential {
+  static fromJSON(value: unknown): { temporaryProof: string; phoneNumber: string } | null {
+    if (!value || typeof value !== "object") return null;
+    const record = value as Record<string, unknown>;
+    if (typeof record.temporaryProof !== "string" || !record.temporaryProof ||
+        typeof record.phoneNumber !== "string" || !record.phoneNumber) return null;
+    return { temporaryProof: record.temporaryProof, phoneNumber: record.phoneNumber };
+  }
+}
+export async function signInWithCredential(auth: Auth, credential: { verificationId: string; verificationCode: string } | { temporaryProof: string; phoneNumber: string } | { toJSON: () => object }) {
+  const result = await sdk("verify", "toJSON" in credential ? credential.toJSON() : credential);
   const value = { ...user(result.user), getIdToken: async () => result.token };
   publish(auth, value); return { user: value };
 }

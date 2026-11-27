@@ -1,27 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-
+import { NativeFinanceLayer, useNativeFinancePaneActive } from "@/components/kai/native-finance-workspace";
+import type { NativeWorkspaceSurfaceSection, NativeWorkspaceSurfaceRow } from "@/lib/capacitor/native-workspace-surface";
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { StockDetailContent, type StockHistoryLoader } from "@/components/kai/cards/stock-detail-content";
 import styles from "@/components/kai/shared/finance-workspace.module.css";
-import { StockListToolbar, StockRowsPerPage } from "@/components/kai/cards/stock-list-toolbar";
+import { StockListToolbar } from "@/components/kai/cards/stock-list-toolbar";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
+import { SymbolAvatar, symbolAvatarFallback } from "@/components/kai/shared/symbol-avatar";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
-import { Button } from "@/lib/morphy-ux/button";
+import { Button } from "@/components/ui/button";
 import { SettingsGroup } from "@/components/profile/settings-ui";
 import { marketSettingsGroupClassName } from "@/components/kai/shared/market-surface-theme";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationEllipsis,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
 import type {
   KaiHomeNewsItem,
   KaiHomePickSource,
@@ -32,13 +24,12 @@ import { cn } from "@/lib/utils";
 import { formatCurrency, formatCompactNumber } from "@/lib/kai/market-value-format";
 import type { StockQuoteLoader } from "@/lib/services/public-stock-quote";
 
-
-
+import { useMarketCurrency } from "@/lib/kai/use-market-currency";
 const ALL_FILTER = "all";
-const MOBILE_PICKS_PAGE_SIZE_OPTIONS = [8, 12, 16] as const;
-const DESKTOP_PICKS_PAGE_SIZE_OPTIONS = [8, 16, 24] as const;
-
-
+// One continuous list: this many companies show first, and the next batch is
+// added as the end of the list nears the screen. Company facts load for the
+// rows shown, so a long list never asks the data provider for everything at once.
+const PICKS_BATCH_SIZE = 24;
 
 function rowSearchText(row: KaiHomeRenaissanceItem): string {
   return [
@@ -83,7 +74,14 @@ export function RiaPicksList({
   loadQuote,
   toolbarActions,
   news = [],
+  nativeStatus = [],
+  onHistory,
+  historyOpen = false,
+  loadCompanyNews,
 }: {
+  nativeStatus?: NativeWorkspaceSurfaceRow[];
+  onHistory?: () => void;
+  historyOpen?: boolean;
   rows?: KaiHomeRenaissanceItem[];
   sources?: KaiHomePickSource[];
   activeSourceId?: string;
@@ -96,13 +94,12 @@ export function RiaPicksList({
   loadQuote?: StockQuoteLoader;
   toolbarActions?: ReactNode;
   news?: KaiHomeNewsItem[];
+  loadCompanyNews?: (symbol: string, signal: AbortSignal) => Promise<KaiHomeNewsItem[]>;
 }) {
+  const nativeActive = useNativeFinancePaneActive("analysis");
+  useMarketCurrency();
   const isMobile = useIsMobile();
   void controlMode;
-  const pageSizeOptions: readonly number[] = isMobile
-    ? MOBILE_PICKS_PAGE_SIZE_OPTIONS
-    : DESKTOP_PICKS_PAGE_SIZE_OPTIONS;
-  const defaultPageSize = pageSizeOptions[0] ?? 6;
   const [selectedSeed, setSelectedRow] = useState<KaiHomeRenaissanceItem | null>(
     null,
   );
@@ -111,24 +108,14 @@ export function RiaPicksList({
   const [query, setQuery] = useState("");
   const [tierFilter, setTierFilter] = useState<string>(ALL_FILTER);
   const [sectorFilter, setSectorFilter] = useState<string>(ALL_FILTER);
-  const [pageSize, setPageSize] = useState<number>(defaultPageSize);
-  const [page, setPage] = useState(1);
+  const [visibleCount, setVisibleCount] = useState(PICKS_BATCH_SIZE);
+  const endOfList = useRef<HTMLDivElement>(null);
   const [factsBySymbol, setFactsBySymbol] = useState<Record<string, KaiMarketCompanyFacts>>({});
 
   useEffect(() => {
     onSelectedSymbolChange?.(selectedRow?.symbol ?? null);
     return () => onSelectedSymbolChange?.(null);
   }, [onSelectedSymbolChange, selectedRow?.symbol]);
-
-
-  useEffect(() => {
-    setPageSize((current) => {
-      if (pageSizeOptions.includes(current)) {
-        return current;
-      }
-      return defaultPageSize;
-    });
-  }, [defaultPageSize, pageSizeOptions]);
 
   const availableSources = useMemo<KaiHomePickSource[]>(
     () =>
@@ -182,19 +169,30 @@ export function RiaPicksList({
   }, [query, rows, sectorFilter, tierFilter]);
 
   useEffect(() => {
-    setPage(1);
-  }, [activeSourceId, pageSize, query, sectorFilter, tierFilter]);
+    setVisibleCount(PICKS_BATCH_SIZE);
+  }, [activeSourceId, query, sectorFilter, tierFilter]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
-
+  const hasMoreRows = visibleCount < filteredRows.length;
+  const canObserve = typeof IntersectionObserver !== "undefined";
   useEffect(() => {
-    setPage((currentPage) => Math.min(currentPage, totalPages));
-  }, [totalPages]);
+    const end = endOfList.current;
+    if (!hasMoreRows || !end || !canObserve) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisibleCount((count) => count + PICKS_BATCH_SIZE);
+        }
+      },
+      { rootMargin: "600px 0px" },
+    );
+    observer.observe(end);
+    return () => observer.disconnect();
+  }, [canObserve, hasMoreRows, visibleCount]);
 
-  const currentPageRows = useMemo(() => {
-    const startIndex = (page - 1) * pageSize;
-    return filteredRows.slice(startIndex, startIndex + pageSize);
-  }, [filteredRows, page, pageSize]);
+  const currentPageRows = useMemo(
+    () => filteredRows.slice(0, visibleCount),
+    [filteredRows, visibleCount],
+  );
   const visibleSymbolsKey = currentPageRows.map((row) => row.quote_symbol || row.symbol).join(",");
   useEffect(() => {
     if (!loadCompanyFacts || !visibleSymbolsKey) return;
@@ -209,70 +207,12 @@ export function RiaPicksList({
   }, [loadCompanyFacts, visibleSymbolsKey, rows]);
   const selectedFacts = selectedRow ? factsBySymbol[selectedRow.quote_symbol || selectedRow.symbol] || selectedRow.company_facts : undefined;
 
-  const pageNumbers = useMemo(() => {
-    if (isMobile) {
-      if (totalPages <= 3) {
-        return Array.from({ length: totalPages }, (_, index) => index + 1);
-      }
-
-      if (page <= 2) {
-        return [1, 2, "ellipsis-end", totalPages] as const;
-      }
-
-      if (page >= totalPages - 1) {
-        return [1, "ellipsis-start", totalPages - 1, totalPages] as const;
-      }
-
-      return [1, "ellipsis-start", page, "ellipsis-end", totalPages] as const;
-    }
-
-    if (totalPages <= 7) {
-      return Array.from({ length: totalPages }, (_, index) => index + 1);
-    }
-
-    if (page <= 4) {
-      return [1, 2, 3, 4, 5, "ellipsis-end", totalPages] as const;
-    }
-
-    if (page >= totalPages - 3) {
-      return [
-        1,
-        "ellipsis-start",
-        totalPages - 4,
-        totalPages - 3,
-        totalPages - 2,
-        totalPages - 1,
-        totalPages,
-      ] as const;
-    }
-
-    return [
-      1,
-      "ellipsis-start",
-      page - 1,
-      page,
-      page + 1,
-      "ellipsis-end",
-      totalPages,
-    ] as const;
-  }, [isMobile, page, totalPages]);
-
-  const visibleStart =
-    filteredRows.length === 0 ? 0 : (page - 1) * pageSize + 1;
-  const visibleEnd = Math.min(page * pageSize, filteredRows.length);
-
-
-  const goToPage = (nextPage: number) => {
-    setPage(Math.max(1, Math.min(totalPages, nextPage)));
-  };
-
-  return (
+  const content = (
     <div className={cn(styles.detail, "space-y-4")}>
       <StockListToolbar query={query} setQuery={setQuery} tier={tierFilter} setTier={setTierFilter}
         sector={sectorFilter} setSector={setSectorFilter} sectors={sectors}
-        pageSize={pageSize} setPageSize={setPageSize} pageSizes={pageSizeOptions}
         sources={availableSources} activeSource={activeSource?.id || "default"} onSourceChange={onSourceChange} actions={toolbarActions} />
-      <div className="flex items-baseline justify-between gap-3"><h2 className="text-sm font-semibold">Companies</h2><p className="text-xs text-muted-foreground">{filteredRows.length} results</p></div>
+      <h2 className="ui-text-section-label">Companies</h2>
       <SettingsGroup className={marketSettingsGroupClassName}>
         {filteredRows.length === 0 ? (
           <div className="px-4 py-4 text-sm text-muted-foreground">
@@ -292,16 +232,20 @@ export function RiaPicksList({
               const cap = factsBySymbol[row.quote_symbol || row.symbol]?.market_cap ?? row.company_facts?.market_cap ?? row.market_cap;
               const capLabel = typeof cap === "number" && cap > 0 ? `${formatCompactNumber(cap)} cap` : "Cap unavailable";
 
+              const selected = selectedRow?.symbol === row.symbol && selectedRow?.tier === row.tier;
               return (
                 <button
                   key={`${row.symbol}-${row.tier || "tierless"}`}
                   type="button"
                   data-testid="market-pick-row"
+                  data-finance-selected={selected || undefined}
+                  aria-haspopup="dialog"
+                  aria-expanded={selected}
                   data-no-route-swipe
                   onClick={() => setSelectedRow(row)}
                   className={cn(
-                    "group relative isolate flex w-full gap-3 text-left transition-colors",
-                    "items-center border-t border-border/60 px-4 py-4 hover:bg-muted/40 active:bg-muted/60 first:border-t-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
+                    styles.interactiveRow,
+                    "group relative isolate flex w-full items-center gap-3 border-t border-border/60 px-4 py-4 text-left first:border-t-0",
                   )}
                 >
                   <div className="shrink-0">
@@ -349,6 +293,7 @@ export function RiaPicksList({
                   <MaterialRipple
                     variant="none"
                     effect="fade"
+                    disableHover
                     className="z-10"
                   />
                 </button>
@@ -357,73 +302,20 @@ export function RiaPicksList({
           </div>
         )}
 
-        {filteredRows.length > pageSize ? (
-          <div
-            className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4"
-            data-no-route-swipe
-          >
-            <div className="space-y-1">
-              <p className="text-xs leading-5 text-muted-foreground">
-                Page {page} of {totalPages}
-              </p>
-            </div>
-            <Pagination className="mx-0 w-full sm:w-auto sm:justify-end">
-              <PaginationContent className="flex-nowrap justify-start sm:justify-end">
-                <PaginationItem>
-                  <PaginationPrevious
-                    href="#"
-                    className={cn(
-                      page === 1 && "pointer-events-none opacity-50",
-                    )}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      goToPage(page - 1);
-                    }}
-                  />
-                </PaginationItem>
-                {pageNumbers.map((pageNumber) => {
-                  if (typeof pageNumber !== "number") {
-                    return (
-                      <PaginationItem key={pageNumber}>
-                        <PaginationEllipsis />
-                      </PaginationItem>
-                    );
-                  }
-
-                  return (
-                    <PaginationItem key={pageNumber}>
-                      <PaginationLink
-                        href="#"
-                        isActive={pageNumber === page}
-                        size="icon"
-                        onClick={(event) => {
-                          event.preventDefault();
-                          goToPage(pageNumber);
-                        }}
-                      >
-                        {pageNumber}
-                      </PaginationLink>
-                    </PaginationItem>
-                  );
-                })}
-                <PaginationItem>
-                  <PaginationNext
-                    href="#"
-                    className={cn(
-                      page === totalPages && "pointer-events-none opacity-50",
-                    )}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      goToPage(page + 1);
-                    }}
-                  />
-                </PaginationItem>
-              </PaginationContent>
-            </Pagination>
+        {hasMoreRows ? (
+          <div ref={endOfList} className="border-t border-border px-4 py-1 text-center">
+            {canObserve ? null : (
+              <button
+                type="button"
+                className="ui-text-row-description min-h-11 px-4 text-muted-foreground"
+                onClick={() => setVisibleCount((count) => count + PICKS_BATCH_SIZE)}
+              >
+                Show more
+              </button>
+            )}
           </div>
         ) : null}
       </SettingsGroup>
-      <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs leading-[18px] text-muted-foreground">{visibleStart}–{visibleEnd} of {filteredRows.length} companies</p><StockRowsPerPage value={pageSize} onChange={setPageSize} options={pageSizeOptions} /></div>
 
       <KaiControlSurface
         open={Boolean(selectedRow)}
@@ -457,16 +349,39 @@ export function RiaPicksList({
         }
         surfaceClassName={styles.detail}
         headerTextOverflow="wrap"
-        footer={selectedRow && onAnalyze ? <Button variant="none" effect="fade" data-voice-control-id="analysis_stock_details_preview" onClick={() => {
+        footer={selectedRow && onAnalyze ? <div className="flex w-full justify-center"><Button size="standard" data-voice-control-id="analysis_stock_details_preview" onClick={() => {
           const symbol = selectedRow.symbol;
           setSelectedRow(null);
           onAnalyze(symbol);
-        }}>Analyze {selectedRow.symbol}</Button> : undefined}
+        }}>Analyze {selectedRow.symbol}</Button></div> : undefined}
       >
-        {selectedRow ? <StockDetailContent key={selectedRow.symbol} row={selectedRow} facts={selectedFacts} loadHistory={loadHistory} loadQuote={loadQuote} news={news} /> : null}
+        {selectedRow ? <StockDetailContent key={selectedRow.symbol} row={selectedRow} facts={selectedFacts} loadHistory={loadHistory} loadQuote={loadQuote} news={news} loadCompanyNews={loadCompanyNews} /> : null}
       </KaiControlSurface>
     </div>
   );
+
+  if (!nativeActive) return content;
+  const filters: NativeWorkspaceSurfaceRow[] = [];
+  if (availableSources.length > 1) filters.push({ key: "list-source", label: "List source", enabled: Boolean(onSourceChange), choices: availableSources.map(source => ({ key: source.id, label: `${source.label}${source.state === "ready" ? "" : ` · ${source.state}`}`, selected: source.id === activeSource?.id, run: () => onSourceChange?.(source.id) })) });
+  filters.push({ key: "tier", label: "Tier", choices: ["all", "ACE", "KING", "QUEEN", "JACK"].map(value => ({ key: value, label: value === "all" ? "All tiers" : value, selected: tierFilter === value, run: () => setTierFilter(value) })) });
+  if (sectors.length) filters.push({ key: "sector", label: "Sector", choices: ["all", ...sectors].map(value => ({ key: value, label: value === "all" ? "All sectors" : value, selected: sectorFilter === value, run: () => setSectorFilter(value) })) });
+  const companies: NativeWorkspaceSurfaceRow[] = currentPageRows.map((row, index) => {
+    const cap = factsBySymbol[row.quote_symbol || row.symbol]?.market_cap ?? row.company_facts?.market_cap ?? row.market_cap;
+    const change = typeof row.change_pct === "number" && Number.isFinite(row.change_pct) ? row.change_pct : undefined;
+    return { key: `company:${row.quote_symbol || row.symbol}:${index}`, label: row.symbol, finance: { kind: "security", symbol: row.quote_symbol || row.symbol, artwork: symbolAvatarFallback(row.quote_symbol || row.symbol),
+      price: formatCurrency(row.price), ...(change === undefined ? {} : { change }), metadata: [row.company_name || row.symbol, row.sector, row.tier || "CORE", typeof cap === "number" && cap > 0 ? `${formatCompactNumber(cap)} cap` : "Cap unavailable", row.degraded ? "Delayed" : null].filter(Boolean).join(" · "),
+      ...(change === undefined ? { note: "Change unavailable" } : {}) }, web: true, run: () => setSelectedRow(row) };
+  });
+  if (!companies.length) companies.push({ key: "no-stocks", label: rows.length ? "No stocks match the current filters." : `No stocks are available in ${activeSource?.label || "this list"}.` });
+  const visibleStart = filteredRows.length === 0 ? 0 : 1;
+  const visibleEnd = currentPageRows.length;
+  const sections: NativeWorkspaceSurfaceSection[] = [
+    { key: "stock-controls", rows: [...nativeStatus, ...(onHistory ? [{ key: "history", label: "History", web: true, run: onHistory }] : [])] },
+    { key: "stock-filters", layout: "toolbar", rows: filters },
+    { key: "companies", title: `${visibleStart}–${visibleEnd} of ${filteredRows.length} companies`, rows: companies },
+    ...(hasMoreRows ? [{ key: "pages", rows: [{ key: "show-more", label: "Show more", run: () => setVisibleCount((count) => count + PICKS_BATCH_SIZE) }] }] : []),
+  ];
+  return <NativeFinanceLayer pane="analysis" active contentPresentation="native" title="Stocks" sections={sections} viewKey={`${activeSourceId}:${visibleCount}:${tierFilter}:${sectorFilter}`} search={{ query, label: "Search stocks", change: setQuery }} webChild={Boolean(selectedRow) || historyOpen} fallback={content} />;
 }
 
 export const RenaissanceMarketList = RiaPicksList;

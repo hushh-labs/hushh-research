@@ -47,6 +47,20 @@ ANONYMIZED_ON_ACCOUNT_DELETION: Mapping[str, str] = MappingProxyType(
             "account being recreated; the raw firebase_uid exists only until Firebase "
             "cleanup completes (CHECK: completed implies firebase_uid IS NULL)."
         ),
+        "account_phone_linked_deletions": (
+            "Consumed occupied-number deletion receipts are detached, not cascaded, so a "
+            "spent SMS proof stays single-use and the live requester can still read the "
+            "outcome. Erasure clears the erased owner's raw UID columns (the identity "
+            "write guard allows it only after the tombstone exists) and blanks an erased "
+            "holder's phone digest; SHA-256 UID digests, state and the spent-proof digest "
+            "remain. An erased requester's receipts are deleted once they cannot be "
+            "replayed (configured test-code proofs, or SMS dispatched over 10 minutes "
+            "ago). Unconsumed rows still cascade. Retained rows are pruned in bounded "
+            "batches by later deletions and erasures: 90 days after expiry, or once an "
+            "erased requester's 10-minute replay window has passed. The coverage "
+            "checker derives DELETED from the CASCADE and cannot express this partial "
+            "detach, so it reports it as advisory."
+        ),
     }
 )
 

@@ -11,11 +11,15 @@ import {
 } from "@/lib/one-location/encryption";
 import { OneLocationService } from "@/lib/one-location/service";
 import { financeDigest } from "@/lib/finance-sharing/contract";
+import { PORTFOLIO_REVIEW_CLIENT_TIMEOUT_MS } from "@/lib/utils/request-timeouts";
 import {
   advisorSnapshotContext,
   advisorSnapshotSchema,
+  advisorBillingSchema,
   advisorReviewSchema,
+  advisorSandboxPayoutSchema,
   type AdvisorCandidate,
+  type AdvisorMeeting,
   type AdvisorPlan,
   type AdvisorReview,
   type AdvisorSnapshot,
@@ -29,6 +33,8 @@ export class AdvisorReviewError extends Error {
     super(
       (
         {
+          RATE_LIMITED:
+            "Too many requests. Give it a minute, then check the status again.",
           ADVISOR_REQUEST_EXISTS:
             "You already have a request or advisor workspace with this person. Open it below.",
           ADVISOR_CONNECT_CALENDAR:
@@ -53,10 +59,12 @@ export class AdvisorReviewError extends Error {
             "That time has passed. Propose a new time.",
           ADVISOR_TIME_AGREEMENT_REQUIRED:
             "Both people must agree to the time before it can be booked.",
-          ADVISOR_INTRODUCTION_REQUIRED:
-            "Complete the introduction before offering a monthly plan.",
           ADVISOR_CHECK_BILLING_STATUS:
             "Check payment status before opening another checkout.",
+          ADVISOR_PAYMENT_ALREADY_PAID:
+            "This offer is already paid. Check payment status for the receipt.",
+          ADVISOR_BILLING_IN_PROGRESS:
+            "The current checkout needs to finish or expire before you can send a new offer.",
           ADVISOR_PLAN_CHANGED:
             "The plan changed. Refresh and review its current price and terms.",
           ADVISOR_REQUEST_CHANGED:
@@ -67,6 +75,36 @@ export class AdvisorReviewError extends Error {
             "This advisor is not currently available for an in-app request.",
           ADVISOR_INVITATION_EMAIL_REQUIRED:
             "A verified invitation email is needed before booking. Check your profile email.",
+          ADVISOR_MEETING_CHANGED:
+            "The meeting changed. Refresh and review the current time.",
+          ADVISOR_MEETING_NOT_FINISHED:
+            "The meeting has not finished yet.",
+          ADVISOR_CALENDAR_UNCONFIRMED:
+            "Calendar could not confirm this step. Check its status before booking again.",
+          ADVISOR_REQUEST_NOT_ACCEPTED:
+            "This review is no longer shared. Refresh to see its current status.",
+          ADVISOR_REQUEST_NOT_FOUND:
+            "This request is no longer available. Refresh to see your requests.",
+          ADVISOR_CONNECTION_BLOCKED:
+            "This connection is not available.",
+          ADVISOR_RETRY_CONFLICT:
+            "This request already changed. Refresh to see its current status.",
+          FINANCE_ADVISOR_NOT_VERIFIED:
+            "This advisor is not verified for in-app requests yet.",
+          ADVISOR_BILLING_UNCONFIRMED:
+            "Stripe could not confirm this payment. Check payment status before trying again.",
+          ADVISOR_PAYEE_NOT_READY:
+            "The advisor has not finished payout setup yet, so payment is not available.",
+          ADVISOR_LOCATION_REQUIRED:
+            "Enter a postal code or allow your location to search nearby.",
+          ADVISOR_SERVICE_REQUIRED:
+            "Choose an area of help to find matching advisors.",
+          ADVISOR_SERVICE_SCOPE_REQUIRED:
+            "Turn on Recommend advisor to search by service.",
+          ADVISOR_LOCATION_INVALID:
+            "Enter a valid postal code, or allow your location, and search again.",
+          ADVISOR_DIRECTORY_UNAVAILABLE:
+            "Advisor search is unavailable right now. Try again shortly.",
         } as Record<string, string>
       )[code] ||
         "This step could not be confirmed. Refresh its status before trying again.",
@@ -89,6 +127,7 @@ export async function advisorRequest<T>(
       method,
       cache: "no-store",
       signal,
+      ...(path === "/portfolio-analysis" ? { timeoutMs: PORTFOLIO_REVIEW_CLIENT_TIMEOUT_MS } : {}),
       isEffectCurrent: () => context.isCurrent() && !signal?.aborted,
       headers: {
         Authorization: `Bearer ${token}`,
@@ -159,7 +198,7 @@ async function prepare(
 export const AdvisorReviewService = {
   prepare,
   history: async (c: FinanceShareContext) => {
-    const result = await advisorRequest<{ items: unknown[] }>(c);
+    const result = await advisorRequest<{ items: unknown[] }>(c, "?ui=2");
     if (!Array.isArray(result.items) || result.items.length > 50)
       throw new Error("Advisor requests could not be verified.");
     return {
@@ -168,7 +207,7 @@ export const AdvisorReviewService = {
   },
   view: async (c: FinanceShareContext, id: string) => {
     const result = advisorReviewSchema.parse(
-      await advisorRequest(c, `/${encodeURIComponent(id)}`),
+      await advisorRequest(c, `/${encodeURIComponent(id)}?ui=2`),
     );
     if (
       result.id !== id ||
@@ -183,40 +222,53 @@ export const AdvisorReviewService = {
     c: FinanceShareContext,
     id: string,
     action: "accept" | "decline" | "withdraw" | "stop",
-  ) => advisorRequest<AdvisorReview>(c, `/${id}/decision`, "POST", { action }),
+    requireExistingConnection = false,
+  ) => advisorRequest<AdvisorReview>(c, `/${id}/decision`, "POST", {
+    action,
+    ...(requireExistingConnection ? { requireExistingConnection: true } : {}),
+  }),
   time: (
     c: FinanceShareContext,
     id: string,
-    body: { startAt: string; endAt: string; timeZone: string },
-  ) => advisorRequest(c, `/${id}/meeting`, "POST", body),
+    body: { startAt: string; endAt: string; timeZone: string; expectedMeetingId: string | null },
+    automatic = false,
+  ) => automatic
+    ? advisorRequest(c, `/${id}/meeting/action`, "POST", { action: "propose_booking", time: body })
+    : advisorRequest(c, `/${id}/meeting`, "POST", body),
   meeting: (
     c: FinanceShareContext,
     id: string,
-    action: string,
+    action: "agree" | "accept_booking" | "prepare" | "confirm" | "cancel" | "complete" | "check",
     proposalId?: string,
+    meetingId?: string,
   ) =>
-    advisorRequest(
+    advisorRequest<AdvisorMeeting>(
       c,
       `/${id}/meeting/${["agree", "complete"].includes(action) ? "decision" : "action"}`,
       "POST",
       {
         action,
         proposalId: proposalId ?? null,
+        ...(meetingId ? { meetingId } : {}),
       },
     ),
   offer: (c: FinanceShareContext, id: string, body: AdvisorPlan) =>
     advisorRequest(c, `/${id}/plan`, "POST", body),
-  billing: (c: FinanceShareContext, id: string) =>
-    advisorRequest<{ status: string; mode: "test" }>(c, `/${id}/billing`),
+  billing: async (c: FinanceShareContext, id: string, signal?: AbortSignal) =>
+    advisorBillingSchema.parse(await advisorRequest(c, `/${id}/billing`, "GET", undefined, signal)),
   checkout: (c: FinanceShareContext, id: string, planRevision: number) =>
     advisorRequest<{ url: string; mode: "test" }>(
       c,
       `/${id}/checkout`,
       "POST",
-      { planRevision, acceptRecurringPayment: true },
+      { planRevision, acceptPayment: true },
     ),
   cancelBilling: (c: FinanceShareContext, id: string) =>
     advisorRequest(c, `/${id}/billing`, "DELETE"),
+  sandboxPayout: async (c: FinanceShareContext, id: string, signal?: AbortSignal) =>
+    advisorSandboxPayoutSchema.parse(await advisorRequest(c, `/${id}/sandbox-payout`, "GET", undefined, signal)),
+  sandboxPayoutLink: (c: FinanceShareContext, id: string, action: "onboarding" | "dashboard") =>
+    advisorRequest<{ url: string; mode: "test" }>(c, `/${id}/sandbox-payout/${action}`, "POST"),
   async decrypt(
     context: FinanceShareContext,
     review: AdvisorReview,

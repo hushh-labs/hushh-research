@@ -106,6 +106,13 @@ async def select_shared(user_id: str) -> None:
     if mode == "unknown":
         raise _hosting_unavailable()
     if mode not in {"shared", "unplaced"}:
+        from hushh_mcp.services.pooled_sandbox_cutover import (  # noqa: PLC0415
+            sandbox_pool_cutover_enabled,
+        )
+
+        if mode == "hussh_pods" and sandbox_pool_cutover_enabled():
+            await runtime._write_cloud_setup_marker(user_id)
+            return
         raise _refuse(
             409,
             "POD_ASSIGNMENT_PRESERVED",
@@ -123,6 +130,110 @@ async def select_shared(user_id: str) -> None:
                 "We could not save your choice. Nothing changed; try again.",
             ) from exc
     await runtime._write_cloud_setup_marker(user_id)
+
+
+async def switch_hosting_placement(
+    user_id: str, *, target: Literal["shared", "own_cloud"]
+) -> dict[str, Any]:
+    """Switch an owner's hosting mode safely from Profile Hosting."""
+    from api.routes.one import runtime
+    from hushh_mcp.services import byoc_setup_intent
+    from hushh_mcp.services.owner_hosting_choice import HostingChoiceRepo
+    from hushh_mcp.services.personal_agent_placement_detach import detach_placement
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+    if target == "own_cloud":
+        require_byoc_setup_enabled()
+
+    mode = await _placement(user_id)
+    if mode == "pending":
+        try:
+            cleared = await byoc_setup_intent.clear_intent(user_id)
+        except Exception as exc:  # noqa: BLE001 - unreadable intent stays fail-closed
+            raise _hosting_unavailable() from exc
+        if cleared:
+            mode = await _placement(user_id)
+    if mode == "unknown":
+        raise _hosting_unavailable()
+    if mode == "pending":
+        raise _refuse(
+            409,
+            "POD_SETUP_IN_PROGRESS",
+            "Your cloud setup is still running. Wait for it to finish before switching hosting.",
+        )
+
+    if target == "shared":
+        if mode == "byoc":
+            raise _refuse(
+                409,
+                "CLOUD_REMOVAL_REVIEW_REQUIRED",
+                "Review and remove your cloud resources in Hosting before switching to Hussh Shared.",
+            )
+        detached_prior = False
+        if mode == "hussh_pods":
+            row = await PersonalAgentRegistryRepo().get(user_id)
+            if row and row.get("external_agent_id"):
+                try:
+                    detached = await detach_placement(
+                        row=row,
+                        reason="owner switched to Hussh Shared",
+                        allow_stalled_states=True,
+                    )
+                except ValueError as exc:
+                    raise _refuse(409, "HOSTING_SWITCH_BLOCKED", str(exc)) from exc
+                if detached is None:
+                    raise _refuse(
+                        409,
+                        "HOSTING_STATE_CHANGED",
+                        "Hosting changed while switching. Refresh and try again.",
+                    )
+                detached_prior = True
+        try:
+            await HostingChoiceRepo().record_shared(user_id, after_detach=detached_prior)
+        except Exception as exc:  # noqa: BLE001 - an unrecorded choice is not Shared
+            logger.warning("hosting_switch.record_shared_failed err=%s", type(exc).__name__)
+            raise _refuse(
+                503,
+                "HOSTING_CHOICE_UNAVAILABLE",
+                "We could not save your choice. Try again.",
+            ) from exc
+        await runtime._write_cloud_setup_marker(user_id)
+        return {"hostingMode": "shared", "detachedPriorHost": detached_prior}
+
+    # target == "own_cloud"
+    detached_prior = False
+    if mode == "hussh_pods":
+        row = await PersonalAgentRegistryRepo().get(user_id)
+        if row and row.get("external_agent_id"):
+            try:
+                detached = await detach_placement(
+                    row=row,
+                    reason="owner switched to Bring your own cloud",
+                    allow_stalled_states=True,
+                )
+            except ValueError as exc:
+                raise _refuse(409, "HOSTING_SWITCH_BLOCKED", str(exc)) from exc
+            if detached is None:
+                raise _refuse(
+                    409,
+                    "HOSTING_STATE_CHANGED",
+                    "Hosting changed while switching. Refresh and try again.",
+                )
+            detached_prior = True
+            try:
+                await HostingChoiceRepo().record_shared(user_id, after_detach=True)
+            except Exception as exc:  # noqa: BLE001 - keep owner placed on Shared if BYOC setup is cancelled
+                logger.warning(
+                    "hosting_switch.own_cloud_fallback_shared_failed err=%s", type(exc).__name__
+                )
+                raise _refuse(
+                    503,
+                    "HOSTING_CHOICE_UNAVAILABLE",
+                    "We could not prepare cloud setup right now. Try again.",
+                ) from exc
+            await runtime._write_cloud_setup_marker(user_id)
+            return {"hostingMode": "shared", "detachedPriorHost": True}
+    return {"hostingMode": mode, "detachedPriorHost": detached_prior}
 
 
 def _hosting_unavailable() -> HTTPException:
@@ -171,13 +282,17 @@ __all__ = ["attach_blocked", "select_shared", "setup_status_fields"]
 
 
 async def _require_unassigned_byoc(user_id: str) -> None:
-    """First-time cloud setup cannot migrate or replace an active owner pod."""
+    """First-time cloud setup cannot migrate or replace an active owner pod, except pooled ACE."""
     from api.routes.one.runtime_placement import require_byoc_setup_enabled
+    from hushh_mcp.services.hosted_ace_placement import has_hosted_ace_evidence
+    from hushh_mcp.services.personal_agent_placement_detach import detach_placement
     from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+    from hushh_mcp.services.pooled_sandbox_cutover import sandbox_pool_cutover_enabled
 
     require_byoc_setup_enabled()
+    repo = PersonalAgentRegistryRepo()
     try:
-        row = await PersonalAgentRegistryRepo().get(user_id)
+        row = await repo.get(user_id)
     except Exception as exc:
         raise HTTPException(
             status_code=503,
@@ -186,6 +301,29 @@ async def _require_unassigned_byoc(user_id: str) -> None:
                 "message": "Cloud setup could not verify your existing agent.",
             },
         ) from exc
+    if (
+        row
+        and sandbox_pool_cutover_enabled()
+        and str(row.get("deployment_target") or "").strip().lower() == "ace"
+        and str(row.get("backend") or "").strip().lower() in {"", "ace"}
+        and has_hosted_ace_evidence(row)
+        and bool(row.get("external_agent_id"))
+    ):
+        try:
+            detached = await detach_placement(
+                row=dict(row),
+                reason="owner started Bring your own cloud setup",
+                allow_stalled_states=True,
+            )
+        except ValueError as exc:
+            raise _refuse(409, "HOSTING_SWITCH_BLOCKED", str(exc)) from exc
+        if detached is None:
+            raise _refuse(
+                409,
+                "HOSTING_STATE_CHANGED",
+                "Hosting changed while starting cloud setup. Refresh and try again.",
+            )
+        row = await repo.get(user_id)
     if row and (
         row.get("external_agent_id")
         or row.get("status") in {"provisioning", "connecting", "provisioned"}

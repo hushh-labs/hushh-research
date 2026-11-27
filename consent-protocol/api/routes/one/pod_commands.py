@@ -42,7 +42,9 @@ _slots = asyncio.Semaphore(2)
 # and audio input, which neither transport carries, and a mode outside both sets must
 # never reach a builder.
 _KEY_MODES = frozenset({"byok", "puppy_relay"})
-_AMBIENT_MODES = frozenset({"user_adc", "hosted_pod_adc", "hushh_managed_vertex"})
+_AMBIENT_MODES = frozenset(
+    {"user_adc", "hosted_pod_adc", "sentinel_vertex", "hushh_managed_vertex"}
+)
 
 
 class CommandModel(CommandValue):
@@ -127,6 +129,10 @@ async def _brain(model: CommandModel, owner: str, token: str, claims: dict) -> L
         build_owner_gemini_adk_model,
         build_owner_gemini_client,
     )
+    from hushh_mcp.runtime_providers.sentinel_gemini import (
+        build_sentinel_gemini_adk_model,
+        build_sentinel_genai_client,
+    )
 
     model, provider, selected_model, mode = await _command_target(model, owner, claims)
     manifest = ManifestLoader.load(str(Path(command_brain.__file__).with_name("agent.yaml")))
@@ -142,6 +148,8 @@ async def _brain(model: CommandModel, owner: str, token: str, claims: dict) -> L
                     vertex_project=model.vertexProject,
                     vertex_location=model.vertexLocation,
                 )
+            if mode == "sentinel_vertex":
+                return build_sentinel_gemini_adk_model(name)
             return (
                 build_owner_gemini_adk_model(name)
                 if mode in {"user_adc", "hosted_pod_adc"}
@@ -165,6 +173,8 @@ async def _brain(model: CommandModel, owner: str, token: str, claims: dict) -> L
             puppy_device_id=model.puppyDeviceId,
         )
         if mode in _KEY_MODES
+        else build_sentinel_genai_client()
+        if mode == "sentinel_vertex"
         else build_owner_gemini_client()
         if mode in {"user_adc", "hosted_pod_adc"}
         else build_managed_runtime_client(provider)  # an _AMBIENT_MODES member, checked above

@@ -12,8 +12,8 @@ These pin the store that closes it. The load-bearing assertions are:
     it would silently orphan everything already wrapped to the real one;
   * a lost create race ADOPTS the winner, because two live processes disagreeing
     about who this agent is would be worse than either outcome;
-  * every ordinary failure degrades to ephemeral, because a pod that cannot
-    persist its identity must still boot and serve.
+  * the resolver reports unavailable identity; required durable startup refuses
+    it while legacy non-durable startup retains its explicit ephemeral mode.
 """
 
 from __future__ import annotations
@@ -318,10 +318,17 @@ async def test_startup_never_overwrites_an_explicitly_provided_key(monkeypatch):
     assert os.environ["HUSSH_POD_PRIVATE_KEY"] == "synthetic-mounted-key"
 
 
-def test_the_pod_reports_whether_its_identity_is_durable_at_boot():
-    """The fleet answered this wrongly and silently for the whole of its life."""
-    from pathlib import Path
+@pytest.mark.parametrize("durable", [True, False])
+async def test_the_pod_reports_whether_its_identity_is_durable_at_boot(monkeypatch, durable):
+    """The fleet must report the identity it actually recovered."""
+    from unittest.mock import AsyncMock, Mock
 
-    source = Path("pod_server.py").read_text(encoding="utf-8")
+    from hushh_mcp.services import pod_identity_store, pod_self_registration
 
-    assert "pod.identity durable=" in source
+    monkeypatch.setenv("POD_DURABLE_IDENTITY_ENABLED", str(durable).lower())
+    monkeypatch.setattr(pod_identity_store, "restore_durable_private_key", AsyncMock())
+    monkeypatch.setattr(pod_self_registration, "pod_keypair", Mock())
+    monkeypatch.setattr(pod_self_registration, "pod_key_is_durable", lambda: durable)
+    logger = Mock()
+    await pod_identity_store.initialize_pod_identity(storage=None, dek=None, log=logger)
+    logger.info.assert_called_once_with("pod.identity durable=%s", durable)

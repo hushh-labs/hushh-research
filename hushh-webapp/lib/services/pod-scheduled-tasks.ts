@@ -1,7 +1,30 @@
 import { resolveAppEnvironment } from "@/lib/app-env";
 import { ApiService } from "./api-service";
-import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { ROUTES } from "@/lib/navigation/routes";
 import { readComputerUseJson } from "@/lib/computer-use/direct-transport";
+
+import type { FollowupMailbox, MailFollowup } from "@/lib/mail/mail-followup-model";
+
+export const MAIL_FOLLOWUP_TEMPLATE = "agent_email.send_followup.v1";
+export const FILE_ORGANIZATION_TEMPLATE = "agent_files.organize_file.v1";
+const ONE_TASK_TEMPLATE = "agent_one.execute_task.v1";
+
+function isScheduledCapability(value: unknown): boolean {
+  return value === FILE_ORGANIZATION_TEMPLATE || value === ONE_TASK_TEMPLATE || value === MAIL_FOLLOWUP_TEMPLATE;
+}
+
+export type ScheduleFileSelection = { id: string; name: string } & (
+  { revision: number; analysisRevision: number } | { revision?: never; analysisRevision?: never }
+);
+export function isScheduledTaskId(id: unknown): id is string {
+  return typeof id === "string" && /^schedule_[a-f0-9]{32}$/.test(id);
+}
+
+export function scheduledTaskHref(taskId?: string): string {
+  return `${ROUTES.ONE_TASKS}?scheduled=${isScheduledTaskId(taskId) ? taskId : "1"}`;
+}
 
 /** Product availability only; the pod still enforces execution authority. */
 export function areScheduledTasksAvailable(): boolean {
@@ -26,12 +49,13 @@ export type ScheduledTask = {
   timezone: string;
   next_run_at: number;
   authorization_expires_at: number;
-  last_run: { state: string; started_at: number; finished_at?: number } | null;
+  last_run: { state: string; started_at: number; finished_at?: number; sent_source?: string } | null;
 };
 export type ScheduledTasksStatus = {
   available: boolean;
   code: string | null;
   templates: string[];
+  files_via_schedule?: boolean;
   tasks: ScheduledTask[];
   authorization_limit_at: number | null;
 };
@@ -41,12 +65,11 @@ function parseTask(value: unknown): ScheduledTask {
     throw new Error("SCHEDULE_RESPONSE_REFUSED");
   const row = value as ScheduledTask;
   if (
-    typeof row.id !== "string" ||
-    !/^schedule_[a-f0-9]{32}$/.test(row.id) ||
+    !isScheduledTaskId(row.id) ||
     typeof row.title !== "string" ||
     !row.title ||
     row.title.length > 80 ||
-    row.capability !== "agent_files.organize_file.v1" ||
+    !isScheduledCapability(row.capability) ||
     !Number.isSafeInteger(row.revision) ||
     row.revision < 1 ||
     ![
@@ -99,6 +122,9 @@ function parseTask(value: unknown): ScheduledTask {
     last_run: row.last_run && {
       state: row.last_run.state,
       started_at: row.last_run.started_at,
+      ...(row.capability === MAIL_FOLLOWUP_TEMPLATE && row.state === "completed" && row.last_run.state === "completed" &&
+        typeof row.last_run.sent_source === "string" && /^ms1\.[A-Za-z0-9_-]{16,2044}$/.test(row.last_run.sent_source)
+        ? {sent_source:row.last_run.sent_source} : {}),
       ...(row.last_run.finished_at
         ? { finished_at: row.last_run.finished_at }
         : {}),
@@ -125,6 +151,8 @@ async function untilAborted<T>(
 
 /** Direct admitted pod only. No hub task contents, local timer, or Shared fallback. */
 export class PodScheduledTasksClient {
+  private reviewedPodId: string | null = null;
+
   constructor(private readonly ownerId: string) {}
 
   private async request(
@@ -134,8 +162,11 @@ export class PodScheduledTasksClient {
   ): Promise<unknown> {
     if (!areScheduledTasksAvailable()) throw new Error("SCHEDULE_UNAVAILABLE");
     const request = new AbortController();
+    const owner = snapshotValidatedAuthSessionOwner();
+    const epoch = snapshotVaultSessionEpoch();
     const current = () =>
-      snapshotValidatedAuthSessionOwner()?.userId === this.ownerId &&
+      owner?.userId === this.ownerId && isValidatedAuthSessionOwnerCurrent(owner) &&
+      isVaultSessionEpochCurrent(epoch) &&
       !request.signal.aborted;
     if (!current()) throw new Error("SCHEDULE_OWNER_CHANGED");
     const abort = () => request.abort();
@@ -149,6 +180,9 @@ export class PodScheduledTasksClient {
       );
       if (!current() || !admission || admission.ownerId !== this.ownerId)
         throw new Error("SCHEDULE_OWNER_POD_REQUIRED");
+      if (this.reviewedPodId !== null && admission.podId !== this.reviewedPodId)
+        throw new Error("SCHEDULE_OWNER_POD_CHANGED");
+      this.reviewedPodId = admission.podId;
       const response = await untilAborted(
         ApiService.ownerPodRequest(
           path,
@@ -201,9 +235,8 @@ export class PodScheduledTasksClient {
     if (
       new Set(tasks.map((row) => row.id)).size !== tasks.length ||
       !Array.isArray(body.templates) ||
-      body.templates.some(
-        (value) => value !== "agent_files.organize_file.v1",
-      ) ||
+      body.templates.some((value) => !isScheduledCapability(value)) ||
+      (body.files_via_schedule !== undefined && typeof body.files_via_schedule !== "boolean") ||
       (body.code !== null &&
         (typeof body.code !== "string" || !/^[A-Z_]{1,128}$/.test(body.code)))
     )
@@ -212,6 +245,7 @@ export class PodScheduledTasksClient {
       available: body.available,
       code: body.code,
       templates: body.templates,
+      ...(body.files_via_schedule !== undefined ? { files_via_schedule: body.files_via_schedule } : {}),
       tasks,
       authorization_limit_at: body.authorization_limit_at,
     };
@@ -238,18 +272,36 @@ export class PodScheduledTasksClient {
         signal,
       ),
     );
-    if (updated.id !== task.id || updated.revision <= task.revision)
+    if (
+      updated.id !== task.id ||
+      updated.capability !== task.capability ||
+      updated.revision <= task.revision
+    )
       throw new Error("SCHEDULE_RESPONSE_REFUSED");
     return updated;
   }
 
+  async sendMailFollowup(box: FollowupMailbox, item: MailFollowup, draft: NonNullable<MailFollowup["draft"]>,
+    due: number, signal: AbortSignal): Promise<ScheduledTask> {
+    if (box.account !== item.account || box.connection !== item.connection) throw new Error("Mailbox changed.");
+    const task = parseTask(await this.request("tasks", {method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({request_id:item.key, title:"Approved Mail follow-up", capability:MAIL_FOLLOWUP_TEMPLATE,
+        parameters:{account:box.account,connection:box.connection,address:box.address,source:item.source,quote:item.quote,
+          fulfilment:item.fulfilment,debtor:item.debtor,document:item.document,draft,due},
+        first_run_at:due,repeat:"once",timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,
+        authorization_expires_at:due+300,confirmed:true})},signal));
+    if (task.capability !== MAIL_FOLLOWUP_TEMPLATE) throw new Error("SCHEDULE_RESPONSE_REFUSED");
+    return task;
+  }
+
   async organizeFile(
-    file: { id: string; name: string },
+    file: ScheduleFileSelection,
     runAt: number,
     requestId: string,
     signal?: AbortSignal,
+    timezone = Intl.DateTimeFormat().resolvedOptions().timeZone,
   ): Promise<ScheduledTask> {
-    return parseTask(
+    const task = parseTask(
       await this.request(
         "tasks",
         {
@@ -258,11 +310,13 @@ export class PodScheduledTasksClient {
           body: JSON.stringify({
             request_id: requestId,
             title: `Organize ${file.name}`.slice(0, 80),
-            capability: "agent_files.organize_file.v1",
-            parameters: { file_id: file.id },
+            capability: FILE_ORGANIZATION_TEMPLATE,
+            parameters: { file_id: file.id, ...(file.revision !== undefined ? {
+              expected_file_revision: file.revision, expected_analysis_revision: file.analysisRevision,
+            } : {}) },
             first_run_at: runAt,
             repeat: "once",
-            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            timezone,
             authorization_expires_at: runAt + 86_400,
             confirmed: true,
           }),
@@ -270,5 +324,8 @@ export class PodScheduledTasksClient {
         signal,
       ),
     );
+    if (task.capability !== FILE_ORGANIZATION_TEMPLATE)
+      throw new Error("SCHEDULE_RESPONSE_REFUSED");
+    return task;
   }
 }

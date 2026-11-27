@@ -69,7 +69,8 @@ export default function RiaProfilePage() {
           : user
             ? "authenticated"
             : "anonymous",
-        dataState: authLoading || loading ? "loading" : "loaded",
+        dataState: authLoading || loading ? "loading" : loadError && !status ? "error" : "loaded",
+        errorCode: loadError && !status ? "ria_profile_unavailable" : null,
       }}
     >
       {authLoading || loading ? (

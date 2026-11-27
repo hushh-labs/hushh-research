@@ -1,4 +1,5 @@
 import { ApiService } from "@/lib/services/api-service";
+import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
 import type { EncryptedPayload } from "@/lib/vault/encrypt";
 
 export type PublicProfileFact = {
@@ -60,10 +61,29 @@ const PROFILE_DISCOVERY_ERROR_COPY: Record<string, string> = {
   consent_required: "Agree to the public-profile search terms before starting the search.",
 };
 
+const PROFILE_DISCOVERY_UNAVAILABLE_TTL_MS = 300_000;
+let profileDiscoveryUnavailableCache: {
+  generation: ReturnType<typeof getAuthSessionGeneration>;
+  tokenKey: string;
+  recordedAt: number;
+} | null = null;
+
 async function requestJob(
   path: string,
   params: { token: string; method?: string; body?: unknown },
 ): Promise<PublicProfileDiscoveryJob | null> {
+  const isStatusRead = path === "" && (!params.method || params.method === "GET");
+  const generation = getAuthSessionGeneration();
+  const tokenKey = params.token.slice(-16);
+  if (
+    isStatusRead &&
+    profileDiscoveryUnavailableCache &&
+    profileDiscoveryUnavailableCache.generation === generation &&
+    profileDiscoveryUnavailableCache.tokenKey === tokenKey &&
+    Date.now() - profileDiscoveryUnavailableCache.recordedAt < PROFILE_DISCOVERY_UNAVAILABLE_TTL_MS
+  ) {
+    throw new Error("profile_discovery_unavailable");
+  }
   const response = await ApiService.apiFetch(`/api/one/profile-discovery${path}`, {
     method: params.method || "GET",
     headers: { Authorization: `Bearer ${params.token}` },
@@ -75,11 +95,21 @@ async function requestJob(
     detail?: { code?: unknown };
   };
   if (!response.ok) {
-    if (response.status === 404) throw new Error("profile_discovery_unavailable");
+    if (response.status === 404) {
+      if (isStatusRead) {
+        profileDiscoveryUnavailableCache = {
+          generation,
+          tokenKey,
+          recordedAt: Date.now(),
+        };
+      }
+      throw new Error("profile_discovery_unavailable");
+    }
     const code = typeof payload.detail?.code === "string" ? payload.detail.code : "";
     if (PROFILE_DISCOVERY_ERROR_COPY[code]) throw new Error(PROFILE_DISCOVERY_ERROR_COPY[code]);
     throw new Error("Profile discovery is temporarily unavailable. Please retry.");
   }
+  profileDiscoveryUnavailableCache = null;
   return payload.job ?? null;
 }
 

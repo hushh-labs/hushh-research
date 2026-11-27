@@ -309,10 +309,10 @@ for (const [key, uiRole] of [
 }
 
 for (const [size, contract] of [
-  ["compact", "ui-text-compact-button-label min-h-11 h-11"],
-  ["standard", "ui-text-button-label min-h-11 h-11"],
-  ["prominent", "ui-text-button-label min-h-[50px] h-[50px]"],
-  ["icon-touch", "size-11"],
+  ["compact", "ui-text-compact-button-label min-h-8 h-8"],
+  ["standard", "ui-text-button-label min-h-9 h-9"],
+  ["prominent", "ui-text-button-label min-h-10 h-10"],
+  ["icon-touch", "size-9 [@media(pointer:coarse)]:size-11"],
 ]) {
   expectIncludes(
     "lib/ui/button-variants.ts",

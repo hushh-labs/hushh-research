@@ -3,6 +3,8 @@ from __future__ import annotations
 import inspect
 from types import SimpleNamespace
 
+import pytest
+
 from api.routes.one import connections as connection_routes
 from api.routes.one import location as location_routes
 from hushh_mcp.services.connections_service import ConnectionsService
@@ -10,11 +12,33 @@ from hushh_mcp.services.one_location_agent_service import OneLocationAgentServic
 from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
 
 
-def test_connections_page_is_bounded_stable_and_page_local_for_5000_rows():
+@pytest.fixture(autouse=True)
+def _active_accounts_for_pagination_doubles(monkeypatch):
+    monkeypatch.setattr(
+        OneLocationCircleService, "_live_circle_account_ids", lambda self, uid, **kwargs: []
+    )
+    monkeypatch.setattr(
+        OneLocationAgentService, "_live_location_account_ids", lambda self, ids: set(ids)
+    )
+
+
+def test_connections_page_is_bounded_stable_and_page_local_for_5000_rows(monkeypatch):
     service = ConnectionsService.__new__(ConnectionsService)
     captured: dict = {}
+    active_ids = {"user-b", "user-c", *(f"person-{i}" for i in range(4998))}
+    identity_reads = []
+
+    def active_accounts(ids, **_):
+        identity_reads.append(set(ids))
+        return active_ids
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.connections_service.active_directory_user_ids", active_accounts
+    )
 
     def execute_many(sql, params):
+        if "SELECT user_id FROM filtered" in sql:
+            return [{"user_id": uid} for uid in active_ids | {"retired"}]
         if "offset" not in params:
             # Public person refs are fetched separately for the returned page.
             return []
@@ -46,23 +70,29 @@ def test_connections_page_is_bounded_stable_and_page_local_for_5000_rows():
     assert captured["params"]["offset"] == 100
     assert captured["params"]["limit"] == 100
     assert captured["params"]["audience"] == "ria"
+    assert identity_reads == [active_ids | {"retired"}]
+    assert set(captured["params"]["active_user_ids"]) == active_ids
     assert result["totalCount"] == 5000
     assert result["hasMore"] is True
     assert [item["userId"] for item in result["items"]] == ["user-b", "user-c"]
     assert result["items"][0]["connectedFromContacts"] is True
     sql = captured["sql"]
     assert sql.index("ria_filter") < sql.index("OFFSET :offset")
+    assert sql.index(":active_user_ids") < sql.index("SELECT COUNT(*)")
     assert "ORDER BY match_rank, normalized_name, user_id, connection_id" in sql
     assert "contact_origin.connection_id = page_rows.connection_id" in sql
 
 
 def test_directory_relationship_reads_are_limited_to_the_returned_page():
+    from hushh_mcp.services.connection_mutuals import PAGE_ROW_METADATA_SQL
+    from hushh_mcp.services.connection_row_metadata import ConnectionRowMetadata
+
     source = inspect.getsource(ConnectionsService.search_directory)
-    assert "page_user_ids" in source
-    assert "addressee_user_id = ANY(CAST(:page_user_ids AS TEXT[]))" in source
-    assert "requester_user_id = ANY(CAST(:page_user_ids AS TEXT[]))" in source
-    assert "user_a_id = ANY(CAST(:page_user_ids AS TEXT[]))" in source
-    assert "user_b_id = ANY(CAST(:page_user_ids AS TEXT[]))" in source
+    assert "ConnectionRowMetadata(" in source
+    assert "for p in people" in source
+    sql = inspect.getsource(ConnectionRowMetadata.__init__)
+    assert '"page_user_ids": sorted(self.people)' in sql
+    assert "profile.user_id = ANY(CAST(:page_user_ids AS TEXT[]))" in PAGE_ROW_METADATA_SQL
 
 
 class _CircleDb:
@@ -122,7 +152,7 @@ def test_eligible_page_filters_and_orders_before_its_bound():
     sql, params = service._db.calls[0]
     assert params["offset"] == 4900
     assert result == {"items": [], "page": 50, "hasMore": True, "totalCount": 5000}
-    assert sql.index("WHERE :query") < sql.index("OFFSET :offset")
+    assert sql.index("POSITION(:query IN normalized_name)") < sql.index("OFFSET :offset")
     assert "ORDER BY match_rank, normalized_name, user_id, connection_id" in sql
 
 

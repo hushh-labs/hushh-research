@@ -89,6 +89,7 @@ MEMORY_KIND_PROVIDER_CONSENT = "agent_memory_provider_consent"
 # been rebuilt, recall from it is no longer suppressed for tombstones at or
 # below ``through_seq``. Shape only (a sequence number), never content.
 MEMORY_KIND_PROVIDER_REBUILD = "agent_memory_provider_rebuild"
+MEMORY_KIND_WIKI_TOMBSTONE = "agent_memory_wiki_tombstone"
 MEMORY_RECORD_KINDS = frozenset(
     {
         MEMORY_KIND_RAW,
@@ -98,6 +99,7 @@ MEMORY_RECORD_KINDS = frozenset(
         MEMORY_KIND_REVIEW,
         MEMORY_KIND_PROVIDER_CONSENT,
         MEMORY_KIND_PROVIDER_REBUILD,
+        MEMORY_KIND_WIKI_TOMBSTONE,
     }
 )
 # Bounds the review pass may not exceed, enforced here rather than trusted from
@@ -355,6 +357,7 @@ class PodMemoryStore:
         self._by_id: dict[str, SealedMemory] = {}
         self._dead: set[str] = set()
         self._tombstones: list[dict[str, Any]] = []
+        self._wiki_dead_digests: list[frozenset[str]] = []
 
     @property
     def role(self) -> str:
@@ -437,6 +440,23 @@ class PodMemoryStore:
             self._kill(memory_id, kind="revoke")
         return revoked
 
+    def apply_wiki_tombstone(
+        self,
+        *,
+        owner: str,
+        tombstone_id: str,
+        token_digests: Iterable[str] = (),
+    ) -> None:
+        """Record a personal-wiki tombstone and its keyed dead token digests."""
+        self._require_owner_payload(owner, "wiki_tombstone")
+        tid = str(tombstone_id or "").strip()
+        if not tid:
+            return
+        self._kill(tid, kind="wiki_tombstone")
+        digests = frozenset(str(d) for d in token_digests if str(d))
+        if digests:
+            self._wiki_dead_digests.append(digests)
+
     def _kill(self, memory_id: str, *, kind: str, successor: Optional[str] = None) -> None:
         if memory_id in self._dead:
             return
@@ -501,7 +521,7 @@ class PodMemoryStore:
             frozenset(r.token_digests)
             for r in self._records
             if r.memory_id in self._dead and r.token_digests
-        ]
+        ] + list(self._wiki_dead_digests)
 
     def digests_for(self, text: str) -> frozenset[str]:
         return frozenset(_digest(self._pod_key, t) for t in _tokens(text))
@@ -598,6 +618,7 @@ class PodMemoryStore:
         self._by_id.clear()
         self._dead.clear()
         self._tombstones.clear()
+        self._wiki_dead_digests.clear()
         return n
 
     def live_count(self) -> int:
@@ -819,6 +840,13 @@ def build_pod_memory_service(
             elif kind == MEMORY_KIND_PROVIDER_REBUILD:
                 through = int(payload.get("through_seq") or 0)
                 self._last_rebuild_seq = max(self._last_rebuild_seq, through)
+            elif kind == MEMORY_KIND_WIKI_TOMBSTONE:
+                store.apply_wiki_tombstone(
+                    owner=str(payload.get("hushh_id") or ""),
+                    tombstone_id=str(payload.get("tombstone_id") or ""),
+                    token_digests=list(payload.get("token_digests") or []),
+                )
+                self._tombstone_seqs.append(seq)
             else:
                 return False
             return True
@@ -1042,6 +1070,54 @@ def build_pod_memory_service(
                 },
             )
             self._last_rebuild_seq = max(self._last_rebuild_seq, through)
+            self.provider_report["rebuild"] = "rebuilt_empty"
+            return seq
+
+        async def record_wiki_tombstone(
+            self,
+            *,
+            tombstone_id: str,
+            target_kind: str,
+            target_id: str,
+            reason_code: str = "owner_request",
+            revoked_text: str = "",
+        ) -> int:
+            """Link a personal-wiki retraction, supersession, or withdrawal to PodMemoryBank suppression.
+
+            Records only opaque ids and keyed HMAC token digests (never plaintext), immediately
+            marking any attached provider bank ``stale`` (`suppressed_stale`) until ``/pod/tick``
+            replaces the engine (`rebuilt_empty`).
+            """
+            await self._ensure_hydrated()
+            tid = str(tombstone_id or "").strip()
+            if not tid:
+                raise PodMemoryError("wiki tombstone requires a tombstone_id")
+            allowed_reasons = MEMORY_REVOKE_REASON_CODES | {
+                "withdrawn",
+                "capture_withdrawn",
+                "source_deleted",
+                "superseded",
+                "retracted",
+            }
+            if reason_code not in allowed_reasons:
+                raise PodMemoryError("unknown revocation reason")
+            digests = sorted(store.digests_for(revoked_text)) if revoked_text else []
+            seq = await self._append(
+                MEMORY_KIND_WIKI_TOMBSTONE,
+                {
+                    "hushh_id": hushh_id,
+                    "tombstone_id": tid[:64],
+                    "target_kind": str(target_kind or "")[:32],
+                    "target_id": str(target_id or "")[:64],
+                    "reason_code": reason_code,
+                    "token_digests": digests,
+                    "recorded_at_ms": int(time.time() * 1000),
+                },
+            )
+            await self._require_open_log()
+            store.apply_wiki_tombstone(owner=hushh_id, tombstone_id=tid[:64], token_digests=digests)
+            self._tombstone_seqs.append(seq)
+            logger.info("pod_memory.wiki_tombstone reason=%s", reason_code)
             return seq
 
         async def set_provider_consent(
@@ -1115,6 +1191,9 @@ def build_pod_memory_service(
                     "bank": self.bank is not None,
                     "lastRebuildSeq": self._last_rebuild_seq,
                     "stale": self._stale_for_provider(),
+                    "rebuildSemantics": (
+                        "rebuilt_empty" if self._last_rebuild_seq > 0 else "unrebuilt"
+                    ),
                 },
             }
 

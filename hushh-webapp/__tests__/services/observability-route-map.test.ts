@@ -46,6 +46,8 @@ describe("observability route map", () => {
     expect(resolveRouteId("/one")).toBe("one_dashboard");
     expect(resolveRouteId("/one/messages")).toBe("one_messages");
     expect(resolveRouteId("/one/todos")).toBe("one_todos");
+    expect(resolveRouteId("/one/tasks")).toBe("one_todos");
+    expect(resolveRouteId("/one/goals")).toBe("one_goals");
     expect(resolveRouteId("/calendar/reschedule?token=private-recipient-token")).toBe("calendar_reschedule");
     expect(resolveRouteId("/welcome")).toBe("one_dashboard");
     expect(resolveRouteId("/one/gmail")).toBe("gmail");
@@ -189,6 +191,12 @@ describe("observability route map", () => {
     );
     expect(normalizeApiPathToTemplate("/api/kai/gmail/receipts/detail")).toBe(
       "/api/kai/gmail/receipts/detail",
+    );
+    expect(normalizeApiPathToTemplate("/api/kai/gmail/receipts/notice")).toBe(
+      "/api/kai/gmail/receipts/notice",
+    );
+    expect(normalizeApiPathToTemplate("/api/kai/gmail/receipts/notice/source")).toBe(
+      "/api/kai/gmail/receipts/notice/source",
     );
     expect(
       normalizeApiPathToTemplate("/api/kai/market/insights/baseline/user_123"),

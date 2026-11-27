@@ -5,25 +5,18 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from pathlib import Path
 from typing import Any
 
 from sqlalchemy import text
 
 from db.db_client import get_db
 from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionLifecycleService
+from hushh_mcp.services.message_reactions import REACTION_EMOJIS
 from hushh_mcp.services.requester_identity import label_from_identity_row
 
 MAX_SEQUENCE = 9_007_199_254_740_991
 # One catalogue drives both the picker and exact sequence validation. The DB
 # bounds storage; this allowlist rejects text, components and multiple emoji.
-REACTION_EMOJIS = frozenset(
-    entry[0]
-    for category in json.loads(
-        (Path(__file__).resolve().parents[1] / "data/emoji-reactions.v1.json").read_text()
-    )["categories"]
-    for entry in category["entries"]
-)
 _AUTHORIZED = """
   JOIN circle_chat_recipients r ON r.message_id = m.id AND r.recipient_user_id = :user
   JOIN one_location_circle_memberships membership ON membership.circle_id = m.circle_id
@@ -165,9 +158,9 @@ class CircleChatService:
             ).encode()
         ).hexdigest()
 
-    def state(self, user: str, circle: str) -> dict:
+    def state(self, user: str, circle: str, *, include_messages: bool = False) -> dict:
         with self.db.engine.begin() as conn:
-            self._circle(conn, user, circle)
+            membership = self._circle(conn, user, circle)
             roster = self._roster(conn, circle)
             counts = _rows(
                 conn,
@@ -183,7 +176,7 @@ class CircleChatService:
                 "WHERE circle_id = CAST(:circle AS uuid) AND user_id = :user",
                 {"user": user, "circle": circle},
             )
-            return {
+            result = {
                 "notificationDevices": _rows(
                     conn,
                     """SELECT p.user_id AS "userId",
@@ -195,6 +188,7 @@ class CircleChatService:
                     {"circle": circle, "user": user},
                 ),
                 "rosterVersion": self._roster_version(roster),
+                "membershipJoinedAt": membership["joined_at"].isoformat(),
                 "members": [
                     {
                         "userId": r["user_id"],
@@ -208,6 +202,12 @@ class CircleChatService:
                 "latestSequence": counts["latest"],
                 "muted": bool(prefs and prefs[0]["muted"]),
             }
+        if include_messages:
+            # Bootstrap the current transcript with the authorization snapshot so
+            # the client does not render an intermediate loading state or issue a
+            # second request before showing the latest Circle message.
+            result["latest"] = self.messages(user, circle)
+        return result
 
     def revision(self, user: str, circle: str) -> dict:
         """Reauthorize every long-poll response without loading keys or content."""
@@ -572,10 +572,27 @@ class CircleChatService:
 
     @staticmethod
     def _membership_events(conn: Any, user: str, circle: str, joined_at: Any) -> list[dict]:
+        # Creation inserts the owner first; owners cannot leave or be removed.
+        # Hide only that global initial self-join, never a viewer's first visible event.
         rows = _rows(
             conn,
-            """WITH recent AS (
-                SELECT id, batch_id FROM circle_chat_membership_events
+            """WITH visible_events AS (
+                SELECT event.* FROM circle_chat_membership_events event
+                JOIN one_location_circles circle ON circle.id = event.circle_id
+                WHERE event.circle_id = CAST(:circle AS uuid)
+                  AND NOT (
+                    event.kind = 'member_joined'
+                    AND event.subject_user_id = circle.owner_user_id
+                    AND event.actor_user_id IS NOT DISTINCT FROM event.subject_user_id
+                    AND event.batch_id IS NULL
+                    AND event.id = (
+                      SELECT first_event.id FROM circle_chat_membership_events first_event
+                      WHERE first_event.circle_id = event.circle_id
+                      ORDER BY first_event.created_at, first_event.id LIMIT 1
+                    )
+                  )
+              ), recent AS (
+                SELECT id, batch_id FROM visible_events
                 WHERE circle_id = CAST(:circle AS uuid) AND created_at >= :joined_at
                 ORDER BY created_at DESC, id DESC LIMIT 200
               )
@@ -583,7 +600,7 @@ class CircleChatService:
                 subject.display_name AS subject_name, subject.email AS subject_email,
                 actor.display_name AS actor_name, actor.email AS actor_email,
                 event.subject_user_id, event.actor_user_id
-              FROM circle_chat_membership_events event
+              FROM visible_events event
               LEFT JOIN actor_identity_cache subject ON subject.user_id = event.subject_user_id
               LEFT JOIN actor_identity_cache actor ON actor.user_id = event.actor_user_id
               WHERE event.circle_id = CAST(:circle AS uuid) AND event.created_at >= :joined_at
