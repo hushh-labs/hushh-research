@@ -27,6 +27,9 @@ import presentationStyles from "./wallet-connect-presentation.module.css";
 export type WalletCardBrowserProps = {
   cards: WalletCardSummary[];
   cardholderNames?: Readonly<Record<string, string>>;
+  selectedNumber?: string | null;
+  numberFailed?: boolean;
+  onRetryNumber?: () => void;
   artworks?: Readonly<Record<string, WalletCardArtwork | undefined>>;
   pendingArtworkIds?: ReadonlySet<string>;
   selectedCardId: string | null;
@@ -52,7 +55,7 @@ export type WalletCardBrowserProps = {
   sharedHistory?: WalletNativeHistoryProjection | null;
 } & { nativeOperations?: NativeWalletPaymentOperations; nativeAddPresented?: boolean; onSharing?: () => void; nativePending?: { label: string; retry?: () => void; dismiss?: () => void }; nativeHistoryContext?: (cardId: string) => import("@/lib/services/wallet-card-share-service").CardShareContext | null };
 
-function WebWalletCardBrowser({ cards, cardholderNames = {}, artworks = {}, pendingArtworkIds, selectedCardId, onSelect, onOverview, onAdd, onRemove, busyCardId, disabled = false, details, dockHost, ownerId, active = true, demoProfile, referralSummary, referralError = false, onRetryReferral, onRevokeReferral, pendingCard, addDisabled = false }: WalletCardBrowserProps) {
+function WebWalletCardBrowser({ cards, selectedNumber, cardholderNames = {}, artworks = {}, pendingArtworkIds, selectedCardId, onSelect, onOverview, onAdd, onRemove, busyCardId, disabled = false, details, dockHost, ownerId, active = true, demoProfile, referralSummary, referralError = false, onRetryReferral, onRevokeReferral, pendingCard, addDisabled = false }: WalletCardBrowserProps) {
   const collection = [...WALLET_DEMO_CARDS, ...cards];
   const [mode, setMode] = useState<"all" | "card">(selectedCardId ? "card" : "all");
   const [agentCardId, setAgentCardId] = useState<string | null>(null);
@@ -182,7 +185,7 @@ function WebWalletCardBrowser({ cards, cardholderNames = {}, artworks = {}, pend
     </> : <div key={selected.cardId} className="motion-step-enter space-y-5" data-testid="wallet-selected-card">
       <div className={styles.detailNavigation}><Button variant="ghost" size="compact" showRipple={false} onClick={() => unwindBackLayer(ROUTES.ONE_WALLET)} disabled={isBusy}><ArrowLeft aria-hidden="true" className="size-4" />Back</Button><span>{index + 1} / {collection.length}</span><Button variant="ghost" size="compact" showRipple={false} disabled={isBusy || index === collection.length - 1} aria-label="Next card" onClick={() => { const next = collection[index + 1]; if (next) choose(next.cardId); }}><ArrowRight aria-hidden="true" className="size-4" /></Button></div>
       <div data-swipe-views-horizontal-scroll onTouchStart={(event) => { const point = event.touches[0]; gesture.current = event.touches.length === 1 && point ? { x: point.clientX, y: point.clientY } : null; }} onTouchEnd={finishSwipe} onTouchCancel={() => { gesture.current = null; }} className={styles.selectedFace}>
-        {isAgentWalletCard(selected.cardId) ? <WalletDemoCardFace summary={selected} profile={demoProfile} /> : <WalletCardFace summary={selected} artwork={artworks[selected.cardId]} artworkPending={pendingArtworkIds?.has(selected.cardId)} cardholderName={cardholderNames[selected.cardId]} collection />}
+        {isAgentWalletCard(selected.cardId) ? <WalletDemoCardFace summary={selected} profile={demoProfile} /> : <WalletCardFace summary={selected} revealed={active && selected.cardId === selectedCardId && selectedNumber ? { pan: selectedNumber, cardholderName: cardholderNames[selected.cardId] ?? "" } : null} artwork={artworks[selected.cardId]} artworkPending={pendingArtworkIds?.has(selected.cardId)} cardholderName={cardholderNames[selected.cardId]} collection />}
       </div>
       {selected.cardId === "agent-one-referral" ? <WalletReferralCardDetails summary={referralSummary ?? null} shareToken={demoProfile?.shareToken ?? null} profile={demoProfile} failed={referralError} onRetry={onRetryReferral} onRevoke={active ? onRevokeReferral : undefined} /> : isAgentWalletCard(selected.cardId) ? <div className="space-y-4">
         {selected.cardId === "agent-one-nws" ? <p className="text-xs leading-[18px] text-[color:var(--app-secondary-label)]">This is a sample score; no net worth evaluation has been run. Sharing uses your Wallet Profile and its scan totals.</p> : null}

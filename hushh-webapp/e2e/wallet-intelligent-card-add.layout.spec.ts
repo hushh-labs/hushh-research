@@ -127,15 +127,15 @@ test("Back cancels the crop/read layer and keeps the Add draft in place", async 
   await expect(page.getByRole("region", { name: "Card design", exact: true })).toHaveCount(0);
   await page.getByLabel("Name on card", { exact: true }).fill("Owner correction");
   await page.getByLabel("Choose a card photo", { exact: true }).setInputFiles({ name: "synthetic.png", mimeType: "image/png", buffer: card });
-  await expect(page.getByRole("button", { name: "Read card", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Next", exact: true })).toBeEnabled();
   const corner = page.getByRole("button", { name: "Top left crop corner", exact: true });
   const handleBox = await corner.boundingBox();
   expect(handleBox!.width).toBeCloseTo(44, 1); expect(handleBox!.height).toBeCloseTo(44, 1);
   await corner.focus(); await corner.press("ArrowRight");
   await expect(corner).toHaveCSS("left", /.+px/);
-  await page.getByRole("button", { name: "Read card", exact: true }).click();
+  await page.getByRole("button", { name: "Next", exact: true }).click();
   await page.getByRole("button", { name: "Back", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Read card", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Next", exact: true })).toHaveCount(0);
   await expect(page.getByLabel("Name on card", { exact: true })).toHaveValue("OWNER CORRECTION");
   await expect(page.getByTestId("secure-card-pan-input")).toHaveValue("");
   await expect.poll(() => page.workers().length).toBe(0); expect(record).toBeNull();
@@ -164,7 +164,7 @@ for (const width of [320, 390, 1440]) test(`real OCR → owner approval → real
   const chooser = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "Choose from photos", exact: true }).click();
   await (await chooser).setFiles({ name: "synthetic.png", mimeType: "image/png", buffer: card });
-  await expect(page.getByRole("button", { name: "Read card", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Next", exact: true })).toBeEnabled();
   const handle = page.getByRole("button", { name: "Top left crop corner", exact: true });
   const box = await handle.boundingBox();
   expect(box!.width).toBeCloseTo(44, 1); expect(box!.height).toBeCloseTo(44, 1);
@@ -172,12 +172,7 @@ for (const width of [320, 390, 1440]) test(`real OCR → owner approval → real
   await page.mouse.move(box!.x + 32, box!.y + 32, { steps: 5 }); await page.mouse.up();
   expect(await handle.evaluate(el => parseFloat((el as HTMLElement).style.left))).toBeGreaterThan(0);
   await page.screenshot({ path: testInfo.outputPath(`card-crop-handles-${width}.png`) });
-  await page.getByRole("button", { name: "Use full photo" }).click(); await page.getByRole("button", { name: "Read card", exact: true }).click();
-  await expect(page.getByText("2 of 2 · Back of card", { exact: true })).toBeVisible({ timeout: 120000 });
-  const backChooser = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Choose from photos", exact: true }).click();
-  await (await backChooser).setFiles({ name: "synthetic-back.png", mimeType: "image/png", buffer: card });
-  await page.getByRole("button", { name: "Read card", exact: true }).click();
+  await page.getByRole("button", { name: "Next", exact: true }).click();
   await expect(page.getByTestId("secure-card-pan-input")).toHaveValue("4242 4242 4242 4242", { timeout: 120000 });
   await expect(page.getByLabel("Name on card", { exact: true })).toHaveValue("ALEX SAMPLE"); await expect(page.getByLabel("Expiry (MM/YY)", { exact: true })).toHaveValue("12/30");
   expect(record).toBeNull();
@@ -391,26 +386,19 @@ for (const network of ["American Express", "Discover", "RuPay"]) test(`legacy ${
   } finally { bankMode = false; }
 });
 
-test("two-sided scan fills editable fields and saves through the existing encrypted workflow", async ({ page }) => {
+test("one-photo scan fills editable fields and saves through the existing encrypted workflow", async ({ page }) => {
   test.setTimeout(180000); record = null; wire.length = 0; artworkMode = "unknown";
   const sharp = (await import("sharp")).default;
   const photo = async (text: string) => sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="756"><rect width="1200" height="756" fill="white"/><g font-family="Arial" font-size="60" fill="black">${text}</g></svg>`)).png().toBuffer();
-  const front = await photo('<text x="80" y="350">4242 4242 4242 4242</text>');
-  const back = await photo('<text x="80" y="350">VALID THRU 12/30</text><text x="80" y="500">ALEX SAMPLE</text>');
+  const image = await photo('<text x="80" y="250">4242 4242 4242 4242</text><text x="80" y="400">VALID THRU 12/30</text><text x="80" y="550">ALEX SAMPLE</text>');
   await page.goto(origin);
   await expect(page.getByRole("button", { name: "Scan card", exact: true })).toHaveCount(0);
   await page.getByLabel("Name on card", { exact: true }).fill("OWNER CORRECTION");
-  for (const [side, buffer] of [["front", front], ["back", back]] as const) {
-    const chooser = page.waitForEvent("filechooser");
-    await page.getByRole("button", { name: "Choose from photos", exact: true }).click();
-    await (await chooser).setFiles({ name: `${side}.png`, mimeType: "image/png", buffer });
-    await expect(page.getByRole("button", { name: "Read card", exact: true })).toBeEnabled();
-    await page.getByRole("button", { name: "Read card", exact: true }).click();
-    if (side === "front") {
-      await expect(page.getByText("2 of 2 · Back of card", { exact: true })).toBeVisible({ timeout: 120000 });
-      await expect(page.getByLabel("Card number", { exact: true })).toHaveValue("");
-    }
-  }
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Choose from photos", exact: true }).click();
+  await (await chooser).setFiles({ name: "card.png", mimeType: "image/png", buffer: image });
+  await expect(page.getByRole("button", { name: "Next", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "Next", exact: true }).click();
   await expect(page.getByLabel("Card number", { exact: true })).toHaveValue("4242 4242 4242 4242", { timeout: 120000 });
   await expect(page.getByLabel("Expiry (MM/YY)", { exact: true })).toHaveValue("12/30");
   await expect(page.getByLabel("Name on card", { exact: true })).toHaveValue("OWNER CORRECTION");

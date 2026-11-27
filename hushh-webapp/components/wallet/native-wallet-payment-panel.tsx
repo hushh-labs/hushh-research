@@ -7,7 +7,7 @@ import type { NativeWalletProfileDraft } from "@/lib/capacitor/native-wallet-pro
 import type { NativeWorkspaceChoice } from "@/lib/capacitor/native-workspace";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
 import type { CardShareContext } from "@/lib/services/wallet-card-share-service";
-import { maskedCardNumberGroups } from "@/lib/wallet/wallet-card-presentation";
+import { formatCardNumber } from "@/lib/wallet/wallet-card-presentation";
 import { useWalletSecurityCode } from "./wallet-security-code";
 import { nativeWalletSharingScene } from "./native-wallet-sharing-scene";
 import { useWalletSavedCardSharing } from "./wallet-saved-card-sharing";
@@ -32,8 +32,8 @@ export type NativeWalletPaymentOperations = {
 
 /** Same readers, share/revoke state machine and delete operation as the web
  * panel. This adapter only authors the complete native presentation. */
-export function NativeWalletPaymentPanel({ card, name, operations, disabled, active = true, handle, publish, onClose }: {
-  card: WalletCardSummary; name?: string; operations: NativeWalletPaymentOperations; disabled: boolean;
+export function NativeWalletPaymentPanel({ card, name, pan, numberFailed, onRetryNumber, operations, disabled, active = true, handle, publish, onClose }: {
+  card: WalletCardSummary; name?: string; pan?: string | null; numberFailed?: boolean; onRetryNumber?: () => void; operations: NativeWalletPaymentOperations; disabled: boolean;
   active?: boolean; handle: (key: string) => string; publish: (value: WalletPanelProjection) => void; onClose: () => void;
 }) {
   const [page, setPage] = useState<"details" | "share" | "access" | "remove">("details");
@@ -74,7 +74,7 @@ export function NativeWalletPaymentPanel({ card, name, operations, disabled, act
   } else {
     const expiry = `${String(card.expiryMonth).padStart(2, "0")}/${String(card.expiryYear).slice(-2)}`;
     group("sharing", [row("share-open", "Share card", () => { sharing.setOpen(true); setPage("share"); }, { artworkId: "invite", chevron: true }), row("access-open", "Manage access", () => setPage("access"), { artworkId: "security", chevron: true })]);
-    group("details", [row("number", "Card number", () => copy(undefined, true), { detail: maskedCardNumberGroups(card.brand, card.last4).join(" "), artworkId: "account-wallet", trailing: "Copy" }),
+    group("details", [row("number", "Card number", () => copy(undefined, true), { detail: active && pan ? formatCardNumber(card.brand, pan) : numberFailed ? "Could not load card number." : "Loading…", artworkId: "account-wallet", trailing: "Copy" }),
       row("holder", "Name on card", name ? () => copy(name) : undefined, { detail: name || "Not provided", artworkId: "account-name" }),
       row("network", "Card network", () => copy(cardNetworkLabel(card.brand)), { detail: cardNetworkLabel(card.brand) }),
       row("expiry", "Expiry (MM/YY)", () => copy(expiry), { detail: expiry }),
@@ -82,6 +82,7 @@ export function NativeWalletPaymentPanel({ card, name, operations, disabled, act
       row("cvv", code.visible ? "Hide CVV" : "Show CVV", code.toggle, { detail: code.view.kind === "visible" ? code.view.value : code.view.kind === "missing" ? "Not saved" : code.view.kind === "error" ? "Could not show CVV. Try again." : "•••", enabled: !disabled && code.view.kind !== "reading" }),
       row("remove-open", "Remove card", () => { code.hide(); setPage("remove"); }, { destructive: true, chevron: true, artworkId: "account-delete" })], "Card details");
   }
+  if (numberFailed && onRetryNumber) group("number-retry", [row("number-retry", "Retry card number", onRetryNumber)]);
   if (feedback) group("feedback", [row("feedback", feedback)]);
   const sharingScene = nativeWalletSharingScene({ sharing, page, disabled: disabled || copying, handle, back });
   // The parent stores only the private projection. Callback refreshes do not

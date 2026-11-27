@@ -80,6 +80,11 @@ it("admits only the current detail while its sheet isolates base actions", () =>
   expect(workspaceChoiceDomainAllowed({ ...choice, dismissed: true }, state, true)).toBe(false);
   expect(workspaceChoiceDomainAllowed({ ...choice, dismissed: true, rowId: "close" }, state, true)).toBe(true);
   expect(validNativeWalletCollection(wallet)).toBe(true);
+  expect(validNativeWalletCollection({ ...wallet, detailNumber: "4242 4242 4242 4242" })).toBe(true);
+  expect(validNativeWalletCollection({ ...wallet, detailNumber: "4242 4242 4242 9999" })).toBe(false);
+  expect(validNativeWalletCollection({ ...wallet, detailNumber: "4242 4242 4242 4242", selectedId: null, detailVisitId: null })).toBe(false);
+  expect(validNativeWalletCollection({ ...wallet, detailNumber: "4242 4242 4242 4242", cards: [{ ...wallet.cards[0], kind: "profile" }] } as never)).toBe(false);
+  expect(validNativeWalletCollection({ ...wallet, cards: [{ ...wallet.cards[0], pan: "4242424242424242" }] } as never)).toBe(false);
   const navigation = { sectionId: "navigation", allId: "all", previousId: "previous", nextId: "next", addId: "detail-add", position: 1, total: 1 };
   expect(validNativeWalletCollection({ ...wallet, navigation })).toBe(true);
   expect(validNativeWalletCollection({ ...wallet, navigation: { ...navigation, position: 2 } })).toBe(false);

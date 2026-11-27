@@ -19,7 +19,7 @@ export function WalletCardCrop({ url, corners, disabled, onChange }: {
     if (validCardCorners(next)) onChange(next);
   };
   return <>
-    <p id={instructions} className={styles.scanHint}>Drag the corners to the edges of your card, then tap Read card. You can also use the full photo.</p>
+    <p id={instructions} className={styles.scanHint}>Adjust the corners to frame your card, then tap Next.</p>
     <div className={styles.cropStage}>
       <div ref={canvas} className={styles.cropCanvas}>
         {/* Owner-local pixels must not pass through Next image optimization. */}
