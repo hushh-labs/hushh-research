@@ -35,11 +35,9 @@ SHARING_STATES = ("unset", "on", "off")
 PRECISIONS = ("precise", "approximate")
 OS_PERMISSION_STATES = ("unknown", "prompt", "granted", "denied")
 
-_SETTINGS_COLUMNS = """
-    user_id, sharing_state, precision, sharing_consent_version, sharing_consent_accepted_at,
-    sharing_enabled_at, sharing_disabled_at, os_permission_reported, os_permission_reported_at,
-    paused_until, created_at, updated_at
-"""
+# Wildcard keeps reads/returns compatible with both migration 467 (paused_until)
+# and legacy migration 221 schemas during rolling deploys and subset DB tests.
+_SETTINGS_COLUMNS = "*"
 
 
 def _iso(value: Any) -> str | None:
