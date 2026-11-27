@@ -164,10 +164,11 @@ async def credential_source_current(
 ):
     """Metadata-only source fence; never reads a secret or creates a grant."""
     from api.routes.one.pod_owner_feed import _resolve_owner
-    from db.connection import get_pool
-    from hushh_mcp.consent.paid_admission import verify_source_revisions
     from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+    from hushh_mcp.services.pod_browser.information_export import verify_export_source_revisions
 
+    if not personal_agent_enabled():
+        raise HTTPException(404, detail={"code": "BROWSER_DISABLED"})
     principal = await verify_pod_request(request, authorization, owner_bound=True)
     if (
         principal is None
@@ -181,17 +182,12 @@ async def credential_source_current(
         owner = await _resolve_owner(principal, registry)
         if owner[0] != body.owner_id:
             raise ValueError()
-        pool = await get_pool()
-        async with pool.acquire() as conn, conn.transaction():
-            await verify_source_revisions(
-                conn,
-                body.owner_id,
-                f"attr.secrets.items.{body.secret_id}",
-                {
-                    "contentRevision": body.content_revision,
-                    "manifestRevision": body.manifest_revision,
-                },
-            )
+        await verify_export_source_revisions(
+            body.owner_id,
+            f"attr.secrets.items.{body.secret_id}",
+            content_revision=body.content_revision,
+            manifest_revision=body.manifest_revision,
+        )
         if await _resolve_owner(principal, registry) != owner:
             raise ValueError()
         return {"current": True}

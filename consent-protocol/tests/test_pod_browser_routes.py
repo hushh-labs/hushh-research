@@ -479,3 +479,103 @@ async def test_browser_routes_admit_uat_and_refuse_production(
             assert resp.json()["environment"] == expected_wire_env
         else:
             assert resp.json()["detail"]["code"] == "BROWSER_ENVIRONMENT_UNAVAILABLE"
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        None,
+        "disabled",
+        "unsigned",
+        "standby",
+        "foreign_pod",
+        "foreign_owner",
+        "source_changed",
+        "registry_changed",
+    ],
+)
+async def test_credential_source_fences_feature_signed_owner_revision_and_registry_reread(
+    monkeypatch, fault
+):
+    from unittest.mock import AsyncMock
+
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+
+    from api.routes.one import pod_browser_approval as route
+    from api.routes.one import pod_owner_feed
+    from hushh_mcp.services.pod_browser import information_export
+    from hushh_mcp.services.pod_request_signing import VerifiedPod
+
+    principal = VerifiedPod(
+        "another" if fault == "foreign_pod" else "pod",
+        key_id=None if fault == "unsigned" else "signed-test",
+        standby=fault == "standby",
+    )
+    machine = AsyncMock(return_value=principal)
+    current = ("owner", b"public-metadata", "recipient-id", "service-id")
+    resolved = AsyncMock(
+        side_effect=[("another", *current[1:])]
+        if fault == "foreign_owner"
+        else [
+            current,
+            ("owner", b"rotated-public-metadata", *current[2:])
+            if fault == "registry_changed"
+            else current,
+        ]
+    )
+    verify = AsyncMock(
+        side_effect=ValueError("synthetic-private-canary") if fault == "source_changed" else None
+    )
+    monkeypatch.setattr(route, "personal_agent_enabled", lambda: fault != "disabled")
+    monkeypatch.setattr(route, "verify_pod_request", machine)
+    monkeypatch.setattr(pod_owner_feed, "_resolve_owner", resolved)
+    monkeypatch.setattr(information_export, "verify_export_source_revisions", verify)
+    app = FastAPI()
+    app.include_router(route.router)
+    body = {
+        "owner_id": "owner",
+        "pod_id": "pod",
+        "secret_id": "sec_" + "a" * 16,
+        "content_revision": 2,
+        "manifest_revision": 3,
+    }
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="https://hub") as client:
+        response = await client.post(
+            "/api/one/pod/browser-approval/credential-source",
+            json=body,
+            headers={"Authorization": "Bearer synthetic-signer"},
+        )
+    expected = (
+        200
+        if fault is None
+        else 404
+        if fault == "disabled"
+        else 401
+        if fault in {"unsigned", "standby", "foreign_pod"}
+        else 409
+    )
+    assert response.status_code == expected
+    if fault is None:
+        assert response.headers["Cache-Control"] == "no-store, private"
+    assert (
+        "synthetic-private-canary" not in response.text and body["secret_id"] not in response.text
+    )
+    if fault == "disabled":
+        machine.assert_not_awaited()
+    else:
+        machine.assert_awaited_once()
+        assert machine.await_args.kwargs == {"owner_bound": True}
+    if fault in {None, "source_changed", "registry_changed"}:
+        verify.assert_awaited_once_with(
+            "owner",
+            "attr.secrets.items." + body["secret_id"],
+            content_revision=2,
+            manifest_revision=3,
+        )
+    else:
+        verify.assert_not_awaited()
+    if fault is None:
+        assert response.json() == {"current": True} and resolved.await_count == 2
+    elif fault == "registry_changed":
+        assert resolved.await_count == 2
