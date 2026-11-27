@@ -69,19 +69,57 @@
 .chip[data-state="open"] .chevron { transform: rotate(180deg); }
 @media (prefers-reduced-motion: reduce) { .chevron { transition: none; } }
 
-/* The mailbox menu: one row per mailbox, the chosen one checked, then Add account while there is room. */
-.accountMenu {
+/*
+ * The mailbox menu is liquid glass, the same material as the Talk to One bar: a
+ * translucent veil over a heavy blur, a bright hairline on the lit edge, and a deep
+ * soft shadow. One row per mailbox (the chosen one checked), then Add account while
+ * there is room. Where the browser cannot blur, the veil is solid enough to read.
+ */
+.accountMenu[data-slot="dropdown-menu-content"] {
   width: min(340px, calc(100vw - 32px));
   padding: 8px;
-  border-radius: 22px;
-  border-color: var(--app-card-border-standard);
-  background: var(--app-card-surface-default-solid);
-  box-shadow: 0 12px 40px rgb(0 0 0 / 0.14);
+  border: 1px solid rgb(255 255 255 / 0.66);
+  border-radius: 26px;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.9), rgb(255 255 255 / 0.82));
+  box-shadow:
+    0 22px 56px -16px rgb(15 23 42 / 0.3),
+    0 2px 10px rgb(15 23 42 / 0.06),
+    inset 0 1px 0 rgb(255 255 255 / 0.85),
+    inset 0 -1px 0 rgb(15 23 42 / 0.04);
 }
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .accountMenu[data-slot="dropdown-menu-content"] {
+    background: linear-gradient(180deg, rgb(255 255 255 / 0.66), rgb(255 255 255 / 0.5));
+    -webkit-backdrop-filter: blur(34px) saturate(180%);
+    backdrop-filter: blur(34px) saturate(180%);
+  }
+}
+:global(.dark) .accountMenu[data-slot="dropdown-menu-content"] {
+  border-color: rgb(255 255 255 / 0.14);
+  background: linear-gradient(180deg, rgb(44 44 48 / 0.92), rgb(28 28 32 / 0.88));
+  box-shadow:
+    0 22px 56px -16px rgb(0 0 0 / 0.7),
+    0 2px 10px rgb(0 0 0 / 0.3),
+    inset 0 1px 0 rgb(255 255 255 / 0.1);
+}
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :global(.dark) .accountMenu[data-slot="dropdown-menu-content"] {
+    background: linear-gradient(180deg, rgb(52 52 58 / 0.6), rgb(30 30 34 / 0.5));
+  }
+}
+.accountMenu [role="menuitem"],
+.accountMenu [role="menuitemradio"] { transition: background-color 120ms ease; }
+.accountMenu [role="menuitem"][data-highlighted],
+.accountMenu [role="menuitemradio"][data-highlighted] { background: rgb(120 120 128 / 0.16); }
+.accountMenu [role="menuitemradio"][data-state="checked"] { background: var(--app-accent-tint); }
+.menuRule { margin: 6px 8px; background: rgb(60 60 67 / 0.16); }
+:global(.dark) .menuRule { background: rgb(255 255 255 / 0.14); }
 .accountRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .accountEmail { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .accountMeta { display: inline-flex; flex: none; align-items: center; gap: 10px; }
-.reconnectLink { flex: none; color: var(--app-accent); font-size: 15px; font-weight: 600; }
+/* A mailbox that needs Google sign-in again: a quiet amber dot, never a word. */
+.lapsedDot { width: 9px; height: 9px; border-radius: 999px; background: #ff9f0a; box-shadow: 0 0 0 3px rgb(255 159 10 / 0.18); }
+.chipStatic { cursor: default; }
 .addRow { justify-content: flex-start; color: var(--app-accent); font-weight: 600; }
 .addIcon {
   display: inline-grid;

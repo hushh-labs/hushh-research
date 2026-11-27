@@ -1,0 +1,61 @@
+/* Manage mailboxes. App tokens only; destructive actions use the danger role and sit apart from the rest. */
+.footer { display: flex; justify-content: center; padding: 8px 0 4px; }
+.trigger {
+  min-height: 44px;
+  padding-inline: 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--app-secondary-label);
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.trigger:hover { color: var(--app-accent); }
+.trigger:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+.body { display: flex; min-height: 0; flex-direction: column; gap: 14px; }
+.list { margin: 0; padding: 0; list-style: none; }
+.row {
+  display: flex;
+  min-height: 56px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--app-card-border-standard);
+}
+.row:last-child { border-bottom: 0; }
+.address { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; line-height: 24px; }
+.disconnect {
+  min-height: 44px;
+  padding-inline: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--app-danger, #d70015);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.disconnect:disabled { opacity: 0.5; cursor: default; }
+.disconnect:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; border-radius: 8px; }
+.confirm { display: flex; flex-direction: column; gap: 10px; }
+.confirmTitle { margin: 0; overflow-wrap: anywhere; font-size: 19px; line-height: 26px; font-weight: 700; }
+.confirmBody { margin: 0; color: var(--app-secondary-label); font-size: 15px; line-height: 22px; }
+.actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; padding-top: 6px; }
+.secondary, .destructive {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  padding-inline: 18px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.secondary { border: 1px solid var(--app-card-border-standard); background: var(--app-card-surface-default-solid); color: var(--app-accent); }
+.destructive { border: 0; background: var(--app-danger, #d70015); color: #fff; }
+.secondary:disabled, .destructive:disabled { opacity: 0.55; cursor: default; }

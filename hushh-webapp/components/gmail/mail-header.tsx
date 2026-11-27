@@ -1,14 +1,11 @@
 "use client";
 
-import { useRef } from "react";
-
 import { TopBarRouteAccessory } from "@/components/app-ui/top-bar-route-accessory";
 import { CheckCircle2, ChevronDown, Mail, Plus } from "@/components/icons";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
@@ -25,16 +22,13 @@ export type MailHeaderProps = {
   /** How many items need the owner now; the badge is hidden at zero or unknown. */
   attentionCount: number;
   busy?: boolean;
-  /** The single-mailbox menu's Reconnect and Disconnect. A menu of several mailboxes has neither. */
-  onReconnect?: () => void;
-  onDisconnect?: () => void;
-  /** Present when the owner can hold several mailboxes: the menu then lists them. */
+  /** Present when the owner can hold several mailboxes: the menu then lists them. Without it the address is only shown. */
   accounts?: readonly MailHeaderAccount[];
   selectedId?: string | null;
   onChoose?: (id: string) => void;
   /** Add account sits at the bottom of the menu, and only while another mailbox still fits. */
   onAddAccount?: () => void;
-  /** Reconnects one listed mailbox whose permission lapsed. */
+  /** Choosing a listed mailbox whose permission lapsed signs it in again, with no extra step. */
   onReconnectAccount?: (id: string) => void;
   /** How many mailboxes the owner may connect. Add account disappears at this many. */
   maxAccounts?: number;
@@ -58,15 +52,14 @@ const countBadge = (count: number | undefined) =>
 /**
  * The selected mailbox with how many things need the owner. For an owner who can
  * hold several mailboxes the menu lists them (the chosen one checked, each with
- * what needs them), then Add account while there is room. Without that list it is
- * the single-mailbox menu: Reconnect and Disconnect.
+ * what needs them), then Add account while there is room. Disconnect is not here:
+ * with several mailboxes a menu row cannot say which one it would remove, so each
+ * mailbox is disconnected by name from Manage mailboxes.
  */
 function MailboxControls({
   email,
   attentionCount,
   busy = false,
-  onReconnect,
-  onDisconnect,
   accounts,
   selectedId = null,
   onChoose,
@@ -75,12 +68,21 @@ function MailboxControls({
   maxAccounts = 3,
   counts,
 }: MailHeaderProps) {
-  const openingConfirmation = useRef(false);
   const multi = accounts !== undefined;
   const label = email ?? (accounts?.length ? "Choose a mailbox" : "Connected mail");
   const canAdd = multi && Boolean(onAddAccount) && accounts.length < maxAccounts;
   const usable = accounts?.filter((account) => !account.needsReconnect) ?? [];
   const lapsed = accounts?.filter((account) => account.needsReconnect) ?? [];
+
+  // One mailbox and no list to open: the address is shown, and there is nothing to choose.
+  if (!multi) {
+    return (
+      <span className={`${styles.chip} ${styles.chipStatic}`} data-testid="mail-account-chip">
+        <span className={styles.chipEmail}>{label}</span>
+        {countBadge(attentionCount)}
+      </span>
+    );
+  }
 
   // Nothing is connected yet: there is no list to open, so the one thing to do is offered directly.
   if (multi && accounts.length === 0) {
@@ -93,11 +95,7 @@ function MailboxControls({
   }
 
   return (
-    <DropdownMenu
-      onOpenChange={(open) => {
-        if (open) openingConfirmation.current = false;
-      }}
-    >
+    <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
@@ -115,86 +113,59 @@ function MailboxControls({
         align="end"
         sideOffset={10}
         collisionPadding={16}
-        className={`${mailStyles.typography} ${mailStyles.portal} ${multi ? styles.accountMenu : "w-48"}`}
-        onCloseAutoFocus={(event) => {
-          // Let the confirmation dialog own focus after Disconnect.
-          if (openingConfirmation.current) event.preventDefault();
-        }}
+        className={`${mailStyles.typography} ${mailStyles.portal} ${styles.accountMenu}`}
       >
-        {multi ? (
+        <DropdownMenuRadioGroup aria-label="Mailboxes" value={selectedId ?? ""} onValueChange={(id) => onChoose?.(id)}>
+          {usable.map((account) => (
+            <DropdownMenuRadioItem
+              key={account.id}
+              value={account.id}
+              disabled={busy}
+              className={`${styles.accountRow} min-h-12 rounded-[16px] px-3.5 pl-3.5 text-[16px] [&>span:first-child]:hidden`}
+              data-testid="mail-account-option"
+            >
+              <span className={styles.accountEmail}>{account.email}</span>
+              <span className={styles.accountMeta}>
+                {account.id === selectedId ? (
+                  <CheckCircle2 aria-label="Selected" className="size-5 text-[color:var(--app-accent)]" />
+                ) : null}
+                {countBadge(counts?.[account.id])}
+              </span>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+        {/* A mailbox whose permission lapsed still counts toward the three. Choosing it opens Google sign-in directly. */}
+        {lapsed.map((account) => (
+          <DropdownMenuItem
+            key={account.id}
+            disabled={busy}
+            className={`${styles.accountRow} min-h-12 rounded-[16px] px-3.5 text-[16px]`}
+            onSelect={() => onReconnectAccount?.(account.id)}
+            data-testid="mail-account-lapsed"
+          >
+            <span className={styles.accountEmail}>{account.email}</span>
+            <span className={styles.accountMeta}>
+              <span className={styles.lapsedDot} aria-hidden="true" />
+              <span className="sr-only">Sign-in needed</span>
+            </span>
+          </DropdownMenuItem>
+        ))}
+        {canAdd ? (
           <>
-            <DropdownMenuLabel className="sr-only">Mailboxes</DropdownMenuLabel>
-            <DropdownMenuRadioGroup value={selectedId ?? ""} onValueChange={(id) => onChoose?.(id)}>
-              {usable.map((account) => (
-                <DropdownMenuRadioItem
-                  key={account.id}
-                  value={account.id}
-                  disabled={busy}
-                  className={`${styles.accountRow} min-h-12 rounded-[14px] px-3.5 pl-3.5 text-[16px] [&>span:first-child]:hidden data-[state=checked]:bg-[color:var(--app-accent-tint)]`}
-                  data-testid="mail-account-option"
-                >
-                  <span className={styles.accountEmail}>{account.email}</span>
-                  <span className={styles.accountMeta}>
-                    {account.id === selectedId ? (
-                      <CheckCircle2 aria-label="Selected" className="size-5 text-[color:var(--app-accent)]" />
-                    ) : null}
-                    {countBadge(counts?.[account.id])}
-                  </span>
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-            {lapsed.map((account) => (
-              <DropdownMenuItem
-                key={account.id}
-                disabled={busy}
-                className={`${styles.accountRow} min-h-12 rounded-[14px] px-3.5 text-[16px]`}
-                onSelect={() => onReconnectAccount?.(account.id)}
-                data-testid="mail-account-reconnect"
-              >
-                <span className={styles.accountEmail}>{account.email}</span>
-                <span className={styles.reconnectLink}>Reconnect</span>
-              </DropdownMenuItem>
-            ))}
-            {canAdd ? (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  disabled={busy}
-                  className={`${styles.accountRow} ${styles.addRow} min-h-12 rounded-[14px] px-3.5 text-[16px]`}
-                  onSelect={() => onAddAccount?.()}
-                  data-testid="mail-add-account"
-                >
-                  <span className={styles.addIcon} aria-hidden="true">
-                    <Plus className="size-4" />
-                  </span>
-                  <span>Add account</span>
-                </DropdownMenuItem>
-              </>
-            ) : null}
+            <DropdownMenuSeparator className={styles.menuRule} />
+            <DropdownMenuItem
+              disabled={busy}
+              className={`${styles.accountRow} ${styles.addRow} min-h-12 rounded-[16px] px-3.5 text-[16px]`}
+              onSelect={() => onAddAccount?.()}
+              data-testid="mail-add-account"
+            >
+              <span className={styles.addIcon} aria-hidden="true">
+                <Plus className="size-4" />
+              </span>
+              <span>Add account</span>
+            </DropdownMenuItem>
           </>
-        ) : (
-          <>
-            {onReconnect ? (
-              <DropdownMenuItem className="min-h-11 px-3" disabled={busy} onSelect={onReconnect}>
-                Reconnect
-              </DropdownMenuItem>
-            ) : null}
-            {onReconnect && onDisconnect ? <DropdownMenuSeparator /> : null}
-            {onDisconnect ? (
-              <DropdownMenuItem
-                className="min-h-11 px-3"
-                variant="destructive"
-                disabled={busy}
-                onSelect={() => {
-                  openingConfirmation.current = true;
-                  onDisconnect();
-                }}
-              >
-                Disconnect
-              </DropdownMenuItem>
-            ) : null}
-          </>
-        )}
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );

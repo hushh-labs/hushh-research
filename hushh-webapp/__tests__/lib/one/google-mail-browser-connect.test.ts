@@ -13,12 +13,14 @@ const id = "1234567890-abcdefghijk.apps.googleusercontent.com";
 const opts = { platform: "web", vaultOwnerCapability: "fixture" };
 const requestCode = vi.fn();
 let callback: (response: { code?: string; error?: string }) => void;
+let refused: (error?: { type?: string }) => void;
 
 beforeEach(() => {
   vi.resetAllMocks();
   publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 });
-  vi.stubGlobal("google", { accounts: { oauth2: { initCodeClient: (options: { callback: typeof callback }) => {
+  vi.stubGlobal("google", { accounts: { oauth2: { initCodeClient: (options: { callback: typeof callback; error_callback: typeof refused }) => {
     callback = options.callback;
+    refused = options.error_callback;
     return { requestCode };
   } } } });
   HTMLDialogElement.prototype.showModal = function () { this.open = true; };
@@ -29,13 +31,13 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
+// Google opens straight from the click that started the connection: no confirmation dialog first.
 async function popup() {
-  await vi.waitFor(() => expect(document.querySelector("dialog[open] button")).toBeTruthy());
-  document.querySelector<HTMLButtonElement>("dialog button")!.click();
-  expect(requestCode).toHaveBeenCalledOnce();
+  await vi.waitFor(() => expect(requestCode).toHaveBeenCalledOnce());
+  expect(document.querySelector("dialog")).toBeNull();
 }
 
-it("opens Google from a click and sends the code and mailbox intent only to the owner connector", async () => {
+it("opens Google straight from the click and sends the code and mailbox intent only to the owner connector", async () => {
   const pending = connectGoogleConnector("gmail", { ...opts, mailAccount: { mode: "add" } });
   await popup();
   callback({ code: "example-code" });
@@ -62,4 +64,15 @@ it("reuses existing access before showing a consent prompt", async () => {
   expect(await connectGoogleConnector("gmail", opts)).toMatchObject({ ok: true });
   expect(prepare).not.toHaveBeenCalled();
   expect(requestCode).not.toHaveBeenCalled();
+});
+
+it("asks for one more click only when the browser refuses the Google window", async () => {
+  const pending = connectGoogleConnector("gmail", opts);
+  await popup();
+  refused({ type: "popup_failed_to_open" });
+  await vi.waitFor(() => expect(document.querySelector("dialog[open] button")).toBeTruthy());
+  document.querySelector<HTMLButtonElement>("dialog button")!.click();
+  expect(requestCode).toHaveBeenCalledTimes(2);
+  callback({ code: "example-code" });
+  expect(await pending).toMatchObject({ ok: true });
 });
