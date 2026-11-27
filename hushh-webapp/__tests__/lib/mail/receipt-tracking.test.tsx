@@ -10,7 +10,7 @@ import { evaluatePriceRise, exceedsRise, priceRiseSentence, risePercent } from "
 import { riseFacts } from "@/lib/mail/receipt-tracking-present";
 import {
   confirmCancellation, confirmedSavings, emptyTrackingDoc, loadTracking, nextDateFor, pendingCancellations, saveTracking,
-  savePlanReview, skipOccurrence, stopTracking, trackBill, validateTrackingDoc, type Ctx, type NewBill,
+  savePlanReview, skipOccurrence, stopTracking, trackBill, trackBills, validateTrackingDoc, type Ctx, type NewBill,
 } from "@/lib/mail/receipt-tracking";
 import { buildRecentReceiptRows } from "@/lib/profile/gmail-receipt-presentation";
 import type { ReceiptListItem } from "@/lib/services/gmail-receipts-service";
@@ -145,15 +145,20 @@ describe("Recurring screen with no payment service", () => {
     const row = await screen.findByTestId("bill-row");
     expect(row).toHaveAttribute("data-bill-status", "suggested");
     expect(row).toHaveTextContent("Maple Homes");
-    expect(screen.getByText("One tracks these bills from your receipts. It doesn’t pay them.")).toBeVisible();
-    const track = within(row).getByRole("button", { name: "Track bill" });
-    await waitFor(() => expect(track).toBeEnabled());
-    fireEvent.click(track);
+    // Tracking copy only: nothing here pays a bill, and no step of a payment flow is numbered.
+    expect(screen.getByText(/One tracks the bills you pick/)).toHaveTextContent("It doesn’t pay bills.");
+    expect(screen.queryByText(/Step \d of/)).toBeNull();
+    const choose = within(row).getByRole("checkbox", { name: "Select Maple Homes" });
+    await waitFor(() => expect(choose).toBeEnabled());
+    fireEvent.click(choose);
+    expect(screen.getByText("1 bill selected")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Track selected bills" }));
     await waitFor(() => expect(screen.getByTestId("bill-row")).toHaveAttribute("data-bill-status", "tracking"));
+    expect(screen.queryByTestId("bill-selection-bar")).toBeNull();
     cleanup();
     mount();
     await waitFor(() => expect(screen.getByTestId("bill-row")).toHaveAttribute("data-bill-status", "tracking"));
-    expect(screen.getByTestId("next-payment")).toHaveTextContent("Maple Homes");
+    expect(screen.getByTestId("bill-row")).toHaveTextContent("Maple Homes");
     expect(network).not.toHaveBeenCalled();
     cleanup();
     mount("another-mailbox");
@@ -163,15 +168,16 @@ describe("Recurring screen with no payment service", () => {
 
   it("skips one occurrence and stops tracking, and History records both", async () => {
     mount();
-    const track = within(await screen.findByTestId("bill-row")).getByRole("button", { name: "Track bill" });
-    await waitFor(() => expect(track).toBeEnabled());
-    fireEvent.click(track);
+    const choose = within(await screen.findByTestId("bill-row")).getByRole("checkbox", { name: "Select Maple Homes" });
+    await waitFor(() => expect(choose).toBeEnabled());
+    fireEvent.click(choose);
+    fireEvent.click(screen.getByRole("button", { name: "Track selected bills" }));
     await waitFor(() => expect(screen.getByTestId("bill-row")).toHaveAttribute("data-bill-status", "tracking"));
-    const before = screen.getByTestId("next-payment").textContent;
+    const before = screen.getByTestId("bill-row").textContent;
     fireEvent.keyDown(screen.getByTestId("bill-menu"), { key: "Enter" });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Skip this one" }));
     await waitFor(() => expect(screen.getByTestId("recurring-notice")).toHaveTextContent(/Skipped Maple Homes/));
-    expect(screen.getByTestId("next-payment").textContent).not.toBe(before);
+    expect(screen.getByTestId("bill-row").textContent).not.toBe(before);
     fireEvent.keyDown(screen.getByTestId("bill-menu"), { key: "Enter" });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Stop tracking" }));
     fireEvent.click(await screen.findByRole("button", { name: "Stop tracking" }));
@@ -186,6 +192,43 @@ describe("Recurring screen with no payment service", () => {
     expect(await screen.findByTestId("tracking-error")).toHaveTextContent(/tracked bills/);
     expect(screen.getByTestId("bill-row")).toHaveTextContent("Maple Homes");
     expect(screen.getByRole("button", { name: "Try again" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Track bill" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Select Maple Homes" })).toBeDisabled();
+  });
+
+  it("tracks every chosen bill in one saved change, and keeps an unchosen one suggested", async () => {
+    const wifi = ["2026-09-30", "2026-10-30", "2026-11-30"].map((date, index): ReceiptListItem => ({
+      id: 50 + index, gmail_message_id: `w${index}`, source_id: `w${index}`, receipt_key: `w${index}`, merchant_name: "Wi-Fi", merchant_domain: "wifi.example",
+      status: "paid", currency: "INR", amount: 799, transaction_date: date, category: "Bills", category_confidence: 0.95, recurrence: "unknown",
+    }) as ReceiptListItem);
+    render(
+      <ReceiptTrackingProvider userId="owner" vaultKey={KEY} vaultOwnerToken="token" accountKey="acct-two" enabled>
+        <RecurringView rows={buildRecentReceiptRows([...rent, ...wifi], "acct-two")} onOpenReceipt={() => undefined} />
+      </ReceiptTrackingProvider>,
+    );
+    await waitFor(() => expect(screen.getAllByTestId("bill-row")).toHaveLength(2));
+    expect(screen.getByTestId("bill-count")).toHaveTextContent("2 recurring payments");
+    const choose = (name: string) => screen.getByRole("checkbox", { name: `Select ${name}` });
+    await waitFor(() => expect(choose("Maple Homes")).toBeEnabled());
+    fireEvent.click(choose("Maple Homes"));
+    fireEvent.click(choose("Wi-Fi"));
+    expect(screen.getByText("2 bills selected")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Track selected bills" }));
+    await waitFor(() => expect(screen.getAllByTestId("bill-row").map((row) => row.getAttribute("data-bill-status"))).toEqual(["tracking", "tracking"]));
+    const { doc } = await loadTracking(session, "acct-two");
+    expect(doc.bills.map((bill) => bill.name).sort()).toEqual(["Maple Homes", "Wi-Fi"]);
+    expect(doc.events.filter((event) => event.kind === "bill_added")).toHaveLength(2);
+  });
+});
+
+describe("Tracking several bills at once", () => {
+  const bill = (key: string): NewBill => ({ ...BILL, patternKey: key, name: key });
+  it("saves all of them or none, and never changes the document it was given", () => {
+    const doc = emptyTrackingDoc("acct");
+    const next = trackBills(doc, [bill("a"), bill("b")], ctx());
+    expect(next.bills.map((item) => item.patternKey)).toEqual(["a", "b"]);
+    expect(doc.bills).toEqual([]);
+    const crowded = trackBills(doc, Array.from({ length: 60 }, (_, index) => bill(`k${index}`)), ctx());
+    expect(() => trackBills(crowded, [bill("one-more")], ctx())).toThrow();
+    expect(crowded.bills).toHaveLength(60);
   });
 });

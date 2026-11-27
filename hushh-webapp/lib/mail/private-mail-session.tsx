@@ -15,6 +15,8 @@ import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vau
 type Inventory = { scope: string; mode: "private" | "shared"; accounts: PrivateMailAccount[]; failed?: boolean };
 type Session = {
   inventoryFailed: boolean; resolving: boolean; private: boolean; accounts: PrivateMailAccount[]; selected: PrivateMailAccount | null;
+  /** Mailboxes whose Google permission lapsed. Mail cannot be read from them until the owner reconnects. */
+  expired: PrivateMailAccount[];
   savedTasks?: Promise<TodoListState>;
   brief?: MailBrief; briefUpdating: boolean; briefError: boolean; retryBrief: () => void;
   choose: (slot: string) => void; refresh: () => void;
@@ -74,6 +76,7 @@ export function PrivateMailSessionProvider({ children }: { children: ReactNode }
   const accounts = current?.accounts ?? [];
   const slot = choice?.scope === scope ? choice.slot : owner ? lastSlot(owner) : null;
   const available = accounts.filter(row => row.status === "connected" && row.capabilities.read);
+  const expired = accounts.filter(row => row.status === "needs_reauth");
   const selected = (slot ? available.find(row => row.accountId === slot) : available.find(row => row.isDefault) ?? available[0]) ?? null;
   const choose = (id: string) => {
     if (!owner || !available.some(row => row.accountId === id)) return;
@@ -112,5 +115,5 @@ export function PrivateMailSessionProvider({ children }: { children: ReactNode }
     return () => abort.abort();
   }, [account, address, connection, briefScope, briefRevision, epoch]);
   const visible = summary?.scope === briefScope ? summary : undefined;
-  return <Context.Provider value={{ inventoryFailed: current?.failed === true, resolving: Boolean(isAuthenticated && !current), private: current?.mode === "private", accounts, selected, choose, refresh, savedTasks: tasks?.scope === briefScope ? tasks.value : undefined, brief: visible?.brief, briefUpdating: visible?.updating ?? true, briefError: visible?.error ?? false, retryBrief: () => setBriefRevision(value => value + 1) }}>{children}</Context.Provider>;
+  return <Context.Provider value={{ inventoryFailed: current?.failed === true, resolving: Boolean(isAuthenticated && !current), private: current?.mode === "private", accounts, selected, expired, choose, refresh, savedTasks: tasks?.scope === briefScope ? tasks.value : undefined, brief: visible?.brief, briefUpdating: visible?.updating ?? true, briefError: visible?.error ?? false, retryBrief: () => setBriefRevision(value => value + 1) }}>{children}</Context.Provider>;
 }

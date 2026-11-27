@@ -1,9 +1,11 @@
 "use client";
 
 import { usePrivateMailSession } from "@/lib/mail/private-mail-session";
-import { MailFollowupsScreen } from "./mail-followups-screen";
+import { MailFollowupsScreen, type MailDraftRequest } from "./mail-followups-screen";
+import { PrivateMailState } from "./private-mail-state";
+import type { MailAccountIntent } from "@/lib/one/connector-credential-seal";
 import { disconnectPrivateMailAccount } from "@/lib/services/private-google-connections";
-import { PrivateMailOverview } from "./private-mail-overview";
+import { PrivateMailOverview, type PrivateDraftRequest } from "./private-mail-overview";
 import { isNetworkOnline } from "@/lib/runtime/network-status";
 import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
 import { connectGoogleConnector, connectRefusalMessage } from '@/lib/one/google-native-connect';
@@ -1297,6 +1299,40 @@ function MailPageContent({
     return handleConnectGmail("send");
   }, [handleConnectGmail]);
 
+  // A private mailbox is added or reconnected through the owner's own private runtime.
+  const connectPrivateMailbox = useCallback(async (intent: MailAccountIntent) => {
+    if (!userId || gmailActionBusy !== null) return;
+    if (!vaultOwnerToken) { setShowVaultUnlock(true); return; }
+    const operationOwner = userId;
+    setGmailActionBusy("connect");
+    try {
+      const outcome = await connectGoogleConnector("gmail", {
+        vaultOwnerCapability: vaultOwnerToken, mailAccount: intent, confirmLegacyTransition: confirmTransition,
+        isCurrent: () => gmailOwnerIdRef.current === operationOwner,
+      });
+      if (gmailOwnerIdRef.current !== operationOwner) return;
+      if (outcome.ok) mailSession?.refresh();
+      else if (outcome.code === "PHONE_HANDOFF_REQUIRED") requestGoogleConnectorPhoneHandoff("gmail", undefined, false, intent.mode === "add");
+      else toast.error(connectRefusalMessage(outcome.code, "Mail"));
+    } catch {
+      toast.error("Mail could not be connected. Try again.");
+    } finally {
+      if (gmailOwnerIdRef.current === operationOwner) setGmailActionBusy(null);
+    }
+  }, [confirmTransition, gmailActionBusy, mailSession, userId, vaultOwnerToken]);
+  const addPrivateMailbox = useCallback(() => void connectPrivateMailbox({ mode: "add" }), [connectPrivateMailbox]);
+  const reconnectPrivateMailbox = useCallback((box: { accountId: string; credentialId: string } | null | undefined) => {
+    if (box) void connectPrivateMailbox({ mode: "reconnect", accountId: box.accountId, credentialId: box.credentialId });
+  }, [connectPrivateMailbox]);
+  // The Overview asks for a draft; Follow-ups opens it for review. Nothing is created until it is saved.
+  const [draftRequest, setDraftRequest] = useState<MailDraftRequest>();
+  const requestPrivateDraft = useCallback((request: PrivateDraftRequest) => {
+    setDraftRequest({ ...request, id: `${Date.now()}:${request.sourceId}` });
+    setWorkspace("followups");
+  }, [setWorkspace]);
+  // A different mailbox never inherits the previous one's draft.
+  useEffect(() => { setDraftRequest(undefined); }, [privateMailbox?.credentialId, userId]);
+
   // Compose and Reply enter One's existing reviewed draft card with the intent
   // and the mailbox this screen is showing. Neither can send.
   const handleComposeMail = useCallback(() => {
@@ -1918,6 +1954,19 @@ function MailPageContent({
     </ReceiptTrackingProvider>
   );
 
+  // What a tab shows when no private mailbox can be read: each cause has its own words and next step.
+  const privateMailState = privateMail && mailSession ? (
+    <PrivateMailState
+      cause={mailSession.inventoryFailed ? "failed" : mailSession.resolving ? "checking"
+        : mailSession.expired.length && !mailSession.accounts.some(row => row.capabilities.read) ? "expired"
+        : mailSession.accounts.some(row => row.capabilities.read) ? "choose" : "none"}
+      email={mailSession.expired[0]?.email}
+      busy={gmailActionBusy !== null}
+      onReconnect={() => reconnectPrivateMailbox(mailSession.expired[0])}
+      onAdd={addPrivateMailbox}
+      onRetry={mailSession.refresh}
+    />
+  ) : null;
   const receiptsPanel = (
     <ReceiptNoticeProvider
       userId={userId}
@@ -1930,8 +1979,8 @@ function MailPageContent({
     >
     <div className="space-y-4">
       <div hidden={nativeHistory} className="space-y-4">
-      {journeyVariant === "workspace" && !isConnected ? mailStatusPanel : null}
-      {!privateMail && !mailSession?.resolving && isConnected && hasSealedReceiptAccess ? (
+      {journeyVariant === "workspace" && !isConnected ? (privateMail ? privateMailState : mailStatusPanel) : null}
+      {!mailSession?.resolving && isConnected && hasSealedReceiptAccess ? (
         <ReceiptsHeader
           headingId="recent-receipts-title"
           view={receiptsView}
@@ -2264,9 +2313,10 @@ function MailPageContent({
           titleVisuallyHidden={journeyVariant === "workspace"}
           titleRole={journeyVariant === "workspace" ? "agent" : "page"}
           // The Mail header below names the mailbox on the tabs it owns; Receipts keeps its own line.
-          description={journeyVariant === "workspace" && isConnected && workspace !== "receipts" ? undefined : pageTitle}
+          description={privateMail || (journeyVariant === "workspace" && isConnected && workspace !== "receipts") ? undefined : pageTitle}
+          // A private mailbox manages its connection from the header menu and its sync status sits inside Receipts.
           actions={
-            isConnected && (journeyVariant === "onboarding" || workspace === "receipts") ? (
+            !privateMail && isConnected && (journeyVariant === "onboarding" || workspace === "receipts") ? (
               <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                 <Button
                   onClick={() => void handleSyncNow()}
@@ -2313,22 +2363,21 @@ function MailPageContent({
         }
       >
         <SurfaceStack compact>
-          {privateMail && mailSession ? <div className="flex items-center justify-between gap-2">
-            {mailSession.inventoryFailed && <p role="status">Couldn’t verify the available mailboxes. Check the connection to your private agent.</p>}
-            <select aria-label="Choose mailbox" value={privateMailbox?.accountId ?? ""} onChange={e => mailSession.choose(e.target.value)}>
-              {!privateMailbox && <option value="">Choose mailbox</option>}
-              {mailSession.accounts.filter(row => row.capabilities.read).map(row =>
-                <option key={row.accountId} value={row.accountId}>{row.email || "Connected mailbox"}</option>)}
-            </select>
-            <Button onClick={async () => {
-              const outcome = await connectGoogleConnector("gmail", { vaultOwnerCapability: vaultOwnerToken ?? undefined,
-                mailAccount: { mode: "add" }, confirmLegacyTransition: confirmTransition });
-              if (outcome.ok) mailSession.refresh();
-              else if (outcome.code === "PHONE_HANDOFF_REQUIRED") requestGoogleConnectorPhoneHandoff("gmail", undefined, false, true);
-              else toast.error(connectRefusalMessage(outcome.code, "Mail"));
-            }}>Add Google account</Button>
-            <Button onClick={mailSession.refresh}>Check connection</Button>
-          </div> : null}
+          {privateMail && mailSession ? (
+            <MailHeader
+              placement="top-bar"
+              email={privateMailbox?.email ?? null}
+              attentionCount={mailSession.brief?.attention.length ?? 0}
+              busy={gmailActionBusy !== null}
+              accounts={[...mailSession.accounts.filter(row => row.capabilities.read).map(row => ({ id: row.accountId, email: row.email || "Connected mailbox" })),
+                ...mailSession.expired.map(row => ({ id: row.accountId, email: row.email || "Connected mailbox", needsReconnect: true }))]}
+              selectedId={privateMailbox?.accountId ?? null}
+              onChoose={mailSession.choose}
+              onAddAccount={addPrivateMailbox}
+              onReconnect={() => reconnectPrivateMailbox(privateMailbox ?? mailSession.expired[0])}
+              onDisconnect={() => setShowDisconnectConfirm(true)}
+            />
+          ) : null}
           {journeyVariant === "workspace" && !standaloneKyc && !privateMail && isConnected ? (
             <MailHeader
               email={gmail.status?.google_email ?? null}
@@ -2378,7 +2427,9 @@ function MailPageContent({
               value={workspace}
               onValueChange={setWorkspace}
               panels={{
-                overview: privateMail ? (privateMailbox ? <PrivateMailOverview mailbox={privateMailbox} /> : <p>Choose a connected mailbox to see its mail.</p>) : (
+                overview: privateMail ? (privateMailbox ? <PrivateMailOverview key={privateMailbox.credentialId} mailbox={privateMailbox} userId={userId ?? undefined} savedTasks={mailSession?.savedTasks}
+                    onDraft={requestPrivateDraft} onOpenFollowups={() => setWorkspace("followups")} onOpenReceipt={openReceiptFinding}
+                    onReconnect={() => reconnectPrivateMailbox(privateMailbox)} onUnlock={() => setShowVaultUnlock(true)} /> : privateMailState) : (
                   <>
                     {!isConnected ? mailStatusPanel : null}
                     {isConnected ? (
@@ -2428,9 +2479,9 @@ function MailPageContent({
                   </>
                 ),
                 followups: privateMail ? (privateMailbox && userId && vaultKey && vaultOwnerToken ?
-                  <MailFollowupsScreen savedTasks={mailSession?.savedTasks} account={privateMailbox.accountId} connection={privateMailbox.credentialId} verifiedAddress={privateMailbox.email ?? undefined}
-                    session={{ userId, vaultKey, vaultOwnerToken }} onBack={() => setWorkspace("overview")} /> :
-                  <p>Choose a connected mailbox to see its tracked conversations.</p>) : (
+                  <MailFollowupsScreen key={privateMailbox.credentialId} savedTasks={mailSession?.savedTasks} account={privateMailbox.accountId} connection={privateMailbox.credentialId} verifiedAddress={privateMailbox.email ?? undefined}
+                    session={{ userId, vaultKey, vaultOwnerToken }} draftRequest={draftRequest} /> :
+                  privateMailbox ? <PrivateMailState cause="checking" onReconnect={() => {}} onAdd={addPrivateMailbox} onRetry={() => mailSession?.refresh()} /> : privateMailState) : (
                   <>
                     {!isConnected ? mailStatusPanel : null}
                     {isConnected ? (

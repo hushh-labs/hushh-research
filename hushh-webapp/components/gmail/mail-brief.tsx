@@ -282,7 +282,7 @@ function CompletedRow({ item, onView }: { item: CompletedItem; onView: (item: Co
           onClick={() => onView(item)}
           data-testid="view-sent-email"
         >
-          View sent email
+          {item.viewLabel ?? "View sent email"}
         </button>
       </div>
     </li>
