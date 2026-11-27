@@ -86,8 +86,9 @@ export function ScheduledTasksPanel({ ownerId }: { ownerId: string }) {
   return <OwnerScheduledTasksPanel key={`${ownerId}:${generation}`} ownerId={ownerId} />;
 }
 
-export function useScheduledTasksModel(ownerId: string, route: string = ROUTES.ONE_HOME) {
+export function useScheduledTasksModel(ownerId: string, route: string = ROUTES.ONE_HOME, inline = false) {
   const [open, setOpen] = useState(false);
+  const visible = open || inline;
   const [review, setReview] = useState<{
     client: PodScheduledTasksClient;
     status: ScheduledTasksStatus;
@@ -105,7 +106,7 @@ export function useScheduledTasksModel(ownerId: string, route: string = ROUTES.O
   };
   useBackLayer(route, open ? 2 : 0, close);
   useEffect(() => {
-    if (!areScheduledTasksAvailable() || !open) return;
+    if (!areScheduledTasksAvailable() || !visible) return;
     const owner = snapshotValidatedAuthSessionPrincipal();
     if (owner?.userId !== ownerId) return;
     const client = new PodScheduledTasksClient(ownerId);
@@ -144,7 +145,7 @@ export function useScheduledTasksModel(ownerId: string, route: string = ROUTES.O
       request.abort();
       work.current = null;
     };
-  }, [open, ownerId, readRevision]);
+  }, [visible, ownerId, readRevision]);
 
   const control = async (
     task: ScheduledTask,
@@ -172,7 +173,7 @@ export function useScheduledTasksModel(ownerId: string, route: string = ROUTES.O
           ? "Stopping current work"
           : controlLabels[operation].success;
       },
-      error: "Could not confirm the change. Reopen Scheduled tasks to check.",
+      error: "Could not confirm the change. Refresh scheduled runs to check.",
       isCurrent: current,
     });
     const retire = () => {
@@ -206,7 +207,7 @@ export function useScheduledTasksModel(ownerId: string, route: string = ROUTES.O
 
   const changeOpen = (value: boolean) => { if (!busy && (!value || areScheduledTasksAvailable())) setOpen(value); };
   const refresh = () => {
-    if (active.current || checking || !open) return;
+    if (active.current || checking || !visible) return;
     work.current?.abort();
     setReview(null);
     setReadRevision(value => value + 1);
@@ -218,10 +219,11 @@ function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
   return <ScheduledTasksPanelBody model={useScheduledTasksModel(ownerId)} />;
 }
 
-export function ScheduledTasksPanelBody({ model, selectedId, inTasks = false }: {
+export function ScheduledTasksPanelBody({ model, selectedId, inTasks = false, inline = false }: {
   model: ReturnType<typeof useScheduledTasksModel>;
   selectedId?: string | null;
   inTasks?: boolean;
+  inline?: boolean;
 }) {
   const [view, setView] = useState<ScheduleView>("Agenda");
   const [date, setDate] = useState("");
@@ -242,33 +244,8 @@ export function ScheduledTasksPanelBody({ model, selectedId, inTasks = false }: 
     return runDate.slice(0, 7) === selectedDate.slice(0, 7);
   });
 
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={next => {
-        if (next) { setView("Agenda"); setDate(""); }
-        changeOpen(next);
-      }}
-    >
-      <DialogTrigger asChild>
-        <ShellActionSurface
-          variant="pill"
-          aria-label={title}
-          title={title}
-          className="h-11 w-11 shrink-0 p-0 min-[520px]:w-auto min-[520px]:px-3.5"
-          data-voice-control-id={inTasks ? undefined : "one_scheduled_tasks"}
-        >
-          <CalendarClock className="h-5 w-5 shrink-0" aria-hidden="true" />
-          <span className="hidden min-[520px]:inline">{title}</span>
-        </ShellActionSurface>
-      </DialogTrigger>
-      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>
-            Your private agent runs approved work. Results appear here when recorded.
-          </DialogDescription>
-        </DialogHeader>
+  const content = (
+      <>
         {message && (
           <p role="alert" className="text-sm text-destructive">
             {message}
@@ -401,6 +378,45 @@ export function ScheduledTasksPanelBody({ model, selectedId, inTasks = false }: 
           </Link>
         </Button>
         </div>
+      </>
+  );
+  if (inline) {
+    if (status?.available && status.tasks.length === 0 && !selectedId) return null;
+    return (
+      <section aria-labelledby="scheduled-runs-heading" className="space-y-3">
+        <h2 id="scheduled-runs-heading" className="text-base font-semibold">{title}</h2>
+        {content}
+      </section>
+    );
+  }
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={next => {
+        if (next) { setView("Agenda"); setDate(""); }
+        changeOpen(next);
+      }}
+    >
+      <DialogTrigger asChild>
+        <ShellActionSurface
+          variant="pill"
+          aria-label={title}
+          title={title}
+          className="h-11 w-11 shrink-0 p-0 min-[520px]:w-auto min-[520px]:px-3.5"
+          data-voice-control-id={inTasks ? undefined : "one_scheduled_tasks"}
+        >
+          <CalendarClock className="h-5 w-5 shrink-0" aria-hidden="true" />
+          <span className="hidden min-[520px]:inline">{title}</span>
+        </ShellActionSurface>
+      </DialogTrigger>
+      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>
+            Your private agent runs approved work. Results appear here when recorded.
+          </DialogDescription>
+        </DialogHeader>
+        {content}
       </DialogContent>
     </Dialog>
   );

@@ -503,16 +503,26 @@ async def test_session_only_lockdown_pauses_due_work_after_runtime_recovery(sche
     world.capability.run.assert_awaited_once()
 
 
-async def test_session_only_lockdown_fences_an_active_offline_claim(scheduled_tasks):
+async def test_session_only_lockdown_fences_an_active_offline_claim(scheduled_tasks, monkeypatch):
+    from unittest.mock import AsyncMock
+
     from hushh_mcp.services.pod_config import POD_CONFIG_RECORD_KIND
     from hushh_mcp.services.pod_scheduled_tasks import ScheduleRefused
 
     world = scheduled_tasks
+    read_record = AsyncMock(wraps=world.log._store.get)
+    monkeypatch.setattr(world.log._store, "get", read_record)
     await world.runtime.create(schedule_request(), grant={"subject_id": "browser", "version": 1})
     due = world.delivery.offer.await_args.args
     world.clock[0] = due[-1]
 
     async def lock_during_run(_terms, _occurrence, check):
+        await check()
+        read_record.reset_mock()
+        await check()
+        # Unchanged, verified history does not need another per-record read.
+        # The next check must nevertheless see a fresh lockdown record.
+        read_record.assert_not_awaited()
         await world.log.append(
             POD_CONFIG_RECORD_KIND,
             {"hushh_id": "pod", "config": {"session_only_lockdown": True}},
