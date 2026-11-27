@@ -345,6 +345,17 @@ Kai growth analytics is only considered production-grade when all of these are t
 
 The original production export materialization blocker is resolved. Replacement Android ingestion requires its own package/stream-specific exported rows; legacy iOS, web or Android rows do not prove it.
 
+## Prospective Career and document request observations
+
+`one_career_action` and `one_document_request_action` require closed action and
+result enums. Verify actual UI handler → owner/vault-fenced terminal observer →
+sanitized transport and canonical private projection. The Career operation,
+document request button/requester, owner-operation and governed-event tests cover
+success/error observations, no false success for an uncommitted save, partial
+application receipts, stale/missing owners and exclusion of private contents.
+These mocks prove source contracts, not deployment, GA4 alias support or earlier
+unrecorded activity. Generic attempt errors do not prove a remote write absent.
+
 ## Android release analytics
 
 - Native custom events use `App.getInfo().version` and bounded `app_build`

@@ -41,10 +41,28 @@ vi.mock("@/lib/observability/adapters/native-firebase", () => ({
 
 import { trackEvent } from "@/lib/observability/client";
 import { subscribeTrackedEvents } from "@/lib/observability/tracked-event-bus";
+import { ONE_CAREER_ACTIONS, ONE_DOCUMENT_REQUEST_ACTIONS } from "@/lib/observability/actions";
 
 describe("governed observability dispatch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("routes only finite Career/Documents operation metadata on the actual Main adapter", () => {
+    for (const [event, actions] of [["one_career_action", ONE_CAREER_ACTIONS], ["one_document_request_action", ONE_DOCUMENT_REQUEST_ACTIONS]] as const) {
+      for (const action of actions) {
+        for (const result of ["success", "error"] as const) {
+          expect(trackEvent(event, { action, result, filename: "PRIVATE.pdf", query: "PRIVATE_CONTENT", owner_id: "PRIVATE_OWNER" } as never)).toBe(true);
+          expect(adapters.webTrack).toHaveBeenLastCalledWith(event, expect.objectContaining({ action, result }));
+          for (const key of ["filename", "query", "owner_id"]) expect(adapters.webTrack.mock.lastCall?.[1]).not.toHaveProperty(key);
+        }
+      }
+      const calls = adapters.webTrack.mock.calls.length;
+      for (const payload of [{ action: "PRIVATE_ROLE_ID", result: "success" }, { result: "success" }, { action: actions[0], result: "sent-to-person" }]) expect(trackEvent(event, payload as never)).toBe(false);
+      expect(adapters.webTrack).toHaveBeenCalledTimes(calls);
+    }
+    expect(adapters.webTrack).toHaveBeenCalledTimes(12);
+    expect(adapters.nativeTrack).not.toHaveBeenCalled();
   });
 
   it("rejects the entire event when a governed enum is undeclared", () => {

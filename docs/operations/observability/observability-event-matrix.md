@@ -253,6 +253,28 @@ reset; `retry_bucket` counts failed reads in a row before this one and is
 was refused at one of its declared bounds, not that it could not be reached. On web this is an operational event and spends
 gtag's budget only above the product reserve (see Web GA4 event budget).
 
+## Career and document request operation observations
+
+These prospective emitters use the existing consent-aware transport and the
+validated owner generation plus vault epoch. Their payload is only the closed
+`action` and `result` enums; the private projection retains the event and action
+as a finite identifier. A missing or changed owner/session emits nothing, and
+each operation emits at most one terminal observation. Opening a screen or
+cancelling a draft emits none. GA4 feature-alias registration is a separate
+transport capability and must be verified on the actual serving source.
+
+| Event | Actions | Existing emitters | Source proof |
+| --- | --- | --- | --- |
+| `one_career_action` | `resume_parse`, `resume_save`, `application_send` | Career page handlers; save uses the returned commitment, application uses the existing `applyWithSavedResume` response | `career-operation-observation.test.tsx`, `one-owner-operation.test.ts`, governed transport tests |
+| `one_document_request_action` | `question_send`, `file_request_send`, `review_request` | unlocked request button, shared file-request hook and requester review panel | document request button/requester tests, `one-owner-operation.test.ts`, governed transport tests |
+
+Results describe the corresponding frontend operation observation, not proof
+that a remote object cannot exist after a timeout. A request is not file
+delivery, a review request is not completed review, and an application response
+stays successful when its separate receipt save fails. No resume, role, file,
+question, owner/recipient/request identifier, payment value or provider error
+text is sent. Historical activity is not reconstructed by these emitters.
+
 ## Declared but Not Currently Emitted
 
 These events are declared in the schema, but there is no current live emitter in the web app codebase.
