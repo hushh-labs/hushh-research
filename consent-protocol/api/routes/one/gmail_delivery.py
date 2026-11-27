@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, cast
+from datetime import datetime, timezone
+from typing import Any, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -17,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from hushh_mcp.one_voice.config import voice_mail_reads_enabled, voice_mail_reply_enabled
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.email_delegated_read import mail_latency
 from hushh_mcp.services.gmail_delivery_service import (
     GmailDeliveryError,
@@ -34,9 +36,20 @@ from hushh_mcp.services.gmail_receipts_service import GmailApiError, get_gmail_r
 from hushh_mcp.services.gmail_reply_source_service import (
     MAX_SOURCE_REF_CHARS,
     SOURCE_REF_PATTERN,
+    inspect_reply_source_surface,
     resolve_source_bound_reply,
 )
+from hushh_mcp.services.gmail_scheduled_drain import drain_scheduled_mail
+from hushh_mcp.services.gmail_sensitive_content import (
+    EPHEMERAL_REF_PATTERN,
+    reveal_ephemeral_code,
+)
 from hushh_mcp.services.owner_placement_guard import hub_content_owner
+from hushh_mcp.services.owner_time import (
+    ScheduleTimeError,
+    format_schedule_echo,
+    resolve_send_at,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +108,7 @@ class EmailPrepareRequest(EmailEnvelope):
     model_config = ConfigDict(extra="forbid")
 
     idempotency_key: str = Field(min_length=16, max_length=256)
+    intent: Literal["send", "save_draft"] = "send"
     drive_attachment: DriveAttachmentRef | None = None
     source_workflow_id: str | None = Field(
         default=None,
@@ -117,6 +131,29 @@ class MailboxProposalExecuteRequest(BaseModel):
 
 class EmailSaveDraftRequest(EmailEnvelope):
     model_config = ConfigDict(extra="forbid")
+
+    action_id: str | None = Field(default=None, min_length=1, max_length=128)
+    sender_token: str | None = Field(default=None, min_length=32, max_length=32768)
+    source_mail_ref: str | None = Field(
+        default=None, min_length=20, max_length=MAX_SOURCE_REF_CHARS, pattern=SOURCE_REF_PATTERN
+    )
+
+
+class EmailRevealEphemeralRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reveal_ref: str = Field(min_length=10, max_length=256, pattern=EPHEMERAL_REF_PATTERN)
+
+
+class EmailScheduleRequest(EmailEnvelope):
+    model_config = ConfigDict(extra="forbid")
+
+    send_at: str = Field(min_length=8, max_length=64)
+    timezone: str | None = Field(default=None, max_length=64)
+    recipient_display: str | None = Field(default=None, max_length=200)
+    source_mail_ref: str | None = Field(
+        default=None, min_length=20, max_length=MAX_SOURCE_REF_CHARS, pattern=SOURCE_REF_PATTERN
+    )
 
 
 class EmailSendRequest(EmailEnvelope):
@@ -180,6 +217,22 @@ async def _reply_access() -> None:
         raise PermissionError("Mail replies are disabled")
 
 
+def _typed_chat_reply_access(user_id: str):
+    async def _check() -> None:
+        if not connector_feature_enabled("gmail_chat_reads", user_id):
+            raise PermissionError("Typed-chat mail replies are disabled")
+
+    return _check
+
+
+def _reply_surface(source_mail_ref: str, *, user_id: str) -> str:
+    """Return authenticated ref surface, failing closed to 'voice' on unsealed/tampered refs."""
+    try:
+        return str(inspect_reply_source_surface(source_mail_ref, owner_user_id=user_id))
+    except (GmailDeliveryError, ValueError):
+        return "voice"
+
+
 async def _resolve_delivery_payload(
     *,
     user_id: str,
@@ -203,11 +256,14 @@ async def _resolve_delivery_payload(
             status_code=422,
         )
     if not source_workflow_id and not source_mail_ref:
-        excluded = (
-            {"idempotency_key", "source_workflow_id", "source_mail_ref"}
-            if isinstance(payload, EmailPrepareRequest)
-            else {"action_id", "source_workflow_id", "source_mail_ref"}
-        )
+        if isinstance(payload, EmailPrepareRequest):
+            excluded = {"idempotency_key", "intent", "source_workflow_id", "source_mail_ref"}
+        elif isinstance(payload, EmailSaveDraftRequest):
+            excluded = {"action_id", "sender_token", "source_mail_ref"}
+        elif isinstance(payload, EmailScheduleRequest):
+            excluded = {"send_at", "timezone", "recipient_display", "source_mail_ref"}
+        else:
+            excluded = {"action_id", "source_workflow_id", "source_mail_ref"}
         return payload.model_dump(exclude=excluded, exclude_none=True), None
     if isinstance(payload, EmailPrepareRequest) and payload.drive_attachment is not None:
         raise GmailDeliveryError(
@@ -233,12 +289,23 @@ async def _resolve_delivery_payload(
             "A reply in the original thread cannot include a Drive attachment.",
             status_code=422,
         )
-    if not _reply_enabled():
-        raise GmailDeliveryError(
-            "MAIL_REPLY_UNAVAILABLE",
-            "Replying from One is switched off.",
-            status_code=403,
-        )
+    surface = _reply_surface(str(source_mail_ref), user_id=user_id)
+    if surface == "typed_chat":
+        if not connector_feature_enabled("gmail_chat_reads", user_id):
+            raise GmailDeliveryError(
+                "MAIL_REPLY_UNAVAILABLE",
+                "Replying from One is switched off.",
+                status_code=403,
+            )
+        require_access = _typed_chat_reply_access(user_id)
+    else:
+        if not _reply_enabled():
+            raise GmailDeliveryError(
+                "MAIL_REPLY_UNAVAILABLE",
+                "Replying from One is switched off.",
+                status_code=403,
+            )
+        require_access = _reply_access
     return cast(
         tuple[dict[str, Any], Any | None],
         await resolve_source_bound_reply(
@@ -247,7 +314,7 @@ async def _resolve_delivery_payload(
             source_mail_ref=str(source_mail_ref),
             body=payload.body,
             html_body=payload.html_body,
-            require_access=_reply_access,
+            require_access=require_access,
         ),
     )
 
@@ -297,14 +364,17 @@ async def gmail_email_prepare(
         if payload.draft_ref is not None or payload.revision is not None:
             draft_payload.update(draft_ref=payload.draft_ref, revision=payload.revision)
         with mail_latency("deliver_prep", logger):
+            prepare_kwargs: dict[str, Any] = {
+                "user_id": user_id,
+                "draft_payload": draft_payload,
+                "idempotency_key": payload.idempotency_key,
+                "reply_context": reply_context,
+            }
+            if payload.intent != "send":
+                prepare_kwargs["intent"] = payload.intent
             prepared = cast(
                 dict[str, Any],
-                await get_gmail_delivery_service().prepare(
-                    user_id=user_id,
-                    draft_payload=draft_payload,
-                    idempotency_key=payload.idempotency_key,
-                    reply_context=reply_context,
-                ),
+                await get_gmail_delivery_service().prepare(**prepare_kwargs),
             )
         if reply_context is None:
             return prepared
@@ -333,9 +403,36 @@ async def gmail_save_draft(
 ) -> dict[str, str]:
     owner = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
     try:
-        result = await create_reviewed_gmail_draft(
-            user_id=owner, draft_payload=payload.model_dump(exclude_none=True)
-        )
+        if payload.action_id or payload.source_mail_ref:
+            draft_payload, reply_context = await _resolve_delivery_payload(
+                user_id=owner,
+                payload=payload,
+                source_workflow_id=None,
+                source_mail_ref=payload.source_mail_ref,
+            )
+            if payload.sender_token is not None:
+                draft_payload["sender_token"] = payload.sender_token
+            if payload.action_id:
+                result = await get_gmail_delivery_service().execute_save_draft(
+                    user_id=owner,
+                    action_id=payload.action_id,
+                    draft_payload=draft_payload,
+                    reply_context=reply_context,
+                )
+            else:
+                result = await create_reviewed_gmail_draft(
+                    user_id=owner,
+                    draft_payload=draft_payload,
+                    reply_context=reply_context,
+                )
+        else:
+            result = await create_reviewed_gmail_draft(
+                user_id=owner,
+                draft_payload=payload.model_dump(
+                    exclude={"action_id", "sender_token", "source_mail_ref"},
+                    exclude_none=True,
+                ),
+            )
         status_value = result.get("status")
         draft_id = result.get("draft_id")
         if (
@@ -348,6 +445,196 @@ async def gmail_save_draft(
     except Exception as exc:
         logger.warning("one.gmail_delivery.save_draft_failed error=%s", type(exc).__name__)
         raise _as_http_error(exc) from None
+
+
+@router.post("/email/reveal-ephemeral")
+async def gmail_reveal_ephemeral(
+    payload: EmailRevealEphemeralRequest,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict[str, Any] = Depends(hub_content_owner),
+) -> dict[str, Any]:
+    """Single-consume RAM-only OTP reveal for the current vault owner."""
+    owner = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Pragma"] = "no-cache"
+    revealed = reveal_ephemeral_code(reveal_ref=payload.reveal_ref, owner_user_id=owner)
+    if revealed is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "EPHEMERAL_CODE_UNAVAILABLE",
+                "message": "This verification code expired or was already revealed.",
+            },
+        )
+    return dict(revealed)
+
+
+@router.post("/email/schedule")
+async def gmail_schedule_email(
+    payload: EmailScheduleRequest,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict[str, Any] = Depends(hub_content_owner),
+) -> dict[str, Any]:
+    """Schedule a reviewed email or threaded reply to send at a future time."""
+    owner = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Pragma"] = "no-cache"
+    now = datetime.now(timezone.utc)
+    try:
+        send_at_utc = resolve_send_at(payload.send_at, owner_zone=payload.timezone, now=now)
+    except ScheduleTimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": exc.code.upper(), "message": exc.message},
+        ) from None
+    try:
+        draft_payload, reply_context = await _resolve_delivery_payload(
+            user_id=owner,
+            payload=payload,
+            source_workflow_id=None,
+            source_mail_ref=payload.source_mail_ref,
+        )
+        draft = normalize_draft(draft_payload)
+        service = get_gmail_delivery_service()
+        sender_sub = await service.current_sender_sub(user_id=owner)
+        if not sender_sub:
+            raise GmailDeliveryError(
+                "GMAIL_SEND_NOT_READY",
+                "Connect Gmail with send permission before scheduling an email.",
+                status_code=409,
+            )
+        reply_ctx_dict = (
+            {
+                "thread_id": reply_context.thread_id,
+                "in_reply_to": reply_context.in_reply_to,
+                "references": reply_context.references,
+            }
+            if reply_context is not None
+            else None
+        )
+        recipient_display = str(payload.recipient_display or "").strip() or (
+            draft.to[0] if len(draft.to) == 1 else f"{draft.to[0]} (+{len(draft.to) - 1} more)"
+        )
+        scheduled = await service.schedule_send(
+            user_id=owner,
+            payload={
+                "to": list(draft.to),
+                "cc": list(draft.cc),
+                "bcc": list(draft.bcc),
+                "subject": draft.subject,
+                "body": draft.body,
+                "recipient_kind": "explicit_address",
+                "recipient_user_id": "",
+                "sender_sub": sender_sub,
+                "reply_context": reply_ctx_dict,
+            },
+            send_at=send_at_utc,
+            recipient_display=recipient_display,
+        )
+        send_at_val = scheduled.get("send_at")
+        send_at_iso = (
+            send_at_val.isoformat()
+            if isinstance(send_at_val, datetime)
+            else send_at_utc.isoformat()
+        )
+        return {
+            "action_id": scheduled["action_id"],
+            "state": scheduled["state"],
+            "send_at": send_at_iso,
+            "send_at_display": format_schedule_echo(send_at_utc, payload.timezone, now=now),
+            "recipient_display": recipient_display,
+            "subject": draft.subject,
+            "created": bool(scheduled.get("created")),
+        }
+    except Exception as exc:
+        logger.warning("one.gmail_delivery.schedule_failed error=%s", type(exc).__name__)
+        raise _as_http_error(exc) from exc
+
+
+@router.get("/email/scheduled")
+async def gmail_list_scheduled(
+    response: Response,
+    limit: int = 10,
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict[str, Any] = Depends(hub_content_owner),
+) -> dict[str, Any]:
+    """List pending scheduled sends for the current vault owner, opportunistically draining due items."""
+    owner = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Pragma"] = "no-cache"
+    bounded = max(1, min(int(limit), 25))
+    try:
+        # Opportunistically flush any due scheduled sends for this owner so UI
+        # polling reflects delivery immediately even on cold/idle instances.
+        try:
+            await drain_scheduled_mail(
+                limit=5,
+                deadline_seconds=8.0,
+                owner_user_id=owner,
+            )
+        except Exception as drain_exc:  # noqa: BLE001
+            logger.warning(
+                "one.gmail_delivery.opportunistic_drain_skipped error=%s",
+                type(drain_exc).__name__,
+            )
+        rows = await get_gmail_delivery_service().list_scheduled_sends(user_id=owner, limit=bounded)
+        items = [
+            {
+                "action_id": str(row.get("action_id") or ""),
+                "recipient_display": str(row.get("recipient_display") or ""),
+                "subject": str(row.get("subject") or ""),
+                "send_at": (
+                    row["send_at"].isoformat()
+                    if isinstance(row.get("send_at"), datetime)
+                    else str(row.get("send_at") or "")
+                ),
+                "created_at": (
+                    row["created_at"].isoformat()
+                    if isinstance(row.get("created_at"), datetime)
+                    else str(row.get("created_at") or "")
+                ),
+            }
+            for row in rows
+        ]
+        return {"items": items}
+    except Exception as exc:
+        logger.warning("one.gmail_delivery.list_scheduled_failed error=%s", type(exc).__name__)
+        raise _as_http_error(exc) from exc
+
+
+@router.post("/email/scheduled/{action_id}/cancel")
+async def gmail_cancel_scheduled(
+    action_id: str,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict[str, Any] = Depends(hub_content_owner),
+) -> dict[str, Any]:
+    """Cancel a pending scheduled send belonging to the current vault owner."""
+    owner = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Pragma"] = "no-cache"
+    if not re.fullmatch(r"[A-Za-z0-9-]{1,128}", action_id):
+        raise HTTPException(status_code=404, detail={"code": "ACTION_NOT_FOUND"})
+    try:
+        result = await get_gmail_delivery_service().cancel_scheduled_send(
+            user_id=owner, action_id=action_id
+        )
+        if result.get("state") is None:
+            raise HTTPException(status_code=404, detail={"code": "ACTION_NOT_FOUND"})
+        sent_at = result.get("sent_at")
+        return {
+            "action_id": action_id,
+            "cancelled": bool(result.get("cancelled")),
+            "state": result.get("state"),
+            "sent_at": sent_at.isoformat() if isinstance(sent_at, datetime) else sent_at,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("one.gmail_delivery.cancel_scheduled_failed error=%s", type(exc).__name__)
+        raise _as_http_error(exc) from exc
 
 
 @router.post("/email/mailbox/execute")

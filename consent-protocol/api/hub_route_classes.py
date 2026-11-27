@@ -204,6 +204,10 @@ POST /api/one/email/information-requests/{workflow_id}/send-reply
 GET /api/one/email/information-requests/{workflow_id}/source-preview
 POST /api/one/email/mailbox/execute
 POST /api/one/email/prepare
+POST /api/one/email/reveal-ephemeral
+POST /api/one/email/schedule
+GET /api/one/email/scheduled
+POST /api/one/email/scheduled/{action_id}/cancel
 POST /api/one/email/send
 POST /api/one/first-connect-insights
 POST /api/one/information/chat

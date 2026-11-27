@@ -49,6 +49,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import logging
+import os
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -60,6 +61,7 @@ from db.connection import get_pool
 from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.gmail_delivery_service import (
     GmailDeliveryError,
+    GmailReplyContext,
     get_gmail_delivery_service,
     normalize_draft,
 )
@@ -153,6 +155,20 @@ SELECT action_id, user_id, state, attempt_count, payload_sealed,
        (expires_at <= NOW()) AS window_passed
 FROM gmail_owner_send_actions
 WHERE ((state = 'scheduled' AND send_at <= NOW())
+    OR (state = 'prepared' AND send_at IS NOT NULL AND sending_at IS NULL
+        AND updated_at < NOW() - INTERVAL '10 minutes'))
+  AND NOT (action_id = ANY($1::text[]))
+ORDER BY send_at ASC, action_id ASC
+LIMIT 1
+FOR UPDATE SKIP LOCKED
+"""
+
+_CLAIM_FOR_OWNER_SQL = """
+SELECT action_id, user_id, state, attempt_count, payload_sealed,
+       (expires_at <= NOW()) AS window_passed
+FROM gmail_owner_send_actions
+WHERE user_id = $2
+  AND ((state = 'scheduled' AND send_at <= NOW())
     OR (state = 'prepared' AND send_at IS NOT NULL AND sending_at IS NULL
         AND updated_at < NOW() - INTERVAL '10 minutes'))
   AND NOT (action_id = ANY($1::text[]))
@@ -308,6 +324,7 @@ class _Armed:
     action_id: str
     user_id: str
     draft_payload: dict[str, Any]
+    reply_context: GmailReplyContext | None = None
 
 
 @dataclass(frozen=True)
@@ -401,7 +418,12 @@ class _ScheduledMailDrain:
         self._fired = 0
 
     async def run(
-        self, *, limit: int, deadline_seconds: float, clock: Callable[[], float]
+        self,
+        *,
+        limit: int,
+        deadline_seconds: float,
+        clock: Callable[[], float],
+        owner_user_id: str | None = None,
     ) -> dict[str, Any]:
         started = clock()
         pool = await self._pool_provider()
@@ -412,7 +434,7 @@ class _ScheduledMailDrain:
         for _ in range(limit):
             if clock() - started >= deadline_seconds:
                 break
-            claimed = await self._claim_next(pool, seen)
+            claimed = await self._claim_next(pool, seen, owner_user_id=owner_user_id)
             if claimed is None:
                 break
             if isinstance(claimed, _Settled):
@@ -443,7 +465,9 @@ class _ScheduledMailDrain:
             for row in rows or []
         ]
 
-    async def _claim_next(self, pool: Any, seen: list[str]) -> _Armed | _Settled | str | None:
+    async def _claim_next(
+        self, pool: Any, seen: list[str], *, owner_user_id: str | None = None
+    ) -> _Armed | _Settled | str | None:
         """Lock and decide one due row. Returns None when nothing is due.
 
         A failure before any row is locked propagates (the drain is unavailable);
@@ -454,7 +478,10 @@ class _ScheduledMailDrain:
         try:
             async with pool.acquire() as conn:
                 async with conn.transaction():
-                    row = await conn.fetchrow(_CLAIM_SQL, seen)
+                    if owner_user_id:
+                        row = await conn.fetchrow(_CLAIM_FOR_OWNER_SQL, seen, owner_user_id)
+                    else:
+                        row = await conn.fetchrow(_CLAIM_SQL, seen)
                     if row is None:
                         return None
                     claimed_id = str(row["action_id"])
@@ -499,14 +526,30 @@ class _ScheduledMailDrain:
             payload = self._delivery.open_schedule_payload(
                 user_id=user_id, action_id=action_id, sealed=str(row.get("payload_sealed") or "")
             )
-            sealed_to = _single_address(payload.get("to"))
             recipient_user_id = str(payload.get("recipient_user_id") or "").strip()
             sealed_sender = str(payload.get("sender_sub") or "").strip()
             draft_payload = self._delivery.scheduled_draft_payload(payload)
+            reply_context = (
+                self._delivery.scheduled_reply_context(payload)
+                if hasattr(self._delivery, "scheduled_reply_context")
+                else None
+            )
+            normalized_draft = normalize_draft(draft_payload)
         except Exception:
             # Never log the exception text: it may describe the plaintext.
             return await settle("failed", "payload_unseal_failed")
-        if sealed_to is None or not recipient_user_id:
+        if not normalized_draft.to:
+            return await settle("failed", "payload_unseal_failed")
+        # Legacy sp1 payloads require a connection-bound recipient; sp2 payloads
+        # (carrying recipient_kind or list-based to/cc/bcc) allow reviewed external
+        # addresses and self-emails while still enforcing sender_sub + HMAC.
+        is_v2_payload = (
+            isinstance(payload.get("to"), list)
+            or "recipient_kind" in payload
+            or "reply_context" in payload
+        )
+        sealed_to = _single_address(payload.get("to")) if not is_v2_payload else None
+        if not is_v2_payload and (sealed_to is None or not recipient_user_id):
             return await settle("failed", "payload_unseal_failed")
 
         # The owner confirmed sending from one Gmail account. A reconnect to a
@@ -524,28 +567,39 @@ class _ScheduledMailDrain:
         if not hmac.compare_digest(sealed_sender.encode(), current_sender.encode()):
             return await settle("failed", "sender_changed")
 
-        connections = await asyncio.to_thread(self._directory.list_connections, user_id)
-        refusal = await admit()
-        if refusal is not None:
-            return refusal
-        connection = next(
-            (
-                item
-                for item in connections or []
-                if str(item.get("userId") or "") == recipient_user_id
-            ),
-            None,
-        )
-        if connection is None:
-            return await settle("failed", "recipient_disconnected")
-        current = _single_address(connection.get("email"))
-        if current is None or not hmac.compare_digest(current, sealed_to):
-            return await settle("failed", "recipient_changed")
+        if recipient_user_id:
+            target_address = sealed_to or (
+                str(normalized_draft.to[0]) if len(normalized_draft.to) == 1 else None
+            )
+            if target_address is None:
+                return await settle("failed", "payload_unseal_failed")
+            connections = await asyncio.to_thread(self._directory.list_connections, user_id)
+            refusal = await admit()
+            if refusal is not None:
+                return refusal
+            connection = next(
+                (
+                    item
+                    for item in connections or []
+                    if str(item.get("userId") or "") == recipient_user_id
+                ),
+                None,
+            )
+            if connection is None:
+                return await settle("failed", "recipient_disconnected")
+            current = _single_address(connection.get("email"))
+            if current is None or not hmac.compare_digest(current, target_address):
+                return await settle("failed", "recipient_changed")
 
         armed = await conn.fetchrow(_ARM_SQL, action_id, user_id)
         if armed is None:
             raise RuntimeError("scheduled row changed under its lock")
-        return _Armed(action_id=action_id, user_id=user_id, draft_payload=draft_payload)
+        return _Armed(
+            action_id=action_id,
+            user_id=user_id,
+            draft_payload=draft_payload,
+            reply_context=reply_context,
+        )
 
     async def _fire(self, pool: Any, armed: _Armed) -> _Settled | str:
         try:
@@ -562,11 +616,19 @@ class _ScheduledMailDrain:
             return _Settled(armed.action_id, armed.user_id, "failed", "private_runtime_required")
         self._fired += 1
         try:
-            await self._delivery.execute(
-                user_id=armed.user_id,
-                action_id=armed.action_id,
-                draft_payload=armed.draft_payload,
-            )
+            if armed.reply_context is not None:
+                await self._delivery.execute(
+                    user_id=armed.user_id,
+                    action_id=armed.action_id,
+                    draft_payload=armed.draft_payload,
+                    reply_context=armed.reply_context,
+                )
+            else:
+                await self._delivery.execute(
+                    user_id=armed.user_id,
+                    action_id=armed.action_id,
+                    draft_payload=armed.draft_payload,
+                )
         except GmailDeliveryError as exc:
             if exc.code == HOSTING_UNAVAILABLE:
                 return armed.action_id  # no provider attempt; preserve queued mail
@@ -663,6 +725,7 @@ async def drain_scheduled_mail(
     directory: RecipientDirectory | None = None,
     push: PushSender | None = None,
     pool_provider: PoolProvider | None = None,
+    owner_user_id: str | None = None,
 ) -> dict[str, Any]:
     """Fire up to ``limit`` due scheduled sends before ``deadline_seconds``.
 
@@ -682,7 +745,12 @@ async def drain_scheduled_mail(
         push=push or send_user_data_push,
         pool_provider=pool_provider or get_pool,
     )
-    result = await drain.run(limit=limit, deadline_seconds=deadline_seconds, clock=clock)
+    result = await drain.run(
+        limit=limit,
+        deadline_seconds=deadline_seconds,
+        clock=clock,
+        owner_user_id=owner_user_id,
+    )
     logger.info(
         "gmail.scheduled_drain.completed fired=%s sent=%s failed=%s unknown=%s "
         "cancelled=%s expired=%s limit=%s",
@@ -695,3 +763,60 @@ async def drain_scheduled_mail(
         limit,
     )
     return result
+
+
+_DEFAULT_INPROCESS_INTERVAL_SECONDS = 30.0
+_MIN_INPROCESS_INTERVAL_SECONDS = 5.0
+_MAX_INPROCESS_INTERVAL_SECONDS = 300.0
+
+
+def _inprocess_drain_enabled() -> bool:
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return False
+    if os.getenv("TESTING", "").strip().lower() in {"1", "true", "yes"}:
+        return False
+    if os.getenv("DB_OFFLINE", "").strip().lower() in {"1", "true", "yes"}:
+        return False
+    raw = os.getenv("MAIL_SCHEDULED_DRAIN_INPROCESS_ENABLED", "true").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
+async def start_scheduled_mail_drain_loop(
+    *, interval_seconds: float | None = None
+) -> asyncio.Task[None] | None:
+    """Start the lock-safe in-process scheduled-mail drain task (FOR UPDATE SKIP LOCKED).
+
+    Safe alongside external Cloud Scheduler calls because every row claim uses
+    Postgres ``FOR UPDATE SKIP LOCKED`` and terminal settlement is single-fire.
+    """
+    if not _inprocess_drain_enabled():
+        return None
+    if interval_seconds is None:
+        raw_interval = os.getenv("MAIL_SCHEDULED_DRAIN_INTERVAL_SECONDS", "").strip()
+        try:
+            parsed = float(raw_interval) if raw_interval else _DEFAULT_INPROCESS_INTERVAL_SECONDS
+        except ValueError:
+            parsed = _DEFAULT_INPROCESS_INTERVAL_SECONDS
+    else:
+        parsed = float(interval_seconds)
+    poll_interval = max(
+        _MIN_INPROCESS_INTERVAL_SECONDS,
+        min(parsed, _MAX_INPROCESS_INTERVAL_SECONDS),
+    )
+
+    async def _loop() -> None:
+        logger.info("gmail.scheduled_drain.inprocess_started interval_s=%.1f", poll_interval)
+        while True:
+            try:
+                await asyncio.sleep(poll_interval)
+                await drain_scheduled_mail(limit=20, deadline_seconds=25.0)
+            except asyncio.CancelledError:
+                logger.info("gmail.scheduled_drain.inprocess_stopped")
+                raise
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "gmail.scheduled_drain.inprocess_tick_failed error=%s",
+                    type(exc).__name__,
+                )
+
+    return asyncio.create_task(_loop(), name="gmail-scheduled-mail-drain")

@@ -1735,6 +1735,21 @@ async def startup_system_push_worker() -> None:
     )
 
 
+@app.on_event("startup")
+async def startup_scheduled_mail_drain_worker() -> None:
+    from hushh_mcp.services.gmail_scheduled_drain import start_scheduled_mail_drain_loop
+
+    try:
+        task = await start_scheduled_mail_drain_loop()
+        if task is not None:
+            _track_startup_background_task(task)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "startup.scheduled_mail_drain_worker_failed reason=%s",
+            type(exc).__name__,
+        )
+
+
 if __name__ == "__main__":
     import uvicorn
 

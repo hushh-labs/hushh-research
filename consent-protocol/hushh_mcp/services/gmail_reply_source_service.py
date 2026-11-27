@@ -31,7 +31,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from email.utils import getaddresses
-from typing import Any
+from typing import Any, Literal
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -98,6 +98,12 @@ RETRYABLE = "REPLY_SOURCE_RETRYABLE"
 UNAVAILABLE = "MAIL_REPLY_UNAVAILABLE"
 
 
+ReplyMode = Literal["reply", "reply_all", "follow_up"]
+ReplySurface = Literal["voice", "typed_chat"]
+_VALID_REPLY_MODES = frozenset({"reply", "reply_all", "follow_up"})
+_VALID_REPLY_SURFACES = frozenset({"voice", "typed_chat"})
+
+
 @dataclass(frozen=True)
 class GmailReplySource:
     """Server-only. Never handed whole to a model, a log line, or a browser."""
@@ -110,6 +116,8 @@ class GmailReplySource:
     subject: str
     reply_context: GmailReplyContext
     fingerprint: str
+    cc_list: tuple[str, ...] = ()
+    mode: ReplyMode = "reply"
 
 
 @dataclass(frozen=True)
@@ -119,6 +127,8 @@ class ReplySourceRef:
     thread_id: str
     fingerprint: str
     expires_at: int
+    mode: ReplyMode = "reply"
+    surface: ReplySurface = "voice"
 
 
 def _signing_key() -> bytes:
@@ -307,15 +317,46 @@ def calendar_linked_reply(
     }
 
 
+def _collect_reply_all_cc(
+    headers: dict[str, str], *, owner_email: str, primary_to: str
+) -> tuple[str, ...]:
+    owner_key = _mailbox_key(owner_email) if owner_email else ""
+    primary_key = _mailbox_key(primary_to) if primary_to else ""
+    seen: set[str] = {k for k in (owner_key, primary_key) if k}
+    cc_out: list[str] = []
+    raw_to = _safe_header(headers.get("to", ""))
+    raw_cc = _safe_header(headers.get("cc", ""))
+    for _name, addr in getaddresses([raw_to, raw_cc]):
+        cleaned = addr.strip().lower()
+        if not cleaned or "@" not in cleaned:
+            continue
+        key = _mailbox_key(cleaned)
+        if key in seen:
+            continue
+        try:
+            normalized = normalize_draft({"to": cleaned, "subject": "", "body": ""}).to
+        except GmailDeliveryError:
+            continue
+        if len(normalized) == 1:
+            seen.add(key)
+            cc_out.append(normalized[0])
+            if len(cc_out) >= 49:
+                break
+    return tuple(cc_out)
+
+
 def reply_source_from_message(
     message: dict[str, Any],
     *,
     account: str,
     owner_email: str,
     followup_to_sent: bool = False,
+    mode: ReplyMode = "reply",
     fingerprint_key: bytes | None = None,
 ) -> GmailReplySource:
     """Derive the reply envelope from one validated provider message."""
+    effective_mode: ReplyMode = mode if mode in _VALID_REPLY_MODES else "reply"
+    allow_sent_followup = followup_to_sent or effective_mode == "follow_up"
     message_id = str(message.get("id") or "")
     thread_id = str(message.get("threadId") or "")
     if not _ID.fullmatch(message_id) or not _ID.fullmatch(thread_id) or not account:
@@ -323,7 +364,7 @@ def reply_source_from_message(
     labels = {label for label in message.get("labelIds", []) if isinstance(label, str)}
     if labels & _UNREPLYABLE_LABELS:
         raise _error(SOURCE_UNAVAILABLE, "That email can't be replied to from here.")
-    if "SENT" in labels and not followup_to_sent:
+    if "SENT" in labels and not allow_sent_followup:
         # The owner sent it, from any of their addresses: a reply would be
         # addressed back to them, or to whoever their own Reply-To named.
         raise _error(
@@ -333,14 +374,43 @@ def reply_source_from_message(
         )
     headers = _header_map(message)
     routing_headers = headers
+    cc_list: tuple[str, ...] = ()
     if "SENT" in labels:
-        # Follow up only the unique original addressee; preserve the normal reply contract.
-        if headers.get("cc") or not owner_email or not headers.get("to"):
+        # Follow up the original addressee(s) while excluding the owner.
+        if not owner_email or not headers.get("to"):
             raise _error(TARGET_AMBIGUOUS, "Choose an email addressed to one person.", 422)
-        routing_headers = {"from": headers["to"]}
-    recipient_email, recipient_display = _recipient(
-        routing_headers, owner_email=owner_email.lower()
-    )
+        if effective_mode == "follow_up":
+            owner_key = _mailbox_key(owner_email)
+            parsed_to = [
+                (n, a.strip().lower())
+                for n, a in getaddresses([_safe_header(headers.get("to", ""))])
+                if a.strip() and "@" in a and _mailbox_key(a) != owner_key
+            ]
+            if not parsed_to:
+                raise _error(
+                    TARGET_IS_OWNER, "That email is addressed only to you.", status_code=422
+                )
+            primary_name, primary_addr = parsed_to[0]
+            recipient_email = normalize_draft({"to": primary_addr, "subject": "", "body": ""}).to[0]
+            recipient_display = _display_name(primary_name, recipient_email)
+            cc_list = _collect_reply_all_cc(
+                headers, owner_email=owner_email, primary_to=recipient_email
+            )
+        else:
+            if headers.get("cc"):
+                raise _error(TARGET_AMBIGUOUS, "Choose an email addressed to one person.", 422)
+            routing_headers = {"from": headers["to"]}
+            recipient_email, recipient_display = _recipient(
+                routing_headers, owner_email=owner_email.lower()
+            )
+    else:
+        recipient_email, recipient_display = _recipient(
+            routing_headers, owner_email=owner_email.lower()
+        )
+        if effective_mode == "reply_all":
+            cc_list = _collect_reply_all_cc(
+                headers, owner_email=owner_email, primary_to=recipient_email
+            )
     subject = _reply_subject(_safe_header(headers.get("subject", "")))
     in_reply_to, references = _thread_headers(headers)
     return GmailReplySource(
@@ -360,6 +430,8 @@ def reply_source_from_message(
             headers=headers,
             key=fingerprint_key,
         ),
+        cc_list=cc_list,
+        mode=effective_mode,
     )
 
 
@@ -381,6 +453,7 @@ async def read_reply_source(
     message_id: str,
     expected_account: str,
     require_access: RequireAccess,
+    mode: ReplyMode = "reply",
     reader_factory: Callable[..., GmailMetadataReader] = GmailMetadataReader,
 ) -> GmailReplySource:
     """Re-read one offered message and derive its reply, in the account it came from.
@@ -406,14 +479,21 @@ async def read_reply_source(
         require_access=require_access,
         expect_account=expected_account,
     )
+    need_cc = mode in {"reply_all", "follow_up"}
     try:
-        message = await reader.reply_source(message_id)
+        message = (
+            await reader.reply_source(message_id, include_cc=True)
+            if need_cc
+            else await reader.reply_source(message_id)
+        )
     except PermissionError:
         raise _error(UNAVAILABLE, "Replying from One is switched off.", status_code=403) from None
     except GmailMetadataError as exc:
         code, text = _READER_ERRORS.get(exc.code, (RETRYABLE, "I couldn't check that email."))
         raise _error(code, text, status_code=503 if code == RETRYABLE else 409) from None
-    return reply_source_from_message(message, account=expected_account, owner_email=owner_email)
+    return reply_source_from_message(
+        message, account=expected_account, owner_email=owner_email, mode=mode
+    )
 
 
 async def _connection_row(gmail: GmailReceiptsService, user_id: str) -> dict[str, Any] | None:
@@ -424,21 +504,30 @@ async def _connection_row(gmail: GmailReceiptsService, user_id: str) -> dict[str
 
 
 def seal_reply_source_ref(
-    source: GmailReplySource, *, owner_user_id: str, now: float | None = None
+    source: GmailReplySource,
+    *,
+    owner_user_id: str,
+    now: float | None = None,
+    surface: ReplySurface = "voice",
 ) -> str:
     """An opaque, owner-bound reference to the source -- never its envelope."""
     issued = int(time.time() if now is None else now)
+    body_dict: dict[str, Any] = {
+        "v": _REF_VERSION,
+        "owner": owner_user_id,
+        "account": source.account,
+        "message_id": source.message_id,
+        "thread_id": source.thread_id,
+        "fingerprint": source.fingerprint,
+        "iat": issued,
+        "exp": issued + SOURCE_REF_TTL_SECONDS,
+    }
+    if source.mode != "reply":
+        body_dict["mode"] = source.mode
+    if surface != "voice":
+        body_dict["surface"] = surface
     payload = json.dumps(
-        {
-            "v": _REF_VERSION,
-            "owner": owner_user_id,
-            "account": source.account,
-            "message_id": source.message_id,
-            "thread_id": source.thread_id,
-            "fingerprint": source.fingerprint,
-            "iat": issued,
-            "exp": issued + SOURCE_REF_TTL_SECONDS,
-        },
+        body_dict,
         separators=(",", ":"),
         sort_keys=True,
     ).encode("utf-8")
@@ -492,13 +581,24 @@ def open_reply_source_ref(
     current = int(time.time() if now is None else now)
     if not allow_expired and current > value["exp"]:
         raise _error(REF_EXPIRED, "This reply expired. Ask One to prepare it again.")
+    raw_mode = value.get("mode", "reply")
+    raw_surface = value.get("surface", "voice")
+    if raw_mode not in _VALID_REPLY_MODES or raw_surface not in _VALID_REPLY_SURFACES:
+        raise _error(REF_INVALID, "This reply can't be verified. Ask One to prepare it again.")
     return ReplySourceRef(
         account=value["account"],
         message_id=value["message_id"],
         thread_id=value["thread_id"],
         fingerprint=value["fingerprint"],
         expires_at=value["exp"],
+        mode=raw_mode,
+        surface=raw_surface,
     )
+
+
+def inspect_reply_source_surface(token: str, *, owner_user_id: str) -> ReplySurface:
+    """Return the authenticated surface ('voice' | 'typed_chat') for a sealed reply ref."""
+    return open_reply_source_ref(token, owner_user_id=owner_user_id).surface
 
 
 async def verified_reply_source(
@@ -516,6 +616,7 @@ async def verified_reply_source(
         message_id=ref.message_id,
         expected_account=ref.account,
         require_access=require_access,
+        mode=ref.mode,
         reader_factory=reader_factory,
     )
     if source.thread_id != ref.thread_id or not hmac.compare_digest(
@@ -552,7 +653,7 @@ async def resolve_source_bound_reply(
     return (
         {
             "to": [source.recipient_email],
-            "cc": [],
+            "cc": list(source.cc_list),
             "bcc": [],
             "subject": source.subject,
             "body": body,
