@@ -43,11 +43,35 @@ vi.mock("@/lib/observability/adapters/native-firebase", () => ({
 import { trackEvent } from "@/lib/observability/client";
 import { subscribeTrackedEvents } from "@/lib/observability/tracked-event-bus";
 import { deriveOneFeatureDimensions } from "@/lib/observability/one-feature-dimensions";
+import { ONE_CAREER_ACTIONS, ONE_DOCUMENT_REQUEST_ACTIONS } from "@/lib/observability/actions";
 
 describe("governed observability dispatch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     adapters.platform = "web";
+  });
+
+  it.each(["web", "ios", "android"] as const)("routes Career and Documents enums once on %s and excludes private metadata", (platform) => {
+    adapters.platform = platform;
+    const receiver = platform === "web" ? adapters.webTrack : adapters.nativeTrack;
+    const other = platform === "web" ? adapters.nativeTrack : adapters.webTrack;
+    for (const [event, actions] of [["one_career_action", ONE_CAREER_ACTIONS], ["one_document_request_action", ONE_DOCUMENT_REQUEST_ACTIONS]] as const) {
+      for (const action of actions) {
+        for (const result of ["success", "error"] as const) {
+          expect(trackEvent(event, { action, result, filename: "private.pdf", query: "private text", owner_id: "private-owner" } as never)).toBe(true);
+          expect(receiver).toHaveBeenLastCalledWith(event, expect.objectContaining({ one_feature_action: action, one_feature_result: result }));
+          const payload = receiver.mock.lastCall?.[1];
+          for (const key of ["filename", "query", "owner_id"]) expect(payload).not.toHaveProperty(key);
+        }
+      }
+      const calls = receiver.mock.calls.length;
+      for (const payload of [{ action: "private-role-id", result: "success" }, { result: "success" }, { action: actions[0], result: "sent-to-person" }]) {
+        expect(trackEvent(event, payload as never)).toBe(false);
+      }
+      expect(receiver).toHaveBeenCalledTimes(calls);
+    }
+    expect(receiver).toHaveBeenCalledTimes(12);
+    expect(other).not.toHaveBeenCalled();
   });
 
   it.each(["web", "ios", "android"] as const)("derives reviewed dimensions for %s and discards supplied aliases", (platform) => {

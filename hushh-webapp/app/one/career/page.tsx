@@ -11,6 +11,7 @@ import { AppPageContentRegion, AppPageHeaderRegion, AppPageShell } from "@/compo
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { useAuth } from "@/hooks/use-auth";
 import { applyWithSavedResume } from "@/lib/career/apply";
+import { observeCareerOperation } from "@/lib/observability/one-owner-operation";
 import { isEmptyResume, normalizeResume, resumeToText, type Resume } from "@/lib/career/resume";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -84,31 +85,37 @@ function CareerWorkspace({ auth, vault }: { auth: ReturnType<typeof useAuth>; va
     async (file: File | undefined) => {
       setFilePickerOpen(false);
       if (!file || !vaultOwnerToken) return;
+      const observe = observeCareerOperation(userId || "", "resume_parse");
       setBusy("parse");
       try {
         const { resume, truncated } = await CareerService.parseResume(file, vaultOwnerToken);
+        observe("success");
         setDraft(resume);
         if (truncated) toast.message("Your resume was long, so we read the first part. Check everything below.");
       } catch (error) {
+        observe("error");
         toast.error(error instanceof Error ? error.message : "We couldn't read that resume.");
       } finally {
         setBusy(null);
         if (fileInput.current) fileInput.current.value = "";
       }
     },
-    [vaultOwnerToken],
+    [userId, vaultOwnerToken],
   );
 
   const saveDraft = async () => {
     if (!draft || !write) return;
+    const observe = observeCareerOperation(write.userId, "resume_save");
     setBusy("save");
     try {
       const result = await CareerPkmService.saveResume({ ...write, resume: draft });
       if (!result.success) throw new Error("Resume save was not committed.");
+      observe("success");
       setSaved(normalizeResume(draft));
       setDraft(null);
       toast.success("Saved to your knowledge model");
     } catch {
+      observe("error");
       toast.error("Couldn't save your resume. Try again.");
     } finally {
       setBusy(null);
@@ -117,14 +124,17 @@ function CareerWorkspace({ auth, vault }: { auth: ReturnType<typeof useAuth>; va
 
   const apply = async () => {
     if (!applying || !saved || !write) return;
+    const observe = observeCareerOperation(write.userId, "application_send");
     setBusy("apply");
     try {
       const { result, receipt, receiptSaved } = await applyWithSavedResume({ role: applying, resume: saved, write });
+      observe("success");
       setApplications((current) => [receipt, ...current]);
       if (!receiptSaved) toast.message("Applied. We couldn't save the receipt to your knowledge model.");
       toast.success(`Applied to ${applying.title}${result.reference ? ` · ${result.reference}` : ""}`);
       setApplying(null);
     } catch (error) {
+      observe("error");
       toast.error(error instanceof Error ? error.message : "The application didn't go through.");
     } finally {
       setBusy(null);

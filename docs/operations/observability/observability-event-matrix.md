@@ -254,6 +254,27 @@ reset; `retry_bucket` counts failed reads in a row before this one and is
 was refused at one of its declared bounds, not that it could not be reached. On web this is an operational event and spends
 gtag's budget only above the product reserve (see Web GA4 event budget).
 
+## Career and document request operation results
+
+These prospective observations follow the existing consent-aware transport and
+validated owner generation plus vault epoch. They carry only the closed
+`action` and `result` enums. The reporting aliases `one_feature_action` and
+`one_feature_result` are derived after schema validation. A missing or changed
+owner/session emits nothing. Each started operation observes at most one terminal
+result; opening a screen, cancelling a draft and automatic reads emit none.
+
+| Event | Actions | Result meaning | Existing emitters | Proof |
+| --- | --- | --- | --- | --- |
+| `one_career_action` | `resume_parse`, `resume_save`, `application_send` | `success` after parsing, committed resume save or confirmed application response; `error` for the corresponding caught attempt failure | Career page handlers; submission continues using `applyWithSavedResume` | `career-owner.test.tsx`, `one-owner-operation.test.ts`, governed transport tests |
+| `one_document_request_action` | `question_send`, `file_request_send`, `review_request` | `success` after the existing guarded request response; `error` for a current-session caught attempt failure | unlocked request button, shared file-request hook and requester review panel | `document-request-button.test.tsx`, `document-request-requester-panel.test.tsx`, `one-owner-operation.test.ts`, governed transport tests |
+
+Sending a document request does not mean files were shared. Requesting review
+does not mean review was completed. A successful application stays successful
+when the separate local receipt write fails. No resume, role, filename, document
+purpose, question, owner/recipient/request identifier, payment value or provider
+error text is sent. These events do not reconstruct earlier unrecorded activity;
+their runtime release and GA4 processing are separate from source verification.
+
 ## Declared but Not Currently Emitted
 
 These events are declared in the schema, but there is no current live emitter in the web app codebase.
