@@ -338,6 +338,49 @@ async def test_concurrent_replays_and_workspace_duration_changes_use_same_grant(
     ] == {"grantId": grant_id}
 
 
+@pytest.mark.parametrize("directory_offline", [False, True])
+def test_owner_can_stop_the_selected_grant_when_peer_is_unavailable(
+    location_plans, monkeypatch, directory_offline
+):
+    service, db = location_plans
+    plans = LocationChatPlanService(service())
+    grant_id = offer(service)["receipt"]["grantId"]
+    circle_id = str(uuid4())
+    db.execute_raw(
+        """INSERT INTO one_location_circles(id, owner_user_id, name)
+           VALUES (CAST(:circle AS UUID), 'owner', 'Family');
+           UPDATE one_location_share_grants SET source_circle_id = CAST(:circle AS UUID)
+           WHERE id = CAST(:grant AS UUID)""",
+        {"circle": circle_id, "grant": grant_id},
+    )
+
+    def unavailable(user_ids, **_):
+        if directory_offline:
+            raise location.DirectoryIdentityUnavailableError()
+        return set(user_ids) - {"other"}
+
+    monkeypatch.setattr(location, "active_directory_user_ids", unavailable)
+    with pytest.raises(location.OneLocationAgentError) as wrong_actor:
+        plans.prepare(user_id="other", action="stop", grant_id=grant_id)
+    assert wrong_actor.value.status_code == 404
+    with pytest.raises(location.OneLocationAgentError) as wrong_circle:
+        plans.prepare(user_id="owner", action="stop", grant_id=grant_id, circle_id=str(uuid4()))
+    assert wrong_circle.value.status_code == 409
+    with pytest.raises(location.OneLocationAgentError) as extension:
+        plans.prepare(user_id="owner", action="extend", grant_id=grant_id, duration_hours=0.5)
+    assert extension.value.code == (
+        "DIRECTORY_IDENTITY_UNAVAILABLE" if directory_offline else "LOCATION_PEER_UNAVAILABLE"
+    )
+
+    review = plans.prepare(user_id="owner", action="stop", grant_id=grant_id, circle_id=circle_id)
+    receipt = plans.execute(user_id="owner", plan_id=review["planId"])
+    assert receipt["receipt"] == {"grantId": grant_id}
+    assert plans.execute(user_id="owner", plan_id=review["planId"]) == receipt
+    assert db.execute_raw("SELECT status FROM one_location_share_grants").data == [
+        {"status": "revoked"}
+    ]
+
+
 def test_chat_extension_requests_settle_in_place_in_either_surface(location_plans):
     service, db = location_plans
     initial = offer(service)

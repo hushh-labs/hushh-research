@@ -1012,7 +1012,7 @@ def _compose_one_instruction_parts(
         _one_location_chat_identity(
             conversational=state_getter(STATE_LOCATION_CHAT_CONVERSATION) is True
         )
-        if location_review
+        if location_review and callable(state_getter)
         else ONE_IDENTITY_INSTRUCTION
     )
     if (

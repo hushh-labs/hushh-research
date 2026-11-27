@@ -92,11 +92,23 @@ review must open. A blocked overlay, owner change or unavailable action must
 prevent the action. This compatibility path must not execute a mutation or
 claim that a share was sent before confirmation.
 
-From Chat, test Location setup, account sharing off, device permission denied,
-device Location Services off and paused updates. Recover through the card and
-retry the original action with its audience retained. Browser and OS settings
-may require a system prompt or Settings; the app must keep the pending review
-in Chat. Test Circles, saved places, public links and private check-ins from
+With a first-time account, send a complete live-share command from a named Chat.
+Verify that ONE opens the Location subagent for onboarding. Complete the real
+setup and return to the same conversation. Check that the recipient and duration
+are preserved and that the recipient gains access only after a fresh typed
+confirmation. Repeat with a missing duration. Cancel onboarding, press Back,
+refresh and reopen the old conversation. Check that none of these actions sends
+a share or an alert. Switch accounts or lock the vault during setup and check
+that the pending command stays private. Asking another user for their location
+should use the request flow without asking for the sender’s GPS.
+
+With an onboarded account, test sharing turned off, device permission denied,
+device Location Services off and paused updates. Recover from Chat and retry the
+original action with its audience retained. A browser or device can require its
+system permission dialog or Settings. Revoke permission between review and send
+and verify no coordinates are published. Lose a response after a successful
+write and verify that retry returns the existing receipt with no duplicate grant.
+Test Circles, saved places, public links and private check-ins from
 their inline reviews. “Check me in here” opens the Check-in screen to find
 venues from the device’s current position. Reopening chat history must keep
 the conversation visible. Ask to enable Auto approve for a named Circle, review

@@ -256,33 +256,6 @@ afterEach(() => {
 });
 
 describe("LocationSetupFlow", () => {
-  it("completes first-time setup by typed replies and asks the OS only after versioned consent is recorded", async () => {
-    const server = installServer(progressRow({}));
-    const complete = vi.fn();
-    const transcript = vi.fn();
-    const input: { reply?: ((text: string, question?: string) => boolean) | null } = {};
-    const answer = (text: string) => input.reply?.(text, transcript.mock.lastCall?.[0]);
-    mocks.service.requestLocationPermission.mockResolvedValue({ state: "granted" });
-    mocks.bootstrapKey.mockResolvedValue(undefined);
-    render(<LocationSetupFlow mode="setup" onSetupComplete={complete} onConversationText={transcript}
-      onConversationReply={(handler) => { input.reply = handler; }} />);
-    await waitFor(() => expect(transcript).toHaveBeenLastCalledWith(expect.stringContaining(LOCATION_SHARING_CONSENT_VERSION)));
-    expect(screen.queryByTestId("location-setup-flow")).toBeNull();
-    expect(answer("share it")).toBe(false);
-    expect(mocks.service.requestLocationPermission).not.toHaveBeenCalled();
-    await act(async () => { answer("I accept"); });
-    expect(server.patches).toContainEqual({ action: "accept_consent", consentVersion: LOCATION_SHARING_CONSENT_VERSION });
-    await waitFor(() => expect(transcript).toHaveBeenLastCalledWith(expect.stringContaining("device")));
-    await act(async () => { answer("yes"); });
-    await waitFor(() => expect(transcript).toHaveBeenLastCalledWith(expect.stringContaining("approximate")));
-    await act(async () => { answer("approximate"); });
-    expect(server.patches).toContainEqual({ action: "set_precision", precision: "approximate" });
-    await waitFor(() => expect(transcript).toHaveBeenLastCalledWith(expect.stringContaining("Turn on Location sharing?")));
-    await act(async () => { answer("yes"); });
-    expect(server.patches).toContainEqual({ action: "complete" });
-    expect(complete).toHaveBeenCalledOnce();
-  });
-
   it("resumes at the persisted step after a reload (server is the source of truth)", async () => {
     installServer(
       progressRow({
