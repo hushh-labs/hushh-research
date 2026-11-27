@@ -2149,6 +2149,13 @@ async def test_metrics_v2_deduplicates_subagent_outcomes_and_new_vs_returning_ac
     async def data_fetch(query, *_args, **_options):
         if query == _metrics_source.CANDIDATES_SQL:
             return [{"user_id": uid} for uid in db.data.ids]
+        if query == _metrics_source.MEANINGFUL_REPLY_LATEST_SQL:
+            return [
+                {
+                    "user_id": "new_owner",
+                    "latest_completed_at": _METRICS_NOW - timedelta(days=2),
+                }
+            ]
         assert query == _metrics_source.MEANINGFUL_REPLIES_SQL
         return [{"user_id": "returning_owner"}, {"user_id": "returning_owner"}]
 
@@ -2210,9 +2217,268 @@ async def test_metrics_v2_deduplicates_subagent_outcomes_and_new_vs_returning_ac
         "coverageFrom": metrics_aggregate_setup.binding["coverageFrom"],
         "windowFullyCovered": False,
     }
+    assert result["cohortRetention"] == {
+        "d1": {
+            "eligibleAccounts": {
+                "value": 1,
+                "coverage": "partial",
+                "unit": "account",
+                "basis": "exact",
+            },
+            "retainedAccounts": {
+                "value": 1,
+                "coverage": "partial",
+                "unit": "account",
+                "basis": "exact",
+            },
+            "retentionRate": {
+                "value": 1.0,
+                "coverage": "partial",
+                "unit": "ratio",
+                "basis": "exact",
+            },
+        },
+        "d7": {
+            "eligibleAccounts": {
+                "value": 0,
+                "coverage": "partial",
+                "unit": "account",
+                "basis": "exact",
+            },
+            "retainedAccounts": {
+                "value": 0,
+                "coverage": "partial",
+                "unit": "account",
+                "basis": "exact",
+            },
+            "retentionRate": {
+                "value": None,
+                "coverage": "unavailable",
+                "unit": "ratio",
+                "basis": "exact",
+            },
+        },
+        "d30": {
+            "eligibleAccounts": {
+                "value": 0,
+                "coverage": "partial",
+                "unit": "account",
+                "basis": "exact",
+            },
+            "retainedAccounts": {
+                "value": 0,
+                "coverage": "partial",
+                "unit": "account",
+                "basis": "exact",
+            },
+            "retentionRate": {
+                "value": None,
+                "coverage": "unavailable",
+                "unit": "ratio",
+                "basis": "exact",
+            },
+        },
+    }
     serialized = json.dumps(result)
     for forbidden in ("returning_owner", "new_owner", "ret@outside.invalid", "new@outside.invalid"):
         assert forbidden not in serialized
+
+
+@pytest.mark.asyncio
+async def test_metrics_v2_cohort_retention_tracks_post_window_returns_and_unavailable_registrations(
+    metrics_aggregate_setup, metrics_aggregate_database, monkeypatch
+):
+    db = metrics_aggregate_database
+    owners = ["d30_retained", "d10_unretained_d7", "immature_yesterday"]
+    db.guard.ids = db.data.ids = owners
+    since_day = (_METRICS_NOW - timedelta(days=45)).date().isoformat()
+    end_day = (_METRICS_NOW - timedelta(days=15)).date().isoformat()
+    identity_snapshot = (
+        {
+            "d30_retained": {
+                "firebase_uid": "d30_retained",
+                "emails": ("a@outside.invalid",),
+                "registeredAt": (_METRICS_NOW - timedelta(days=40)).isoformat(),
+            },
+            "d10_unretained_d7": {
+                "firebase_uid": "d10_unretained_d7",
+                "emails": ("b@outside.invalid",),
+                "registeredAt": (_METRICS_NOW - timedelta(days=20)).isoformat(),
+            },
+            "immature_yesterday": {
+                "firebase_uid": "immature_yesterday",
+                "emails": ("c@outside.invalid",),
+                "registeredAt": (_METRICS_NOW - timedelta(days=1)).isoformat(),
+            },
+        },
+        {uid: {"email": f"{uid}@outside.invalid"} for uid in owners},
+        {},
+    )
+    monkeypatch.setattr(_metrics_source, "_identity", AsyncMock(return_value=identity_snapshot))
+    monkeypatch.setattr(
+        _metrics_source.AccountDeletionLifecycleService,
+        "active_projection_user_ids",
+        AsyncMock(return_value=set(owners)),
+    )
+
+    async def data_fetch(query, *_args, **_options):
+        if query == _metrics_source.CANDIDATES_SQL:
+            return [{"user_id": uid} for uid in owners]
+        if query == _metrics_source.MEANINGFUL_REPLY_LATEST_SQL:
+            return [
+                {
+                    "user_id": "d10_unretained_d7",
+                    "latest_completed_at": _METRICS_NOW - timedelta(days=18),
+                }
+            ]
+        assert query == _metrics_source.MEANINGFUL_REPLIES_SQL
+        return [{"user_id": uid} for uid in owners]
+
+    monkeypatch.setattr(db.data, "fetch", data_fetch)
+    empty_subagents = {
+        sub_id: {"supported": True, "limited": False, "count": 0}
+        for sub_id in outcomes.SUBAGENT_OUTCOME_IDS
+    }
+    monkeypatch.setattr(
+        _metrics_source.plg_outcomes,
+        "value_summaries_with_subagents",
+        AsyncMock(
+            return_value={
+                uid: {
+                    "supported": True,
+                    "limited": False,
+                    "count": 0,
+                    "lastAt": None,
+                    "bySubagent": empty_subagents,
+                }
+                for uid in owners
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        _metrics_source.plg_outcomes,
+        "value_summaries",
+        AsyncMock(
+            side_effect=lambda _conn, batch, *_rest: {
+                uid: {
+                    "supported": True,
+                    "limited": False,
+                    "count": 1 if uid == "d30_retained" else 0,
+                    "lastAt": (_METRICS_NOW - timedelta(days=5)).isoformat()
+                    if uid == "d30_retained"
+                    else None,
+                }
+                for uid in batch
+            }
+        ),
+    )
+    v2_body = {
+        **metrics_aggregate_setup.body,
+        "definitionVersion": "2",
+        "period": {"startDate": since_day, "endDate": end_day, "timezone": "UTC"},
+    }
+    result = await _metrics_source.adoption_aggregate(
+        _metrics_source.AdoptionRequest.model_validate(v2_body),
+        metrics_aggregate_setup.binding,
+        pool=db.pool,
+    )
+    assert result["metrics"]["newActiveAccounts"]["value"] == 3
+    assert result["cohortRetention"]["d1"] == {
+        "eligibleAccounts": {
+            "value": 2,
+            "coverage": "partial",
+            "unit": "account",
+            "basis": "exact",
+        },
+        "retainedAccounts": {
+            "value": 2,
+            "coverage": "partial",
+            "unit": "account",
+            "basis": "exact",
+        },
+        "retentionRate": {"value": 1.0, "coverage": "partial", "unit": "ratio", "basis": "exact"},
+    }
+    assert result["cohortRetention"]["d7"] == {
+        "eligibleAccounts": {
+            "value": 2,
+            "coverage": "partial",
+            "unit": "account",
+            "basis": "exact",
+        },
+        "retainedAccounts": {
+            "value": 1,
+            "coverage": "partial",
+            "unit": "account",
+            "basis": "exact",
+        },
+        "retentionRate": {"value": 0.5, "coverage": "partial", "unit": "ratio", "basis": "exact"},
+    }
+    assert result["cohortRetention"]["d30"] == {
+        "eligibleAccounts": {
+            "value": 1,
+            "coverage": "partial",
+            "unit": "account",
+            "basis": "exact",
+        },
+        "retainedAccounts": {
+            "value": 1,
+            "coverage": "partial",
+            "unit": "account",
+            "basis": "exact",
+        },
+        "retentionRate": {"value": 1.0, "coverage": "partial", "unit": "ratio", "basis": "exact"},
+    }
+
+
+@pytest.mark.asyncio
+async def test_metrics_v2_cohort_retention_reports_unavailable_when_registration_missing(
+    metrics_aggregate_setup, metrics_aggregate_database, monkeypatch
+):
+    db = metrics_aggregate_database
+    owners = ["customer"]
+    db.guard.ids = db.data.ids = owners
+    since_day = (_METRICS_NOW - timedelta(days=14)).date().isoformat()
+    end_day = (_METRICS_NOW - timedelta(days=1)).date().isoformat()
+    missing_reg = (
+        {"customer": {"firebase_uid": "customer", "emails": ("person@outside.invalid",)}},
+        {"customer": {"email": "person@outside.invalid"}},
+        {},
+    )
+    monkeypatch.setattr(_metrics_source, "_identity", AsyncMock(return_value=missing_reg))
+    empty_subagents = {
+        sub_id: {"supported": True, "limited": False, "count": 0}
+        for sub_id in outcomes.SUBAGENT_OUTCOME_IDS
+    }
+    monkeypatch.setattr(
+        _metrics_source.plg_outcomes,
+        "value_summaries_with_subagents",
+        AsyncMock(
+            return_value={
+                "customer": {
+                    "supported": True,
+                    "limited": False,
+                    "count": 1,
+                    "lastAt": (_METRICS_NOW - timedelta(days=1)).isoformat(),
+                    "bySubagent": empty_subagents,
+                }
+            }
+        ),
+    )
+    v2_body = {
+        **metrics_aggregate_setup.body,
+        "definitionVersion": "2",
+        "period": {"startDate": since_day, "endDate": end_day, "timezone": "UTC"},
+    }
+    unavailable = await _metrics_source.adoption_aggregate(
+        _metrics_source.AdoptionRequest.model_validate(v2_body),
+        metrics_aggregate_setup.binding,
+        pool=db.pool,
+    )
+    for horizon in ("d1", "d7", "d30"):
+        assert (
+            unavailable["cohortRetention"][horizon]["eligibleAccounts"]["coverage"] == "unavailable"
+        )
+        assert unavailable["cohortRetention"][horizon]["retentionRate"]["value"] is None
 
 
 @pytest.mark.asyncio
