@@ -3,12 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const adapters = vi.hoisted(() => ({
   webTrack: vi.fn().mockResolvedValue(undefined),
   nativeTrack: vi.fn().mockResolvedValue(undefined),
+  platform: "web" as "web" | "ios" | "android",
 }));
 
 vi.mock("@capacitor/core", () => ({
   Capacitor: {
-    isNativePlatform: () => false,
-    getPlatform: () => "web",
+    isNativePlatform: () => adapters.platform !== "web",
+    getPlatform: () => adapters.platform,
   },
 }));
 
@@ -26,7 +27,7 @@ vi.mock("@/lib/observability/client-version", () => ({
 vi.mock("@/lib/observability/adapters/web-gtm", () => ({
   webGtmAdapter: {
     name: "web-gtm",
-    isAvailable: () => true,
+    isAvailable: () => adapters.platform === "web",
     track: adapters.webTrack,
   },
 }));
@@ -34,17 +35,72 @@ vi.mock("@/lib/observability/adapters/web-gtm", () => ({
 vi.mock("@/lib/observability/adapters/native-firebase", () => ({
   nativeFirebaseAdapter: {
     name: "native-firebase",
-    isAvailable: () => false,
+    isAvailable: () => adapters.platform !== "web",
     track: adapters.nativeTrack,
   },
 }));
 
 import { trackEvent } from "@/lib/observability/client";
 import { subscribeTrackedEvents } from "@/lib/observability/tracked-event-bus";
+import { deriveOneFeatureDimensions } from "@/lib/observability/one-feature-dimensions";
 
 describe("governed observability dispatch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    adapters.platform = "web";
+  });
+
+  it.each(["web", "ios", "android"] as const)("derives reviewed dimensions for %s and discards supplied aliases", (platform) => {
+    adapters.platform = platform;
+    expect(trackEvent("one_memory_action", {
+      route_id: "pkm", action: "detail_edited", result: "error",
+      one_feature_action: "forged", one_feature_result: "success",
+    } as never)).toBe(true);
+    const receiver = platform === "web" ? adapters.webTrack : adapters.nativeTrack;
+    const other = platform === "web" ? adapters.nativeTrack : adapters.webTrack;
+    expect(receiver).toHaveBeenCalledWith("one_memory_action", expect.objectContaining({
+      action: "detail_edited", result: "error",
+      one_feature_action: "detail_edited", one_feature_result: "error",
+    }));
+    expect(other).not.toHaveBeenCalled();
+  });
+
+  it("never forwards supplied aliases on unrelated events", () => {
+    expect(trackEvent("auth_succeeded", {
+      action: "google", result: "success", one_feature_action: "capture_saved", one_feature_result: "success",
+    } as never)).toBe(true);
+    const payload = adapters.webTrack.mock.calls[0]?.[1];
+    expect(payload).toMatchObject({ action: "google", result: "success" });
+    expect(payload).not.toHaveProperty("one_feature_action");
+    expect(payload).not.toHaveProperty("one_feature_result");
+  });
+
+  it("withholds both aliases for unreviewed action/result values while preserving prior raw behavior", () => {
+    // The raw Consent fields have no runtime enum gate today. A dedicated
+    // alias must not make that permissive legacy contract reportable as One.
+    expect(trackEvent("consent_action_result", { action: "unreviewed", result: "success" } as never)).toBe(true);
+    const payload = adapters.webTrack.mock.calls[0]?.[1];
+    expect(payload).toMatchObject({ action: "unreviewed", result: "success" });
+    expect(payload).not.toHaveProperty("one_feature_action");
+    expect(payload).not.toHaveProperty("one_feature_result");
+    expect(deriveOneFeatureDimensions("consent_action_result", { action: "deny", result: "unreviewed" })).toEqual({});
+    expect(deriveOneFeatureDimensions("one_location_journey_action", { action: "circle_opened" })).toEqual({});
+  });
+
+  it("derives only declared feature stages and keeps failures distinct from successful outcomes", () => {
+    expect(deriveOneFeatureDimensions("consent_action_result", { action: "deny", result: "expected_error" }))
+      .toEqual({ one_feature_action: "deny", one_feature_result: "expected_error" });
+    expect(deriveOneFeatureDimensions("gmail_sync_result", { action: "queue", result: "success" }))
+      .toEqual({ one_feature_action: "queue", one_feature_result: "success" });
+    expect(deriveOneFeatureDimensions("one_location_journey_action", { action: "location_request_fulfilled", result: "error" }))
+      .toEqual({ one_feature_action: "location_request_fulfilled", one_feature_result: "error" });
+    expect(deriveOneFeatureDimensions("import_parse_completed", { result: "error" }))
+      .toEqual({ one_feature_result: "error" });
+    expect(deriveOneFeatureDimensions("analysis_stream_started", { result: "success" }))
+      .toEqual({ one_feature_result: "success" });
+    expect(deriveOneFeatureDimensions("analysis_stream_started", { result: "error" })).toEqual({});
+    expect(deriveOneFeatureDimensions("one_crm_action", { action: "record_created", result: "success" })).toEqual({});
+    expect(deriveOneFeatureDimensions("consent_pending_loaded", { result: "success", load_surface: "warm" })).toEqual({});
   });
 
   it("rejects the entire event when a governed enum is undeclared", () => {

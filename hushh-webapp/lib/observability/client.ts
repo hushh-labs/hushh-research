@@ -38,6 +38,7 @@ import { redactObservabilityLogValue } from "@/lib/observability/log-redactor";
 import { resolveClientVersion } from "@/lib/observability/client-version";
 import { snapshotProductActivityScope } from "./product-activity-scope";
 import { publishTrackedEvent } from "./tracked-event-bus";
+import { deriveOneFeatureDimensions } from "./one-feature-dimensions";
 
 interface TrackOptions {
   dedupeKey?: string;
@@ -139,9 +140,16 @@ export function trackEvent<T extends ObservabilityEventName>(
     return false;
   }
 
+  // Supplied one_feature_* keys were discarded by the input schema. Only this
+  // reviewed derivation may add them, identically for web and native adapters.
+  const analyticsPayload = {
+    ...validation.sanitized,
+    ...deriveOneFeatureDimensions(eventName, validation.sanitized),
+  };
+
   void Promise.allSettled(
     activeAdapters.map((adapter) =>
-      adapter.track(eventName, validation.sanitized).catch((error) => {
+      adapter.track(eventName, analyticsPayload).catch((error) => {
         debugLog("adapter_error", adapter.name, eventName, String(error));
       })
     )
