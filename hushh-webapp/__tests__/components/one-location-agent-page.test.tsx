@@ -1132,14 +1132,19 @@ describe("OneLocationAgentPage", () => {
       capturedAt: new Date().toISOString(),
       sourcePlatform: "web" as const,
     };
-    mockBusGetState.mockReturnValue({
+    const busState = {
       status: "ready",
       permission: "granted",
       snapshot: busSnapshot,
       snapshotOrigin: "fresh",
       error: null,
+    };
+    mockBusGetState.mockReturnValue(busState);
+    mockBusEnsure.mockImplementation(async () => {
+      const snapshot = { ...busSnapshot, capturedAt: new Date().toISOString() };
+      mockBusGetState.mockReturnValue({ ...busState, snapshot });
+      return snapshot;
     });
-    mockBusEnsure.mockResolvedValue(busSnapshot);
     Element.prototype.scrollIntoView = vi.fn();
     window.localStorage.clear();
     window.sessionStorage.clear();

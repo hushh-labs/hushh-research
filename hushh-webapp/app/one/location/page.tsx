@@ -27,6 +27,9 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
+import { LOCATION_CHAT_SETUP_PARAM } from "@/lib/agent/location-chat-setup-handoff";
+import type { LocationChatSetupIntroProps } from "@/components/location/setup/location-chat-setup-journey";
 
 import type { LucideIcon } from "@/components/icons";
 import {
@@ -174,11 +177,8 @@ import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-
 import { isLocationRequestPending } from "@/lib/one-location/request-expiry";
 import { LocationBus } from "@/lib/one-location/location-bus";
 import { executePrivateCheckIn } from "@/lib/one-location/command-private-check-in";
-import {
-  isPublishableAge,
-  publishPointFrom,
-  shouldWarnOnPublishFailure,
-} from "@/lib/one-location/live-publish-decision";
+import { shouldWarnOnPublishFailure } from "@/lib/one-location/live-publish-decision";
+import { LIVE_LOCATION_UPDATE_INTERVAL_MS, liveHeartbeatPoint } from "@/lib/one-location/live-heartbeat";
 import {
   isShareReadyRecipient,
   recipientSelectionFromIds,
@@ -542,42 +542,9 @@ function shareVoiceDurationSpokenLabel(value: string): string {
  */
 const ONE_LOCATION_SHARE_CONCURRENCY = 4;
 
-const LIVE_LOCATION_UPDATE_INTERVAL_MS = 20_000;
 const SMS_MEASURED_FIX_MAX_AGE_MS = 30_000;
 // Leave time for the two-second hold and the permission check at confirmation.
 const SMS_HOLD_FIX_MAX_AGE_MS = 25_000;
-
-/**
- * How old a fix this heartbeat may reuse without re-reading the device.
- *
- * One tick. The requirement has always been that a recipient watching someone
- * move sees where they are now — `maxAgeMs: 0` was a mechanism chosen for
- * that, and it became the wrong one once a continuous watch existed. This
- * ceiling means a published point is never older than a single period, which
- * is the guarantee the recipient side is already written against: it calls a
- * share stale at three of them.
- */
-const LIVE_HEARTBEAT_MAX_AGE_MS = LIVE_LOCATION_UPDATE_INTERVAL_MS;
-
-/**
- * The point this heartbeat may publish, or null to skip the tick.
- *
- * Reads the shared store first, and only asks the device when the store has
- * nothing recent — which, while the movement watch is running, is almost
- * never. Anything not measured this session is refused: `publishPointFrom`
- * rejects a restored fix outright, because the recipient's screen says "live".
- */
-async function liveHeartbeatPoint(): Promise<PlainLocationPoint | null> {
-  const held = LocationBus.getState();
-  if (
-    held.snapshotOrigin === "fresh" &&
-    isPublishableAge(held.snapshot?.capturedAt, LIVE_HEARTBEAT_MAX_AGE_MS)
-  ) {
-    return publishPointFrom(held);
-  }
-  await LocationBus.ensure({ maxAgeMs: LIVE_HEARTBEAT_MAX_AGE_MS });
-  return publishPointFrom(LocationBus.getState());
-}
 
 // Recipients poll faster than the owner's publish heartbeat so the shared dot
 // stays fresh; the LiveMap marker interpolates between these reads.
@@ -2188,6 +2155,7 @@ type OneLocationAgentPageProps = {
   onSetupReadinessChange?: (ready: boolean) => void;
   onSetupComplete?: () => void | Promise<void>;
   onSetupSkip?: () => void | Promise<void>;
+  onSetupBack?: () => Promise<void>;
 };
 
 const SAVED_LOCATION_PROMPT_LEGACY_KEY_PREFIX =
@@ -2234,12 +2202,14 @@ export function OneLocationAgentPageContent({
   onSetupReadinessChange,
   onSetupComplete,
   onSetupSkip,
+  onSetupBack,
 }: OneLocationAgentPageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   // The onboarding Back layer calls this only at Features. Its exit has an
   // explicit destination so native Back cannot recurse into that same layer.
   const handleOnboardingBack = useCallback(() => {
+    if (onSetupBack) { void onSetupBack(); return; }
     requestInternalAppNavigation({
       href: ROUTES.ONE_HOME,
       replace: false,
@@ -2247,7 +2217,7 @@ export function OneLocationAgentPageContent({
       source: "tap",
       transitionMode: "full",
     });
-  }, []);
+  }, [onSetupBack]);
   const locationNativeFrame = useRef<HTMLDivElement | null>(null);
   const auth = useRequireAuth();
   // Viewer avatar for the SELF location preview only, so the marker is the
@@ -6869,27 +6839,23 @@ export function OneLocationAgentPageContent({
     let cancelled = false;
     let inFlight = false;
 
+    const isCurrent = () => !cancelled && document.visibilityState !== "hidden";
     const publishPublicLink = async () => {
-      if (cancelled || inFlight) return;
-      if (
-        typeof document !== "undefined" &&
-        document.visibilityState === "hidden"
-      ) {
-        return;
-      }
+      if (inFlight || !isCurrent()) return;
       inFlight = true;
       try {
         const point = await liveHeartbeatPoint();
         // Nothing measured this session. A page that says "Live" must never be
         // handed a remembered coordinate; the watch will deliver one shortly.
-        if (!point || cancelled) return;
+        if (!point || !isCurrent()) return;
         await OneLocationService.refreshPublicInviteLocation({
           vaultOwnerToken,
           inviteId,
           locationSnapshot: point,
+          isEffectCurrent: isCurrent,
         });
       } catch (error) {
-        if (apiErrorCode(error) === "LOCATION_PUBLIC_INVITE_NOT_ACTIVE") {
+        if (isCurrent() && apiErrorCode(error) === "LOCATION_PUBLIC_INVITE_NOT_ACTIVE") {
           cancelled = true;
           setCreatedPublicInvite(null);
           setStateEntry((current) =>
@@ -14137,13 +14103,13 @@ export function OneLocationAgentPageContent({
     routeId:
       surface === "map"
         ? "/one/location/map"
-        : mode === "setup"
+        : mode === "setup" && !onSetupBack
           ? "/one/setup/location"
           : "/one/location",
     marker:
       surface === "map"
         ? "native-route-one-location-map"
-        : mode === "setup"
+        : mode === "setup" && !onSetupBack
           ? "native-route-one-setup-location"
           : "native-route-one-location",
     authState: auth.loading
@@ -16099,7 +16065,15 @@ export function OneLocationAgentPage(props: OneLocationAgentPageProps = {}) {
   );
 }
 
+const LocationChatSetupJourney = dynamic(() => import("@/components/location/setup/location-chat-setup-journey").then((module) => module.LocationChatSetupJourney));
+
+function LocationChatIntro({ complete, cancel }: LocationChatSetupIntroProps) {
+  return <OneLocationAgentPage mode="setup" onSetupComplete={complete} onSetupSkip={cancel} onSetupBack={cancel} />;
+}
+
 /** Keep the established Location hub as the customer-facing route. */
 export default function OneLocationPage(props: OneLocationAgentPageProps = {}) {
+  const handoffId = useSearchParams()?.get(LOCATION_CHAT_SETUP_PARAM);
+  if (handoffId) return <LocationChatSetupJourney handoffId={handoffId} Intro={LocationChatIntro} />;
   return <OneLocationAgentPage {...props} />;
 }
