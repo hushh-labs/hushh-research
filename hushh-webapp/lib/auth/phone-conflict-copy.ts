@@ -11,7 +11,12 @@ export function isPhoneOwnershipConflict(error: unknown, backendCode: string | n
 }
 
 export function resolvePhoneFailureMessage(error: unknown, fallback: string, backendCode: string | null = null): string {
-  const code = String(backendCode ?? (error as { code?: unknown })?.code ?? "").replace(/^auth\//, "");
+  const rawCode = String(backendCode ?? (error as { code?: unknown })?.code ?? "").replace(/^auth\//, "");
+  const isTransportFailure =
+    !rawCode &&
+    ((error instanceof TypeError && /fetch|network|load failed/i.test(error.message)) ||
+      (error as { name?: unknown })?.name === "TimeoutError");
+  const code = isTransportFailure ? "network-request-failed" : rawCode;
   if (code === "PHONE_TRANSFER_CONFIRMATION_REQUIRED" || code === "PHONE_SESSION_ACCOUNT_CONFLICT") return "This number is linked to another account. Choose how to continue.";
   if (code === "phone_verification_busy") return "Phone verification is finishing. Wait a moment and try again.";
   if (code === "phone-link-upgrade-required") return "Update the app to verify a phone number.";
@@ -29,6 +34,7 @@ export function resolvePhoneFailureMessage(error: unknown, fallback: string, bac
   if (code === "session_changed" || code === "PHONE_VERIFICATION_ACCOUNT_CHANGED") return "Your signed-in account changed. Start phone verification again.";
   if (code === "network-request-failed") return "Phone verification could not reach the network. Check your connection and try again.";
   if (["captcha-check-failed", "invalid-app-credential", "unauthorized-domain", "app-not-authorized", "missing-client-identifier"].includes(code)) return "Browser security verification could not complete for this domain. Refresh the page and try again.";
+  if (code === "recaptcha-incomplete") return "Security verification did not complete. Complete the verification challenge if prompted, or refresh the page and try again.";
   if (code === "quota-exceeded" || code === "billing-not-enabled") return "SMS verification has reached its temporary limit right now. Wait a bit or use an approved test number.";
   if (code === "code-expired") return "This verification code has expired. Please request a new code.";
   if (code === "invalid-verification-code" || code === "UAT_PHONE_TEST_INVALID_CODE") return "That code isn't right. Check it and try again.";
