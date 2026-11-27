@@ -96,6 +96,8 @@ describe("governed observability dispatch", () => {
       .toEqual({ one_feature_action: "location_request_fulfilled", one_feature_result: "error" });
     expect(deriveOneFeatureDimensions("import_parse_completed", { result: "error" }))
       .toEqual({ one_feature_result: "error" });
+    expect(deriveOneFeatureDimensions("analysis_stream_started", { result: "success" }))
+      .toEqual({ one_feature_result: "success" });
     expect(deriveOneFeatureDimensions("analysis_stream_started", { result: "error" })).toEqual({});
     expect(deriveOneFeatureDimensions("one_crm_action", { action: "record_created", result: "success" })).toEqual({});
     expect(deriveOneFeatureDimensions("consent_pending_loaded", { result: "success", load_surface: "warm" })).toEqual({});

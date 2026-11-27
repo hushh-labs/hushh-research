@@ -34,11 +34,11 @@ const actions = {
 
 const results = ["success", "expected_error", "error"] as const;
 const successOnlyEvents: ReadonlySet<ObservabilityEventName> = new Set([
-  "gmail_connect_started", "gmail_sync_requested", "hushh_mail_signin_screen_view",
+  "gmail_connect_started", "gmail_sync_requested",
   "analysis_stream_started", "consent_action_submitted",
 ]);
 const resultOnlyEvents: ReadonlySet<ObservabilityEventName> = new Set([
-  "gmail_disconnect_result", "gmail_receipts_loaded", "hushh_mail_signin_screen_view",
+  "gmail_disconnect_result", "gmail_receipts_loaded",
   "portfolio_viewed", "recommendation_viewed", "analysis_stream_started",
   "import_parse_completed", "import_save_completed",
   "one_location_share_confirmed", "one_location_check_in_completed",
