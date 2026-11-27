@@ -19,6 +19,7 @@ from hushh_mcp.one_adk.external_read_projection import (
     durable_external_read_projection,
     redacted_read_receipt,
 )
+from hushh_mcp.one_adk.history_descriptors import _safe_agent_history_metadata
 from hushh_mcp.one_adk.native_chat_output import A2UI_TOOL_NAME
 from tests.helpers.chat_keys import static_chat_cipher
 
@@ -108,7 +109,8 @@ def test_encrypted_roundtrip_redacts_tools_but_preserves_answers_and_continuatio
     assert session.state[STATE_EXTERNAL_READ] == "read-turn"
 
 
-def test_encrypted_history_preserves_a2ui_call_identity_without_visual_values():
+@pytest.mark.parametrize("offered", [None, "received", "SYNTHETIC_PRIVATE_LABEL"])
+def test_encrypted_history_preserves_a2ui_receipt_without_visual_values(offered):
     live = Session(
         id="thread",
         app_name="one",
@@ -132,7 +134,9 @@ def test_encrypted_history_preserves_a2ui_call_identity_without_visual_values():
                             id="visual-call",
                             name=A2UI_TOOL_NAME,
                             response={
-                                "validated_a2ui_json": [{"dataModel": "SYNTHETIC_PRIVATE_RESULT"}]
+                                "status": "card_offered",
+                                "validated_a2ui_json": [{"dataModel": "SYNTHETIC_PRIVATE_RESULT"}],
+                                "financeHistoryReceipt": offered,
                             },
                         )
                     )
@@ -156,7 +160,18 @@ def test_encrypted_history_preserves_a2ui_call_identity_without_visual_values():
     response = restored.events[1].content.parts[0].function_response
     assert call.id == response.id == "visual-call"
     assert call.args == {}
-    assert response.response == {"content_redacted": True}
+    expected: dict[str, str | bool] = {"content_redacted": True}
+    metadata = _safe_agent_history_metadata(restored.events[1])
+    if offered == "received":
+        expected["financeHistoryReceipt"] = "received"
+        assert metadata is not None
+        assert metadata["structuredExperience"] == {
+            "activityType": "one.native_finance_receipt.v1",
+            "content": {"type": "one.native_finance_receipt.v1", "offer": "received"},
+        }
+    else:
+        assert metadata is None
+    assert response.response == expected
     assert restored.events[2].content.parts[0].text == "Here is your portfolio view."
 
 

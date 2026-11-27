@@ -149,11 +149,11 @@
     },
     "FinanceShareProposal": {
       "type": "object",
-      "description": "Propose opening the app's portfolio sharing review. Only the app chooses the active portfolio, exact recipients, fields, and confirmation.",
+      "description": "Offer the app's portfolio sharing review or received view. The app owns the portfolio, recipients, fields, confirmation, and access to received shares.",
       "allowedParents": ["Surface", "SurfaceCard"],
       "additionalProperties": false,
       "properties": {
-        "audience": { "enum": ["connection", "verified_advisor"] }
+        "audience": { "enum": ["connection", "verified_advisor", "received"] }
       },
       "required": ["audience"]
     },
@@ -171,6 +171,26 @@
       "additionalProperties": false,
       "properties": { "ticker": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9.-]{0,15}$" } },
       "required": ["ticker"]
+    },
+    "MarketSnapshot": {
+      "type": "object",
+      "description": "Show the app's current U.S. market movers with in-chat quote details.",
+      "allowedParents": [
+        "Surface"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "view": {
+          "enum": [
+            "gainers",
+            "losers",
+            "movers"
+          ]
+        }
+      },
+      "required": [
+        "view"
+      ]
     },
     "FinanceTopGainers": {
       "type": "object",

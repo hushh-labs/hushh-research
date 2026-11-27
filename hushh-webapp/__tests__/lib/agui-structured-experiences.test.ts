@@ -478,3 +478,11 @@ describe("AG-UI structured experience registry", () => {
     expect(result).toMatchObject({ presentationIncomplete: true });
   });
 });
+// A reopened native Finance offer can describe the action but never execute it.
+it("restores only a fixed native Finance receipt", () => {
+  const type = "one.native_finance_receipt.v1";
+  expect(parseAgentActivityExperience(type, {
+    type, offer: "received", grantId: "must-not-be-restored",
+  })).toEqual({ type, label: "Received Finance offered" });
+  expect(parseAgentActivityExperience(type, { type, offer: "free-text-label" })).toBeNull();
+});

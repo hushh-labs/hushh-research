@@ -1020,7 +1020,9 @@ def _compose_one_instruction_parts(
 ) -> tuple[str, str, str]:
     state = getattr(context, "state", None)
     state_getter = getattr(state, "get", None)
+    from hushh_mcp.one_adk.finance_a2ui import STATE_DEV_FINANCE_VISUALS
     from hushh_mcp.one_adk.native_chat_output import STATE_NATIVE_VISUAL_CHAT
+    from hushh_mcp.one_adk.portfolio_context_contract import STATE_NATIVE_PORTFOLIO_READ
     from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 
     location_review = callable(state_getter) and state_getter(STATE_LOCATION_CHAT_REVIEW) is True
@@ -1036,6 +1038,14 @@ def _compose_one_instruction_parts(
         and state_getter(STATE_EXECUTION_SURFACE) == "typed_chat"
         and state_getter(STATE_USER_ID)
     )
+    if typed_finance_chat:
+        identity_instruction += (
+            "\n\nPORTFOLIO ANSWERS: For a card-only request, briefly acknowledge the view. "
+            "A card offer supplies no figures to repeat. For an allocation answer, preserve "
+            "the exact categories, amounts, percentages, currency and total supplied by "
+            "read_portfolio_context. State when a requested amount is unavailable. Never "
+            "reclassify holdings or estimate missing amounts from the percentages."
+        )
     if (
         callable(state_getter)
         and typed_finance_chat
@@ -1049,13 +1059,31 @@ def _compose_one_instruction_parts(
             "For an import request, offer a FinancePortfolioUpload root. The person chooses "
             "the statement and the app verifies and saves it. For a sharing request, offer "
             "FinanceShareProposal for the requested audience. The app lets the person choose "
-            "recipients and confirm the exact share. For a stock analysis request, offer "
+            "recipients and confirm the exact share. For a request to view Finance someone "
+            "shared with the person, offer FinanceShareProposal with audience received. "
+            "The person chooses which received share to open in the app. For a stock analysis request, offer "
             "FinanceStockPreview with one ticker; the person confirms the debate in Chat. "
-            "For U.S. market gainers, offer FinanceTopGainers. To switch portfolios or delete a "
+            "For U.S. market gainers, losers, or movers, offer a MarketSnapshot root with "
+            "view gainers, losers, or movers, respectively. To switch portfolios or delete a "
             "saved statement, offer FinancePortfolioPicker with the appropriate mode; the person "
             "chooses the source in the app. To connect or refresh a linked bank, offer "
             "FinancePlaidConnection. Do not claim that an offer executed."
         )
+        if state_getter(STATE_DEV_FINANCE_VISUALS) is True:
+            identity_instruction += (
+                " With send_a2ui_json_to_client, pass the component name and only "
+                "its required selection. Use section for SavedPortfolio, view for "
+                "MarketSnapshot, ticker for FinanceStockPreview, mode for the "
+                "portfolio picker, and audience for a sharing offer. The tool "
+                "constructs the surface and does not accept layouts or portfolio values."
+            )
+        if state_getter(STATE_NATIVE_PORTFOLIO_READ) is True:
+            identity_instruction += (
+                " For factual portfolio questions, call read_portfolio_context alone with detail "
+                "expanded. Use active for the current saved selection, including after reopening "
+                "this conversation. Use last_card only for a specific earlier card. Name the "
+                "reported source and date when supplied. Answer from the tool result."
+            )
     elif callable(state_getter) and typed_finance_chat:
         identity_instruction += (
             "\n\nFINANCE IN CHAT: Keep these in Chat. Call show_market_gainers for U.S. or "

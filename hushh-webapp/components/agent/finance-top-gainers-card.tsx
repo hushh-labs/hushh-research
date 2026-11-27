@@ -12,7 +12,14 @@ import { toMoverGroups } from "@/lib/kai/market-mover-rows";
 import { usMarketRefreshSession } from "@/lib/kai/use-market-live-refresh";
 import { Button } from "@/lib/morphy-ux/button";
 
-function TopGainersList({ userId }: { userId: string }) {
+const marketViews = {
+  gainers: { title: "Top Gainers", direction: "gain" },
+  losers: { title: "Top Losers", direction: "lose" },
+  movers: { title: "Market Movers", direction: undefined },
+} as const;
+type MarketView = keyof typeof marketViews;
+
+function MarketMoversList({ userId, view }: { userId: string; view: MarketView }) {
   const [selection, setSelection] = useState<MarketMoverSelection | null>(null);
   const { data, snapshot, loading, refreshing, refresh } = useStaleResource({
     cacheKey: CACHE_KEYS.KAI_MARKET_HOME_BASELINE(userId, 7),
@@ -27,13 +34,16 @@ function TopGainersList({ userId }: { userId: string }) {
   });
 
   const groups = toMoverGroups(data);
-  if (!data?.movers || groups.gain.length === 0) {
+  const { direction, title } = marketViews[view];
+  const availableDirection = direction ?? (!groups.gain.length ? "lose" : !groups.lose.length ? "gain" : undefined);
+  const hasResults = availableDirection ? groups[availableDirection].length > 0 : true;
+  if (!data?.movers || !hasResults) {
     const pending = loading || refreshing;
     return (
       <div className="space-y-2">
-        <p role="status">{pending ? "Loading market gainers…" : "Market gainers are unavailable right now."}</p>
+        <p role="status">{pending ? `Loading ${title.toLowerCase()}…` : `${title} are unavailable right now.`}</p>
         <Button variant="muted" size="sm" disabled={pending} onClick={() => void refresh({ force: true })}>
-          Retry market gainers
+          Retry
         </Button>
       </div>
     );
@@ -42,7 +52,7 @@ function TopGainersList({ userId }: { userId: string }) {
   const saved = data.stale || data.movers.stale || snapshot?.isFresh === false;
   return (
     <>
-      <OneMarketMovers groups={groups} gainersOnly
+      <OneMarketMovers groups={groups} direction={availableDirection} balanced={!availableDirection}
         note={saved ? "Saved prices" : undefined}
         onSelect={row => setSelection({ row, market: "US" })}
       />
@@ -51,19 +61,24 @@ function TopGainersList({ userId }: { userId: string }) {
   );
 }
 
-export function FinanceTopGainersCard({ historical }: { historical?: boolean }) {
+export function FinanceMarketMoversCard({ view, historical }: { view: MarketView; historical?: boolean }) {
+  const { title } = marketViews[view];
   const { userId } = useAuth();
   return (
     <SurfaceCard>
       <SurfaceCardContent className="space-y-3 p-4">
         <div>
-          <h2 className="ui-text-section-label">Top Gainers</h2>
+          <h2 className="ui-text-section-label">{title}</h2>
           <p className="ui-text-row-description text-muted-foreground">U.S. market</p>
         </div>
-        {historical ? <p className="ui-text-row-description text-muted-foreground">Top Gainers was requested in this message.</p>
-          : userId ? <TopGainersList key={userId} userId={userId} />
-          : <p>Sign in to see the latest market gainers.</p>}
+        {historical ? <p className="ui-text-row-description text-muted-foreground">This message requested {title.toLowerCase()}.</p>
+          : userId ? <MarketMoversList key={JSON.stringify([userId, view])} userId={userId} view={view} />
+          : <p>Sign in to see {title.toLowerCase()}.</p>}
       </SurfaceCardContent>
     </SurfaceCard>
   );
+}
+
+export function FinanceTopGainersCard({ historical }: { historical?: boolean }) {
+  return <FinanceMarketMoversCard view="gainers" historical={historical} />;
 }

@@ -164,6 +164,39 @@ def test_native_cloud_request_only_passes_server_admitted_state(monkeypatch):
     assert "hussh:thread_title" not in turns[-1][1].state
 
 
+def test_dev_finance_visual_mode_is_separate_from_official_capability(monkeypatch):
+    from hushh_mcp.one_adk.finance_a2ui import STATE_DEV_FINANCE_VISUALS
+
+    owner = _owner()
+    owner.require_access = AsyncMock()
+    received = []
+
+    async def stream_native(_options, turn):
+        received.append(turn.state[STATE_DEV_FINANCE_VISUALS])
+        yield b"event: done\ndata: {}\n\n"
+
+    owner.stream_native = stream_native
+    client = _client()
+    client.app.dependency_overrides[pod_agent_chat.context] = lambda: owner
+    path = "/api/one/pod/agent-chat"
+    turn = {
+        "transport": "native-adk-v1",
+        "visualMode": "finance-dev",
+        "threadId": "thread",
+        "runId": "run",
+        "message": "Show my allocation",
+    }
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    assert "nativeFinanceVisualVersion" not in client.get(f"{path}/capabilities").json()
+    assert client.post(path, json=turn).status_code == 409
+    assert received == []
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    assert client.get(f"{path}/capabilities").json()["nativeFinanceVisualVersion"] == 2
+    assert client.post(path, json=turn).status_code == 200
+    assert received == [True]
+
+
 def test_queue_joins_only_the_session_owners_running_turn(registry):
     registry.open_run("owner-a", "conv-1", "run-1", accepting=True)
     queued = _client("owner-a").post(

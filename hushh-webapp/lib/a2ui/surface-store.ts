@@ -14,10 +14,11 @@ type Component =
   | { id: string; component: "SavedPortfolio"; section: "holdings" | "allocation" | "performance" | "sources" }
   | { id: string; component: "FinancePortfolioUpload" }
   | { id: string; component: "FinanceStockPreview"; ticker: string }
+  | { id: string; component: "MarketSnapshot"; view: "gainers" | "losers" | "movers" }
   | { id: string; component: "FinanceTopGainers" }
   | { id: string; component: "FinancePlaidConnection" }
   | { id: string; component: "FinancePortfolioPicker"; mode: "switch" | "delete" }
-  | { id: string; component: "FinanceShareProposal"; audience: "connection" | "verified_advisor" };
+  | { id: string; component: "FinanceShareProposal"; audience: "connection" | "verified_advisor" | "received" };
 
 export type A2uiSurface = Readonly<{
   components: ReadonlyMap<string, Component>;
@@ -122,9 +123,16 @@ function parseComponent(value: unknown): Component | null {
         : null;
     case "FinanceShareProposal":
       return keys(value, ["id", "component", "audience"]) &&
-        (value.audience === "connection" || value.audience === "verified_advisor")
+        (value.audience === "connection" || value.audience === "verified_advisor" || value.audience === "received")
         ? { id, component, audience: value.audience }
         : null;
+    case "MarketSnapshot": {
+      const { view } = value;
+      return id === "root" && keys(value, ["id", "component", "view"]) &&
+        (view === "gainers" || view === "losers" || view === "movers")
+        ? { id, component, view }
+        : null;
+    }
     case "FinancePortfolioUpload":
     case "FinanceTopGainers":
     case "FinancePlaidConnection":

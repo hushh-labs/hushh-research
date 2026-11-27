@@ -447,6 +447,26 @@ owner-keyed history and sends that decision back to the same conversation.
 
 Encrypted history retains the A2UI call identity and redacted receipt.
 Raw layout arguments and rendered values stay in the admitted turn.
+An explicitly admitted Dev owner turn can set `visualMode: "finance-dev"`.
+Dev advertises this separately as `nativeFinanceVisualVersion`. The Dev web
+main Chat client checks that capability on the authenticated owner pod
+before selecting the preview. Its ADK Finance tool returns a catalog
+surface from a closed selection. The tool
+does not accept layouts, portfolio records, recipients, or confirmation.
+The browser's app-owned Finance controllers still load the unlocked
+portfolio and perform any reviewed actions.
+
+Native Finance portfolio follow-ups use the existing device-side vault reader
+within the same ADK run. One requests facts through the closed portfolio tool
+when the question needs them. An answer uses the current selection after
+reopen. The device does a fresh read on demand, and a short-lived request
+reference carries the facts to the model callback. The native `portfolio_context`
+event can request allocation amounts with `allocationValues: true`. This adds the
+saved row amounts and card denominator to the device response for that turn.
+The receipt policy keeps
+the answer out of derived memory, restores only a receipt in history, and
+reserves sharing for the app-owned review flow.
+
 The owner Cloud Chat candidate can select `native-adk-v1` before dispatch.
 The web build opts in with `NEXT_PUBLIC_ONE_NATIVE_ADK_CHAT=1` and verifies
 the signed-in pod advertises `nativeAdkChatVersion: 1`. Native turns send one
@@ -461,14 +481,17 @@ parts. Tool arguments and provider progress stay server-side. An upstream
 disconnect before `done` leaves any received text visible and marks the turn
 failed.
 
-An A2UI Finance sharing proposal can name the connection or verified-advisor
-audience. Only the live app turn can enable the existing sharing review. This
+An A2UI Finance sharing proposal can offer the connection or verified-advisor
+review, or open the Received view of the existing sharing manager. The person
+chooses the share in the manager. Only the live app turn can enable the sharing review. This
 review reads the current saved portfolio again before encrypting for the
 chosen recipient, keeps amounts hidden by default, and keeps recipient model
 processing off. The same live-turn checks protect statement upload, the
 reviewed source picker, Plaid connection, and stock analysis. The app resolves
 recipients, saves, and confirmation receipts through the existing controllers.
-Restored proposals are inactive.
+Encrypted history retains a fixed label for a native Finance offer. Reopening
+the conversation renders that label as a read-only receipt. Recipient records,
+portfolio values, and confirmation authority stay with the app's controllers.
 
 The Saved Portfolio component lets an admitted live turn render the active
 portfolio through the app's existing vault-protected Finance card. The

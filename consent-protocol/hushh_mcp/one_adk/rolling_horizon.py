@@ -22,6 +22,10 @@ from hushh_mcp.one_adk.account_context_contract import (
     account_private_invocations,
 )
 from hushh_mcp.one_adk.consent_redaction import tagged_bundles
+from hushh_mcp.one_adk.portfolio_context_contract import (
+    PRIVATE_PORTFOLIO_ANSWER,
+    portfolio_private_invocations,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +96,11 @@ def _extract_turn_pairs_from_contents(contents: list[Any]) -> list[tuple[str, st
                 if getattr(p, "thought", False):
                     continue
                 txt = getattr(p, "text", None)
-                if isinstance(txt, str) and txt.strip() and txt != PRIVATE_ACCOUNT_ANSWER:
+                if (
+                    isinstance(txt, str)
+                    and txt.strip()
+                    and txt not in (PRIVATE_ACCOUNT_ANSWER, PRIVATE_PORTFOLIO_ANSWER)
+                ):
                     current_assistant_parts.append(txt.strip())
     if current_user or current_assistant_parts:
         pairs.append((current_user, _clean_line(" ".join(current_assistant_parts), 220)))
@@ -157,9 +165,11 @@ def compile_rolling_thread_digest(
     Returns ``(digest_text, older_user_turn_count)``.
     """
     state = session_state or {}
-    tagged_invocations = account_private_invocations(state, events) | {
-        inv for inv_ids in tagged_bundles(state).values() for inv in inv_ids if inv
-    }
+    tagged_invocations = (
+        account_private_invocations(state, events)
+        | portfolio_private_invocations(state, events)
+        | {inv for inv_ids in tagged_bundles(state).values() for inv in inv_ids if inv}
+    )
 
     turns: list[tuple[str, list[str], str]] = []
     cur_user = ""
@@ -193,7 +203,11 @@ def compile_rolling_thread_digest(
                 if getattr(p, "thought", False):
                     continue
                 txt = getattr(p, "text", None)
-                if isinstance(txt, str) and txt.strip() and txt != PRIVATE_ACCOUNT_ANSWER:
+                if (
+                    isinstance(txt, str)
+                    and txt.strip()
+                    and txt not in (PRIVATE_ACCOUNT_ANSWER, PRIVATE_PORTFOLIO_ANSWER)
+                ):
                     cur_assistant.append(txt.strip())
 
     if cur_user or cur_assistant:

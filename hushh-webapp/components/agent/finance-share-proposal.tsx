@@ -13,7 +13,14 @@ const FinanceShareFlow = dynamic(() =>
   import("@/components/kai/sharing/finance-share-flow").then(module => module.FinanceShareFlow),
 );
 
-export function FinanceShareProposal({ audience }: { audience: "connection" | "verified_advisor" }) {
+export function FinanceShareProposal({ audience }: { audience: "connection" | "verified_advisor" | "received" }) {
+  if (audience === "received") {
+    return <FinanceSharingHistoryAction label="Open received Finance" hasPortfolio={false} />;
+  }
+  return <SendPortfolioProposal audience={audience} />;
+}
+
+function SendPortfolioProposal({ audience }: { audience: "connection" | "verified_advisor" }) {
   const { capture, ready, session } = useFinanceShareContext();
   return <ShareEntry key={session} capture={capture} ready={ready} audience={audience} />;
 }

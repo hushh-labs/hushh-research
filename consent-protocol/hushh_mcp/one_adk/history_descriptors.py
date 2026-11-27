@@ -7,6 +7,7 @@ import re
 import uuid
 from typing import Any
 
+from hushh_mcp.one_adk.finance_a2ui import native_finance_history_descriptor
 from hushh_mcp.one_adk.finance_chat_cards import finance_card_history_descriptor
 from hushh_mcp.one_adk.history_projection import (
     _bounded_text,
@@ -630,7 +631,13 @@ def _safe_agent_history_metadata(
         or "event"
     )
     for index, part in enumerate(getattr(getattr(event, "content", None), "parts", None) or []):
-        descriptor = finance_card_history_descriptor(part)
+        descriptor = (
+            native_finance_history_descriptor(part)
+            if getattr(event, "author", None) == "one"
+            else None
+        )
+        if descriptor is None:
+            descriptor = finance_card_history_descriptor(part)
         if descriptor is None:
             descriptor = _safe_discovery_descriptor(event, [part])
         if descriptor is None:
