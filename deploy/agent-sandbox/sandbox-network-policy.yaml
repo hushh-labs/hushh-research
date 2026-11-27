@@ -21,6 +21,8 @@ spec:
           podSelector:
             matchLabels:
               app: hussh-consent-hub
+        - ipBlock:
+            cidr: 10.128.0.0/20
       ports:
         - protocol: TCP
           port: 8080

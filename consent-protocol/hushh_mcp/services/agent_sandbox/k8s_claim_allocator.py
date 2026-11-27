@@ -150,7 +150,12 @@ class LiveK8sSandboxClaimClient:
         import google.auth  # noqa: PLC0415
         import google.auth.transport.requests  # noqa: PLC0415
 
-        creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        creds, _ = google.auth.default(
+            scopes=[
+                "https://www.googleapis.com/auth/cloud-platform",
+                "https://www.googleapis.com/auth/userinfo.email",
+            ]
+        )
         req = google.auth.transport.requests.Request()
 
         def _refresh_bearer() -> str:

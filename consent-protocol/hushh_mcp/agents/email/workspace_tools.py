@@ -63,7 +63,12 @@ def _connect_directive(
 
 def _handle_gmail_error(tool_context: ToolContext, exc: GmailApiError) -> dict[str, Any]:
     if exc.code == "GMAIL_NOT_CONNECTED":
-        return {"status": "connect_required", "message": "Connect Gmail in Connections first."}
+        return _connect_directive(
+            tool_context,
+            purpose="read",
+            message="Connect Gmail to check your inbox.",
+            label="Connect Gmail",
+        )
     if exc.code == "GMAIL_MODIFY_PERMISSION_REQUIRED":
         return _connect_directive(
             tool_context,
@@ -86,10 +91,12 @@ def _handle_gmail_error(tool_context: ToolContext, exc: GmailApiError) -> dict[s
             label="Allow Gmail settings",
         )
     if exc.code == "GMAIL_REAUTH_REQUIRED":
-        return {
-            "status": "reconnect_required",
-            "message": "Reconnect Gmail in Connections to continue.",
-        }
+        return _connect_directive(
+            tool_context,
+            purpose="read",
+            message="Reconnect Gmail to check your inbox.",
+            label="Reconnect Gmail",
+        )
     return {"status": "failed", "code": exc.code, "message": exc.message}
 
 

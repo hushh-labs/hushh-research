@@ -574,11 +574,21 @@ export function AgentTurnStreamPanel({
           : pendingTrailingAction
             ? (
                 <div className="flex w-full items-center justify-between gap-2">
-                  <OneThinkingIndicator phase={pendingPhase} label={pendingLabel} />
+                  <OneThinkingIndicator
+                    phase={pendingPhase}
+                    label={pendingLabel}
+                    hideLabel={pendingPhase === "waking" && !pendingLabel}
+                  />
                   {pendingTrailingAction}
                 </div>
               )
-            : <OneThinkingIndicator phase={pendingPhase} label={pendingLabel} />
+            : (
+                <OneThinkingIndicator
+                  phase={pendingPhase}
+                  label={pendingLabel}
+                  hideLabel={pendingPhase === "waking" && !pendingLabel}
+                />
+              )
       }
       isStreaming={isStreaming}
       isError={isError}

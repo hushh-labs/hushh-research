@@ -130,18 +130,23 @@ export class SerialAgentOperationQueue<T> {
     return this.items;
   }
 
-  async drain(run: (item: T) => Promise<void> | void): Promise<void> {
+  async drain(
+    run: (item: T) => Promise<void> | void,
+    beforeShift?: () => Promise<void> | void,
+  ): Promise<void> {
     if (this.draining) return;
     this.draining = true;
     try {
       while (this.items.length > 0) {
+        if (beforeShift) await beforeShift();
+        if (this.items.length === 0) break;
         const next = this.items.shift();
         if (next !== undefined) await run(next);
       }
     } finally {
       this.draining = false;
       if (this.items.length > 0) {
-        void this.drain(run);
+        void this.drain(run, beforeShift);
       }
     }
   }

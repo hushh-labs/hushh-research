@@ -18,7 +18,7 @@ import { snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurre
 import { Capacitor } from "@capacitor/core";
 import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from '@/lib/services/auth-service';
-import { notifyMailGrantsChanged } from '@/lib/services/private-google-connections';
+import { notifyMailGrantsChanged, ownerPodConnectorGetWithWake } from '@/lib/services/private-google-connections';
 import { isHostedWebOAuthOrigin, requestHostedBrowserGoogleCode } from './google-mail-browser-connect';
 import { openGoogleConnectorAuth } from './google-connector-auth';
 import { base64UrlEncode } from "./ai-selection-seal";
@@ -235,7 +235,7 @@ export async function connectGoogleConnector(
   // Prove this installation can reach its owner's session-only connector door
   // before asking Google for any new authority.
   try {
-    const ready = await ApiService.ownerPodRequest(`connectors/${connector}`, { method: 'GET' });
+    const ready = await ownerPodConnectorGetWithWake(`connectors/${connector}`);
     if (!ready.ok) return { ok: false, code: refusalCode(await ready.json().catch(() => null), ready.status) };
     if (browserSupported) {
       const status = await ready.json().catch(() => null);

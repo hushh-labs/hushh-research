@@ -18,7 +18,11 @@ import { useFilesConnection } from "@/lib/files/use-files-connection";
 import { ApiService } from "@/lib/services/api-service";
 import { FILES_MIGRATION_COMPLETED_EVENT } from "@/lib/services/shared-to-ace-migration-service";
 import { captureProductAttempt } from "@/lib/observability/product-activity-client";
-import { FilesLocalError, transientFilesRead } from "@/lib/files/local-error";
+import {
+  FilesLocalError,
+  isFilesWakingError,
+  transientFilesRead,
+} from "@/lib/files/local-error";
 import { ROUTES } from "@/lib/navigation/routes";
 import { FilesToolbar } from "./files-toolbar";
 import { FilesMoveDialog, FilesDetailsDialog } from "./files-workspace-dialogs";
@@ -55,16 +59,21 @@ const WIKI_FOLDERS = [
   { id: PERSONAL_WIKI_FOLDER_ID, name: "Personal wiki" },
 ];
 
+const FILES_WAKE_RETRY_DELAYS_MS = [800, 1500, 2500, 3500, 4500, 5500, 6700, 0] as const;
+const FILES_FAST_RETRY_DELAYS_MS = [600, 1800, 0] as const;
+
 export function FilesWorkspace({
   initialFolder,
   initialDoc,
   initialPage,
   onInitialSelectionConsumed,
+  wakeRetryDelaysMs = FILES_WAKE_RETRY_DELAYS_MS,
 }: {
   initialFolder?: string | null;
   initialDoc?: string | null;
   initialPage?: string | null;
   onInitialSelectionConsumed?: () => void;
+  wakeRetryDelaysMs?: readonly number[];
 } = {}) {
   const routeFolder = initialFolder ?? null;
   const routeDoc = initialDoc ?? null;
@@ -92,6 +101,7 @@ export function FilesWorkspace({
   const [filesActivationAvailable, setFilesActivationAvailable] =
     useState(false);
   const [message, setMessage] = useState("");
+  const [waking, setWaking] = useState(false);
   const [loading, setLoading] = useState(() => {
     if (!userId || routeFolder === "personal-wiki") return false;
     return !peekFilesListCache(userId, "root", "", false);
@@ -135,6 +145,7 @@ export function FilesWorkspace({
       );
       setCursor(page.cursor);
       setMessage("");
+      setWaking(false);
       setLoading(false);
       void FilesService.settings(signal)
         .then((config) => {
@@ -156,6 +167,7 @@ export function FilesWorkspace({
     const warmSettings = canPeekWarm ? peekFilesSettingsCache(userId!) : null;
     setLoading(parent !== PERSONAL_WIKI_FOLDER_ID && !warmList);
     setMessage("");
+    setWaking(false);
     setEntries(warmList?.entries ?? []);
     setSettings(warmSettings);
     setEdit(null);
@@ -213,14 +225,52 @@ export function FilesWorkspace({
     }
     if (available)
       void (async () => {
-        for (const delay of [600, 1800, 0]) {
+        let wokeOnce = false;
+        let reconnectedOnce = false;
+        let attempt = 0;
+        while (true) {
           try {
             await load();
             return;
           } catch (error) {
             signal.throwIfAborted();
-            if (!delay || !transientFilesRead(error)) throw error;
-            // Retry only idempotent reads during a cold pod connection.
+            if (!transientFilesRead(error)) throw error;
+            const wakingNow = isFilesWakingError(error);
+            const schedule = wakingNow ? wakeRetryDelaysMs : FILES_FAST_RETRY_DELAYS_MS;
+            const delay = schedule[attempt] ?? 0;
+            attempt += 1;
+            if (wakingNow) {
+              setWaking(true);
+              if (!wokeOnce && typeof ApiService.wakePod === "function") {
+                wokeOnce = true;
+                void ApiService.wakePod().catch(() => undefined);
+              }
+            }
+            if (
+              hosting === "pod" &&
+              !reconnectedOnce &&
+              !wakingNow &&
+              typeof ApiService.reconnectOwnerPod === "function"
+            ) {
+              reconnectedOnce = true;
+              await ApiService.reconnectOwnerPod().catch(() => undefined);
+              signal.throwIfAborted();
+            }
+            if (!delay) {
+              if (
+                hosting === "pod" &&
+                !reconnectedOnce &&
+                typeof ApiService.reconnectOwnerPod === "function"
+              ) {
+                reconnectedOnce = true;
+                await ApiService.reconnectOwnerPod().catch(() => undefined);
+                signal.throwIfAborted();
+                await load();
+                return;
+              }
+              throw error;
+            }
+            // Retry only idempotent reads while the private library wakes.
             await new Promise((resolve) => setTimeout(resolve, delay));
             signal.throwIfAborted();
           }
@@ -230,20 +280,24 @@ export function FilesWorkspace({
           if (idbHydrationPromise) {
             await idbHydrationPromise.catch(() => undefined);
           }
-          if (!signal.aborted && !hasRenderedCachedList)
-            setMessage(
-              error instanceof Error && error.message === "FILES_NOT_ENABLED"
-                ? "Files is not enabled on this pod. Review setup below."
-                : hosting === "shared"
-                  ? "Files storage is temporarily unavailable. Try again later."
-                  : "Your private Files library is not connected. Check Hosting and Agent updates.",
-            );
+          if (!signal.aborted) {
+            setWaking(false);
+            if (!hasRenderedCachedList) {
+              setMessage(
+                error instanceof Error && error.message === "FILES_NOT_ENABLED"
+                  ? "Files is not enabled yet. Review setup below."
+                  : hosting === "shared"
+                    ? "Files storage is temporarily unavailable. Try again in a moment."
+                    : "Couldn't reach Files right now.",
+              );
+            }
+          }
         })
         .finally(() => {
           if (!signal.aborted) setLoading(false);
         });
     return () => work.current.abort();
-  }, [available, userId, vaultKey, vaultUnlocked, load, hosting, parent, trash]);
+  }, [available, userId, vaultKey, vaultUnlocked, load, hosting, parent, trash, wakeRetryDelaysMs]);
 
   useEffect(() => {
     if (!available || !userId || typeof window === "undefined") return;
@@ -414,27 +468,52 @@ export function FilesWorkspace({
                   {connectionError}
                 </p>
               ) : null}
+              {waking && !message && entries.length === 0 ? (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  data-testid="files-warming-status"
+                  className="flex items-center gap-2.5 rounded-2xl bg-foreground/[0.035] px-4 py-3 text-sm text-muted-foreground"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="h-2 w-2 shrink-0 rounded-full bg-amber-400 motion-safe:animate-pulse"
+                  />
+                  <span>Waking your private library…</span>
+                </div>
+              ) : null}
               {message ? (
-                <div className="rounded-2xl border p-5 space-y-3">
-                  <p role="status">{message}</p>
-                  <div className="flex flex-wrap gap-3">
+                <div
+                  data-testid="files-retry-card"
+                  className="rounded-2xl border border-border/70 bg-[color:var(--app-card-surface-default)] p-4 sm:p-5 space-y-3"
+                >
+                  <div className="space-y-1">
+                    <p role="status" className="text-sm font-medium text-foreground">
+                      {message}
+                    </p>
+                    {message === "Couldn't reach Files right now." ? (
+                      <p className="text-xs leading-relaxed text-muted-foreground">
+                        Your private library took longer than usual to respond. Try again, or check Hosting.
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2.5">
                     <Button
+                      size="sm"
                       disabled={busy}
                       onClick={() =>
                         void act(
                           () => hosting === "shared" ? load() : ApiService.reconnectOwnerPod(),
-                          hosting === "shared" ? "Files refreshed" : "Pod connected", hosting !== "shared",
+                          hosting === "shared" ? "Files refreshed" : "Files connected",
+                          hosting !== "shared",
                         )
                       }
                     >
-                      {hosting === "shared" ? "Try again" : "Reconnect pod"}
+                      Try again
                     </Button>
-                    <Link
-                      href={ROUTES.PROFILE_HOSTING}
-                      className="text-sm underline"
-                    >
-                      Hosting settings
-                    </Link>
+                    <Button size="sm" variant="outline" asChild>
+                      <Link href={ROUTES.PROFILE_HOSTING}>Hosting</Link>
+                    </Button>
                   </div>
                 </div>
               ) : null}
