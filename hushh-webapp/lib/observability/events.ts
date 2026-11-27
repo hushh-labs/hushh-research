@@ -1,4 +1,4 @@
-import { ONE_MEMORY_ACTIONS, ONE_WALLET_ACTIONS, ONE_CALENDAR_ACTIONS, ONE_KYC_ACTIONS, ONE_CRM_ACTIONS, GMAIL_CONNECT_STARTED_ACTIONS, GMAIL_CONNECT_RESULT_ACTIONS, GMAIL_SYNC_RESULT_ACTIONS, type OneLocationJourneyAction, type OneLocationJourneyEntrySurface, type OneLocationJourneyTarget } from "./actions";
+import { ONE_MEMORY_ACTIONS, ONE_WALLET_ACTIONS, ONE_CALENDAR_ACTIONS, ONE_KYC_ACTIONS, ONE_CRM_ACTIONS, ONE_CAREER_ACTIONS, ONE_DOCUMENT_REQUEST_ACTIONS, GMAIL_CONNECT_STARTED_ACTIONS, GMAIL_CONNECT_RESULT_ACTIONS, GMAIL_SYNC_RESULT_ACTIONS, type OneLocationJourneyAction, type OneLocationJourneyEntrySurface, type OneLocationJourneyTarget } from "./actions";
 import type { LiveActivityConsolidationPayload } from "./live-activity-telemetry";
 export * from "./actions";
 
@@ -150,7 +150,9 @@ export type ObservabilityEventName =
   | "one_wallet_action"
   | "one_calendar_action"
   | "one_kyc_action"
-  | "one_crm_action";
+  | "one_crm_action"
+  | "one_career_action"
+  | "one_document_request_action";
 
 export type StatusBucket = "2xx" | "3xx" | "4xx_expected" | "4xx_unexpected" | "5xx" | "network_error";
 
@@ -364,6 +366,8 @@ const EVENT_CATEGORY_BY_NAME: Record<
   one_calendar_action: "feature",
   one_kyc_action: "feature",
   one_crm_action: "feature",
+  one_career_action: "feature",
+  one_document_request_action: "feature",
 };
 
 export function resolveObservabilityEventCategory(
@@ -373,6 +377,9 @@ export function resolveObservabilityEventCategory(
 }
 
 export interface EventPayloadMap {
+  /** Operation results only: never resume, job, document, recipient or payment data. */
+  one_career_action: { action: (typeof ONE_CAREER_ACTIONS)[number]; result: EventResult };
+  one_document_request_action: { action: (typeof ONE_DOCUMENT_REQUEST_ACTIONS)[number]; result: EventResult };
   /** Deliberate feature actions only. Never include content, card data or workflow IDs. */
   one_memory_action: {
     route_id: RouteId;

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
+import { observeDocumentRequestOperation } from "@/lib/observability/one-owner-operation";
 import type { PersonConnectorAvailability } from "@/lib/connections/use-person-connector-features";
 import {
   snapshotVaultSessionEpoch,
@@ -222,6 +223,7 @@ export function UnlockedRequestButton({
     if (attempt.current?.fingerprint !== fingerprint)
       attempt.current = { fingerprint, id: crypto.randomUUID() };
     const clientRequestId = attempt.current.id;
+    const observe = observeDocumentRequestOperation("question_send", userId);
     inFlight.current = true;
     setError(null);
     setPhase("sending");
@@ -233,6 +235,7 @@ export function UnlockedRequestButton({
       );
       guard();
       setCreated(view);
+      observe("success");
       if (!draft) {
         setQuery("");
         attempt.current = null;
@@ -245,6 +248,7 @@ export function UnlockedRequestButton({
       );
     } catch (cause) {
       if (!current()) return;
+      observe("error");
       const code =
         cause instanceof DriveSharingError ? cause.code : "request_failed";
       setError(

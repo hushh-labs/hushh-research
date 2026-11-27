@@ -16,6 +16,8 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
   one_calendar_action: [...BASE_ALLOWED_KEYS, "action", "result"],
   one_kyc_action: [...BASE_ALLOWED_KEYS, "action", "result"],
   one_crm_action: [...BASE_ALLOWED_KEYS, "action", "result"],
+  one_career_action: [...BASE_ALLOWED_KEYS, "action", "result"],
+  one_document_request_action: [...BASE_ALLOWED_KEYS, "action", "result"],
   page_view: [...BASE_ALLOWED_KEYS, "nav_type"],
   auth_started: [...BASE_ALLOWED_KEYS, "action"],
   auth_succeeded: [...BASE_ALLOWED_KEYS, "action", "result"],

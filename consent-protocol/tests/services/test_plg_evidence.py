@@ -39,6 +39,42 @@ COMMIT = derive_pkm_mutation_commit_id(
 )
 
 
+def test_catalog_keeps_career_and_document_operation_ownership(monkeypatch, tmp_path):
+    from hushh_mcp.services import plg_catalog
+
+    generated_path = plg_catalog.generated_contract_path
+    observations = json.loads(generated_path("plg", "observability-actions.v1.json").read_text())
+    observations["events"]["one_unclassified_action"] = ["observed"]
+    observation_path = tmp_path / "observability-actions.v1.json"
+    observation_path.write_text(json.dumps(observations))
+    monkeypatch.setattr(
+        plg_catalog,
+        "generated_contract_path",
+        lambda *parts: (
+            observation_path
+            if parts == ("plg", "observability-actions.v1.json")
+            else generated_path(*parts)
+        ),
+    )
+    activity_catalog.cache_clear()
+    try:
+        actions = {row["id"]: row for row in activity_catalog()["actions"]}
+        for event, owner in (
+            ("one_career_action", "agent_career"),
+            ("one_document_request_action", "agent_documents"),
+        ):
+            for action in observations["events"][event]:
+                row = actions[f"observation:{event}:{action}"]
+                assert (row["agentId"], row["kind"], row["proof"]) == (
+                    owner,
+                    "action",
+                    "client_reported",
+                )
+        assert actions["observation:one_unclassified_action:observed"]["agentId"] == "agent_one"
+    finally:
+        activity_catalog.cache_clear()
+
+
 @pytest.mark.parametrize("uid", ["owner.with+custom@example.test", "private/owner", "a" * 128])
 def test_snapshot_accepts_the_same_bounded_firebase_uid_as_subscription_enrollment(uid):
     request = evidence.PilotRequest(accounts=[{**ACCOUNT, "accountId": uid}])
