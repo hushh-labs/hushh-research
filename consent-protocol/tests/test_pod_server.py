@@ -484,6 +484,10 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/memory/rewrite",
         "/api/one/pod/memory/revoke",
         "/api/one/pod/memory/provider-consent",
+        "/api/one/pod/plaid/vault/link-token",
+        "/api/one/pod/plaid/vault/exchange",
+        "/api/one/pod/plaid/vault/snapshot",
+        "/api/one/pod/plaid/vault/remove",
     }
 )
 

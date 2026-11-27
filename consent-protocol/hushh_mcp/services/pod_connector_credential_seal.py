@@ -60,11 +60,14 @@ REFUSAL_CODES: tuple[str, ...] = (
 PROVIDER_GOOGLE = "google"
 PROVIDER_MCP = "mcp"
 GOOGLE_CONNECTORS: tuple[str, ...] = ("gmail", "calendar", "drive", "contacts")
+HOSTED_WEB_GOOGLE_CONNECTORS: frozenset[str] = frozenset({"gmail", "calendar", "drive"})
 GOOGLE_OWNER_CLIENT = "google_owner_client"
+HOSTED_WEB_CLIENT_PROFILES: frozenset[str] = frozenset({"hussh_web", "hussh_uat_mail_web"})
 CLIENT_PROFILES: tuple[str, ...] = (
     "hussh_ios",
     "hussh_android",
     "owner_client",
+    "hussh_web",
     "hussh_uat_mail_web",
 )
 KIND_AUTHORIZATION_CODE = "authorization_code"
@@ -225,6 +228,10 @@ def _authorization_code(body: Mapping[str, Any], connector_id: str) -> dict[str,
         connector_id != "gmail" or body["codeVerifier"] is not None
     ):
         raise _refuse(BAD_ENVELOPE)
+    if profile == "hussh_web" and (
+        connector_id not in HOSTED_WEB_GOOGLE_CONNECTORS or body["codeVerifier"] is not None
+    ):
+        raise _refuse(BAD_ENVELOPE)
     if profile == "hussh_ios":
         # Google's iOS client redirects only to its own reversed client id scheme.
         match = _GOOGLE_CLIENT_RE.fullmatch(client_id)
@@ -246,7 +253,7 @@ def _authorization_code(body: Mapping[str, Any], connector_id: str) -> dict[str,
         "client_id": client_id,
         "code": _text(body.get("code"), limit=2048, pattern=_NO_SPACE_RE),
         "code_verifier": None
-        if profile == "hussh_uat_mail_web"
+        if profile in HOSTED_WEB_CLIENT_PROFILES
         else _text(body.get("codeVerifier"), limit=128, pattern=_VERIFIER_RE),
         "redirect_uri": redirect_uri,
         "scopes": _scopes(body.get("scopes"), connector_id=connector_id),

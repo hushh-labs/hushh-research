@@ -45,8 +45,9 @@ flowchart TB
 ## Trust boundary and limits
 
 > [!CAUTION]
-> **Universal 6-Surface Prompt-Injection Quarantine & Contacts Privacy:** Background turns reading untrusted external text structurally strip all outbound mutation tools at the runtime boundary. Contact lookups (`people.googleapis.com`) never run on Hussh-operated servers; they stay strictly browser-local or inside customer-owned BYOC agents.
+> **Universal 6-Surface Prompt-Injection Quarantine & Contacts Privacy:** Background turns reading untrusted external text structurally strip all outbound mutation tools at the runtime boundary. Contact lookups (`people.googleapis.com`) never run on `hussh`-operated servers; they stay strictly browser-local or inside customer-owned BYOC agents.
 
+- **Owner secrets vs. company secrets:** Redeemed user credentials (Gmail, Calendar, Drive, Plaid, and MCP tokens) belong to that single owner and stay sealed inside PKM in the single `Agent One` container. Platform-wide `hussh` operator credentials (such as Google Web OAuth client secrets across `hussh.si` and `.ai` transition origins, Plaid secrets, and model keys) stay outside user pods in the shared Sentinel egress gate so user sandboxes remain one container and never hold cross-tenant company keys.
 - Provider caches never become durable PKM memory without consented curation or save.
 - Unclassified custom MCP tools fail closed during quarantined background turns.
 

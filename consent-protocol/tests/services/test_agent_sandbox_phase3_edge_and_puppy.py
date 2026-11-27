@@ -1011,3 +1011,152 @@ def test_dev_hub_sandbox_custody_bootstrap_fences_lanes_and_hydrates_without_har
         )
         assert verdict["bootstrapped"] is False
         assert "HUSSH_CUSTODY_BROKER_SEAL_KEY" not in clean_neg
+
+
+@pytest.mark.asyncio
+async def test_sentinel_shared_oauth_and_plaid_gate_keeps_pod_single_container(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sentinel :8082 mediates Google Web OAuth (.si) and Plaid Vault with IP-bound surrogates."""
+    from hushh_mcp.services.agent_sandbox.sentinel_proxy_server import SentinelProxyRuntime
+
+    web_cid = "9876543210-webclient9999.apps.googleusercontent.com"
+    monkeypatch.setenv("GOOGLE_WEB_OAUTH_CLIENT_ID", web_cid)
+    monkeypatch.setenv("GOOGLE_WEB_OAUTH_CLIENT_SECRET", "test_sentinel_oauth_secret_fixture")
+    monkeypatch.setenv("PLAID_ENV", "sandbox")
+    monkeypatch.setenv("PLAID_CLIENT_ID", "plaid_cid_test")
+    monkeypatch.setenv("PLAID_SANDBOX_SECRET", "plaid_sandbox_secret_test")
+
+    captured_upstreams: list[tuple[str, str, bytes]] = []
+
+    def _fake_upstream(
+        url: str, method: str, _headers: dict[str, str], body: bytes
+    ) -> tuple[int, dict[str, str], bytes]:
+        captured_upstreams.append((url, method, body))
+        if url == "https://oauth2.googleapis.com/token":
+            resp = {
+                "access_token": "ya29.test_access",
+                "refresh_token": "1//test_refresh",
+                "scope": "openid email https://www.googleapis.com/auth/gmail.modify",
+                "expires_in": 3599,
+                "internal_debug": "must_strip",
+            }
+            return 200, {"Content-Type": "application/json"}, json.dumps(resp).encode("utf-8")
+        if url == "https://sandbox.plaid.com/link/token/create":
+            return (
+                200,
+                {"Content-Type": "application/json"},
+                json.dumps(
+                    {"link_token": "link-sandbox-ok", "expiration": "2026-12-01T00:00:00Z"}
+                ).encode("utf-8"),
+            )
+        return 404, {"Content-Type": "application/json"}, b"{}"
+
+    sentinel_runtime = SentinelProxyRuntime(
+        hmac_key=b"S" * 32,
+        control_token="ctrl-oauth-plaid-token-01",  # noqa: S106 - synthetic test control token
+        audit_log_path=tmp_path / "sentinel_oauth_plaid.jsonl",
+        proxy_port=0,
+        control_port=0,
+        model_gateway_port=0,
+        upstream_transport=_fake_upstream,
+    )
+    sentinel_runtime.start_background()
+    try:
+        sentinel_runtime.set_lease_policy(
+            "lease-oauth-1", {}, owner_id="ha1_owner_si", pod_ip="127.0.0.1"
+        )
+        surrogate, _ = sentinel_runtime.mint_model_surrogate(
+            lease_id="lease-oauth-1", owner_id="ha1_owner_si"
+        )
+        gw_base = f"http://127.0.0.1:{sentinel_runtime.model_gateway_port}"
+        auth_headers = {"Authorization": f"Bearer {surrogate}"}
+
+        async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
+            # Negative control 1: unauthenticated call rejected 401
+            unauth = await client.get(f"{gw_base}/v1/oauth/google/ready")
+            assert unauth.status_code == 401
+
+            # Positive 1: OAuth ready returns public clientId only
+            ready = await client.get(f"{gw_base}/v1/oauth/google/ready", headers=auth_headers)
+            assert ready.status_code == 200
+            assert ready.json() == {"clientId": web_cid}
+            assert ready.headers.get("cache-control") == "no-store"
+
+            # Positive 2: OAuth exchange on canonical one.hussh.si attaches secret & strips extras
+            exch = await client.post(
+                f"{gw_base}/v1/oauth/google/exchange",
+                headers=auth_headers,
+                json={
+                    "grant_type": "authorization_code",
+                    "client_id": web_cid,
+                    "code": "4/0AeanS0code",
+                    "redirect_uri": "https://one.hussh.si",
+                },
+            )
+            assert exch.status_code == 200
+            exch_body = exch.json()
+            assert exch_body["access_token"] == "ya29.test_access"
+            assert "internal_debug" not in exch_body
+            assert b"test_sentinel_oauth_secret_fixture" in captured_upstreams[-1][2]
+
+            # Negative control 2: contacts scope or untrusted origin refused before upstream
+            bad_origin = await client.post(
+                f"{gw_base}/v1/oauth/google/exchange",
+                headers=auth_headers,
+                json={
+                    "grant_type": "authorization_code",
+                    "client_id": web_cid,
+                    "code": "4/0AeanS0code",
+                    "redirect_uri": "https://evil.hussh.si",
+                },
+            )
+            assert bad_origin.status_code == 400
+
+            bad_scope = await client.post(
+                f"{gw_base}/v1/oauth/google/exchange",
+                headers=auth_headers,
+                json={
+                    "grant_type": "refresh_token",
+                    "client_id": web_cid,
+                    "refresh_token": "1//refresh",
+                    "scope": "https://www.googleapis.com/auth/contacts.readonly",
+                },
+            )
+            assert bad_scope.status_code == 400
+
+            # Positive 3: Plaid proxy injects HMAC client_user_id + sandbox secret
+            plaid_ready = await client.get(f"{gw_base}/v1/plaid/ready", headers=auth_headers)
+            assert plaid_ready.status_code == 200
+            assert plaid_ready.json() == {"environment": "sandbox"}
+
+            plaid_resp = await client.post(
+                f"{gw_base}/v1/plaid/proxy",
+                headers=auth_headers,
+                json={
+                    "path": "/link/token/create",
+                    "payload": {"client_name": "hussh One", "user": {"client_user_id": "forged"}},
+                },
+            )
+            assert plaid_resp.status_code == 200
+            assert plaid_resp.json()["link_token"] == "link-sandbox-ok"
+            sent_plaid = json.loads(captured_upstreams[-1][2].decode("utf-8"))
+            assert sent_plaid["secret"] == "plaid_sandbox_secret_test"
+            assert sent_plaid["user"]["client_user_id"].startswith("hv1_")
+            assert sent_plaid["user"]["client_user_id"] != "forged"
+
+            # Negative control 3: unapproved Plaid path rejected 403
+            bad_plaid = await client.post(
+                f"{gw_base}/v1/plaid/proxy",
+                headers=auth_headers,
+                json={"path": "/processor/token/create", "payload": {}},
+            )
+            assert bad_plaid.status_code == 403
+
+        events = [
+            e["event_type"] for e in sentinel_runtime.audit_sink.entries_for_lease("lease-oauth-1")
+        ]
+        assert "OAUTH_WEB_EXCHANGE" in events
+        assert "PLAID_GATEWAY_INVOKE" in events
+    finally:
+        sentinel_runtime.stop()

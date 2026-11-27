@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api/one/google", tags=["One Google"])
 class GoogleTransitionPrepare(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     user_id: str = Field(min_length=1, max_length=256)
-    client_profile: Literal["hussh_ios", "hussh_android", "hussh_uat_mail_web"]
+    client_profile: Literal["hussh_ios", "hussh_android", "hussh_web", "hussh_uat_mail_web"]
     confirmed: bool = False
 
 

@@ -190,8 +190,8 @@ async def _redeem(
             redirect_uri=str(opened.redirect_uri),
             client_secret=client_secret,
             post=(
-                google.hosted_mail_exchange
-                if opened.client_profile == "hussh_uat_mail_web"
+                google.hosted_web_oauth_exchange
+                if opened.client_profile in {"hussh_web", "hussh_uat_mail_web"}
                 else post
             ),
         )

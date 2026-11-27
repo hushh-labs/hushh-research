@@ -284,3 +284,22 @@ async def test_private_or_unknown_voice_refuses_before_registry_grant_or_browser
     browser.receive_text.assert_not_awaited()
     connector.assert_not_called()
     assert await module.courier_admitted(browser, "owner") is False
+
+
+def test_socket_url_supports_confidential_sandbox_edge_and_rejects_traversal():
+    assert (
+        module._socket_url("https://edge.hussh.si/u/ha1_owner_123")
+        == "wss://edge.hussh.si/u/ha1_owner_123/api/one/pod/live"
+    )
+    assert (
+        module._socket_url("https://edge.hussh.si/u/ha1_owner_123/")
+        == "wss://edge.hussh.si/u/ha1_owner_123/api/one/pod/live"
+    )
+    for invalid in (
+        "http://edge.hussh.si/u/ha1_owner_123",
+        "https://edge.hussh.si/u/../admin",
+        "https://edge.hussh.si/u/ha1_owner_123?leak=1",
+        "https://edge.hussh.si/other/ha1_owner_123",
+    ):
+        with pytest.raises(ValueError, match="private pod endpoint unavailable"):
+            module._socket_url(invalid)

@@ -333,6 +333,18 @@ No silent success is emitted on terminal failures.
 
 ---
 
+## Private-agent scheduled tasks
+
+An activated Dev or UAT Confidential Sandbox can advertise `files_via_schedule`
+when its schedule worker is configured and the owner has a current action grant.
+This flag applies to reviewed Files schedules. The normal Files background queue
+still has its own availability and consent rules. The signed Sandbox publishes
+only the schedule identifier, revision, occurrence identifier and due time to
+the Hub. The queue delivers the identifiers to the owner's Sandbox, where the
+worker verifies the sealed schedule, current Files consent and approved AI binding.
+
+---
+
 ## Response Format
 
 ### Circle member chat

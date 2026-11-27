@@ -52,7 +52,7 @@ class TransitionMutation(BaseModel):
     transition: TransitionReceipt
     connectorId: Literal["gmail", "calendar", "drive", "contacts"]
     credentialId: str = Field(pattern=r"^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$")
-    clientProfile: Literal["hussh_ios", "hussh_android", "hussh_uat_mail_web"]
+    clientProfile: Literal["hussh_ios", "hussh_android", "hussh_web", "hussh_uat_mail_web"]
     podKeyId: str = Field(min_length=1, max_length=128)
     issuedAtMs: int = Field(ge=1)
     epoch: int = Field(ge=0)
@@ -268,10 +268,17 @@ class GoogleConnectorTransitionService:
 def _validate_mutation(
     principal: VerifiedPod, body: TransitionMutation, row: dict, state: dict, now: int
 ) -> None:
+    from hushh_mcp.services.pod_connector_credential_seal import (  # noqa: PLC0415
+        HOSTED_WEB_GOOGLE_CONNECTORS,
+    )
     from hushh_mcp.services.pod_placement_fence import row_epoch  # noqa: PLC0415
 
     if (
         (body.clientProfile == "hussh_uat_mail_web" and body.connectorId != "gmail")
+        or (
+            body.clientProfile == "hussh_web"
+            and body.connectorId not in HOSTED_WEB_GOOGLE_CONNECTORS
+        )
         or not principal.signed
         or principal.standby
         or row.get("hushh_id") != principal.hushh_id
