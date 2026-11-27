@@ -34,6 +34,8 @@ async def checkpoint_browser_task(
             "review": None,
             "approved_origins": (),
             "downloads": (),
+            "credential_request": None,
+            "credential_entry_active": False,
         }
     )
     payload = {"request_id": task.request_id, "snapshot": value.model_dump(mode="json")}

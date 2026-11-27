@@ -181,6 +181,7 @@ export const ROUTES = {
   ONE_GOALS: "/one/goals",
   PKM: "/one/pkm",
   PKM_RECENT: "/one/pkm/recent",
+  PKM_LOGINS: "/one/pkm/logins",
   PKM_LOCATION: "/one/pkm/location",
   PKM_LOCATION_DETAIL: "/one/pkm/location/detail",
   ONE_MARKETPLACE: "/one/marketplace",

@@ -35,6 +35,7 @@ describe("native Memory Saved projection", () => {
     ]);
     const labels = result.sections.flatMap(section => section.rows).map(row => row.label);
     expect(labels).toContain("Personal wiki");
+    expect(labels).toContain("Website logins");
     expect(labels).toContain("memory.md");
     expect(labels).toContain("identity.md");
     expect(labels).toContain("soul.md");
@@ -49,6 +50,9 @@ describe("native Memory Saved projection", () => {
 
     await result.actions.get(handle("memory-saved:identity-doc"))?.(choice);
     expect(model.navigate).toHaveBeenCalledWith(`${ROUTES.ONE_FILES}?folder=personal-wiki&doc=identity.md`);
+
+    await result.actions.get(handle("memory-saved:website-logins-open"))?.(choice);
+    expect(model.navigate).toHaveBeenCalledWith(ROUTES.PKM_LOGINS);
 
     await result.actions.get(handle("memory-saved:download"))?.(choice);
     expect(model.handleExportMemory).toHaveBeenCalledTimes(1);

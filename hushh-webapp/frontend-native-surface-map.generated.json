@@ -155,6 +155,10 @@
       "file": "app/api/consent/logout/route.ts"
     },
     {
+      "template": "/api/consent/owner-items/requests",
+      "file": "app/api/consent/owner-items/requests/route.ts"
+    },
+    {
       "template": "/api/consent/pending",
       "file": "app/api/consent/pending/route.ts"
     },
@@ -5650,6 +5654,88 @@
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/pkm/logins",
+      "page_file": "app/one/pkm/logins/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/profile/pkm-settings-shell.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.pkm.logins",
+          "purpose": "Help the owner open secure website login controls. Passwords and verification secrets stay outside chat and model processing.",
+          "screen": "pkm_logins",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": "route.one_pkm_logins",
+          "happy_path_action_ids": [
+            "route.one_pkm_logins"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Navigation is complete after the secure website login page opens. Credential edits require the owner to use its private controls.",
+          "next_route": "/one/pkm/logins",
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/pkm/logins",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fpkm%2Flogins",
+        "expectedMarker": "native-route-pkm-logins",
+        "expectedRoute": "/one/pkm/logins",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/one/pkm/logins/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "credentials.add",
+        "credentials.cancel",
+        "credentials.edit",
+        "credentials.refresh",
+        "credentials.remove",
+        "credentials.renew",
+        "credentials.save",
+        "credentials.share",
+        "credentials.share_cancel",
+        "credentials.share_confirm",
+        "route.one_pkm_logins"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -11591,5 +11677,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "607fa4797e7ad5df02c81840c1cdf475c01d652adab31560ce534ec3c1958d04"
+  "content_sha256": "21f1223a59e23e755ccbad5ae9a8bdca471de6a1d4af03351e799d6dbe3609b8"
 }

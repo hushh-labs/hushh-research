@@ -98,6 +98,31 @@ export class ComputerUseTaskController {
 
   refresh = (): Promise<void> => this.perform((signal) => this.transport.read(this.binding, signal), false, true);
 
+  useTransientCredential = (handle: string, payload: import("./contracts").TransientCredentialUse): Promise<void> => {
+    const { snapshot, verified } = this.state;
+    if (!verified || !snapshot?.credentialRequest || !snapshot.savedLoginsAvailable
+      || snapshot.credentialEntryActive || snapshot.review || snapshot.inputPending || !this.transport.useTransientCredential) {
+      return Promise.reject(new Error("BROWSER_CREDENTIAL_USE_REFUSED"));
+    }
+    const selection = snapshot.credentialRequest;
+    if (payload.envelope.aad.operationId !== selection.operationId || payload.envelope.aad.controlEpoch !== snapshot.controlEpoch) {
+      return Promise.reject(new Error("BROWSER_CREDENTIAL_SELECTION_CHANGED"));
+    }
+    return this.perform(signal => this.transport.useTransientCredential!(this.binding, handle,
+      selection.operationId, snapshot.controlEpoch, payload, signal), true);
+  };
+
+  useCredential = (handle: string): Promise<void> => {
+    const { snapshot, verified } = this.state;
+    if (!verified || !snapshot?.credentialRequest || !snapshot.savedLoginsAvailable
+      || snapshot.credentialEntryActive || snapshot.review || snapshot.inputPending || !this.transport.useCredential) {
+      return Promise.reject(new Error("BROWSER_CREDENTIAL_USE_REFUSED"));
+    }
+    const selection = snapshot.credentialRequest;
+    return this.perform(signal => this.transport.useCredential!(this.binding, handle,
+      selection.operationId, snapshot.controlEpoch, signal), true);
+  };
+
   saveDownload = async (
     id: string,
   ): Promise<{ fileId: string; name: string; bytes: number; sha256: string }> => {

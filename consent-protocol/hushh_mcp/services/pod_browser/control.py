@@ -56,6 +56,8 @@ class BrowserControl:
         self._revision = 1
         self._outcome_uncertain = False
         self._viewport = BrowserViewport()
+        self._secret_entry = False
+        self.credentials = None
         bind_scope = getattr(executor, "bind_scope_validator", None)
         if bind_scope is not None:
             bind_scope(self.require_execution_scope)
@@ -64,6 +66,13 @@ class BrowserControl:
         scope.remaining(self._wall_clock)
         if scope.control_epoch != self._epoch or scope.actor != self._mode:
             raise BrowserRefused("BROWSER_CONTROL_CHANGED")
+
+    def require_action_budget(self, actor: str) -> None:
+        active_seconds = self._active_seconds + (
+            max(0.0, self._clock() - self._agent_started) if actor == "agent" else 0
+        )
+        if actor == "agent" and (self._actions >= 60 or active_seconds >= 900):
+            raise BrowserRefused("BROWSER_CONTINUATION_REQUIRED")
 
     def admit_native_call(self, call_id: str) -> None:
         if not isinstance(call_id, str) or not 1 <= len(call_id) <= 256:
@@ -96,7 +105,7 @@ class BrowserControl:
     @property
     def latest_frame(self) -> BrowserFrame | None:
         """Memory-only owner preview; never a model observation grant."""
-        return self._frame
+        return None if self._secret_entry else self._frame
 
     @property
     def control_epoch(self) -> int:
@@ -132,6 +141,8 @@ class BrowserControl:
     ) -> BrowserFrame:
         async with self._lock:
             await self._check()
+            if self._secret_entry:
+                raise BrowserRefused("BROWSER_MODEL_OBSERVATION_PAUSED")
             if actor != self._mode or action.control_epoch != self._epoch:
                 raise BrowserRefused("BROWSER_CONTROL_CHANGED")
             qualified_native_focus = (
@@ -153,11 +164,7 @@ class BrowserControl:
                 if action.url is None:
                     raise BrowserRefused("BROWSER_ACTION_INVALID")
                 public_origin(action.url)
-            active_seconds = self._active_seconds + (
-                max(0.0, self._clock() - self._agent_started) if actor == "agent" else 0
-            )
-            if actor == "agent" and (self._actions >= 60 or active_seconds >= 900):
-                raise BrowserRefused("BROWSER_CONTINUATION_REQUIRED")
+            self.require_action_budget(actor)
             # Admission and exact approval apply even when the model omits its
             # native safety_decision. Typing may transmit before any submit.
             scope = BrowserExecutionScope(
@@ -234,6 +241,8 @@ class BrowserControl:
 
     async def take_control(self, *, interrupt: Callable[[], Awaitable[None]] | None = None) -> int:
         await self._check()
+        if self._secret_entry:
+            raise BrowserRefused("BROWSER_CREDENTIAL_ENTRY_ACTIVE")
         if self._mode == "agent":
             self._active_seconds += max(0.0, self._clock() - self._agent_started)
         # Publish the observation/input fence before joining an active action.
@@ -256,9 +265,65 @@ class BrowserControl:
     async def require_model_observation(self, *, expected_epoch: int | None = None) -> int:
         """Recheck before ADK sees a tool frame AND before each provider request."""
         await self._check()
-        if self._mode != "agent" or (expected_epoch is not None and self._epoch != expected_epoch):
+        if (
+            self._secret_entry
+            or (self.credentials is not None and self.credentials.owner_pending)
+            or self._mode != "agent"
+            or (expected_epoch is not None and self._epoch != expected_epoch)
+        ):
             raise BrowserRefused("BROWSER_MODEL_OBSERVATION_PAUSED")
         return self._epoch
+
+    async def begin_secret_entry(self, epoch: int, *, interrupt=None) -> int:
+        await self._check()
+        if self._secret_entry or epoch != self._epoch:
+            raise BrowserRefused("BROWSER_CONTROL_CHANGED")
+        self._secret_entry = True
+        self._last_activity = self._clock()
+        self._epoch += 1
+        self._revision += 1
+        self._frame = None
+        if interrupt is not None:
+            try:
+                await interrupt()
+            except BaseException:
+                await asyncio.shield(self.abort_secret_entry(uncertain=False))
+                raise
+        return self._epoch
+
+    async def finish_secret_entry(self, epoch: int) -> None:
+        await self._check()
+        if not self._secret_entry or self._epoch != epoch:
+            raise BrowserRefused("BROWSER_CONTROL_CHANGED")
+        clear = getattr(self._executor, "require_clear_secret_inputs", None)
+        if clear is None:
+            raise BrowserRefused("BROWSER_SECRET_CLEANUP_UNCONFIRMED")
+        await clear()
+        action = BrowserAction(
+            operation="observe", sequence=self.next_sequence, control_epoch=epoch
+        )
+        scope = BrowserExecutionScope(
+            sequence=action.sequence,
+            control_epoch=epoch,
+            actor=self._mode,
+            deadline_at=min(self.binding.expires_at, self._wall_clock() + 30),
+        )
+        await self._authority.authorize_action(self.binding, action, scope=scope)
+        frame = await self._executor.execute(action, scope=scope)
+        await self._check()
+        self.require_execution_scope(scope)
+        require_frame_geometry(frame, action, self.viewport)
+        self._sequence, self._frame = action.sequence, frame
+        self._secret_entry = False
+        self._revision += 1
+
+    async def abort_secret_entry(self, *, uncertain: bool) -> None:
+        self._outcome_uncertain |= uncertain
+        self._mode = "uncertain" if uncertain else "stopped"
+        self._epoch += 1
+        self._revision += 1
+        self._frame = None
+        await self._executor.close()
 
     async def export_session(self, approved_origins: frozenset[str]) -> RememberedState:
         """Owner-only retention path, excluded from ADK tools and observations."""
@@ -296,6 +361,11 @@ class BrowserControl:
             await self._check()
             if self._mode != "owner":
                 raise BrowserRefused("BROWSER_CONTROL_CHANGED")
+            if self._secret_entry:
+                raise BrowserRefused("BROWSER_SECRET_FIELDS_NOT_CLEARED")
+            clear = getattr(self._executor, "require_clear_secret_inputs", None)
+            if clear is not None:
+                await clear()
             # Observe under owner control first. No credential-entry frames are
             # delivered to the model until explicit handback succeeds.
             action = BrowserAction(
@@ -314,6 +384,9 @@ class BrowserControl:
             await self._check()
             self._sequence = action.sequence
             self._frame = frame
+            if self.credentials is not None:
+                self.credentials.owner_pending = False
+                self.credentials.selection = None
             self._mode = "agent"
             self._agent_started = self._clock()
             self._epoch += 1

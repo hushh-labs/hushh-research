@@ -17,6 +17,7 @@ import {
 import { ComputerUseTaskController } from "@/lib/computer-use/task-controller";
 import { ComputerUseReview } from "./computer-use-review";
 import { ComputerUseSessions } from "./computer-use-sessions";
+import { ComputerUseCredentials } from "./computer-use-credentials";
 import {
   extractVerifiedDomain,
   useWorkspaceSplitPaneHost,
@@ -79,12 +80,14 @@ export function ComputerUseTaskCard({
     void controller.refresh().catch(() => undefined);
     const interval = setInterval(() => {
       const current = controller.getSnapshot();
-      if (document.hidden || current.pending || !isComputerUseActivelyStreaming(current.snapshot)) return;
+      if (document.hidden || current.pending || (!isComputerUseActivelyStreaming(current.snapshot)
+        && !(current.snapshot?.credentialEntryActive && current.snapshot.phase === "running"))) return;
       void controller.refresh().catch(() => undefined);
     }, 2_000);
     const visibility = () => {
       const current = controller.getSnapshot();
-      if (!document.hidden && !current.pending && (!current.verified || isComputerUseActivelyStreaming(current.snapshot))) {
+      if (!document.hidden && !current.pending && (!current.verified || isComputerUseActivelyStreaming(current.snapshot)
+        || (current.snapshot?.credentialEntryActive && current.snapshot.phase === "running"))) {
         void controller.refresh().catch(() => undefined);
       }
     };
@@ -124,9 +127,11 @@ export function ComputerUseTaskCard({
     else setOpen(true);
   }, [openReviewSignal, snapshot]);
   const usable = state.verified && snapshot?.capability === "ready" && !isComputerUseTerminal(snapshot.phase);
-  const canPreview = usable && Boolean(snapshot?.approvedOrigins?.length) && snapshot?.review?.purpose !== "model_process";
+  const canPreview = usable && !snapshot?.credentialEntryActive && Boolean(snapshot?.approvedOrigins?.length) && snapshot?.review?.purpose !== "model_process";
   const verifiedDomain = extractVerifiedDomain(snapshot);
   const message = !state.verified && !state.pending ? "Couldn’t reach the browser. Check again to reconnect."
+    : snapshot?.credentialEntryActive ? "Signing in privately. AI screen viewing is paused."
+    : snapshot?.code === "BROWSER_CREDENTIAL_SUBMITTED" ? "Sign-in submitted. Checking the website…"
     : snapshot?.code === "BROWSER_MODEL_RATE_LIMITED" ? "Your AI is busy. Try this task again later."
     : snapshot?.code === "BROWSER_WAITING_FOR_WORKER" ? "Waiting for current background work to finish…"
     : snapshot?.code === "BROWSER_DOWNLOAD_READY" ? "Download ready to save."
@@ -275,6 +280,9 @@ export function ComputerUseTaskCard({
             >
               Sign in privately
             </ShellActionSurface>
+          ) : null}
+          {snapshot.savedLoginsAvailable && snapshot.credentialRequest ? (
+            <ComputerUseCredentials controller={controller} snapshot={snapshot} route={route} pending={state.pending} />
           ) : null}
         </div>
       ) : null}

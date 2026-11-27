@@ -3174,7 +3174,7 @@ async def test_compact_ontology_preserves_late_and_owner_defined_domains():
     expected_keys = [
         row["domain_key"]
         for row in choices
-        if row["domain_key"] not in {"runtime_secrets", "source_library", "wallet"}
+        if row["domain_key"] not in {"runtime_secrets", "source_library", "wallet", "credentials"}
     ]
     assert len(keys) > 8
     assert keys == expected_keys

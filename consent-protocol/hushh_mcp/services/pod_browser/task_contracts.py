@@ -50,6 +50,7 @@ class BrowserCapability(StrictContract):
     code: str = Field(max_length=128)
     public_research_only: bool = False
     remembered_sessions_available: bool = False
+    saved_logins_available: bool = False
     owner_id: str | None = Field(default=None, max_length=256)
     pod_id: str | None = Field(default=None, max_length=256)
     incarnation: str | None = Field(default=None, max_length=256)
@@ -81,6 +82,8 @@ class BrowserTaskSnapshot(StrictContract):
     input_pending: bool = False
     downloads: tuple[BrowserDownloadOffer, ...] = Field(default=(), max_length=1, repr=False)
     goal_completed: bool = False
+    credential_entry_active: bool = False
+    credential_request: dict | None = Field(default=None, repr=False)
 
 
 class BrowserTaskReceipt(StrictContract):

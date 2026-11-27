@@ -215,4 +215,7 @@ def _browser_tools_and_generation(
             else None,
         )
 
+    from hushh_mcp.services.pod_browser.credential_tools import credential_tools
+
+    tools.extend(credential_tools(control, processing))
     return tools, generation
