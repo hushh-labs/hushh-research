@@ -36,6 +36,107 @@ def location_plans(db, monkeypatch):
     return service, db
 
 
+def test_automatic_share_cannot_outlive_owners_rule(location_plans, monkeypatch):
+    service_type, db = location_plans
+    service = service_type()
+    migrations = Path(__file__).resolve().parents[2] / "db/migrations"
+    for prefix in (169, 199, 466):
+        with db.engine.begin() as conn:
+            conn.exec_driver_sql(
+                next(migrations.glob(f"{prefix}_*.sql")).read_text(),
+                execution_options={"no_parameters": True},
+            )
+    rule = service.update_auto_approve_preference(
+        user_id="owner",
+        enabled=True,
+        scope_kind="all_contacts",
+        circle_id=None,
+        duration_hours=3,
+    )
+    start = datetime.fromisoformat(rule["enabledAt"])
+    assert datetime.fromisoformat(rule["expiresAt"]) == start + timedelta(hours=3)
+    # Advance the stored window to 2h55 after activation without sleeping.
+    cutoff = db.execute_raw(
+        """UPDATE one_location_auto_approve_preferences
+           SET enabled_at = statement_timestamp() - INTERVAL '2 hours 55 minutes',
+               expires_at = statement_timestamp() + INTERVAL '5 minutes'
+           WHERE user_id = 'owner' RETURNING expires_at"""
+    ).data[0]["expires_at"]
+    minted = []
+
+    def mint(self, **fields):
+        minted.append(fields)
+        return {"token": "fixture-capability"}
+
+    monkeypatch.setattr(service_type, "_mint_grant_capability_token", mint)
+
+    def ask(requester):
+        return service.request_access(
+            requester_user_id=requester, owner_user_id="owner", requested_duration_hours=1
+        )["id"]
+
+    def approve(request_id):
+        return service.approve_request(
+            owner_user_id="owner",
+            request_id=request_id,
+            approval_mode="automatic",
+            duration_hours=None,
+            expected_request_revision=1,
+            auto_approve_rule_version=rule["ruleVersion"],
+        )
+
+    grant = approve(ask("other"))["grant"]
+    assert datetime.fromisoformat(grant["expiresAt"]) == cutoff
+    assert minted[-1]["expires_at"] == cutoff
+    other = ask("third")
+    existing = service.create_grant(
+        owner_user_id="owner",
+        recipient_user_id="third",
+        recipient_key_id="key-3",
+        duration_hours=2,
+        enforce_connection=True,
+    )
+    with pytest.raises(location.OneLocationAgentError) as longer:
+        approve(other)
+    assert longer.value.code == "LOCATION_AUTO_APPROVE_EXISTING_SHARE"
+    preserved = db.execute_raw(
+        "SELECT status, expires_at FROM one_location_share_grants WHERE id=:id",
+        {"id": existing["id"]},
+    ).data[0]
+    assert preserved == {
+        "status": "active",
+        "expires_at": datetime.fromisoformat(existing["expiresAt"]),
+    }
+    mint_count = len(minted)
+    db.execute_raw(
+        "UPDATE one_location_auto_approve_preferences SET expires_at = clock_timestamp() WHERE user_id='owner'"
+    )
+    assert service.get_auto_approve_preference(user_id="owner")["enabled"] is False
+    with pytest.raises(location.OneLocationAgentError) as denied:
+        approve(other)
+    assert denied.value.code == "LOCATION_AUTO_APPROVE_RULE_STALE"
+    assert (
+        db.execute_raw(
+            "SELECT status FROM one_location_access_requests WHERE id=:id", {"id": other}
+        ).data[0]["status"]
+        == "pending"
+    )
+    assert len(minted) == mint_count
+    with db.engine.begin() as conn:
+        conn.exec_driver_sql(
+            next((migrations / "rollback").glob("466_*.sql")).read_text(),
+            execution_options={"no_parameters": True},
+        )
+    restored = db.execute_raw(
+        "SELECT enabled, scope_kind, rule_version FROM one_location_auto_approve_preferences WHERE user_id='owner'"
+    ).data[0]
+    assert restored == {
+        "enabled": False,
+        "scope_kind": None,
+        "rule_version": rule["ruleVersion"] + 1,
+    }
+
+
 def envelope(key="key"):
     return {
         "algorithm": "ECDH-P256-AES256-GCM",

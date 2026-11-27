@@ -163,6 +163,7 @@ const OWNER_POD_ROUTE_PATTERNS: readonly RegExp[] = [
 const OWNER_POD_AGENT_ROUTES = new Set([
   "agent-chat",
   "agent-chat/capabilities",
+  "agent-chat/portfolio-context",
   "agent-chat/feedback",
   "agent-chat/proposals",
   "agent-chat/proposals/typed",

@@ -66,6 +66,9 @@ record's current-origin sessions after task teardown without launching Browser.
 Focused verification passed 172 backend tests, 99 frontend tests, and 76
 migration/replay/governance tests after allocating the Browser successor to 467.
 These are source checks, not serving-image or device acceptance.
+The current native Chat merge also preserves validated Browser creation metadata
+when a Finance read in the same invocation is redacted. Its 28 focused tests
+include encrypted-history readback and retain the private-result boundary.
 
 | Environment | Surface | Walkthrough evidence on 27 November |
 | --- | --- | --- |

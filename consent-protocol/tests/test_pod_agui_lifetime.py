@@ -318,3 +318,50 @@ async def test_private_transport_full_buffer_unblocks_or_original_key_expires(mo
     while transport._PRODUCERS:
         await asyncio.sleep(0)
     assert not holder.bound
+
+
+@pytest.mark.parametrize("case", ["typed", "legacy", "unmatched", "invalid", "other", "compound"])
+async def test_pod_finishes_only_a_verified_device_review_without_retry_text(monkeypatch, case):
+    import json
+    from contextlib import nullcontext
+    from unittest.mock import AsyncMock
+
+    from ag_ui.core import ToolCallResultEvent, ToolCallStartEvent
+
+    from hushh_mcp.one_adk import pod_agui_lifetime as pod
+    from hushh_mcp.one_adk.location_chat_proposal import propose_location_action
+    from hushh_mcp.services.pod_upgrade_admission import PodUpgradeAdmission
+
+    monkeypatch.setattr(pod, "ADMISSION", PodUpgradeAdmission(log_resolver=lambda: None))
+    monkeypatch.setattr(pod, "pod_incarnation", lambda: "synthetic")
+    result = propose_location_action("ask", ["Ankit"], duration_hours=1)
+    if case != "legacy":
+        result["conversation"] = True
+    if case == "invalid":
+        result.pop("id")
+
+    async def sdk(self, input):
+        yield RunStartedEvent(thread_id=input.thread_id, run_id=input.run_id)
+        calls = ["calendar"] if case == "other" else ["propose_location_action"]
+        if case == "compound":
+            calls.append("calendar")
+        for i, name in enumerate(calls):
+            yield ToolCallStartEvent(tool_call_id=str(i), tool_call_name=name)
+            yield ToolCallResultEvent(
+                message_id=str(i),
+                tool_call_id="missing" if case == "unmatched" else str(i),
+                content=json.dumps({"result": result}),
+                role="tool",
+            )
+        yield RunFinishedEvent(thread_id=input.thread_id, run_id=input.run_id)
+
+    monkeypatch.setattr(TimedADKAgent, "run", sdk)
+    agent = pod.PodTimedADKAgent.__new__(pod.PodTimedADKAgent)
+    agent.close = AsyncMock()
+    agent.configure_pod_turn(require_access=AsyncMock(), runtime_scope=nullcontext)
+    events = [event async for event in agent.run(_owner_input())]
+    assert isinstance(events[-1], RunFinishedEvent)
+    # A pending unmatched call follows the existing interrupt path.
+    assert any(isinstance(event, TextMessageContentEvent) for event in events) == (
+        case not in {"typed", "unmatched"}
+    )

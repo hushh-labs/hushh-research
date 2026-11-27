@@ -313,6 +313,21 @@ positions, and distinct tickers when every position has a known ticker.
 Clients without the expanded contract keep the 40-row response. Detailed
 holdings are used for the authorized turn and omitted from durable receipts.
 
+Dev native Finance capability version 2 accepts `portfolioContext: true` on
+a fresh, keyed `finance-dev` turn. An admitted portfolio tool call emits a
+`portfolio_context` SSE event carrying only the closed query and a short-lived
+request ID. The browser resolves the current vault selection and posts the
+result to `/api/one/pod/agent-chat/portfolio-context` using the same pod session
+and chat key. The return binds the owner, trusted app, thread, run, and query.
+It accepts one result within the live turn and limits submissions to 64 KiB.
+For allocation, native Sandbox runtimes can include `allocationValues: true`
+in the event. The browser then returns each saved bucket value and the same
+portfolio total used by the Allocation card. The runtime verifies currency,
+positive values, and consistency with the supplied percentages. Clients that
+do not negotiate this field continue to return only bucket names and percentages.
+The private answer is available live. Reopening Chat restores a receipt and
+the next question can read the current active portfolio through a fresh tool call.
+
 ### Portfolio Import Stream Terminal Diagnostics (V2)
 
 Terminal payload from `POST /api/kai/portfolio/import/stream` now includes:

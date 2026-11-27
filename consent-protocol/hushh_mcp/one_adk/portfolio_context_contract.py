@@ -1,6 +1,7 @@
 """Closed, read-only facts for one owner-authorized portfolio answer."""
 
 from datetime import datetime
+from math import isclose
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, StringConstraints
@@ -8,9 +9,22 @@ from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, StringConstraint
 PORTFOLIO_CONTEXT_TOOL = "read_portfolio_context"
 STATE_PORTFOLIO_CONTEXT_ENABLED = "temp:one_portfolio_context_enabled"
 STATE_PORTFOLIO_CONTEXT_PRIVATE = "hussh:portfolio_context_private_invocations"
+STATE_NATIVE_PORTFOLIO_READ = "temp:one_native_portfolio_read"
 PRIVATE_PORTFOLIO_ANSWER = (
     "A private portfolio answer was shown for that turn. Ask again to read the portfolio."
 )
+
+
+def portfolio_private_invocations(state: Any, events: list[Any]) -> set[str]:
+    """Identify portfolio turns that cannot enter derived memory."""
+    return set((state or {}).get(STATE_PORTFOLIO_CONTEXT_PRIVATE) or []) | {
+        invocation
+        for event in events
+        for invocation in getattr(getattr(event, "actions", None), "state_delta", {}).get(
+            STATE_PORTFOLIO_CONTEXT_PRIVATE, []
+        )
+    }
+
 
 PORTFOLIO_CONTEXT_DESCRIPTION = (
     "Read the signed-in owner's saved portfolio facts on their device for this answer only. "
@@ -93,6 +107,7 @@ class _Holdings(_Closed):
 class _Allocation(_Closed):
     bucket: Literal["Cash", "Equities", "Fixed Income", "Real Assets", "Other", "Receivables"]
     percent: FiniteFloat
+    value: Annotated[FiniteFloat, Field(gt=0)] | None = None
 
 
 class _Performance(_Closed):
@@ -113,6 +128,7 @@ class _Available(_Closed):
     currency: Currency | None
     holdings: _Holdings | None = None
     allocation: list[_Allocation] | None = Field(default=None, max_length=6)
+    allocation_total: Annotated[FiniteFloat, Field(gt=0)] | None = None
     performance: _Performance | None = None
 
 
@@ -136,7 +152,9 @@ def validate_portfolio_context_request(value: object) -> dict:
     return request.model_dump(exclude_none=True)
 
 
-def validate_portfolio_context_result(request: dict, value: object) -> dict:
+def validate_portfolio_context_result(
+    request: dict, value: object, *, allow_allocation_values: bool = False
+) -> dict:
     if isinstance(value, dict) and value.get("status") == "unavailable":
         return _Unavailable.model_validate(value).model_dump()
     result = _Available.model_validate(value)
@@ -146,6 +164,23 @@ def validate_portfolio_context_result(request: dict, value: object) -> dict:
         if getattr(result, section) is not None
     ] != [request["section"]]:
         raise ValueError("Portfolio context does not match the requested read.")
+    has_allocation_values = "allocation_total" in result.model_fields_set or any(
+        "value" in row.model_fields_set for row in result.allocation or ()
+    )
+    if has_allocation_values:
+        total = result.allocation_total
+        if not (
+            allow_allocation_values
+            and result.allocation
+            and total is not None
+            and result.currency is not None
+        ):
+            raise ValueError("Portfolio allocation values are outside the admitted read.")
+        if any(
+            row.value is None or not isclose(row.percent, row.value / total * 100, abs_tol=1e-6)
+            for row in result.allocation
+        ):
+            raise ValueError("Portfolio allocation values disagree with the reported percentages.")
     expected_kind = "statement_end" if result.source == "statement" else "last_synced"
     if result.as_of is None:
         if result.date_kind != "unknown":

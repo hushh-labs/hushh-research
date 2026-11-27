@@ -16,6 +16,7 @@ import {
 } from "@/lib/location/account-settings";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
+import { formatLocationDurationLabel } from "@/lib/one-location/duration-copy";
 import { oneLocationErrorMessage } from "@/lib/one-location/error-message";
 import { readOneLocationControlState, updateOneLocationControlState } from "@/lib/one-location/location-control-state";
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
@@ -58,11 +59,12 @@ function sameScope(left: AutoApproveScope | null, right: AutoApproveScope | null
   return a.length === b.length && a.every((id) => b.includes(id));
 }
 
-export function LocationChatSettings({ token, ownerId, onChanged, autoApprovalIntent, suggestedCircles, onClose, onConversationReply, onConversationText }: {
+export function LocationChatSettings({ token, ownerId, onChanged, autoApprovalIntent, autoApprovalHours, suggestedCircles, onClose, onConversationReply, onConversationText }: {
   token: string;
   ownerId: string;
   onChanged?: () => void;
   autoApprovalIntent?: "enable" | "disable";
+  autoApprovalHours?: number;
   suggestedCircles?: readonly string[];
   onClose?: () => void;
 } & LocationConversationProps) {
@@ -248,9 +250,11 @@ export function LocationChatSettings({ token, ownerId, onChanged, autoApprovalIn
     const enabled = next !== null;
     const circleNames = view.circles.filter((circle) => selectedCircleIds(next).includes(circle.id)).map((circle) => circle.name);
     const scopeLabel = next?.kind === "all_contacts" ? "all contacts" : circleNames.join(", ");
+    const windowHours = enabled ? autoApprovalHours : undefined;
+    const windowLabel = windowHours === undefined ? "until you turn this off" : `for the next ${formatLocationDurationLabel(windowHours)}`;
     return {
       description: enabled
-        ? `Automatically approve new requests from ${scopeLabel}? Requests already waiting still need your answer.`
+        ? `Automatically approve new requests from ${scopeLabel} ${windowLabel}? ${windowHours === undefined ? "Requests already waiting still need your answer." : "Every automatically approved share ends by then."}`
         : "Turn off automatic approval? Each new request will need your answer.",
       label: enabled ? "Save approval scope" : "Turn off auto-approval",
       run: async (signal) => {
@@ -264,7 +268,9 @@ export function LocationChatSettings({ token, ownerId, onChanged, autoApprovalIn
           setScopeEditing(false);
           throw new Error("Automatic approval changed. Review the current rule before saving.");
         }
-        const preference = await OneLocationService.updateAutoApprovePreference({ vaultOwnerToken: token, enabled, scope: next });
+        const preference = await OneLocationService.updateAutoApprovePreference({
+          vaultOwnerToken: token, enabled, scope: next, ...(windowHours !== undefined ? { durationHours: windowHours } : {}),
+        });
         if (signal.aborted) return "";
         OneLocationStateResource.mergeAutoApprovePreference(ownerId, preference, refreshed);
         dispatchOneLocationStateChanged(ownerId, ["workspace"], { notificationType: "location_settings_changed" });
@@ -272,6 +278,14 @@ export function LocationChatSettings({ token, ownerId, onChanged, autoApprovalIn
         if (preference.ruleVersion < currentVersion || preference.enabled !== enabled || !sameScope(preference.scope, next)) throw new Error("Automatic approval did not change as reviewed.");
         onChanged?.();
         setScopeEditing(false);
+        if (windowHours !== undefined) {
+          const start = Date.parse(preference.enabledAt ?? "");
+          const end = Date.parse(preference.expiresAt ?? "");
+          if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || Math.abs(end - start - windowHours * 3_600_000) > 1) {
+            throw new Error("I couldn’t verify the automatic approval deadline.");
+          }
+          return `Automatic approval is on for ${scopeLabel} until ${new Date(end).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}. Shares approved under this rule end by then.`;
+        }
         return enabled ? "Automatic approval is on for the selected scope." : "Automatic approval is off.";
       },
     };
@@ -296,7 +310,7 @@ export function LocationChatSettings({ token, ownerId, onChanged, autoApprovalIn
   }} />;
 
   const autoApproval = view?.state.autoApprovePreference;
-  const autoOn = Boolean(autoApproval?.enabled);
+  const autoOn = Boolean(autoApproval?.enabled && (!autoApproval.expiresAt || Date.parse(autoApproval.expiresAt) > Date.now()));
   const activeCircleNames = view?.circles.filter((circle) => selectedCircleIds(autoApproval?.scope).includes(circle.id)).map((circle) => circle.name) ?? [];
   const visibleReview = review ?? (directDisableReview ? autoApprovalReview(null) : null);
 
@@ -363,7 +377,7 @@ export function LocationChatSettings({ token, ownerId, onChanged, autoApprovalIn
         <h4 className="text-sm font-medium">Auto-approve requests</h4>
         <p className="text-sm text-muted-foreground">{autoOn
           ? autoApproval?.scope?.kind === "all_contacts" ? "On for all contacts" : activeCircleNames.length ? `On for ${activeCircleNames.join(", ")}` : "On · Choose a new scope"
-          : "Off"}</p>
+          : "Off"}{autoOn && autoApproval?.expiresAt ? ` until ${new Date(autoApproval.expiresAt).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}` : ""}</p>
         {scopeEditing ? <fieldset disabled={busy} className="space-y-2">
           <legend className="text-sm font-medium">Who can be auto-approved?</legend>
           <label className="flex items-center gap-2 text-sm">

@@ -31,6 +31,7 @@ from hushh_mcp.services.pod_upgrade_admission import ADMISSION, PodUpgradeAdmiss
 if TYPE_CHECKING:
     from google.adk.memory.base_memory_service import BaseMemoryService
 
+    from hushh_mcp.one_adk.native_portfolio_context import NativePortfolioContext
     from hushh_mcp.one_adk.pod_agui_context import PodChatContext
 
 
@@ -47,6 +48,7 @@ class AdmittedNativePodTurn:
     state: dict[str, Any]
     text: str | None = None
     decision: NativeMcpDecision | None = None
+    portfolio_read: NativePortfolioContext | None = None
 
 
 async def run_native_pod_chat(
@@ -151,6 +153,8 @@ async def run_native_pod_chat(
                     finally:
                         queued_input.settle(queued)
             finally:
+                if turn.portfolio_read is not None:
+                    turn.portfolio_read.finish()
                 await resources.close()
 
     async def settle_owner_session() -> None:
@@ -168,6 +172,7 @@ async def run_native_pod_chat(
             incarnation=incarnation,
             announce_start=True,
             location_chat_review=turn.state.get(STATE_LOCATION_CHAT_REVIEW) is True,
+            portfolio_offer=turn.portfolio_read.offer if turn.portfolio_read else None,
         )
     ) as frames:
         async for frame in frames:

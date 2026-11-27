@@ -145,8 +145,12 @@ def test_native_cloud_request_only_passes_server_admitted_state(monkeypatch):
         STATE_LOCATION_CHAT_REVIEW,
     )
 
-    monkeypatch.setenv("ONE_MAIN_CHAT_LOCATION_ENABLED", "true")
-    regular_chat = {"screenContext": {"route": {"pathname": "/"}}, "locationChatReview": True}
+    # Owner image upgrades retain the pre-Location container environment.
+    monkeypatch.delenv("ONE_MAIN_CHAT_LOCATION_ENABLED", raising=False)
+    regular_chat = {
+        "screenContext": {"route": {"pathname": "/?locationSetupReturn=example"}},
+        "locationChatReview": True,
+    }
     location = {**body, "message": "Request Kushal's location", "forwardedProps": regular_chat}
     assert client.post(path, json=location).status_code == 200
     assert turns[-1][1].state[STATE_LOCATION_CHAT_REVIEW] is True
@@ -158,6 +162,39 @@ def test_native_cloud_request_only_passes_server_admitted_state(monkeypatch):
     assert client.post(path, json=location).status_code == 200
     assert turns[-1][1].state[STATE_LOCATION_CHAT_CONVERSATION] is False
     assert "hussh:thread_title" not in turns[-1][1].state
+
+
+def test_dev_finance_visual_mode_is_separate_from_official_capability(monkeypatch):
+    from hushh_mcp.one_adk.finance_a2ui import STATE_DEV_FINANCE_VISUALS
+
+    owner = _owner()
+    owner.require_access = AsyncMock()
+    received = []
+
+    async def stream_native(_options, turn):
+        received.append(turn.state[STATE_DEV_FINANCE_VISUALS])
+        yield b"event: done\ndata: {}\n\n"
+
+    owner.stream_native = stream_native
+    client = _client()
+    client.app.dependency_overrides[pod_agent_chat.context] = lambda: owner
+    path = "/api/one/pod/agent-chat"
+    turn = {
+        "transport": "native-adk-v1",
+        "visualMode": "finance-dev",
+        "threadId": "thread",
+        "runId": "run",
+        "message": "Show my allocation",
+    }
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    assert "nativeFinanceVisualVersion" not in client.get(f"{path}/capabilities").json()
+    assert client.post(path, json=turn).status_code == 409
+    assert received == []
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    assert client.get(f"{path}/capabilities").json()["nativeFinanceVisualVersion"] == 2
+    assert client.post(path, json=turn).status_code == 200
+    assert received == [True]
 
 
 def test_queue_joins_only_the_session_owners_running_turn(registry):
@@ -217,7 +254,7 @@ def _turn(**forwarded):
 
 
 def _owner():
-    authority = SimpleNamespace(local_token=lambda claims: "local-token")
+    authority = SimpleNamespace(environment="uat", local_token=lambda claims: "local-token")
     return SimpleNamespace(owner="owner-a", authority=authority, claims={})
 
 

@@ -114,6 +114,7 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         "/api/one/pod/agent-chat",
         "/api/one/pod/agent-chat/capabilities",
         "/api/one/pod/agent-chat/browser-activity",
+        "/api/one/pod/agent-chat/portfolio-context",
         "/api/one/pod/agent-chat/migration/import",
         # The owner's ratings, and voice command proposals validated and
         # checkpointed in the agent (pod_command_proposals.py). Same owner app

@@ -210,6 +210,30 @@ it("opens the fixed sharing review from a live native proposal only after a clic
   expect(mocks.publish).not.toHaveBeenCalled();
 });
 
+it("opens an owner-selected received share from a live native offer", async () => {
+  const surface = applyA2uiMessage(new Map(), {
+    version: "1.0",
+    createSurface: {
+      surfaceId: "finance_received", catalogId: ONE_A2UI_CATALOG,
+      components: [{ id: "root", component: "FinanceShareProposal", audience: "received" }],
+    },
+  }).get("finance_received")!;
+  mocks.history.mockImplementation(async (_context, direction) => ({
+    items: direction === "received" ? [grant] : [], nextCursor: null,
+  }));
+  const view = render(<A2uiSurfaceView surface={surface} />);
+  expect(screen.queryByRole("button", { name: "Open received Finance" })).toBeNull();
+  view.rerender(<A2uiSurfaceView surface={surface} allowFinanceShare />);
+  fireEvent.click(await screen.findByRole("button", { name: "Open received Finance" }));
+  expect(await screen.findByText("Owner")).toBeVisible();
+  expect(mocks.decrypt).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "View", exact: true }));
+  expect(await screen.findByText(/decrypted-sentinel/)).toBeVisible();
+  expect(mocks.readForAnswer).not.toHaveBeenCalled();
+  expect(mocks.review).not.toHaveBeenCalled();
+  expect(mocks.publish).not.toHaveBeenCalled();
+});
+
 it("does not report an ended confirmation as active sharing", async () => {
   mocks.prepare.mockResolvedValue({ requestId: "request" });
   mocks.publish.mockResolvedValue({ items: [{ requestId: "request", status: "stopped" }] });

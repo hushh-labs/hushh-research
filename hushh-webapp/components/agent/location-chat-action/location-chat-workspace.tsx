@@ -17,7 +17,7 @@ type Mode = "circles" | "saved_places" | "ratings" | "contacts" | "settings";
 const TITLES: Record<Mode, string> = { circles: "Circles", saved_places: "Saved places", ratings: "Place ratings", contacts: "Find contacts", settings: "Location settings" };
 
 export function LocationChatWorkspace({
-  mode, token, ownerId, vaultKey, suggestedCircleName, suggestedPersonName, autoApprovalIntent, suggestedAutoApprovalCircles, onBack, onChanged,
+  mode, token, ownerId, vaultKey, suggestedCircleName, suggestedPersonName, autoApprovalIntent, autoApprovalHours, suggestedAutoApprovalCircles, onBack, onChanged,
   onConversationReply, onConversationText,
 }: {
   mode: Mode;
@@ -27,6 +27,7 @@ export function LocationChatWorkspace({
   suggestedCircleName?: string;
   suggestedPersonName?: string;
   autoApprovalIntent?: "enable" | "disable";
+  autoApprovalHours?: number;
   suggestedAutoApprovalCircles?: readonly string[];
   onBack: () => void;
   onChanged?: () => void;
@@ -41,7 +42,7 @@ export function LocationChatWorkspace({
   if (mode === "contacts") return <LocationChatContacts ownerId={ownerId} onBack={onBack} onChanged={onChanged} />;
   if (mode === "settings" && autoApprovalIntent && onConversationText) {
     return <LocationChatSettings token={token} ownerId={ownerId} onChanged={onChanged}
-      autoApprovalIntent={autoApprovalIntent} suggestedCircles={suggestedAutoApprovalCircles}
+      autoApprovalIntent={autoApprovalIntent} autoApprovalHours={autoApprovalHours} suggestedCircles={suggestedAutoApprovalCircles}
       onConversationReply={onConversationReply} onConversationText={onConversationText} />;
   }
   return (
@@ -59,7 +60,7 @@ export function LocationChatWorkspace({
           <PlaceRatings embeddedInChat />
         ) : (
           <LocationChatSettings token={token} ownerId={ownerId} onChanged={onChanged}
-            autoApprovalIntent={autoApprovalIntent} suggestedCircles={suggestedAutoApprovalCircles} onClose={onBack} />
+            autoApprovalIntent={autoApprovalIntent} autoApprovalHours={autoApprovalHours} suggestedCircles={suggestedAutoApprovalCircles} onClose={onBack} />
         )}
       </SurfaceCardContent>
     </SurfaceCard>

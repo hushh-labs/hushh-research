@@ -2852,6 +2852,7 @@
       "created_at",
       "enabled",
       "enabled_at",
+      "expires_at",
       "rule_version",
       "scope_kind",
       "updated_at",

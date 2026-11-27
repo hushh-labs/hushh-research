@@ -45,6 +45,10 @@ class PodChatMemory(BaseMemoryService):
             account_private_invocations,
         )
         from hushh_mcp.one_adk.consent_redaction import tagged_bundles
+        from hushh_mcp.one_adk.portfolio_context_contract import (
+            PRIVATE_PORTFOLIO_ANSWER,
+            portfolio_private_invocations,
+        )
 
         await self.context.require_access()
         # Consent-derived turns remain in grant-aware conversation recovery;
@@ -53,6 +57,7 @@ class PodChatMemory(BaseMemoryService):
             invocation for ids in tagged_bundles(session.state).values() for invocation in ids
         }
         tagged |= account_private_invocations(session.state, session.events)
+        tagged |= portfolio_private_invocations(session.state, session.events)
         events = [
             event
             for event in session.events
@@ -61,7 +66,8 @@ class PodChatMemory(BaseMemoryService):
             and not (
                 event.author == "one"
                 and any(
-                    getattr(part, "text", None) == PRIVATE_ACCOUNT_ANSWER
+                    getattr(part, "text", None)
+                    in (PRIVATE_ACCOUNT_ANSWER, PRIVATE_PORTFOLIO_ANSWER)
                     for part in (getattr(event.content, "parts", None) or [])
                 )
             )

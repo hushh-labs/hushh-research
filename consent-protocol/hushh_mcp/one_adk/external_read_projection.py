@@ -23,7 +23,8 @@ from hushh_mcp.one_adk.external_read_boundary import (
     STATE_MAIL_EMPTY_RETRIES,
     STATE_SELECTED_DRIVE_SHARE,
 )
-from hushh_mcp.one_adk.native_chat_output import A2UI_TOOL_NAME
+from hushh_mcp.one_adk.finance_a2ui import native_finance_receipt_kind
+from hushh_mcp.one_adk.native_chat_output import A2UI_TOOL_NAME, _browser_task_receipt
 from hushh_mcp.one_adk.plaid_connector_tools import (
     PLAID_RESULT_STATUSES,
     PLAID_TOOL_NAMES,
@@ -34,6 +35,7 @@ from hushh_mcp.one_adk.plaid_connector_tools import (
 from hushh_mcp.one_adk.portfolio_context_contract import (
     PORTFOLIO_CONTEXT_TOOL,
     PRIVATE_PORTFOLIO_ANSWER,
+    STATE_NATIVE_PORTFOLIO_READ,
     STATE_PORTFOLIO_CONTEXT_ENABLED,
     STATE_PORTFOLIO_CONTEXT_PRIVATE,
 )
@@ -50,6 +52,7 @@ from hushh_mcp.one_adk.wiki_recall_tools import (
     WIKI_TOOL_NAMES,
 )
 from hushh_mcp.pod_connectors.contacts_tool import STATE_CONTACT_CALENDAR_READ
+from hushh_mcp.services.pod_browser.contracts import BrowserBinding
 
 _EPHEMERAL = frozenset(
     {
@@ -71,6 +74,7 @@ _EPHEMERAL = frozenset(
         STATE_PLAID_POSTURE,
         STATE_PLAID_RESULT,
         STATE_PORTFOLIO_CONTEXT_ENABLED,
+        STATE_NATIVE_PORTFOLIO_READ,
         STATE_ACCOUNT_CONTEXT_ENABLED,
         "temp:hussh:workspace_chat_admission",
         "temp:hussh:drive_search_selection",
@@ -134,7 +138,43 @@ def redacted_read_receipt(response: Any) -> dict[str, Any]:
     return receipt
 
 
+def _browser_creation_metadata(event, response, *, owner_id: str, calls: set[tuple]) -> dict | None:
+    """Keep a correlated discovery/history anchor, never the Browser tool payload."""
+    if (
+        event.author != "one"
+        or event.partial
+        or response.name != "start_browser_task"
+        or (event.invocation_id, response.id) not in calls
+        or _browser_task_receipt(event, response) is None
+    ):
+        return None
+    raw = response.response["binding"]
+    try:
+        binding = BrowserBinding.model_validate(
+            {key: raw.get(key) for key in BrowserBinding.model_fields}
+        )
+    except ValueError:
+        return None
+    if binding.owner_id != owner_id:
+        return None
+    return {
+        "status": "accepted",
+        "binding": {
+            key: getattr(binding, key) for key in ("owner_id", "pod_id", "incarnation", "task_id")
+        },
+    }
+
+
 def durable_external_read_projection(session: Session) -> Session:
+    browser_calls = {
+        (event.invocation_id, part.function_call.id)
+        for event in session.events
+        if event.author == "one" and event.content
+        for part in event.content.parts or []
+        if not part.thought
+        and part.function_call
+        and part.function_call.name == "start_browser_task"
+    }
     account_calls = {
         part.function_call.id
         for event in session.events
@@ -269,7 +309,14 @@ def durable_external_read_projection(session: Session) -> Session:
                 part.function_response.name in PRIVATE_DEVICE_READ_TOOLS
                 or event.invocation_id in receipt_result_invocations
             ):
-                part.function_response.response = {"content_redacted": True}
+                creation = (
+                    _browser_creation_metadata(
+                        event, part.function_response, owner_id=session.user_id, calls=browser_calls
+                    )
+                    if not part.thought
+                    else None
+                )
+                part.function_response.response = creation or {"content_redacted": True}
             if event.author != "user" and event.invocation_id in receipt_invocations and part.text:
                 placeholder = (
                     PRIVATE_ACCOUNT_ANSWER
@@ -290,7 +337,11 @@ def durable_external_read_projection(session: Session) -> Session:
             if part.function_call and part.function_call.name == A2UI_TOOL_NAME:
                 part.function_call.args = {}
             if part.function_response and part.function_response.name == A2UI_TOOL_NAME:
-                part.function_response.response = {"content_redacted": True}
+                finance_receipt = native_finance_receipt_kind(part.function_response.response)
+                part.function_response.response = {
+                    "content_redacted": True,
+                    **({"financeHistoryReceipt": finance_receipt} if finance_receipt else {}),
+                }
             if part.thought and part.text:
                 part.text = None
             if part.function_response and part.function_response.name in READ_TOOLS:

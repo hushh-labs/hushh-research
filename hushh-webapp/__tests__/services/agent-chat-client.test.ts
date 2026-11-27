@@ -228,6 +228,33 @@ describe("native Cloud chat", () => {
     expect(onBrowserTaskCreated).not.toHaveBeenCalled();
   });
 
+  it("uses Dev Finance A2UI only when its private runtime advertises the preview", async () => {
+    vi.stubEnv("NEXT_PUBLIC_ONE_NATIVE_ADK_CHAT", "0");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+
+    const ownerPod = vi.mocked(ApiService.ownerPodRequest);
+    const handlers = { onNativeOutput: vi.fn() };
+    ownerPod.mockReset().mockResolvedValueOnce(Response.json({ nativeAdkChatVersion: 1 }));
+    await streamAgentChat({ ...input, mainChat: true, handlers });
+    expect(ownerPod.mock.calls.map(([path]) => path)).toEqual(["agent-chat/capabilities"]);
+    expect(mockTransport.runAgent).toHaveBeenCalledOnce();
+
+    ownerPod.mockReset()
+      .mockResolvedValueOnce(Response.json({ nativeFinanceVisualVersion: 2, nativeLocationChatReview: true }))
+      .mockResolvedValueOnce(new Response(
+        'event: start\ndata: {"sessionId":"native-thread"}\n\n' +
+        'data: {"author":"one","content":{"parts":[{"text":"Finance preview"}]}}\n\n' +
+        'event: done\ndata: {}\n\n',
+        { headers: { "Content-Type": "text/event-stream" } },
+      ));
+    await streamAgentChat({ ...input, mainChat: true, locationChatReview: true, handlers });
+    expect(JSON.parse(String(ownerPod.mock.calls[1]?.[1]?.body))).toMatchObject({
+      transport: "native-adk-v1", visualMode: "finance-dev", message: input.message,
+    });
+    expect(handlers.onNativeOutput).toHaveBeenCalled();
+    expect(mockTransport.runAgent).toHaveBeenCalledOnce();
+  });
+
   it("preserves the original conversation for recovery when native streaming ends early", async () => {
     vi.mocked(ApiService.ownerPodRequest).mockResolvedValueOnce(new Response(
       `event: start\ndata: {"sessionId":"native-thread"}\n\n`,
@@ -239,6 +266,50 @@ describe("native Cloud chat", () => {
     expect(vi.mocked(ApiService.ownerPodRequest).mock.calls.filter(([path]) => path === "agent-chat"))
       .toHaveLength(1);
     expect(mockTransport.runAgent).not.toHaveBeenCalled();
+  });
+
+  it.each(["holdings", "allocation"] as const)("reads current %s on demand after reopening a native conversation", async (section) => {
+    vi.stubEnv("NEXT_PUBLIC_ONE_NATIVE_ADK_CHAT", "0");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    const ownerPod = vi.mocked(ApiService.ownerPodRequest);
+    const query = { source: "active", section, detail: "expanded" };
+    const allocationValues = section === "allocation";
+    const requestId = "a".repeat(48);
+    const onReceiptPrivate = vi.fn();
+    const encoded = new TextEncoder();
+    let controller: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(value) {
+        controller = value;
+        value.enqueue(encoded.encode('event: start\ndata: {"sessionId":"native-thread"}\n\n' +
+          `event: portfolio_context\ndata: ${JSON.stringify({ requestId, request: query, ...(allocationValues ? { allocationValues: true } : {}) })}\n\n`));
+      },
+    });
+    portfolioRead.mockResolvedValueOnce({ status: "unavailable", reason: "source_unavailable" });
+    ownerPod.mockReset()
+      .mockResolvedValueOnce(Response.json({ nativeFinanceVisualVersion: 2 }))
+      .mockImplementationOnce(async (_route, _request, _wake, admitted) => {
+        expect(portfolioRead).not.toHaveBeenCalled();
+        admitted?.("dev-pod");
+        return new Response(stream, { headers: { "Content-Type": "text/event-stream" } });
+      })
+      .mockImplementationOnce(async () => {
+        expect(onReceiptPrivate).toHaveBeenCalledWith("portfolio");
+        controller.enqueue(encoded.encode('data: {"author":"one","content":{"parts":[{"text":"Read settled"}]}}\n\n' +
+          'event: done\ndata: {}\n\n'));
+        controller.close();
+        return new Response(null, { status: 204 });
+      });
+    await streamAgentChat({ ...input, mainChat: true, handlers: { onReceiptPrivate, onNativeOutput: vi.fn() } });
+    expect(portfolioRead).toHaveBeenCalledWith(expect.objectContaining({ threadId: input.conversationId }),
+      query, expect.any(Function), { allocationValues });
+    const request = JSON.parse(String(ownerPod.mock.calls[1]?.[1]?.body));
+    expect(request).toMatchObject({ portfolioContext: true, threadId: input.conversationId });
+    expect(request).not.toHaveProperty("positions");
+    const [route, reply, , , pod] = ownerPod.mock.calls[2]!;
+    expect(route).toBe("agent-chat/portfolio-context");
+    expect(pod).toBe("dev-pod");
+    expect(JSON.parse(String(reply?.body))).toMatchObject({ requestId, runId: request.runId, threadId: input.conversationId });
   });
 });
 
