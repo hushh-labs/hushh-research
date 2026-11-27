@@ -89,6 +89,25 @@ def test_automatic_share_cannot_outlive_owners_rule(location_plans, monkeypatch)
     assert datetime.fromisoformat(grant["expiresAt"]) == cutoff
     assert minted[-1]["expires_at"] == cutoff
     other = ask("third")
+    existing = service.create_grant(
+        owner_user_id="owner",
+        recipient_user_id="third",
+        recipient_key_id="key-3",
+        duration_hours=2,
+        enforce_connection=True,
+    )
+    with pytest.raises(location.OneLocationAgentError) as longer:
+        approve(other)
+    assert longer.value.code == "LOCATION_AUTO_APPROVE_EXISTING_SHARE"
+    preserved = db.execute_raw(
+        "SELECT status, expires_at FROM one_location_share_grants WHERE id=:id",
+        {"id": existing["id"]},
+    ).data[0]
+    assert preserved == {
+        "status": "active",
+        "expires_at": datetime.fromisoformat(existing["expiresAt"]),
+    }
+    mint_count = len(minted)
     db.execute_raw(
         "UPDATE one_location_auto_approve_preferences SET expires_at = clock_timestamp() WHERE user_id='owner'"
     )
@@ -102,7 +121,7 @@ def test_automatic_share_cannot_outlive_owners_rule(location_plans, monkeypatch)
         ).data[0]["status"]
         == "pending"
     )
-    assert len(minted) == 1
+    assert len(minted) == mint_count
     with db.engine.begin() as conn:
         conn.exec_driver_sql(
             next((migrations / "rollback").glob("466_*.sql")).read_text(),
