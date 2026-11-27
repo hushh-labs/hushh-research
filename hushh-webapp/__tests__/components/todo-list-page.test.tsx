@@ -164,10 +164,15 @@ describe("TodoListPage row actions", () => {
     });
   });
 
-  it.each([false, true])("opens a Chat schedule link in the complete panel with native=%s", async native => {
+  it.each([
+    { native: false, deepLink: false },
+    { native: false, deepLink: true },
+    { native: true, deepLink: true },
+  ])("shows scheduled runs on Tasks with native=$native and deepLink=$deepLink", async ({ native, deepLink }) => {
     mocks.native = native;
     const id = `schedule_${"a".repeat(32)}`;
-    mocks.search = `scheduled=${id}`;
+    mocks.search = deepLink ? `scheduled=${id}` : "";
+    mocks.feedError = "Synthetic source refresh failure";
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
     try {
       vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(native);
@@ -185,8 +190,12 @@ describe("TodoListPage row actions", () => {
       const control = vi.spyOn(PodScheduledTasksClient.prototype, "control")
         .mockImplementation(async task => ({ ...task, revision: task.revision + 1, run_now_pending: true }));
       render(<TodoListPage />);
-      const panel = await screen.findByRole("dialog", { name: "Scheduled runs" });
+      const panel = await screen.findByRole(native ? "dialog" : "region", { name: "Scheduled runs" });
       expect(await within(panel).findByText("Organize Minutes.txt")).toBeVisible();
+      if (!native) {
+        expect(screen.queryByRole("dialog", { name: "Scheduled runs" })).not.toBeInTheDocument();
+        expect(screen.getByText(/Some agent tasks couldn’t refresh/)).toBeVisible();
+      }
       expect(within(panel).getByText("Monthly")).toBeVisible();
       expect(within(panel).getByText("Run history")).toBeVisible();
       fireEvent.click(within(panel).getByRole("button", { name: "Day" }));
