@@ -745,3 +745,28 @@ test("a large reviewed Circle exposes its names in pages and reports only confir
   ]);
   expect(locationReviewText(differentTerms, [circle])).toContain("Member 2 (the NM circle) to share their location for 2 hours");
 });
+
+
+test("an explicit stop for everyone reviews every active outgoing grant before revocation", async () => {
+  vi.clearAllMocks();
+  const targets = ["Ankit", "Maya"].map(label => ({ label, grantId: label, personUserId: label }));
+  vi.mocked(restoreMainLocationPlans).mockResolvedValueOnce([]);
+  vi.mocked(resolveMainLocationChoices).mockResolvedValueOnce([{ label: "Outgoing", targets, requiresSelection: true }]);
+  for (const target of targets) {
+    const plan = { planId: target.grantId, grantId: target.grantId, personUserId: target.personUserId,
+      personDisplayLabel: target.label, action: "stop" as const, status: "pending" as const };
+    vi.mocked(expandMainLocationTarget).mockResolvedValueOnce([target]);
+    vi.mocked(prepareMainLocationPlan).mockResolvedValueOnce(plan);
+    vi.mocked(executeMainLocationPlan).mockResolvedValueOnce({ ...plan, status: "executed", receipt: { grantId: target.grantId } });
+  }
+  let reply: LocationConversationReply | null = null;
+  const text = vi.fn();
+  render(<LocationChatActionPanel proposal={{ id: "stop-all", action: "stop", direction: "all", conversation: true }}
+    ownerId="owner" token="token" allowReview onUnlock={() => {}} onConversationText={text}
+    onConversationReply={(_id, handle) => { reply = handle; }} />);
+  await waitFor(() => expect(text.mock.lastCall?.[1]).toContain("Stop sharing your location with Ankit and Maya?"));
+  expect(executeMainLocationPlan).not.toHaveBeenCalled();
+  act(() => { expect(reply!("yes")).toBe(true); });
+  await waitFor(() => expect(text.mock.lastCall?.[1]).toContain("Stopped sharing your location with Ankit and Maya."));
+  expect(executeMainLocationPlan).toHaveBeenCalledTimes(2);
+});

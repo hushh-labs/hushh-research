@@ -65,6 +65,9 @@ LocationTerms = Literal[
     "conditional",
     "fixed_end",
     "temporary_rule",
+    "timed_pause",
+    "history_window",
+    "combined_eta",
     "one_time",
     "other_restriction",
 ]
@@ -73,6 +76,9 @@ _RESTRICTION_MESSAGES = {
     "conditional": "Location cannot start or stop this action automatically on an event or arrival.",
     "fixed_end": "Chat needs a relative duration for this action. It cannot guarantee that exact cutoff.",
     "temporary_rule": "Automatic approval is a standing setting. It cannot expire automatically.",
+    "timed_pause": "A pause cannot resume automatically after a duration.",
+    "history_window": "The in-chat list shows active shares. It cannot return a sharing history for a date range.",
+    "combined_eta": "This Location action only shares a live map. It cannot send a trip ETA with the share.",
     "one_time": "One offers live location sharing. A one-time position is unavailable.",
     "other_restriction": "The requested restriction cannot be enforced for this Location action.",
 }
@@ -85,6 +91,10 @@ _REVIEWED_TERMS = _SHARE_TERMS | {
     "set_duration",
     "ask_extension",
     "check_in",
+    "stop",
+    "manage_settings",
+    "list_shares",
+    "list_requests",
 }
 
 _LIST_ACTIONS = frozenset({"list_shares", "list_requests"})
@@ -262,6 +272,12 @@ LOCATION_CHAT_TYPED_INSTRUCTION = (
     "restrictions. A city or area name only, hiding the map, or withholding coordinates is "
     "place_only. Approximate sharing still reveals map coordinates. A clock cutoff is fixed_end. "
     "A start or stop on arrival is conditional. A time limit on automatic approval is temporary_rule. "
+    "For a pause with automatic resumption use timed_pause, for historical activity over a period "
+    "use history_window, and for combined trip ETA sharing use combined_eta. For an unspecified "
+    "trip window ask for its actual dates or a relative duration. For an explicit request to "
+    "stop sharing with everyone use stop with direction=all and no names. An ordinary stop "
+    "or a named person never means everyone. For 'who can see me' use list_shares outgoing, "
+    "and for 'is Ankit sharing with me' use list_shares incoming with Ankit. "
     "Pass these restrictions to the tool even when unsupported. Never reduce them to a normal "
     "share or standing approval. State the limitation and ask whether the user wants different "
     "terms. Only use explicit_replacement after the user independently states new terms which "
@@ -457,7 +473,8 @@ class LocationChatIntent(BaseModel):
         }:
             raise ValueError("This action does not accept Circles.")
         if self.direction is not None and self.action not in _LIST_ACTIONS:
-            raise ValueError("Direction is only used for lists.")
+            if self.action != "stop" or self.direction != "all" or self.people or self.circles:
+                raise ValueError("Direction is used for lists or an explicit stop for everyone.")
         if self.duration_hours is not None and self.action not in _TIME_ACTIONS:
             raise ValueError("This action has no duration.")
         if self.duration_mode is not None and self.action not in {"share_live", "set_duration"}:
@@ -533,7 +550,8 @@ def propose_location_action(
     terms_check classifies all requested limits, including those from earlier turns.
     as_requested means every term is expressible. Use place_only for no map/coordinates,
     conditional for event triggers, fixed_end for an exact clock cutoff, temporary_rule
-    for an expiring approval, one_time for a snapshot, and other_restriction for any
+    for an expiring approval, timed_pause for automatic resume, history_window for a
+    retrospective list, combined_eta for sharing a trip ETA, one_time for a snapshot, and other_restriction for any
     other unsupported limit. explicit_replacement requires explicitly revised terms.
     complete_turn is true only if the device review fully handles this turn's request.
     The app verifies the audience and handles consent. This tool never executes a share.
@@ -550,6 +568,8 @@ def propose_location_action(
         restriction = terms_check
         if action == "enable_auto_approve" and duration_hours is not None:
             restriction = "temporary_rule"
+        if action == "manage_settings" and duration_hours is not None:
+            restriction = "timed_pause"
         if action == "share_pin":
             restriction = "one_time"
         if restriction in _RESTRICTION_MESSAGES:

@@ -553,3 +553,54 @@ def test_chat_keeps_unavailable_privacy_terms_until_explicitly_replaced():
     temporary = propose("enable_auto_approve", duration_hours=3, terms_check="as_requested")
     assert temporary["status"] == "unsupported_terms" and "standing" in temporary["message"]
     assert propose("enable_auto_approve", terms_check="as_requested") == temporary
+
+
+def test_stop_scope_and_unsupported_management_conditions_stay_distinct():
+    context = SimpleNamespace(state={STATE_LOCATION_CHAT_CONVERSATION: True})
+
+    def propose(action, **values):
+        return propose_location_action(action, tool_context=context, **values)
+
+    assert (
+        propose("stop", direction="all", people=["Ankit"], terms_check="as_requested")["status"]
+        == "invalid_proposal"
+    )
+    stop_all = propose("stop", direction="all", terms_check="as_requested")
+    assert stop_all["direction"] == "all"
+    assert "direction" not in propose("stop", people=["Ankit"], terms_check="as_requested")
+    for action, constraint in (
+        ("stop", "conditional"),
+        ("manage_settings", "timed_pause"),
+        ("list_shares", "history_window"),
+        ("share_live", "combined_eta"),
+    ):
+        blocked = propose(action, terms_check=constraint)
+        assert blocked["status"] == "unsupported_terms" and "id" not in blocked
+        assert propose(action, terms_check="as_requested") == blocked
+
+
+def test_conversation_requires_a_terms_decision_in_the_first_model_call_only_for_location():
+    from google.adk.tools import FunctionTool
+    from google.genai import types
+
+    from hushh_mcp.one_adk import agent_tree
+
+    declaration = FunctionTool(propose_location_action)._get_declaration()
+    original = list(declaration.parameters_json_schema["required"])
+    email = types.FunctionDeclaration(
+        name="ask_email_agent", parameters_json_schema={"type": "object"}
+    )
+    for typed in (True, False):
+        request = SimpleNamespace(
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(function_declarations=[declaration, email])]
+            )
+        )
+        state = {STATE_LOCATION_CHAT_REVIEW: True, STATE_LOCATION_CHAT_CONVERSATION: typed}
+        agent_tree._scope_location_chat_review(SimpleNamespace(state=state), request)
+        location, other = request.config.tools[0].function_declarations
+        assert location.parameters_json_schema["required"] == (
+            original + ["terms_check", "complete_turn"] if typed else original
+        )
+        assert other == email
+        assert declaration.parameters_json_schema["required"] == original

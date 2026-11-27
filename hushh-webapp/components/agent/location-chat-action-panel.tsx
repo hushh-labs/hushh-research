@@ -444,6 +444,17 @@ function LocationChatActionContent({ sendHost, proposal, ownerId, token, vaultKe
         setChoices(available);
         setSelected([]);
         setIntent(draft);
+        if (draft.action === "stop" && draft.direction === "all" && !draft.people?.length && !draft.circles?.length) {
+          const outgoing = available.flatMap(choice => choice.targets);
+          if (!outgoing.length) {
+            setStandaloneStatus("You have no active outgoing location shares.");
+            setStage("settled");
+          } else {
+            setSelected(outgoing);
+            await withPending(requestVersion => prepare(draft, outgoing, requestVersion));
+          }
+          return;
+        }
         if (direct && direct.current()) {
           const exact = exactDirectShareTargets(direct, available);
           if (exact) {
