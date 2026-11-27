@@ -331,8 +331,9 @@ def test_model_search_ingress_cannot_execute_on_shared_hub(
     assert len(matching) == 1
 
 
+@pytest.mark.parametrize("expanded", [False, True])
 async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(
-    monkeypatch, active_account_lifecycle
+    monkeypatch, active_account_lifecycle, expanded
 ):
     monkeypatch.setattr(agent_chat, "request_has_chat_key", lambda owner: owner == "owner-a")
     monkeypatch.setattr(
@@ -357,6 +358,7 @@ async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(
             "pkmContext": "synthetic-scoped-context",
             "accountContextContract": 1,
             "portfolioContextContract": 1,
+            **({"portfolioContextExpanded": True} if expanded else {}),
             "calendarReviewContract": 1,
             "emailMemoryProjection": {
                 "source": "one_memory.markdown",
@@ -376,10 +378,15 @@ async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(
     )
     assert "accountContextContract" not in data.forwarded_props
     assert data.state["temp:one_calendar_review_contract"] is True
-    assert data.state[STATE_PORTFOLIO_CONTEXT_ENABLED]
+    assert data.state[STATE_PORTFOLIO_CONTEXT_ENABLED] == (2 if expanded else 1)
     tool = next(tool for tool in data.tools if tool.name == PORTFOLIO_CONTEXT_TOOL)
-    assert tool.parameters == PORTFOLIO_CONTEXT_PARAMETERS
+    if expanded:
+        assert tool.parameters["properties"]["detail"] == {"type": "string", "enum": ["expanded"]}
+        assert "detail" in tool.parameters["required"]
+    else:
+        assert tool.parameters == PORTFOLIO_CONTEXT_PARAMETERS
     assert "portfolioContextContract" not in data.forwarded_props
+    assert "portfolioContextExpanded" not in data.forwarded_props
     assert data.state[STATE_CONSENT_TOKEN] != "synthetic-owner-capability"
     assert resolve_request_secret(data.state[STATE_CONSENT_TOKEN]) == "synthetic-owner-capability"
     assert resolve_request_secret(data.state[STATE_PKM_CONTEXT]) == "synthetic-scoped-context"
