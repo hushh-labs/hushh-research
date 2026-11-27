@@ -177,6 +177,8 @@ export function parseMainLocationProposal(value: unknown): MainLocationProposal 
   const circles = names(input.circles, 5);
   if (people === null || circles === null) return null;
   const action = input.action as MainLocationAction;
+  if (action === "stop" && input.direction != null &&
+      (input.direction !== "all" || people?.length || circles?.length)) return null;
   if (action === "enable_auto_approve" && (people?.length || input.durationHours != null ||
       input.durationMode != null || input.direction != null)) return null;
   const dedicatedReview = [...locationRecoveryActions, ...locationSafetyActions, "manage_places", "manage_ratings", "manage_contacts", "manage_settings", "disable_auto_approve", "manage_links", "nearby_check_in", "view_self"]

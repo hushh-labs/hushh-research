@@ -3155,10 +3155,22 @@ def _scope_location_chat_review(callback_context: Any, llm_request: Any) -> None
             tools.append(tool)
             continue
         kept = [declaration for declaration in declarations if declaration.name not in excluded]
+        if state is not None and state.get(STATE_LOCATION_CHAT_CONVERSATION) is True:
+            for index, declaration in enumerate(kept):
+                schema = declaration.parameters_json_schema
+                if declaration.name == LOCATION_CHAT_TOOL_NAME and isinstance(schema, dict):
+                    # Require the model's semantic judgment on the first call. Keep the
+                    # cached legacy/voice tool declaration untouched.
+                    required = list(
+                        dict.fromkeys([*schema.get("required", []), "terms_check", "complete_turn"])
+                    )
+                    kept[index] = declaration.model_copy(
+                        update={"parameters_json_schema": {**schema, "required": required}}
+                    )
         if kept:
             tools.append(
                 tool
-                if len(kept) == len(declarations)
+                if kept == declarations
                 else tool.model_copy(update={"function_declarations": kept})
             )
     config.tools = tools
