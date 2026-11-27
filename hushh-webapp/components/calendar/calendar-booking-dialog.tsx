@@ -8,6 +8,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
 import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { trackEvent } from "@/lib/observability/client";
+import type { EventResult } from "@/lib/observability/events";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { GoogleCalendarError } from "@/lib/services/google-calendar-transport";
 import { bookingDefaultDuration, bookingInstant, bookingLocalFields } from "@/lib/calendar/calendar-booking-time";
 import { calendarTimeZone } from "@/lib/calendar/calendar-time-zone";
 import { verifiedCalendarAccountPhoto, type CalendarHusshPeople } from "@/lib/calendar/calendar-hussh-people";
@@ -36,6 +40,13 @@ function emailAddress(value: string) {
   return /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email) && email.length <= 320 ? email : null;
 }
 
+function blockedBeforeWrite(failure: unknown) {
+  return failure instanceof GoogleCalendarError && [
+    "calendar_availability_changed", "calendar_accounts_changed", "calendar_selection_changed",
+    "calendar_destination_read_only", "calendar_permission_required",
+  ].includes(failure.reasonCode || "");
+}
+
 export function CalendarBookingDialog({ opening, accounts, people, userId, token, timeZone, alternatives, onClose, onConfirmed, onConflict, onRequireWrite }: {
   opening: BookingOpening;
   accounts: GoogleCalendarAccount[];
@@ -51,7 +62,7 @@ export function CalendarBookingDialog({ opening, accounts, people, userId, token
 }) {
   const [draft, setDraft] = useState(() => initialDraft(opening, timeZone));
   const [review, setReview] = useState<CalendarBoardBookingReview | null>(null);
-  const reviewedContext = useRef<{ accountKey: string; token: string; userId: string } | null>(null);
+  const reviewedContext = useRef<{ accountKey: string; token: string; userId: string; observe: (result: EventResult) => void } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [guestInput, setGuestInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -66,6 +77,10 @@ export function CalendarBookingDialog({ opening, accounts, people, userId, token
   const accountKey = accounts.map(item => `${item.account_id}:${item.google_email}:${item.connected}:${item.access_level}:${item.grant_generation}`).join("|");
   const accountKeyRef = useRef(accountKey);
   accountKeyRef.current = accountKey;
+  const observationContext = useRef({ token, userId });
+  observationContext.current = { token, userId };
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => { setReview(null); reviewedContext.current = null; }, [accountKey, token, userId]);
   const edit = (change: Partial<Draft>) => { setDraft(current => ({ ...current, ...change })); setReview(null); reviewedContext.current = null; setError(null); };
   const close = () => { if (!busyRef.current) onClose(); };
@@ -107,7 +122,16 @@ export function CalendarBookingDialog({ opening, accounts, people, userId, token
     const endAt = new Date(Date.parse(startAt) + draft.duration * 60_000).toISOString();
     busyRef.current = true; setBusy(true); setError(null);
     const owner = snapshotValidatedAuthSessionOwner();
+    const vaultEpoch = snapshotVaultSessionEpoch();
     const requestAccountKey = accountKeyRef.current;
+    let observed = false;
+    const observe = (result: EventResult) => {
+      if (observed || !owner || owner.userId !== userId || !mounted.current ||
+          !isValidatedAuthSessionOwnerCurrent(owner) || !isVaultSessionEpochCurrent(vaultEpoch) ||
+          requestAccountKey !== accountKeyRef.current || observationContext.current.token !== token || observationContext.current.userId !== userId) return;
+      observed = true;
+      trackEvent("one_calendar_action", { route_id: "one_calendar", action: "booking_create", result });
+    };
     try {
       const proposed = await GoogleCalendarService.reviewBoardBooking({
         vaultOwnerToken: token, userId, accountId: draft.accountId,
@@ -119,10 +143,11 @@ export function CalendarBookingDialog({ opening, accounts, people, userId, token
       });
       if ((!owner || isValidatedAuthSessionOwnerCurrent(owner)) && requestAccountKey === accountKeyRef.current) {
         setReview(proposed);
-        reviewedContext.current = { accountKey: requestAccountKey, token, userId };
-        if (proposed.plan.board_conflicts.length) { setError("This time overlaps a checked Calendar account. Choose another opening."); onConflict(); }
+        reviewedContext.current = { accountKey: requestAccountKey, token, userId, observe };
+        if (proposed.plan.board_conflicts.length) { observe("expected_error"); setError("This time overlaps a checked Calendar account. Choose another opening."); onConflict(); }
       }
     } catch (failure) {
+      observe(blockedBeforeWrite(failure) ? "expected_error" : "error");
       setError(failure instanceof Error ? failure.message : "Calendar review could not be prepared.");
       onConflict();
     } finally { busyRef.current = false; setBusy(false); }
@@ -130,10 +155,11 @@ export function CalendarBookingDialog({ opening, accounts, people, userId, token
 
   const confirm = async () => {
     if (busyRef.current || !review || review.plan.board_conflicts.length || !token) return;
+    const observe = reviewedContext.current?.observe;
     if (reviewedContext.current?.accountKey !== accountKey || reviewedContext.current?.token !== token || reviewedContext.current?.userId !== userId) {
       setReview(null); setError("Calendar account or owner changed. Review the time again."); return;
     }
-    if (Date.parse(review.expires_at) <= Date.now()) { setReview(null); setError("The review expired. Review the time again."); return; }
+    if (Date.parse(review.expires_at) <= Date.now()) { observe?.("expected_error"); setReview(null); setError("The review expired. Review the time again."); return; }
     busyRef.current = true; setBusy(true); setError(null);
     const owner = snapshotValidatedAuthSessionOwner();
     const proposed = review;
@@ -145,11 +171,14 @@ export function CalendarBookingDialog({ opening, accounts, people, userId, token
         vaultOwnerToken: token, userId, proposalId: proposed.proposal_id, accountId: proposed.plan.account_id,
       });
       if (!result.event?.id) throw new Error("Calendar did not confirm the event. Check Google Calendar before booking again.");
+      if (result.action === "create" && typeof result.event.id === "string" && result.event.id.trim()) observe?.("success");
       if (!owner || isValidatedAuthSessionOwnerCurrent(owner)) {
         const reviewedAccount = proposed.plan.board_accounts.find(item => item.account_id === proposed.plan.account_id);
         onConfirmed(result, result.event.start?.dateTime || proposed.plan.start_at, proposed.plan.account_id, reviewedAccount?.account_email || "the selected account");
       }
     } catch (failure) {
+      // Execution may already have written remotely; uncertainty is not failure.
+      if (blockedBeforeWrite(failure)) observe?.("expected_error");
       setError(failure instanceof Error ? `${failure.message} Check Calendar before booking again if the result is uncertain.` : "Check Google Calendar before booking again.");
       onConflict();
     } finally { busyRef.current = false; setBusy(false); }

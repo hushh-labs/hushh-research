@@ -14,7 +14,8 @@
     "one_calendar_action": [
       "connected",
       "disconnected",
-      "chat_opened"
+      "chat_opened",
+      "booking_create"
     ],
     "one_crm_action": [
       "record_created",
@@ -87,6 +88,6 @@
     "recommendation_viewed": [],
     "ria_activation_completed": []
   },
-  "sourceDigest": "301ab4151d146fe3f823719876f727d03e4a9610893b0c364991b6339de2827c",
+  "sourceDigest": "31fff69b1954573d1c07e0dc8ea9fd9853766f49985aab8de4690926a98969c6",
   "version": 1
 }
