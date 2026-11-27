@@ -626,6 +626,8 @@ const CIRCLE_KIND_OPTIONS: {
 export type CreateCircleFlowProps = {
   active?: boolean;
   busy: boolean;
+  /** The admitted save owner already records confirmed creation results. */
+  creationObservedByOwner?: boolean;
   onSubmit: (name: string, kind: OneLocationCircleKind, existingCircleId?: string, customTypeLabel?: string) => Promise<OneLocationCircleDetail>;
   customTypes?: readonly string[];
   customTypesSupported?: boolean;
@@ -642,6 +644,7 @@ export type CreateCircleFlowProps = {
 export function useCreateCircleFlow({
   active = true,
   busy,
+  creationObservedByOwner = false,
   onSubmit,
   showCircleType = true,
   customTypes = [],
@@ -750,7 +753,7 @@ export function useCreateCircleFlow({
         throw new Error("Could not save the Circle type. Please try again.");
       }
       try {
-        if (!savedCircle) trackEvent("one_location_circle_created", {
+        if (!savedCircle && !creationObservedByOwner) trackEvent("one_location_circle_created", {
           route_id: "one_location",
           result: "success",
           circle_kind: draft.kind,
