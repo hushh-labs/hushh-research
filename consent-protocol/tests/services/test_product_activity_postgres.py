@@ -105,6 +105,7 @@ def test_observation_lifecycle_on_disposable_postgres(monkeypatch):
                 url.set(database=database), browser_role, monkeypatch
             )
         )
+        asyncio.run(_assert_all_account_feature_aggregate(url.set(database=database)))
         generation = activity.admission("owner")["generation"]
         _assert_domain_value_receipts(engine, browser_role, generation)
         asyncio.run(_assert_canonical_reply_association(url.set(database=database), monkeypatch))
@@ -1312,3 +1313,192 @@ def _assert_remaining_source_queries(engine):
             assert len(rows) == expected, query
             if query == outcomes.MEMORY_SQL:
                 assert all(outcomes.confirmed_memory(row, "owner") for row in rows)
+
+
+async def _assert_all_account_feature_aggregate(url):
+    """Run the actual aggregate SQL on overlapping private, disposable rows."""
+    import asyncpg
+
+    from hushh_mcp.services import metrics_feature_observations as features
+
+    conn = await asyncpg.connect(
+        url.set(drivername="postgresql").render_as_string(hide_password=False)
+    )
+    tx = conn.transaction()
+    await tx.start()
+    try:
+        await conn.execute("SET LOCAL statement_timeout='5s'")
+        at = datetime.now(timezone.utc)
+        cutoff, since = at + timedelta(seconds=1), at - timedelta(days=7)
+        owners = ["feature-a", "feature-b", "feature-excluded"]
+        await conn.executemany(
+            "INSERT INTO actor_profiles(user_id) VALUES($1)", [(uid,) for uid in owners]
+        )
+        await conn.executemany(
+            "INSERT INTO one_product_activity_epochs(user_id) VALUES($1)",
+            [(uid,) for uid in owners],
+        )
+        generations = dict(
+            await conn.fetch(
+                "SELECT user_id,generation FROM one_product_activity_epochs WHERE user_id=ANY($1::text[])",
+                owners,
+            )
+        )
+        action = "chat:agent_email"
+        generic = "observation:one_memory_action:detail_edited"
+        catalog = features.activity_catalog()
+        descriptors = {row["id"]: row for row in catalog["actions"]}
+        reviewed = json.dumps(
+            [
+                {"action_id": row["id"], "agent_id": row["agentId"], "source": row["proof"]}
+                for row in descriptors.values()
+            ]
+        )
+        sequence = 0
+
+        async def emit(
+            uid,
+            action_id,
+            agent,
+            phase,
+            operation,
+            *,
+            expired=False,
+            old_epoch=False,
+            observed=None,
+        ):
+            nonlocal sequence
+            sequence += 1
+            observed = observed or at
+            await conn.execute(
+                """INSERT INTO one_product_activity_observations
+              (event_id,user_id,generation,agent_id,action_id,catalog_revision,source,phase,operation_key,observed_at,expires_at)
+              VALUES($1,$2,$3,$4,$5,$6,'client_reported',$7,$8,$9,$10)""",
+                f"{sequence:064x}",
+                uid,
+                uuid4() if old_epoch else generations[uid],
+                agent,
+                action_id,
+                catalog["revision"],
+                phase,
+                operation,
+                observed,
+                at - timedelta(seconds=1) if expired else observed + timedelta(days=7),
+            )
+
+        for uid, phase, operation in [
+            (owners[0], "started", "one"),
+            (owners[0], "returned", "one"),
+            (owners[1], "started", "two"),
+            (owners[1], "failed", "two"),
+            (owners[0], "returned", "three"),
+        ]:
+            await emit(uid, action, "agent_email", phase, operation)
+        for uid in owners[:2]:
+            await emit(uid, generic, "agent_personal_information", "returned", None)
+        await emit(
+            owners[0],
+            "observation:one_memory_action:detail_deleted",
+            "agent_personal_information",
+            "returned",
+            None,
+        )
+        await emit(owners[0], "retired:unknown", "agent_email", "returned", None)
+        await emit(owners[0], action, "agent_email", "returned", "expired", expired=True)
+        await emit(owners[0], action, "agent_email", "returned", "old", old_epoch=True)
+        await emit(owners[2], action, "agent_email", "returned", "excluded")
+        await emit(owners[0], action, "agent_email", "returned", "boundary", observed=cutoff)
+        raw = json.loads(
+            await conn.fetchval(
+                features.FEATURE_OBSERVATIONS_SQL, owners[:2], since, cutoff, at, reviewed
+            )
+        )
+        rows, counts, by_agent = features._observations(raw, descriptors, owners[:2])
+        assert counts == {
+            "sourceRows": 9,
+            "unmappedObservations": 1,
+            "dailyCappedAccounts": 0,
+            "observedAccounts": 2,
+            "observations": 8,
+            "correlatedAttempts": 3,
+        }
+        assert by_agent["agent_email"]["observedAccounts"] == 2
+        assert sum(v["observedAccounts"] for v in by_agent.values()) == 4
+        assert by_agent["agent_personal_information"]["observedAccounts"] == 2
+        assert (
+            sum(
+                row["observedAccounts"]
+                for row in rows
+                if row["agentId"] == "agent_personal_information"
+            )
+            == 3
+        )
+        row = next(row for row in rows if row["actionId"] == action)
+        assert row["observedAccounts"] == row["allSourceObservedAccounts"] == 2
+        assert row["phases"]["returned"] == {"accounts": 1, "observations": 2}
+        assert sum(v["accounts"] for v in row["phases"].values()) == 4
+        assert row["attempts"]["returned"] == 2 and row["attempts"]["failed"] == 1
+        assert (
+            next(row for row in rows if row["actionId"] == generic)["uncorrelatedObservations"] == 2
+        )
+        # Empty private fixture tables isolate the unchanged native candidate
+        # branch, while observations exercise its real expiry-indexed branch.
+        for table, column in [
+            ("agent_chat_messages", "completed_at"),
+            ("pkm_domain_commits", "created_at"),
+            ("gmail_owner_send_actions", "sent_at"),
+            ("one_product_value_receipts", "occurred_at"),
+            ("one_action_directive_ledger", "settled_at"),
+            ("connected_system_audit_events", "created_at"),
+            ("drive_share_permission_operations", "settled_at"),
+        ]:
+            await conn.execute(
+                f"CREATE TEMP TABLE {table}(user_id TEXT,{column} TIMESTAMPTZ) ON COMMIT DROP"
+            )
+        await conn.execute("INSERT INTO agent_chat_messages VALUES('native-only',$1)", at)
+        candidates = await features._candidates(conn, since, cutoff, at)
+        assert candidates == sorted([*owners, "native-only"])
+        await conn.execute(
+            "INSERT INTO agent_chat_messages SELECT 'sentinel-'||i,$1 FROM generate_series(1,5001) i",
+            at,
+        )
+        with pytest.raises(features.native.AggregateUnavailable, match="bound exceeded"):
+            await features._candidates(conn, since, cutoff, at)
+        # A daily cap is a limitation indicator, never a claim of complete capture.
+        for _i in range(494):
+            await emit(owners[0], generic, "agent_personal_information", "returned", None)
+        raw = json.loads(
+            await conn.fetchval(
+                features.FEATURE_OBSERVATIONS_SQL, owners[:2], since, cutoff, at, reviewed
+            )
+        )
+        assert raw["dailyCappedAccounts"] == 1
+        # Keep the overflow setup out of domain/retention trigger work. This
+        # isolated temporary table has the same bounded projection columns; the
+        # positive cases above used the installed private ledger and real epoch.
+        await conn.execute("""CREATE TEMP TABLE one_product_activity_observations
+          (LIKE public.one_product_activity_observations INCLUDING DEFAULTS INCLUDING CONSTRAINTS)
+          ON COMMIT DROP""")
+        # The source-row sentinel must reject a truncation instead of publishing it.
+        await conn.execute(
+            """INSERT INTO one_product_activity_observations
+          (event_id,user_id,generation,agent_id,action_id,catalog_revision,source,phase,operation_key,observed_at,expires_at)
+          SELECT lpad(to_hex(i),64,'0'),$1,$2,'agent_email',$3,$4,'client_reported','returned',NULL,$5,$5+INTERVAL '7 days'
+          FROM generate_series(10000,110001) i""",
+            owners[0],
+            generations[owners[0]],
+            action,
+            catalog["revision"],
+            at,
+        )
+        overflow = json.loads(
+            await conn.fetchval(
+                features.FEATURE_OBSERVATIONS_SQL, owners[:2], since, cutoff, at, reviewed
+            )
+        )
+        assert overflow["sourceRows"] == 100001
+        with pytest.raises(features.native.AggregateUnavailable, match="bound exceeded"):
+            features._observations(overflow, descriptors, owners[:2])
+    finally:
+        await tx.rollback()
+        await conn.close()
