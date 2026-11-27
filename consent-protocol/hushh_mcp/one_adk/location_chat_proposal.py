@@ -17,6 +17,7 @@ PROPOSAL_TYPE: Final = "location.chat_action"
 PROPOSAL_READY: Final = "proposal_ready"
 STATE_LOCATION_CHAT_REVIEW = "temp:hussh:location_chat_review"
 STATE_LOCATION_CHAT_CONVERSATION = "temp:hussh:location_chat_conversation"
+STATE_LOCATION_CHAT_TIMED_APPROVAL = "temp:hussh:location_chat_timed_approval"
 STATE_LOCATION_CHAT_CONTINUATION = "temp:hussh:location_chat_continuation"
 VOICE_LOCATION_CHAT_FEATURE = "location_chat_review"
 
@@ -58,6 +59,45 @@ OfferedLocationChatAction = Literal[
 LocationChatAction = Literal[OfferedLocationChatAction, "share_pin"]
 DurationMode = Literal["timed", "until_stopped"]
 Direction = Literal["incoming", "outgoing", "all"]
+LocationTerms = Literal[
+    "as_requested",
+    "explicit_replacement",
+    "place_only",
+    "conditional",
+    "fixed_end",
+    "temporary_rule",
+    "timed_pause",
+    "history_window",
+    "combined_eta",
+    "one_time",
+    "other_restriction",
+]
+_RESTRICTION_MESSAGES = {
+    "place_only": "Live sharing includes map coordinates. City-only or map-free sharing is unavailable.",
+    "conditional": "Location cannot start or stop this action automatically on an event or arrival.",
+    "fixed_end": "Chat needs a relative duration for this action. It cannot guarantee that exact cutoff.",
+    "temporary_rule": "I need an available timed approval rule and a duration between 15 minutes and 24 hours to set that deadline.",
+    "timed_pause": "A pause cannot resume automatically after a duration.",
+    "history_window": "The in-chat list shows active shares. It cannot return a sharing history for a date range.",
+    "combined_eta": "This Location action only shares a live map. It cannot send a trip ETA with the share.",
+    "one_time": "One offers live location sharing. A one-time position is unavailable.",
+    "other_restriction": "The requested restriction cannot be enforced for this Location action.",
+}
+_SHARE_TERMS = {"share_options", "share_private", "share_public", "share_live", "share_pin"}
+_REVIEWED_TERMS = _SHARE_TERMS | {
+    "ask",
+    "approve",
+    "enable_auto_approve",
+    "extend",
+    "set_duration",
+    "ask_extension",
+    "check_in",
+    "stop",
+    "manage_settings",
+    "list_shares",
+    "list_requests",
+}
+
 _LIST_ACTIONS = frozenset({"list_shares", "list_requests"})
 _UNTARGETED_ACTIONS = frozenset(
     {
@@ -81,6 +121,7 @@ _UNTARGETED_ACTIONS = frozenset(
 )
 _TIME_ACTIONS = frozenset(
     {
+        "enable_auto_approve",
         "share_options",
         "share_private",
         "share_public",
@@ -139,15 +180,9 @@ _TYPED_SHARE_FLOW = (
     "If the original request already provides the audience or duration, carry those "
     "terms forward and ask only for what is missing. For 'Share my location with "
     "NM circle for 1 hour', immediately propose share_live with circles=['NM'] and "
-    "duration_hours=1. When a fresh foreground message explicitly commands a private "
-    "live share and states the exact audience and duration together, its Send is "
-    "the person's authorization. They have already pressed Send. Never instruct "
-    "them to tap Send, open a card, or confirm again. Leave the result to the app. "
-    "If a text response is necessary, say only 'Checking the share.' Only the app can "
-    "verify the submitted terms and current audience, execute the share and report "
-    "the receipt. For terms collected across turns, ambiguous matches, or a return "
-    "from first-time Location onboarding, let the app ask for confirmation of the "
-    "resolved terms in the original conversation. "
+    "duration_hours=1. The app resolves the private audience and presents the final Send "
+    "action in this conversation. Leave confirmation and the delivery receipt to the "
+    "app. Do not open Location or offer a public link for a private share or request. "
     "Keep the exchange in Chat. "
     "Use share_public for an explicit public link. Use share_options when asked what "
     "sharing options exist. "
@@ -235,7 +270,23 @@ LOCATION_CHAT_TYPED_INSTRUCTION = (
     _LOCATION_REVIEW_TOOL
     + _TYPED_SHARE_FLOW
     + _LOCATION_ACTIONS
-    + "A proposal contains only requested terms. Let the app ask any required final "
+    + "For every proposal classify terms_check against the whole request, including earlier "
+    "restrictions. A city or area name only, hiding the map, or withholding coordinates is "
+    "place_only. Approximate sharing still reveals map coordinates. A clock cutoff is fixed_end. "
+    "A start or stop on arrival is conditional. For an approval window use temporary_rule with its explicit relative duration_hours. "
+    "For a pause with automatic resumption use timed_pause, for historical activity over a period "
+    "use history_window, and for combined trip ETA sharing use combined_eta. For an unspecified "
+    "trip window ask for its actual dates or a relative duration. For an explicit request to "
+    "stop sharing with everyone use stop with direction=all and no names. An ordinary stop "
+    "or a named person never means everyone. For 'who can see me' use list_shares outgoing, "
+    "and for 'is Ankit sharing with me' use list_shares incoming with Ankit. "
+    "Pass these restrictions to the tool even when unsupported. Never reduce them to a normal "
+    "share or standing approval. State the limitation and ask whether the user wants different "
+    "terms. Only use explicit_replacement after the user independently states new terms which "
+    "replace the restriction. A bare yes, name or duration cannot remove a privacy constraint. "
+    "Use as_requested for normal live shares with a relative duration, requests and alerts. "
+    "Set complete_turn true when the in-chat Location control answers the entire current turn. "
+    "A proposal contains only requested terms. Let the app ask any required final "
     "question for a private share, public link, auto-approval change, or Save My "
     "Soul alert once it has resolved the terms on this device. Never supply your "
     "own confirmation question for these proposals. If the person only confirms, declines, or cancels it, "
@@ -325,10 +376,20 @@ def location_chat_enabled() -> bool:
     }
 
 
-def admit_location_chat_review(forwarded: dict[str, Any], *, owner_admitted: bool) -> bool:
+def pod_location_chat_enabled(environment: str | None) -> bool:
+    # An image-only owner upgrade retains the old environment. Only the two
+    # rollout lanes may negotiate proposals without an explicit pod override.
+    if "ONE_MAIN_CHAT_LOCATION_ENABLED" in os.environ:
+        return location_chat_enabled()
+    return environment in {"dev", "development", "uat"}
+
+
+def admit_location_chat_review(
+    forwarded: dict[str, Any], *, owner_admitted: bool, pod_environment: str | None = None
+) -> bool:
     if (
         not owner_admitted
-        or not location_chat_enabled()
+        or not pod_location_chat_enabled(pod_environment)
         or forwarded.get("locationChatReview") is not True
     ):
         return False
@@ -337,7 +398,8 @@ def admit_location_chat_review(forwarded: dict[str, Any], *, owner_admitted: boo
         # Older pinned One clients advertised this capability without a screen snapshot.
         return forwarded.get("mainChat") is True
     route = screen.get("route") if isinstance(screen, dict) else None
-    return isinstance(route, dict) and route.get("pathname") == "/"
+    pathname = route.get("pathname") if isinstance(route, dict) else None
+    return isinstance(pathname, str) and pathname.partition("?")[0].partition("#")[0] == "/"
 
 
 def legacy_location_chat_action(state: Any, action_id: str) -> dict[str, str] | None:
@@ -413,7 +475,8 @@ class LocationChatIntent(BaseModel):
         }:
             raise ValueError("This action does not accept Circles.")
         if self.direction is not None and self.action not in _LIST_ACTIONS:
-            raise ValueError("Direction is only used for lists.")
+            if self.action != "stop" or self.direction != "all" or self.people or self.circles:
+                raise ValueError("Direction is used for lists or an explicit stop for everyone.")
         if self.duration_hours is not None and self.action not in _TIME_ACTIONS:
             raise ValueError("This action has no duration.")
         if self.duration_mode is not None and self.action not in {"share_live", "set_duration"}:
@@ -428,9 +491,11 @@ class LocationChatContinuation(LocationChatIntent):
 
 
 def admit_location_chat_continuation(
-    forwarded: dict[str, Any], *, owner_admitted: bool
+    forwarded: dict[str, Any], *, owner_admitted: bool, pod_environment: str | None = None
 ) -> dict[str, Any] | None:
-    if not admit_location_chat_review(forwarded, owner_admitted=owner_admitted):
+    if not admit_location_chat_review(
+        forwarded, owner_admitted=owner_admitted, pod_environment=pod_environment
+    ):
         return None
     try:
         context = LocationChatContinuation.model_validate(forwarded.get("locationChatContinuation"))
@@ -471,6 +536,8 @@ def propose_location_action(
     duration_mode: DurationMode | None = None,
     direction: Direction | None = None,
     tool_context: Any = None,
+    terms_check: LocationTerms | None = None,
+    complete_turn: bool = False,
 ) -> dict[str, Any]:
     """Prepare a review in the current conversation for a Location action.
 
@@ -482,8 +549,58 @@ def propose_location_action(
     check_in, nearby_check_in, and view_self. People
     and Circles are names as given, not IDs. Supply duration_hours as a
     number only when stated. For list direction use incoming, outgoing, or all.
-    This tool proposes terms only. The app verifies the audience and handles consent.
+    terms_check classifies all requested limits, including those from earlier turns.
+    as_requested means every term is expressible. Use place_only for no map/coordinates,
+    conditional for event triggers, fixed_end for an exact clock cutoff, temporary_rule
+    for an expiring approval, timed_pause for automatic resume, history_window for a
+    retrospective list, combined_eta for sharing a trip ETA, one_time for a snapshot, and other_restriction for any
+    other unsupported limit. explicit_replacement requires explicitly revised terms.
+    complete_turn is true only if the device review fully handles this turn's request.
+    The app verifies the audience and handles consent. This tool never executes a share.
     """
+    conversational = (
+        tool_context is not None
+        and tool_context.state.get(STATE_LOCATION_CHAT_CONVERSATION) is True
+    )
+    if conversational and action in _REVIEWED_TERMS:
+        # Owner/conversation-scoped ADK session state survives short follow-ups.
+        family = "share" if action in _SHARE_TERMS else action
+        hold_key = f"location_chat:restricted_terms:{family}"
+        held = tool_context.state.get(hold_key)
+        restriction = terms_check
+        timed_approval = (
+            action == "enable_auto_approve"
+            and duration_hours is not None
+            and tool_context.state.get(STATE_LOCATION_CHAT_TIMED_APPROVAL) is True
+            and terms_check in {"as_requested", "temporary_rule", "explicit_replacement"}
+        )
+        if action == "enable_auto_approve" and duration_hours is not None and not timed_approval:
+            # Preserve stricter conditions (for example, an absolute cutoff).
+            if restriction in {"as_requested", "explicit_replacement", None}:
+                restriction = "temporary_rule"
+        if timed_approval and restriction == "temporary_rule":
+            restriction = "as_requested"
+        if action == "manage_settings" and duration_hours is not None:
+            restriction = "timed_pause"
+        if action == "share_pin":
+            restriction = "one_time"
+        if restriction in _RESTRICTION_MESSAGES:
+            tool_context.state[hold_key] = restriction
+        elif (
+            held in _RESTRICTION_MESSAGES
+            and terms_check != "explicit_replacement"
+            and not (held == "temporary_rule" and timed_approval)
+        ):
+            restriction = held
+        if restriction in _RESTRICTION_MESSAGES:
+            return {"status": "unsupported_terms", "message": _RESTRICTION_MESSAGES[restriction]}
+        if terms_check not in {"as_requested", "explicit_replacement"} and not timed_approval:
+            return {
+                "status": "terms_required",
+                "message": "Classify all user restrictions before preparing a review.",
+            }
+    if action == "enable_auto_approve" and duration_hours is not None and not conversational:
+        return {"status": "unsupported_terms", "message": _RESTRICTION_MESSAGES["temporary_rule"]}
     if action == "share_pin":
         return {
             "status": "invalid_proposal",
@@ -496,15 +613,31 @@ def propose_location_action(
                 "people": [] if people is None else people,
                 "circles": [] if circles is None else circles,
                 "duration_hours": duration_hours,
-                "duration_mode": duration_mode,
+                # A location request already has timed semantics. Gemini sometimes
+                # supplies that redundant word alongside the correct numeric duration.
+                "duration_mode": None
+                if action in {"ask", "enable_auto_approve"}
+                and duration_mode == "timed"
+                and duration_hours is not None
+                else duration_mode,
                 "direction": direction,
             }
         )
     except ValidationError:
         return {"status": "invalid_proposal", "message": "Ask for the missing or unclear details."}
     proposal = make_location_chat_proposal(intent)
-    if tool_context and tool_context.state.get(STATE_LOCATION_CHAT_CONVERSATION) is True:
+    if conversational:
         proposal.conversation = True
+        if action in _REVIEWED_TERMS and (
+            terms_check == "explicit_replacement" or (timed_approval and held == "temporary_rule")
+        ):
+            tool_context.state[hold_key] = None
+        if complete_turn:
+            from hushh_mcp.one_adk.search_answer import _sole_search
+
+            invocation = getattr(tool_context, "_invocation_context", None)
+            if invocation is not None and _sole_search(invocation, TOOL_NAME):
+                tool_context.actions.skip_summarization = True
     return proposal.payload()
 
 

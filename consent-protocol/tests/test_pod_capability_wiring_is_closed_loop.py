@@ -24,10 +24,12 @@ was exactly this, shipped this workstream. Assertion A is the one that catches i
 from __future__ import annotations
 
 import re
+import shlex
 import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 from hushh_mcp.services.compute_backend import PodSpec
 from hushh_mcp.services.gcp_backend import GcpBackend
@@ -84,6 +86,53 @@ def _rendered_pod_env(env_overrides: dict[str, str]) -> dict[str, str]:
     return {e["name"]: str(e.get("value", "")) for e in env if "name" in e}
 
 
+def _dev_app_surface_block(script: str) -> str:
+    """Exercise the shared Dev workflow override, Cloud Build pack and actual hub emissions."""
+    workflow = (_REPO / ".github/workflows/deploy-dev-implementation.yml").read_text(
+        encoding="utf-8"
+    )
+    target = workflow.index("_ONE_MAIN_CHAT_LOCATION_ENABLED:' deploy/backend.cloudbuild.yaml")
+    start = workflow.rindex("          if ", 0, target)
+    end = workflow.index("          fi\n", target) + len("          fi\n")
+    overrides = subprocess.run(  # noqa: S603 - Execute the checked-in Dev workflow with fixed test inputs.
+        [
+            "bash",
+            "-ec",
+            'DEV_TARGET=shared-dev; SUBSTITUTIONS="";\n'
+            + workflow[start:end]
+            + 'printf "%s" "$SUBSTITUTIONS"',
+        ],
+        cwd=_REPO,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    build = yaml.safe_load((_REPO / "deploy/backend.cloudbuild.yaml").read_text(encoding="utf-8"))
+    values = dict(build["substitutions"])
+    values.update(part.split("=", 1) for part in overrides.split("##") if part)
+    pack = next(
+        entry
+        for step in build["steps"]
+        for entry in step.get("env", ())
+        if entry.startswith("_APP_SURFACE_SETTINGS=")
+    ).split("=", 1)[1]
+    packed = re.sub(r"\$\{(_[A-Z0-9_]+)\}", lambda m: str(values[m[1]]), pack)
+    emitter = next(
+        line
+        for line in script.splitlines()
+        if line.startswith('append_optional_env "ONE_MAIN_CHAT_LOCATION_ENABLED"')
+    )
+    return "\n".join(
+        (
+            f"_APP_SURFACE_SETTINGS={shlex.quote(packed)}",
+            "source scripts/deploy/backend-phone-rollback.sh",
+            "source scripts/deploy/backend-app-surface-settings.sh",
+            emitter,
+            "",
+        )
+    )
+
+
 def _run_dev_block() -> dict[str, str]:
     """Execute the real dev block of the deploy script and return the env it emits.
 
@@ -116,7 +165,15 @@ def _run_dev_block() -> dict[str, str]:
         "append_optional_secret() { :; }\n"
     )
     result = subprocess.run(  # noqa: S603 - fixed argv, no shell, test-local input
-        ["bash", "-c", preamble + slice_ + '\nprintf "%s\\n" "${env_vars[@]}"'],  # noqa: S607
+        [
+            "bash",
+            "-c",
+            preamble
+            + _dev_app_surface_block(script)
+            + slice_
+            + '\nprintf "%s\\n" "${env_vars[@]}"',
+        ],  # noqa: S607
+        cwd=_REPO,
         text=True,
         capture_output=True,
         check=True,

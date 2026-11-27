@@ -21,6 +21,7 @@ export function selectAutoApprovableRequests(input: {
   enabled: boolean;
   /** Server activation time, ISO-8601, or null while the rule is off. */
   enabledAt: string | null;
+  expiresAt?: string | null;
   /** Required rule shape. Exact relationship membership is checked by the server. */
   scope: AutoApproveScope | null;
   /** "Stop sending my location" outranks every convenience. */
@@ -46,6 +47,7 @@ export function selectAutoApprovableRequests(input: {
   if (!Number.isFinite(enabledAtMs)) return [];
 
   const nowMs = Date.now();
+  if (input.expiresAt != null && !(Date.parse(input.expiresAt) > nowMs)) return [];
   return pendingRequests.filter((request) => {
     if (!isLocationRequestPending(request, nowMs)) return false;
     if (alreadyAttemptedIds.has(request.id)) return false;

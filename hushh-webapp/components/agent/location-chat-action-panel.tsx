@@ -8,6 +8,7 @@ import { LocationChatSharePicker, type PrivateLocationSelection } from "@/compon
 import { LocationChatPublicShare } from "@/components/agent/location-chat-action/location-chat-public-share";
 import { LocationChatPublicLinks } from "@/components/agent/location-chat-action/location-chat-public-links";
 import { captureChatLocation, chatLocationPermissionIssue, enableChatDeviceLocation, LocationChatPermissionRecovery, type ChatLocationPermissionIssue } from "@/components/agent/location-chat-action/location-chat-permission";
+import { LocationChatSend } from "./location-chat-action/location-chat-send";
 import { MapRendererAccess } from "@/components/one-location/map-renderer-access";
 import { useCoarseClock } from "@/lib/perf/use-periodic-task";
 import { flushLocationStops, hasQueuedLocationStop, locationStopQueueRevision, queueLocationStop, subscribeLocationStopQueue } from "@/lib/location/pending-stops";
@@ -140,7 +141,10 @@ function snapshotFor(state: OneLocationState | null, plan: MainLocationPlan) {
   return { request, grant, id };
 }
 
+type ExactShareReview = { share: DirectLocationShare; targets: MainLocationTarget[]; expanded: MainLocationTarget[] };
+
 type PanelProps = {
+  sendHost?: HTMLElement | null;
   proposal: MainLocationProposal;
   ownerId: string | null;
   token: string | null;
@@ -205,7 +209,7 @@ export function LocationChatActionPanel(props: PanelProps) {
   const safety = action === "sos_review" || action === "sos_stop" || action === "sms_contacts";
   return <div ref={node}>{activated ? safety
     ? props.ownerId && props.token
-      ? <LocationChatSafety key={props.ownerId} action={action} ownerId={props.ownerId} token={props.token} allowReview={props.allowReview} {...childConversation} />
+      ? <LocationChatSafety key={props.ownerId} action={action} ownerId={props.ownerId} token={props.token} allowReview={props.allowReview} sendHost={props.sendHost} {...childConversation} />
       : props.allowReview ? <UnlockLocationCard onUnlock={props.onUnlock} /> : null
     : <LocationChatActionContent {...props} firstObservation={firstUse ? checkedSetup : null} nearViewport={nearViewport} childConversation={childConversation} /> : null}</div>;
 }
@@ -218,7 +222,7 @@ function UnlockLocationCard({ onUnlock }: { onUnlock: () => void }) {
   }} onRecover={onUnlock} />;
 }
 
-function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnlock, allowReview, onContinuationChange, claimEnable, claimDirectShare, onFirstUse, onOpenLocation, afterSetup, onConversationReply, onConversationText, nearViewport, childConversation, firstObservation }: PanelProps & {
+function LocationChatActionContent({ sendHost, proposal, ownerId, token, vaultKey, onUnlock, allowReview, onContinuationChange, claimEnable, claimDirectShare, onFirstUse, onOpenLocation, afterSetup, onConversationReply, onConversationText, nearViewport, childConversation, firstObservation }: PanelProps & {
   firstObservation: { settings: Awaited<ReturnType<typeof getLocationAccountSettings>>; observedAt: number } | null;
   nearViewport: boolean;
   childConversation: { onConversationText?: (text: string) => void; onConversationReply?: (handle: LocationConversationReply | null) => void };
@@ -255,6 +259,7 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
   const [online, setOnline] = useState(true);
   const encryptedAttempts = useRef(new Map<string, OneLocationEncryptedEnvelope>());
   const busyRef = useRef(false);
+  const exactReview = useRef<ExactShareReview | undefined>(undefined);
   const revision = useRef(0);
   const alive = useRef(false);
   const dismiss = () => {
@@ -439,6 +444,17 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
         setChoices(available);
         setSelected([]);
         setIntent(draft);
+        if (draft.action === "stop" && draft.direction === "all" && !draft.people?.length && !draft.circles?.length) {
+          const outgoing = available.flatMap(choice => choice.targets);
+          if (!outgoing.length) {
+            setStandaloneStatus("You have no active outgoing location shares.");
+            setStage("settled");
+          } else {
+            setSelected(outgoing);
+            await withPending(requestVersion => prepare(draft, outgoing, requestVersion));
+          }
+          return;
+        }
         if (direct && direct.current()) {
           const exact = exactDirectShareTargets(direct, available);
           if (exact) {
@@ -689,10 +705,14 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
     setPlans(prepared);
     setStaleReview(false);
     setPreview(null);
-    setStage("review");
-    if (direct?.current() && exactDirectSharePlans(direct, expanded, prepared) && prepared.length === outcomes.length) {
-      await commit(version, prepared, { share: direct, targets, expanded });
+    exactReview.current = undefined;
+    if (direct && (!direct.current() || !exactDirectSharePlans(direct, expanded, prepared))) {
+      setStaleReview(true);
+      setError("The audience or sharing terms changed. Please send the request again for a fresh review.");
+    } else if (direct) {
+      exactReview.current = { share: direct, targets, expanded };
     }
+    setStage("review");
   }
 
   async function start(next: MainLocationProposal, targets: MainLocationTarget[], version: number) {
@@ -728,9 +748,7 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, chosenOrSingle, choices, chooseIndex, allowReview]);
 
-  async function commit(version: number, reviewed = plans, direct?: {
-    share: DirectLocationShare; targets: MainLocationTarget[]; expanded: MainLocationTarget[];
-  }) {
+  async function commit(version: number, reviewed = plans, direct = exactReview.current) {
     if (!reviewed || !token || !ownerId) return;
     const current = () => stillCurrent(version) && document.visibilityState !== "hidden" && (!direct || direct.share.current());
     const pending = reviewed.filter((plan) => plan.status === "pending");
@@ -788,6 +806,8 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
         return;
       }
     }
+    // Subsequent retries reconcile only the unconfirmed plan receipts.
+    exactReview.current = undefined;
     const results = await settleMainLocationBatch(pending, async (reviewedPlan) => {
       if (!current()) throw new Error("The chat changed before this action could be sent.");
       let plan = reviewedPlan;
@@ -1011,6 +1031,10 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
   if (!ownerId || !token) return allowReview ? <UnlockLocationCard onUnlock={onUnlock} /> : null;
   if (conversational && stage !== "setup" && stage !== "workspace" && stage !== "links" && stage !== "public-share") return <>
     <LocationChatPermissionRecovery issue={permissionIssue} />
+    {allowReview && stage === "review" && reviewedText && plans?.length && !staleReview && !failedLabels.length &&
+      (intent.action === "share_live" || intent.action === "ask") ? <LocationChatSend host={sendHost}
+        label={intent.action === "ask" ? "Send location request" : "Share live location"} busy={busy}
+        onSend={() => { setMembersPage(null); void withPending(version => commit(version)); }} /> : null}
     {allowReview && settled.filter(plan => plan.action === "view").map(plan => {
       const { id } = snapshotFor(state, plan);
       const point = id && points[id];
@@ -1030,6 +1054,7 @@ function LocationChatActionContent({ proposal, ownerId, token, vaultKey, onUnloc
       : proposal.action === "manage_ratings" ? "ratings" : proposal.action === "manage_contacts" ? "contacts" : "settings"}
     ownerId={ownerId} token={token} vaultKey={vaultKey} onBack={dismiss} onChanged={announce}
     autoApprovalIntent={proposal.action === "enable_auto_approve" ? "enable" : proposal.action === "disable_auto_approve" ? "disable" : undefined}
+    autoApprovalHours={proposal.action === "enable_auto_approve" ? proposal.durationHours : undefined}
     suggestedAutoApprovalCircles={proposal.action === "enable_auto_approve" ? proposal.circles : undefined}
     suggestedCircleName={proposal.circles?.[0]} suggestedPersonName={proposal.people?.[0]} /> :
     <UnlockLocationCard onUnlock={onUnlock} />;
