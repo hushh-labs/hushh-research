@@ -23,6 +23,7 @@ from hushh_mcp.services.metrics_adoption_sql import (
     CANDIDATES_SQL,
     MAX_ADOPTION_CANDIDATES,
     MEANINGFUL_REPLIES_SQL,
+    MEANINGFUL_REPLY_LATEST_SQL,
     SOURCE_TABLES,
 )
 
@@ -363,6 +364,7 @@ async def adoption_aggregate(
             subagent_users: dict[str, set[str]] = {
                 sub_id: set() for sub_id in plg_outcomes.SUBAGENT_OUTCOME_IDS
             }
+            latest_activity_day: dict[str, date] = {}
             for offset in range(0, len(eligible), 25):
                 owners = eligible[offset : offset + 25]
                 summaries = (
@@ -386,6 +388,13 @@ async def adoption_aggregate(
                     outcomes += count
                     if count:
                         users.add(uid)
+                        last_at = summary.get("lastAt")
+                        if is_v2 and isinstance(last_at, str):
+                            latest_activity_day[uid] = (
+                                datetime.fromisoformat(last_at.replace("Z", "+00:00"))
+                                .astimezone(timezone.utc)
+                                .date()
+                            )
                     if is_v2:
                         by_subagent = summary.get("bySubagent")
                         if not isinstance(by_subagent, dict) or set(by_subagent) != set(
@@ -404,6 +413,86 @@ async def adoption_aggregate(
                             subagent_outcomes[sub_id] += sub_count
                             if sub_count:
                                 subagent_users[sub_id].add(uid)
+            new_active: int | None = 0
+            returning_active: int | None = 0
+            registration_coverage = "provisional" if provisional else "partial"
+            new_cohort: dict[str, date] = {}
+            latest_closed_day = now.astimezone(timezone.utc).date() - timedelta(days=1)
+            closed_cutoff = datetime.combine(
+                latest_closed_day + timedelta(days=1), time.min, timezone.utc
+            ) - timedelta(microseconds=1)
+            if is_v2:
+                records = before[0]
+                for uid in users:
+                    raw_registered = (records.get(uid) or {}).get("registeredAt")
+                    if not isinstance(raw_registered, str):
+                        new_active = None
+                        returning_active = None
+                        registration_coverage = "unavailable"
+                        new_cohort = {}
+                        break
+                    registered_at = datetime.fromisoformat(raw_registered.replace("Z", "+00:00"))
+                    if registered_at >= since:
+                        new_active += 1
+                        new_cohort[uid] = registered_at.astimezone(timezone.utc).date()
+                    else:
+                        returning_active += 1
+                mature_d1 = sorted(
+                    uid
+                    for uid, reg_day in new_cohort.items()
+                    if reg_day + timedelta(days=1) <= latest_closed_day
+                )
+                if mature_d1:
+                    reply_rows = await data.fetch(
+                        MEANINGFUL_REPLY_LATEST_SQL, mature_d1, since, closed_cutoff, timeout=5
+                    )
+                    for row in reply_rows:
+                        r_uid = row["user_id"]
+                        r_at = row["latest_completed_at"]
+                        if r_uid in new_cohort and isinstance(r_at, datetime):
+                            r_day = r_at.astimezone(timezone.utc).date()
+                            if r_day > latest_activity_day.get(r_uid, date.min):
+                                latest_activity_day[r_uid] = r_day
+                    if through < closed_cutoff:
+                        pending_post_window = [
+                            uid
+                            for uid in mature_d1
+                            if latest_activity_day.get(uid, date.min)
+                            < new_cohort[uid]
+                            + timedelta(
+                                days=max(
+                                    k
+                                    for k in (1, 7, 30)
+                                    if new_cohort[uid] + timedelta(days=k) <= latest_closed_day
+                                )
+                            )
+                        ]
+                        post_since = through + timedelta(microseconds=1)
+                        for offset in range(0, len(pending_post_window), 25):
+                            batch = pending_post_window[offset : offset + 25]
+                            post_summaries = await plg_outcomes.value_summaries(
+                                data, batch, "agent_one", post_since, closed_cutoff
+                            )
+                            if set(post_summaries) != set(batch):
+                                raise AggregateUnavailable("Incomplete aggregate source")
+                            for uid, post_summary in post_summaries.items():
+                                post_count = post_summary.get("count")
+                                if (
+                                    post_summary.get("supported") is not True
+                                    or post_summary.get("limited") is not False
+                                    or type(post_count) is not int
+                                    or post_count < 0
+                                ):
+                                    raise AggregateUnavailable("Incomplete aggregate source")
+                                post_last = post_summary.get("lastAt")
+                                if post_count and isinstance(post_last, str):
+                                    p_day = (
+                                        datetime.fromisoformat(post_last.replace("Z", "+00:00"))
+                                        .astimezone(timezone.utc)
+                                        .date()
+                                    )
+                                    if p_day > latest_activity_day.get(uid, date.min):
+                                        latest_activity_day[uid] = p_day
         after = (
             await _identity(ids, guard, environment)
             if environment == "uat"
@@ -461,22 +550,61 @@ async def adoption_aggregate(
                 "period": request.period.model_dump(),
                 "reconciled": True,
             }
-        new_active: int | None = 0
-        returning_active: int | None = 0
-        registration_coverage = coverage
-        records = before[0]
-        for uid in users:
-            raw_registered = (records.get(uid) or {}).get("registeredAt")
-            if not isinstance(raw_registered, str):
-                new_active = None
-                returning_active = None
-                registration_coverage = "unavailable"
-                break
-            registered_at = datetime.fromisoformat(raw_registered.replace("Z", "+00:00"))
-            if registered_at >= since:
-                new_active += 1
-            else:
-                returning_active += 1
+
+        def _cohort_horizon(days: int) -> dict:
+            if registration_coverage == "unavailable":
+                return {
+                    "eligibleAccounts": {
+                        "value": None,
+                        "coverage": "unavailable",
+                        "unit": "account",
+                        "basis": "exact",
+                    },
+                    "retainedAccounts": {
+                        "value": None,
+                        "coverage": "unavailable",
+                        "unit": "account",
+                        "basis": "exact",
+                    },
+                    "retentionRate": {
+                        "value": None,
+                        "coverage": "unavailable",
+                        "unit": "ratio",
+                        "basis": "exact",
+                    },
+                }
+            eligible_uids = [
+                uid
+                for uid, reg_day in new_cohort.items()
+                if reg_day + timedelta(days=days) <= latest_closed_day
+            ]
+            eligible_count = len(eligible_uids)
+            retained_count = sum(
+                1
+                for uid in eligible_uids
+                if latest_activity_day.get(uid, date.min) >= new_cohort[uid] + timedelta(days=days)
+            )
+            return {
+                "eligibleAccounts": {
+                    "value": eligible_count,
+                    "coverage": coverage,
+                    "unit": "account",
+                    "basis": "exact",
+                },
+                "retainedAccounts": {
+                    "value": retained_count,
+                    "coverage": coverage,
+                    "unit": "account",
+                    "basis": "exact",
+                },
+                "retentionRate": {
+                    "value": (retained_count / eligible_count) if eligible_count > 0 else None,
+                    "coverage": coverage if eligible_count > 0 else "unavailable",
+                    "unit": "ratio",
+                    "basis": "exact",
+                },
+            }
+
         return {
             "metrics": {
                 **metrics_payload,
@@ -509,6 +637,11 @@ async def adoption_aggregate(
                     },
                 }
                 for sub_id in plg_outcomes.SUBAGENT_OUTCOME_IDS
+            },
+            "cohortRetention": {
+                "d1": _cohort_horizon(1),
+                "d7": _cohort_horizon(7),
+                "d30": _cohort_horizon(30),
             },
             "coverageWindow": {
                 "coverageFrom": binding["coverageFrom"],
