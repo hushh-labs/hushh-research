@@ -523,4 +523,48 @@ describe("a turn whose stream was lost", () => {
     );
     expect(screen.queryByTestId("agent-chat-header-status")).not.toBeInTheDocument();
   });
+
+  it("never renders phantom typing dots on a settled or ephemeral empty assistant message", () => {
+    const { rerender, unmount } = render(
+      <AgentBubble
+        message={{
+          id: "settled-empty",
+          role: "assistant",
+          text: "",
+          timestamp: "3:20 AM",
+          status: "done",
+        }}
+      />,
+    );
+    expect(screen.queryByTestId("one-thinking-indicator")).not.toBeInTheDocument();
+
+    rerender(
+      <AgentBubble
+        message={{
+          id: "ephemeral-onboarding",
+          role: "assistant",
+          text: "",
+          timestamp: "3:20 AM",
+          status: "streaming",
+          ephemeral: true,
+          renderAsPlainAssistantMessage: true,
+        }}
+      />,
+    );
+    expect(screen.queryByTestId("one-thinking-indicator")).not.toBeInTheDocument();
+
+    rerender(
+      <AgentBubble
+        message={{
+          id: "live-streaming",
+          role: "assistant",
+          text: "",
+          timestamp: "3:20 AM",
+          status: "streaming",
+        }}
+      />,
+    );
+    expect(screen.getByTestId("one-thinking-indicator")).toBeInTheDocument();
+    unmount();
+  });
 });

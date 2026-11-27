@@ -147,6 +147,9 @@ export async function sendChatTurn(
     } else {
       fencedProbeAttempts.delete(url);
     }
+    if (probe.status === 401) {
+      return probe;
+    }
     if (receipts) {
       if (!probe.ok) {
         void probe.body?.cancel().catch(() => undefined);
