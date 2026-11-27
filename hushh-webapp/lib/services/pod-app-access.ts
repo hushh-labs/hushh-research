@@ -315,6 +315,7 @@ export async function ownerPodRequest(
     if (
       session.role !== "app" ||
       !session.scopes.includes(scope) ||
+      (route === "tasks" && method === "GET" && path.includes("?") && !session.scopes.includes("pkm.read")) ||
       (method !== "GET" && !session.scopes.includes("files.manage"))
     ) {
       throw new Error("SCHEDULE_GRANT_REFUSED");

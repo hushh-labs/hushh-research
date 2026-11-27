@@ -364,8 +364,15 @@ the action and the delivery state.
 Its task records include an optional `weekdays` selection and up to
 five `recent_runs` per task, newest first, from the sealed schedule journal.
 Each history row contains an occurrence identifier, state, and timestamps.
-The date views show the next recorded scheduled occurrence for each task.
 Task terms, grants, and worker credentials remain private to the agent.
+Dev Tasks can confirm a one-time `agent_one.execute_task.v1` run with
+`parameters: {goal}` through the same create contract. Model work uses the
+private agent's existing permissions and approval gates.
+`GET /api/one/pod/tasks?result_for=<schedule_id>&occurrence_id=<run_id>` on Dev
+returns the validated `{result: {outcome, summary}}` for a retained terminal
+occurrence with an exact checkpoint binding. The admitted owner must have
+`pod.status` and `pkm.read`. This response is private and no-store. It never
+includes the underlying model session, instructions, or grants.
 Session-only lockdown pauses a due offline occurrence before its claim. An
 interrupted active claim requires review. The owner can explicitly resume a
 paused schedule after turning off lockdown.

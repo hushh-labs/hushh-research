@@ -115,6 +115,27 @@ async def test_actual_one_task_claim_runs_to_native_terminal_once(
     checkpoint = rows[created["id"]]["checkpoint"]
     assert any(event["output"] for event in checkpoint["session"]["events"])
     assert "pod-task:" not in str(checkpoint)
+    task_list = await world.task.runtime.list()
+    assert "Synthetic task completed." not in str(task_list)
+    body = {"result_for": created["id"], "occurrence_id": result["last_run"]["id"]}
+    response = await _owner_request(
+        world, world.task.session_token, monkeypatch, "", body, method="GET"
+    )
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "result": {"outcome": outcome, "summary": "Synthetic task completed."}
+    }
+    refused = await _owner_request(
+        world,
+        world.task.session_token,
+        monkeypatch,
+        "",
+        {**body, "occurrence_id": "0" * 32},
+        method="GET",
+    )
+    assert refused.status_code == 404
+    anonymous = await _owner_request(world, "not-an-owner", monkeypatch, "", body, method="GET")
+    assert anonymous.status_code == 401
     world.permit.release.assert_awaited_once()
 
 
@@ -257,7 +278,7 @@ async def _cold_restart(world):
     return token, claims
 
 
-async def _owner_request(world, token, monkeypatch, operation, body):
+async def _owner_request(world, token, monkeypatch, operation, body, *, method="POST"):
     import httpx
     from fastapi import FastAPI
 
@@ -273,9 +294,10 @@ async def _owner_request(world, token, monkeypatch, operation, body):
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app), base_url="https://pod.example"
     ) as client:
-        response = await client.post(
-            "/api/one/pod/tasks/" + operation,
-            json=body,
+        response = await client.request(
+            method,
+            "/api/one/pod/tasks" + ("/" + operation if operation else ""),
+            **({"params": body} if method == "GET" else {"json": body}),
             headers={"Authorization": "Bearer " + token},
         )
     assert response.headers["Cache-Control"] == "no-store, private"

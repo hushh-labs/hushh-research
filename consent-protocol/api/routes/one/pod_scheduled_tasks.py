@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Header, HTTPException, Response
+from fastapi import APIRouter, Header, HTTPException, Query, Response
 from pydantic import Field
 
 from api.routes.one.pod_browser import PrivateBrowserRoute
@@ -81,10 +81,25 @@ def owner(authorization, *, write=False):
 
 
 @router.get("")
-async def list_tasks(response: Response, authorization: str | None = Header(default=None)):
+async def list_tasks(
+    response: Response,
+    authorization: str | None = Header(default=None),
+    result_for: Annotated[str | None, Query(pattern=r"^schedule_[a-f0-9]{32}$")] = None,
+    occurrence_id: Annotated[str | None, Query(pattern=r"^[a-f0-9]{32}$")] = None,
+):
     no_store(response)
     try:
         runtime, claims, caller_check = owner(authorization)
+        if result_for is not None or occurrence_id is not None:
+            if result_for is None or occurrence_id is None:
+                raise HTTPException(422, detail={"code": "SCHEDULE_RESULT_REQUEST_INVALID"})
+            authority, _ = verified_session(authorization, role=ROLE_APP, scope="pkm.read")
+            if authority.environment not in {"dev", "development"}:
+                raise HTTPException(404, detail={"code": "SCHEDULE_RESULT_UNAVAILABLE"})
+            result = await scheduled_run_result(runtime, result_for, occurrence_id)
+            await caller_check()
+            verified_session(authorization, role=ROLE_APP, scope="pkm.read")
+            return {"result": result}
         code = None
         authorization_limit_at = None
         try:
@@ -113,6 +128,40 @@ async def list_tasks(response: Response, authorization: str | None = Header(defa
         }
     except ScheduleRefused as exc:
         raise refused(exc) from None
+
+
+async def scheduled_run_result(runtime, schedule_id: str, occurrence_id: str) -> dict[str, str]:
+    from google.adk.sessions import Session
+
+    from hushh_mcp.one_adk.scheduled_one_result import native_task_outputs
+    from hushh_mcp.services.pod_scheduled_checkpoint import (
+        ScheduledCheckpoint,
+        validate_schedule_checkpoint,
+    )
+
+    rows, _ = await runtime.journal.snapshot()
+    row = rows.get(schedule_id)
+    run = (row or {}).get("last_run") or {}
+    if (
+        row is None
+        or row["capability"] != "agent_one.execute_task.v1"
+        or row["incarnation"] != runtime.access.incarnation
+        or run.get("id") != occurrence_id
+        or run.get("state") not in {"completed", "failed"}
+        or not row.get("checkpoint")
+    ):
+        raise HTTPException(404, detail={"code": "SCHEDULE_RESULT_UNAVAILABLE"})
+    try:
+        checkpoint = ScheduledCheckpoint.model_validate(row["checkpoint"])
+        validate_schedule_checkpoint(row, checkpoint)
+        outputs = native_task_outputs(Session.model_validate(checkpoint.session))
+    except (ValueError, TypeError, ScheduleRefused):
+        raise HTTPException(404, detail={"code": "SCHEDULE_RESULT_UNAVAILABLE"}) from None
+    output = next(iter(outputs.values()), {}).get("output")
+    expected = "completed" if run["state"] == "completed" else "blocked"
+    if not output or output["outcome"] != expected:
+        raise HTTPException(404, detail={"code": "SCHEDULE_RESULT_UNAVAILABLE"})
+    return {"outcome": expected, "summary": output["summary"]}
 
 
 @router.post("")
