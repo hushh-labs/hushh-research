@@ -1,13 +1,14 @@
 "use client";
 
-import { useCallback, useLayoutEffect } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { ScheduledRunActions, ScheduledRunInformation, type useScheduledTasksModel } from "@/components/scheduled-tasks/scheduled-tasks-panel";
 import { CalendarClock, CalendarDays, ChevronLeft, ClipboardList, RefreshCw } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
-import type { ScheduledTask } from "@/lib/services/pod-scheduled-tasks";
+import { ONE_TASK_TEMPLATE, type PodScheduledTasksClient, type ScheduledRunResult, type ScheduledTask } from "@/lib/services/pod-scheduled-tasks";
+import { resolveAppEnvironment } from "@/lib/app-env";
 import { normalizeTodoDate, TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
 import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 import { groupByDate } from "./todo-list-presentation";
@@ -63,6 +64,9 @@ export function TodoScheduledRunDetail({ task, model, onBack }: {
     return true;
   }, [busy, onBack]);
   useBackLayer(ROUTES.ONE_TASKS, 2, back);
+  const run = task?.last_run;
+  const canReadResult = run?.id && (run.state === "completed" || run.state === "failed") &&
+    task?.capability === ONE_TASK_TEMPLATE && resolveAppEnvironment() === "development";
 
   return (
     <section aria-label="Scheduled run details" className={styles.detail}>
@@ -89,6 +93,7 @@ export function TodoScheduledRunDetail({ task, model, onBack }: {
             <div className={styles.sourceLabels}><span><CalendarClock aria-hidden /> Scheduled run</span></div>
             <div className={styles.divider} />
             <div className={styles.detailMeta}><ScheduledRunInformation task={task} /></div>
+            {canReadResult && model.client && <AgentRunResult key={run.id} client={model.client} task={task} />}
           </>
         ) : (
           <p role="status" className={styles.detailMeta}>
@@ -98,5 +103,44 @@ export function TodoScheduledRunDetail({ task, model, onBack }: {
       </div>
       {task && <footer className={styles.detailFooter}><ScheduledRunActions task={task} model={model} /></footer>}
     </section>
+  );
+}
+
+function AgentRunResult({ client, task }: { client: PodScheduledTasksClient; task: ScheduledTask }) {
+  const [result, setResult] = useState<ScheduledRunResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const request = useRef<AbortController | null>(null);
+  useEffect(() => () => request.current?.abort(), []);
+
+  async function read() {
+    if (request.current) return;
+    const active = new AbortController();
+    request.current = active;
+    setLoading(true);
+    setFailed(false);
+    try {
+      const value = await client.readRunResult(task, active.signal);
+      if (!active.signal.aborted) setResult(value);
+    } catch {
+      if (!active.signal.aborted) setFailed(true);
+    } finally {
+      request.current = null;
+      if (!active.signal.aborted) setLoading(false);
+    }
+  }
+
+  return (
+    <div className={styles.information}>
+      <h4>Run result</h4>
+      {result ? <p>{result.summary}</p> : (
+        <>
+          {failed && <p role="status">The saved result couldn’t load.</p>}
+          <Button variant="outline" size="compact" disabled={loading} onClick={() => void read()}>
+            {loading ? "Loading result…" : failed ? "Try again" : "View result"}
+          </Button>
+        </>
+      )}
+    </div>
   );
 }

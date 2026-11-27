@@ -15,6 +15,7 @@ import {
   areScheduledTasksAvailable,
   FILE_ORGANIZATION_TEMPLATE,
   MAIL_FOLLOWUP_TEMPLATE,
+  ONE_TASK_TEMPLATE,
   PodScheduledTasksClient,
   SCHEDULE_WEEKDAYS,
   type ScheduleControl,
@@ -32,6 +33,8 @@ import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { MediumRowLabel, SectionLabel } from "@/components/app-ui/typography";
 import { CalendarClock, ChevronRight, RefreshCw } from "@/components/icons";
+import { resolveAppEnvironment } from "@/lib/app-env";
+import { ScheduleAgentRunDialog } from "./schedule-agent-run-dialog";
 
 export const scheduledTaskLabels: Record<ScheduledTask["state"], string> = {
   pending_delivery: "Scheduling",
@@ -210,7 +213,7 @@ export function useScheduledTasksModel(ownerId: string, route: string = ROUTES.O
     setReview(null);
     setReadRevision(value => value + 1);
   };
-  return { open, changeOpen, close, status: review?.status ?? null, message, checking, busy, placementMessage, control, refresh };
+  return { open, changeOpen, close, client: review?.client, status: review?.status ?? null, message, checking, busy, placementMessage, control, refresh };
 }
 
 function OwnerScheduledTasksPanel({ ownerId }: { ownerId: string }) {
@@ -280,15 +283,23 @@ export function ScheduledTasksPanelBody({ model, selectedId, inTasks = false, in
   inline?: boolean;
   onOpen?: (id: string) => void;
 }) {
+  const [creating, setCreating] = useState(false);
   if (!areScheduledTasksAvailable()) return null;
-  const { open, changeOpen, close, status, message, checking, busy, placementMessage, refresh } = model;
+  const { open, changeOpen, close, client, status, message, checking, busy, placementMessage, refresh } = model;
   const title = inTasks ? "Scheduled runs" : "Scheduled tasks";
   const ordered = [...(status?.tasks ?? [])].sort((a, b) => a.next_run_at - b.next_run_at);
   const tasks = preferredScheduledTasks(ordered, selectedId);
   const canScheduleFile = status?.available && status.templates.includes(FILE_ORGANIZATION_TEMPLATE);
+  const canScheduleAgent = inline && resolveAppEnvironment() === "development" &&
+    status?.available && status.templates.includes(ONE_TASK_TEMPLATE);
 
   const actions = (
     <div className="flex flex-wrap items-center gap-1">
+      {canScheduleAgent && (
+        <Button size="compact" disabled={checking || Boolean(busy) || !client} onClick={() => setCreating(true)}>
+          Schedule a run
+        </Button>
+      )}
       <Button
         variant={inline ? "plain" : "outline"}
         size={inline ? "icon" : "default"}
@@ -381,6 +392,18 @@ export function ScheduledTasksPanelBody({ model, selectedId, inTasks = false, in
           {actions}
         </div>
         {content}
+        {creating && canScheduleAgent && client && status && (
+          <ScheduleAgentRunDialog
+            client={client}
+            status={status}
+            onClose={() => setCreating(false)}
+            onSaved={task => {
+              setCreating(false);
+              refresh();
+              onOpen?.(task.id);
+            }}
+          />
+        )}
       </section>
     );
   }

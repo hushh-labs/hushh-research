@@ -12,7 +12,7 @@ import { Capacitor } from "@capacitor/core";
 import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
-import { FILE_ORGANIZATION_TEMPLATE, PodScheduledTasksClient } from "@/lib/services/pod-scheduled-tasks";
+import { FILE_ORGANIZATION_TEMPLATE, ONE_TASK_TEMPLATE, PodScheduledTasksClient, type ScheduledTask } from "@/lib/services/pod-scheduled-tasks";
 
 import {
   TodoListPage,
@@ -163,6 +163,47 @@ describe("TodoListPage row actions", () => {
       saveState: "saved",
       fullBlob: {},
     });
+  });
+
+  it("confirms one agent run and reads its completed result from the details", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    try {
+      vi.spyOn(AuthService, "getCurrentUser").mockReturnValue(mocks.user as ReturnType<typeof AuthService.getCurrentUser>);
+      vi.spyOn(ApiService, "getPersonalAgentStatus").mockResolvedValue({ hostingMode: "hussh_pods" } as Awaited<ReturnType<typeof ApiService.getPersonalAgentStatus>>);
+      const task: ScheduledTask = {
+        id: `schedule_${"b".repeat(32)}`, title: "Rehearsal checklist", capability: ONE_TASK_TEMPLATE,
+        revision: 3, state: "completed", repeat: "once", timezone: "UTC",
+        next_run_at: 1_900_000_000, authorization_expires_at: 2_200_000_000,
+        last_run: { id: "c".repeat(32), state: "completed", started_at: 1_900_000_000 },
+      };
+      const status = vi.spyOn(PodScheduledTasksClient.prototype, "status");
+      const available = { available: true, code: null, authorization_limit_at: 2_200_000_000, templates: [ONE_TASK_TEMPLATE] };
+      status.mockResolvedValueOnce({ ...available, tasks: [] }).mockResolvedValue({ ...available, tasks: [task] });
+      const schedule = vi.spyOn(PodScheduledTasksClient.prototype, "scheduleOne")
+        .mockRejectedValueOnce(new Error("SCHEDULE_RESPONSE_UNCONFIRMED")).mockResolvedValue(task);
+      const read = vi.spyOn(PodScheduledTasksClient.prototype, "readRunResult").mockResolvedValue({
+        outcome: "completed", summary: "Time one practice run, review transitions, and check the ending.",
+      });
+      render(<TodoListPage />);
+      fireEvent.click(await screen.findByRole("button", { name: "Schedule a run" }));
+      const dialog = screen.getByRole("dialog", { name: "Schedule a run" });
+      fireEvent.change(within(dialog).getByLabelText("Name"), { target: { value: task.title } });
+      fireEvent.change(within(dialog).getByLabelText("What should your agent do?"), { target: { value: "Draft three rehearsal steps." } });
+      fireEvent.change(within(dialog).getByLabelText(/Run at/), { target: { value: "2031-01-15T12:00" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Confirm run" }));
+      expect(await within(dialog).findByRole("alert")).toHaveTextContent("couldn’t be confirmed");
+      expect(within(dialog).getByLabelText("What should your agent do?")).toBeDisabled();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Retry confirmation" }));
+      const details = await screen.findByRole("region", { name: "Scheduled run details" });
+      expect(schedule).toHaveBeenCalledTimes(2);
+      expect(schedule.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ title: task.title, goal: "Draft three rehearsal steps." }));
+      expect(schedule.mock.calls[1]?.[0]).toEqual(schedule.mock.calls[0]?.[0]);
+      fireEvent.click(await within(details).findByRole("button", { name: "View result" }));
+      expect(await within(details).findByText(/Time one practice run/)).toBeVisible();
+      expect(read).toHaveBeenCalledWith(task, expect.any(AbortSignal));
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it.each([

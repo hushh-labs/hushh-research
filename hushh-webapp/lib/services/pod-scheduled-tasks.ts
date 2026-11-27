@@ -9,7 +9,7 @@ import type { FollowupMailbox, MailFollowup } from "@/lib/mail/mail-followup-mod
 
 export const MAIL_FOLLOWUP_TEMPLATE = "agent_email.send_followup.v1";
 export const FILE_ORGANIZATION_TEMPLATE = "agent_files.organize_file.v1";
-const ONE_TASK_TEMPLATE = "agent_one.execute_task.v1";
+export const ONE_TASK_TEMPLATE = "agent_one.execute_task.v1";
 
 function isScheduledCapability(value: unknown): boolean {
   return value === FILE_ORGANIZATION_TEMPLATE || value === ONE_TASK_TEMPLATE || value === MAIL_FOLLOWUP_TEMPLATE;
@@ -39,7 +39,8 @@ export type ScheduleRecurrence = {
   weekdays?: number[];
   endsAt: number;
 };
-export type ScheduledRun = { state: string; started_at: number; finished_at?: number };
+export type ScheduledRun = { id?: string; state: string; started_at: number; finished_at?: number };
+export type ScheduledRunResult = { outcome: "completed" | "blocked"; summary: string };
 type RecentScheduledRun = ScheduledRun & { id: string };
 export type ScheduleControl = "pause" | "resume" | "cancel" | "skip_next" | "run_now";
 
@@ -82,11 +83,13 @@ function parseRun(value: unknown): ScheduledRun {
     throw new Error("SCHEDULE_RESPONSE_REFUSED");
   const run = value as ScheduledRun;
   if (
+    (run.id !== undefined && (typeof run.id !== "string" || !/^[a-f0-9]{32}$/.test(run.id))) ||
     !["running", "completed", "failed", "needs_review", "cancelled", "outcome_uncertain"].includes(run.state) ||
     !Number.isSafeInteger(run.started_at) || run.started_at < 1 ||
     (run.finished_at != null && (!Number.isSafeInteger(run.finished_at) || run.finished_at < 1))
   ) throw new Error("SCHEDULE_RESPONSE_REFUSED");
   return {
+    ...(run.id ? { id: run.id } : {}),
     state: run.state,
     started_at: run.started_at,
     ...(run.finished_at ? { finished_at: run.finished_at } : {}),
@@ -191,7 +194,7 @@ export class PodScheduledTasksClient {
   constructor(private readonly ownerId: string) {}
 
   private async request(
-    path: "tasks" | "tasks/control",
+    path: "tasks" | "tasks/control" | `tasks?${string}`,
     init: RequestInit,
     signal?: AbortSignal,
   ): Promise<unknown> {
@@ -333,6 +336,44 @@ export class PodScheduledTasksClient {
         authorization_expires_at:due+300,confirmed:true})},signal));
     if (task.capability !== MAIL_FOLLOWUP_TEMPLATE) throw new Error("SCHEDULE_RESPONSE_REFUSED");
     return task;
+  }
+
+  async scheduleOne(
+    terms: { title: string; goal: string; runAt: number; expiresAt: number; requestId: string; timezone: string },
+    signal: AbortSignal,
+  ): Promise<ScheduledTask> {
+    const task = parseTask(await this.request("tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        request_id: terms.requestId,
+        title: terms.title,
+        capability: ONE_TASK_TEMPLATE,
+        parameters: { goal: terms.goal },
+        first_run_at: terms.runAt,
+        repeat: "once",
+        timezone: terms.timezone,
+        authorization_expires_at: terms.expiresAt,
+        confirmed: true,
+      }),
+    }, signal));
+    if (task.capability !== ONE_TASK_TEMPLATE) throw new Error("SCHEDULE_RESPONSE_REFUSED");
+    return task;
+  }
+
+  async readRunResult(task: ScheduledTask, signal: AbortSignal): Promise<ScheduledRunResult> {
+    if (task.capability !== ONE_TASK_TEMPLATE || !isScheduledTaskId(task.id) ||
+        !task.last_run?.id || !/^[a-f0-9]{32}$/.test(task.last_run.id)) {
+      throw new Error("SCHEDULE_RESULT_UNAVAILABLE");
+    }
+    const query = new URLSearchParams({ result_for: task.id, occurrence_id: task.last_run.id });
+    const body = await this.request(`tasks?${query}`, { method: "GET" }, signal) as { result?: ScheduledRunResult };
+    const result = body?.result;
+    if (!result || !["completed", "blocked"].includes(result.outcome) ||
+        typeof result.summary !== "string" || !result.summary.trim() || result.summary.length > 2000) {
+      throw new Error("SCHEDULE_RESPONSE_REFUSED");
+    }
+    return { outcome: result.outcome, summary: result.summary };
   }
 
   async organizeFile(
