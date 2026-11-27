@@ -197,13 +197,16 @@ def verified_directory_emails(user_ids: Sequence[str]) -> dict[str, str]:
 
 
 def directory_auth_profiles(
-    user_ids: Sequence[str], *, connection: Any = None
+    user_ids: Sequence[str], *, connection: Any = None, include_provider_names: bool = True
 ) -> dict[str, dict[str, str]]:
     """Read public names/photos missing from legacy cache rows, by their UID.
 
     No provider record, email or phone is cached or returned. The projection is
     only a fallback for an otherwise unnamed profile, and never replaces a
     person's custom profile photo.
+
+    Referral callers disable provider-name fallback to match Firebase displayName
+    exactly, including an absent name. Other callers retain existing behavior.
     """
     candidates = list(dict.fromkeys(uid for uid in user_ids if uid.strip() and len(uid) <= 128))
     if not candidates:
@@ -235,7 +238,7 @@ def directory_auth_profiles(
                 name = next(
                     (
                         label
-                        for source in sources
+                        for source in (sources if include_provider_names else [record])
                         if (
                             label := label_from_identity_row(
                                 {"user_id": record.uid, "display_name": source.display_name},

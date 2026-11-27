@@ -433,7 +433,7 @@ describe("ReferralsPanel gamification", () => {
     );
   });
 
-  it("uses public aliases first and only renders profile names returned by the server", async () => {
+  it("uses permitted Firebase names before aliases and keeps private names unavailable", async () => {
     mockSummary();
     vi.spyOn(ReferralService, "getLeaderboard").mockResolvedValue({
       snapshot_generated_at: "2026-11-09T00:00:00Z",
@@ -447,10 +447,10 @@ describe("ReferralsPanel gamification", () => {
     });
 
     const { container } = render(<ReferralsPanel />);
-    await waitFor(() => expect(screen.getByText(/top-dog/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Alias owner profile/)).toBeTruthy());
     expect(screen.getByText("#2 Permitted Member")).toBeTruthy();
     expect(screen.getByText("#3 Name unavailable")).toBeTruthy();
-    expect(screen.queryByText(/Alias owner profile/)).toBeNull();
+    expect(screen.queryByText(/top-dog/)).toBeNull();
     expect(screen.queryByText(/Anonymous referrer/)).toBeNull();
 
     const rendered = container.textContent || "";

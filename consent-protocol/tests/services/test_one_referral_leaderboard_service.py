@@ -90,7 +90,7 @@ def test_a_referrer_with_no_handle_renders_as_the_anonymous_placeholder(monkeypa
     assert "user_no_handle" not in str(result)
 
 
-def test_a_referrer_with_a_handle_renders_their_chosen_handle_never_a_real_name(monkeypatch):
+def test_a_referrer_keeps_their_handle_when_no_firebase_name_is_permitted(monkeypatch):
     identity_read = MagicMock(return_value={})
     monkeypatch.setattr(leaderboard_service, "get_leaderboard_profiles", identity_read)
     page_rows = [SimpleNamespace(user_id="user_with_handle", cumulative_points=500, rank=1)]
@@ -116,7 +116,7 @@ def test_a_referrer_with_a_handle_renders_their_chosen_handle_never_a_real_name(
 
     assert result["entries"][0]["handle"] == "top-dog"
     assert result["entries"][0]["photo_url"] is None
-    identity_read.assert_called_once_with([], viewer_user_id="someone_else")
+    identity_read.assert_called_once_with(["user_with_handle"], viewer_user_id="someone_else")
 
 
 def test_viewer_row_included_when_outside_the_page(monkeypatch):
