@@ -240,6 +240,22 @@ it("retains sealed edit retries, rejects empty drafts and prevents double submis
   expect(onClose).toHaveBeenCalledTimes(1);
 });
 
+it("shows the transcript while its quoted message is still opening", async () => {
+  const original = { ...message, id: "original" };
+  const reply = { ...message, id: "reply", sequence: 2, replyToMessageId: original.id };
+  const quote = Promise.withResolvers<{ text: string }>();
+  api.messages.mockResolvedValue({ items: [reply], replyTargets: [original], hasMore: false });
+  api.open.mockImplementation(async (_session, row) =>
+    row.id === original.id ? quote.promise : { text: "Reply body" });
+
+  render(<CircleChat session={session} circleName="Family" initialOpen />);
+  expect(await screen.findByText("Reply body")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "View original message from Bob" })).toBeNull();
+  await act(async () => quote.resolve({ text: "Original body" }));
+  expect(await screen.findByRole("button", { name: "View original message from Bob" })).toHaveTextContent("Original body");
+  expect(screen.getAllByText("Reply body")).toHaveLength(1);
+});
+
 it("keeps the freshest original when jumping and can leave an empty deleted history window", async () => {
   const target = { ...message, id: "original", sequence: 1, revision: 0 };
   const child = { ...message, id: "child", sequence: 100, replyToMessageId: target.id };
