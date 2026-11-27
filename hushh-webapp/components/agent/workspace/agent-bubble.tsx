@@ -71,13 +71,15 @@ function useAnimatedAssistantText(targetText: string, active: boolean) {
 function AgentThinkingDots({
   phase = "thinking",
   label = null,
+  hideLabel = false,
 }: {
   phase?: OneTurnPendingPhase;
   label?: string | null;
+  hideLabel?: boolean;
 }) {
   return (
     <span role="status" aria-live="polite" aria-label="Agent status">
-      <OneThinkingIndicator phase={phase} label={label} />
+      <OneThinkingIndicator phase={phase} label={label} hideLabel={hideLabel} />
     </span>
   );
 }

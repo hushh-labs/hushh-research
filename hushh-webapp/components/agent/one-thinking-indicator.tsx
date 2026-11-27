@@ -17,7 +17,7 @@ export type OneTurnPendingPhase =
   | "reconnecting";
 
 export const ONE_TURN_PHASE_LABELS: Readonly<Record<OneTurnPendingPhase, string>> = {
-  waking: "Waking your sandbox…",
+  waking: "Starting up…",
   unlocking: "Unlocking memory…",
   thinking: "Thinking…",
   working: "Working…",
@@ -35,10 +35,12 @@ export const ONE_PERSONA_THINKING_PHRASES = [
 export function OneThinkingIndicator({
   phase = "thinking",
   label,
+  hideLabel = false,
   className,
 }: {
   phase?: OneTurnPendingPhase;
   label?: string | null;
+  hideLabel?: boolean;
   className?: string;
 }) {
   const explicitLabel =
@@ -47,7 +49,7 @@ export function OneThinkingIndicator({
   const isGenericThinking =
     phase === "thinking" &&
     (!explicitLabel || /^thinking\.{0,3}$|^thinking…$/i.test(explicitLabel));
-  const showVisibleLabel = !isGenericThinking;
+  const showVisibleLabel = !hideLabel && !isGenericThinking;
   const accessibleLabel = explicitLabel ?? fallbackLabel;
 
   return (

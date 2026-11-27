@@ -174,3 +174,74 @@ def test_edge_gateway_sentinel_allowlist_includes_oidc_and_excludes_people() -> 
     assert '"gmail.googleapis.com": "allow"' in src
     assert '"www.googleapis.com": "allow"' in src
     assert "people.googleapis.com" not in src
+
+
+@pytest.mark.asyncio
+async def test_personal_sandbox_bridges_hub_short_lived_token_while_byoc_stays_isolated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from hushh_mcp.services import pod_connector_credentials as creds
+    from hushh_mcp.services.pod_connector_tokens import PodGoogleTokenSource
+    from hushh_mcp.services.pod_hub_client import PodHubClient
+
+    _activate_personal_sandbox(monkeypatch)
+    monkeypatch.setenv("HUSSH_HUB_BASE_URL", "https://hub.example.test")
+    creds.set_active_connector_credentials({})
+    creds.clear_hub_bridged_credential_cache()
+
+    hub_calls: list[tuple[str, str, str]] = []
+
+    def fake_broker(
+        self: object,
+        *,
+        service: str,
+        action: str = "access_token",
+        level: str = "read",
+        account_id: str = "default",
+        force_refresh: bool = False,
+    ) -> dict[str, object]:
+        hub_calls.append((service, action, level))
+        return {
+            "status": "connected",
+            "connected": True,
+            "credentialId": f"hub-{service}:abc123",
+            "generation": 1,
+            "accountSubject": "jhumma@hushh.ai",
+            "accountEmail": "jhumma@hushh.ai",
+            "grantedScopes": [
+                "https://www.googleapis.com/auth/calendar.events",
+                "https://www.googleapis.com/auth/calendar.freebusy",
+            ],
+            "connectedAtMs": 1,
+            **(
+                {"accessToken": "ya29.short-lived-pod-token", "expiresInS": 900}
+                if action == "access_token"
+                else {}
+            ),
+        }
+
+    monkeypatch.setattr(PodHubClient, "broker_google_connector_token", fake_broker)
+
+    held = creds.active_connector_credential("calendar")
+    assert held is not None
+    assert held.client_profile == creds.HUB_BRIDGED_PROFILE
+    assert held.refresh_token == ""
+    assert held.account_email == "jhumma@hushh.ai"
+
+    token = await PodGoogleTokenSource().access_token("calendar", "read")
+    assert token == "ya29.short-lived-pod-token"
+    assert ("calendar", "grant", "read") in hub_calls
+    assert ("calendar", "access_token", "read") in hub_calls
+
+    # Switch to external customer-owned cloud (BYOC): Hub bridge must never fire.
+    creds.clear_hub_bridged_credential_cache()
+    hub_calls.clear()
+    monkeypatch.delenv("HUSSH_SANDBOX_PROFILE", raising=False)
+    monkeypatch.delenv("HUSSH_LEASE_ID", raising=False)
+    monkeypatch.setenv(
+        "HUSSH_POD_KMS_KEY",
+        "projects/cust-proj/locations/us-central1/keyRings/r/cryptoKeys/k",
+    )
+    assert owner_cloud_agent() is True
+    assert creds.active_connector_credential("calendar") is None
+    assert hub_calls == []

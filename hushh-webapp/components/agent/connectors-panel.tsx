@@ -272,24 +272,37 @@ function ConnectorGlyph({ id }: { id: string }) {
  * The same row every Profile section draws: title, one supporting line, and
  * either a chevron into the connector or its connect/disconnect action.
  */
-function ProfileConnectorRow({ entry, showAccessDetails = false }: { entry: ConnectorListEntry; showAccessDetails?: boolean }) {
+function ProfileConnectorRow({
+  entry,
+  showAccessDetails = false,
+}: {
+  entry: ConnectorListEntry;
+  showAccessDetails?: boolean;
+}) {
   const status = connectorRowStatus(entry);
   const description =
     status ??
     entry.accountDetail ??
     entry.detail ??
-    (entry.action || entry.onOpen
-      ? entry.connected
-        ? "Connected"
-        : "Not connected"
-      : undefined);
+    (entry.connected ? "Connected" : undefined);
   // No wrapper element: the group's first/last corners and hairlines are
   // keyed to the row being a direct child of the group's list.
   return (
     <SettingsRow
       leading={<ProfileConnectorGlyph id={entry.id} />}
       title={entry.name}
-      description={showAccessDetails ? <><span>{description}</span><span className="block pt-1">{connectorAccessPurpose(entry.id)}</span></> : description}
+      description={
+        showAccessDetails ? (
+          <>
+            {description ? <span>{description}</span> : null}
+            <span className={description ? "block pt-1" : "block"}>
+              {connectorAccessPurpose(entry.id)}
+            </span>
+          </>
+        ) : (
+          description
+        )
+      }
       textOverflow={showAccessDetails ? undefined : "truncate"}
       onClick={entry.onOpen}
       chevron={Boolean(entry.onOpen) && !entry.action && !entry.trailingText}
@@ -299,9 +312,9 @@ function ProfileConnectorRow({ entry, showAccessDetails = false }: { entry: Conn
         entry.action ? (
           <Button
             type="button"
-            variant="ghost"
+            variant={entry.connected ? "outline" : "default"}
             size="compact"
-            className="px-3"
+            className="rounded-full px-3.5 transition-transform active:scale-[0.97]"
             aria-label={entry.action.label}
             aria-busy={entry.pending ? true : undefined}
             disabled={entry.action.disabled || Boolean(entry.pending)}
@@ -1493,11 +1506,16 @@ function OwnerConnectorsPanel({
       }
     });
   };
-  const connectMail = (purpose: "full" | "send" | "compose" | "modify" = "full") => {
+  const signedInEmail = user?.email?.trim() || undefined;
+  const connectMail = (
+    purpose: "full" | "send" | "compose" | "modify" = "full",
+    options?: { forceSelectAccount?: boolean },
+  ) => {
     const signal = controller.current?.signal;
     if (!user || !applicationOwnerId || !signal || signal.aborted || mailLock.current) return;
     const native = Capacitor.isNativePlatform();
     if (native && purpose === "modify") return;
+    const resolvedLoginHint = options?.forceSelectAccount ? undefined : signedInEmail;
     const nativePurpose: "send" | "compose" = purpose === "compose" ? "compose" : "send";
     const attempt = createGmailOAuthPopupAttempt(applicationOwnerId, purpose === "send" ? "send" : "read");
     const popup = native ? null : openGmailOAuthPopup(attempt);
@@ -1536,6 +1554,7 @@ function OwnerConnectorsPanel({
               purpose: start.purpose,
               preserveSend: nativePurpose === "compose" && gmail.status?.send_permission_granted === true,
               preserveModify: gmail.status?.modify_permission_granted === true,
+              ...(resolvedLoginHint ? { loginHint: resolvedLoginHint } : {}),
             });
           } catch (error) {
             GmailReceiptsService.recordConsentFailure(error, applicationOwnerId);
@@ -1562,6 +1581,7 @@ function OwnerConnectorsPanel({
           const start = await GmailReceiptsService.startConnect({
             idToken,
             userId: applicationOwnerId,
+            loginHint: resolvedLoginHint ?? null,
             includeGrantedScopes: true,
             purpose,
           });
@@ -1657,7 +1677,10 @@ function OwnerConnectorsPanel({
    * stays unlocked. A settlement is only a hint: the owner-authenticated
    * status read decides what the drawer shows.
    */
-  const connectCalendar = (accessLevel: "read" | "manage" = "manage") => {
+  const connectCalendar = (
+    accessLevel: "read" | "manage" = "manage",
+    options?: { forceSelectAccount?: boolean; additional?: boolean; accountId?: string },
+  ) => {
     const signal = controller.current?.signal;
     if (!user || !signal || signal.aborted || calendarLock.current) return;
     const attemptCancel = new AbortController();
@@ -1665,9 +1688,12 @@ function OwnerConnectorsPanel({
     const attempt = connectCalendarInPlace({
       owner: user,
       accessLevel,
+      ...(options?.accountId ? { accountId: options.accountId } : {}),
+      ...(options?.additional ? { additional: true } : {}),
+      ...(options?.forceSelectAccount ? { forceSelectAccount: true } : {}),
       includeCalendarList: true,
       includeMeetingFiles: true,
-      includeMailAccess: true,
+      includeMailAccess: !options?.additional,
       signal,
       cancelSignal: attemptCancel.signal,
     });
@@ -2062,9 +2088,6 @@ function OwnerConnectorsPanel({
     (gmail.status?.connected || gmail.status?.needs_reauth)
       ? connectorAccountDetail(gmail.status.google_email, gmail.status.needs_reauth ? "needs_reauth" : "connected")
       : undefined;
-  // Connected / sign-in-needed lines that already name the account carry the
-  // state themselves; only then is the separate status line redundant.
-  const mailStatusInAccount = Boolean(mailAccountDetail && gmail.status?.google_email?.trim());
   const calendarAccountDetail = calendar.loaded && !calendar.error &&
     (calendar.connected || calendarNeedsReconnect)
       ? connectorAccountDetail(calendar.status?.google_email, calendarNeedsReconnect ? "needs_reauth" : "connected")
@@ -2088,14 +2111,40 @@ function OwnerConnectorsPanel({
       ? "Checking your calendar connection."
       : calendar.connected
         ? calendar.status?.access_level === "manage"
-          ? "Agent One can help schedule meetings. You approve every change."
-          : "Agent One can check your availability."
+          ? "Schedule & availability · changes require approval"
+          : "Availability & schedule"
         : calendarNeedsReconnect
-          ? "Reconnect to keep planning around your schedule."
-          : "Plan around your schedule.";
+          ? "Reconnect to check your schedule."
+          : "Schedule & availability";
   const calendarConnectLabel = calendarNeedsReconnect
     ? "Reconnect Calendar"
     : "Connect Calendar";
+  const connectedCalendarAccounts = useMemo(() => {
+    const raw = calendar.status?.accounts?.filter(
+      (item) => item.connected || item.status === "needs_reauth",
+    );
+    if (raw && raw.length > 0) return raw;
+    if (calendar.connected || calendarNeedsReconnect) {
+      return [
+        {
+          account_id: "default",
+          google_email: calendar.status?.google_email ?? null,
+          status: calendarNeedsReconnect ? ("needs_reauth" as const) : ("connected" as const),
+          connected: calendar.connected,
+          access_level: calendar.status?.access_level ?? null,
+          calendar_list_access: calendar.status?.calendar_list_access === true,
+        },
+      ];
+    }
+    return [];
+  }, [
+    calendar.connected,
+    calendar.status?.access_level,
+    calendar.status?.accounts,
+    calendar.status?.calendar_list_access,
+    calendar.status?.google_email,
+    calendarNeedsReconnect,
+  ]);
   const showConnector = (id: string) => {
     setConfirm(null);
     setActiveConnector(id);
@@ -2118,7 +2167,7 @@ function OwnerConnectorsPanel({
               showConnector("gmail");
               connectMail();
             },
-            disabled: mailBusy || gmail.loadingStatus,
+            disabled: mailBusy,
           },
     },
     {
@@ -2153,7 +2202,10 @@ function OwnerConnectorsPanel({
     {
       id: "calendar",
       name: "Calendar",
-      accountDetail: calendarAccountDetail,
+      accountDetail:
+        connectedCalendarAccounts.length > 1
+          ? `${connectedCalendarAccounts.length} connected accounts`
+          : calendarAccountDetail,
       connected: calendar.connected,
       onOpen: () => showConnector("calendar"),
       pending: disconnecting.calendar ? "disconnect" : calendarPopupPending ? "connect" : undefined,
@@ -2166,7 +2218,7 @@ function OwnerConnectorsPanel({
             ? "Connected"
             : calendarNeedsReconnect
               ? "Reconnect needed"
-              : "Plan around your schedule.",
+              : "Schedule & availability",
       action: !calendar.loaded || calendar.error ? undefined : {
         label: calendar.connected ? "Disconnect Calendar" : calendarConnectLabel,
         onClick: () => {
@@ -2453,7 +2505,7 @@ function OwnerConnectorsPanel({
     ...(gmail.status?.connected && !isNativeMailSurface && missingMailPermissionsCount >= 2 ? { enableAll: detailAction("Enable all Mail permissions", mailBusy || gmail.loadingStatus, () => { void connectMail("full"); }) } : {}),
     ...(mailPopupPending ? { cancelSignIn: detailAction("Cancel sign-in", false, () => mailPopupCancel.current?.abort()) } : {}),
   };
-  const baseCalendarHelper = !calendar.error && !calendar.connected && !calendarNeedsReconnect ? "Private by default. Disconnect anytime." : calendar.connected ? "Disconnect anytime." : null;
+  const baseCalendarHelper = null;
   const calendarPermissions = googleCalendarPermissions(calendar.status);
   const calendarDetail: Extract<ConnectorDetailPresentation, { kind: "calendar" }> = {
     kind: "calendar", description: calendarDescription, status: calendarStatusLabel,
@@ -2665,16 +2717,18 @@ function OwnerConnectorsPanel({
             ? entries.find((entry) => entry.id === activeConnector)?.name || "Connector"
             : "Connectors"}
         </h2>
-        <ShellActionSurface
-          className="size-11 text-foreground"
-          onClick={() => {
-            setConfirm(null);
-            onClose();
-          }}
-          aria-label="Close connectors"
-        >
-          <XIcon className="size-[22px]" aria-hidden="true" />
-        </ShellActionSurface>
+        {!activeConnector ? (
+          <ShellActionSurface
+            className="size-11 text-foreground"
+            onClick={() => {
+              setConfirm(null);
+              onClose();
+            }}
+            aria-label="Close connectors"
+          >
+            <XIcon className="size-[22px]" aria-hidden="true" />
+          </ShellActionSurface>
+        ) : null}
       </header>}
       <div
         className={
@@ -2694,7 +2748,13 @@ function OwnerConnectorsPanel({
             {listSections.map(([heading, items]) =>
               items.length === 0 ? null : (
                 <SettingsGroup key={heading} title={heading} testId={`profile-connectors-${heading.toLowerCase()}`}>
-                  {items.map((entry) => <ProfileConnectorRow key={entry.id} entry={entry} showAccessDetails={showAccessDetails} />)}
+                  {items.map((entry) => (
+                    <ProfileConnectorRow
+                      key={entry.id}
+                      entry={entry}
+                      showAccessDetails={showAccessDetails}
+                    />
+                  ))}
                 </SettingsGroup>
               ),
             )}
@@ -2781,104 +2841,160 @@ function OwnerConnectorsPanel({
                 </div>
               </SettingsGroup>
             )}
-            {activeConnector === "gmail" && <section
-              aria-labelledby="connection-mail-title"
-              className="space-y-3 rounded-xl border border-border p-3"
-            >
-              <h3 id="connection-mail-title" className="font-semibold">
-                Gmail
-              </h3>
-              {mailAccountDetail && !mailStatusInAccount ? (
-                <p className="break-all text-sm text-muted-foreground">{mailAccountDetail}</p>
-              ) : null}
-              {/* "Connected as <email>" already says connected, so the status
-                  line carries the account instead of repeating the state. */}
-              <p
-                role="status"
-                className={mailStatusInAccount ? "break-all text-sm text-muted-foreground" : "text-sm"}
+            {activeConnector === "gmail" && (
+              <section
+                aria-labelledby="connection-mail-title"
+                className="space-y-3.5 rounded-2xl border border-border bg-card/40 p-4"
               >
-                {mailStatusInAccount ? mailAccountDetail : mailDetail.status}
-              </p>
-              {googleClearanceNote}
-              <div className="flex flex-wrap gap-2">
-                {(!gmail.status?.connected || gmail.status?.needs_reauth) && (
-                  <Button
-                    className={touch}
-                    disabled={mailBusy || gmail.loadingStatus}
-                    onClick={() => connectMail()}
-                  >
-                    Connect Mail
-                  </Button>
-                )}
-                {mailDetail.enableAll && (
-                  <Button
-                    className={touch}
-                    disabled={mailDetail.enableAll.disabled}
-                    aria-label="Enable all Mail permissions"
-                    onClick={mailDetail.enableAll.run}
-                  >
-                    Enable all permissions
-                  </Button>
-                )}
-                {(gmail.status?.connected || gmail.status?.needs_reauth) && (
-                  <Button
-                    className={touch}
-                    variant="outline"
-                    disabled={mailBusy}
-                    onClick={() => setConfirm("mail")}
-                  >
-                    Disconnect Mail
-                  </Button>
-                )}
-                {gmail.statusError && (
-                  <Button
-                    className={touch}
-                    variant="outline"
-                    disabled={mailBusy}
-                    onClick={() =>
-                      void gmail.refreshStatus({
-                        force: true,
-                        reconcile: false,
-                      })
-                    }
-                  >
-                    Retry Mail
-                  </Button>
-                )}
-              </div>
-              {gmail.status?.connected && (
-                <div className="divide-y rounded-lg border border-border px-3 text-sm" aria-label="Gmail permissions">
-                  <div className="flex min-h-11 items-center justify-between gap-3"><span>Read mail</span><span className="text-muted-foreground">Allowed</span></div>
-                  <div className="flex min-h-11 flex-wrap items-center justify-between gap-2 py-1">
-                    <span>Send mail</span>
-                    {gmail.status.send_permission_granted ? <span className="text-muted-foreground">Allowed · review required</span>
-                      : <Button size="compact" variant="outline" aria-label="Enable Gmail sending" disabled={mailBusy || gmail.loadingStatus}
-                        onClick={() => connectMail("send")}>Enable</Button>}
-                  </div>
-                  <div className="flex min-h-11 flex-wrap items-center justify-between gap-2 py-1">
-                    <span>Drafts</span>
-                    {gmail.status.compose_permission_granted ? <span className="text-muted-foreground">Allowed · review required</span>
-                      : <Button size="compact" variant="outline" aria-label="Enable Gmail drafts" disabled={mailBusy || gmail.loadingStatus}
-                        onClick={() => connectMail("compose")}>Enable</Button>}
-                  </div>
-                  <div className="flex min-h-11 flex-wrap items-center justify-between gap-2 py-1">
-                    <span>Organize mail</span>
-                    {gmail.status.modify_permission_granted ? <span className="text-muted-foreground">Allowed · review required</span>
-                      : isNativeMailSurface ? <span className="text-muted-foreground">Web only</span>
-                        : <Button size="compact" variant="outline" aria-label="Enable Gmail organize" disabled={mailBusy || gmail.loadingStatus}
-                          onClick={() => connectMail("modify")}>Enable</Button>}
+                <div className="flex items-center gap-2.5">
+                  <ConnectorVectorGlyph id="gmail" variant="profile" />
+                  <div className="min-w-0">
+                    <h3 id="connection-mail-title" className="font-semibold text-foreground">
+                      Gmail
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      Inbox, receipts &amp; approved drafts
+                    </p>
                   </div>
                 </div>
-              )}
-              {mailPopupPending && <Button size="compact" variant="outline" onClick={() => mailPopupCancel.current?.abort()}>Cancel sign-in</Button>}
-              <p
-                role="status"
-                aria-live="polite"
-                className="text-sm text-muted-foreground"
-              >
-                {mailDetail.message}
-              </p>
-            </section>}
+                {gmail.status?.connected && !gmail.status?.needs_reauth ? (
+                  <div className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border bg-background/60 p-3">
+                    <p
+                      role="status"
+                      className="min-w-0 break-all text-sm font-medium text-foreground"
+                    >
+                      {connectorAccountDetail(gmail.status.google_email, "connected")}
+                    </p>
+                    <Button
+                      className={touch}
+                      size="compact"
+                      variant="outline"
+                      disabled={mailBusy}
+                      onClick={() => setConfirm("mail")}
+                    >
+                      Disconnect Mail
+                    </Button>
+                  </div>
+                ) : gmail.status?.needs_reauth ? (
+                  <p role="status" className="text-sm font-medium text-amber-600 dark:text-amber-400">
+                    {mailAccountDetail || "Sign-in needed"}
+                  </p>
+                ) : signedInEmail ? (
+                  <p className="truncate text-sm text-muted-foreground">
+                    Signed in as <span className="font-medium text-foreground">{signedInEmail}</span>
+                  </p>
+                ) : gmail.loadingStatus || gmail.statusError ? (
+                  <p role="status" className="text-sm text-muted-foreground">
+                    {mailDetail.status}
+                  </p>
+                ) : null}
+                {googleClearanceNote}
+                <div className="flex flex-wrap items-center gap-2">
+                  {(!gmail.status?.connected || gmail.status?.needs_reauth) && (
+                    <>
+                      <Button
+                        className={`${touch} rounded-full px-5 font-semibold`}
+                        disabled={mailBusy}
+                        onClick={() => connectMail()}
+                      >
+                        {gmail.status?.needs_reauth ? "Reconnect Mail" : "Connect Mail"}
+                      </Button>
+                      <Button
+                        className={`${touch} rounded-full`}
+                        variant="outline"
+                        disabled={mailBusy}
+                        onClick={() => connectMail("full", { forceSelectAccount: true })}
+                      >
+                        Use another account
+                      </Button>
+                    </>
+                  )}
+                  {gmail.status?.connected && !gmail.status?.needs_reauth && (
+                    <Button
+                      size="compact"
+                      className={`${touch} rounded-full`}
+                      variant="outline"
+                      disabled={mailBusy}
+                      onClick={() => connectMail("full", { forceSelectAccount: true })}
+                    >
+                      Switch account
+                    </Button>
+                  )}
+                  {mailDetail.enableAll && (
+                    <Button
+                      size="compact"
+                      className={`${touch} rounded-full`}
+                      disabled={mailDetail.enableAll.disabled}
+                      aria-label="Enable all Mail permissions"
+                      onClick={mailDetail.enableAll.run}
+                    >
+                      Enable all permissions
+                    </Button>
+                  )}
+                  {gmail.status?.needs_reauth && (
+                    <Button
+                      size="compact"
+                      className={`${touch} rounded-full`}
+                      variant="outline"
+                      disabled={mailBusy}
+                      onClick={() => setConfirm("mail")}
+                    >
+                      Disconnect Mail
+                    </Button>
+                  )}
+                  {gmail.statusError && (
+                    <Button
+                      size="compact"
+                      className={`${touch} rounded-full`}
+                      variant="outline"
+                      disabled={mailBusy}
+                      onClick={() =>
+                        void gmail.refreshStatus({
+                          force: true,
+                          reconcile: false,
+                        })
+                      }
+                    >
+                      Retry Mail
+                    </Button>
+                  )}
+                </div>
+                {gmail.status?.connected && (
+                  <div className="divide-y rounded-xl border border-border bg-background/60 px-3 text-sm" aria-label="Gmail permissions">
+                    <div className="flex min-h-11 items-center justify-between gap-3"><span>Read mail</span><span className="text-muted-foreground">Allowed</span></div>
+                    <div className="flex min-h-11 flex-wrap items-center justify-between gap-2 py-1">
+                      <span>Send mail</span>
+                      {gmail.status.send_permission_granted ? <span className="text-muted-foreground">Allowed · review required</span>
+                        : <Button size="compact" variant="outline" aria-label="Enable Gmail sending" disabled={mailBusy || gmail.loadingStatus}
+                          onClick={() => connectMail("send")}>Enable</Button>}
+                    </div>
+                    <div className="flex min-h-11 flex-wrap items-center justify-between gap-2 py-1">
+                      <span>Drafts</span>
+                      {gmail.status.compose_permission_granted ? <span className="text-muted-foreground">Allowed · review required</span>
+                        : <Button size="compact" variant="outline" aria-label="Enable Gmail drafts" disabled={mailBusy || gmail.loadingStatus}
+                          onClick={() => connectMail("compose")}>Enable</Button>}
+                    </div>
+                    <div className="flex min-h-11 flex-wrap items-center justify-between gap-2 py-1">
+                      <span>Organize mail</span>
+                      {gmail.status.modify_permission_granted ? <span className="text-muted-foreground">Allowed · review required</span>
+                        : isNativeMailSurface ? <span className="text-muted-foreground">Web only</span>
+                          : <Button size="compact" variant="outline" aria-label="Enable Gmail organize" disabled={mailBusy || gmail.loadingStatus}
+                            onClick={() => connectMail("modify")}>Enable</Button>}
+                    </div>
+                  </div>
+                )}
+                {mailPopupPending && <Button size="compact" variant="outline" onClick={() => mailPopupCancel.current?.abort()}>Cancel sign-in</Button>}
+                {mailDetail.message ? (
+                  <p
+                    role="status"
+                    aria-live="polite"
+                    className="text-sm text-muted-foreground"
+                  >
+                    {mailDetail.message}
+                  </p>
+                ) : null}
+              </section>
+            )}
             {activeConnector === "google_drive" && <section
               aria-labelledby="connection-drive-title"
               className="space-y-3"
@@ -3141,43 +3257,113 @@ function OwnerConnectorsPanel({
             {activeConnector === "calendar" && (
               <section
                 aria-label="Calendar details"
-                className="space-y-6 rounded-3xl border border-border bg-foreground/[0.04] p-5 sm:p-6"
+                className="space-y-3.5 rounded-2xl border border-border bg-card/40 p-4"
               >
-                <div className="space-y-1.5">
-                  <h3 className="text-xl font-semibold tracking-tight">
-                    Google Calendar
-                  </h3>
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    {calendarDetail.description}
-                  </p>
+                <div className="flex items-center gap-2.5">
+                  <ConnectorVectorGlyph id="calendar" variant="profile" />
+                  <div className="min-w-0">
+                    <h3 className="font-semibold text-foreground">
+                      Google Calendar
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      {calendarDetail.description}
+                    </p>
+                  </div>
                 </div>
 
                 <div className="space-y-3">
-                  {calendarAccountDetail ? (
-                    <p className="break-all text-sm text-muted-foreground">{calendarAccountDetail}</p>
+                  {connectedCalendarAccounts.length > 0 ? (
+                    <div className="space-y-2">
+                      {connectedCalendarAccounts.map((acct) => (
+                        <div
+                          key={acct.account_id}
+                          className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-border bg-background/60 p-3"
+                        >
+                          <p
+                            role="status"
+                            className="min-w-0 break-all text-sm font-medium text-foreground"
+                          >
+                            {connectorAccountDetail(
+                              acct.google_email,
+                              acct.status === "needs_reauth" ? "needs_reauth" : "connected",
+                            )}
+                          </p>
+                          {acct.status === "needs_reauth" ? (
+                            <Button
+                              size="compact"
+                              variant="outline"
+                              className={touch}
+                              disabled={calendarBusy}
+                              onClick={() =>
+                                connectCalendar("manage", {
+                                  accountId: acct.account_id,
+                                  additional: acct.account_id !== "default",
+                                })
+                              }
+                            >
+                              Reconnect Calendar
+                            </Button>
+                          ) : acct.account_id === "default" ? (
+                            <Button
+                              className={touch}
+                              size="compact"
+                              variant="outline"
+                              disabled={calendarBusy}
+                              onClick={() => setConfirm("calendar")}
+                            >
+                              Disconnect Calendar
+                            </Button>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : !calendar.loaded || calendar.error ? (
+                    <p role="status" className="text-sm text-muted-foreground">
+                      {calendarDetail.status}
+                    </p>
+                  ) : signedInEmail ? (
+                    <p className="truncate text-sm text-muted-foreground">
+                      Signed in as <span className="font-medium text-foreground">{signedInEmail}</span>
+                    </p>
                   ) : null}
-                  <p role="status" className="text-lg font-medium">
-                    {calendarDetail.status}
-                  </p>
-                  {calendar.connected ? (
-                    <Button
-                      className={touch}
-                      size="compact"
-                      variant="outline"
-                      disabled={calendarBusy}
-                      onClick={() => setConfirm("calendar")}
-                    >
-                      Disconnect Calendar
-                    </Button>
-                  ) : (
-                    <Button
-                      className={`${touch} h-12 px-6 text-base font-semibold`}
-                      disabled={calendarBusy}
-                      onClick={() => connectCalendar()}
-                    >
-                      {calendarConnectLabel}
-                    </Button>
-                  )}
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {!calendar.connected ? (
+                      <>
+                        <Button
+                          className={`${touch} rounded-full px-5 font-semibold`}
+                          disabled={calendarBusy}
+                          onClick={() => connectCalendar()}
+                        >
+                          {calendarConnectLabel}
+                        </Button>
+                        <Button
+                          className={`${touch} rounded-full`}
+                          variant="outline"
+                          disabled={calendarBusy}
+                          onClick={() => connectCalendar("manage", { forceSelectAccount: true })}
+                        >
+                          Use another account
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        size="compact"
+                        className={`${touch} rounded-full`}
+                        variant="outline"
+                        disabled={calendarBusy}
+                        onClick={() =>
+                          connectCalendar("manage", {
+                            additional: true,
+                            forceSelectAccount: true,
+                          })
+                        }
+                      >
+                        Add another account
+                      </Button>
+                    )}
+                  </div>
+
                   {calendarDetail.permissions.length > 0 && (
                     <div className="space-y-3">
                       <CalendarPermissionList permissions={calendarDetail.permissions} />
@@ -3190,15 +3376,6 @@ function OwnerConnectorsPanel({
                       )}
                     </div>
                   )}
-                  {!calendar.error && !calendar.connected && !calendarNeedsReconnect ? (
-                    <p className="text-sm text-muted-foreground">
-                      Private by default. Disconnect anytime.
-                    </p>
-                  ) : calendar.connected ? (
-                    <p className="text-sm text-muted-foreground">
-                      Disconnect anytime.
-                    </p>
-                  ) : null}
                   {googleClearanceNote}
                   {calendarPopupPending && (
                     <Button

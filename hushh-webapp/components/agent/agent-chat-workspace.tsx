@@ -2049,10 +2049,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (isToolWorking) return "Working";
     if (isVisiblePkmMemoryWorking) return "Saving to Memory";
     if (queuedPrompts.length > 0 && isQueueWarmingWait)
-      return `Waking One · ${queuedPrompts.length} queued`;
+      return `Starting up · ${queuedPrompts.length} queued`;
     if (queuedPrompts.length > 0) return `${queuedPrompts.length} queued`;
     if (isQueueWarmingWait || isTurnWaking || chatWake.isWaking || chatWake.livePresence === "waking")
-      return "Waking up…";
+      return "Starting up…";
     if (isChatLoading) return "Thinking";
     if (isStreaming) return "Streaming";
     if (chatWake.livePresence === "gone") return "Not responding";
@@ -3196,7 +3196,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
    * cancellable while Google's window is open; on success it is cleared, as
    * the old redirect-return did, and the person stays in this chat.
    */
-  const runDirectiveConnect = (kind: "gmail_modify" | "gmail_compose" | "gmail_settings" | "calendar", accountId = "default") => {
+  const runDirectiveConnect = (kind: "gmail_read" | "gmail_modify" | "gmail_compose" | "gmail_settings" | "calendar", accountId = "default") => {
     const owner = user;
     if (!owner?.uid || !applicationOwnerId) return;
     const ownerId = applicationOwnerId;
@@ -3215,6 +3215,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               confirmLegacyTransition: terms => confirmTransition(terms, 'calendar'),
               isCurrent,
             })
+          : kind === "gmail_read"
+            ? connectGmailInPlace({
+                owner,
+                purpose: "read",
+                ...controls,
+                vaultOwnerCapability: vaultOwnerToken ?? undefined,
+                confirmLegacyTransition: confirmTransition,
+                isCurrent,
+              })
           : kind === "gmail_compose"
             ? connectGmailInPlace({
                 owner,
@@ -12378,11 +12387,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       if (type === "gmail.connect") {
                         const connectPurpose = String(payload.purpose ?? "modify");
                         runDirectiveConnect(
-                          connectPurpose === "compose"
-                            ? "gmail_compose"
-                            : connectPurpose === "settings"
-                              ? "gmail_settings"
-                              : "gmail_modify",
+                          connectPurpose === "read"
+                            ? "gmail_read"
+                            : connectPurpose === "compose"
+                              ? "gmail_compose"
+                              : connectPurpose === "settings"
+                                ? "gmail_settings"
+                                : "gmail_modify",
                         );
                         return;
                       }
