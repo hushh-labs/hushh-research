@@ -122,31 +122,41 @@ describe("native Cloud chat", () => {
 
   it("delivers a named one-hour Location proposal from native Chat on an ordinary thread", async () => {
     const proposal = { type: "location.chat_action", id: "00000000-0000-4000-8000-000000000001",
-      action: "share_live", people: ["Kushal"], durationHours: 1 };
+      action: "share_live", people: ["Kushal"], durationHours: 1, conversation: true };
     const context = { step: "duration" as const, action: "share_live" as const, people: ["Kushal"], circles: [] };
     const event = { author: "one", content: { parts: [{ functionResponse: {
       name: "propose_location_action", response: proposal,
     } }] } };
     vi.mocked(ApiService.ownerPodRequest).mockReset()
-      .mockResolvedValueOnce(Response.json({ nativeAdkChatVersion: 1, nativeLocationChatReview: true }))
+      .mockResolvedValueOnce(Response.json({ nativeAdkChatVersion: 1, nativeLocationChatReview: true, nativeLocationChatConversation: true }))
       .mockResolvedValueOnce(new Response(
         'event: start\ndata: {"sessionId":"native-thread"}\n\n' +
         `data: ${JSON.stringify(event)}\n\nevent: done\ndata: {}\n\n`,
         { headers: { "Content-Type": "text/event-stream" } },
       ));
     const onLocationProposal = vi.fn();
-    await streamAgentChat({ ...input, message: "1 hour", locationChatReview: true, locationChatContinuation: context,
+    await streamAgentChat({ ...input, message: "1 hour", locationChatReview: true, locationChatConversation: true, locationChatContinuation: context,
       screenContext: { route: { pathname: "/" } }, handlers: { onLocationProposal } });
     const body = JSON.parse(String(vi.mocked(ApiService.ownerPodRequest).mock.calls[1][1]?.body));
-    expect(body.forwardedProps).toMatchObject({ locationChatReview: true, locationChatContinuation: context });
+    expect(body.forwardedProps).toMatchObject({ locationChatReview: true, locationChatConversation: true, locationChatContinuation: context });
     expect(body.forwardedProps).not.toHaveProperty("mainChat");
-    expect(onLocationProposal).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ people: ["Kushal"], durationHours: 1 }));
+    expect(onLocationProposal).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ people: ["Kushal"], durationHours: 1, conversation: true }));
     expect(mockTransport.runAgent).not.toHaveBeenCalled();
   });
 
   it("uses the inline-capable AG-UI transport on a pod that only supports native text and visuals", async () => {
     await streamAgentChat({ ...input, locationChatReview: true });
     expect(mockTransport.runAgent.mock.calls[0][0].forwardedProps).toMatchObject({ locationChatReview: true });
+    expect(vi.mocked(ApiService.ownerPodRequest).mock.calls.map(([path]) => path)).toEqual(["agent-chat/capabilities"]);
+  });
+
+  it("keeps the conversational flag off a strict native pod that only accepts the card contract", async () => {
+    vi.mocked(ApiService.ownerPodRequest).mockReset()
+      .mockResolvedValueOnce(Response.json({ nativeAdkChatVersion: 1, nativeLocationChatReview: true }));
+    await streamAgentChat({ ...input, locationChatReview: true, locationChatConversation: true });
+    expect(mockTransport.runAgent.mock.calls[0][0].forwardedProps).toMatchObject({
+      locationChatReview: true, locationChatConversation: true,
+    });
     expect(vi.mocked(ApiService.ownerPodRequest).mock.calls.map(([path]) => path)).toEqual(["agent-chat/capabilities"]);
   });
 

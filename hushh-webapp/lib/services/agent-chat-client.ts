@@ -125,6 +125,8 @@ export type AgentChatMessage = {
     kind?: string;
     display?: string;
     locationChatProposal?: MainLocationProposal;
+    locationReplyFor?: string;
+    locationConversationText?: boolean;
     structuredExperience?: {
       activityType?: string;
       content?: unknown;
@@ -1423,6 +1425,7 @@ async function streamAgentChatAttempt(input: {
   /** True when this turn belongs to the user's canonical rolling Main chat stream. */
   mainChat?: boolean;
   locationChatReview?: boolean;
+  locationChatConversation?: boolean;
   locationChatContinuation?: MainLocationContinuation;
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
@@ -1460,6 +1463,7 @@ async function streamAgentChatAttempt(input: {
   const handlers = input.handlers ?? {};
   const locationReviewProps = input.locationChatReview ? {
     locationChatReview: true,
+    ...(input.locationChatConversation ? { locationChatConversation: true } : {}),
     ...(input.locationChatContinuation ? { locationChatContinuation: input.locationChatContinuation } : {}),
   } : {};
   const mcpOwner = snapshotValidatedAuthSessionOwner();
@@ -1520,7 +1524,9 @@ async function streamAgentChatAttempt(input: {
       await import("./native-cloud-chat");
     const headers = { Authorization: `Bearer ${input.vaultOwnerToken}`, "Content-Type": "application/json",
       ...(await oneChatKeyHeaders(input.vaultKey)) };
-    const admitted = await admitsNativeCloudChat(headers, turnSessionCurrent, input.signal, !nativeResume && input.locationChatReview).catch(() => false);
+    const admitted = await admitsNativeCloudChat(headers, turnSessionCurrent, input.signal,
+      !nativeResume && input.locationChatReview, !nativeResume && Boolean(input.locationChatReview && input.locationChatConversation),
+    ).catch(() => false);
     assertTurnSessionCurrent();
     if (nativeResume && !admitted) throw new Error("Reconnect to resume the connector review.");
     if (admitted) {

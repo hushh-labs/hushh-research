@@ -147,6 +147,11 @@ async def test_location_review_routes_main_chat_to_a_non_successful_handoff():
     assert sos_review.result.public()["proposal"]["action"] == "sos_review"
     invalid = await executor.call(ctx, "propose_location_action", {**args, "confirmed": True})
     assert invalid.result.reason_code == "invalid_arguments"
+    pin = await executor.call(
+        ctx, "propose_location_action", {"action": "share_pin", "people": ["Maya"]}
+    )
+    assert pin.result.reason_code == "invalid_arguments"
+    assert pin.pending is None
     outcome = await executor.call(ctx, "propose_location_action", args)
     assert outcome.pending is None
     public = outcome.result.public()

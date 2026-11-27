@@ -1,6 +1,8 @@
 "use client";
 import dynamic from "next/dynamic";
 import { locationReviewActionForLegacyDirective, MAIN_CHAT_LOCATION_ENABLED, parseMainLocationProposal, type MainLocationContinuation } from "@/lib/agent/main-chat-location-contract";
+import { directLocationShareTerms, ownsLocationTranscript, typedLocationEnableAuthority, usesLocationChildConversation, usesLocationConversation, type DirectLocationShare, type LocationConversationReply } from "@/lib/agent/main-chat-location-conversation";
+import { LocationChatConversationText } from "@/components/agent/location-chat-action/location-chat-conversation-text";
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
 import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import { calendarProposalReviewError, calendarProposalReviewExtras, legacyCalendarProposalPayload } from "@/lib/agent/calendar-proposal-review";
@@ -2774,6 +2776,64 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     router.push(ROUTES.ONE_LOCATION_CHECK_IN);
   }
   const locationChatContinuation = useRef<{ proposalId: string; context: MainLocationContinuation } | null>(null);
+  const locationReply = useRef<{ proposalId: string; handle: LocationConversationReply } | null>(null);
+  const rememberLocationReply = useCallback((proposalId: string, handle: LocationConversationReply | null) => {
+    if (handle) locationReply.current = { proposalId, handle };
+    else if (locationReply.current?.proposalId === proposalId) locationReply.current = null;
+  }, []);
+  const liveLocationEnable = useRef<{ proposalId: string; current: () => boolean } | null>(null);
+  const shareSubmission = useRef<{ id: symbol; proposed: boolean } | null>(null);
+  const liveDirectShare = useRef<{ id: string; share: DirectLocationShare } | null>(null);
+  useEffect(() => {
+    const revoke = () => { if (document.visibilityState === "hidden") shareSubmission.current = null; };
+    document.addEventListener("visibilitychange", revoke);
+    return () => document.removeEventListener("visibilitychange", revoke);
+  }, []);
+  const claimDirectShare = useCallback((proposal: NonNullable<AgentMessage["locationChatProposal"]>) => {
+    const ticket = liveDirectShare.current;
+    if (ticket?.id !== proposal.id) return null;
+    liveDirectShare.current = null;
+    return ticket.share.current() ? ticket.share : null;
+  }, []);
+  const liveLocationOrigin = useRef<{ id: string; current: () => boolean } | null>(null);
+  const handlingLocationReply = useRef<string | null>(null);
+  const claimLocationEnable = useCallback((proposalId: string) => {
+    const ticket = liveLocationEnable.current;
+    if (ticket?.proposalId !== proposalId) return false;
+    liveLocationEnable.current = null;
+    return ticket.current();
+  }, []);
+  const writeLocationConversationText = useCallback((proposalId: string, text: string) => {
+    if (!locationChatScreenActive.current || !isVaultSessionEpochCurrent(vaultSessionEpoch) ||
+        workspaceOwnerIdRef.current !== applicationOwnerId) return;
+    const thread = conversationIdRef.current;
+    const origin = liveLocationOrigin.current;
+    const scope = applicationOwnerId && thread && origin?.id === proposalId && origin.current()
+      ? { ownerId: applicationOwnerId, vaultEpoch: vaultSessionEpoch, conversationId: thread } : undefined;
+    if (handlingLocationReply.current === proposalId) handlingLocationReply.current = null;
+    setMessages(current => {
+      const answer = current.findLast(message => message.role === "assistant" &&
+        (message.locationReplyFor === proposalId || message.locationChatProposal?.id === proposalId));
+      if (!answer || answer.locationChatText === text || answer.receiptRedacted) return current;
+      return current.map(message => message === answer ? { ...message, locationChatText: text,
+        locationTextScope: scope,
+        ...(message.locationReplyFor ? { text } : {}) } : message);
+    });
+  }, [applicationOwnerId, vaultSessionEpoch]);
+  const lastCachedLocationText = useRef("");
+  useEffect(() => {
+    const last = messages.at(-1);
+    const authored = last?.locationTextScope;
+    if (!last?.locationChatText || (!last.locationReplyFor && !last.locationChatProposal) || isStreaming || isChatLoading || !conversationId || !applicationOwnerId ||
+        !vaultKey || !isVaultUnlocked || !isVaultSessionEpochCurrent(vaultSessionEpoch) ||
+        !ownsLocationTranscript(authored, applicationOwnerId, vaultSessionEpoch, conversationId) ||
+        conversationIdRef.current !== conversationId || workspaceOwnerIdRef.current !== applicationOwnerId) return;
+    const stamp = JSON.stringify([applicationOwnerId, vaultSessionEpoch, conversationId, last.id, last.locationChatText]);
+    if (lastCachedLocationText.current === stamp) return;
+    lastCachedLocationText.current = stamp;
+    upsertAgentChatHistoryConversation({ userId: applicationOwnerId, conversationId, vaultKey,
+      messages: agentMessagesToStoredMessages(messages, conversationId) });
+  }, [applicationOwnerId, conversationId, isChatLoading, isStreaming, isVaultUnlocked, messages, vaultKey, vaultSessionEpoch]);
   const rememberLocationContinuation = useCallback((proposalId: string, context: MainLocationContinuation | null) => {
     if (context) locationChatContinuation.current = { proposalId, context };
     else if (locationChatContinuation.current?.proposalId === proposalId) locationChatContinuation.current = null;
@@ -6060,8 +6120,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             openMainChatLocationReview: (proposal) => {
               if (!isWorkspaceMountedRef.current || !isTurnSessionActive() || streamAbortController.signal.aborted ||
                   workspaceOwnerIdRef.current !== userId || conversationIdRef.current !== turnConversationId) return false;
-              updateMessage(assistantMessageId, (message) => ({ ...message, locationChatProposal: proposal }));
-              openLiveNearbyCheckIn(proposal);
+              receiveLocationProposal(proposal);
               return true;
             },
           } : {}),
@@ -6309,6 +6368,32 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     let nameTurnCompleted = false;
     let turnStopped = false;
     let settledTurnCacheAndNotice = false;
+    let locationEnableIssued = false;
+    const receiveLocationProposal = (proposal: NonNullable<AgentMessage["locationChatProposal"]>) => {
+      if (!locationChatReviewEnabled || turnStopped || streamAbortController.signal.aborted || !isTurnSessionActive() ||
+          !isVaultSessionEpochCurrent(vaultSessionEpoch) || workspaceOwnerIdRef.current !== userId) return;
+      const sameChat = () => locationChatScreenActive.current && isWorkspaceMountedRef.current &&
+        chatSessionRef.current.isCurrent(chatEpoch) && isVaultSessionEpochCurrent(vaultSessionEpoch) &&
+        workspaceOwnerIdRef.current === userId && conversationIdRef.current === turnConversationId &&
+        !streamAbortController.signal.aborted && !turnStopped;
+      const current = () => sameChat() && document.visibilityState !== "hidden";
+      if (options.directLocationComposer && sameChat()) liveLocationOrigin.current = { id: proposal.id, current: sameChat };
+      const submission = shareSubmission.current;
+      if (options.directLocationComposer && submission && submission.id === options.locationShareSubmission && !submission.proposed) {
+        submission.proposed = true;
+        const terms = directLocationShareTerms(text, proposal);
+        if (terms && current()) liveDirectShare.current = { id: proposal.id, share: { ...terms, current: () =>
+          current() && shareSubmission.current === submission && liveLocationOrigin.current?.id === proposal.id &&
+          latestVisibleTurnIdRef.current === debugTurnId } };
+      }
+      if (options.directLocationComposer && !locationEnableIssued && typedLocationEnableAuthority(text) === proposal.action && current()) {
+        locationEnableIssued = true;
+        liveLocationEnable.current = { proposalId: proposal.id, current };
+      }
+      updateMessage(assistantMessageId, message => ({ ...message, locationChatProposal: proposal,
+        locationComposerProposal: Boolean(options.directLocationComposer) }));
+      if (conversationIdRef.current === turnConversationId) openLiveNearbyCheckIn(proposal);
+    };
     const updateTurnConversationId = (nextId: string) => {
       if (activeSessionBinding) {
         activeSessionBinding.conversationId = nextId;
@@ -6690,6 +6775,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         })() as unknown as Record<string, unknown>,
         mainChat: isMainChatTurn,
         locationChatReview: locationChatReviewEnabled,
+        locationChatConversation: Boolean(locationChatReviewEnabled && options.directLocationComposer),
         locationChatContinuation: (() => {
           const current = locationChatContinuation.current;
           if (!locationChatReviewEnabled || !isVaultUnlocked || !current) return undefined;
@@ -6697,7 +6783,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             message.role === "assistant" && message.id !== assistantMessageId &&
             (message.locationChatProposal || message.text.trim()),
           );
-          return previousAnswer?.locationChatProposal?.id === current.proposalId ? current.context : undefined;
+          return (previousAnswer?.locationChatProposal?.id ?? previousAnswer?.locationReplyFor) === current.proposalId ? current.context : undefined;
         })(),
         signal: streamAbortController.signal,
         handlers: {
@@ -6872,12 +6958,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             setGoalPlanReview(current => current?.assistantId === assistantMessageId ? current :
               { proposal, assistantId: assistantMessageId, ownerId: applicationOwnerId, epoch: vaultSessionEpoch });
           },
-          onLocationProposal: (proposal) => {
-            if (!locationChatReviewEnabled || streamAbortController.signal.aborted || !isTurnSessionActive() ||
-                !isVaultSessionEpochCurrent(vaultSessionEpoch) || workspaceOwnerIdRef.current !== userId) return;
-            updateMessage(assistantMessageId, (message) => ({ ...message, locationChatProposal: proposal }));
-            if (conversationIdRef.current === turnConversationId) openLiveNearbyCheckIn(proposal);
-          },
+          onLocationProposal: receiveLocationProposal,
           onToolResult: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
             setActiveToolCalls(current => current.filter(item => item.id !== toolEvent.callId));
@@ -7043,6 +7124,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           },
           onSpecialistDirective: (directive) => {
             if (streamAbortController.signal.aborted) return;
+            if (options.directLocationComposer && locationChatReviewEnabled &&
+                locationReviewActionForLegacyDirective(directive) === "enable_device_location") {
+              receiveLocationProposal({ id: crypto.randomUUID(), action: "enable_device_location" });
+              return;
+            }
             if (openPreparedGmailReview(directive, assistantMessageId)) return;
             setPendingSpecialistDirective({ ...directive, sourceAssistantMessageId: assistantMessageId });
             if (directive.delegateAgentId === "agent_calendar" && directive.directive.payload.type === "calendar.invitations") setCalendarInvitationContext(current => current ? { ...current, needsContext: false } : null);
@@ -8037,7 +8123,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     personSelectionHandle?: string,
     options: Pick<
       AgentRunTurnOptions,
-      "deferPkmContext" | "driveSearchSelection" | "attachments" | "calendarMeeting" | "timeZoneOverride"
+      "deferPkmContext" | "driveSearchSelection" | "attachments" | "calendarMeeting" | "timeZoneOverride" | "directLocationComposer" | "locationShareSubmission"
     > & { offerToLiveTurn?: boolean } = {},
   ) => {
     const chatEpoch = chatSessionRef.current.value;
@@ -8088,6 +8174,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             const together = [current, ...taken.flatMap((item) => (item.prompt ? [item.prompt] : []))];
             await runAgentTurn(combineQueuedPromptText(together), {
               source: "typed",
+              directLocationComposer: options.directLocationComposer && together.length === 1 && current.id === prompt.id && current.text === text,
+              locationShareSubmission: options.locationShareSubmission,
               deferPkmContext: together.some((item) => item.deferPkmContext),
               ...(together.length > 1 ? { queuedPrompts: together } : {}),
             });
@@ -8095,6 +8183,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           }
           await runAgentTurn(current.text, {
             source: "typed",
+            directLocationComposer: options.directLocationComposer && current.id === prompt.id && current.text === text && !attachments.length,
+            locationShareSubmission: options.locationShareSubmission,
             personSelectionHandle,
             calendarMeeting: options.calendarMeeting,
             attachments: current.attachments,
@@ -8832,6 +8922,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const submitComposerText = async (
     nativeText?: string,
     submitOptions?: {
+      trustedComposer?: boolean;
       awaitGuard?: boolean;
       offerToLiveTurn?: boolean;
       onSettled?: (accepted: boolean) => void;
@@ -8847,6 +8938,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       submitOptions?.onSettled?.(false);
       return;
     }
+    const locationShareSubmission = Symbol("location-composer");
+    shareSubmission.current = { id: locationShareSubmission, proposed: false };
     // Only after the person chose "Something else" for their name, and only
     // when it is name-shaped; anything else is an ordinary turn to One.
     if (!attachment && chatOnboarding.captureComposerText(typedText)) {
@@ -8873,6 +8966,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setComposerExpanded(false);
     const guard = enqueueGuardedTurn({
       typedText,
+      directLocationComposer: Boolean(submitOptions?.trustedComposer && !attachment && !driveSearchSelection),
+      locationShareSubmission,
       // The paste leaves as its own attachment part: a chip in the transcript
       // and a separate document for One, never text folded into the message.
       attachments: attachmentText?.trim()
@@ -8940,6 +9035,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     attachments,
     fromPaste,
     driveSearchSelection,
+    directLocationComposer,
+    locationShareSubmission,
     offerToLiveTurn,
     onRefused,
   }: {
@@ -8947,6 +9044,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     attachments: AgentTextAttachment[];
     fromPaste: boolean;
     driveSearchSelection?: AgentRunTurnOptions["driveSearchSelection"];
+    directLocationComposer?: boolean;
+    locationShareSubmission?: symbol;
     offerToLiveTurn?: boolean;
     onRefused?: () => void;
   }) => {
@@ -8958,6 +9057,26 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       return false;
     }
     const [submittedText = "", ...attachmentTexts] = kept;
+    const activeLocation = locationReply.current;
+    const lastLocationAnswer = messagesRef.current.findLast(message => message.role === "assistant");
+    if (directLocationComposer && submittedText === typedText && !attachments.length && locationChatScreenActive.current &&
+        !isStreaming && !isChatLoading && !pendingSpecialistDirective && !pendingMcpReviewsRef.current.length &&
+        isVaultSessionEpochCurrent(vaultSessionEpoch) && workspaceOwnerIdRef.current === applicationOwnerId &&
+        lastLocationAnswer && activeLocation && liveLocationOrigin.current?.id === activeLocation.proposalId && liveLocationOrigin.current.current() &&
+        (lastLocationAnswer.locationReplyFor ?? lastLocationAnswer.locationChatProposal?.id) === activeLocation.proposalId &&
+        (lastLocationAnswer.locationChatText || lastLocationAnswer.locationReplyFor)) {
+      const proposalId = activeLocation.proposalId;
+      if (handlingLocationReply.current === proposalId) { onRefused?.(); return false; }
+      if (activeLocation.handle(submittedText, lastLocationAnswer.locationChatText)) {
+        handlingLocationReply.current = proposalId;
+        setMessages(current => [...current,
+          { id: crypto.randomUUID(), role: "user", ...stampNow(), text: submittedText, locationReplyFor: proposalId, status: "done" },
+          { id: crypto.randomUUID(), role: "assistant", ...stampNow(), text: "Checking Location…",
+            locationReplyFor: proposalId, status: "done", renderAsPlainAssistantMessage: true },
+        ]);
+        return true;
+      }
+    }
     // Hands-free voice & free-text confirmation for a mounted AskProposalCard:
     // replying "yes send" / "send it" / "confirm" submits the visible proposal
     // directly instead of forcing a manual tap on the card.
@@ -8999,6 +9118,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       attachmentTexts[index] === item.text ? item : createAgentTextAttachment(attachmentTexts[index] ?? "", item.name),
     );
     enqueuePrompt(submittedText, undefined, {
+      directLocationComposer: directLocationComposer && submittedText === typedText,
+      locationShareSubmission,
       deferPkmContext: fromPaste,
       driveSearchSelection,
       attachments: submittedAttachments,
@@ -9021,7 +9142,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    await submitComposerText();
+    await submitComposerText(undefined, { trustedComposer: event.nativeEvent.isTrusted });
   };
 
   const captureComposerPaste = (pasted: string, selectionStart: number, selectionEnd: number) => {
@@ -9913,7 +10034,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     },
     onAction: event => {
       if (["attachment-edit", "attachment-remove", "collapse"].includes(event.action ?? "")) nativeEditor.current.revision++;
-      if (event.action === "send" && !recoveryInspectionPending && !isVoiceConnecting && !voiceActive) return submitComposerText(event.text);
+      if (event.action === "send" && !recoveryInspectionPending && !isVoiceConnecting && !voiceActive) return submitComposerText(event.text, { trustedComposer: true });
       else if (event.action === "send-now") return sendImmediately(event.text);
       else if (event.action === "mic" && canToggleVoice) void startConversationalVoice();
       else if (event.action === "cancel" && stoppableTurn) void (stopActiveTurnRef.current ?? peekActiveAgentTurnSession<AgentMessage>(isVaultUnlocked ? applicationOwnerId : null, vaultSessionEpoch)?.stop)?.();
@@ -10010,7 +10131,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               // A real pointer click can otherwise release without dispatching
               // submit while the control is visibly enabled.
               event.preventDefault();
-              void submitComposerText();
+              void submitComposerText(undefined, { trustedComposer: event.nativeEvent.isTrusted });
             }}
           >
             <Send className="h-4 w-4" />
@@ -10608,6 +10729,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               ) : null}
 
               {visibleMessages.map((message) => {
+                const locationAction = message.locationChatProposal?.action;
+                const locationConversation = locationChatReviewEnabled && Boolean(locationAction &&
+                  (usesLocationConversation(locationAction) || usesLocationChildConversation(locationAction)) &&
+                  (message.locationComposerProposal || message.locationChatProposal?.conversation || message.locationChatText));
+                const liveLocationConversation = locationConversation && message.locationComposerProposal && !message.restoredFromHistory &&
+                  liveLocationOrigin.current?.id === message.locationChatProposal?.id && liveLocationOrigin.current?.current();
                 if (
                   message.role === "user" &&
                   !message.attachments?.length &&
@@ -10633,6 +10760,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         outcome={consentChipOutcome(message)}
                       />
                     )
+                  ) : message.locationChatText || locationConversation ? (
+                    <LocationChatConversationText text={message.locationChatText || (message.restoredFromHistory
+                      ? message.text || "This Location request was proposed in an earlier turn." : "Checking Location…")} />
                   ) : (
                     <AgentBubble
                       message={message}
@@ -11070,7 +11200,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     disabled={recoveryInspectionPending || isVoiceConnecting || voiceActive || isChatLoading || isStreaming}
                     onSelect={submitSuggestedPrompt}
                   />
-                  {locationChatReviewEnabled && message.locationChatProposal ? (
+                  {locationChatReviewEnabled && message.locationChatProposal && !(locationConversation &&
+                    usesLocationChildConversation(message.locationChatProposal.action) &&
+                    (message.restoredFromHistory || message.id !== latestLocationProposalMessageId)) ? (
                     <LocationChatActionPanel
                       key={`${applicationOwnerId}:${vaultSessionEpoch}:${message.locationChatProposal.id}`}
                       ownerId={applicationOwnerId}
@@ -11078,8 +11210,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       vaultKey={isVaultUnlocked ? vaultKey ?? null : null}
                       proposal={message.locationChatProposal}
                       onUnlock={() => setVaultDialogOpen(true)}
-                      allowReview={message.id === latestLocationProposalMessageId}
+                      allowReview={message.id === latestLocationProposalMessageId && (!locationConversation || Boolean(liveLocationConversation))}
                       onContinuationChange={rememberLocationContinuation}
+                      claimEnable={claimLocationEnable}
+                      claimDirectShare={liveLocationConversation ? claimDirectShare : undefined}
+                      onConversationReply={liveLocationConversation ? rememberLocationReply : undefined}
+                      onConversationText={locationConversation ? writeLocationConversationText : undefined}
                     />
                   ) : null}
                   {calendarConnectDirective && message.id === calendarConnectAnchorId

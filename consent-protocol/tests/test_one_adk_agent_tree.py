@@ -5735,10 +5735,21 @@ class TestNamedShareChain:
     NAMED_ACTIONS = ("location.share_selected", "location.send_request", "connect.send_request")
 
     def test_main_chat_offers_inline_review_even_when_location_screen_controls_are_advertised(self):
-        from hushh_mcp.one_adk.location_chat_proposal import STATE_LOCATION_CHAT_REVIEW
+        from hushh_mcp.one_adk.location_chat_proposal import (
+            LOCATION_CHAT_INSTRUCTION,
+            STATE_LOCATION_CHAT_CONTINUATION,
+            STATE_LOCATION_CHAT_CONVERSATION,
+            STATE_LOCATION_CHAT_REVIEW,
+        )
 
         state = {
             STATE_LOCATION_CHAT_REVIEW: True,
+            STATE_LOCATION_CHAT_CONVERSATION: True,
+            STATE_LOCATION_CHAT_CONTINUATION: {
+                "action": "share_live",
+                "step": "duration",
+                "circles": ["Family"],
+            },
             STATE_VOICE_CONTEXT: {
                 "available_action_ids": ["location.share_selected", "route.one_location"],
             },
@@ -5751,11 +5762,23 @@ class TestNamedShareChain:
         assert "route.one_location" in instruction
         assert "connect.send_request" in instruction
         assert "get_location_circle_members" in instruction
+        assert "For 'share my location', propose share_live" in instruction
+        assert "If duration is missing" in instruction
+        assert '"step": "duration"' in instruction
+        assert '"circles": ["Family"]' in instruction
+        assert "immediately use share_options" not in instruction
+        assert "immediately use share_options" in LOCATION_CHAT_INSTRUCTION
+
+        state[STATE_LOCATION_CHAT_CONVERSATION] = False
+        card_only = _one_runtime_instruction(SimpleNamespace(state=state))
+        assert "immediately use share_options" in card_only
+        assert "For 'share my location', propose share_live" not in card_only
 
         state[STATE_LOCATION_CHAT_REVIEW] = False
         legacy = _one_runtime_instruction(SimpleNamespace(state=state))
         assert "location.share_selected" in legacy
         assert "propose_location_action" not in legacy
+        assert '"circles": ["Family"]' not in legacy
 
     def test_the_old_navigate_then_pick_chain_is_gone_for_named_requests(self):
         instruction = ONE_IDENTITY_INSTRUCTION

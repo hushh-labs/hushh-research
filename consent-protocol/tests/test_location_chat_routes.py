@@ -298,14 +298,16 @@ def test_main_chat_review_endpoint_uses_the_authenticated_owner(monkeypatch):
     client = _build_app(user_id="owner_123")
     path = "/api/one/location/chat-plans/prepare"
 
-    response = client.post(path, json={"action": "share_pin", "personUserId": "recipient"})
+    response = client.post(
+        path, json={"action": "share_live", "personUserId": "recipient", "durationHours": 1}
+    )
 
     assert response.status_code == 200
     assert response.json() == {"status": "review"}
     assert captured["user_id"] == "owner_123"
     assert captured["person_user_id"] == "recipient"
 
-    response = client.post(path, json={"action": "share_pin", "userId": "another_owner"})
+    response = client.post(path, json={"action": "share_live", "userId": "another_owner"})
     assert response.status_code == 422
 
 

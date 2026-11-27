@@ -39,6 +39,7 @@ type AgentChatHistoryCacheEntry = {
   conversations: AgentChatConversation[];
   messagesByConversation: Map<string, AgentChatMessage[]>;
   paginationByConversation?: Map<string, ConversationPaginationState>;
+  locationRepliesByConversation?: Map<string, AgentChatMessage[]>;
   cachedAt: number;
 };
 
@@ -46,6 +47,7 @@ type PersistedAgentChatHistoryEntry = {
   conversations: AgentChatConversation[];
   messagesByConversation: Record<string, AgentChatMessage[]>;
   paginationByConversation?: Record<string, ConversationPaginationState>;
+  locationRepliesByConversation?: Record<string, AgentChatMessage[]>;
 };
 
 export type AgentChatHistorySnapshot = {
@@ -139,6 +141,9 @@ function persistEntryToEncryptedCache(
     conversations: boundedConversations,
     messagesByConversation,
     paginationByConversation,
+    ...(entry.locationRepliesByConversation?.size ? { locationRepliesByConversation: Object.fromEntries(
+      [...entry.locationRepliesByConversation].filter(([id]) => allowedIds.has(id)).slice(0, CONVERSATION_LIMIT),
+    ) } : {}),
   };
   void writeEncryptedOwnerUiRecord({
     ownerId: userId,
@@ -198,6 +203,9 @@ export function hydrateAgentChatHistoryFromEncryptedCache(input: {
         conversations: stored.value.conversations,
         messagesByConversation: messagesMap,
         paginationByConversation: paginationMap,
+        locationRepliesByConversation: new Map(Object.entries(stored.value.locationRepliesByConversation ?? {})
+          .filter(([id, rows]) => messagesMap.has(id) && Array.isArray(rows))
+          .map(([id, rows]) => [id, collectLocationReplies(id, [], rows)])),
         // Mark hydrated replica stale so UI renders in <10ms while background
         // pod revalidation silently reconciles any new turns or proactive briefs.
         cachedAt: 0,
@@ -264,9 +272,13 @@ export function upsertAgentChatHistoryConversation(input: {
   ];
   const nextMessagesByConversation = new Map(existing.messagesByConversation);
   nextMessagesByConversation.set(input.conversationId, [...input.messages]);
+  const locationRepliesByConversation = new Map(existing.locationRepliesByConversation);
+  const replies = collectLocationReplies(input.conversationId, locationRepliesByConversation.get(input.conversationId) ?? [], input.messages);
+  if (replies.length) locationRepliesByConversation.set(input.conversationId, replies);
   const nextEntry: AgentChatHistoryCacheEntry = {
     conversations: nextConversations,
     messagesByConversation: nextMessagesByConversation,
+    locationRepliesByConversation,
     paginationByConversation: existing.paginationByConversation,
     cachedAt: Date.now(),
   };
@@ -371,6 +383,7 @@ export function warmAgentChatHistoryCache(input: {
         conversations,
         messagesByConversation,
         paginationByConversation: previous?.paginationByConversation,
+        locationRepliesByConversation: new Map([...previous?.locationRepliesByConversation ?? []].filter(([id]) => validIds.has(id))),
         cachedAt: Date.now(),
       };
       entriesByUser.set(input.userId, next);
@@ -422,6 +435,52 @@ export function warmAgentChatHistoryCache(input: {
   return warmup;
 }
 
+// Local approvals have no server message ID. Retain a bounded, encrypted
+// presentation beside the loaded page, never as a source of execution authority.
+function collectLocationReplies(conversationId: string, previous: AgentChatMessage[], latest: AgentChatMessage[]) {
+  const retained = new Map<string, AgentChatMessage>();
+  for (const row of [...previous, ...latest]) {
+    const origin = row.metadata?.locationChatProposal;
+    const reply = row.metadata?.locationReplyFor;
+    if (row.conversation_id !== conversationId || row.metadata?.consentAccessEnded ||
+        (!reply && (!origin || !row.metadata?.locationConversationText))) continue;
+    retained.set(origin ? `origin:${origin.id}` : row.id, {
+      id: row.id, conversation_id: conversationId, role: row.role, status: row.status, content: row.content,
+      ...(row.created_at ? { created_at: row.created_at } : {}), ...(row.completed_at ? { completed_at: row.completed_at } : {}),
+      metadata: { ...(origin ? { locationChatProposal: origin } : {}), ...(reply ? { locationReplyFor: reply } : {}),
+        ...(row.metadata?.locationConversationText ? { locationConversationText: true } : {}) },
+    });
+  }
+  return [...retained.values()].slice(-PERSISTED_MESSAGE_CAP);
+}
+
+// Device permissions and encrypted Location writes settle on the owner's device.
+// Preserve its transcript only while this exact proposal still exists in the
+// authoritative conversation. Removed or redacted server turns stay removed.
+function restoreLocationReplies(server: AgentChatMessage[], local: AgentChatMessage[]) {
+  const reviews = new Map(local.flatMap(message => message.metadata?.locationConversationText &&
+    message.metadata.locationChatProposal ? [[message.metadata.locationChatProposal.id, message] as const] : []));
+  if (!reviews.size) return server;
+  return server.flatMap(message => {
+    const id = message.metadata?.locationChatProposal?.id;
+    const review = id && reviews.get(id);
+    if (!review || message.role !== "assistant" || message.metadata?.consentAccessEnded) return [message];
+    const replies = local.filter(reply => reply.conversation_id === message.conversation_id && reply.metadata?.locationReplyFor === id);
+    return [{ ...message, content: review.content, metadata: { ...message.metadata, locationConversationText: true } }, ...replies];
+  });
+}
+
+function discardRedactedLocationReplies(local: AgentChatMessage[], page: AgentChatMessage[]) {
+  const redactedIds = new Set(page.filter(row => row.metadata?.consentAccessEnded).map(row => row.id));
+  if (!redactedIds.size) return local;
+  const origins = new Set(local.flatMap(row => redactedIds.has(row.id) && row.metadata?.locationChatProposal
+    ? [row.metadata.locationChatProposal.id] : []));
+  for (const row of page) {
+    if (redactedIds.has(row.id) && row.metadata?.locationChatProposal) origins.add(row.metadata.locationChatProposal.id);
+  }
+  return local.filter(row => !origins.has(row.metadata?.locationChatProposal?.id ?? row.metadata?.locationReplyFor ?? ""));
+}
+
 export async function loadAgentChatConversationHistory(input: {
   userId: string;
   conversationId: string;
@@ -453,7 +512,11 @@ export async function loadAgentChatConversationHistory(input: {
         paginationByConversation: new Map<string, ConversationPaginationState>(),
         cachedAt: Date.now(),
       };
-      current.messagesByConversation.set(input.conversationId, messages);
+      const overlays = current.locationRepliesByConversation ?? new Map<string, AgentChatMessage[]>();
+      const local = discardRedactedLocationReplies(collectLocationReplies(input.conversationId,
+        overlays.get(input.conversationId) ?? [], current.messagesByConversation.get(input.conversationId) ?? []), messages);
+      const transcript = restoreLocationReplies(messages, local);
+      current.messagesByConversation.set(input.conversationId, transcript);
       const pageMeta = messages._pageMeta ?? null;
       const paginationMap =
         current.paginationByConversation ?? new Map<string, ConversationPaginationState>();
@@ -465,9 +528,12 @@ export async function loadAgentChatConversationHistory(input: {
         },
       );
       current.paginationByConversation = paginationMap;
+      const hasOlder = paginationMap.get(input.conversationId)?.hasMore;
+      overlays.set(input.conversationId, hasOlder ? local : collectLocationReplies(input.conversationId, [], transcript));
+      current.locationRepliesByConversation = overlays;
       entriesByUser.set(input.userId, current);
       persistEntryToEncryptedCache(input.userId, input.vaultKey, current);
-      return [...messages];
+      return [...transcript];
     })
     .finally(() => {
       if (historyLoadsByKey.get(loadKey) === request) historyLoadsByKey.delete(loadKey);
@@ -515,7 +581,10 @@ export async function loadOlderAgentChatConversationHistory(input: {
       if (!current) return [];
       const existingMessages = current.messagesByConversation.get(input.conversationId) || [];
       const seenIds = new Set(existingMessages.map((m) => m.id));
-      const uniqueOlder = older.filter((m) => !seenIds.has(m.id));
+      const local = discardRedactedLocationReplies(current.locationRepliesByConversation?.get(input.conversationId) ?? [], older);
+      current.locationRepliesByConversation?.set(input.conversationId, local);
+      const restored = restoreLocationReplies(older, local);
+      const uniqueOlder = restored.filter((m) => !seenIds.has(m.id));
       const combined = [...uniqueOlder, ...existingMessages];
       current.messagesByConversation.set(input.conversationId, combined);
 
@@ -532,6 +601,9 @@ export async function loadOlderAgentChatConversationHistory(input: {
             }),
       );
       current.paginationByConversation = paginationMap;
+      if (!paginationMap.get(input.conversationId)?.hasMore) {
+        current.locationRepliesByConversation?.set(input.conversationId, collectLocationReplies(input.conversationId, [], combined));
+      }
       entriesByUser.set(input.userId, current);
       persistEntryToEncryptedCache(input.userId, input.vaultKey, current);
       return uniqueOlder;
