@@ -1727,6 +1727,7 @@ export function LocationRedesignHub({ vm, nativeFrame }: { vm: LocationHubViewMo
           <CreateCircleFlow
             key={`${vm.userId}:${vm.circleSessionScope}`}
             busy={vm.busy === "namedCircle" || vm.busy === "circleMemberInvite"}
+            creationObservedByOwner
             showCircleType={false}
             onSubmit={vm.onCreateNamedCircle}
             onLoadPeople={vm.onLoadNamedCircleEligibleConnectionsPage}
