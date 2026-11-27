@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from hushh_mcp.services import metrics_adoption
+from hushh_mcp.services import metrics_adoption, metrics_feature_observations
 from scripts.ops import one_adoption_reference as reference
 
 
@@ -95,3 +95,25 @@ async def test_reference_reconciles_per_owner_effects_in_read_only_snapshot(monk
         receipt = await reference.reference(Connection(), day, policy.revision, "b" * 40)
         assert receipt["activeAccounts"] == 2 and receipt["confirmedOutcomes"] == 1
         assert [call.args[1] for call in effects.await_args_list] == ["replacement", "legacy"]
+
+
+@pytest.mark.asyncio
+async def test_feature_observations_share_native_aggregate_admission(monkeypatch):
+    active = peak = 0
+
+    async def run(request, binding, *, environment):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0)
+        active -= 1
+        return request
+
+    monkeypatch.setattr(metrics_adoption, "adoption_aggregate", run)
+    monkeypatch.setattr(metrics_feature_observations, "aggregate", run)
+    monkeypatch.setattr(metrics_adoption, "_production_aggregate_lock", asyncio.Lock())
+    assert await asyncio.gather(
+        metrics_adoption.bounded_adoption_aggregate("native", {}),
+        metrics_feature_observations.bounded_aggregate("observations", {}),
+    ) == ["native", "observations"]
+    assert peak == 1

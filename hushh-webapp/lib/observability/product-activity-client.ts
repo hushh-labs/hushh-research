@@ -8,7 +8,8 @@ import {
 import { ApiService } from "@/lib/services/api-service";
 
 type Phase = "started" | "returned" | "failed" | "cancelled" | "blocked";
-type Admission = { enabled: boolean; generation?: string };
+type EventResult = "success" | "error" | "expected_error";
+type Admission = { enabled: boolean; generation?: string; resultVersion?: number };
 type Observation = { scope: ProductActivityScope | null; admitted: Promise<Admission> };
 type DispatchObservation = { actionId: string; id: string; captured: Observation };
 // Associate only the original admission with a still-running result. Weak keys
@@ -16,7 +17,7 @@ type DispatchObservation = { actionId: string; id: string; captured: Observation
 const dispatches = new WeakMap<object, DispatchObservation>();
 let admission: { scope: ProductActivityScope; capturedAt: number; value: Promise<Admission> } | null = null;
 let pending = 0;
-type QueuedObservation = { actionId: string; phase: Phase; operationId: string; captured: Observation; queuedAt: number };
+type QueuedObservation = { actionId: string; phase: Phase; operationId: string; captured: Observation; queuedAt: number; result?: EventResult };
 let queued: QueuedObservation[] = [];
 const current = (item: QueuedObservation) => item.captured.scope !== null &&
   isProductActivityScopeCurrent(item.captured.scope) && Date.now() - item.queuedAt < 60_000;
@@ -26,18 +27,18 @@ function drain() {
     const item = queued.shift()!;
     if (!current(item)) continue;
     pending++;
-    void send(item.actionId, item.phase, item.operationId, item.captured).finally(() => {
+    void send(item.actionId, item.phase, item.operationId, item.captured, item.result).finally(() => {
       pending--;
       drain();
     });
   }
 }
 
-function enqueue(actionId: string, phase: Phase, operationId: string, captured: Observation) {
+function enqueue(actionId: string, phase: Phase, operationId: string, captured: Observation, result?: EventResult) {
   // In-flight reports retain their original admission. Never rebind old events
   // to a new owner/reset/epoch, and never let an old owner's queue block a new one.
   queued = queued.filter(current);
-  const item = { actionId, phase, operationId, captured, queuedAt: Date.now() };
+  const item = { actionId, phase, operationId, captured, queuedAt: Date.now(), result };
   if (!current(item) || queued.length >= 64) return;
   queued.push(item);
   drain();
@@ -62,7 +63,7 @@ function observation(scope: ProductActivityScope | null): Observation {
   return { scope, admitted: admission.value };
 }
 
-async function send(actionId: string, phase: Phase, operationId: string, captured: Observation) {
+async function send(actionId: string, phase: Phase, operationId: string, captured: Observation, result?: EventResult) {
   const { scope } = captured;
   if (!scope || !isProductActivityScopeCurrent(scope)) return;
   try {
@@ -73,7 +74,8 @@ async function send(actionId: string, phase: Phase, operationId: string, capture
     const options = { headers: { Authorization: `Bearer ${token}` },
       isEffectCurrent: () => isProductActivityScopeCurrent(scope) };
     await ApiService.apiFetch("/api/one/plg/activity", { ...options, method: "POST",
-      body: JSON.stringify({ generation: allowed.generation, actionId, phase, operationId }) });
+      body: JSON.stringify({ generation: allowed.generation, actionId, phase, operationId,
+        ...(allowed.resultVersion === 1 && result ? { result } : {}) }) });
   } catch {
     // Collection failure never affects execution. This volatile buffer smooths
     // bursts; network errors, expiry, overflow and page exit can still lose reports.
@@ -124,7 +126,8 @@ export function observeProductEvent(event: string, action: unknown, result: unkn
   const phase = result === "expected_error" ? "blocked" : result === "error" ? "failed"
     : event.endsWith("_started") ? "started" : "returned";
   const id = globalThis.crypto?.randomUUID?.();
-  if (id && typeof window !== "undefined") enqueue(key, phase, id, observation(scope));
+  if (id && typeof window !== "undefined") enqueue(key, phase, id, observation(scope),
+    result === "success" || result === "error" || result === "expected_error" ? result : undefined);
 }
 
 function dispatchResult<T extends { status: string }>(result: T, attempt: DispatchObservation): T {

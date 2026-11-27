@@ -17,6 +17,8 @@ export const ONE_KYC_ACTIONS = [
   "access_denied",
 ] as const;
 export const ONE_CRM_ACTIONS = ["record_created", "record_updated", "record_deleted"] as const;
+export const ONE_CAREER_ACTIONS = ["resume_parse", "resume_save", "application_send"] as const;
+export const ONE_DOCUMENT_REQUEST_ACTIONS = ["question_send", "file_request_send", "review_request"] as const;
 export const GMAIL_CONNECT_STARTED_ACTIONS = ["incremental", "full"] as const;
 export const GMAIL_CONNECT_RESULT_ACTIONS = ["start", "complete"] as const;
 export const GMAIL_SYNC_RESULT_ACTIONS = ["queue", "already_running", "complete", "poll"] as const;
