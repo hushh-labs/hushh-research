@@ -22,10 +22,15 @@ type CodeClientOptions = {
   select_account: boolean;
   include_granted_scopes: boolean;
   callback: (response: { code?: string; error?: string }) => void;
-  error_callback: () => void;
+  error_callback: (error?: { type?: string }) => void;
 };
 
-/** Open GIS directly from a click after the async owner/transition checks. */
+/**
+ * Open Google's sign-in straight from the click that started the connection, with
+ * no confirmation first. Only when the browser refuses that window (it no longer
+ * counts the click as recent) does the owner see one "Continue with Google" button,
+ * whose own click is the fresh gesture the browser wants.
+ */
 export async function requestHostedBrowserGoogleCode(
   clientId: string,
   scopes: string[],
@@ -42,25 +47,14 @@ export async function requestHostedBrowserGoogleCode(
   const init = oauth.initCodeClient.bind(oauth);
   const titleText = CONNECTOR_DIALOG_HEADINGS[connector] ?? "Connect Google";
   return new Promise((resolve, reject) => {
-    const dialog = document.createElement("dialog");
-    const heading = document.createElement("h2");
-    heading.textContent = titleText;
-    dialog.setAttribute("aria-label", heading.textContent);
-    dialog.className =
-      "m-auto rounded-2xl bg-background p-6 text-foreground shadow-xl backdrop:bg-black/40";
-    const allow = document.createElement("button");
-    allow.textContent = "Continue with Google";
-    allow.className = "mt-4 rounded-full bg-primary px-4 py-2 text-primary-foreground";
-    const cancel = document.createElement("button");
-    cancel.textContent = "Cancel";
-    cancel.className = "ml-3 px-3 py-2";
+    let dialog: HTMLDialogElement | undefined;
     let settled = false;
     function finish(code?: string) {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
       clearInterval(sessionCheck);
-      dialog.remove();
+      dialog?.remove();
       if (code && current()) resolve(code);
       else reject(new Error("SIGN_IN_CANCELLED"));
     }
@@ -68,11 +62,8 @@ export async function requestHostedBrowserGoogleCode(
     const sessionCheck = setInterval(() => {
       if (!current()) finish();
     }, 500);
-    cancel.onclick = () => finish();
-    dialog.oncancel = () => finish();
-    allow.onclick = () => {
-      if (!current()) return finish();
-      allow.disabled = true;
+    // `blocked` runs only when the browser would not open the window.
+    function open(blocked?: () => void) {
       try {
         init({
           client_id: clientId,
@@ -81,19 +72,43 @@ export async function requestHostedBrowserGoogleCode(
           select_account: true,
           include_granted_scopes: false,
           callback: (result) => finish(result.error ? undefined : result.code),
-          error_callback: () => finish(),
+          error_callback: (error) => (blocked && error?.type === "popup_failed_to_open" ? blocked() : finish()),
         }).requestCode();
+      } catch {
+        if (blocked) blocked();
+        else finish();
+      }
+    }
+    function askToContinue() {
+      if (settled) return;
+      const box = document.createElement("dialog");
+      dialog = box;
+      const heading = document.createElement("h2");
+      heading.textContent = titleText;
+      box.setAttribute("aria-label", titleText);
+      box.className = "m-auto rounded-2xl bg-background p-6 text-foreground shadow-xl backdrop:bg-black/40";
+      const allow = document.createElement("button");
+      allow.textContent = "Continue with Google";
+      allow.className = "mt-4 rounded-full bg-primary px-4 py-2 text-primary-foreground";
+      const cancel = document.createElement("button");
+      cancel.textContent = "Cancel";
+      cancel.className = "ml-3 px-3 py-2";
+      cancel.onclick = () => finish();
+      box.oncancel = () => finish();
+      allow.onclick = () => {
+        if (!current()) return finish();
+        allow.disabled = true;
+        open();
+      };
+      box.append(heading, allow, cancel);
+      document.body.append(box);
+      try {
+        box.showModal();
       } catch {
         finish();
       }
-    };
-    dialog.append(heading, allow, cancel);
-    document.body.append(dialog);
-    try {
-      dialog.showModal();
-    } catch {
-      finish();
     }
+    open(askToContinue);
   });
 }
 

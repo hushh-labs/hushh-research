@@ -58,6 +58,7 @@ import type { DraftRequest } from "@/components/gmail/mail-brief";
 import { MailFollowupsEntry } from "@/components/gmail/mail-followups-entry";
 import { MailFollowups } from "@/components/gmail/mail-followups";
 import { MailHeader } from "@/components/gmail/mail-header";
+import { MailManageMailboxes } from "@/components/gmail/mail-manage-mailboxes";
 import briefStyles from "@/components/gmail/mail-brief.module.css";
 import { MailOverviewError, prepareMailReply } from "@/lib/mail/mail-overview-client";
 import { PenLine, Search as SearchIcon } from "@/components/icons";
@@ -1419,18 +1420,24 @@ function MailPageContent({
     });
   });
 
-  const handleDisconnectGmail = useCallback(async () => {
+  // `target` names one mailbox of several to disconnect; without it the selected mailbox is disconnected.
+  const handleDisconnectGmail = useCallback(async (target?: { accountId: string; credentialId: string }): Promise<boolean> => {
     const operationDeadline = Date.now() + 120_000;
-    if (!userId) return;
-    // Revoke local read admission before starting disconnect, not after an
-    // old read has had a chance to repopulate the cleared collection.
-    receiptLoadSequenceRef.current += 1;
-    receiptScanAbortRef.current?.abort();
-    receiptScanAbortRef.current = null;
-    receiptReadsClosedRef.current = true;
-    setLoadingReceipts(false);
-    setReceiptScanInProgress(false);
-    setReceiptScanProgress(null);
+    if (!userId) return false;
+    const box = target ?? privateMailbox;
+    // Another mailbox going away leaves the one on screen, its receipts and its reads alone.
+    const affectsShown = !target || target.accountId === privateMailbox?.accountId;
+    if (affectsShown) {
+      // Revoke local read admission before starting disconnect, not after an
+      // old read has had a chance to repopulate the cleared collection.
+      receiptLoadSequenceRef.current += 1;
+      receiptScanAbortRef.current?.abort();
+      receiptScanAbortRef.current = null;
+      receiptReadsClosedRef.current = true;
+      setLoadingReceipts(false);
+      setReceiptScanInProgress(false);
+      setReceiptScanProgress(null);
+    }
     const owner = userId;
     const vaultEpoch = snapshotVaultSessionEpoch();
     const isCurrentOwner = () => gmailOwnerIdRef.current === owner && isVaultSessionEpochCurrent(vaultEpoch);
@@ -1442,8 +1449,8 @@ function MailPageContent({
       await morphyToast
         .promise(
           (async () => {
-            const next = privateMailbox
-              ? {connected: !(await withDeadline(disconnectPrivateMailAccount(privateMailbox.accountId, privateMailbox.credentialId), operationDeadline)).disconnected}
+            const next = box
+              ? {connected: !(await withDeadline(disconnectPrivateMailAccount(box.accountId, box.credentialId), operationDeadline)).disconnected}
               : await withDeadline(disconnectGmail(), operationDeadline);
             if (!next || next.connected) {
               throw new Error("Mail could not be disconnected.");
@@ -1464,27 +1471,45 @@ function MailPageContent({
           },
         )
         .unwrap();
-      if (!isCurrentOwner()) return;
-      receiptLoadSequenceRef.current += 1;
-      clearCachedGmailReceipts(userId);
-      // The Overview unmounts on disconnect: forget its remembered mail here.
-      clearMailOverviewMemory(userId);
-      receiptsRef.current = []; receiptEvidenceRef.current = [];
-      setReceipts([]);
-      setPage(1);
-      setHasMore(false);
-      setTotal(0);
-      setReceiptScanReachedLimit(false);
+      if (!isCurrentOwner()) return false;
+      if (affectsShown) {
+        receiptLoadSequenceRef.current += 1;
+        clearCachedGmailReceipts(userId);
+        // The Overview unmounts on disconnect: forget its remembered mail here.
+        clearMailOverviewMemory(userId);
+        receiptsRef.current = []; receiptEvidenceRef.current = [];
+        setReceipts([]);
+        setPage(1);
+        setHasMore(false);
+        setTotal(0);
+        setReceiptScanReachedLimit(false);
+      }
       setShowDisconnectConfirm(false);
+      return true;
     } catch (error) {
-      if (!isCurrentOwner()) return;
+      if (!isCurrentOwner()) return false;
       if (!(error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name))) attempt.settled("failed");
-      receiptReadsClosedRef.current = false;
+      if (affectsShown) receiptReadsClosedRef.current = false;
       console.warn("MAIL_DISCONNECT_FAILED");
+      return false;
     } finally {
       if (isCurrentOwner()) setGmailActionBusy(null);
     }
   }, [privateMailbox, disconnectGmail, userId, receiptAccountKey]);
+
+  // Disconnecting happens by name in Manage mailboxes, never from the menu that switches mailboxes.
+  const manageableMailboxes = useMemo(
+    () => privateMail
+      ? (mailSession?.accounts ?? []).map((row) => ({ id: row.accountId, email: row.email || "Connected mailbox" }))
+      : isConnected ? [{ id: "mailbox", email: gmail.status?.google_email || "Connected mailbox" }] : [],
+    [privateMail, mailSession?.accounts, isConnected, gmail.status?.google_email],
+  );
+  const disconnectMailbox = useCallback(async (id: string) => {
+    if (!privateMail) return handleDisconnectGmail();
+    // Only the mailbox that was named: an unknown id never falls back to the selected one.
+    const row = mailSession?.accounts.find((account) => account.accountId === id);
+    return row ? handleDisconnectGmail({ accountId: row.accountId, credentialId: row.credentialId }) : false;
+  }, [privateMail, mailSession?.accounts, handleDisconnectGmail]);
 
   const handleSyncNow = useCallback(async () => {
     if (!userId || !receiptSyncAvailable || receiptReadsClosedRef.current) return;
@@ -2372,7 +2397,7 @@ function MailPageContent({
               email={privateMailbox?.email ?? null}
               attentionCount={mailSession.brief?.attention.length ?? 0}
               busy={gmailActionBusy !== null}
-              // Every mailbox counts toward the cap, readable or not; one that cannot be read is offered for reconnect.
+              // Every mailbox counts toward the cap, readable or not; choosing one that cannot be read signs it in again.
               accounts={mailSession.accounts.map(row => ({ id: row.accountId, email: row.email || "Connected mailbox", needsReconnect: !row.capabilities.read }))}
               selectedId={privateMailbox?.accountId ?? null}
               onChoose={mailSession.choose}
@@ -2387,8 +2412,6 @@ function MailPageContent({
               email={gmail.status?.google_email ?? null}
               attentionCount={mailBrief.brief.data?.attention.length ?? 0}
               busy={gmailActionBusy !== null || loadingStatus}
-              onReconnect={() => void handleConnectGmail()}
-              onDisconnect={() => setShowDisconnectConfirm(true)}
             />
           ) : null}
 
@@ -2517,6 +2540,9 @@ function MailPageContent({
               }}
             />,
           ) : withTracking(receiptsPanel)}
+          {journeyVariant === "workspace" && !standaloneKyc && manageableMailboxes.length > 0 ? (
+            <MailManageMailboxes mailboxes={manageableMailboxes} busy={gmailActionBusy !== null} onDisconnect={disconnectMailbox} />
+          ) : null}
         </SurfaceStack>
       </AppPageContentRegion>
 
@@ -2596,6 +2622,6 @@ function MailPageContent({
   return <NativeMailRoute frame={nativeFrame} model={{ owner: standaloneKyc || privateMail ? null : userId, onboarding: journeyVariant === "onboarding", view: workspace,
     selectView: setWorkspace, connected: isConnected, rootOnly: showDisconnectConfirm || workspace === "overview" || workspace === "followups" || workspace === "kyc" && !isConnected || workspace === "receipts" && !(hasSealedReceiptAccess && (hasVerifiedReceiptSnapshot || visibleReceipts.length > 0 || Boolean(visibleSavedRows?.length))), webChild: (workspace === "followups" && trackedBoardOpen) || showVaultUnlock || nativeReceiptDetails || nativeHistory, root: nativeRoot,
     confirmation: showDisconnectConfirm ? { title: "Disconnect Mail?", description: "Stops Mail access and receipt sync, and deletes Mail receipts and summaries from Hussh. Information saved to private memory stays.",
-      confirm: { key: "disconnect-confirm", label: "Disconnect", destructive: true, enabled: gmailActionBusy !== "disconnect", pending: gmailActionBusy === "disconnect", run: handleDisconnectGmail },
+      confirm: { key: "disconnect-confirm", label: "Disconnect", destructive: true, enabled: gmailActionBusy !== "disconnect", pending: gmailActionBusy === "disconnect", run: async () => { await handleDisconnectGmail(); } },
       cancelLabel: "Keep connected", cancel: () => setShowDisconnectConfirm(false) } : undefined }}>{content}</NativeMailRoute>;
 }

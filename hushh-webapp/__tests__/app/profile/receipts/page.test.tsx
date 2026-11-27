@@ -705,6 +705,13 @@ async function startReceiptSync() {
 const originalIndexedDB = Object.getOwnPropertyDescriptor(window, "indexedDB");
 const originalCrypto = Object.getOwnPropertyDescriptor(globalThis, "crypto");
 
+/** Disconnect lives in Manage mailboxes: the mailbox is named on its row and again in the confirmation. */
+async function openDisconnectConfirmation() {
+  fireEvent.click(screen.getByRole("button", { name: "Manage mailboxes" }));
+  fireEvent.click(await screen.findByRole("button", { name: /^disconnect \S+@\S+$/i }));
+  return screen.findByTestId("mail-disconnect-confirm");
+}
+
 describe("ProfileReceiptsPage", () => {
   beforeEach(() => {
     receiptEntries = 0; vi.useRealTimers();
@@ -1812,7 +1819,7 @@ describe("ProfileReceiptsPage", () => {
     // The Overview is the brief, Search and Write; a failed receipt sync takes none of it away.
     expect(screen.getByRole("heading", { name: "Needs your attention" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Write with One" })).toBeVisible();
-    expect(screen.getByRole("button", { name: /manage$/i })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Manage mailboxes" })).toBeVisible();
     expect(screen.queryByRole("status", { name: "Fetching receipts" })).not.toBeInTheDocument();
     expect(mocks.gmailReceiptsService.syncNow).not.toHaveBeenCalled();
   });
@@ -2318,9 +2325,8 @@ describe("ProfileReceiptsPage", () => {
 
     mocks.useGmailConnectorStatus.mockReturnValue(connected);
     rerender(<ProfileReceiptsPage />);
-    fireEvent.keyDown(await screen.findByRole("button", { name: /manage$/i }), { key: "ArrowDown" });
-    expect(await screen.findByRole("menuitem", { name: /^disconnect$/i })).toBeVisible();
-    expect(screen.getByRole("menuitem", { name: /^reconnect$/i })).toBeVisible();
+    expect(await screen.findByRole("button", { name: "Manage mailboxes" })).toBeVisible();
+    expect(await openDisconnectConfirmation()).toBeVisible();
   });
 
   it("offers no way into KYC from Follow-ups", async () => {
@@ -2859,23 +2865,12 @@ describe("ProfileReceiptsPage", () => {
     expect(EmailDeliveryService.saveGmailDraft).not.toHaveBeenCalled();
   });
 
-  it("reconnects through the combined reading/sending consent flow", async () => {
-    render(<ProfileReceiptsPage />);
-    fireEvent.keyDown(screen.getByRole("button", { name: /manage$/i }), { key: "ArrowDown" });
-    fireEvent.click(await screen.findByRole("menuitem", { name: /^reconnect$/i }));
-    await waitFor(() => expect(GmailReceiptsService.startConnect).toHaveBeenCalledWith(
-      expect.objectContaining({ purpose: "full", userId: "user-123" }),
-    ));
-    expect(mocks.gmailOAuthPopup.open).toHaveBeenCalledOnce();
-  });
-
   it("keeps Mail connected when disconnect confirmation is canceled", async () => {
     render(<ProfileReceiptsPage />);
-    fireEvent.keyDown(screen.getByRole("button", { name: /manage$/i }), { key: "ArrowDown" });
-    fireEvent.click(await screen.findByRole("menuitem", { name: /^disconnect$/i }));
-    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Keep connected" }));
+    const confirmation = await openDisconnectConfirmation();
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Keep connected" }));
     expect(gmailView.disconnectGmail).not.toHaveBeenCalled();
-    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.queryByTestId("mail-disconnect-confirm")).toBeNull();
     expect(activityAttempts).toEqual([]);
   });
 
@@ -2883,9 +2878,8 @@ describe("ProfileReceiptsPage", () => {
     let reject!: (reason: Error) => void;
     gmailView.disconnectGmail.mockImplementation(() => new Promise((_resolve, fail) => { reject = fail; }));
     const rendered = render(<ProfileReceiptsPage />);
-    fireEvent.keyDown(screen.getByRole("button", { name: /manage$/i }), { key: "ArrowDown" });
-    fireEvent.click(await screen.findByRole("menuitem", { name: /^disconnect$/i }));
-    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: /^disconnect$/i }));
+    await openDisconnectConfirmation();
+    fireEvent.click(screen.getByTestId("mail-disconnect-confirm-action"));
     await waitFor(() => expect(gmailView.disconnectGmail).toHaveBeenCalledOnce());
     expect(activityAttempts).toHaveLength(1);
     const attempt = activityAttempts[0];
@@ -2974,19 +2968,11 @@ describe("ProfileReceiptsPage", () => {
     );
     await waitFor(() => expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(2));
     expect((await loadReceiptSnapshot(testStoreSession, "akshat@example.com"))?.value.rows).toHaveLength(1);
-    // Disconnect is available through Manage on the Mail overview.
+    // Disconnect is available through Manage mailboxes, which names the mailbox before anything is deleted.
     fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
-    fireEvent.keyDown(screen.getByRole("button", { name: /manage$/i }), { key: "ArrowDown" });
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: /^disconnect$/i }),
-    );
-    expect(screen.getByText("Disconnect Mail?")).toBeTruthy();
+    expect(within(await openDisconnectConfirmation()).getByText(/^Disconnect \S+@\S+\?$/)).toBeTruthy();
 
-    fireEvent.click(
-      within(screen.getByRole("alertdialog")).getByRole("button", {
-        name: /^disconnect$/i,
-      }),
-    );
+    fireEvent.click(screen.getByTestId("mail-disconnect-confirm-action"));
 
     await waitFor(() => {
       expect(gmailView.disconnectGmail).toHaveBeenCalledTimes(1);

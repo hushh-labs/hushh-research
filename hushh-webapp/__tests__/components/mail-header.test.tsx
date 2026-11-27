@@ -1,6 +1,7 @@
 /**
  * The mailbox menu: every mailbox with what needs the owner, the chosen one checked, and Add account
- * only while another mailbox still fits. A lapsed mailbox offers Reconnect and cannot be chosen.
+ * only while another mailbox still fits. A lapsed mailbox is never selected: choosing it signs it in again.
+ * Disconnect and Reconnect are not in the menu: with several mailboxes a row could not say which one it affects.
  */
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -19,7 +20,7 @@ function open(accounts: MailHeaderAccount[], extra: Partial<Parameters<typeof Ma
 afterEach(cleanup);
 
 describe("the mailbox menu", () => {
-  it("offers Add account only below three mailboxes, counts a lapsed one toward the three, and has no Disconnect", async () => {
+  it("offers Add account only below three mailboxes, counts a lapsed one toward the three, and has no Disconnect or Reconnect", async () => {
     const two = open([box("a"), box("b")]);
     fireEvent.click(await screen.findByTestId("mail-add-account"));
     expect(two.onAddAccount).toHaveBeenCalledOnce();
@@ -27,8 +28,9 @@ describe("the mailbox menu", () => {
     const three = open([box("a"), box("b"), box("c", { needsReconnect: true })]);
     expect(await screen.findAllByTestId("mail-account-option")).toHaveLength(2);
     expect(screen.queryByTestId("mail-add-account")).toBeNull();
-    expect(screen.queryByRole("menuitem", { name: /Disconnect/ })).toBeNull();
-    fireEvent.click(screen.getByTestId("mail-account-reconnect"));
+    expect(screen.queryByRole("menuitem", { name: /Disconnect|Reconnect/ })).toBeNull();
+    expect(screen.queryByText(/Reconnect/)).toBeNull();
+    fireEvent.click(screen.getByTestId("mail-account-lapsed"));
     expect(three.onReconnectAccount).toHaveBeenCalledWith("c");
     expect(three.onChoose).not.toHaveBeenCalled();
   });
