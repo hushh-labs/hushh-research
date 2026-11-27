@@ -1,9 +1,9 @@
 # Hosting and lifecycle
 
 [Modules](README.md) · [Architecture](../README.md) · [Documentation](../../README.md)  
-**Status:** `Live` (BYOC GCP/Azure & Local Puppy; legacy Shared on UAT/Prod) · `Preview` (Hussh Confidential Sandbox & Unified Wake Coalescer on Dev) · **Intent:** Explanation & lifecycle reference
+**Status:** `Live` (`hussh` Confidential Sandbox on Dev & UAT; BYOC GCP/Azure & Local Puppy; current verified Cloud Run runtime on Prod) · **Intent:** Explanation & lifecycle reference
 
-People run One on one unified single-owner runtime across three placements: **Hussh Confidential Sandbox** (Google Cloud default at `$0` idle compute, Dev preview), **Bring Your Own Cloud** (Google Cloud or Microsoft Azure with customer KMS), and **Local Puppy** (owner silicon). On Dev cutover lanes, `Hussh Shared` and legacy GCP-to-Azure hosted-pod migration UI are retired. Every placement transition, upgrade, wake, and removal stays strictly accountable to the owner.
+People run `One` on one unified single-owner runtime across three placements: **`hussh` Confidential Sandbox** (Google Cloud default at `$0` idle compute, active across Dev and UAT), **Bring Your Own Cloud** (Google Cloud or Microsoft Azure with customer KMS and customer-bucket ciphertext residency), and **Local Puppy** (owner silicon). For `hussh` `One` accounts, the Zero-Knowledge Central Encrypted PKM Mirror stores owner-encrypted ciphertext (`hussh` holds zero keys) so devices, Scope Paid Sharing, and MCP read in under `50ms` without waking sleeping pods, while active compute runs inside a single `2 vCPU / 4 GiB` container paired with the shared out-of-sandbox Sentinel egress gate. Every placement transition, upgrade, wake, and removal stays strictly accountable to the owner.
 
 ## Visual Map
 

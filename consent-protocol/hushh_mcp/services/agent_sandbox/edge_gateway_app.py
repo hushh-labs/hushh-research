@@ -178,6 +178,7 @@ class ActiveOwnerLease:
     last_activity_s: float
     surrogate_expires_at_s: float = 0.0
     claim_expires_at_s: float = 0.0
+    last_sentinel_sync_s: float = 0.0
     active_ws_count: int = 0
     active_http_count: int = 0
 
@@ -214,6 +215,7 @@ class SandboxEdgeGatewayManager:
         pod_url_base: str | None = None,
         hub_url: str | None = None,
         scheduler_caller_emails: str | None = None,
+        schedule_worker_email: str | None = None,
         deploy_env: str | None = None,
         consent_ed25519_public_keys: str | None = None,
         owner_feed_ed25519_public_keys: str | None = None,
@@ -241,6 +243,7 @@ class SandboxEdgeGatewayManager:
         self.pod_url_base = (pod_url_base or "").strip().rstrip("/")
         self.hub_url = (hub_url or "").strip().rstrip("/")
         self.scheduler_caller_emails = (scheduler_caller_emails or "").strip()
+        self.schedule_worker_email = (schedule_worker_email or "").strip()
         self.deploy_env = (deploy_env or "").strip().lower()
         self.consent_ed25519_public_keys = (consent_ed25519_public_keys or "").strip()
         self.owner_feed_ed25519_public_keys = (owner_feed_ed25519_public_keys or "").strip()
@@ -345,6 +348,24 @@ class SandboxEdgeGatewayManager:
             pass
         return 0
 
+    def _build_lease_domain_rules(self) -> dict[str, str]:
+        domain_rules: dict[str, str] = {
+            "oauth2.googleapis.com": "allow",
+            "openidconnect.googleapis.com": "allow",
+            "gmail.googleapis.com": "allow",
+            "www.googleapis.com": "allow",
+        }
+        extra_domains = str(os.environ.get("HUSSH_SANDBOX_CONNECTOR_ALLOW_DOMAINS") or "").strip()
+        for extra in extra_domains.split(","):
+            host_clean = extra.strip().lower()
+            if host_clean:
+                domain_rules[host_clean] = "allow"
+        if self.hub_url:
+            hub_host = (urllib.parse.urlsplit(self.hub_url).hostname or "").strip().lower()
+            if hub_host:
+                domain_rules[hub_host] = "allow"
+        return domain_rules
+
     async def _activate_claimed_sandbox(
         self,
         *,
@@ -376,6 +397,8 @@ class SandboxEdgeGatewayManager:
             payload["hub_url"] = self.hub_url
         if self.scheduler_caller_emails:
             payload["scheduler_caller_emails"] = self.scheduler_caller_emails
+        if self.deploy_env in {"dev", "development"} and self.schedule_worker_email:
+            payload["schedule_worker_email"] = self.schedule_worker_email
         if self.deploy_env in {"dev", "development", "uat"}:
             payload["deploy_env"] = self.deploy_env
         if self.consent_ed25519_public_keys:
@@ -405,26 +428,7 @@ class SandboxEdgeGatewayManager:
                     "domain_rules"
                     in inspect.signature(self.sentinel_control.set_lease_policy_with_ip).parameters
                 ):
-                    domain_rules: dict[str, str] = {
-                        "oauth2.googleapis.com": "allow",
-                        "openidconnect.googleapis.com": "allow",
-                        "gmail.googleapis.com": "allow",
-                        "www.googleapis.com": "allow",
-                    }
-                    extra_domains = str(
-                        os.environ.get("HUSSH_SANDBOX_CONNECTOR_ALLOW_DOMAINS") or ""
-                    ).strip()
-                    for extra in extra_domains.split(","):
-                        host_clean = extra.strip().lower()
-                        if host_clean:
-                            domain_rules[host_clean] = "allow"
-                    if self.hub_url:
-                        hub_host = (
-                            (urllib.parse.urlsplit(self.hub_url).hostname or "").strip().lower()
-                        )
-                        if hub_host:
-                            domain_rules[hub_host] = "allow"
-                    policy_kwargs["domain_rules"] = domain_rules
+                    policy_kwargs["domain_rules"] = self._build_lease_domain_rules()
                 sentinel_tasks.append(
                     asyncio.to_thread(
                         self.sentinel_control.set_lease_policy_with_ip,
@@ -661,6 +665,29 @@ class SandboxEdgeGatewayManager:
                     with contextlib.suppress(Exception):
                         await asyncio.to_thread(self.claim_client.delete_claim, existing.claim_name)
                 else:
+                    if (
+                        self.sentinel_control is not None
+                        and hasattr(self.sentinel_control, "set_lease_policy_with_ip")
+                        and (now_s - existing.last_sentinel_sync_s) >= 30.0
+                    ):
+                        sync_kwargs: dict[str, Any] = {
+                            "lease_id": existing.lease_id,
+                            "owner_id": clean_id,
+                            "pod_ip": existing.pod_ip,
+                        }
+                        if (
+                            "domain_rules"
+                            in inspect.signature(
+                                self.sentinel_control.set_lease_policy_with_ip
+                            ).parameters
+                        ):
+                            sync_kwargs["domain_rules"] = self._build_lease_domain_rules()
+                        with contextlib.suppress(Exception):
+                            await asyncio.to_thread(
+                                self.sentinel_control.set_lease_policy_with_ip,
+                                **sync_kwargs,
+                            )
+                            existing.last_sentinel_sync_s = now_s
                     existing.last_activity_s = now_s
                     return existing
 
@@ -675,6 +702,7 @@ class SandboxEdgeGatewayManager:
             lease_id = ""
             claim_created_at_s = 0.0
             endpoint: ClaimedSandboxEndpoint | None = None
+            placement_epoch: int = 0
             pub_b64 = ""
             pod_key_id = ""
             for claim_attempt in range(2):
@@ -729,6 +757,7 @@ class SandboxEdgeGatewayManager:
                     activated_at_s + float(surrogate_ttl) if surrogate_ttl > 0 else 0.0
                 ),
                 claim_expires_at_s=claim_created_at_s + float(claim_shutdown_s),
+                last_sentinel_sync_s=activated_at_s,
             )
             self._leases[clean_id] = lease
             return lease
@@ -881,18 +910,38 @@ def create_sandbox_edge_gateway_app(
             raise HTTPException(status_code=404, detail={"code": "LEASE_NOT_FOUND"})
         return released
 
-    @gateway.websocket("/u/{hushh_id}/api/one/puppy/relay")
-    async def puppy_relay_bridge(websocket: WebSocket, hushh_id: str) -> None:
+    async def _bridge_pod_websocket(
+        websocket: WebSocket,
+        hushh_id: str,
+        *,
+        upstream_path: str,
+        include_voice_headers: bool = False,
+    ) -> None:
         if not _OWNER_ID_RE.fullmatch(hushh_id):
             await websocket.close(code=1008, reason="Invalid owner identifier")
             return
         lease = await manager.ensure_owner_lease(hushh_id)
         lease.active_ws_count += 1
-        upstream_url = f"ws://{lease.pod_ip}:{lease.port}/api/one/puppy/relay"
+        upstream_url = f"ws://{lease.pod_ip}:{lease.port}{upstream_path}"
         forward_headers: dict[str, str] = {}
         auth_header = str(websocket.headers.get("authorization") or "").strip()
         if auth_header:
             forward_headers["Authorization"] = auth_header
+        if include_voice_headers:
+            for hdr_name in ("X-Consent-Token", "X-Hussh-Voice-Session"):
+                hdr_val = str(websocket.headers.get(hdr_name.lower()) or "").strip()
+                if hdr_val and len(hdr_val) <= 4096:
+                    forward_headers[hdr_name] = hdr_val
+            for raw_key, raw_val in websocket.headers.items():
+                key_lower = str(raw_key or "").lower()
+                clean_val = str(raw_val or "").strip()
+                if (
+                    key_lower.startswith("x-hussh-")
+                    and key_lower.endswith("-grant")
+                    and 0 < len(clean_val) <= 4096
+                ):
+                    canon = "-".join(part.capitalize() for part in key_lower.split("-"))
+                    forward_headers[canon] = clean_val
 
         try:
             async with websockets.connect(
@@ -958,6 +1007,18 @@ def create_sandbox_edge_gateway_app(
         finally:
             lease.active_ws_count = max(0, lease.active_ws_count - 1)
             lease.last_activity_s = manager._clock_s()
+
+    @gateway.websocket("/u/{hushh_id}/api/one/puppy/relay")
+    async def puppy_relay_bridge(websocket: WebSocket, hushh_id: str) -> None:
+        await _bridge_pod_websocket(
+            websocket, hushh_id, upstream_path="/api/one/puppy/relay", include_voice_headers=False
+        )
+
+    @gateway.websocket("/u/{hushh_id}/api/one/pod/live")
+    async def pod_live_voice_bridge(websocket: WebSocket, hushh_id: str) -> None:
+        await _bridge_pod_websocket(
+            websocket, hushh_id, upstream_path="/api/one/pod/live", include_voice_headers=True
+        )
 
     def _cors_headers(request: Request) -> dict[str, str]:
         origin = str(request.headers.get("origin") or "").strip().rstrip("/")
@@ -1032,6 +1093,31 @@ def create_sandbox_edge_gateway_app(
                     },
                 )
             return Response(status_code=204, headers=_cors_headers(request))
+
+        from hushh_mcp.services.pod_sandbox_scheduled_delivery import WORKER_PATH
+
+        if clean_sub.rstrip("/") == WORKER_PATH.lstrip("/"):
+            from hushh_mcp.services.scheduler_identity import (
+                SchedulerIdentityError,
+                verify_scheduler_request,
+            )
+
+            if (
+                manager.deploy_env not in {"dev", "development"}
+                or not manager.pod_url_base
+                or not _OWNER_ID_RE.fullmatch(hushh_id)
+                or request.method != "POST"
+            ):
+                raise HTTPException(403, detail={"code": "SCHEDULE_WORKER_REFUSED"})
+            try:
+                await asyncio.to_thread(
+                    verify_scheduler_request,
+                    authorization_header=request.headers.get("authorization"),
+                    audience=f"{manager.pod_url_base}/u/{hushh_id}",
+                    allowed_emails=(manager.schedule_worker_email,),
+                )
+            except SchedulerIdentityError:
+                raise HTTPException(403, detail={"code": "SCHEDULE_WORKER_REFUSED"}) from None
 
         body = await request.body()
         req_headers = _filter_headers(request.headers)
@@ -1206,6 +1292,7 @@ def create_edge_gateway_from_env() -> FastAPI:
         pod_url_base=os.environ.get("HUSSH_SANDBOX_EDGE_PUBLIC_URL"),
         hub_url=hub_url,
         scheduler_caller_emails=os.environ.get("HUSHH_SCHEDULER_CALLER_EMAILS"),
+        schedule_worker_email=os.environ.get("HUSSH_SANDBOX_TASK_WORKER_EMAIL"),
         deploy_env=os.environ.get("HUSHH_DEPLOY_ENV"),
         consent_ed25519_public_keys=os.environ.get("CONSENT_ED25519_PUBLIC_KEYS"),
         ios_connector_client_id=os.environ.get("GOOGLE_IOS_CONNECTOR_CLIENT_ID"),

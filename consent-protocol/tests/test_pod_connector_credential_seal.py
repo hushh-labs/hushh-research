@@ -349,84 +349,76 @@ def test_every_refusal_code_is_exercised_here():
         assert code in source or f"seal.{code}" in source, code
 
 
-def test_hosted_mail_popup_pins_origin_gmail_placement_and_environment(monkeypatch):
-    from hushh_mcp.services import google_connector_transition_store as transitions
-    from hushh_mcp.services.pod_google_oauth import UAT_MAIL_ORIGIN
-
-    profile = "hussh_uat_mail_web"
-    body = {
-        **VECTOR["plaintext"],
-        "clientProfile": profile,
-        "codeVerifier": None,
-        "redirectUri": UAT_MAIL_ORIGIN,
-    }
-    monkeypatch.setenv("GOOGLE_UAT_MAIL_WEB_CLIENT_ID", body["clientId"])
-    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
-    assert _open(_sealed(plaintext=body)).client_profile == profile
-    assert transitions._transition_target("ace", profile)
-    assert not transitions._transition_target("user_gcp", profile)
-    _refused(
-        _sealed(plaintext={**body, "redirectUri": "https://example.com"}),
-        seal.CLIENT_PROFILE_UNSUPPORTED,
-    )
-    _refused(_sealed(plaintext=body, connectorId="drive"), core.BAD_ENVELOPE, connector_id="drive")
-    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "production")
-    assert not transitions._transition_target("ace", profile)
-    _refused(_sealed(plaintext=body), seal.CLIENT_PROFILE_UNSUPPORTED)
-
-
-def test_browser_mail_sidecar_keeps_confidential_key_out_of_owner_container(monkeypatch):
-    import httpx
-    from fastapi.testclient import TestClient
-
-    from hushh_mcp.operons.agent_sandbox.k8s_manifests import render_sandbox_template
-    from hushh_mcp.services.agent_sandbox import mail_web_exchange
-    from hushh_mcp.services.pod_google_oauth import TOKEN_URL, UAT_MAIL_ORIGIN
-
-    image = (
-        "us-central1-docker.pkg.dev/hushh-pda-uat/one-pod-release/consent-protocol-pod@sha256:"
-        + "a" * 64
-    )
-    spec = render_sandbox_template(image_ref=image, uat_mail_browser=True)["spec"]["podTemplate"][
-        "spec"
-    ]
-    agent, exchange = spec["containers"]
-    assert "client-secret" not in str(agent)
-    assert "client-secret" in str(exchange) and "volumeMounts" not in exchange
-    assert not spec["shareProcessNamespace"]
-    client_id = VECTOR["plaintext"]["clientId"]
-    monkeypatch.setenv("GOOGLE_UAT_MAIL_WEB_CLIENT_ID", client_id)
-    monkeypatch.setenv("GOOGLE_UAT_MAIL_WEB_CLIENT_SECRET", "unit-only")
-    sent = []
-
-    async def google(_self, url, *, data):
-        sent.append((url, data))
-        return httpx.Response(200, json={"access_token": "fixture", "scope": "openid"})
-
-    monkeypatch.setattr(httpx.AsyncClient, "post", google)
-    client = TestClient(mail_web_exchange.app, base_url="http://127.0.0.1:8764")
-    code = {
-        "grant_type": "authorization_code",
-        "client_id": client_id,
-        "code": "unit",
-        "redirect_uri": UAT_MAIL_ORIGIN,
-    }
-    for bad in [
-        {**code, "redirect_uri": "https://wrong.test"},
-        {**code, "client_id": "wrong"},
-        {**code, "url": "https://wrong.test"},
-    ]:
-        assert client.post("/exchange", json=bad).status_code == 400
-    assert not sent
-    for form in [
-        code,
-        {
-            "grant_type": "refresh_token",
-            "client_id": client_id,
-            "scope": "openid",
-            "refresh_token": "unit",
+@pytest.mark.parametrize(
+    "connector_id,scope,env_name,origin",
+    [
+        (
+            "gmail",
+            "https://www.googleapis.com/auth/gmail.modify",
+            "production",
+            "https://one.hussh.si",
+        ),
+        (
+            "calendar",
+            "https://www.googleapis.com/auth/calendar.events",
+            "uat",
+            "https://uat.one.hussh.si",
+        ),
+        ("drive", "https://www.googleapis.com/auth/drive", "dev", "https://dev.one.hussh.si"),
+    ],
+)
+def test_hussh_web_profile_admits_canonical_si_connectors_and_refuses_contacts(
+    monkeypatch, connector_id, scope, env_name, origin
+):
+    client_id = "1234567890-abcdef123456.apps.googleusercontent.com"
+    monkeypatch.setenv("GOOGLE_WEB_OAUTH_CLIENT_ID", client_id)
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", env_name)
+    scopes = ["openid", "email", scope]
+    if connector_id == "calendar":
+        scopes.append("https://www.googleapis.com/auth/calendar.freebusy")
+    envelope = _sealed(
+        connectorId=connector_id,
+        plaintext={
+            "kind": "authorization_code",
+            "clientProfile": "hussh_web",
+            "clientId": client_id,
+            "code": "4/0AeanS0webcode",
+            "codeVerifier": None,
+            "redirectUri": origin,
+            "scopes": scopes,
         },
-    ]:
-        result = client.post("/exchange", json=form)
-        assert result.status_code == 200 and "unit-only" not in result.text
-        assert sent[-1] == (TOKEN_URL, {**form, "client_secret": "unit-only"})
+    )
+    opened = _open(envelope, connector_id=connector_id)
+    assert opened.client_profile == "hussh_web"
+    assert opened.code_verifier is None
+    assert opened.redirect_uri == origin
+
+    # Negative control 1: contacts is strictly device/BYOC-only and refused on hussh_web
+    bad_contacts = _sealed(
+        connectorId="contacts",
+        plaintext={
+            "kind": "authorization_code",
+            "clientProfile": "hussh_web",
+            "clientId": client_id,
+            "code": "4/0AeanS0webcode",
+            "codeVerifier": None,
+            "redirectUri": origin,
+            "scopes": ["openid", "email", "https://www.googleapis.com/auth/contacts.readonly"],
+        },
+    )
+    _refused(bad_contacts, seal.BAD_ENVELOPE, connector_id="contacts")
+
+    # Negative control 2: cross-environment or untrusted origin refused
+    bad_origin = _sealed(
+        connectorId=connector_id,
+        plaintext={
+            "kind": "authorization_code",
+            "clientProfile": "hussh_web",
+            "clientId": client_id,
+            "code": "4/0AeanS0webcode",
+            "codeVerifier": None,
+            "redirectUri": "https://evil.hussh.si",
+            "scopes": scopes,
+        },
+    )
+    _refused(bad_origin, seal.CLIENT_PROFILE_UNSUPPORTED, connector_id=connector_id)

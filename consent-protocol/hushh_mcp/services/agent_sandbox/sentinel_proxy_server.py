@@ -4,7 +4,9 @@
 
 from __future__ import annotations
 
+import base64
 import datetime
+import hashlib
 import hmac
 import http.client
 import json
@@ -54,10 +56,44 @@ MODEL_GATEWAY_PATH_FORBIDDEN = "MODEL_GATEWAY_PATH_FORBIDDEN"
 MODEL_GATEWAY_AUTH_REQUIRED = "MODEL_GATEWAY_AUTH_REQUIRED"
 MODEL_SURROGATE_IP_MISMATCH = "MODEL_SURROGATE_IP_MISMATCH"
 MODEL_GATEWAY_UNAVAILABLE = "MODEL_GATEWAY_UNAVAILABLE"
+HOSTED_WEB_OAUTH_ORIGINS: frozenset[str] = frozenset(
+    {
+        "https://one.hussh.si",
+        "https://one.hushh.si",
+        "https://one.hussh.ai",
+        "https://one.hushh.ai",
+        "https://uat.one.hussh.si",
+        "https://uat.one.hushh.si",
+        "https://uat.one.hussh.ai",
+        "https://uat.one.hushh.ai",
+        "https://dev.one.hussh.si",
+        "https://dev.one.hushh.si",
+        "https://dev.one.hussh.ai",
+        "https://dev.one.hushh.ai",
+    }
+)
+HOSTED_WEB_CONNECTORS: tuple[str, ...] = ("gmail", "calendar", "drive")
+ALLOWED_PLAID_PROXY_PATHS: frozenset[str] = frozenset(
+    {
+        "/link/token/create",
+        "/item/public_token/exchange",
+        "/item/get",
+        "/institutions/get_by_id",
+        "/accounts/balance/get",
+        "/accounts/get",
+        "/investments/holdings/get",
+        "/investments/transactions/get",
+        "/transactions/sync",
+        "/identity/get",
+        "/liabilities/get",
+        "/item/remove",
+    }
+)
+_PLAID_CLIENT_USER_ID_CONTEXT = b"hussh.kai.plaid.vault.client_user_id.v1"
 _MAX_BODY_BYTES = 2 * 1024 * 1024
 _MAX_MODEL_BODY_BYTES = 16 * 1024 * 1024
 _MAX_MODEL_RESPONSE_BYTES = 16 * 1024 * 1024
-_SURROGATE_RE = re.compile(r"hsur_[a-f0-9]{48}")
+_SURROGATE_RE = re.compile(r"hsur_(?:v1_[A-Za-z0-9_-]{16,320}\.[A-Za-z0-9_-]{43}|[a-f0-9]{48})")
 _VERTEX_MODEL_PATH_RE = re.compile(
     r"^/(v1|v1beta1)/projects/([a-z][a-z0-9-]{4,28}[a-z0-9])/locations/([a-z0-9-]+)/"
     r"publishers/google/models/([A-Za-z0-9._-]+):(generateContent|streamGenerateContent|countTokens)$"
@@ -88,6 +124,7 @@ class ModelSurrogateGrant:
     owner_id: str
     lease_id: str
     expires_at_s: int
+    bound_ip: str = ""
     revoked: bool = False
 
 
@@ -210,7 +247,7 @@ class _CachedVertexTokenProvider:
                 now = (
                     datetime.datetime.now(datetime.timezone.utc)
                     if expiry.tzinfo is not None
-                    else datetime.datetime.utcnow()
+                    else datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
                 )
                 if (expiry - now).total_seconds() < 120:
                     needs_refresh = True
@@ -304,6 +341,7 @@ class SentinelProxyRuntime:
         if len(clean_token) < 16:
             raise ValueError("control_token must be at least 16 characters")
         self._clock_s = clock_s or (lambda: int(time.time()))
+        self._hmac_key = bytes(hmac_key)
         self.audit_sink = DurableAuditSink(hmac_key, audit_log_path=audit_log_path)
         self.gatekeeper = SentinelEgressGatekeeper(self.audit_sink, clock_s=self._clock_s)
         self._control_token = clean_token
@@ -323,6 +361,14 @@ class SentinelProxyRuntime:
         self._lease_policies: dict[str, dict[str, DomainRuleMode]] = {}
         self._ip_leases: dict[str, tuple[str, str]] = {}
         self._model_surrogates: dict[str, ModelSurrogateGrant] = {}
+        self._revoked_surrogates: set[str] = set()
+        self._revoked_leases: set[str] = set()
+        self._surrogate_signing_key = hashlib.sha256(
+            b"hussh.sentinel.model_surrogate.v1:"
+            + self._hmac_key
+            + b":"
+            + self._control_token.encode("utf-8")
+        ).digest()
         resolved_gw_host = proxy_host if model_gateway_host is None else model_gateway_host
         resolved_gw_port = (
             (0 if proxy_port == 0 and control_port == 0 else DEFAULT_MODEL_GATEWAY_PORT)
@@ -358,6 +404,7 @@ class SentinelProxyRuntime:
     ) -> None:
         clean_ip = _normalize_client_ip(pod_ip)
         with self._lock:
+            self._revoked_leases.discard(str(lease_id).strip())
             current = dict(self._lease_policies.get(lease_id, {}))
             for host, mode in rules.items():
                 clean_host = str(host or "").strip().lower().rstrip(".")
@@ -385,6 +432,68 @@ class SentinelProxyRuntime:
             merged.update(self._lease_policies.get(lease_id, {}))
             return merged
 
+    def _sign_model_surrogate(
+        self, *, lease_id: str, owner_id: str, expires_at_s: int, bound_ip: str = ""
+    ) -> str:
+        raw_payload = json.dumps(
+            {
+                "l": lease_id,
+                "o": owner_id,
+                "e": int(expires_at_s),
+                "ip": _normalize_client_ip(bound_ip),
+                "n": secrets.token_hex(4),
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        payload_b64 = base64.urlsafe_b64encode(raw_payload).rstrip(b"=").decode("ascii")
+        sig = hmac.new(
+            self._surrogate_signing_key, payload_b64.encode("ascii"), hashlib.sha256
+        ).digest()
+        sig_b64 = base64.urlsafe_b64encode(sig).rstrip(b"=").decode("ascii")
+        return f"hsur_v1_{payload_b64}.{sig_b64}"
+
+    def _verify_stateless_model_surrogate(
+        self, token: str
+    ) -> tuple[ModelSurrogateGrant, str] | None:
+        if not token.startswith("hsur_v1_") or "." not in token:
+            return None
+        payload_b64, sig_b64 = token[len("hsur_v1_") :].split(".", 1)
+        if not payload_b64 or not sig_b64:
+            return None
+        expected = hmac.new(
+            self._surrogate_signing_key, payload_b64.encode("ascii"), hashlib.sha256
+        ).digest()
+        expected_b64 = base64.urlsafe_b64encode(expected).rstrip(b"=").decode("ascii")
+        if not hmac.compare_digest(sig_b64, expected_b64):
+            return None
+        pad = "=" * (-len(payload_b64) % 4)
+        try:
+            decoded = json.loads(base64.urlsafe_b64decode((payload_b64 + pad).encode("ascii")))
+        except Exception:  # noqa: BLE001
+            return None
+        if not isinstance(decoded, dict):
+            return None
+        lease_id = str(decoded.get("l") or "").strip()
+        owner_id = str(decoded.get("o") or "").strip()
+        try:
+            expires_at_s = int(decoded.get("e") or 0)
+        except (TypeError, ValueError):
+            return None
+        if not lease_id or not owner_id or expires_at_s <= 0:
+            return None
+        bound_ip = _normalize_client_ip(str(decoded.get("ip") or ""))
+        return (
+            ModelSurrogateGrant(
+                surrogate_token=token,
+                owner_id=owner_id,
+                lease_id=lease_id,
+                expires_at_s=expires_at_s,
+                bound_ip=bound_ip,
+            ),
+            bound_ip,
+        )
+
     def mint_model_surrogate(
         self, *, lease_id: str, owner_id: str, ttl_seconds: int = 3600
     ) -> tuple[str, int]:
@@ -394,9 +503,11 @@ class SentinelProxyRuntime:
         clean_owner = str(owner_id)
         reused_token: str | None = None
         with self._lock:
+            self._revoked_leases.discard(clean_lease)
             for existing in self._model_surrogates.values():
                 if (
                     not existing.revoked
+                    and existing.surrogate_token not in self._revoked_surrogates
                     and existing.lease_id == clean_lease
                     and existing.owner_id == clean_owner
                 ):
@@ -404,12 +515,22 @@ class SentinelProxyRuntime:
                     if reused_token is None:
                         reused_token = existing.surrogate_token
             if reused_token is None:
-                reused_token = f"hsur_{secrets.token_hex(24)}"
+                bound_ip = next(
+                    (ip for ip, pair in self._ip_leases.items() if pair[0] == clean_lease),
+                    "",
+                )
+                reused_token = self._sign_model_surrogate(
+                    lease_id=clean_lease,
+                    owner_id=clean_owner,
+                    expires_at_s=expires_at_s,
+                    bound_ip=bound_ip,
+                )
                 self._model_surrogates[reused_token] = ModelSurrogateGrant(
                     surrogate_token=reused_token,
                     owner_id=clean_owner,
                     lease_id=clean_lease,
                     expires_at_s=expires_at_s,
+                    bound_ip=bound_ip,
                 )
         self.audit_sink.append(
             lease_id=clean_lease,
@@ -422,10 +543,13 @@ class SentinelProxyRuntime:
     def delete_lease(self, lease_id: str) -> None:
         clean_lease = str(lease_id).strip()
         with self._lock:
+            if clean_lease:
+                self._revoked_leases.add(clean_lease)
             self.gatekeeper.revoke_lease_surrogates(clean_lease)
             for grant in self._model_surrogates.values():
                 if grant.lease_id == clean_lease:
                     grant.revoked = True
+                    self._revoked_surrogates.add(grant.surrogate_token)
             self._lease_policies.pop(clean_lease, None)
             stale_ips = [ip for ip, pair in self._ip_leases.items() if pair[0] == clean_lease]
             for ip in stale_ips:
@@ -446,13 +570,17 @@ class SentinelProxyRuntime:
                 found.update(_SURROGATE_RE.findall(str(value)))
         if not found:
             return
+        revoked_any = False
         with self._lock:
-            matched = [
-                self._model_surrogates[tok] for tok in found if tok in self._model_surrogates
-            ]
-            for grant in matched:
-                grant.revoked = True
-        if matched:
+            for tok in found:
+                if tok in self._model_surrogates:
+                    self._model_surrogates[tok].revoked = True
+                    self._revoked_surrogates.add(tok)
+                    revoked_any = True
+                elif self._verify_stateless_model_surrogate(tok) is not None:
+                    self._revoked_surrogates.add(tok)
+                    revoked_any = True
+        if revoked_any:
             self.audit_sink.append(
                 lease_id=lease_id,
                 owner_id=owner_id,
@@ -471,18 +599,44 @@ class SentinelProxyRuntime:
         now_s = int(self._clock_s())
         clean_ip = _normalize_client_ip(client_ip)
         with self._lock:
-            grant = self._model_surrogates.get(token)
-            if grant is None:
+            if token in self._revoked_surrogates:
                 raise SentinelEgressError(
-                    MODEL_GATEWAY_AUTH_REQUIRED, "Unknown model surrogate token", status=401
+                    MODEL_GATEWAY_AUTH_REQUIRED, "Expired or revoked model surrogate", status=401
                 )
-            if grant.revoked or now_s >= grant.expires_at_s:
+            grant = self._model_surrogates.get(token)
+            signed_ip = ""
+            if grant is None:
+                verified = self._verify_stateless_model_surrogate(token)
+                if verified is None:
+                    raise SentinelEgressError(
+                        MODEL_GATEWAY_AUTH_REQUIRED, "Unknown model surrogate token", status=401
+                    )
+                grant, signed_ip = verified
+                if grant.lease_id in self._revoked_leases:
+                    raise SentinelEgressError(
+                        MODEL_GATEWAY_AUTH_REQUIRED,
+                        "Expired or revoked model surrogate",
+                        status=401,
+                    )
+                if signed_ip and signed_ip not in self._ip_leases:
+                    self._ip_leases[signed_ip] = (grant.lease_id, grant.owner_id)
+                self._model_surrogates[token] = grant
+            if (
+                grant.revoked
+                or grant.lease_id in self._revoked_leases
+                or now_s >= grant.expires_at_s
+            ):
                 raise SentinelEgressError(
                     MODEL_GATEWAY_AUTH_REQUIRED, "Expired or revoked model surrogate", status=401
                 )
             ip_binding = self._ip_leases.get(clean_ip) if clean_ip else None
-            if ip_binding is not None and ip_binding[0] != grant.lease_id:
+            effective_bound_ip = grant.bound_ip or signed_ip
+            ip_mismatch = (ip_binding is not None and ip_binding[0] != grant.lease_id) or (
+                bool(effective_bound_ip) and bool(clean_ip) and clean_ip != effective_bound_ip
+            )
+            if ip_mismatch:
                 grant.revoked = True
+                self._revoked_surrogates.add(token)
                 mismatch_lease = grant.lease_id
                 mismatch_owner = grant.owner_id
             else:
@@ -499,6 +653,164 @@ class SentinelProxyRuntime:
                 MODEL_SURROGATE_IP_MISMATCH, "Model surrogate IP binding mismatch", status=403
             )
         return grant
+
+    @staticmethod
+    def _resolve_web_oauth_credentials() -> tuple[str, str]:
+        for cid_env, sec_env in (
+            ("GOOGLE_WEB_OAUTH_CLIENT_ID", "GOOGLE_WEB_OAUTH_CLIENT_SECRET"),
+            ("GOOGLE_UAT_MAIL_WEB_CLIENT_ID", "GOOGLE_UAT_MAIL_WEB_CLIENT_SECRET"),
+            ("GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET"),
+        ):
+            cid = str(os.getenv(cid_env) or "").strip()
+            sec = str(os.getenv(sec_env) or "").strip()
+            if cid and sec:
+                return cid, sec
+        return "", ""
+
+    @staticmethod
+    def _allowed_hosted_web_scopes() -> set[str]:
+        from hushh_mcp.services.pod_connector_credential_seal import allowed_scopes
+
+        combined: set[str] = set()
+        for connector in HOSTED_WEB_CONNECTORS:
+            combined.update(allowed_scopes(connector))
+        return combined
+
+    def handle_google_oauth_ready(self) -> tuple[int, dict[str, Any]]:
+        client_id, secret = self._resolve_web_oauth_credentials()
+        if not client_id or not secret:
+            return 503, {}
+        return 200, {"clientId": client_id}
+
+    def handle_google_oauth_exchange(
+        self, *, grant: ModelSurrogateGrant, form: Mapping[str, Any]
+    ) -> tuple[int, dict[str, Any]]:
+        refused = (400, {"error": "invalid_request"})
+        if not isinstance(form, Mapping) or not all(
+            isinstance(k, str) and isinstance(v, str) and v for k, v in form.items()
+        ):
+            return refused
+        client_id, secret = self._resolve_web_oauth_credentials()
+        if not client_id or not secret or form.get("client_id") != client_id:
+            return refused
+        allowed_web_scopes = self._allowed_hosted_web_scopes()
+        grant_type = form.get("grant_type")
+        if grant_type == "authorization_code":
+            if (
+                set(form) != {"grant_type", "client_id", "code", "redirect_uri"}
+                or form["redirect_uri"] not in HOSTED_WEB_OAUTH_ORIGINS
+            ):
+                return refused
+        elif grant_type == "refresh_token":
+            if (
+                set(form) != {"grant_type", "client_id", "refresh_token", "scope"}
+                or not form["scope"].split()
+                or not set(form["scope"].split()) <= allowed_web_scopes
+            ):
+                return refused
+        else:
+            return refused
+        encoded = urllib.parse.urlencode({**form, "client_secret": secret}).encode("utf-8")
+        try:
+            status_code, _headers, raw_body = self._upstream(
+                "https://oauth2.googleapis.com/token",
+                "POST",
+                {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Accept": "application/json",
+                },
+                encoded,
+            )
+            body = json.loads(raw_body.decode("utf-8"))
+        except Exception:
+            return 503, {"error": "temporarily_unavailable"}
+        if not isinstance(body, dict):
+            return refused
+        self.audit_sink.append(
+            lease_id=grant.lease_id,
+            owner_id=grant.owner_id,
+            event_type="OAUTH_WEB_EXCHANGE",
+            payload={"grant_type": grant_type, "status": status_code},
+        )
+        if status_code != 200:
+            return status_code, {
+                "error": "invalid_grant"
+                if body.get("error") == "invalid_grant"
+                else "provider_refused"
+            }
+        scope = body.get("scope")
+        if (
+            not isinstance(scope, str)
+            or not scope.split()
+            or not set(scope.split()) <= allowed_web_scopes
+        ):
+            return 403, {"error": "invalid_scope"}
+        return 200, {
+            k: body[k]
+            for k in ("access_token", "refresh_token", "id_token", "scope", "expires_in")
+            if k in body
+        }
+
+    @staticmethod
+    def handle_plaid_ready() -> tuple[int, dict[str, Any]]:
+        from hushh_mcp.integrations.plaid import PlaidRuntimeConfig
+
+        cfg = PlaidRuntimeConfig.from_env()
+        if not cfg.configured:
+            return 503, {"code": "PLAID_VAULT_UNCONFIGURED"}
+        return 200, {"environment": cfg.environment}
+
+    def handle_plaid_proxy(
+        self, *, grant: ModelSurrogateGrant, body: Mapping[str, Any]
+    ) -> tuple[int, dict[str, Any]]:
+        from hushh_mcp.integrations.plaid import PlaidRuntimeConfig
+
+        path = str(body.get("path") or "").strip()
+        payload = body.get("payload")
+        if path not in ALLOWED_PLAID_PROXY_PATHS or not isinstance(payload, Mapping):
+            return 403, {"code": MODEL_GATEWAY_PATH_FORBIDDEN}
+        cfg = PlaidRuntimeConfig.from_env()
+        if not cfg.configured:
+            return 503, {"code": "PLAID_VAULT_UNCONFIGURED"}
+        outbound: dict[str, Any] = {
+            **dict(payload),
+            "client_id": cfg.client_id,
+            "secret": cfg.secret,
+        }
+        if path == "/link/token/create":
+            digest = hmac.new(
+                self._hmac_key,
+                _PLAID_CLIENT_USER_ID_CONTEXT + b":" + grant.owner_id.encode("utf-8"),
+                hashlib.sha256,
+            ).hexdigest()
+            outbound["user"] = {"client_user_id": f"hv1_{digest}"}
+            outbound.pop("webhook", None)
+        raw_req = json.dumps(outbound, separators=(",", ":")).encode("utf-8")
+        try:
+            status_code, _headers, raw_resp = self._upstream(
+                f"{cfg.base_url.rstrip('/')}{path}",
+                "POST",
+                {"Content-Type": "application/json", "Accept": "application/json"},
+                raw_req,
+            )
+            parsed_resp = json.loads(raw_resp.decode("utf-8"))
+        except Exception:
+            return 502, {"error_type": "NETWORK_ERROR", "error_code": "PLAID_GATEWAY_UNREACHABLE"}
+        if not isinstance(parsed_resp, dict):
+            return 502, {"error_type": "API_ERROR", "error_code": "PLAID_INVALID_RESPONSE"}
+        self.audit_sink.append(
+            lease_id=grant.lease_id,
+            owner_id=grant.owner_id,
+            event_type="PLAID_GATEWAY_INVOKE",
+            payload={"path": path, "status": status_code, "environment": cfg.environment},
+        )
+        if status_code >= 400:
+            return status_code, {
+                "error_type": str(parsed_resp.get("error_type") or "API_ERROR"),
+                "error_code": str(parsed_resp.get("error_code") or "PLAID_API_ERROR"),
+                "display_message": parsed_resp.get("display_message"),
+            }
+        return status_code, parsed_resp
 
     def resolve_target_ips(self, url: str) -> list[str]:
         parsed = urllib.parse.urlsplit(url)
@@ -736,7 +1048,8 @@ class SentinelProxyRuntime:
                     return
                 if parsed.path == "/v1/audit/verify":
                     qs = urllib.parse.parse_qs(parsed.query)
-                    lease_id = (qs.get("lease_id") or [None])[0]
+                    lease_values = qs.get("lease_id")
+                    lease_id = lease_values[0] if lease_values else None
                     entries = runtime.audit_sink.entries_for_lease(lease_id)
                     self._send_json(
                         200,
@@ -858,15 +1171,42 @@ class SentinelProxyRuntime:
             def log_message(self, format: str, *args: object) -> None:  # noqa: A002
                 return None
 
-            def _send_json(self, code: int, payload: Mapping[str, Any]) -> None:
+            def _send_json(
+                self, code: int, payload: Mapping[str, Any], *, no_store: bool = False
+            ) -> None:
                 body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
                 self.close_connection = True
                 self.send_response(code)
                 self.send_header("Content-Type", "application/json")
+                if no_store:
+                    self.send_header("Cache-Control", "no-store")
                 self.send_header("Content-Length", str(len(body)))
                 self.send_header("Connection", "close")
                 self.end_headers()
                 self.wfile.write(body)
+
+            def _authorize_surrogate(self) -> ModelSurrogateGrant | None:
+                auth_header = str(self.headers.get("Authorization") or "").strip()
+                scheme, _, token = auth_header.partition(" ")
+                if scheme.lower() != "bearer" or not token.strip():
+                    self._send_json(
+                        401,
+                        {
+                            "code": MODEL_GATEWAY_AUTH_REQUIRED,
+                            "detail": "Bearer surrogate required",
+                        },
+                        no_store=True,
+                    )
+                    return None
+                try:
+                    return runtime.authorize_model_surrogate(
+                        token.strip(), client_ip=self.client_address[0]
+                    )
+                except SentinelEgressError as exc:
+                    self._send_json(
+                        exc.status, {"code": exc.code, "detail": str(exc)}, no_store=True
+                    )
+                    return None
 
             def _reject_path(self, method: str) -> None:
                 bound = runtime.lease_for_ip(self.client_address[0])
@@ -898,6 +1238,20 @@ class SentinelProxyRuntime:
                 if parsed_path in {"/healthz", "/readyz"}:
                     self._send_json(200, {"status": "model_gateway_ready"})
                     return
+                if parsed_path == "/v1/oauth/google/ready":
+                    grant = self._authorize_surrogate()
+                    if grant is None:
+                        return
+                    code, body = runtime.handle_google_oauth_ready()
+                    self._send_json(code, body, no_store=True)
+                    return
+                if parsed_path == "/v1/plaid/ready":
+                    grant = self._authorize_surrogate()
+                    if grant is None:
+                        return
+                    code, body = runtime.handle_plaid_ready()
+                    self._send_json(code, body, no_store=True)
+                    return
                 self._reject_path("GET")
 
             def do_PUT(self) -> None:  # noqa: N802
@@ -908,28 +1262,48 @@ class SentinelProxyRuntime:
 
             def do_POST(self) -> None:  # noqa: N802
                 parsed = urllib.parse.urlsplit(self.path)
+                if parsed.path in {"/v1/oauth/google/exchange", "/v1/plaid/proxy"}:
+                    grant = self._authorize_surrogate()
+                    if grant is None:
+                        return
+                    ctype = str(self.headers.get("Content-Type") or "").split(";", 1)[0].strip()
+                    if ctype != "application/json":
+                        self._send_json(400, {"error": "invalid_request"}, no_store=True)
+                        return
+                    length = int(self.headers.get("Content-Length") or "0")
+                    if length <= 0 or length > 65536:
+                        self._send_json(400, {"error": "invalid_request"}, no_store=True)
+                        return
+                    raw_json = self.rfile.read(length)
+                    try:
+                        req_json = json.loads(raw_json.decode("utf-8"))
+                    except (ValueError, UnicodeDecodeError):
+                        self._send_json(400, {"error": "invalid_request"}, no_store=True)
+                        return
+                    if not isinstance(req_json, dict):
+                        self._send_json(400, {"error": "invalid_request"}, no_store=True)
+                        return
+                    try:
+                        if parsed.path == "/v1/oauth/google/exchange":
+                            code, resp_body = runtime.handle_google_oauth_exchange(
+                                grant=grant, form=req_json
+                            )
+                        else:
+                            code, resp_body = runtime.handle_plaid_proxy(grant=grant, body=req_json)
+                    except SentinelEgressError as exc:
+                        self._send_json(
+                            exc.status, {"code": exc.code, "detail": str(exc)}, no_store=True
+                        )
+                        return
+                    self._send_json(code, resp_body, no_store=True)
+                    return
                 match = _VERTEX_MODEL_PATH_RE.fullmatch(parsed.path)
                 if not match:
                     self._reject_path("POST")
                     return
                 _api_ver, _project, location, model_name, action = match.groups()
-                auth_header = str(self.headers.get("Authorization") or "").strip()
-                scheme, _, token = auth_header.partition(" ")
-                if scheme.lower() != "bearer" or not token.strip():
-                    self._send_json(
-                        401,
-                        {
-                            "code": MODEL_GATEWAY_AUTH_REQUIRED,
-                            "detail": "Bearer surrogate required",
-                        },
-                    )
-                    return
-                try:
-                    grant = runtime.authorize_model_surrogate(
-                        token.strip(), client_ip=self.client_address[0]
-                    )
-                except SentinelEgressError as exc:
-                    self._send_json(exc.status, {"code": exc.code, "detail": str(exc)})
+                grant = self._authorize_surrogate()
+                if grant is None:
                     return
 
                 length = int(self.headers.get("Content-Length") or "0")

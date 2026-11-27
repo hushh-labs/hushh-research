@@ -76,6 +76,7 @@ async def prepare_delivery(
     request_id: str = "",
     expected_file_revision: int | None = None,
     expected_analysis_revision: int | None = None,
+    brokered_schedule: bool = False,
 ) -> dict[str, Any]:
     from .model_binding import hosted_files_analysis_disabled
 
@@ -102,7 +103,20 @@ async def prepare_delivery(
             or manifest.get("automaticConsentRevision") != settings["revision"]
         ):
             return {"state": "not_requested"}
-    require_background_delivery()
+    if brokered_schedule:
+        from hushh_mcp.services.pod_owner_cloud import hosted_ace_runtime
+
+        if (
+            not hosted_ace_runtime()
+            or automatic
+            or not request_id
+            or expected_file_revision is None
+            or expected_analysis_revision is None
+        ):
+            raise FilesRefused("FILES_SCHEDULE_ADMISSION_REQUIRED", 403)
+        identifier(request_id)
+    else:
+        require_background_delivery()
     job_id = file_id  # one serialized job per file; cancelled/failed jobs need explicit retry
     path = f"jobs/{job_id}.bin"
     job = None
@@ -261,7 +275,12 @@ async def status(library: Any, file_id: str, *, cancel: bool = False) -> dict[st
 
 
 async def run_job(
-    job_id: str, delivery: str, *, delivery_check: Callable[[], Awaitable[None]] | None = None
+    job_id: str,
+    delivery: str,
+    *,
+    delivery_check: Callable[[], Awaitable[None]] | None = None,
+    model: Any = None,
+    model_check: Callable[[], Awaitable[None]] | None = None,
 ) -> dict[str, str]:
     """The route verifies OIDC first. No task payload can supply a model instruction."""
     from hushh_mcp.services.pod_session_authority import active_session_authority
@@ -285,11 +304,21 @@ async def run_job(
         # Keep the job admitted through terminal persistence. A new admission
         # after model completion could be refused once an update starts draining.
         async with operation() as library:
-            return await _run_admitted_job(library, job_id, delivery, owner_check)
+            if model is None:
+                return await _run_admitted_job(library, job_id, delivery, owner_check)
+            return await _run_admitted_job(
+                library, job_id, delivery, owner_check, model=model, model_check=model_check
+            )
 
 
 async def _run_admitted_job(
-    library: Any, job_id: str, delivery: str, owner_check: Callable[[], Awaitable[None]]
+    library: Any,
+    job_id: str,
+    delivery: str,
+    owner_check: Callable[[], Awaitable[None]],
+    *,
+    model: Any = None,
+    model_check: Callable[[], Awaitable[None]] | None = None,
 ) -> dict[str, str]:
     from hushh_mcp.one_adk.files_tools import job_target
 
@@ -332,6 +361,8 @@ async def _run_admitted_job(
 
     async def job_check() -> None:
         await owner_check()
+        if model_check is not None:
+            await model_check()
         # Read directly to avoid recursive authorization through library._read.
         raw = await library.store.get(path)
         current = decode_metadata(library._open(path, raw)) if raw else {}
@@ -354,10 +385,15 @@ async def _run_admitted_job(
         with files_access(job_check), job_target(job["file"]):
             async with operation():
                 await library.analysis_allowed(job["file"])
-                result = await _organize(job["file"])
+                result = await (
+                    _organize(job["file"]) if model is None else _organize(job["file"], model=model)
+                )
                 await job_check()
                 if result.state == "failed":
                     outcome = "failed"
+    except FilesRefused as exc:
+        outcome = "review_required" if exc.code == "FILES_JOB_MODEL_CHANGED" else "failed"
+        result = None
     except Exception:
         # Exceptions can contain file/model content. Persist a state only.
         outcome = "failed"

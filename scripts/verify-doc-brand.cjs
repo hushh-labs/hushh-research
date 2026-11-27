@@ -82,7 +82,7 @@ const proseTargets = [
 const infraBrandTokenPatterns = [
   /hushh:\/\//g, // MCP resource URIs
   /hushh:[a-z_]+/g, // service-worker postMessage types, e.g. hushh:fcm_push_ack
-  /[\w.-]*hushh\.(?:ai|app|local)/g, // domains: hushh.ai, one.hushh.ai, hushh.local
+  /[\w.-]*hushh\.(?:ai|si|app|local)/g, // domains: hushh.ai, hushh.si, one.hushh.ai, hushh.local
   /hush1one\.com/g,
   /com\.hushh[\w.]*/g, // bundle identifiers
   /com\.hussh[\w.]*/g,

@@ -42,7 +42,7 @@ it("opens Google from a click and sends the code and mailbox intent only to the 
   expect(await pending).toMatchObject({ ok: true });
   const [route, init] = request.mock.calls[1];
   expect(route).toBe("connectors/gmail");
-  expect(JSON.parse(init.body)).toMatchObject({ clientProfile: "hussh_uat_mail_web", clientId: id, code: "example-code",
+  expect(JSON.parse(init.body)).toMatchObject({ clientProfile: "hussh_web", clientId: id, code: "example-code",
     redirectUri: "https://uat.one.hussh.ai", codeVerifier: null, mailAccount: { mode: "add" } });
   expect(JSON.stringify(prepare.mock.calls)).not.toContain("example-code");
 });

@@ -275,6 +275,7 @@ GET /api/one/pod/custody/broker-key
 GET /api/one/pod/custody/sandbox-placement/{hushh_id}
 POST /api/one/pod/custody/storage-token
 POST /api/one/pod/custody/dek
+POST /api/one/pod/schedule-delivery/offer
 POST /api/one/pod/mcp-approval/consume
 POST /api/one/pod/mcp-approval/issue
 POST /api/one/pod/mcp-approval/rebind
