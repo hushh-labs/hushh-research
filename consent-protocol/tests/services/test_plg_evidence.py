@@ -304,6 +304,68 @@ def test_reporting_policy_requires_production_identity_and_explicit_internal_evi
         reporting.reporting_policy()
 
 
+def test_reporting_policy_v2_includes_registered_team_reviewers_and_aliases(
+    reporting_roster, monkeypatch
+):
+    previous = reporting.reporting_policy().revision
+    monkeypatch.setenv(
+        "ONE_PLG_REPORTING_POLICY_JSON",
+        json.dumps(
+            {"version": 2, "excludedAccountIds": [], "excludedEmails": [], "excludedDomains": []}
+        ),
+    )
+    policy = reporting.reporting_policy()
+    assert policy.revision != previous
+    assert policy.revision == reporting.reporting_policy().revision
+    for uid in ("registered", "reviewer", "reviewer-counterpart"):
+        for address in (
+            "staff@example.test",
+            "inner@example.test",
+            "qa@example.test",
+            "person@company.example",
+        ):
+            assert policy.eligible(uid, {"email": address}, ["alias@company.example"])
+    assert policy.eligible("phone", {"phone_verified": True, "phone_number": "+919876543210"})
+    assert not policy.eligible("missing", None)
+    assert not policy.eligible("anonymous", {"phone_number": "+919876543210"})
+    assert policy.account_ids == policy.emails == policy.domains == frozenset()
+
+
+@pytest.mark.parametrize("field", ["excludedAccountIds", "excludedEmails", "excludedDomains"])
+def test_reporting_policy_v2_refuses_any_exclusion_in_either_lane(monkeypatch, field):
+    from hushh_mcp.services import metrics_uat_authority as uat
+
+    value = {"version": 2, "excludedAccountIds": [], "excludedEmails": [], "excludedDomains": []}
+    value[field] = ["fixture@example.test"]
+    for variable, reader, error in (
+        (
+            "ONE_PLG_REPORTING_POLICY_JSON",
+            reporting.reporting_policy,
+            reporting.ReportingPolicyUnavailable,
+        ),
+        ("ONE_METRICS_UAT_REPORTING_POLICY_JSON", uat.policy, RuntimeError),
+    ):
+        monkeypatch.setenv(variable, json.dumps(value))
+        with pytest.raises(error):
+            reader()
+
+
+def test_uat_all_registered_policy_v2_is_distinct_and_does_not_use_production(monkeypatch):
+    from hushh_mcp.services import metrics_uat_authority as uat
+
+    value = {"version": 2, "excludedAccountIds": [], "excludedEmails": [], "excludedDomains": []}
+    monkeypatch.setenv("ONE_METRICS_UAT_REPORTING_POLICY_JSON", json.dumps(value))
+    monkeypatch.setenv("ONE_PLG_REPORTING_POLICY_JSON", json.dumps(value))
+    production = reporting.reporting_policy()
+    test = uat.policy()
+    assert production.revision != test.revision
+    assert test.revision == uat.policy().revision
+    assert test.eligible("reviewer", {"email": "staff@company.example"})
+    assert not test.eligible("missing", None)
+    monkeypatch.setenv("ONE_PLG_REPORTING_POLICY_JSON", "invalid")
+    assert uat.policy().revision == test.revision
+
+
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setenv("ONE_PLG_EXPORT_ENABLED", "true")

@@ -161,7 +161,7 @@ def policy() -> ReportingPolicy:
         not isinstance(value, dict)
         or set(value) != keys
         or type(value["version"]) is not int
-        or value["version"] != 1
+        or value["version"] not in {1, 2}
     ):
         raise RuntimeError("Invalid UAT Metrics policy")
     for key in keys - {"version"}:
@@ -178,6 +178,9 @@ def policy() -> ReportingPolicy:
             )
         ):
             raise RuntimeError("Invalid UAT Metrics policy")
+    version = value["version"]
+    if version == 2 and any(value[key] for key in keys - {"version"}):
+        raise RuntimeError("All-registered UAT reporting cannot contain exclusions")
     ids = {x.strip() for x in value["excludedAccountIds"]}
     emails = {x.strip().lower() for x in value["excludedEmails"]}
     domains = {x.strip().lower() for x in value["excludedDomains"]}
@@ -192,7 +195,12 @@ def policy() -> ReportingPolicy:
         raise RuntimeError("Invalid UAT Metrics policy")
     revision = hashlib.sha256(
         json.dumps(
-            ["uat_registered_test_accounts_v1", sorted(ids), sorted(emails), sorted(domains)],
+            [
+                f"uat_registered_test_accounts_v{version}",
+                sorted(ids),
+                sorted(emails),
+                sorted(domains),
+            ],
             separators=(",", ":"),
         ).encode()
     ).hexdigest()

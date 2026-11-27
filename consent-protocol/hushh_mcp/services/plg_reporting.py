@@ -138,7 +138,7 @@ def _reporting_policy() -> ReportingPolicy:
         not isinstance(value, dict)
         or set(value) != keys
         or type(value["version"]) is not int
-        or value["version"] != 1
+        or value["version"] not in {1, 2}
     ):
         raise ValueError("Invalid customer reporting policy")
     for key in keys - {"version"}:
@@ -155,17 +155,25 @@ def _reporting_policy() -> ReportingPolicy:
             )
         ):
             raise ValueError("Invalid customer reporting policy")
+    version = value["version"]
+    # Version 2 is the explicitly selected all-registered population. Keep the
+    # historical version-1 policy and its revision unchanged.
+    if version == 2 and any(value[key] for key in keys - {"version"}):
+        raise ValueError("All-registered reporting cannot contain exclusions")
     ids = {item.strip() for item in value["excludedAccountIds"]}
     if any(len(uid) > 128 for uid in ids):
         raise ValueError("Invalid customer reporting policy")
     for key in ("REVIEWER_UID", "REVIEWER_COUNTERPART_UID"):
         reviewer = os.getenv(key, "").strip()
-        if reviewer:
+        if version == 1 and reviewer:
             ids.add(reviewer)
     emails = {item.strip().lower() for item in value["excludedEmails"]}
-    emails.update(
-        address.strip().lower() for cohort in one_magic_intelligence_cohorts() for address in cohort
-    )
+    if version == 1:
+        emails.update(
+            address.strip().lower()
+            for cohort in one_magic_intelligence_cohorts()
+            for address in cohort
+        )
     if any(not re.fullmatch(r"[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+", email) for email in emails):
         raise ValueError("Invalid customer reporting policy")
     domains = {item.strip().lower() for item in value["excludedDomains"]}
@@ -174,11 +182,16 @@ def _reporting_policy() -> ReportingPolicy:
         for domain in domains
     ):
         raise ValueError("Invalid customer reporting policy")
-    if not (ids or emails or domains):
+    if version == 1 and not (ids or emails or domains):
         raise ValueError("Customer reporting exclusions are not configured")
     revision = hashlib.sha256(
         json.dumps(
-            ["production_registered_contacts_v1", sorted(ids), sorted(emails), sorted(domains)],
+            [
+                f"production_registered_contacts_v{version}",
+                sorted(ids),
+                sorted(emails),
+                sorted(domains),
+            ],
             separators=(",", ":"),
         ).encode()
     ).hexdigest()

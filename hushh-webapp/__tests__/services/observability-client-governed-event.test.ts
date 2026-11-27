@@ -99,6 +99,13 @@ describe("governed observability dispatch", () => {
       .toEqual({ one_feature_action: "location_request_fulfilled", one_feature_result: "error" });
     expect(deriveOneFeatureDimensions("import_parse_completed", { result: "error" }))
       .toEqual({ one_feature_result: "error" });
+    for (const event of ["import_upload_started", "import_quality_gate_passed", "import_quality_gate_failed"] as const) {
+      for (const result of ["success", "error", "expected_error"] as const) {
+        expect(deriveOneFeatureDimensions(event, { result })).toEqual({ one_feature_result: result });
+      }
+      expect(deriveOneFeatureDimensions(event, {})).toEqual({});
+      expect(deriveOneFeatureDimensions(event, { result: "unreviewed" })).toEqual({});
+    }
     expect(deriveOneFeatureDimensions("one_location_visit_rated", { result: "error" }))
       .toEqual({ one_feature_result: "error" });
     expect(deriveOneFeatureDimensions("one_location_visit_rated", { result: "success" }))

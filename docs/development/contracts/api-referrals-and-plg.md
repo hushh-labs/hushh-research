@@ -367,10 +367,24 @@ Registration dates must not be inferred from identity-cache creation timestamps.
 
 The audience reader requires `ONE_PLG_REPORTING_POLICY_JSON`, stored in Secret
 Manager and bound by the existing production PLG deploy helper. The strict JSON
-schema is `{version:1, excludedAccountIds:[], excludedEmails:[], excludedDomains:[]}`.
+version-1 schema is `{version:1, excludedAccountIds:[], excludedEmails:[], excludedDomains:[]}`.
 Use confirmed exact identities and company domains; never commit the roster or
 classify a name as fake. Existing inner-team, senior-team and QA email rosters and
 `REVIEWER_UID` also contribute to the policy. Missing/malformed policy fails closed.
+
+Version 2 explicitly selects all registered accounts, including team and reviewer
+accounts. It requires all three exclusion arrays to be empty and does not inject
+reviewer IDs or product team rosters. Its population revision is distinct from
+version 1. UAT accepts the same empty version-2 policy through its dedicated
+setting and uses a separate revision; its existing empty version-1 policy already
+includes every registered account. Identity, lifecycle and environment checks
+still apply. This changes reporting eligibility, not marketing or send permission.
+
+Deploy compatible readers before selecting version 2. Stage matching native and
+feature population bindings, qualify the serving tuple, then activate the new
+report generations. Keep prior snapshots under their original population
+definition; do not relabel customer-only history as all-registered history. Source
+journals, read counters and BigQuery-off controls are unchanged by this opt-in.
 
 Exclusions compare canonical email, current Firebase email, linked-provider emails
 and active verified aliases. A production canonical email or verified E.164 phone
