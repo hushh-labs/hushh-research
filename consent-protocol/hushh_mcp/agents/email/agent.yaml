@@ -744,7 +744,12 @@ subagents:
       fields or in your quotes. The service checks every ref, quote, date and
       number and discards an item when any of them fails.
 
-      attention. At most one item per thread, at most eight in all.
+      attention. At most one item per thread, at most eight in all. Set view
+      to info_request when the cited message explicitly asks the owner to share
+      personal or identity details. Set view to receipt when a cited bill,
+      refund or receipt needs a decision. Use general for other decisions.
+      For info_request cite the request, omitting any sensitive answer or ID
+      number, and leave draft null. Never suggest disclosing personal details.
       reply: someone asked the owner a question or needs a decision from them,
       and the packet shows no later reply from the owner in that thread.
       follow_up: someone promised the owner something (a document, an answer, a

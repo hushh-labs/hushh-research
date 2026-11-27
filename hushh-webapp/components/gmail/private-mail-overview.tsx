@@ -23,7 +23,7 @@ import { MailActionButton as Button } from "./mail-action-button";
 type Mailbox = PrivateMailAccount;
 type ReadBatch<T> = { values: Array<{ mailbox: Mailbox; value: T }>; failed: number };
 type Evidence = PrivateMailTopic["evidence"];
-type Target = { mailbox: Mailbox; source: string; title: string; evidence?: Evidence };
+type Target = { mailbox: Mailbox; source: string; title: string; readOnly?: boolean; evidence?: Evidence };
 
 const selection = (mailbox: Mailbox) => ({
   account: mailbox.accountId,
@@ -181,7 +181,7 @@ function MailThreadDialog({
           </article>
         ))}
         {thread?.truncated ? <p className="text-sm text-muted-foreground">Showing part of this conversation.</p> : null}
-        {thread && !replyReview && sendState === "idle" ? (
+        {thread && !target.readOnly && !replyReview && sendState === "idle" ? (
           <form className="space-y-2" onSubmit={(event) => { event.preventDefault(); void prepareDraft(); }}>
             <Input aria-label="What should the reply say?" placeholder="What should the reply say?" value={instruction}
               maxLength={500} onChange={(event) => setInstruction(event.target.value)} />
@@ -305,7 +305,7 @@ export function PrivateMailOverview({
             ))}
             {decisions.slice(0, 8).map((item) => (
               <OverviewCard key={item.id} title={item.title} reason={item.reason} mailbox={displayMailbox(item.mailbox)}
-                action="Review email" onOpen={() => setTarget({ mailbox: item.mailbox, source: item.evidence[0]!.source_id, title: item.title, evidence: item.evidence })} />
+                action={item.view === "info_request" ? "Review request" : item.view === "receipt" ? "Review receipt email" : "Review email"} onOpen={() => setTarget({ mailbox: item.mailbox, readOnly: item.view === "info_request", source: item.evidence[0]!.source_id, title: item.title, evidence: item.evidence })} />
             ))}
           </div>
         ) : <p className="text-sm text-muted-foreground">{brief ? brief.failed ? "Couldn’t check decisions in every mailbox." : "No decisions found in recent mail." : "Checking recent mail…"}</p>}
@@ -354,6 +354,32 @@ export function PrivateMailOverview({
       {target ? <MailThreadDialog key={target.source} target={target} onClose={() => setTarget(undefined)}
         onSource={(source) => setTarget({ ...target, source })} /> : null}
     </div>
+  );
+}
+
+export function PrivateInfoRequests({ accounts }: { accounts: Mailbox[] }) {
+  const [batch, setBatch] = useState<ReadBatch<PrivateOverviewBrief>>();
+  const [target, setTarget] = useState<Target>();
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    setBatch(undefined);
+    void readMailboxes(accounts, (box) => MailFollowupsService.brief(selection(box), controller.signal), controller.signal)
+      .then((result) => { if (!controller.signal.aborted) setBatch(result); }).catch(() => {});
+    return () => controller.abort();
+  }, [accounts, attempt]);
+  const items = batch?.values.flatMap(({ mailbox, value }) =>
+    value.attention.filter((row) => row.view === "info_request").map((row) => ({ mailbox, ...row }))) ?? [];
+  return (
+    <BriefSection title="Requests from recent mail">
+      {items.map((item) => <OverviewCard key={item.id} title={item.title} reason={item.reason} mailbox={item.mailbox.email}
+        action="Review request" onOpen={() => setTarget({ mailbox: item.mailbox, title: item.title, source: item.evidence[0]!.source_id, evidence: item.evidence, readOnly: true })} />)}
+      {!batch ? <p role="status">Checking recent mail…</p> : null}
+      {batch && !batch.failed && !items.length ? <p>No personal information requests found in recent mail.</p> : null}
+      {batch?.failed ? <div role="status">Some mailboxes could not be checked. <Button type="button" onClick={() => setAttempt((value) => value + 1)}>Try again</Button></div> : null}
+      {target ? <MailThreadDialog key={target.source} target={target} onClose={() => setTarget(undefined)}
+        onSource={(source) => setTarget({ ...target, source })} /> : null}
+    </BriefSection>
   );
 }
 

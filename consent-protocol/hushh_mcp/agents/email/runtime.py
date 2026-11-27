@@ -419,6 +419,7 @@ EMAIL_OVERVIEW_BRIEF_SCHEMA: dict[str, Any] = {
                 "type": "OBJECT",
                 "properties": {
                     "kind": {"type": "STRING", "enum": ["reply", "follow_up"]},
+                    "view": {"type": "STRING", "enum": ["general", "receipt", "info_request"]},
                     "thread": _S,
                     "title": _S,
                     "reason": _S,
@@ -442,6 +443,7 @@ EMAIL_OVERVIEW_BRIEF_SCHEMA: dict[str, Any] = {
                 },
                 "required": [
                     "kind",
+                    "view",
                     "thread",
                     "title",
                     "reason",

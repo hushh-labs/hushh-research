@@ -20,7 +20,7 @@ import {
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { TopBarRouteAccessory } from "@/components/app-ui/top-bar-route-accessory";
 import { MailboxSwitcher } from "./mailbox-switcher";
-import { PrivateMailOverview, PrivateMailTopics } from "./private-mail-overview";
+import { PrivateInfoRequests, PrivateMailOverview, PrivateMailTopics } from "./private-mail-overview";
 import { useMailboxScope } from "@/lib/mail/use-mailbox-scope";
 import {
   disconnectPrivateMailAccount,
@@ -2454,8 +2454,8 @@ export default function GmailReceiptsPage({
                       )
                     ) : null}
                     <div hidden={workspace !== "kyc"} inert={workspace !== "kyc" || undefined}>
-                    {workspace === "kyc" && privateMail && mailboxScope.selectedId !== "all" && !mailboxScope.selected?.isDefault ? (
-                      <p role="status">Info Requests are available for the primary mailbox.</p>
+                    {workspace === "kyc" && privateMail && isVaultUnlocked && userId && vaultKey && vaultOwnerToken && overviewMailboxes.length > 0 ? (
+                      <PrivateInfoRequests key={JSON.stringify([userId, overviewScope, snapshotVaultSessionEpoch()])} accounts={overviewMailboxes} />
                     ) : workspace === "kyc" && !isConnected ? mailStatusPanel : null}
 
                     {isConnected &&

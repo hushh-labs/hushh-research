@@ -29,7 +29,7 @@ export const privateTopicsSchema = z.array(z.object({
 })).max(5);
 export type PrivateMailTopic = z.infer<typeof privateTopicsSchema>[number];
 const overviewBrief = z.object({
-  attention: z.array(briefItem.extend({ reason: z.string() })).max(8),
+  attention: z.array(briefItem.extend({ reason: z.string(), view: z.enum(["general", "receipt", "info_request"]).default("general") })).max(8),
   updates: z.array(briefItem.extend({ line: z.string() })).max(5),
   topics: privateTopicsSchema,
 });

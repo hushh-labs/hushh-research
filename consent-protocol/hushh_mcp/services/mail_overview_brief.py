@@ -395,13 +395,21 @@ def _verify_attention(
     if term_text and len(term_text) <= 60 and norm(term_text) in evidence_text:
         term = term_text
 
-    draft = _safe_draft(raw.get("draft"), "\n".join(m.text for m in members))
+    view = raw.get("view", "general")
+    if view not in ("general", "receipt", "info_request"):
+        raise Reject("view")
+    draft = (
+        None
+        if view == "info_request"
+        else _safe_draft(raw.get("draft"), "\n".join(m.text for m in members))
+    )
     return {
         "id": "att_"
         + hashlib.sha256(
             f"{owner_user_id}|{account}|{kind}|{primary.message_id}".encode()
         ).hexdigest()[:20],
         "kind": kind,
+        "view": view,
         "title": title,
         "reason": reason,
         "context": context,

@@ -576,6 +576,49 @@ def test_native_output_only_projects_visible_one_parts_and_read_only_surfaces():
     assert encode_native_chat_output(event.model_copy(update={"author": "finance"})) == b""
 
 
+def test_native_mail_brief_only_displays_cited_findings_in_dev(monkeypatch):
+    result = {
+        "status": "ok",
+        "is_complete": True,
+        "structured": {
+            "connector": "mail",
+            "status": "ok",
+            "sources": [{"source_ref": "mail:1", "label": "Mail", "kind": "message"}],
+        },
+        "mail_brief": {
+            "checked_at": "2026-11-28",
+            "requested": ["action_items"],
+            "counts_by_category": {"action_items": 2},
+            "coverage": {
+                "checked": 2,
+                "analyzed": 2,
+                "unreadable": 0,
+                "unnamed_sender_messages": 0,
+                "more_mail_outside_page": False,
+                "text_shortened": False,
+            },
+            "items": [
+                {"source_ref": ref, "subject": title, "category": "action_items", "state": "active"}
+                for ref, title in [("mail:1", "Review contract"), ("mail:2", "Uncited finding")]
+            ],
+        },
+    }
+    event = Event(
+        author="one",
+        content=genai_types.Content(
+            parts=[genai_types.Part.from_function_response(name="ask_email_agent", response=result)]
+        ),
+    )
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    frame = encode_native_chat_output(event)
+    surface = json.loads(frame[6:])["content"]["parts"][0]["functionResponse"]["response"]
+    card = surface["validated_a2ui_json"][0]["createSurface"]
+    assert card["catalogId"] == "hussh.ai:morphy-one/v1"
+    assert card["components"][1]["rows"] == [["Review contract", "active", "mail:1"]]
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "production")
+    assert encode_native_chat_output(event) == b""
+
+
 def test_native_location_review_only_emits_a_valid_proposal_for_an_admitted_turn():
     from hushh_mcp.one_adk.location_chat_proposal import TOOL_NAME, propose_location_action
 
