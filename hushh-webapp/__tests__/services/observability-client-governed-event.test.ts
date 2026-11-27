@@ -109,7 +109,7 @@ describe("governed observability dispatch", () => {
       for (const action of actions) {
         for (const result of ["success", "error"] as const) {
           expect(trackEvent(event, { action, result, filename: "PRIVATE.pdf", query: "PRIVATE_CONTENT", owner_id: "PRIVATE_OWNER" } as never)).toBe(true);
-          expect(adapters.webTrack).toHaveBeenLastCalledWith(event, expect.objectContaining({ action, result }));
+          expect(adapters.webTrack).toHaveBeenLastCalledWith(event, expect.objectContaining({ action, result, one_feature_action: action, one_feature_result: result }));
           for (const key of ["filename", "query", "owner_id"]) expect(adapters.webTrack.mock.lastCall?.[1]).not.toHaveProperty(key);
         }
       }
@@ -123,10 +123,18 @@ describe("governed observability dispatch", () => {
 
   it("admits the finite Calendar booking result and excludes private meeting fields", () => {
     expect(trackEvent("one_calendar_action", { route_id: "one_calendar", action: "booking_create", result: "success", title: "PRIVATE_TITLE", attendees: ["PRIVATE_EMAIL@example.test"] } as never)).toBe(true);
-    expect(adapters.webTrack).toHaveBeenCalledExactlyOnceWith("one_calendar_action", expect.objectContaining({ action: "booking_create", result: "success" }));
+    expect(adapters.webTrack).toHaveBeenCalledExactlyOnceWith("one_calendar_action", expect.objectContaining({ action: "booking_create", result: "success", one_feature_action: "booking_create", one_feature_result: "success" }));
     expect(JSON.stringify(adapters.webTrack.mock.calls)).not.toContain("PRIVATE");
     expect(trackEvent("one_calendar_action", { route_id: "one_calendar", action: "PRIVATE_TITLE", result: "success" } as never)).toBe(false);
     expect(adapters.webTrack).toHaveBeenCalledOnce();
+  });
+
+  it("restores the reviewed result-only rating alias without inventing an action", () => {
+    for (const result of ["success", "expected_error", "error"] as const) {
+      expect(deriveOneFeatureDimensions("one_location_visit_rated", { result })).toEqual({ one_feature_result: result });
+    }
+    expect(deriveOneFeatureDimensions("one_location_visit_rated", {})).toEqual({});
+    expect(deriveOneFeatureDimensions("one_location_visit_rated", { result: "PRIVATE_RESULT" })).toEqual({});
   });
 
   it("rejects the entire event when a governed enum is undeclared", () => {
