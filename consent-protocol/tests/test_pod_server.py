@@ -380,6 +380,7 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/agent-chat/runs/{conversation_id}/queue/{client_message_id}",
         "/api/one/pod/agent-chat/runs/{conversation_id}/stop",
         "/api/one/pod/browser/capability",
+        "/api/one/pod/browser/sessions/forget",
         "/api/one/pod/browser/tasks",
         "/api/one/pod/browser/tasks/{task_id}",
         "/api/one/pod/browser/tasks/{task_id}/control",
@@ -520,6 +521,7 @@ def test_the_owner_reachable_surface_is_exactly_these_paths():
     # Path reachability does not authorize new verbs. Pin the ephemeral entry
     # and static history seams independently of their ingress regex/shared prefix.
     credential_methods = {
+        "/api/one/pod/browser/sessions/forget": {"POST"},
         "/api/one/pod/browser/tasks/{task_id}/credentials": {"GET"},
         "/api/one/pod/browser/tasks/{task_id}/credentials/use": {"POST"},
         "/api/one/pod/browser/tasks/{task_id}/credentials/transient": {"POST"},
