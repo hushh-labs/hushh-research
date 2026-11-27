@@ -53,6 +53,7 @@ if (disablePhoneAuthAppVerificationForTesting) {
 // Store reCAPTCHA verifier
 let recaptchaVerifier: RecaptchaVerifier | null = null;
 let recaptchaWidgetId: number | null = null;
+let recaptchaContainerId: string | null = null;
 
 function getWindowWithRecaptcha() {
   return window as typeof window & {
@@ -90,6 +91,7 @@ export function getRecaptchaVerifier(containerId: string): RecaptchaVerifier {
   // verifier still receives a fresh target to prevent duplicate rendering.
   const sdkContainer = document.createElement("div");
   container.replaceChildren(sdkContainer);
+  recaptchaContainerId = containerId;
 
   recaptchaVerifier = new RecaptchaVerifier(auth, sdkContainer, {
     size: "invisible",
@@ -98,6 +100,9 @@ export function getRecaptchaVerifier(containerId: string): RecaptchaVerifier {
     },
     "expired-callback": () => {
       console.log("reCAPTCHA expired");
+      resetRecaptcha();
+    },
+    "error-callback": () => {
       resetRecaptcha();
     },
   });
@@ -127,7 +132,9 @@ export function resetRecaptcha() {
 
   // Release SDK-owned children without detaching React's host. The next start
   // creates a fresh SDK target rather than reusing Google's previous element.
-  const container = document.getElementById("recaptcha-container");
+  const targetId = recaptchaContainerId ?? "recaptcha-container";
+  recaptchaContainerId = null;
+  const container = document.getElementById(targetId);
   container?.replaceChildren();
 }
 
