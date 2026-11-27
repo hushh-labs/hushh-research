@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
@@ -224,7 +224,10 @@ function scheduledStateLabel(task: ScheduledTask) {
   return task.run_now_pending ? "Run requested" : scheduledTaskLabels[task.state];
 }
 
-export function ScheduledRunInformation({ task }: { task: ScheduledTask }) {
+export function ScheduledRunInformation({ task, renderResult }: {
+  task: ScheduledTask;
+  renderResult?: (run: ScheduledRun) => ReactNode;
+}) {
   const earlierRuns = task.recent_runs?.filter(run => run.id !== task.last_run?.id);
   const repeat = task.weekdays?.map(day => SCHEDULE_WEEKDAYS[day]).join(", ") ?? repeatLabels[task.repeat];
   return (
@@ -235,12 +238,13 @@ export function ScheduledRunInformation({ task }: { task: ScheduledTask }) {
       )}
       <p>{repeat}</p>
       <p>{scheduledRunSummary(task)}</p>
+      {task.last_run && renderResult?.(task.last_run)}
       {task.last_run?.state === "outcome_uncertain" && <p>Check the result before scheduling again.</p>}
       {earlierRuns?.length ? (
         <details>
           <summary className="min-h-8 w-fit cursor-pointer content-center">Run history</summary>
           <ul className="space-y-1 ps-3">
-            {earlierRuns.map(run => <li key={run.id}>{runSummary(run)}</li>)}
+            {earlierRuns.map(run => <li key={run.id}>{runSummary(run)}{renderResult?.(run)}</li>)}
           </ul>
         </details>
       ) : null}

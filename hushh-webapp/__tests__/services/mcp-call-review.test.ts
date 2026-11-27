@@ -199,4 +199,22 @@ it("keeps private preview on the pod and sends only its commitment on explicit c
   await expect(ExternalConnectorService.confirmMcpCall({ ...input(), chatKey: "private-chat-key", reference: preview }))
     .rejects.toThrow("Private connector review changed");
   expect(ApiService.apiFetch).toHaveBeenCalledTimes(1);
+
+  const conversationId = `scheduled_${"e".repeat(32)}`;
+  const scheduledReview = {
+    ...input(), scheduled: true as const, conversationId,
+    reference: { ...reviewed, podReview: { ...reviewed.podReview!, conversationId } },
+  };
+  vi.mocked(usesOwnerPod).mockResolvedValue(false);
+  await expect(ExternalConnectorService.confirmMcpCall(scheduledReview))
+    .rejects.toThrow("Scheduled connector review is unavailable");
+  expect(ApiService.apiFetch).toHaveBeenCalledTimes(1);
+
+  vi.mocked(usesOwnerPod).mockResolvedValue(true);
+  respond({ status: "confirmed", directiveId: reference.directiveId, receipt: "s".repeat(43) });
+  await expect(ExternalConnectorService.confirmMcpCall(scheduledReview))
+    .resolves.toMatchObject({ directiveId: reference.directiveId, receipt: "s".repeat(43) });
+  expect(JSON.parse(vi.mocked(ApiService.apiFetch).mock.calls[1][1]!.body as string)).toEqual({
+    podReview: scheduledReview.reference.podReview, directiveId: reference.directiveId, confirmed: true,
+  });
 });

@@ -139,26 +139,18 @@ async def scheduled_run_result(runtime, schedule_id: str, occurrence_id: str) ->
         validate_schedule_checkpoint,
     )
 
-    rows, _ = await runtime.journal.snapshot()
-    row = rows.get(schedule_id)
-    run = (row or {}).get("last_run") or {}
-    if (
-        row is None
-        or row["capability"] != "agent_one.execute_task.v1"
-        or row["incarnation"] != runtime.access.incarnation
-        or run.get("id") != occurrence_id
-        or run.get("state") not in {"completed", "failed"}
-        or not row.get("checkpoint")
-    ):
-        raise HTTPException(404, detail={"code": "SCHEDULE_RESULT_UNAVAILABLE"})
     try:
+        occurrence = await runtime.journal.read_settled_occurrence(schedule_id, occurrence_id)
+        row = occurrence.checkpoint_row
+        if row is None or row["capability"] != "agent_one.execute_task.v1":
+            raise ValueError("Missing scheduled model result")
         checkpoint = ScheduledCheckpoint.model_validate(row["checkpoint"])
         validate_schedule_checkpoint(row, checkpoint)
         outputs = native_task_outputs(Session.model_validate(checkpoint.session))
     except (ValueError, TypeError, ScheduleRefused):
         raise HTTPException(404, detail={"code": "SCHEDULE_RESULT_UNAVAILABLE"}) from None
     output = next(iter(outputs.values()), {}).get("output")
-    expected = "completed" if run["state"] == "completed" else "blocked"
+    expected = "completed" if occurrence.state == "completed" else "blocked"
     if not output or output["outcome"] != expected:
         raise HTTPException(404, detail={"code": "SCHEDULE_RESULT_UNAVAILABLE"})
     return {"outcome": expected, "summary": output["summary"]}
@@ -213,11 +205,16 @@ class Wake(StrictContract):
     occurrence_id: str = Field(pattern=r"^[a-f0-9]{32}$")
 
 
-class Review(StrictContract):
+class ReviewOccurrence(StrictContract):
     schedule_id: str = Field(pattern=r"^schedule_[a-f0-9]{32}$")
     revision: int = Field(ge=1)
     occurrence_id: str = Field(pattern=r"^[a-f0-9]{32}$")
-    pending_handle: str = Field(pattern=r"^one_secret_ref:[A-Za-z0-9_-]{32}$", repr=False)
+
+
+class Review(ReviewOccurrence):
+    pending_handle: str | None = Field(
+        default=None, pattern=r"^one_secret_ref:[A-Za-z0-9_-]{32}$", repr=False
+    )
 
 
 class Approval(StrictContract):
@@ -228,7 +225,8 @@ class Approval(StrictContract):
     receipt: str = Field(pattern=r"^[A-Za-z0-9_-]{32,128}$", repr=False)
 
 
-class Continue(Review):
+class Continue(ReviewOccurrence):
+    pending_handle: str = Field(pattern=r"^one_secret_ref:[A-Za-z0-9_-]{32}$", repr=False)
     confirmation_id: str = Field(min_length=1, max_length=256)
     approval: Approval = Field(repr=False)
 
@@ -258,6 +256,8 @@ async def review_task(
     try:
         runtime, claims, caller_check = owner(authorization, write=True)
         authority, _ = verified_session(authorization, role=ROLE_APP, scope="pkm.read")
+        if body.pending_handle is None and authority.environment not in {"dev", "development"}:
+            raise HTTPException(404, detail={"code": "SCHEDULE_REVIEW_UNAVAILABLE"})
         return await review_scheduled_call(
             runtime,
             authority=authority,
