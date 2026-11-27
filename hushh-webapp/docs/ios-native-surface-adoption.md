@@ -4,6 +4,8 @@
 
 Start at the shell and follow every reachable iPhone route, including its nested screens, controls, failure states and authored returns. Reconcile the route inventory with the surface map and live navigation on Dev and UAT. Keep a route open when its mapping, visual behavior or test fixture is missing. Review Standard and Native on iPhone 17 Pro and iPhone Duo. The product scope, Apple app study, route groups, evidence criteria and Duo storefront handoff are in [#10149 Convert and verify the entire Hussh One iPhone app](https://github.com/hushh-labs/hushh-research/issues/10149).
 
+On eligible iPhones, open **Profile → Appearance → Native interface**. Standard is the default. Test both directions on the iPhone 17 Pro reference build, including preservation of the unlocked vault and drafts. Use that same build for the Duo optimization pass across closed, partially open and open poses, including side controls, keyboard and list/detail continuity. Roopmann owns the full-app review with Kushal and the Hussh team as lead.
+
 ## November 27 UAT review
 
 | Journey | iPhone 17 Pro, iOS 26.5, UAT Debug 2.0.0 (186) |

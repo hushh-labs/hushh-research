@@ -2387,20 +2387,28 @@ final class AppUITests: XCTestCase {
             format: "identifier BEGINSWITH %@ AND label == %@", "native-launcher-agent-", "Open Mail"
         )).firstMatch
         let circles = app.segmentedControls["native-workspace-tabs"].buttons["Circles"].firstMatch
-        // Feed preserves its rich activity timeline when those rows need the web presenter.
-        let feed = webView.staticTexts["Feed"].firstMatch
+        let webFeed = webView.staticTexts["Feed"].firstMatch
+        let nativeFeed = app.descendants(matching: .any).matching(identifier: "native-route-workspace").firstMatch
+        let status = app.buttons["native-test-status"].firstMatch
+        var previousLabel = "Chat"
         for _ in 0..<2 {
-            for (label, body) in [("One", launcher), ("Connect", circles), ("Feed", feed), ("Chat", history)] {
-                let selected = bar.buttons.matching(NSPredicate(format: "selected == true")).firstMatch
-                let previous = selected.exists ? selected.identifier : nil
+            for (label, body) in [("One", launcher), ("Connect", circles), ("Feed", webFeed), ("Chat", history)] {
+                let previous = tab(previousLabel)
                 tap(label)
                 let destination = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                    tab(label).isSelected && tab(label).identifier != previous && body.exists &&
-                        (label != "Feed" || !circles.exists)
+                    guard tab(label).isSelected, !previous.isSelected else { return false }
+                    if label != "Feed" { return body.exists }
+                    guard !circles.exists else { return false }
+                    if status.exists {
+                        let value = status.value as? String ?? status.label
+                        guard self.normalizeRoute(self.parseStatus(value)["route"] ?? "") == "/one/feed" else { return false }
+                    }
+                    return webFeed.exists || (nativeFeed.exists && nativeFeed.scrollViews.firstMatch.exists)
                 }, object: bar)
                 guard XCTWaiter.wait(for: [destination], timeout: 8) == .completed else {
                     return XCTFail("One native tap did not reach the selected \(label) screen")
                 }
+                previousLabel = label
             }
         }
         XCTAssertFalse(webView.buttons["Unlock"].exists, "A tab switch lost the unlocked session")
@@ -2429,12 +2437,6 @@ final class AppUITests: XCTestCase {
         let native = app.switches["native-profile-row-preferences-native-interface"].firstMatch
         let standard = web.descendants(matching: .any).matching(NSPredicate(
             format: "label == %@", "Experimental native interface")).firstMatch
-        func capture(_ stage: String) {
-            let attachment = XCTAttachment(screenshot: app.screenshot())
-            attachment.name = "Appearance-" + stage
-            attachment.lifetime = .keepAlways
-            add(attachment)
-        }
         func reveal(_ control: XCUIElement, in region: XCUIElement) -> Bool {
             guard control.waitForExistence(timeout: 10) else { return false }
             for _ in 0..<3 {
@@ -2451,13 +2453,11 @@ final class AppUITests: XCTestCase {
         guard reveal(native, in: menu), native.value as? String == "1" else {
             XCTFail("Native Appearance did not admit its enabled interface switch"); return
         }
-        capture("native")
         native.tap()
         guard reveal(standard, in: web) else { XCTFail("Standard Appearance did not return after one switch tap"); return }
         XCTAssertFalse(native.exists)
         XCTAssertFalse(web.buttons["Unlock"].exists)
         XCTAssertEqual(host.count, 1)
-        capture("standard")
         standard.tap()
         guard reveal(native, in: menu), native.value as? String == "1" else {
             XCTFail("Native Appearance did not return after one switch tap"); return
@@ -2465,7 +2465,6 @@ final class AppUITests: XCTestCase {
         XCTAssertFalse(standard.exists && standard.isHittable)
         XCTAssertFalse(web.buttons["Unlock"].exists)
         // UIKit isolates the covered WebView from accessibility while this drawer owns focus.
-        capture("restored")
         let back = nativeProfileBack(app, parent: "Profile")
         guard waitForAdmittedControl(back) else { XCTFail("Appearance lost its authored Back"); return }
         back.tap()
