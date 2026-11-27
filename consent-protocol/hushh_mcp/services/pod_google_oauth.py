@@ -61,6 +61,8 @@ HOSTED_WEB_ORIGINS_BY_ENV: dict[str, frozenset[str]] = {
             "https://one.hushh.si",
             "https://one.hussh.ai",
             "https://one.hushh.ai",
+            "https://stage.one.hussh.si",
+            "https://stage.one.hussh.ai",
         }
     ),
 }

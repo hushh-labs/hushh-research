@@ -21,7 +21,19 @@ WORKER_PATH = "/api/one/pod/tasks/worker"
 WORKER_EMAIL_ENV = "HUSSH_SANDBOX_TASK_WORKER_EMAIL"
 QUEUE_ENV = "HUSSH_SANDBOX_TASK_QUEUE"
 _DEV_PROJECT = "hushh-pda-dev"
+_PROJECT_BY_LANE: dict[str, str] = {
+    "dev": _DEV_PROJECT,
+    "uat": "hushh-pda-uat",
+    "production": "hushh-pda",
+}
 _CHECKPOINT_SECONDS = 28 * 86400
+
+
+def _normalized_sandbox_lane() -> str:
+    from hushh_mcp.services.dev_simulation_guard import deploy_lane
+
+    lane = deploy_lane()
+    return "production" if lane == "prod" else lane
 
 
 class SandboxScheduleOffer(BaseModel):
@@ -33,11 +45,11 @@ class SandboxScheduleOffer(BaseModel):
 
 
 def sandbox_worker_email() -> str:
-    from hushh_mcp.services.dev_simulation_guard import deploy_lane
-
+    lane = _normalized_sandbox_lane()
+    project = _PROJECT_BY_LANE.get(lane, "")
     worker = os.getenv(WORKER_EMAIL_ENV, "")
-    if deploy_lane() != "dev" or not re.fullmatch(
-        rf"[a-z][a-z0-9-]{{4,28}}[a-z0-9]@{_DEV_PROJECT}\.iam\.gserviceaccount\.com", worker
+    if not project or not re.fullmatch(
+        rf"[a-z][a-z0-9-]{{4,28}}[a-z0-9]@{re.escape(project)}\.iam\.gserviceaccount\.com", worker
     ):
         raise ScheduleRefused("SCHEDULE_CLOUD_DELIVERY_UNQUALIFIED")
     return worker
@@ -94,16 +106,23 @@ def sandbox_cloud_task(offer: SandboxScheduleOffer, *, placement, now: int) -> t
     """Build a metadata-only task to the caller's verified owner route."""
     from hushh_mcp.services.pooled_sandbox_cutover import _edge_public_base_url
 
+    lane = _normalized_sandbox_lane()
+    project = _PROJECT_BY_LANE.get(lane, "")
     worker = sandbox_worker_email()
     queue = os.getenv(QUEUE_ENV, "")
-    if not re.fullmatch(
-        rf"projects/{_DEV_PROJECT}/locations/us-central1/queues/[a-zA-Z0-9_-]+", queue
+    if not project or not re.fullmatch(
+        rf"projects/{re.escape(project)}/locations/us-central1/queues/[a-zA-Z0-9_-]+", queue
     ):
         raise ScheduleRefused("SCHEDULE_DELIVERY_NOT_CONFIGURED")
     base = _edge_public_base_url()
+    placement_env = (
+        "production"
+        if getattr(placement, "environment", "") == "prod"
+        else getattr(placement, "environment", "")
+    )
     if (
         not base
-        or placement.environment != "dev"
+        or placement_env != lane
         or placement.url != f"{base}/u/{quote(placement.hushh_id, safe='')}"
         or offer.due_at > now + 366 * 86400
         or offer.occurrence_id != occurrence_id(offer.schedule_id, offer.revision, offer.due_at)
