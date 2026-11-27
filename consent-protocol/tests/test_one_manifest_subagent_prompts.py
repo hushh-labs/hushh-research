@@ -39,6 +39,11 @@ async def test_location_review_is_admitted_only_for_main_owner_chat(monkeypatch)
     props = {"mainChat": True, "locationChatReview": True}
     monkeypatch.delenv("ONE_MAIN_CHAT_LOCATION_ENABLED", raising=False)
     assert not admit_location_chat_review(props, owner_admitted=True)
+    for env in ("dev", "development", "uat"):
+        assert admit_location_chat_review(props, owner_admitted=True, pod_environment=env)
+    assert not admit_location_chat_review(props, owner_admitted=True, pod_environment="production")
+    monkeypatch.setenv("ONE_MAIN_CHAT_LOCATION_ENABLED", "false")
+    assert not admit_location_chat_review(props, owner_admitted=True, pod_environment="uat")
     monkeypatch.setenv("ONE_MAIN_CHAT_LOCATION_ENABLED", "true")
     assert not admit_location_chat_review(props, owner_admitted=False)
     assert not admit_location_chat_review({**props, "mainChat": False}, owner_admitted=True)
@@ -49,7 +54,18 @@ async def test_location_review_is_admitted_only_for_main_owner_chat(monkeypatch)
     assert not admit_location_chat_review(
         {**regular, "locationChatReview": False}, owner_admitted=True
     )
-    for screen in ({}, [], {"route": None}, {"route": {"pathname": "/one/location"}}):
+    for pathname in ("/?locationSetupReturn=example", "/#chat", "/?panel=connectors"):
+        assert admit_location_chat_review(
+            {**regular, "screenContext": {"route": {"pathname": pathname}}}, owner_admitted=True
+        )
+    for screen in (
+        {"route": {"pathname": "//example.com/?"}},
+        {"route": {"pathname": "/one?next=/"}},
+        {},
+        [],
+        {"route": None},
+        {"route": {"pathname": "/one/location"}},
+    ):
         assert not admit_location_chat_review(
             {**props, "screenContext": screen}, owner_admitted=True
         )
@@ -99,7 +115,12 @@ def test_location_proposal_restores_intent_without_execution_authority():
 
     context = SimpleNamespace(state={STATE_LOCATION_CHAT_CONVERSATION: True})
     proposal = propose_location_action(
-        "share_live", [" Maya ", "MAYA"], ["Family"], 2, tool_context=context
+        "share_live",
+        [" Maya ", "MAYA"],
+        ["Family"],
+        2,
+        tool_context=context,
+        terms_check="as_requested",
     )
     assert proposal["conversation"] is True
     assert "conversation" not in propose_location_action("share_live", ["Maya"], ["Family"], 2)
@@ -505,3 +526,30 @@ def test_one_writes_without_em_dashes_and_within_its_prompt_budget(
     assert "Never use an em dash or en dash as punctuation" in authored
     assert "The company is Hussh" in authored
     assert len(composed) <= _COMPOSED_INSTRUCTION_CHAR_BUDGET, len(composed)
+
+
+def test_chat_keeps_unavailable_privacy_terms_until_explicitly_replaced():
+    context = SimpleNamespace(state={STATE_LOCATION_CHAT_CONVERSATION: True})
+
+    def propose(action="share_live", **terms):
+        return propose_location_action(action, tool_context=context, **terms)
+
+    assert propose(people=["Riley"], duration_hours=1)["status"] == "terms_required"
+    for restriction in ("place_only", "conditional", "fixed_end", "one_time", "other_restriction"):
+        blocked = propose(people=["Riley"], duration_hours=1, terms_check=restriction)
+        assert blocked["status"] == "unsupported_terms" and "id" not in blocked
+        assert propose("share_private", people=["Riley"], terms_check="as_requested") == blocked
+        assert propose("share_public", duration_hours=1, terms_check="as_requested") == blocked
+        assert (
+            propose("ask", people=["Ankit"], terms_check="as_requested")["status"]
+            == "proposal_ready"
+        )
+        assert (
+            propose(people=["Riley"], duration_hours=1, terms_check="explicit_replacement")[
+                "status"
+            ]
+            == "proposal_ready"
+        )
+    temporary = propose("enable_auto_approve", duration_hours=3, terms_check="as_requested")
+    assert temporary["status"] == "unsupported_terms" and "standing" in temporary["message"]
+    assert propose("enable_auto_approve", terms_check="as_requested") == temporary

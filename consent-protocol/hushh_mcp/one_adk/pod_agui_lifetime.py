@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import time
 from collections.abc import AsyncGenerator, Callable
@@ -21,6 +22,7 @@ from ag_ui.core import (
 )
 
 from hushh_mcp.one_adk.agui_turn_timing import TimedADKAgent
+from hushh_mcp.one_adk.location_chat_proposal import TOOL_NAME, location_chat_proposal_from_result
 from hushh_mcp.one_adk.mcp_turn_scope import McpTurnResources
 from hushh_mcp.services.chat_key import current_request_chat_key, retain_request_chat_key
 from hushh_mcp.services.pod_upgrade_admission import (
@@ -275,6 +277,9 @@ class PodTimedADKAgent(TimedADKAgent):
         last_access_check = 0.0
         saw_run_started = False
         saw_assistant_text = False
+        tool_count = 0
+        location_call_id = None
+        device_has_review = False
         saw_server_tool_result = False
         saw_interrupt = False
         saw_error = False
@@ -306,11 +311,25 @@ class PodTimedADKAgent(TimedADKAgent):
                                 saw_assistant_text = True
                         elif event.type == EventType.TOOL_CALL_START:
                             call_id = str(getattr(event, "tool_call_id", "") or "")
+                            tool_count += 1
                             if call_id:
                                 pending_tool_calls.add(call_id)
+                                if event.tool_call_name == TOOL_NAME:
+                                    location_call_id = call_id
                         elif event.type == EventType.TOOL_CALL_RESULT:
                             saw_server_tool_result = True
                             call_id = str(getattr(event, "tool_call_id", "") or "")
+                            if (
+                                call_id
+                                and call_id == location_call_id
+                                and call_id in pending_tool_calls
+                            ):
+                                try:
+                                    result = json.loads(event.content)
+                                except (TypeError, ValueError):
+                                    result = None
+                                proposal = location_chat_proposal_from_result(result)
+                                device_has_review = bool(proposal and proposal.get("conversation"))
                             pending_tool_calls.discard(call_id)
                         elif event.type == EventType.CUSTOM:
                             if "interrupt" in str(getattr(event, "name", "") or "").lower():
@@ -360,6 +379,7 @@ class PodTimedADKAgent(TimedADKAgent):
                                 and not saw_error
                                 and not saw_interrupt
                                 and not pending_tool_calls
+                                and not (tool_count == 1 and device_has_review)
                                 and (saw_server_tool_result or saw_run_started)
                             ):
                                 fallback_id = f"msg_fallback_{input.run_id}"

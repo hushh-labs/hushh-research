@@ -379,6 +379,10 @@ class GcpBackend:
                     "name": "HUSSH_POD_TURN_ENABLED",
                     "value": "true" if pod_turn_enabled() else "false",
                 },
+                {
+                    "name": "ONE_MAIN_CHAT_LOCATION_ENABLED",
+                    "value": "true" if _flag("ONE_MAIN_CHAT_LOCATION_ENABLED") else "false",
+                },
                 # Whether this pod may export or import its log for a migration,
                 # propagated from the hub for the same reason the turn flag is:
                 # the routes read their OWN copy, so a hub that has migration on
