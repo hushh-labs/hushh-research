@@ -27,6 +27,9 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
+import { LOCATION_CHAT_SETUP_PARAM } from "@/lib/agent/location-chat-setup-handoff";
+import type { LocationChatSetupIntroProps } from "@/components/location/setup/location-chat-setup-journey";
 
 import type { LucideIcon } from "@/components/icons";
 import {
@@ -2152,6 +2155,7 @@ type OneLocationAgentPageProps = {
   onSetupReadinessChange?: (ready: boolean) => void;
   onSetupComplete?: () => void | Promise<void>;
   onSetupSkip?: () => void | Promise<void>;
+  onSetupBack?: () => Promise<void>;
 };
 
 const SAVED_LOCATION_PROMPT_LEGACY_KEY_PREFIX =
@@ -2198,12 +2202,14 @@ export function OneLocationAgentPageContent({
   onSetupReadinessChange,
   onSetupComplete,
   onSetupSkip,
+  onSetupBack,
 }: OneLocationAgentPageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   // The onboarding Back layer calls this only at Features. Its exit has an
   // explicit destination so native Back cannot recurse into that same layer.
   const handleOnboardingBack = useCallback(() => {
+    if (onSetupBack) { void onSetupBack(); return; }
     requestInternalAppNavigation({
       href: ROUTES.ONE_HOME,
       replace: false,
@@ -2211,7 +2217,7 @@ export function OneLocationAgentPageContent({
       source: "tap",
       transitionMode: "full",
     });
-  }, []);
+  }, [onSetupBack]);
   const locationNativeFrame = useRef<HTMLDivElement | null>(null);
   const auth = useRequireAuth();
   // Viewer avatar for the SELF location preview only, so the marker is the
@@ -14097,13 +14103,13 @@ export function OneLocationAgentPageContent({
     routeId:
       surface === "map"
         ? "/one/location/map"
-        : mode === "setup"
+        : mode === "setup" && !onSetupBack
           ? "/one/setup/location"
           : "/one/location",
     marker:
       surface === "map"
         ? "native-route-one-location-map"
-        : mode === "setup"
+        : mode === "setup" && !onSetupBack
           ? "native-route-one-setup-location"
           : "native-route-one-location",
     authState: auth.loading
@@ -16059,7 +16065,15 @@ export function OneLocationAgentPage(props: OneLocationAgentPageProps = {}) {
   );
 }
 
+const LocationChatSetupJourney = dynamic(() => import("@/components/location/setup/location-chat-setup-journey").then((module) => module.LocationChatSetupJourney));
+
+function LocationChatIntro({ complete, cancel }: LocationChatSetupIntroProps) {
+  return <OneLocationAgentPage mode="setup" onSetupComplete={complete} onSetupSkip={cancel} onSetupBack={cancel} />;
+}
+
 /** Keep the established Location hub as the customer-facing route. */
 export default function OneLocationPage(props: OneLocationAgentPageProps = {}) {
+  const handoffId = useSearchParams()?.get(LOCATION_CHAT_SETUP_PARAM);
+  if (handoffId) return <LocationChatSetupJourney handoffId={handoffId} Intro={LocationChatIntro} />;
   return <OneLocationAgentPage {...props} />;
 }
