@@ -588,8 +588,17 @@ describe("cloud step placement states", () => {
     expect(ApiService.getHostedSourceRetirementStatus).not.toHaveBeenCalled();
   });
 
-  it("hides legacy Prior cloud source-pod retirement on Dev Confidential Sandbox (ace) while keeping the home pill", async () => {
+  it("hides legacy Prior cloud source-pod retirement on Dev Confidential Sandbox (ace) and fires a one-time modular toast instead of a lingering top pill", async () => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+
+    const { morphyToast } = await import("@/lib/morphy-ux/morphy");
+    const { __resetSandboxCutoverToastForTests } = await import(
+      "@/lib/one/sandbox-cutover-toast"
+    );
+    __resetSandboxCutoverToastForTests();
+    const toastSpy = vi
+      .spyOn(morphyToast, "success")
+      .mockImplementation(() => "toast-id");
 
     const { HusshPodsActiveCard, SandboxCutoverStatusPill } = await import(
       "@/components/connections/hussh-pods-cloud-card"
@@ -605,13 +614,15 @@ describe("cloud step placement states", () => {
       </>,
     );
 
-    const pill = await screen.findByTestId("sandbox-cutover-ready-pill");
-    expect(pill).toHaveTextContent(
-      "Confidential Sandbox ready · Prior cloud cleanup running in background",
-    );
-    fireEvent.click(screen.getByTestId("sandbox-cutover-pill-dismiss"));
+    await waitFor(() => {
+      expect(toastSpy).toHaveBeenCalledWith("Personal Sandbox is ready", {
+        description: "Prior cloud cleanup is finishing in the background.",
+        duration: 4000,
+      });
+    });
     expect(screen.queryByTestId("sandbox-cutover-ready-pill")).toBeNull();
     expect(window.sessionStorage.getItem(SANDBOX_CUTOVER_PILL_STORAGE_KEY)).toBeNull();
+    toastSpy.mockRestore();
 
     await act(async () => {
       await Promise.resolve();

@@ -1,5 +1,59 @@
 import { ApiService } from './api-service';
+import { isFilesWakingError } from '@/lib/files/local-error';
 import type { GoogleConnector } from '@/lib/one/connector-credential-seal';
+
+const POD_CONNECTOR_WAKE_DELAYS_MS = [1_200, 2_000, 3_000, 4_000, 5_000, 5_000, 5_000] as const;
+
+function waitWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+function isWakingGatewayResponse(response: Response): boolean {
+  if (response.status !== 502 && response.status !== 503 && response.status !== 504) return false;
+  const podState = response.headers.get('x-hussh-pod-state')?.trim().toLowerCase();
+  if (podState === 'waking') return true;
+  if (podState === 'unavailable' || podState === 'error') return false;
+  return !(response.headers.get('content-type') ?? '').includes('application/json');
+}
+
+/** Read a session-only connector endpoint, silently waking an idle sandbox first when needed. */
+export async function ownerPodConnectorGetWithWake(path: string, signal?: AbortSignal): Promise<Response> {
+  let wokeOnce = false;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const response = await ApiService.ownerPodRequest(path, { method: 'GET', ...(signal && { signal }) });
+      if (!isWakingGatewayResponse(response)) return response;
+      const delay = POD_CONNECTOR_WAKE_DELAYS_MS[attempt];
+      if (delay === undefined) return response;
+      void response.body?.cancel().catch(() => undefined);
+      if (!wokeOnce && typeof ApiService.wakePod === 'function') {
+        wokeOnce = true;
+        void ApiService.wakePod().catch(() => undefined);
+      }
+      await waitWithSignal(delay, signal);
+    } catch (error) {
+      if (signal?.aborted || !isFilesWakingError(error)) throw error;
+      const delay = POD_CONNECTOR_WAKE_DELAYS_MS[attempt];
+      if (delay === undefined) throw error;
+      if (!wokeOnce && typeof ApiService.wakePod === 'function') {
+        wokeOnce = true;
+        void ApiService.wakePod().catch(() => undefined);
+      }
+      await waitWithSignal(delay, signal);
+    }
+  }
+}
 
 // No grant or mailbox identifiers are exposed to other browser surfaces.
 export const PRIVATE_MAIL_GRANTS_CHANGED = 'one:private-mail-grants-changed';
@@ -34,7 +88,7 @@ export type PrivateMailAccount = PrivateGoogleStatus & {
 };
 
 export async function privateMailAccounts(signal?: AbortSignal): Promise<PrivateMailAccount[]> {
-  const response = await ApiService.ownerPodRequest('connectors/gmail/accounts', { method: 'GET', ...(signal && { signal }) });
+  const response = await ownerPodConnectorGetWithWake('connectors/gmail/accounts', signal);
   if (!response.ok) throw new Error('Your private agent could not load your mailboxes. Update your agent if this continues.');
   const value: unknown = await response.json();
   const accounts = (value as { accounts?: unknown } | null)?.accounts;
@@ -64,8 +118,8 @@ export async function disconnectPrivateMailAccount(accountId: string, credential
 }
 
 /** Display only grants confirmed by the owner-authenticated pod response. */
-export async function privateGoogleStatus(connector: GoogleConnector): Promise<PrivateGoogleStatus> {
-  const response = await ApiService.ownerPodRequest(`connectors/${connector}`, { method: 'GET' });
+export async function privateGoogleStatus(connector: GoogleConnector, signal?: AbortSignal): Promise<PrivateGoogleStatus> {
+  const response = await ownerPodConnectorGetWithWake(`connectors/${connector}`, signal);
   if (!response.ok) throw new Error('Your private agent could not confirm this Google connection.');
   const value = await response.json() as Partial<PrivateGoogleStatus>;
   if (value.connectorId !== connector || !['connected', 'needs_reauth', 'absent'].includes(value.status ?? ''))

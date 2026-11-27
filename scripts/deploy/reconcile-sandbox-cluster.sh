@@ -172,15 +172,29 @@ gcloud secrets versions access latest --secret="sentinel-control-token" --projec
 
 WEB_CID_FILE="${WORK_DIR}/web-cid"
 WEB_SEC_FILE="${WORK_DIR}/web-sec"
+WEB_CID_SOURCE=""
 read_secret_optional "GOOGLE_WEB_OAUTH_CLIENT_ID" "${WEB_CID_FILE}"
-if [[ ! -s "${WEB_CID_FILE}" ]]; then
-  read_secret_optional "GOOGLE_UAT_MAIL_WEB_CLIENT_ID" "${WEB_CID_FILE}"
+if [[ -s "${WEB_CID_FILE}" ]]; then
+  WEB_CID_SOURCE="web"
+  read_secret_optional "GOOGLE_WEB_OAUTH_CLIENT_SECRET" "${WEB_SEC_FILE}"
+  if [[ ! -s "${WEB_SEC_FILE}" ]]; then
+    read_secret_optional "GOOGLE_OAUTH_CLIENT_SECRET" "${WEB_SEC_FILE}"
+  fi
 fi
 if [[ ! -s "${WEB_CID_FILE}" ]]; then
   read_secret_optional "GOOGLE_OAUTH_CLIENT_ID" "${WEB_CID_FILE}"
+  if [[ -s "${WEB_CID_FILE}" ]]; then
+    WEB_CID_SOURCE="oauth"
+    read_secret_optional "GOOGLE_OAUTH_CLIENT_SECRET" "${WEB_SEC_FILE}"
+  fi
 fi
-read_secret_optional "GOOGLE_OAUTH_CLIENT_SECRET" "${WEB_SEC_FILE}"
-if [[ "${DEPLOY_ENV}" == "uat" ]] && gcloud secrets describe "GOOGLE_UAT_MAIL_WEB_CLIENT_ID" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+if [[ ! -s "${WEB_CID_FILE}" ]]; then
+  read_secret_optional "GOOGLE_UAT_MAIL_WEB_CLIENT_ID" "${WEB_CID_FILE}"
+  if [[ -s "${WEB_CID_FILE}" ]]; then
+    WEB_CID_SOURCE="uat_mail"
+  fi
+fi
+if [[ "${DEPLOY_ENV}" == "uat" && "${WEB_CID_SOURCE}" == "uat_mail" ]]; then
   UAT_MAIL_SEC_B64="$(kctl -n hussh-agents get secret uat-private-mail-oauth -o jsonpath='{.data.client-secret}' 2>/dev/null || true)"
   if [[ -n "${UAT_MAIL_SEC_B64}" ]]; then
     printf '%s' "${UAT_MAIL_SEC_B64}" | base64 -d > "${WEB_SEC_FILE}"
