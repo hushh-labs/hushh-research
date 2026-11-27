@@ -169,7 +169,15 @@ These rules apply to parent sessions, subagents, verification workers and local 
    first. Record its canonical path, declared target base branch (`dev`, `uat`, or
    `main`), base/head revision, owning task/session, purpose, owned process IDs and
    ports, and completion or handoff condition. Avoid duplicating `node_modules` or
-   `.venv` trees when safe read-only symlinks suffice. A finished verification run
+   `.venv` trees (including `node_modules` under `hushh-webapp`) when safe read-only
+   symlinks suffice, and run `python3 scripts/ops/worktree_hygiene.py --check`
+   before creating any worktree or heavy build (warn below 30 GB free, hard-stop
+   below 15 GB free, no static concurrency cap on active parallel worktrees but
+   mandatory immediate removal of every temporary worktree after use; see
+   [worktree and dependency hygiene](../docs/development/worktree-and-dependency-hygiene.md)).
+   Strip ignored `.next`, iOS build caches under `hushh-webapp/ios` build caches, and temporary
+   `node_modules` before parking a checkout or running `git worktree remove`
+   so zero orphaned non-git stub directories remain. A finished verification run
    is not a reason to retain a duplicate checkout.
 9. Synchronize with the declared base branch before clearing any temporary worktree.
    Verify final changes are merged into `origin/<base>` (or durably preserved on an
