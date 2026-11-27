@@ -198,4 +198,15 @@ describe("governed observability dispatch", () => {
       stopRecording();
     }
   });
+  it.each(["web", "ios", "android"] as const)("derives only the governed Calendar booking dimensions on %s", (platform) => {
+    adapters.platform = platform;
+    expect(trackEvent("one_calendar_action", { route_id: "one_calendar", action: "booking_create", result: "expected_error", event_id: "private", title: "private", guests: "private@example.test" } as never)).toBe(true);
+    const receiver = platform === "web" ? adapters.webTrack : adapters.nativeTrack;
+    const other = platform === "web" ? adapters.nativeTrack : adapters.webTrack;
+    expect(receiver).toHaveBeenCalledOnce();
+    expect(receiver).toHaveBeenCalledWith("one_calendar_action", expect.objectContaining({ action: "booking_create", result: "expected_error", one_feature_action: "booking_create", one_feature_result: "expected_error" }));
+    for (const key of ["event_id", "title", "guests"]) expect(receiver.mock.lastCall?.[1]).not.toHaveProperty(key);
+    expect(other).not.toHaveBeenCalled();
+  });
+
 });

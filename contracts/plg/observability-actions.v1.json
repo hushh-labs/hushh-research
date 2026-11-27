@@ -15,12 +15,23 @@
     "one_calendar_action": [
       "connected",
       "disconnected",
-      "chat_opened"
+      "chat_opened",
+      "booking_create"
+    ],
+    "one_career_action": [
+      "resume_parse",
+      "resume_save",
+      "application_send"
     ],
     "one_crm_action": [
       "record_created",
       "record_updated",
       "record_deleted"
+    ],
+    "one_document_request_action": [
+      "question_send",
+      "file_request_send",
+      "review_request"
     ],
     "one_kyc_action": [
       "redraft_completed",
@@ -88,6 +99,6 @@
     "recommendation_viewed": [],
     "ria_activation_completed": []
   },
-  "sourceDigest": "3d887c80bdc38618a8e0bae7e2442fdff3617c5bd7782f97a3e8033eafdfca0a",
+  "sourceDigest": "7b2243e77282e7d7518352a70883a655de6dd8bd1005bfcac343f5996db5e61f",
   "version": 1
 }
