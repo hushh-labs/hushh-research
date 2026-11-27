@@ -1,0 +1,258 @@
+--- a/ios/Sources/CapacitorGoogleMapsPlugin/Map.swift
++++ b/ios/Sources/CapacitorGoogleMapsPlugin/Map.swift
+@@ -102,13 +102,35 @@
+         self.render()
+     }
+
+-    func render() {
++    private var pendingBounds: CGRect?
++    private var retired = false
++    private var attachment: Bool?
++    private var attachmentCallbacks: [(Bool) -> Void] = []
++
++    // Called on main. Repeated create calls share this map's attachment result.
++    func whenAttached(_ completion: @escaping (Bool) -> Void) {
++        if let attachment = attachment {
++            completion(attachment)
++        } else {
++            attachmentCallbacks.append(completion)
++        }
++    }
++
++    private func finishAttachment(_ result: Bool) {
++        guard attachment == nil else { return }
++        attachment = result
++        let callbacks = attachmentCallbacks
++        attachmentCallbacks.removeAll()
++        callbacks.forEach { $0(result) }
++    }
++
++    func render(remainingAttempts: Int = 20) {
+         DispatchQueue.main.async {
++            guard !self.retired, self.attachment == nil else { return }
++            let bounds = self.pendingBounds ?? CGRect(x: self.config.x, y: self.config.y,
++                                                      width: self.config.width, height: self.config.height)
+             self.mapViewController.mapViewBounds = [
+-                "width": self.config.width,
+-                "height": self.config.height,
+-                "x": self.config.x,
+-                "y": self.config.y
++                "width": bounds.width, "height": bounds.height, "x": bounds.origin.x, "y": bounds.origin.y
+             ]
+
+             self.mapViewController.cameraPosition = [
+@@ -117,19 +139,31 @@
+                 "zoom": self.config.zoom
+             ]
+
+-            self.targetViewController = self.getTargetContainer(refWidth: self.config.width, refHeight: self.config.height)
+-
+-            if let target = self.targetViewController {
+-                target.tag = Map.MAP_TAG
+-                target.removeAllSubview()
+-                self.mapViewController.view.frame = target.bounds
+-                target.addSubview(self.mapViewController.view)
+-            }
++            // WebKit may publish the child scroll view after the page transition.
++            // Use the same point rounding as rebindTargetContainer.
++            guard let target = self.getTargetContainer(refWidth: round(bounds.width),
++                                                       refHeight: round(bounds.height)) else {
++                if remainingAttempts > 0 {
++                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
++                        self?.render(remainingAttempts: remainingAttempts - 1)
++                    }
++                } else {
++                    self.finishAttachment(false)
++                }
++                return
++            }
++            self.targetViewController = target
++            target.tag = Map.MAP_TAG
++            target.removeAllSubview()
++            self.mapViewController.view.frame = target.bounds
++            target.addSubview(self.mapViewController.view)
++            self.finishAttachment(self.mapViewController.GMapView?.superview === target)
+         }
+     }
+
+     func finishMapConfiguration() {
+         DispatchQueue.main.async {
++            guard self.mapViewController.GMapView != nil else { return }
+             self.mapViewController.GMapView.delegate = self.delegate
+
+             if let styles = self.config.styles {
+@@ -175,6 +209,11 @@
+
+     func updateRender(mapBounds: CGRect) {
+         DispatchQueue.main.sync {
++            guard !self.retired else { return }
++            if self.attachment == nil {
++                self.pendingBounds = mapBounds
++                return
++            }
+             let newWidth = round(Double(mapBounds.width))
+             let newHeight = round(Double(mapBounds.height))
+             let isWidthEqual = round(Double(self.mapViewController.view.bounds.width)) == newWidth
+@@ -192,6 +231,11 @@
+
+     func rebindTargetContainer(mapBounds: CGRect) {
+         DispatchQueue.main.sync {
++            guard !self.retired else { return }
++            if self.attachment == nil {
++                self.pendingBounds = mapBounds
++                return
++            }
+             if let target = self.getTargetContainer(refWidth: round(Double(mapBounds.width)), refHeight: round(Double(mapBounds.height))) {
+                 self.targetViewController = target
+                 target.tag = Map.MAP_TAG
+@@ -234,12 +278,14 @@
+     }
+
+     func destroy() {
+-        DispatchQueue.main.async {
+-            self.mapViewController.GMapView = nil
+-            self.targetViewController?.tag = 0
+-            self.mapViewController.view = nil
+-            self.enableTouch()
+-        }
++        // Registry mutations and retirement run on main before a replacement can attach.
++        self.retired = true
++        self.finishAttachment(false)
++        self.mapViewController.viewIfLoaded?.removeFromSuperview()
++        self.mapViewController.GMapView = nil
++        self.targetViewController?.tag = 0
++        self.mapViewController.view = nil
++        self.enableTouch()
+     }
+
+     func enableTouch() {
+@@ -535,9 +581,12 @@
+     }
+
+     func setPadding(padding: GoogleMapPadding) throws {
+-        DispatchQueue.main.sync {
++        try DispatchQueue.main.sync {
++            guard let mapView = self.mapViewController.GMapView, mapView.superview != nil else {
++                throw GoogleMapErrors.mapNotFound
++            }
+             let mapInsets = UIEdgeInsets(top: CGFloat(padding.top), left: CGFloat(padding.left), bottom: CGFloat(padding.bottom), right: CGFloat(padding.right))
+-            self.mapViewController.GMapView.padding = mapInsets
++            mapView.padding = mapInsets
+         }
+     }
+
+--- a/ios/Sources/CapacitorGoogleMapsPlugin/CapacitorGoogleMapsPlugin.swift
++++ b/ios/Sources/CapacitorGoogleMapsPlugin/CapacitorGoogleMapsPlugin.swift
+@@ -102,7 +102,20 @@
+         CAPPluginMethod(name: "mapBoundsContains", returnType: CAPPluginReturnPromise),
+         CAPPluginMethod(name: "mapBoundsExtend", returnType: CAPPluginReturnPromise)
+     ]
+-    private var maps = [String: Map]()
++    private let mapsLock = NSLock()
++    private var registeredMaps = [String: Map]()
++
++    // Capacitor calls arrive on its plugin queue. Google Maps delegates run on main.
++    private var maps: [String: Map] { mapsLock.withLock { registeredMaps } }
++
++    @discardableResult
++    private func replaceMap(_ map: Map?, for id: String) -> Map? {
++        mapsLock.withLock {
++            let previous = registeredMaps[id]
++            registeredMaps[id] = map
++            return previous
++        }
++    }
+     private var isInitialized = false
+     private var locationManager = CLLocationManager()
+
+@@ -146,39 +159,48 @@
+
+             let config = try GoogleMapConfig(fromJSObject: configObj)
+
+-            if self.maps[id] != nil {
+-                if !forceCreate {
++            DispatchQueue.main.async {
++                let map: Map
++                if let existing = self.maps[id], !forceCreate {
++                    map = existing
++                } else {
++                    self.replaceMap(nil, for: id)?.destroy()
++                    map = Map(id: id, config: config, delegate: self)
++                    self.replaceMap(map, for: id)
++                }
++                map.whenAttached { [weak self, weak map] attached in
++                    guard let self = self, let map = map, self.maps[id] === map else {
++                        call.reject("Map creation was superseded.")
++                        return
++                    }
++                    guard attached else {
++                        self.replaceMap(nil, for: id)
++                        map.destroy()
++                        call.reject("The native map could not attach to its view.")
++                        return
++                    }
+                     call.resolve()
++                }
++            }
++        } catch {
++            handleError(call, error: error)
++        }
++    }
++
++    @objc func destroy(_ call: CAPPluginCall) {
++        do {
++            guard let id = call.getString("id") else {
++                throw GoogleMapErrors.invalidMapId
++            }
++
++            DispatchQueue.main.async {
++                guard let removedMap = self.replaceMap(nil, for: id) else {
++                    self.handleError(call, error: GoogleMapErrors.mapNotFound)
+                     return
+                 }
+-
+-                let removedMap = self.maps.removeValue(forKey: id)
+-                removedMap?.destroy()
+-            }
+-
+-            DispatchQueue.main.sync {
+-                let newMap = Map(id: id, config: config, delegate: self)
+-                self.maps[id] = newMap
+-            }
+-
+-            call.resolve()
+-        } catch {
+-            handleError(call, error: error)
+-        }
+-    }
+-
+-    @objc func destroy(_ call: CAPPluginCall) {
+-        do {
+-            guard let id = call.getString("id") else {
+-                throw GoogleMapErrors.invalidMapId
+-            }
+-
+-            guard let removedMap = self.maps.removeValue(forKey: id) else {
+-                throw GoogleMapErrors.mapNotFound
+-            }
+-
+-            removedMap.destroy()
+-            call.resolve()
++                removedMap.destroy()
++                call.resolve()
++            }
+         } catch {
+             handleError(call, error: error)
+         }
+--- a/dist/esm/map.js
++++ b/dist/esm/map.js
+@@ -120,6 +120,9 @@
+                     resolve(undefined);
+                 }
+                 catch (err) {
++                    if (Capacitor.getPlatform() === 'ios') {
++                        newMap.resizeObserver?.disconnect();
++                    }
+                     reject(err);
+                 }
+             }, 200);
