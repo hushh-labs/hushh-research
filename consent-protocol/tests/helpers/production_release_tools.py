@@ -71,6 +71,7 @@ def production_release_tools(root: Path, old_paths: tuple[str, ...]) -> list[str
         *old_paths,
         "deploy/frontend-image.cloudbuild.yaml",
         "deploy/frontend.cloudbuild.yaml",
+        "deploy/pod-image.cloudbuild.yaml",
         *(f"scripts/ci/{name}" for name in CI_PRODUCTION_TOOLS),
         "config/ci-governance.json",
         "config/release-cadence.json",
@@ -141,6 +142,8 @@ def production_release_tools(root: Path, old_paths: tuple[str, ...]) -> list[str
                 "scope-commerce-secrets.sh",
                 "pod-release-env.sh",
                 "preserve-pod-release.py",
+                "reconcile-sandbox-cluster.sh",
+                "reconcile-uat-sandbox-edge.sh",
             )
         ),
     ]

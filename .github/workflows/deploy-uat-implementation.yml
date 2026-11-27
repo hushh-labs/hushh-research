@@ -552,6 +552,9 @@ jobs:
           cp scripts/ci/resolve-cloud-run-image.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ops/run_uat_text_recovery_job.py \
             "${RUNNER_TEMP}/release-tools/run_uat_text_recovery_job.py"
+          cp scripts/deploy/reconcile-sandbox-cluster.sh "${RUNNER_TEMP}/release-tools/"
+          cp scripts/deploy/reconcile-uat-sandbox-edge.sh "${RUNNER_TEMP}/release-tools/"
+          cp deploy/pod-image.cloudbuild.yaml "${RUNNER_TEMP}/release-tools/"
           if [[ "${{ inputs.skip_managed_vertex_probe_once }}" == "true" ]]; then
             cp scripts/ci/managed_provider_readiness.py \
               "${RUNNER_TEMP}/release-tools/managed_provider_readiness.py"
@@ -620,6 +623,10 @@ jobs:
             config/runtime-capacity.json
           cp "${RUNNER_TEMP}/release-tools/verify_passkey_domain_associations.py" \
             scripts/ops/verify_passkey_domain_associations.py
+          mkdir -p scripts/deploy
+          cp "${RUNNER_TEMP}/release-tools/reconcile-sandbox-cluster.sh" scripts/deploy/
+          cp "${RUNNER_TEMP}/release-tools/reconcile-uat-sandbox-edge.sh" scripts/deploy/
+          cp "${RUNNER_TEMP}/release-tools/pod-image.cloudbuild.yaml" deploy/pod-image.cloudbuild.yaml
           if [[ "${{ inputs.skip_managed_vertex_probe_once }}" == "true" ]]; then
             cp "${RUNNER_TEMP}/release-tools/managed_provider_readiness.py" \
               scripts/ci/managed_provider_readiness.py
@@ -2057,10 +2064,25 @@ jobs:
             fi
           fi
 
+      - name: Build and publish UAT Confidential Sandbox pod image
+        id: build-uat-pod-image
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          pod_tag="uat-${{ steps.resolve-sha.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
+          gcloud builds submit \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --config=deploy/pod-image.cloudbuild.yaml \
+            "--substitutions=_DEPLOY_ENV=uat,_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }},_IMAGE_TAG=${pod_tag},_GITHUB_RUN_ID=${{ github.run_id }},_GITHUB_RUN_ATTEMPT=${{ github.run_attempt }}"
+          echo "pod_tag=${pod_tag}" >> "$GITHUB_OUTPUT"
+
       - name: Reconcile UAT Sandbox Edge Gateway
         id: reconcile-uat-sandbox-edge
         if: steps.scope.outputs.deploy_backend == 'true'
         shell: bash
+        env:
+          HUSSH_EXPECTED_POD_TAG: ${{ steps.build-uat-pod-image.outputs.pod_tag }}
         run: |
           set -euo pipefail
           bash scripts/deploy/reconcile-uat-sandbox-edge.sh

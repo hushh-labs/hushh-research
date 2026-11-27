@@ -5,6 +5,8 @@ export const HOSTED_WEB_OAUTH_ORIGINS = new Set<string>([
   "https://one.hushh.si",
   "https://one.hussh.ai",
   "https://one.hushh.ai",
+  "https://stage.one.hussh.si",
+  "https://stage.one.hussh.ai",
   "https://uat.one.hussh.si",
   "https://uat.one.hushh.si",
   "https://uat.one.hussh.ai",

@@ -186,10 +186,11 @@ export function useTodoLiveTasks({ userId, vaultOwnerToken, idTokenProvider, ena
       href: task.link || "/one/tasks",
     });
   }
+  const selectedCoverage = allCoverage.filter(item => selectedCapabilities.includes(item.capability));
   return {
     pending: enabled ? pending.filter(task => task.type === "manual" || (task.sourceAgent === "agent" && selectedCapabilities.length > 0) || Boolean(task.sourceAgent && selectedCapabilities.includes(sourceCapabilities[task.sourceAgent]!))) : [], agentFeed, retryKyc, calendar, upcoming,
     agentLoadError, agentLoading: enabled && agentLoading, calendarReadLoading, calendarReadError, emailReadError, emailReadLoading,
-    evidence: suggestionEvidence.filter(item => selectedCapabilities.includes(item.capability)), coverage: allCoverage.filter(item => selectedCapabilities.includes(item.capability)), sourceLoading: extra.loading || agentLoading || calendarReadLoading,
-    sourceError: extra.error || allCoverage.some(source => source.status === "unavailable"), refreshSources: extra.refresh,
+    evidence: suggestionEvidence.filter(item => selectedCapabilities.includes(item.capability)), coverage: selectedCoverage, sourceLoading: extra.loading || agentLoading || calendarReadLoading,
+    sourceError: enabled && (extra.error || selectedCoverage.some(source => source.status === "unavailable" && !(source.capability === "gmail" && emailReadLoading) && !(source.capability === "calendar" && calendarReadLoading))), refreshSources: extra.refresh,
   };
 }

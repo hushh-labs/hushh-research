@@ -468,3 +468,69 @@ def test_sms_alarm_registration_downgrade_replay_and_rollback(chat_db, monkeypat
     finally:
         raw.close()
     assert version() == 0
+
+
+def test_push_registration_rotates_device_id_when_former_owner_row_is_retained_by_trigger(
+    chat_db, monkeypatch
+):
+    from hushh_mcp.services import push_tokens_service as registry
+
+    _seed(chat_db)
+    monkeypatch.setattr(registry, "get_db", lambda: chat_db)
+    service = registry.PushTokensService()
+    shared_device = str(uuid.uuid4())
+    alice_key = str(uuid.uuid4())
+    bob_key = str(uuid.uuid4())
+
+    service.upsert_user_push_token(
+        "alice",
+        "alice-old-token",
+        "web",
+        device_id=shared_device,
+        preview_key_id=alice_key,
+    )
+    with chat_db.engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE OR REPLACE FUNCTION _test_retain_alice_push_row()
+                RETURNS trigger AS $$
+                BEGIN
+                    IF OLD.user_id = 'alice' THEN
+                        RETURN NULL;
+                    END IF;
+                    RETURN OLD;
+                END;
+                $$ LANGUAGE plpgsql;
+                CREATE TRIGGER _test_retain_alice_push_row_trg
+                BEFORE DELETE ON user_push_installations
+                FOR EACH ROW EXECUTE FUNCTION _test_retain_alice_push_row();
+                """
+            )
+        )
+    try:
+        row_id = service.upsert_user_push_token(
+            "bob",
+            "bob-fresh-token",
+            "web",
+            device_id=shared_device,
+            preview_key_id=bob_key,
+        )
+        assert row_id is not None
+        rows = chat_db.execute_raw(
+            "SELECT user_id, device_id::text AS device_id, preview_key_id::text AS preview_key_id "
+            "FROM user_push_installations WHERE user_id IN ('alice', 'bob') ORDER BY user_id",
+            {},
+        ).data
+        assert len(rows) == 2
+        assert rows[0]["user_id"] == "alice" and rows[0]["device_id"] == shared_device
+        assert rows[1]["user_id"] == "bob" and rows[1]["device_id"] != shared_device
+        assert rows[1]["preview_key_id"] is None
+    finally:
+        with chat_db.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "DROP TRIGGER IF EXISTS _test_retain_alice_push_row_trg ON user_push_installations; "
+                    "DROP FUNCTION IF EXISTS _test_retain_alice_push_row();"
+                )
+            )

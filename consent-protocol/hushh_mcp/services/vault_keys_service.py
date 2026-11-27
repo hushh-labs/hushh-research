@@ -887,6 +887,8 @@ class VaultKeysService:
                 "one.hussh.ai",
                 "one.hussh.si",
                 "one.hushh.si",
+                "stage.one.hussh.si",
+                "stage.one.hussh.ai",
                 "kai.hushh.ai",
                 "www.hushh.ai",
                 "hushh.ai",
@@ -898,6 +900,8 @@ class VaultKeysService:
                 "hushh.si",
                 "hushh-webapp-rpphvsc3tq-uc.a.run.app",
                 "hushh-webapp-1006304528804.us-central1.run.app",
+                "stage---hushh-webapp-rpphvsc3tq-uc.a.run.app",
+                "stage---hushh-webapp-1006304528804.us-central1.run.app",
                 "hushh-ai-website-yb3ojn3jxa-uc.a.run.app",
             }
         ),

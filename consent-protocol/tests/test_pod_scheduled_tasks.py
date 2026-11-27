@@ -54,6 +54,74 @@ def test_sandbox_delivery_names_only_the_signed_owners_occurrence(monkeypatch):
     with pytest.raises(ScheduleRefused, match="SCHEDULE_CLOUD_DELIVERY_UNQUALIFIED"):
         sandbox_cloud_task(offer, placement=placement, now=now)
 
+    for lane_env, project, placement_env in (
+        ("uat", "hushh-pda-uat", "uat"),
+        ("production", "hushh-pda", "production"),
+        ("prod", "hushh-pda", "prod"),
+    ):
+        lane_worker = f"hussh-sandbox-task-worker@{project}.iam.gserviceaccount.com"
+        lane_queue = f"projects/{project}/locations/us-central1/queues/hussh-sandbox-schedules"
+        monkeypatch.setenv("HUSHH_DEPLOY_ENV", lane_env)
+        monkeypatch.setenv("HUSSH_SANDBOX_TASK_WORKER_EMAIL", lane_worker)
+        monkeypatch.setenv("HUSSH_SANDBOX_TASK_QUEUE", lane_queue)
+        lane_placement = SimpleNamespace(
+            hushh_id="owner-a", environment=placement_env, url=edge + "/u/owner-a"
+        )
+        qualified_name, qualified_task = sandbox_cloud_task(
+            offer, placement=lane_placement, now=now
+        )
+        assert qualified_name == lane_queue
+        assert qualified_task["httpRequest"]["oidcToken"]["serviceAccountEmail"] == lane_worker
+        mismatched = SimpleNamespace(hushh_id="owner-a", environment="dev", url=edge + "/u/owner-a")
+        with pytest.raises(ScheduleRefused, match="SCHEDULE_DELIVERY_REFUSED"):
+            sandbox_cloud_task(offer, placement=mismatched, now=now)
+
+
+@pytest.mark.asyncio
+async def test_schedule_journal_incremental_cursor_seals_history_and_tracks_head_sequence(
+    scheduled_tasks,
+):
+    world = scheduled_tasks
+    grant = {"subject_id": "browser", "version": 1}
+    created = await world.runtime.create(
+        schedule_request(title="Private renewal task"), grant=grant
+    )
+    first_rows, first_seq = await world.runtime.journal.snapshot()
+    assert created["id"] in first_rows
+    assert first_seq == 2
+    assert isinstance(world.runtime.journal._sealed_history, bytes)
+    assert b"Private renewal task" not in world.runtime.journal._sealed_history
+
+    from hushh_mcp.services.pod_commit_log import PodCommitLog
+
+    store_reads: list[str] = []
+    original_get = world.log._store.get
+    original_get_bounded = world.log._store.get_bounded_with_generation
+
+    async def tracked_get(key: str):
+        store_reads.append(key)
+        return await original_get(key)
+
+    async def tracked_get_bounded(key: str, *, max_bytes: int):
+        store_reads.append(key)
+        return await original_get_bounded(key, max_bytes=max_bytes)
+
+    world.log._store.get = tracked_get
+    world.log._store.get_bounded_with_generation = tracked_get_bounded
+    second_rows, second_seq = await world.runtime.journal.snapshot()
+    assert second_rows == first_rows
+    assert second_seq == 2
+    assert not [key for key in store_reads if "records/" in key]
+
+    peer_writer = PodCommitLog(world.log._store, b"s" * 32, owner_id="pod")
+    await peer_writer.append("chat_turn_v1", {"text": "unrelated turn"})
+    store_reads.clear()
+    third_rows, third_seq = await world.runtime.journal.snapshot()
+    assert third_rows == first_rows
+    assert third_seq == 3
+    record_reads = [key for key in store_reads if "records/" in key]
+    assert len(record_reads) == 1 and "000000000003" in record_reads[0]
+
 
 def test_chat_file_schedule_review_only_returns_normalized_time():
     assert propose_file_schedule("2030-02-01T09:30:00+05:30") == {
