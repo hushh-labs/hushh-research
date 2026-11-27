@@ -352,6 +352,23 @@ class OneLocationGeofenceService:
             logger.warning("one_location.geofence.cancel_audit_failed")
         return serialized
 
+    def _rearm_failed_trigger(self, *, rule_id: str, owner_user_id: str) -> None:
+        """Revert a claimed trigger back to ``armed`` if its downstream action failed."""
+        try:
+            self._execute_one(
+                """
+                UPDATE one_location_geofence_rules
+                SET status = 'armed', triggered_at = NULL, updated_at = NOW()
+                WHERE id = CAST(:rule_id AS UUID)
+                  AND owner_user_id = :owner_user_id
+                  AND status = 'triggered'
+                RETURNING id
+                """,
+                {"rule_id": rule_id, "owner_user_id": owner_user_id},
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("one_location.geofence.rearm_after_failure_failed rule_id=%s", rule_id)
+
     def trigger_rule(
         self,
         *,
@@ -363,6 +380,8 @@ class OneLocationGeofenceService:
 
         Uses a single SQL compare-and-swap (``WHERE status = 'armed'``) so
         concurrent browser tabs or foreground resume checks cannot double-fire.
+        If the downstream action fails before completing, the rule is reverted
+        to ``armed`` so retries remain safe and effective.
         """
         claimed = self._execute_one(
             """
@@ -411,46 +430,57 @@ class OneLocationGeofenceService:
         created_grants: list[dict[str, Any]] = []
         revoked_count = 0
 
-        if trigger_type == "stop_on_arrival":
-            revoke_result = agent.revoke_all_owner_grants(
-                owner_user_id=owner_user_id,
-                include_sos=False,
-                include_public_links=True,
-            )
-            revoked_count = int(revoke_result.get("revokedCount") or 0)
-        elif trigger_type == "share_on_arrival":
-            recipients = agent.list_verified_recipients(owner_user_id=owner_user_id)
-            by_id = {str(r.get("userId") or ""): r for r in recipients if r.get("userId")}
-            duration_hours = float(rule.get("shareDurationHours") or 1.0)
-            precision = rule.get("precision")
-            envelopes_map = initial_envelopes if isinstance(initial_envelopes, dict) else {}
-            for recipient_uid in rule.get("recipientUserIds") or []:
-                rec = by_id.get(recipient_uid)
-                if not rec or not rec.get("keyId"):
-                    continue
-                grant = agent.create_grant(
+        try:
+            if trigger_type == "stop_on_arrival":
+                revoke_result = agent.revoke_all_owner_grants(
                     owner_user_id=owner_user_id,
-                    recipient_user_id=recipient_uid,
-                    recipient_key_id=str(rec.get("keyId") or ""),
-                    duration_hours=duration_hours,
-                    duration_mode=TIMED_LOCATION_SHARE_DURATION_MODE,
-                    reason="geofence_arrival",
-                    share_kind="share",
-                    precision=precision,
-                    require_recipient_phone_verified=False,
-                    enforce_connection=True,
+                    include_sos=False,
+                    include_public_links=True,
                 )
-                envelope_for_recipient = envelopes_map.get(recipient_uid)
-                if isinstance(envelope_for_recipient, dict) and grant.get("id"):
-                    try:
-                        agent.store_encrypted_envelope(
-                            owner_user_id=owner_user_id,
-                            grant_id=str(grant["id"]),
-                            envelope=envelope_for_recipient,
-                        )
-                    except Exception:  # noqa: BLE001 - grant is still live; bridge publishes next fix
-                        logger.warning("one_location.geofence.initial_envelope_store_failed")
-                created_grants.append(grant)
+                revoked_count = int(revoke_result.get("revokedCount") or 0)
+            elif trigger_type == "share_on_arrival":
+                recipients = agent.list_verified_recipients(owner_user_id=owner_user_id)
+                by_id = {str(r.get("userId") or ""): r for r in recipients if r.get("userId")}
+                duration_hours = float(rule.get("shareDurationHours") or 1.0)
+                precision = rule.get("precision")
+                envelopes_map = initial_envelopes if isinstance(initial_envelopes, dict) else {}
+                target_recipient_ids = list(rule.get("recipientUserIds") or [])
+                for recipient_uid in target_recipient_ids:
+                    rec = by_id.get(recipient_uid)
+                    if not rec or not rec.get("keyId"):
+                        continue
+                    grant = agent.create_grant(
+                        owner_user_id=owner_user_id,
+                        recipient_user_id=recipient_uid,
+                        recipient_key_id=str(rec.get("keyId") or ""),
+                        duration_hours=duration_hours,
+                        duration_mode=TIMED_LOCATION_SHARE_DURATION_MODE,
+                        reason="geofence_arrival",
+                        share_kind="share",
+                        precision=precision,
+                        require_recipient_phone_verified=False,
+                        enforce_connection=True,
+                    )
+                    envelope_for_recipient = envelopes_map.get(recipient_uid)
+                    if isinstance(envelope_for_recipient, dict) and grant.get("id"):
+                        try:
+                            agent.store_encrypted_envelope(
+                                owner_user_id=owner_user_id,
+                                grant_id=str(grant["id"]),
+                                envelope=envelope_for_recipient,
+                            )
+                        except Exception:  # noqa: BLE001 - grant is still live; bridge publishes next fix
+                            logger.warning("one_location.geofence.initial_envelope_store_failed")
+                    created_grants.append(grant)
+                if target_recipient_ids and not created_grants:
+                    raise OneLocationAgentError(
+                        "LOCATION_GEOFENCE_TRIGGER_FAILED",
+                        "Could not start the arrival location share yet. Try again when recipients are available.",
+                        status_code=503,
+                    )
+        except Exception:
+            self._rearm_failed_trigger(rule_id=rule_id, owner_user_id=owner_user_id)
+            raise
 
         try:
             agent._insert_event(

@@ -52,6 +52,17 @@ export type GeofenceProximityCheck = {
   highConfidence: boolean;
 };
 
+export const LOCATION_GEOFENCES_CHANGED_EVENT = "one-location:geofences-changed";
+
+export function dispatchLocationGeofencesChanged(userId: string): void {
+  if (typeof window === "undefined" || !userId) return;
+  window.dispatchEvent(
+    new CustomEvent<{ userId: string }>(LOCATION_GEOFENCES_CHANGED_EVENT, {
+      detail: { userId },
+    }),
+  );
+}
+
 /** Cap GPS accuracy slack so a noisy cell-tower fix never false-fires miles away. */
 const MAX_ACCURACY_SLACK_METERS = 150;
 const HIGH_CONFIDENCE_ACCURACY_METERS = 75;
@@ -329,13 +340,21 @@ export function createGeofenceMonitor(params: {
   getVaultOwnerToken: () => string | null;
   getVaultKey: () => string | null;
   getDefaultPrecision: () => LocationPublishPrecision;
+  onArmedCountChange?: (count: number) => void;
 }): GeofenceMonitorController {
   let disposed = false;
   let armedRules: OneLocationGeofenceRule[] = [];
+  let lastReportedCount = -1;
   const targetCache = new Map<string, GeofenceTargetCoords>();
   const dwellCounts = new Map<string, number>();
   const firingIds = new Set<string>();
   let catchUpInFlight = false;
+
+  const notifyArmedCount = (count: number) => {
+    if (count === lastReportedCount) return;
+    lastReportedCount = count;
+    params.onArmedCountChange?.(count);
+  };
 
   const syncTargets = async (rules: OneLocationGeofenceRule[]) => {
     const token = params.getVaultOwnerToken();
@@ -381,6 +400,7 @@ export function createGeofenceMonitor(params: {
       });
       if (disposed) return [];
       armedRules = res.rules ?? [];
+      notifyArmedCount(armedRules.length);
       await syncTargets(armedRules);
       return armedRules;
     } catch {
@@ -428,6 +448,7 @@ export function createGeofenceMonitor(params: {
           armedRules = armedRules.filter((r) => r.id !== rule.id);
           targetCache.delete(rule.id);
           dwellCounts.delete(rule.id);
+          notifyArmedCount(armedRules.length);
         }
       } catch (error) {
         console.warn("[GeofenceMonitor] Trigger failed:", error);
@@ -468,10 +489,18 @@ export function createGeofenceMonitor(params: {
     void refreshRules().then(() => checkNow());
   };
 
+  const onGeofencesChanged = (event: Event) => {
+    if (disposed) return;
+    const detail = (event as CustomEvent<{ userId?: string }>).detail;
+    if (detail?.userId && detail.userId !== params.userId) return;
+    void refreshRules().then(() => checkNow());
+  };
+
   if (typeof window !== "undefined") {
     document.addEventListener("visibilitychange", onVisibilityOrFocus);
     window.addEventListener("focus", onVisibilityOrFocus);
     window.addEventListener("online", onOnline);
+    window.addEventListener(LOCATION_GEOFENCES_CHANGED_EVENT, onGeofencesChanged);
   }
 
   return {
@@ -480,10 +509,12 @@ export function createGeofenceMonitor(params: {
     checkNow,
     dispose: () => {
       disposed = true;
+      notifyArmedCount(0);
       if (typeof window !== "undefined") {
         document.removeEventListener("visibilitychange", onVisibilityOrFocus);
         window.removeEventListener("focus", onVisibilityOrFocus);
         window.removeEventListener("online", onOnline);
+        window.removeEventListener(LOCATION_GEOFENCES_CHANGED_EVENT, onGeofencesChanged);
       }
     },
   };

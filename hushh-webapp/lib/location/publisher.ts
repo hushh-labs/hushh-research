@@ -17,6 +17,7 @@
 
 import {
   coarsenPoint,
+  resolvePublishPrecision,
   type LocationPublishPrecision,
 } from "@/lib/location/coarsen";
 import type {
@@ -153,38 +154,59 @@ export async function publishPointToGrants(
 ): Promise<PublishPointToGrantsResult> {
   const now = params.now ?? Date.now;
   const maxFixAgeMs = params.maxFixAgeMs ?? DEFAULT_MAX_FIX_AGE_MS;
-  const precision: LocationPublishPrecision = params.sos
+  const defaultPrecision: LocationPublishPrecision = params.sos
     ? "precise"
     : params.precision;
-  const point = coarsenPoint(params.point, precision, { sos: params.sos });
+  const pointByPrecision = new Map<LocationPublishPrecision, PlainLocationPoint>();
+  const pointForPrecision = (target: LocationPublishPrecision): PlainLocationPoint => {
+    let cached = pointByPrecision.get(target);
+    if (!cached) {
+      cached = coarsenPoint(params.point, target, { sos: params.sos });
+      pointByPrecision.set(target, cached);
+    }
+    return cached;
+  };
+  const defaultPoint = pointForPrecision(defaultPrecision);
   const publicationContext =
     params.publicationContext ?? "foreground_map_visible";
 
   const published: PublishedGrant[] = [];
   const failures: PublishFailure[] = [];
 
-  const age = fixAgeMs(point.capturedAt, now());
+  const currentNowMs = now();
+  const age = fixAgeMs(defaultPoint.capturedAt, currentNowMs);
   const stale = age === null || age < -maxFixAgeMs || age > maxFixAgeMs;
   if (stale) {
     for (const grant of params.grants) {
       failures.push({ grantId: grant.id, code: "stale_fix", reason: null });
     }
-    return { published, failures, precision, capturedAt: point.capturedAt };
+    return {
+      published,
+      failures,
+      precision: defaultPrecision,
+      capturedAt: defaultPoint.capturedAt,
+    };
   }
 
-  // One ciphertext per recipient key. Every grant to the same person shares
-  // the envelope bytes, which also keeps SOS fan-out to N contacts cheap.
-  const envelopeByKeyId = new Map<
+  // One ciphertext per (recipient key, grant precision). Grants sharing a
+  // recipient key and precision still share one encryption pass, while
+  // city-only or approximate grants always enforce their reviewed precision.
+  const envelopeByKeyAndPrecision = new Map<
     string,
     Promise<OneLocationEncryptedEnvelope>
   >();
-  const envelopeFor = (recipient: OneLocationRecipient) => {
+  const envelopeFor = (
+    recipient: OneLocationRecipient,
+    grantPrecision: LocationPublishPrecision,
+  ) => {
     const keyId = String(recipient.keyId);
-    let pending = envelopeByKeyId.get(keyId);
+    const cacheKey = `${keyId}:${grantPrecision}`;
+    let pending = envelopeByKeyAndPrecision.get(cacheKey);
     if (!pending) {
+      const targetPoint = pointForPrecision(grantPrecision);
       pending = params
         .encrypt({
-          point,
+          point: targetPoint,
           recipientPublicKeyJwk: recipient.publicKeyJwk as JsonWebKey,
           recipientKeyId: keyId,
         })
@@ -194,11 +216,11 @@ export async function publishPointToGrants(
           metadata: {
             ...(envelope.metadata ?? {}),
             // Plaintext tag; the server rejects a mismatch with the stored
-            // preference and cannot read the coordinate to check otherwise.
-            precision,
+            // per-grant or account preference and cannot read coordinates.
+            precision: grantPrecision,
           },
         }));
-      envelopeByKeyId.set(keyId, pending);
+      envelopeByKeyAndPrecision.set(cacheKey, pending);
     }
     return pending;
   };
@@ -210,6 +232,15 @@ export async function publishPointToGrants(
           grantId: grant.id,
           code: "store_failed",
           reason: "grant_not_active",
+        });
+        return;
+      }
+      const startsAtMs = grant.startsAt ? Date.parse(grant.startsAt) : Number.NaN;
+      if (Number.isFinite(startsAtMs) && startsAtMs > currentNowMs) {
+        failures.push({
+          grantId: grant.id,
+          code: "store_failed",
+          reason: "grant_not_started",
         });
         return;
       }
@@ -229,8 +260,19 @@ export async function publishPointToGrants(
         });
         return;
       }
+      const grantOverride: LocationPublishPrecision | null =
+        grant.precision === "precise" ||
+        grant.precision === "approximate" ||
+        grant.precision === "city"
+          ? grant.precision
+          : null;
+      const grantPrecision = resolvePublishPrecision({
+        preference: defaultPrecision,
+        override: grantOverride,
+        sos: params.sos,
+      });
       try {
-        const envelope = await envelopeFor(recipient);
+        const envelope = await envelopeFor(recipient, grantPrecision);
         const stored = await params.store({
           vaultOwnerToken: params.vaultOwnerToken,
           grantId: grant.id,
@@ -239,8 +281,8 @@ export async function publishPointToGrants(
         published.push({
           grantId: grant.id,
           recipientUserId: grant.recipientUserId,
-          precision,
-          capturedAt: point.capturedAt,
+          precision: grantPrecision,
+          capturedAt: defaultPoint.capturedAt,
           recipientAlerted: stored.recipientAlerted ?? null,
         });
       } catch (error) {
@@ -257,7 +299,12 @@ export async function publishPointToGrants(
   published.sort((a, b) => rank(a.grantId) - rank(b.grantId));
   failures.sort((a, b) => rank(a.grantId) - rank(b.grantId));
 
-  return { published, failures, precision, capturedAt: point.capturedAt };
+  return {
+    published,
+    failures,
+    precision: defaultPrecision,
+    capturedAt: defaultPoint.capturedAt,
+  };
 }
 
 /** Recipients keyed by user id, the shape `publishPointToGrants` reads. */
