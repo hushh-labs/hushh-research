@@ -186,8 +186,25 @@ describe("a Kai finance read that races a write", () => {
     expect(read?.resource.plaidPortfolio?.holdings?.length).toBeGreaterThan(0);
     expect(read?.resource.activeSource).toBe("statement");
     expect(activePortfolioChatView(read!.resource)?.positions).toHaveLength(52);
+
     load("selected");
-    await expect(readPortfolioContext(session, { ...request, ticker: "HOLD52" }, () => true)).resolves.toMatchObject({
+    const legacy = await readPortfolioContext(session, request, () => true);
+    const legacyHoldings = "holdings" in legacy ? legacy.holdings : undefined;
+    expect(legacyHoldings?.positions).toHaveLength(40);
+    expect(legacyHoldings).not.toHaveProperty("investment_rows");
+
+    load("selected");
+    const expanded = await readPortfolioContext(session, { ...request, detail: "expanded" }, () => true);
+    expect(expanded).toMatchObject({
+      status: "ok", source: "statement",
+      holdings: { investment_rows: 52, total_count: 52, matched_count: 52, unique_tickers: 52 },
+    });
+    const expandedPositions = "holdings" in expanded ? expanded.holdings?.positions : undefined;
+    expect(expandedPositions).toHaveLength(52);
+    expect(expandedPositions?.at(-1)?.ticker).toBe("HOLD52");
+
+    load("selected");
+    await expect(readPortfolioContext(session, { ...request, ticker: "HOLD52", detail: "expanded" }, () => true)).resolves.toMatchObject({
       status: "ok", source: "statement", holdings: { total_count: 52, matched_count: 1,
         positions: [{ ticker: "HOLD52", market_value: 1 }] },
     });

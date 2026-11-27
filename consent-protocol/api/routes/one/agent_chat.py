@@ -154,9 +154,10 @@ from hushh_mcp.one_adk.plaid_turn_admission import (
 )
 from hushh_mcp.one_adk.portfolio_context_contract import (
     PORTFOLIO_CONTEXT_DESCRIPTION,
-    PORTFOLIO_CONTEXT_PARAMETERS,
     PORTFOLIO_CONTEXT_TOOL,
     STATE_PORTFOLIO_CONTEXT_ENABLED,
+    portfolio_context_parameters,
+    portfolio_context_version,
 )
 from hushh_mcp.one_adk.queued_input import QueuedInputError
 from hushh_mcp.one_adk.queued_input import registry as queued_input_registry
@@ -496,16 +497,14 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
                 parameters=ACCOUNT_CONTEXT_PARAMETERS,
             )
         )
-    portfolio_contract = forwarded.pop("portfolioContextContract", None)
-    portfolio_enabled = bool(
-        token and user_id and type(portfolio_contract) is int and portfolio_contract == 1
-    )
-    if portfolio_enabled:
+    requested_portfolio_version = portfolio_context_version(forwarded)
+    portfolio_version = requested_portfolio_version if token and user_id else 0
+    if portfolio_version:
         input_data.tools.append(
             Tool(
                 name=PORTFOLIO_CONTEXT_TOOL,
                 description=PORTFOLIO_CONTEXT_DESCRIPTION,
-                parameters=PORTFOLIO_CONTEXT_PARAMETERS,
+                parameters=portfolio_context_parameters(portfolio_version),
             )
         )
     drive_search_selection = await _admit_drive_search_selection(
@@ -724,7 +723,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         **email_memory,
         STATE_NWS_REPORT: admit_nws_report(forwarded, owner_admitted=bool(token and user_id)),
         STATE_ACCOUNT_CONTEXT_ENABLED: account_enabled,
-        STATE_PORTFOLIO_CONTEXT_ENABLED: portfolio_enabled,
+        STATE_PORTFOLIO_CONTEXT_ENABLED: portfolio_version,
         STATE_OWNER_STYLE: owner_style,
         STATE_OWNER_DISPLAY_NAME: store_request_secret(owner_display_name),
         STATE_GMAIL_INFORMATION_REQUEST_WORKFLOW_ID: workflow_id,
