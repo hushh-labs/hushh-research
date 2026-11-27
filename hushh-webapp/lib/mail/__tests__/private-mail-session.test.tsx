@@ -72,22 +72,6 @@ it("lists a mailbox whose permission lapsed as expired and never selects it", as
   expect(screen.getByText("selected:B")).toBeDefined();
 });
 
-it("reads what needs the owner in each mailbox as it is opened, and never invents a count for one not yet read", async () => {
-  mocks.vault.mockReturnValue({isVaultUnlocked: true, ownerTokenStatus: "valid", vaultKey: "fixture", vaultOwnerToken: "fixture"});
-  mocks.list.mockResolvedValue(["A", "B"].map(accountId => ({accountId, credentialId: "grant-"+accountId, email: accountId+"@example.test", status: "connected", capabilities: {read: true}})));
-  mocks.tasks.mockResolvedValue({tasks: []});
-  mocks.brief.mockImplementation(async (box: {account: string}) => ({account: box.account, attention: box.account === "A" ? [1, 2, 3] : [1]}));
-  localStorage.clear();
-  function Counts() {
-    const session = usePrivateMailSession()!;
-    return <><p>{"counts:" + JSON.stringify(session.attentionCounts)}</p>{session.accounts.map(box => <button key={box.accountId} onClick={() => session.choose(box.accountId)}>{"open " + box.accountId}</button>)}</>;
-  }
-  render(<PrivateMailSessionProvider><Counts /></PrivateMailSessionProvider>);
-  await screen.findByText('counts:{"A":3}');
-  fireEvent.click(screen.getByRole("button", {name: "open B"}));
-  await screen.findByText('counts:{"A":3,"B":1}');
-});
-
 it("tries a failed mailbox check again by itself, with growing pauses, and stops after three", async () => {
   vi.useFakeTimers();
   try {

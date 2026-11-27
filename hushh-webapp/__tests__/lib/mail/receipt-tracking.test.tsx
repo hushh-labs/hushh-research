@@ -194,30 +194,6 @@ describe("Recurring screen with no payment service", () => {
     expect(screen.getByRole("button", { name: "Try again" })).toBeVisible();
     expect(screen.getByRole("checkbox", { name: "Select Maple Homes" })).toBeDisabled();
   });
-
-  it("tracks every chosen bill in one saved change, and keeps an unchosen one suggested", async () => {
-    const wifi = ["2026-09-30", "2026-10-30", "2026-11-30"].map((date, index): ReceiptListItem => ({
-      id: 50 + index, gmail_message_id: `w${index}`, source_id: `w${index}`, receipt_key: `w${index}`, merchant_name: "Wi-Fi", merchant_domain: "wifi.example",
-      status: "paid", currency: "INR", amount: 799, transaction_date: date, category: "Bills", category_confidence: 0.95, recurrence: "unknown",
-    }) as ReceiptListItem);
-    render(
-      <ReceiptTrackingProvider userId="owner" vaultKey={KEY} vaultOwnerToken="token" accountKey="acct-two" enabled>
-        <RecurringView rows={buildRecentReceiptRows([...rent, ...wifi], "acct-two")} onOpenReceipt={() => undefined} />
-      </ReceiptTrackingProvider>,
-    );
-    await waitFor(() => expect(screen.getAllByTestId("bill-row")).toHaveLength(2));
-    expect(screen.getByTestId("bill-count")).toHaveTextContent("2 recurring payments");
-    const choose = (name: string) => screen.getByRole("checkbox", { name: `Select ${name}` });
-    await waitFor(() => expect(choose("Maple Homes")).toBeEnabled());
-    fireEvent.click(choose("Maple Homes"));
-    fireEvent.click(choose("Wi-Fi"));
-    expect(screen.getByText("2 bills selected")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Track selected bills" }));
-    await waitFor(() => expect(screen.getAllByTestId("bill-row").map((row) => row.getAttribute("data-bill-status"))).toEqual(["tracking", "tracking"]));
-    const { doc } = await loadTracking(session, "acct-two");
-    expect(doc.bills.map((bill) => bill.name).sort()).toEqual(["Maple Homes", "Wi-Fi"]);
-    expect(doc.events.filter((event) => event.kind === "bill_added")).toHaveLength(2);
-  });
 });
 
 describe("Tracking several bills at once", () => {

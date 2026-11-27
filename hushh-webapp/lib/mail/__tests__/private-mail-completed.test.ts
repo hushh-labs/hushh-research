@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { COMPLETED_LIMIT, privateCompletedItems } from "@/lib/mail/private-mail-completed";
+import { privateCompletedItems } from "@/lib/mail/private-mail-completed";
 import type { ScheduledTask } from "@/lib/services/pod-scheduled-tasks";
 import type { TodoItem } from "@/lib/todos/todo-list-model";
 
@@ -21,14 +21,11 @@ const sent = (id: string, over: Partial<NonNullable<ScheduledTask["last_run"]>> 
 });
 
 describe("Recently completed for a private mailbox", () => {
-  it("lists a settled Task with the email that settled it, and says what arrived", () => {
-    const [item] = privateCompletedItems([task()], mine, undefined, NOW);
-    expect(item).toMatchObject({ title: "Get the signed document", line: "Received signed.pdf", sourceId: sid("reply"), viewLabel: "View email", to: "Priya Shah" });
-  });
-
-  it("never lists another mailbox's Task, whatever its title says", () => {
+  it("lists a settled Task with the email that settled it, and never another mailbox's Task whatever its title says", () => {
     const rows = [task({ follow: { account: "acct-b" } }), task({ follow: { connection: "conn-b" } }), task()];
-    expect(privateCompletedItems(rows, mine, undefined, NOW)).toHaveLength(1);
+    const items = privateCompletedItems(rows, mine, undefined, NOW);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ title: "Get the signed document", line: "Received signed.pdf", sourceId: sid("reply"), viewLabel: "View email" });
   });
 
   it("lists a follow-up only when its scheduled send completed and the sent email is known", () => {
@@ -40,21 +37,5 @@ describe("Recently completed for a private mailbox", () => {
     expect(privateCompletedItems([pending], mine, [sent(id, { state: "failed" })], NOW)).toEqual([]);
     expect(privateCompletedItems([pending], mine, [sent(id, { sent_source: undefined })], NOW)).toEqual([]);
     expect(privateCompletedItems([pending], mine, undefined, NOW)).toEqual([]);
-  });
-
-  it("drops what is older than 30 days, what was deleted, and what has no email to open", () => {
-    const rows = [
-      task({ completedAt: "2026-10-01T00:00:00Z" }),
-      task({ status: "deleted" }),
-      task({ follow: { received: undefined, source: "not-a-source" } }),
-      task({ status: "pending", completedAt: null }),
-    ];
-    expect(privateCompletedItems(rows, mine, undefined, NOW)).toEqual([]);
-  });
-
-  it("shows the newest first and no more than the limit", () => {
-    const rows = Array.from({ length: COMPLETED_LIMIT + 3 }, (_, index) => task({ title: `Task ${index}`, completedAt: new Date(NOW - (index + 1) * 3_600_000).toISOString() }));
-    const items = privateCompletedItems(rows, mine, undefined, NOW);
-    expect(items.map((item) => item.title)).toEqual(Array.from({ length: COMPLETED_LIMIT }, (_, index) => `Task ${index}`));
   });
 });

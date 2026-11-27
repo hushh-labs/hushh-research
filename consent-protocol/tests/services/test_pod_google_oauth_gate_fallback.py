@@ -7,7 +7,6 @@ readiness check) never fell back to the pod's own sidecar.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import httpx
@@ -27,10 +26,6 @@ REFRESH = {
     "refresh_token": "1//refresh",
     "scope": "https://www.googleapis.com/auth/gmail.readonly",
 }
-
-
-def test_the_pod_and_the_gate_agree_on_the_unconfigured_code() -> None:
-    assert pod_google_oauth.GOOGLE_OAUTH_GATE_UNCONFIGURED == GOOGLE_OAUTH_GATE_UNCONFIGURED
 
 
 @pytest.fixture
@@ -120,10 +115,9 @@ def test_the_gate_names_an_unconfigured_client_instead_of_refusing_the_request(
     )
     grant = type("Grant", (), {"lease_id": "lease", "owner_id": "owner"})()
     status, body = runtime.handle_google_oauth_exchange(grant=grant, form=REFRESH)
-    assert (status, json.dumps(body)) == (
-        503,
-        json.dumps({"error": GOOGLE_OAUTH_GATE_UNCONFIGURED}),
-    )
+    # The pod reads this exact code; the two copies of it must not drift apart.
+    assert (status, body) == (503, {"error": pod_google_oauth.GOOGLE_OAUTH_GATE_UNCONFIGURED})
+    assert body == {"error": GOOGLE_OAUTH_GATE_UNCONFIGURED}
     assert runtime.handle_google_oauth_ready() == (503, {})
     # A malformed request is still a bad request, configured or not.
     assert runtime.handle_google_oauth_exchange(grant=grant, form={"": ""})[0] == 400

@@ -74,21 +74,6 @@ spec:
                 secretKeyRef:
                   name: sentinel-proxy-secrets
                   key: control-token
-            # The Google web client the OAuth gate redeems and refreshes with (/v1/oauth/google/exchange).
-            # Optional on purpose: with no client the gate answers "oauth_gate_unconfigured" and the pod
-            # falls back to its own UAT sidecar, so a missing key never takes Gmail offline.
-            - name: GOOGLE_WEB_OAUTH_CLIENT_ID
-              valueFrom:
-                secretKeyRef:
-                  name: sentinel-proxy-secrets
-                  key: google-web-oauth-client-id
-                  optional: true
-            - name: GOOGLE_WEB_OAUTH_CLIENT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: sentinel-proxy-secrets
-                  key: google-web-oauth-client-secret
-                  optional: true
           readinessProbe:
             httpGet:
               path: /healthz
