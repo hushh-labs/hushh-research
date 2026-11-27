@@ -86,7 +86,9 @@ SOURCE_CHANGED = "REPLY_SOURCE_CHANGED"
 ACCOUNT_CHANGED = "REPLY_ACCOUNT_CHANGED"
 TARGET_AMBIGUOUS = "REPLY_TARGET_AMBIGUOUS"
 TARGET_IS_OWNER = "REPLY_TARGET_IS_OWNER"
+TOO_MANY_CC_RECIPIENTS = "REPLY_TOO_MANY_RECIPIENTS"
 RECIPIENT_INVALID = "REPLY_RECIPIENT_INVALID"
+MAX_REPLY_ALL_CC_RECIPIENTS = 20
 HEADERS_INVALID = "REPLY_HEADERS_INVALID"
 REF_INVALID = "REPLY_SOURCE_REF_INVALID"
 REF_EXPIRED = "REPLY_SOURCE_REF_EXPIRED"
@@ -339,9 +341,16 @@ def _collect_reply_all_cc(
             continue
         if len(normalized) == 1:
             seen.add(key)
+            if len(cc_out) >= MAX_REPLY_ALL_CC_RECIPIENTS:
+                raise _error(
+                    TOO_MANY_CC_RECIPIENTS,
+                    (
+                        f"That email has more than {MAX_REPLY_ALL_CC_RECIPIENTS} Cc recipients. "
+                        "Reply-all directly in Gmail so you can review every recipient."
+                    ),
+                    status_code=422,
+                )
             cc_out.append(normalized[0])
-            if len(cc_out) >= 49:
-                break
     return tuple(cc_out)
 
 

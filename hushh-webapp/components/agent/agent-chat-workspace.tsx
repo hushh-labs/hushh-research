@@ -664,7 +664,7 @@ export function getGmailReplyDraftPayload(
     (typeof parsed.recipient_display === "string" && parsed.recipient_display.trim()) ||
     (typeof parsed.to === "string" && parsed.to.trim()) ||
     "Recipient verified when you send";
-  const cc = typeof parsed.cc === "string" && parsed.cc.trim() ? parsed.cc.trim().slice(0, 1024) : undefined;
+  const cc = typeof parsed.cc === "string" && parsed.cc.trim() ? parsed.cc.trim().slice(0, 8192) : undefined;
   const subject =
     (typeof parsed.subject === "string" && parsed.subject.trim()) ||
     "Reply in original thread";

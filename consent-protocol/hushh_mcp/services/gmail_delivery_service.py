@@ -281,6 +281,7 @@ async def create_reviewed_gmail_draft(
     draft_payload: dict[str, Any],
     reply_context: GmailReplyContext | None = None,
     connections: Any = None,
+    expected_sender: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """Save an explicitly reviewed, attachment-free draft through the Gmail REST API.
 
@@ -293,7 +294,11 @@ async def create_reviewed_gmail_draft(
     """
     draft = normalize_draft(draft_payload)
     service = connections or get_gmail_receipts_service()
-    token = await service.get_compose_access_token(user_id=user_id)
+    token = (
+        await service.get_compose_access_token(user_id=user_id, expected_sender=expected_sender)
+        if expected_sender is not None
+        else await service.get_compose_access_token(user_id=user_id)
+    )
     raw = base64.urlsafe_b64encode(
         _message_for(draft, reply_context=reply_context).as_bytes()
     ).decode("ascii")
@@ -888,8 +893,13 @@ class GmailDeliveryService:
         idempotency_key = _text(idempotency_key)
         if not 16 <= len(idempotency_key) <= 256:
             raise GmailDeliveryError("INVALID_IDEMPOTENCY_KEY", "Use a valid confirmation key.")
+        sender_identity = (
+            await self.gmail_service.compose_grant_identity(user_id=user_id)
+            if clean_intent == "save_draft"
+            else await self.gmail_service.send_grant_identity(user_id=user_id)
+        )
         sender_review = {
-            "sender": await self.gmail_service.send_grant_identity(user_id=user_id),
+            "sender": sender_identity,
             "revision": self._review_revision(draft_payload),
         }
         recipient_checks = await self._connection_recipient_checks(
@@ -1597,6 +1607,14 @@ class GmailDeliveryService:
             if sender_token is not None
             else None
         )
+        if sender_review is not None and sender_review["revision"] != self._review_revision(
+            draft_payload
+        ):
+            raise GmailDeliveryError(
+                "DRAFT_CHANGED",
+                "The draft changed after review. Review it again before saving.",
+                status_code=409,
+            )
         envelope_hmac = self._envelope_hmac(
             draft,
             reply_context=reply_context,
@@ -1644,6 +1662,19 @@ class GmailDeliveryService:
                         "The draft changed after review. Review it again before saving.",
                         status_code=409,
                     )
+                if sender_review is None:
+                    raise GmailDeliveryError(
+                        "SENDER_REVIEW_REQUIRED",
+                        "Review the connected Gmail account before saving this draft.",
+                        status_code=409,
+                    )
+                current_sender = await self.gmail_service.compose_grant_identity(user_id=user_id)
+                if current_sender != sender_review["sender"]:
+                    raise GmailDeliveryError(
+                        "GMAIL_SENDER_CHANGED",
+                        "The Gmail account or draft permission changed. Review the draft again.",
+                        status_code=409,
+                    )
                 # Mark as cancelled/draft_saved so migration 252 never emits a false
                 # mail_message_sent Feed event while keeping single-use replay immunity.
                 await conn.execute(
@@ -1660,6 +1691,7 @@ class GmailDeliveryService:
             draft_payload=draft_payload,
             reply_context=reply_context,
             connections=self.gmail_service,
+            expected_sender=sender_review["sender"],
         )
 
     async def current_sender_sub(self, *, user_id: str) -> str | None:

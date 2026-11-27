@@ -18,7 +18,9 @@ from hushh_mcp.services.gmail_receipts_service import (
 )
 
 
-async def get_compose_access_token(gmail: Any, *, user_id: str) -> str:
+async def get_compose_access_token(
+    gmail: Any, *, user_id: str, expected_sender: dict[str, Any] | None = None
+) -> str:
     """Resolve a provider-draft token only for the connected owner."""
     row = await asyncio.to_thread(gmail._fetch_connection_row, user_id=user_id)
     if not row or gmail._derive_connection_state(row) != "connected":
@@ -36,6 +38,15 @@ async def get_compose_access_token(gmail: Any, *, user_id: str) -> str:
             status_code=409,
             code="GMAIL_COMPOSE_PERMISSION_REQUIRED",
         )
+    if expected_sender is not None:
+        actual = gmail._compose_grant_identity(current)
+        latest = await gmail.compose_grant_identity(user_id=user_id)
+        if actual != expected_sender or latest != expected_sender:
+            raise GmailApiError(
+                "The Gmail account or draft permission changed. Review the draft again.",
+                status_code=409,
+                code="GMAIL_SENDER_CHANGED",
+            )
     return access_token
 
 
