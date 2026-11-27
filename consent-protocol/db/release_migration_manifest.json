@@ -397,6 +397,7 @@
     "462_hosted_ace_deployment_target.sql",
     "463_control_plane_kyc_redaction_and_call_indexes.sql",
     "464_one_location_chat_plans.sql",
+    "465_one_product_activity_event_result.sql",
     "466_location_auto_approve_window.sql"
   ],
   "environment_overlays": {
@@ -846,6 +847,7 @@
     "462_hosted_ace_deployment_target.sql": "rollback/462_hosted_ace_deployment_target.rollback.sql",
     "463_control_plane_kyc_redaction_and_call_indexes.sql": "rollback/463_control_plane_kyc_redaction_and_call_indexes.rollback.sql",
     "464_one_location_chat_plans.sql": "rollback/464_one_location_chat_plans.rollback.sql",
+    "465_one_product_activity_event_result.sql": "rollback/465_one_product_activity_event_result.rollback.sql",
     "466_location_auto_approve_window.sql": "rollback/466_location_auto_approve_window.rollback.sql"
   }
 }
