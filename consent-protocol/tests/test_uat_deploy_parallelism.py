@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -18,6 +19,126 @@ from tests.helpers.deployment_cli import uat_build_module as _uat_build_module
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UAT_BACKEND_IMAGE = "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "a" * 64
+
+
+@pytest.mark.parametrize(
+    "defect", [None, "missing-verb", "restricted-claim", "wrong-binding", "missing-subject"]
+)
+def test_uat_sandbox_allocator_policy_is_verified_read_only(tmp_path, defect):
+    namespace = {"namespace": "hussh-agents"}
+    extensions = "extensions.agents.x-k8s.io"
+    api_group = "rbac.authorization.k8s.io"
+    subject = {"kind": "User", "apiGroup": api_group, "name": "uat-edge@example.invalid"}
+    claim = {
+        "apiGroups": [extensions],
+        "resources": ["sandboxclaims"],
+        "verbs": ["get", "create", "patch", "delete"],
+    }
+    if defect == "missing-verb":
+        claim["verbs"].remove("patch")
+    if defect == "restricted-claim":
+        claim["resourceNames"] = ["fixed-claim"]
+    role = {
+        "metadata": namespace,
+        "rules": [
+            claim,
+            {
+                "apiGroups": [extensions],
+                "resources": ["sandboxwarmpools"],
+                "verbs": ["get", "patch"],
+            },
+            {"apiGroups": [""], "resources": ["pods"], "verbs": ["get"]},
+        ],
+    }
+    binding = {
+        "metadata": namespace,
+        "roleRef": {
+            "kind": "Role",
+            "apiGroup": api_group,
+            "name": "sandbox-edge-allocator" if defect != "wrong-binding" else "another-role",
+        },
+        "subjects": [{**subject, "name": "another-operator@example.invalid"}],
+    }
+    if defect != "missing-subject":
+        binding["subjects"].append(subject)
+    (tmp_path / "live-role.json").write_text(json.dumps(role))
+    (tmp_path / "live-rolebinding.json").write_text(json.dumps(binding))
+    entrypoint = _read("scripts/deploy/reconcile-sandbox-cluster.sh")
+    guard = entrypoint[
+        entrypoint.index("verify_uat_sandbox_allocator() {") : entrypoint.index("\nHUB_BASE_URL=")
+    ]
+    stub = """
+kctl() {
+  case "$*" in
+    "-n hussh-agents get role sandbox-edge-allocator -o json") cat "$WORK_DIR/live-role.json" ;;
+    "-n hussh-agents get rolebinding sandbox-edge-allocator-binding -o json") cat "$WORK_DIR/live-rolebinding.json" ;;
+    *) return 97 ;;
+  esac
+}
+"""
+    result = subprocess.run(  # noqa: S603 - authored guard and synthetic Kubernetes reads.
+        ["/bin/bash", "-euc", stub + guard],
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "DEPLOY_ENV": "uat",
+            "EDGE_SA": subject["name"],
+            "WORK_DIR": str(tmp_path),
+        },
+        timeout=10,
+    )
+    assert result.returncode == int(defect is not None), result.stderr
+    if defect in {"wrong-binding", "missing-subject"}:
+        assert "must reference its existing Role and Edge identity" in result.stderr
+    elif defect:
+        assert "missing required namespaced permissions" in result.stderr
+
+
+@pytest.mark.parametrize("environment", ["uat", "dev", "production"])
+def test_sandbox_workload_apply_preserves_uat_rbac_and_claims(tmp_path, environment):
+    entrypoint = _read("scripts/deploy/reconcile-sandbox-cluster.sh")
+    rollout = entrypoint[
+        entrypoint.index("\nTEMPLATE_MANIFEST=") : entrypoint.index("\nCORS_ORIGINS=")
+    ]
+    stub = """
+kctl() {
+  printf '%s\n' "$1" >> "$WORK_DIR/calls"
+  case "$1 $2" in
+    "apply -f") cp "$3" "$WORK_DIR/applied.yaml" ;;
+    "-n hussh-agents") printf '{"items":[]}\n' ;;
+    *) return 97 ;;
+  esac
+}
+"""
+    subprocess.run(  # noqa: S603 - authored workload render and a synthetic apply.
+        ["/bin/bash", "-euc", stub + rollout],
+        check=True,
+        capture_output=True,
+        env={
+            **os.environ,
+            "DEPLOY_ENV": environment,
+            "EDGE_SA": "edge@example.invalid",
+            "IMAGE_REF": UAT_BACKEND_IMAGE,
+            "SANDBOX_OAUTH_ENV": "",
+            "SENTINEL_CLUSTER_IP": "192.0.2.1",
+            "UAT_MAIL_SIDECAR": "",
+            "WARM_REPLICAS": "1",
+            "WORK_DIR": str(tmp_path),
+        },
+        timeout=10,
+    )
+    applied = list(yaml.safe_load_all((tmp_path / "applied.yaml").read_text()))
+    kinds = [item["kind"] for item in applied]
+    expected = ["SandboxTemplate", "SandboxWarmPool"]
+    if environment != "uat":
+        expected = ["Role", "RoleBinding", *expected]
+    assert kinds == expected
+    assert applied[-1]["spec"].get("updateStrategy") == (
+        {"type": "Recreate"} if environment == "uat" else None
+    )
+    calls = (tmp_path / "calls").read_text().splitlines()
+    assert calls == (["apply"] if environment == "uat" else ["apply", "-n", "-n"])
 
 
 @pytest.mark.parametrize(
