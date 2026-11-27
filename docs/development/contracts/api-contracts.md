@@ -303,6 +303,16 @@ Terminal `decision` events from `/api/kai/analyze/stream` include:
 
 These fields are additive to the canonical decision payload and mirrored in `raw_card` where applicable.
 
+### Active portfolio reads in Chat
+
+An unlocked owner session can answer from the active saved statement or linked
+portfolio through the existing device-side portfolio read. Updated clients
+advertise expanded reads and receive up to 64 holdings plus counts for the
+whole saved portfolio. The counts distinguish investment rows, grouped
+positions, and distinct tickers when every position has a known ticker.
+Clients without the expanded contract keep the 40-row response. Detailed
+holdings are used for the authorized turn and omitted from durable receipts.
+
 ### Portfolio Import Stream Terminal Diagnostics (V2)
 
 Terminal payload from `POST /api/kai/portfolio/import/stream` now includes:

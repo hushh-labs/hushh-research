@@ -35,10 +35,10 @@ from hushh_mcp.one_adk.account_context_contract import (
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
 from hushh_mcp.one_adk.portfolio_context_contract import (
     PORTFOLIO_CONTEXT_DESCRIPTION,
-    PORTFOLIO_CONTEXT_PARAMETERS,
     PORTFOLIO_CONTEXT_TOOL,
     PRIVATE_PORTFOLIO_ANSWER,
     STATE_PORTFOLIO_CONTEXT_ENABLED,
+    portfolio_context_parameters,
 )
 from hushh_mcp.one_adk.receipt_client_tools import (
     PRIVATE_RECEIPT_ANSWER,
@@ -275,6 +275,9 @@ class StubReceiptModel(BaseLlm):
                 if self.operation == ACCOUNT_CONTEXT_TOOL
                 else "market_value"
             ) in prompt
+            if self.query.get("detail") == "expanded":
+                result_text = llm_request.contents[-1].parts[0].text
+                assert "HOLD52" in result_text and '"investment_rows": 52' in result_text
             config = llm_request.config.tool_config.function_calling_config
             assert str(config.mode).endswith("NONE")
             yield LlmResponse(
@@ -283,6 +286,7 @@ class StubReceiptModel(BaseLlm):
                 turn_complete=True,
             )
         else:
+            assert "HOLD52" not in prompt
             assert PRIVATE_LABEL not in prompt and PRIVATE_ANSWER not in prompt, (
                 "Later ordinary turn must not replay receipt detail"
             )
@@ -306,14 +310,14 @@ def state(**extra):
 def run_input(run_id, messages, *, operation=NAME, **extra_state):
     tools = [Tool(**receipt_tool_declaration(NAME))]
     if operation == PORTFOLIO_CONTEXT_TOOL:
+        version = extra_state.setdefault(STATE_PORTFOLIO_CONTEXT_ENABLED, 1)
         tools = [
             Tool(
                 name=operation,
                 description=PORTFOLIO_CONTEXT_DESCRIPTION,
-                parameters=PORTFOLIO_CONTEXT_PARAMETERS,
+                parameters=portfolio_context_parameters(version),
             )
         ]
-        extra_state[STATE_PORTFOLIO_CONTEXT_ENABLED] = True
     if operation == ACCOUNT_CONTEXT_TOOL:
         tools = [
             Tool(
@@ -336,19 +340,20 @@ def run_input(run_id, messages, *, operation=NAME, **extra_state):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("operation", "streamed_function_call", "same_worker"),
+    ("operation", "streamed_function_call", "same_worker", "expanded"),
     [
-        (NAME, False, False),
-        (NAME, True, False),
-        (NAME, False, True),
-        (NAME, True, True),
-        (PORTFOLIO_CONTEXT_TOOL, True, False),
-        (ACCOUNT_CONTEXT_TOOL, True, False),
-        (ACCOUNT_CONTEXT_TOOL, False, True),
+        (NAME, False, False, False),
+        (NAME, True, False, False),
+        (NAME, False, True, False),
+        (NAME, True, True, False),
+        (PORTFOLIO_CONTEXT_TOOL, True, False, False),
+        (PORTFOLIO_CONTEXT_TOOL, True, False, True),
+        (ACCOUNT_CONTEXT_TOOL, True, False, False),
+        (ACCOUNT_CONTEXT_TOOL, False, True, False),
     ],
 )
 async def test_native_receipt_result_current_turn_only_and_encrypted_reload(
-    operation, streamed_function_call, same_worker
+    operation, streamed_function_call, same_worker, expanded
 ):
     portfolio = operation == PORTFOLIO_CONTEXT_TOOL
     account = operation == ACCOUNT_CONTEXT_TOOL
@@ -359,6 +364,22 @@ async def test_native_receipt_result_current_turn_only_and_encrypted_reload(
         if portfolio
         else (QUERY, RESULT)
     )
+    portfolio_state = {STATE_PORTFOLIO_CONTEXT_ENABLED: 2} if expanded else {}
+    if expanded:
+        query = {"section": "holdings", "source": "active", "detail": "expanded"}
+        base_position = PORTFOLIO_RESULT["holdings"]["positions"][0]
+        result = {
+            **PORTFOLIO_RESULT,
+            "selection": "active",
+            "holdings": {
+                "positions": [base_position]
+                + [{**base_position, "ticker": f"HOLD{index}"} for index in range(2, 53)],
+                "total_count": 52,
+                "matched_count": 52,
+                "investment_rows": 52,
+                "unique_tickers": 52,
+            },
+        }
     store = SealedReadbackService()
     model = StubReceiptModel(
         model="synthetic-receipt-probe",
@@ -397,7 +418,9 @@ async def test_native_receipt_result_current_turn_only_and_encrypted_reload(
     )
     initial_events = [
         event
-        async for event in agent.run(run_input("synthetic-run-1", [user], operation=operation))
+        async for event in agent.run(
+            run_input("synthetic-run-1", [user], operation=operation, **portfolio_state)
+        )
     ]
     assert not any(str(event.type).endswith("RUN_ERROR") for event in initial_events)
     calls = [event for event in initial_events if str(event.type).endswith("TOOL_CALL_END")]
@@ -475,6 +498,7 @@ async def test_native_receipt_result_current_turn_only_and_encrypted_reload(
                 "synthetic-run-2",
                 [user, assistant, wire],
                 operation=operation,
+                **portfolio_state,
                 **{STATE_RECEIPT_RESULT: reference},
             )
         )
@@ -516,6 +540,7 @@ async def test_native_receipt_result_current_turn_only_and_encrypted_reload(
     ) in restored_json
     assert restored.state[STATE_RECEIPT_PRIVATE]
     assert STATE_RECEIPT_RESULT not in restored_json and reference not in restored_json
+    assert "HOLD52" not in restored_json
 
     ordinary = UserMessage(id="synthetic-user-ordinary", role="user", content="Say hello")
     ordinary_events = [event async for event in agent.run(run_input("synthetic-run-3", [ordinary]))]
