@@ -667,6 +667,7 @@ export function ConnectCirclesTab({
 
   const createActive = Boolean(vaultOwnerToken && actions && (createDialogOpen || action === "create-circle"));
   const creation = useCreateCircleFlow({
+    creationObservedByOwner: true,
     active: createActive, resetKey: listSession, busy, customTypes: allCustomGroups.map(group => group.label), customTypesSupported,
     pathname: ROUTES.CONNECT, backLayerQuery: createDialogOpen ? {} : { action: "create-circle" },
     onLoadPeople: async (circleId, options) => {
