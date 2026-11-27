@@ -199,32 +199,34 @@ class ExistingPublicationCases:
             for number in range(2300, 0, -1)
         ]
         rows[-1].update(run_attempt=2, updated_at="2027-02-01T12:00:00Z")
-        filters = set()
+        for report_full_count in (False, True):
+            filters = set()
 
-        def api(_repository, endpoint):
-            query = parse_qs(urlsplit(endpoint).query)
-            page = int(query["page"][0])
-            created = query.get("created", [""])[0]
-            filters.add(created)
-            matching = rows
-            if created.startswith("<="):
-                matching = [run for run in rows if run["created_at"] <= created[2:]]
-            elif created.startswith(">="):
-                matching = [run for run in rows if run["created_at"] >= created[2:]]
-            elif created:
-                first, last = created.split("..")
-                matching = [run for run in rows if first <= run["created_at"] <= last]
-            capped = matching[:1000]
-            return {
-                "total_count": len(capped),
-                "workflow_runs": capped[(page - 1) * 100 : page * 100],
-            }
+            def api(_repository, endpoint):
+                query = parse_qs(urlsplit(endpoint).query)
+                page = int(query["page"][0])
+                created = query.get("created", [""])[0]
+                filters.add(created)
+                matching = rows
+                if created.startswith("<="):
+                    matching = [run for run in rows if run["created_at"] <= created[2:]]
+                elif created.startswith(">="):
+                    matching = [run for run in rows if run["created_at"] >= created[2:]]
+                elif created:
+                    first, last = created.split("..")
+                    matching = [run for run in rows if first <= run["created_at"] <= last]
+                capped = matching[:1000]
+                return {
+                    "total_count": len(matching) if report_full_count else len(capped),
+                    "workflow_runs": capped[(page - 1) * 100 : page * 100],
+                }
 
-        owner = self._publication_owner()
-        owner.api.side_effect = api
-        recovered = publication._inventory(owner, "org/repo", partition_capped=True)
-        self.assertEqual(sorted(recovered, key=lambda row: -row["id"]), rows)
-        self.assertTrue(any(".." in query for query in filters))
+            owner = self._publication_owner()
+            owner.api.side_effect = api
+            with self.subTest(report_full_count=report_full_count):
+                recovered = publication._inventory(owner, "org/repo", partition_capped=True)
+                self.assertEqual(sorted(recovered, key=lambda row: -row["id"]), rows)
+                self.assertTrue(any(".." in query for query in filters))
 
     def test_uat_refuses_a_capped_window_with_one_creation_timestamp(self):
         timestamp = "2026-11-27T14:21:10Z"

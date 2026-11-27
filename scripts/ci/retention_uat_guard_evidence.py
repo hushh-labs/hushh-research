@@ -80,6 +80,14 @@ STATIC_PROFILES = (
         PUBLICATION: ("aa583855b133bdd83089efdfd3a1f515951c4f20", 30966),
         "scripts/ci/retention_pass_diagnostics.py": ("86ffd27e4c189c63ec493a662b9e843b815996ed", 6608),
     },
+    # Frozen Main 0e6b1f9f. Tick 46025055753 refused the 1,001-run
+    # inventory before restoring custody or performing provider work.
+    {
+        base.OWNER: ("697d819d55d46716505ffe4e3b0c2b8b9482a611", 99773),
+        base.WORKFLOW: ("d3f33618aa93361afea1cf99dadd8717ef263cd3", 22339),
+        PUBLICATION: ("f64c9be54ef556d959cc31f082ae2322a9e833d8", 34348),
+        "scripts/ci/retention_pass_diagnostics.py": ("86ffd27e4c189c63ec493a662b9e843b815996ed", 6608),
+    },
 )
 SOURCE_PROFILES += STATIC_PROFILES
 OWNER_BLOBS = frozenset(profile[base.OWNER][0] for profile in SOURCE_PROFILES)

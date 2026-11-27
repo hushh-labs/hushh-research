@@ -443,7 +443,7 @@ def _inventory_response(owner, response, expected_total, offset, seen, *, search
     _require(
         owner,
         type(count) is int
-        and 0 <= count <= _HISTORY_SEARCH_LIMIT
+        and count >= 0
         and (search_sample or count < _HISTORY_SEARCH_LIMIT)
         and (expected_total is None or count == expected_total)
         and isinstance(runs, list)
@@ -533,10 +533,15 @@ def _creation_times(owner, runs, first, last):
     return times
 
 
+def _search_is_capped(response):
+    count = response.get("total_count")
+    return type(count) is int and count >= _HISTORY_SEARCH_LIMIT
+
+
 def _inventory(owner, repository, *, partition_capped=False):
     """Finish bounded metadata discovery before any checkpoint can end the walk."""
     first_page = _inventory_page(owner, repository, 1)
-    if not partition_capped or first_page.get("total_count") != _HISTORY_SEARCH_LIMIT:
+    if not partition_capped or not _search_is_capped(first_page):
         return _complete_inventory_window(owner, repository, first_page, set())
 
     # GitHub caps filtered searches at 1,000. Partition on immutable creation
@@ -548,7 +553,7 @@ def _inventory(owner, repository, *, partition_capped=False):
         created = _creation_filter(first, last)
         if response is None:
             response = _inventory_page(owner, repository, 1, created)
-        if response.get("total_count") != _HISTORY_SEARCH_LIMIT:
+        if not _search_is_capped(response):
             rows = _complete_inventory_window(owner, repository, response, seen, created)
             _creation_times(owner, rows, first, last)
             collected.extend(rows)
@@ -575,7 +580,7 @@ def _inventory(owner, repository, *, partition_capped=False):
 
     _require(
         owner,
-        len(collected) >= _HISTORY_SEARCH_LIMIT and sampled <= seen,
+        len(collected) >= first_page["total_count"] and sampled <= seen,
         "maintenance history changed during inventory partitioning",
     )
     return collected
