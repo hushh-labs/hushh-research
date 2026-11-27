@@ -465,7 +465,7 @@ test("a typed SOS confirmation uses the reviewed roster and reports the actual d
   fireEvent.click(screen.getByRole("button", { name: "Send Save My Soul alert" }));
   await waitFor(() => expect(sendChatSos).toHaveBeenCalledTimes(1));
   expect(sendChatSos).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ ownerId: "owner", review, note: "Meet at the entrance" }));
-  expect(transcript).toHaveBeenLastCalledWith("review", expect.stringContaining("delivery unknown: Priya"));
+  await waitFor(() => expect(transcript).toHaveBeenLastCalledWith("review", expect.stringContaining("delivery unknown: Priya")));
 });
 
 test("a standalone current location preview leaves account sharing off and makes no capture until a gesture", async () => {
