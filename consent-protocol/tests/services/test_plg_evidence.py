@@ -3765,12 +3765,12 @@ def test_feature_binding_hydrates_optionally_from_existing_runtime_config(monkey
     }
     if environment == "uat":
         binding.update(databaseName="postgres", databaseUser="fixture")
-    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps({key: json.dumps(binding)}))
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps({key: binding}))
     runtime_settings.hydrate_runtime_environment()
     assert _feature_source.approved_binding(environment) == binding
     # Existing explicitly mounted configuration remains authoritative.
     changed = {**binding, "sourceGeneration": "e" * 64}
-    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps({key: json.dumps(changed)}))
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps({key: changed}))
     runtime_settings.hydrate_runtime_environment()
     assert _feature_source.approved_binding(environment) == binding
 

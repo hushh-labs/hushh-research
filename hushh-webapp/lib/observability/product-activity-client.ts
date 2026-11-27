@@ -120,7 +120,8 @@ export function observeProductEvent(event: string, action: unknown, result: unkn
   if (!values) return;
   if (values.length && (typeof action !== "string" || !values.includes(action))) return;
   const key = `observation:${event}${values.length ? `:${action}` : ""}`;
-  const phase = result === "error" || result === "expected_error" ? "failed"
+  // Generic phases record observations, not paired/verified business outcomes.
+  const phase = result === "expected_error" ? "blocked" : result === "error" ? "failed"
     : event.endsWith("_started") ? "started" : "returned";
   const id = globalThis.crypto?.randomUUID?.();
   if (id && typeof window !== "undefined") enqueue(key, phase, id, observation(scope));
