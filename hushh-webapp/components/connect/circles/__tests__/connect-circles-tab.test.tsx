@@ -7,7 +7,10 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as observability from "@/lib/observability/client";
+
+afterEach(() => vi.restoreAllMocks());
 
 const mocks = vi.hoisted(() => ({
   listCircles: vi.fn(),
@@ -664,6 +667,7 @@ describe("the flows are hosted on Connect, not linked away to Location", () => {
   });
 
   it("opens custom creation in a modal without navigation and uses the existing creation action", async () => {
+    const event = vi.spyOn(observability, "trackEvent").mockReturnValue(true);
     mocks.searchParams = new URLSearchParams("tab=people");
     const onOpenChange = vi.fn();
     render(<ConnectCirclesTab createDialogOpen onCreateDialogOpenChange={onOpenChange} />);
@@ -679,6 +683,9 @@ describe("the flows are hosted on Connect, not linked away to Location", () => {
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
     expect(String(mocks.routerPush.mock.calls[0][0])).toContain("circleId=new-circle");
     expect(new URL(String(mocks.routerPush.mock.calls[0][0]), "http://localhost").searchParams.get("circleSetup")).toBeNull();
+    expect(event.mock.calls.filter(([name]) => name === "one_location_circle_created")).toEqual([
+      ["one_location_circle_created", { route_id: "connect", result: "success", circle_kind: "friends" }],
+    ]);
   });
 
   it("dismisses custom creation in one close action without validating an empty name", async () => {
