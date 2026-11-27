@@ -27,7 +27,8 @@ def test_names_use_viewer_scoped_directory_and_omit_private_or_unknown_fields(mo
     assert identities.get_leaderboard_display_names(
         ["peer", "technical"], viewer_user_id="viewer"
     ) == {"peer": "Priya Rao"}
-    read.assert_called_once_with("viewer", ["peer", "technical"])
+    assert read.call_count == 2
+    read.assert_called_with("viewer", ["peer", "technical"])
 
 
 def test_own_name_is_read_separately_because_directory_excludes_the_viewer(monkeypatch):
@@ -82,7 +83,8 @@ def test_portraits_follow_the_viewer_directory_gate_and_never_expose_other_field
     assert identities.get_leaderboard_profiles(["peer", "technical"], viewer_user_id="viewer") == {
         "peer": {"display_name": "Priya Rao", "photo_url": "data:image/png;base64,YQ=="},
     }
-    read.assert_called_once_with("viewer", ["peer", "technical"])
+    assert read.call_count == 2
+    read.assert_called_with("viewer", ["peer", "technical"])
 
 
 def test_own_portrait_uses_the_existing_owner_profile_projection(monkeypatch):
@@ -144,3 +146,12 @@ def test_missing_firebase_name_does_not_use_cached_or_provider_names(monkeypatch
     )
     assert directory.directory_auth_profiles(["peer"], include_provider_names=False) == {}
     assert directory.directory_auth_profiles(["peer"])["peer"]["display_name"] == "Provider Only"
+
+
+def test_permission_revoked_during_firebase_lookup_never_returns_the_name(monkeypatch):
+    permitted = Mock(side_effect=[[{"userId": "peer", "displayName": "Cached Name"}], []])
+    monkeypatch.setattr(identities, "_directory_profiles", permitted)
+    monkeypatch.setattr(
+        identities, "_firebase_profiles", lambda ids: {"peer": {"display_name": "Firebase Name"}}
+    )
+    assert identities.get_leaderboard_profiles(["peer"], viewer_user_id="viewer") == {}

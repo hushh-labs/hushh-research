@@ -63,8 +63,16 @@ def get_leaderboard_profiles(
                 and str(profile.get("userId") or "") != viewer_user_id
             }
             fresh = _firebase_profiles(sorted(permitted)) if permitted else {}
-            for uid, profile in permitted.items():
-                if uid in candidates and uid != viewer_user_id:
+            current = (
+                {
+                    str(profile.get("userId") or ""): profile
+                    for profile in _directory_profiles(viewer_user_id, sorted(permitted))
+                }
+                if permitted
+                else {}
+            )
+            for uid in permitted:
+                if uid in current:
                     label = label_from_identity_row(
                         {"user_id": uid, "display_name": fresh.get(uid, {}).get("display_name")},
                         allow_email_handle=False,
@@ -72,7 +80,7 @@ def get_leaderboard_profiles(
                     if label:
                         profiles[uid] = {
                             "display_name": label,
-                            "photo_url": _portrait(profile.get("photoUrl")),
+                            "photo_url": _portrait(current[uid].get("photoUrl")),
                         }
     except Exception as exc:
         # A failed visibility/provider lookup never authorizes a private fallback.
