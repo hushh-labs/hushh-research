@@ -11,6 +11,7 @@ from hushh_mcp.one_adk.goal_plan_proposal import propose_goal_plan
 from hushh_mcp.one_adk.location_chat_proposal import (
     STATE_LOCATION_CHAT_CONVERSATION,
     STATE_LOCATION_CHAT_REVIEW,
+    STATE_LOCATION_CHAT_TIMED_APPROVAL,
     admit_location_chat_continuation,
     admit_location_chat_review,
     legacy_location_chat_action,
@@ -39,6 +40,11 @@ async def test_location_review_is_admitted_only_for_main_owner_chat(monkeypatch)
     props = {"mainChat": True, "locationChatReview": True}
     monkeypatch.delenv("ONE_MAIN_CHAT_LOCATION_ENABLED", raising=False)
     assert not admit_location_chat_review(props, owner_admitted=True)
+    for env in ("dev", "development", "uat"):
+        assert admit_location_chat_review(props, owner_admitted=True, pod_environment=env)
+    assert not admit_location_chat_review(props, owner_admitted=True, pod_environment="production")
+    monkeypatch.setenv("ONE_MAIN_CHAT_LOCATION_ENABLED", "false")
+    assert not admit_location_chat_review(props, owner_admitted=True, pod_environment="uat")
     monkeypatch.setenv("ONE_MAIN_CHAT_LOCATION_ENABLED", "true")
     assert not admit_location_chat_review(props, owner_admitted=False)
     assert not admit_location_chat_review({**props, "mainChat": False}, owner_admitted=True)
@@ -49,7 +55,18 @@ async def test_location_review_is_admitted_only_for_main_owner_chat(monkeypatch)
     assert not admit_location_chat_review(
         {**regular, "locationChatReview": False}, owner_admitted=True
     )
-    for screen in ({}, [], {"route": None}, {"route": {"pathname": "/one/location"}}):
+    for pathname in ("/?locationSetupReturn=example", "/#chat", "/?panel=connectors"):
+        assert admit_location_chat_review(
+            {**regular, "screenContext": {"route": {"pathname": pathname}}}, owner_admitted=True
+        )
+    for screen in (
+        {"route": {"pathname": "//example.com/?"}},
+        {"route": {"pathname": "/one?next=/"}},
+        {},
+        [],
+        {"route": None},
+        {"route": {"pathname": "/one/location"}},
+    ):
         assert not admit_location_chat_review(
             {**props, "screenContext": screen}, owner_admitted=True
         )
@@ -99,7 +116,12 @@ def test_location_proposal_restores_intent_without_execution_authority():
 
     context = SimpleNamespace(state={STATE_LOCATION_CHAT_CONVERSATION: True})
     proposal = propose_location_action(
-        "share_live", [" Maya ", "MAYA"], ["Family"], 2, tool_context=context
+        "share_live",
+        [" Maya ", "MAYA"],
+        ["Family"],
+        2,
+        tool_context=context,
+        terms_check="as_requested",
     )
     assert proposal["conversation"] is True
     assert "conversation" not in propose_location_action("share_live", ["Maya"], ["Family"], 2)
@@ -505,3 +527,113 @@ def test_one_writes_without_em_dashes_and_within_its_prompt_budget(
     assert "Never use an em dash or en dash as punctuation" in authored
     assert "The company is Hussh" in authored
     assert len(composed) <= _COMPOSED_INSTRUCTION_CHAR_BUDGET, len(composed)
+
+
+def test_chat_keeps_unavailable_privacy_terms_until_explicitly_replaced():
+    context = SimpleNamespace(state={STATE_LOCATION_CHAT_CONVERSATION: True})
+
+    def propose(action="share_live", **terms):
+        return propose_location_action(action, tool_context=context, **terms)
+
+    assert propose(people=["Riley"], duration_hours=1)["status"] == "terms_required"
+    for restriction in ("place_only", "conditional", "fixed_end", "one_time", "other_restriction"):
+        blocked = propose(people=["Riley"], duration_hours=1, terms_check=restriction)
+        assert blocked["status"] == "unsupported_terms" and "id" not in blocked
+        assert propose("share_private", people=["Riley"], terms_check="as_requested") == blocked
+        assert propose("share_public", duration_hours=1, terms_check="as_requested") == blocked
+        assert (
+            propose("ask", people=["Ankit"], terms_check="as_requested")["status"]
+            == "proposal_ready"
+        )
+        assert (
+            propose(people=["Riley"], duration_hours=1, terms_check="explicit_replacement")[
+                "status"
+            ]
+            == "proposal_ready"
+        )
+    temporary = propose("enable_auto_approve", duration_hours=3, terms_check="as_requested")
+    assert temporary["status"] == "unsupported_terms" and "id" not in temporary
+    assert propose("enable_auto_approve", terms_check="as_requested") == temporary
+    context.state[STATE_LOCATION_CHAT_TIMED_APPROVAL] = True
+    assert propose("enable_auto_approve", terms_check="temporary_rule") == temporary
+    proposal = propose("enable_auto_approve", duration_hours=3, terms_check="temporary_rule")
+    assert proposal["status"] == "proposal_ready" and proposal["durationHours"] == 3
+    assert (
+        propose("enable_auto_approve", duration_hours=3, terms_check="fixed_end")["status"]
+        == "unsupported_terms"
+    )
+    assert (
+        propose("enable_auto_approve", duration_hours=3, terms_check="as_requested")["status"]
+        == "unsupported_terms"
+    )
+
+
+def test_stop_scope_and_unsupported_management_conditions_stay_distinct():
+    context = SimpleNamespace(state={STATE_LOCATION_CHAT_CONVERSATION: True})
+
+    def propose(action, **values):
+        return propose_location_action(action, tool_context=context, **values)
+
+    assert (
+        propose("stop", direction="all", people=["Ankit"], terms_check="as_requested")["status"]
+        == "invalid_proposal"
+    )
+    stop_all = propose("stop", direction="all", terms_check="as_requested")
+    assert stop_all["direction"] == "all"
+    assert "direction" not in propose("stop", people=["Ankit"], terms_check="as_requested")
+    for action, constraint in (
+        ("stop", "conditional"),
+        ("manage_settings", "timed_pause"),
+        ("list_shares", "history_window"),
+        ("share_live", "combined_eta"),
+    ):
+        blocked = propose(action, terms_check=constraint)
+        assert blocked["status"] == "unsupported_terms" and "id" not in blocked
+        assert propose(action, terms_check="as_requested") == blocked
+
+
+def test_conversation_requires_a_terms_decision_in_the_first_model_call_only_for_location():
+    from google.adk.tools import FunctionTool
+    from google.genai import types
+
+    from hushh_mcp.one_adk import agent_tree
+
+    declaration = FunctionTool(propose_location_action)._get_declaration()
+    original = list(declaration.parameters_json_schema["required"])
+    email = types.FunctionDeclaration(
+        name="ask_email_agent", parameters_json_schema={"type": "object"}
+    )
+    for typed in (True, False):
+        request = SimpleNamespace(
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(function_declarations=[declaration, email])]
+            )
+        )
+        state = {STATE_LOCATION_CHAT_REVIEW: True, STATE_LOCATION_CHAT_CONVERSATION: typed}
+        agent_tree._scope_location_chat_review(SimpleNamespace(state=state), request)
+        location, other = request.config.tools[0].function_declarations
+        assert location.parameters_json_schema["required"] == (
+            original + ["terms_check", "complete_turn"] if typed else original
+        )
+        assert other == email
+        assert declaration.parameters_json_schema["required"] == original
+
+
+def test_request_accepts_redundant_timed_mode_without_changing_the_requested_recipient_or_duration():
+    context = SimpleNamespace(state={STATE_LOCATION_CHAT_CONVERSATION: True})
+
+    def ask(mode):
+        return propose_location_action(
+            "ask",
+            people=["Ankit"],
+            duration_hours=1,
+            duration_mode=mode,
+            terms_check="as_requested",
+            tool_context=context,
+        )
+
+    timed = ask("timed")
+    assert timed["status"] == "proposal_ready"
+    assert timed["action"] == "ask" and timed["people"] == ["Ankit"] and timed["durationHours"] == 1
+    assert "durationMode" not in timed
+    assert ask("until_stopped")["status"] == "invalid_proposal"

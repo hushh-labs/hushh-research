@@ -50,8 +50,10 @@ from hushh_mcp.one_adk.location_chat_proposal import (
     STATE_LOCATION_CHAT_CONTINUATION,
     STATE_LOCATION_CHAT_CONVERSATION,
     STATE_LOCATION_CHAT_REVIEW,
+    STATE_LOCATION_CHAT_TIMED_APPROVAL,
     admit_location_chat_continuation,
     admit_location_chat_review,
+    pod_location_chat_enabled,
 )
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
@@ -223,10 +225,11 @@ async def capabilities(owner: PodChatContext = Depends(context)):
     except ImportError:
         native = {}
     else:
+        location_enabled = pod_location_chat_enabled(getattr(owner.authority, "environment", None))
         native = {
             "nativeAdkChatVersion": 1,
-            "nativeLocationChatReview": True,
-            "nativeLocationChatConversation": True,
+            "nativeLocationChatReview": location_enabled,
+            "nativeLocationChatConversation": location_enabled,
         }
 
     return {
@@ -329,7 +332,10 @@ def _trusted_turn_state(
         plaid_posture, plaid_client_ready = admit_plaid_posture(forwarded, owner_admitted=True)
     except ValueError:
         raise HTTPException(413, detail={"code": "POD_CHAT_PLAID_POSTURE_TOO_LARGE"}) from None
-    location_review = admit_location_chat_review(forwarded, owner_admitted=True)
+    pod_environment = getattr(owner.authority, "environment", None)
+    location_review = admit_location_chat_review(
+        forwarded, owner_admitted=True, pod_environment=pod_environment
+    )
     state = {
         STATE_ACCOUNT_CONTEXT_ENABLED: account_enabled,
         STATE_PORTFOLIO_CONTEXT_ENABLED: portfolio_version,
@@ -341,8 +347,11 @@ def _trusted_turn_state(
         STATE_LOCATION_CHAT_REVIEW: location_review,
         STATE_LOCATION_CHAT_CONVERSATION: location_review
         and forwarded.get("locationChatConversation") is True,
+        STATE_LOCATION_CHAT_TIMED_APPROVAL: location_review
+        and forwarded.get("locationChatConversation") is True
+        and forwarded.get("locationChatTimedApproval") is True,
         STATE_LOCATION_CHAT_CONTINUATION: admit_location_chat_continuation(
-            forwarded, owner_admitted=True
+            forwarded, owner_admitted=True, pod_environment=pod_environment
         ),
         STATE_MCP_APPROVAL: admit_resume_receipt(
             forwarded, owner_id=owner.owner, conversation_id=thread_id

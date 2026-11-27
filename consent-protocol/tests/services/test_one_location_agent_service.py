@@ -670,11 +670,12 @@ def test_auto_approve_preference_uses_server_time_version_and_audit(
         for sql, params in calls
         if "INSERT INTO one_location_auto_approve_preferences" in sql
     )
-    assert "CASE WHEN :enabled THEN NOW() ELSE NULL END" in upsert_sql
+    assert "CASE WHEN :enabled THEN statement_timestamp() ELSE NULL END" in upsert_sql
     assert "rule_version = one_location_auto_approve_preferences.rule_version + 1" in upsert_sql
     assert upsert_params == {
         "user_id": "user_a",
         "enabled": True,
+        "window_hours": None,
         "scope_kind": "all_contacts",
         "circle_id": None,
         "circle_ids": None,

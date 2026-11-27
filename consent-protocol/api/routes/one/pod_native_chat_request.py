@@ -22,6 +22,7 @@ ForwardedKey = Literal[
     "mainChat",
     "locationChatReview",
     "locationChatConversation",
+    "locationChatTimedApproval",
     "locationChatContinuation",
 ]
 RunIdentity = Annotated[str, Field(min_length=1, max_length=128)]
