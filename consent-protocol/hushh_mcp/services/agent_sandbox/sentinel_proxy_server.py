@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import base64
 import datetime
 import hashlib
 import hmac
@@ -92,7 +93,7 @@ _PLAID_CLIENT_USER_ID_CONTEXT = b"hussh.kai.plaid.vault.client_user_id.v1"
 _MAX_BODY_BYTES = 2 * 1024 * 1024
 _MAX_MODEL_BODY_BYTES = 16 * 1024 * 1024
 _MAX_MODEL_RESPONSE_BYTES = 16 * 1024 * 1024
-_SURROGATE_RE = re.compile(r"hsur_[a-f0-9]{48}")
+_SURROGATE_RE = re.compile(r"hsur_(?:v1_[A-Za-z0-9_-]{16,320}\.[A-Za-z0-9_-]{43}|[a-f0-9]{48})")
 _VERTEX_MODEL_PATH_RE = re.compile(
     r"^/(v1|v1beta1)/projects/([a-z][a-z0-9-]{4,28}[a-z0-9])/locations/([a-z0-9-]+)/"
     r"publishers/google/models/([A-Za-z0-9._-]+):(generateContent|streamGenerateContent|countTokens)$"
@@ -123,6 +124,7 @@ class ModelSurrogateGrant:
     owner_id: str
     lease_id: str
     expires_at_s: int
+    bound_ip: str = ""
     revoked: bool = False
 
 
@@ -245,7 +247,7 @@ class _CachedVertexTokenProvider:
                 now = (
                     datetime.datetime.now(datetime.timezone.utc)
                     if expiry.tzinfo is not None
-                    else datetime.datetime.utcnow()
+                    else datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
                 )
                 if (expiry - now).total_seconds() < 120:
                     needs_refresh = True
@@ -359,6 +361,14 @@ class SentinelProxyRuntime:
         self._lease_policies: dict[str, dict[str, DomainRuleMode]] = {}
         self._ip_leases: dict[str, tuple[str, str]] = {}
         self._model_surrogates: dict[str, ModelSurrogateGrant] = {}
+        self._revoked_surrogates: set[str] = set()
+        self._revoked_leases: set[str] = set()
+        self._surrogate_signing_key = hashlib.sha256(
+            b"hussh.sentinel.model_surrogate.v1:"
+            + self._hmac_key
+            + b":"
+            + self._control_token.encode("utf-8")
+        ).digest()
         resolved_gw_host = proxy_host if model_gateway_host is None else model_gateway_host
         resolved_gw_port = (
             (0 if proxy_port == 0 and control_port == 0 else DEFAULT_MODEL_GATEWAY_PORT)
@@ -394,6 +404,7 @@ class SentinelProxyRuntime:
     ) -> None:
         clean_ip = _normalize_client_ip(pod_ip)
         with self._lock:
+            self._revoked_leases.discard(str(lease_id).strip())
             current = dict(self._lease_policies.get(lease_id, {}))
             for host, mode in rules.items():
                 clean_host = str(host or "").strip().lower().rstrip(".")
@@ -421,6 +432,68 @@ class SentinelProxyRuntime:
             merged.update(self._lease_policies.get(lease_id, {}))
             return merged
 
+    def _sign_model_surrogate(
+        self, *, lease_id: str, owner_id: str, expires_at_s: int, bound_ip: str = ""
+    ) -> str:
+        raw_payload = json.dumps(
+            {
+                "l": lease_id,
+                "o": owner_id,
+                "e": int(expires_at_s),
+                "ip": _normalize_client_ip(bound_ip),
+                "n": secrets.token_hex(4),
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        payload_b64 = base64.urlsafe_b64encode(raw_payload).rstrip(b"=").decode("ascii")
+        sig = hmac.new(
+            self._surrogate_signing_key, payload_b64.encode("ascii"), hashlib.sha256
+        ).digest()
+        sig_b64 = base64.urlsafe_b64encode(sig).rstrip(b"=").decode("ascii")
+        return f"hsur_v1_{payload_b64}.{sig_b64}"
+
+    def _verify_stateless_model_surrogate(
+        self, token: str
+    ) -> tuple[ModelSurrogateGrant, str] | None:
+        if not token.startswith("hsur_v1_") or "." not in token:
+            return None
+        payload_b64, sig_b64 = token[len("hsur_v1_") :].split(".", 1)
+        if not payload_b64 or not sig_b64:
+            return None
+        expected = hmac.new(
+            self._surrogate_signing_key, payload_b64.encode("ascii"), hashlib.sha256
+        ).digest()
+        expected_b64 = base64.urlsafe_b64encode(expected).rstrip(b"=").decode("ascii")
+        if not hmac.compare_digest(sig_b64, expected_b64):
+            return None
+        pad = "=" * (-len(payload_b64) % 4)
+        try:
+            decoded = json.loads(base64.urlsafe_b64decode((payload_b64 + pad).encode("ascii")))
+        except Exception:  # noqa: BLE001
+            return None
+        if not isinstance(decoded, dict):
+            return None
+        lease_id = str(decoded.get("l") or "").strip()
+        owner_id = str(decoded.get("o") or "").strip()
+        try:
+            expires_at_s = int(decoded.get("e") or 0)
+        except (TypeError, ValueError):
+            return None
+        if not lease_id or not owner_id or expires_at_s <= 0:
+            return None
+        bound_ip = _normalize_client_ip(str(decoded.get("ip") or ""))
+        return (
+            ModelSurrogateGrant(
+                surrogate_token=token,
+                owner_id=owner_id,
+                lease_id=lease_id,
+                expires_at_s=expires_at_s,
+                bound_ip=bound_ip,
+            ),
+            bound_ip,
+        )
+
     def mint_model_surrogate(
         self, *, lease_id: str, owner_id: str, ttl_seconds: int = 3600
     ) -> tuple[str, int]:
@@ -430,9 +503,11 @@ class SentinelProxyRuntime:
         clean_owner = str(owner_id)
         reused_token: str | None = None
         with self._lock:
+            self._revoked_leases.discard(clean_lease)
             for existing in self._model_surrogates.values():
                 if (
                     not existing.revoked
+                    and existing.surrogate_token not in self._revoked_surrogates
                     and existing.lease_id == clean_lease
                     and existing.owner_id == clean_owner
                 ):
@@ -440,12 +515,22 @@ class SentinelProxyRuntime:
                     if reused_token is None:
                         reused_token = existing.surrogate_token
             if reused_token is None:
-                reused_token = f"hsur_{secrets.token_hex(24)}"
+                bound_ip = next(
+                    (ip for ip, pair in self._ip_leases.items() if pair[0] == clean_lease),
+                    "",
+                )
+                reused_token = self._sign_model_surrogate(
+                    lease_id=clean_lease,
+                    owner_id=clean_owner,
+                    expires_at_s=expires_at_s,
+                    bound_ip=bound_ip,
+                )
                 self._model_surrogates[reused_token] = ModelSurrogateGrant(
                     surrogate_token=reused_token,
                     owner_id=clean_owner,
                     lease_id=clean_lease,
                     expires_at_s=expires_at_s,
+                    bound_ip=bound_ip,
                 )
         self.audit_sink.append(
             lease_id=clean_lease,
@@ -458,10 +543,13 @@ class SentinelProxyRuntime:
     def delete_lease(self, lease_id: str) -> None:
         clean_lease = str(lease_id).strip()
         with self._lock:
+            if clean_lease:
+                self._revoked_leases.add(clean_lease)
             self.gatekeeper.revoke_lease_surrogates(clean_lease)
             for grant in self._model_surrogates.values():
                 if grant.lease_id == clean_lease:
                     grant.revoked = True
+                    self._revoked_surrogates.add(grant.surrogate_token)
             self._lease_policies.pop(clean_lease, None)
             stale_ips = [ip for ip, pair in self._ip_leases.items() if pair[0] == clean_lease]
             for ip in stale_ips:
@@ -482,13 +570,17 @@ class SentinelProxyRuntime:
                 found.update(_SURROGATE_RE.findall(str(value)))
         if not found:
             return
+        revoked_any = False
         with self._lock:
-            matched = [
-                self._model_surrogates[tok] for tok in found if tok in self._model_surrogates
-            ]
-            for grant in matched:
-                grant.revoked = True
-        if matched:
+            for tok in found:
+                if tok in self._model_surrogates:
+                    self._model_surrogates[tok].revoked = True
+                    self._revoked_surrogates.add(tok)
+                    revoked_any = True
+                elif self._verify_stateless_model_surrogate(tok) is not None:
+                    self._revoked_surrogates.add(tok)
+                    revoked_any = True
+        if revoked_any:
             self.audit_sink.append(
                 lease_id=lease_id,
                 owner_id=owner_id,
@@ -507,18 +599,44 @@ class SentinelProxyRuntime:
         now_s = int(self._clock_s())
         clean_ip = _normalize_client_ip(client_ip)
         with self._lock:
-            grant = self._model_surrogates.get(token)
-            if grant is None:
+            if token in self._revoked_surrogates:
                 raise SentinelEgressError(
-                    MODEL_GATEWAY_AUTH_REQUIRED, "Unknown model surrogate token", status=401
+                    MODEL_GATEWAY_AUTH_REQUIRED, "Expired or revoked model surrogate", status=401
                 )
-            if grant.revoked or now_s >= grant.expires_at_s:
+            grant = self._model_surrogates.get(token)
+            signed_ip = ""
+            if grant is None:
+                verified = self._verify_stateless_model_surrogate(token)
+                if verified is None:
+                    raise SentinelEgressError(
+                        MODEL_GATEWAY_AUTH_REQUIRED, "Unknown model surrogate token", status=401
+                    )
+                grant, signed_ip = verified
+                if grant.lease_id in self._revoked_leases:
+                    raise SentinelEgressError(
+                        MODEL_GATEWAY_AUTH_REQUIRED,
+                        "Expired or revoked model surrogate",
+                        status=401,
+                    )
+                if signed_ip and signed_ip not in self._ip_leases:
+                    self._ip_leases[signed_ip] = (grant.lease_id, grant.owner_id)
+                self._model_surrogates[token] = grant
+            if (
+                grant.revoked
+                or grant.lease_id in self._revoked_leases
+                or now_s >= grant.expires_at_s
+            ):
                 raise SentinelEgressError(
                     MODEL_GATEWAY_AUTH_REQUIRED, "Expired or revoked model surrogate", status=401
                 )
             ip_binding = self._ip_leases.get(clean_ip) if clean_ip else None
-            if ip_binding is not None and ip_binding[0] != grant.lease_id:
+            effective_bound_ip = grant.bound_ip or signed_ip
+            ip_mismatch = (ip_binding is not None and ip_binding[0] != grant.lease_id) or (
+                bool(effective_bound_ip) and bool(clean_ip) and clean_ip != effective_bound_ip
+            )
+            if ip_mismatch:
                 grant.revoked = True
+                self._revoked_surrogates.add(token)
                 mismatch_lease = grant.lease_id
                 mismatch_owner = grant.owner_id
             else:
@@ -930,7 +1048,8 @@ class SentinelProxyRuntime:
                     return
                 if parsed.path == "/v1/audit/verify":
                     qs = urllib.parse.parse_qs(parsed.query)
-                    lease_id = (qs.get("lease_id") or [None])[0]
+                    lease_values = qs.get("lease_id")
+                    lease_id = lease_values[0] if lease_values else None
                     entries = runtime.audit_sink.entries_for_lease(lease_id)
                     self._send_json(
                         200,
