@@ -1,6 +1,7 @@
-import { createContext } from "react";
+import { createContext, useContext } from "react";
 export const useAuth = () => ({ user: { uid: "alice" }, userId: "alice" });
-export const VaultContext = createContext({ vaultOwnerToken: "fixture", vaultKey: "fixture" });
+export const VaultContext = createContext({ vaultOwnerToken: "fixture", vaultKey: "fixture", isVaultUnlocked: true });
+export const useVault = () => useContext(VaultContext);
 export const OneLocationService = { listCircles: async () => [
   { id: "circle", name: "Weekend friends", kind: "friends", role: "owner", memberCount: 2, memberLimit: null },
   ...(new URLSearchParams(location.search).has("switch") ? [{ id: "work", name: "Work", kind: "friends", role: "owner", memberCount: 2, memberLimit: null }] : []),

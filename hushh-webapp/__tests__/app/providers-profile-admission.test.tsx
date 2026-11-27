@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useMemo, useSyncExternalStore, type ReactNode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { setInterfaceApplying } from "@/lib/capacitor/native-interface-revision";
 import type { ProfilePaneLocation, ProfilePaneOpenDetail } from "@/lib/navigation/profile-pane";
 
 // Execute the real public Providers shell and Profile pane. Background bridges
@@ -41,7 +42,6 @@ const unrelated: Array<[string, string[]]> = [
   ["@/components/app-ui/foundation-public-ambient", ["FoundationPublicAmbient"]],
   ["@/components/agent/agent-owner-gate", ["AgentOwnerGate"]],
   ["@/lib/one-voice/readiness", ["OneVoiceReadinessProvider"]],
-  ["@/components/app-ui/app-bottom-shell", ["AppBottomShell"]],
   ["@/components/agent/agent-dock", ["AgentDockProvider"]],
   ["@/components/app-ui/ambient-chrome-mask", ["AmbientChromeController"]],
   ["@/components/ui/sonner", ["Toaster"]],
@@ -68,6 +68,9 @@ const unrelated: Array<[string, string[]]> = [
 for (const [module, names] of unrelated) {
   vi.doMock(module, () => Object.fromEntries(names.map(name => [name, passthrough])));
 }
+vi.doMock("@/components/app-ui/app-bottom-shell", () => ({
+  AppBottomShell: () => <div data-testid="bottom-shell" />,
+}));
 vi.doMock("@/hooks/use-auth", () => ({ useAuth: () => auth }));
 vi.doMock("@/lib/vault/vault-context", () => ({ VaultProvider: passthrough, useVault: () => ({ isVaultUnlocked: true }) }));
 function subscribeToHistory(notify: () => void) {
@@ -109,6 +112,23 @@ beforeEach(() => {
   vi.spyOn(window, "requestAnimationFrame").mockImplementation(callback => { callback(0); return 1; });
 });
 afterEach(() => vi.restoreAllMocks());
+
+it("replaces the covered shell once while retaining the route through an interface change", async () => {
+  const view = render(<Providers><div>Retained route</div></Providers>);
+  await screen.findByText("Protected Account pane");
+  const route = screen.getByText("Retained route");
+  const original = screen.getByTestId("bottom-shell");
+  try {
+    act(() => setInterfaceApplying(true));
+    expect(original.isConnected).toBe(false);
+  } finally {
+    act(() => setInterfaceApplying(false));
+  }
+  expect(screen.getAllByTestId("bottom-shell")).toHaveLength(1);
+  expect(screen.getByText("Retained route")).toBe(route);
+  expect(await screen.findByText("Protected Account pane")).toBeVisible();
+  view.unmount();
+});
 
 it("@feature_account_deletion @trace_loop keeps a retained Account URL sealed throughout recovery and resumes only on active admission", async () => {
   const view = render(<Providers><div>Route content</div></Providers>);

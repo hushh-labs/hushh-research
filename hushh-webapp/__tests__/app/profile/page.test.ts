@@ -199,6 +199,12 @@ describe("resolveGmailConnectionPresentation", () => {
 });
 
 describe("sanitizeGmailUserMessage", () => {
+  it("explains a refused device enrollment without misdiagnosing the Mail grant", () => {
+    expect(sanitizeGmailUserMessage(new Error("SELF_ENROLL_FAILED:403"))).toBe(
+      "This device couldn’t verify access to your private agent. Check Hosting in Settings, then try again.",
+    );
+  });
+
   it("hides raw backend error details", () => {
     expect(
       sanitizeGmailUserMessage(

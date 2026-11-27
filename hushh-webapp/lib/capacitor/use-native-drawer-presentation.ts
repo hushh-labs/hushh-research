@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { createNativeDrawerIdentity, nativeDrawerOwnerIsCurrent } from "./native-drawer-owner";
@@ -25,6 +26,7 @@ export type NativeDrawerPort = {
 /** Both drawer families share one owner/privacy admission path. Only authored
  * volatile row projections cross this boundary; operation callbacks stay here. */
 export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "preparing" | "native" | "blocked" {
+  const interfaceRevision = useInterfaceRevision();
   const theme = useNativeControlAppearance("secondary");
   const [supported, setSupported] = useState<boolean | null>(() => nativeDrawersPlatformEligible() ? null : false);
   const [phase, setPhase] = useState<"web" | "preparing" | "native" | "blocked">("preparing");
@@ -74,7 +76,7 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
     return true;
   };
   useEffect(() => {
-    if (!nativeDrawersPlatformEligible()) return;
+    if (!nativeDrawersPlatformEligible()) { setSupported(false); return; }
     let active = true, observed = 0;
     let observer: Awaited<ReturnType<typeof subscribeNativeSessionPrivacy>> | null = null;
     const acceptPrivacy = (event: NativeSessionPrivacyState) => {
@@ -106,7 +108,7 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
         (!port.profileMenuRows || capability.profileMenuRows === true));
     }).catch(() => { if (active) setSupported(false); });
     return () => { active = false; removeObservation(); void observer?.remove(); };
-  }, [port.family, port.profileMenuRows]);
+  }, [port.family, port.profileMenuRows, interfaceRevision]);
   const presentationAllowed = port.family === "profile" && port.open && !!port.preparation && preparationSupported.current
     ? nativeProfileTargetCanPrepare(privacy, port.preparation) : nativePrivacyCanInteract(privacy ?? undefined);
   useEffect(() => {

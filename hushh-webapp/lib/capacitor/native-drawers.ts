@@ -1,3 +1,4 @@
+import { customNativePresentationEnabled, liveInterfaceSwitchAvailable } from "./native-presentation-policy";
 import type { NativeFinanceContent } from "./native-finance-content";
 import type { HushhNativeDrawersPlugin } from "./native-drawers-plugin";
 export type { HushhNativeDrawersPlugin } from "./native-drawers-plugin";
@@ -532,6 +533,7 @@ export class NativeDrawerChoiceFence {
  * admission is separate from this private contract and remains qualification-gated. */
 export function nativeDrawersPlatformEligible(): boolean {
   if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios" || typeof window === "undefined") return false;
+  if (liveInterfaceSwitchAvailable()) return customNativePresentationEnabled();
   const bootstrap = (window as Window & { __HUSHH_NATIVE_DRAWER_BOOTSTRAP__?: { contractVersion: number; enabled: boolean } }).__HUSHH_NATIVE_DRAWER_BOOTSTRAP__;
   return bootstrap?.contractVersion === 1 && bootstrap.enabled === true;
 }

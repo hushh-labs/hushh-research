@@ -4840,6 +4840,17 @@ final class NativeSupportTests: XCTestCase {
         })
     }
 
+    func testNativeNavigationSuspensionRetainsTheDocumentAndItsRevisionFence() {
+        var state = HushhNativeNavigationState()
+        XCTAssertTrue(state.apply(document: "live", revision: 4, visible: true, selected: "chat"))
+        state.suspendPresentation()
+        XCTAssertFalse(state.acceptsTap("dashboard", appIsActive: true, shielded: false, keyboardVisible: false))
+        XCTAssertFalse(state.apply(document: "live", revision: 3, visible: true, selected: "feed"))
+        XCTAssertTrue(state.apply(document: "live", revision: 5, visible: true, selected: "dashboard"))
+        state.retireDocument()
+        XCTAssertFalse(state.apply(document: "live", revision: 6, visible: true, selected: "feed"))
+    }
+
     func testNativeNavigationRejectsStaleUnknownAndRetiredDocumentStates() {
         var state = HushhNativeNavigationState()
         XCTAssertTrue(state.apply(document: "first", revision: 1, visible: true, selected: "chat"))

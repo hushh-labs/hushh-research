@@ -2221,6 +2221,7 @@ export default function GmailReceiptsPage({
     key: "setup", label: isConnected ? "Finish Mail setup" : "Skip Mail setup", enabled: gmailActionBusy === null && !finishingSetup && !skippingSetup,
     run: isConnected ? onFinishSetup : onSkipSetup,
   }] });
+  const connectionCheckFailed = !isConnected && Boolean(gmail.statusError);
   const content = (
     <AppPageShell ref={nativeFrame}
       as="div"
@@ -2237,16 +2238,16 @@ export default function GmailReceiptsPage({
             ? "native-route-gmail"
             : "native-route-one-setup-gmail",
         authState: user ? "authenticated" : loading ? "pending" : "anonymous",
-        dataState: loadingReceipts
+        dataState: loadingReceipts || loadingStatus
           ? "loading"
-          : receiptListError
+          : receiptListError || connectionCheckFailed
             ? "error"
             : !isConnected
               ? "unavailable-valid"
               : visibleReceipts.length > 0
                 ? "loaded"
                 : "empty-valid",
-        errorCode: receiptListError ? "gmail_receipts_load_failed" : null,
+        errorCode: receiptListError ? "gmail_receipts_load_failed" : connectionCheckFailed ? "gmail_connection_check_failed" : null,
         errorMessage: receiptListError,
       }}
     >

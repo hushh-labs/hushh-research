@@ -1,4 +1,5 @@
 import type { RecentReceiptRow } from "@/lib/profile/gmail-receipt-presentation";
+import { parseReceiptDate } from "./receipt-date";
 import { detectCadence, merchantKey, merchantSeries } from "./receipt-cadence";
 import { formatMinor, toMinor } from "./receipt-money";
 import { type PriceRise, evaluatePriceRise, priceRiseSentence } from "./receipt-price-rise";
@@ -49,7 +50,7 @@ function stableId(kind: InsightKind, keys: readonly string[]): string {
 }
 
 function time(row: RecentReceiptRow): number {
-  return row.receiptDate ? new Date(row.receiptDate).getTime() : NaN;
+  return row.receiptDate ? parseReceiptDate(row.receiptDate).getTime() : NaN;
 }
 
 function shortDate(at: number): string {
@@ -188,7 +189,6 @@ export function findCancellationProof(rows: readonly RecentReceiptRow[], planKey
   since.setHours(0, 0, 0, 0);
   return rows.find((row) => {
     if (row.archived || receiptMoneyKind(row) !== "cancelled" || merchantKey(row) !== merchant) return false;
-    const at = row.receiptDate ? new Date(row.receiptDate).getTime() : NaN;
-    return Number.isFinite(at) && at >= since.getTime();
+    return time(row) >= since.getTime();
   }) ?? null;
 }

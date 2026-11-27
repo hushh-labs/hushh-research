@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { useLayoutEffect, useRef, useState } from "react";
 import { customNativePresentationEnabled } from "./native-presentation-policy";
 import { getNativeChromeCapabilities, nativeChrome, type NativeContentPaneIdentity, type NativeContentPaneReceipt, type NativeContentPaneRetirementState } from "./native-chrome";
@@ -119,6 +120,7 @@ export async function reconcileContentPaneRetirement(identity: NativeContentPane
  * exit. This hook owns only the acknowledged WK/native paint-plane lifetime. */
 export function useNativeContentPane(node: HTMLElement | null, owner: string | null, enabled: boolean, layer = "profile-pane",
   preparation?: { visitId: string; ready: boolean }) {
+  const interfaceRevision = useInterfaceRevision();
   const [state, setState] = useState<{ phase: "preparing" | "web" | "native" | "blocked"; identity?: NativeContentPaneIdentity }>({ phase: "preparing" });
   const preparationRef = useRef(preparation);
   const refreshRef = useRef<() => void>(() => undefined);
@@ -263,6 +265,6 @@ export function useNativeContentPane(node: HTMLElement | null, owner: string | n
     })();
     window.addEventListener("resize", refresh);
     return () => { live = false; request++; refreshRef.current = () => undefined; unsubscribeRetirement(); unsubscribe(); release(); void observer?.remove(); void handoffObserver?.remove(); window.removeEventListener("resize", refresh); };
-  }, [node, owner, enabled]);
+  }, [node, owner, enabled, interfaceRevision]);
   return state;
 }

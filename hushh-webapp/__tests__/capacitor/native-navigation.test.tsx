@@ -393,7 +393,7 @@ describe("native navigation presentation boundary", () => {
     view.unmount();
   });
 
-  it("drops an approved but delayed tap across a privacy cycle even after visibility returns", async () => {
+  it("drops a pre-cover tap and accepts the first post-unlock tap across a duplicate release", async () => {
     const onSelect = vi.fn();
     let settle: (result: { valid: boolean }) => void = () => undefined;
     bridge.confirmSelection.mockReturnValueOnce(new Promise((resolve) => { settle = resolve; }));
@@ -414,7 +414,10 @@ describe("native navigation presentation boundary", () => {
     expect(lastState().revision).toBe(admittedRevision);
     await act(async () => { settle({ valid: true }); });
     expect(onSelect).not.toHaveBeenCalled();
+    bridge.confirmSelection.mockReturnValueOnce(new Promise((resolve) => { settle = resolve; }));
     select(lastState());
+    act(() => privacy({ action: "state", generation: 1, cause: "inactive", shielded: false, appIsActive: true }));
+    await act(async () => { settle({ valid: true }); });
     await waitFor(() => expect(onSelect).toHaveBeenCalledExactlyOnceWith("dashboard"));
     view.unmount();
   });
