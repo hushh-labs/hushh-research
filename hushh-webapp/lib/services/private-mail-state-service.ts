@@ -1,6 +1,8 @@
 "use client";
 
 import { z } from "zod";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { SecureResourceCacheService } from "./secure-resource-cache-service";
 import { ApiService } from "./api-service";
 import { DurableResourceError } from "./durable-resource-error";
 import type { PrivateReceiptMailbox } from "./gmail-receipts-service";
@@ -45,17 +47,40 @@ async function request(
   return result;
 }
 
+function cacheScope(session: ReceiptStoreSession, mailbox: PrivateReceiptMailbox, kind: MailStateKind) {
+  const resourceKey = JSON.stringify(["mail-state-cache.v1", snapshotVaultSessionEpoch(), mailbox.accountId, mailbox.credentialId, kind]);
+  return { userId: session.userId, vaultKey: session.vaultKey, resourceKey };
+}
+
+async function openRecord(session: ReceiptStoreSession, mailbox: PrivateReceiptMailbox, kind: MailStateKind, raw: unknown, current: () => boolean) {
+  const record = envelope.parse(raw);
+  const plaintext = await decryptExport(record.sealed.ciphertext, record.sealed.iv, record.sealed.tag, session.vaultKey, {
+    additionalData: additionalData(session.userId, mailbox, kind, record.revision),
+  });
+  if (!current()) throw new DurableResourceError("authority_changed", "authority", "Mail session changed.");
+  return { revision: record.revision, value: JSON.parse(plaintext) as unknown };
+}
+
 export const PrivateMailStateService = {
+  async readCached(session: ReceiptStoreSession, mailbox: PrivateReceiptMailbox, kind: MailStateKind) {
+    const current = receiptStoreGuard(session);
+    if (!current()) return null;
+    const raw = await SecureResourceCacheService.read(cacheScope(session, mailbox, kind));
+    if (!raw || !current()) return null;
+    return openRecord(session, mailbox, kind, raw, current);
+  },
+
   async read(session: ReceiptStoreSession, mailbox: PrivateReceiptMailbox, kind: MailStateKind) {
     const current = receiptStoreGuard(session);
+    const scope = cacheScope(session, mailbox, kind);
     const raw = await request(session, mailbox, kind, "read", {});
-    if (raw === null) return null;
-    const record = envelope.parse(raw);
-    const plaintext = await decryptExport(record.sealed.ciphertext, record.sealed.iv, record.sealed.tag, session.vaultKey, {
-      additionalData: additionalData(session.userId, mailbox, kind, record.revision),
-    });
-    if (!current()) throw new DurableResourceError("authority_changed", "authority", "Mail session changed.");
-    return { revision: record.revision, value: JSON.parse(plaintext) as unknown };
+    if (raw === null) {
+      await SecureResourceCacheService.invalidateResource(scope.userId, scope.resourceKey);
+      return null;
+    }
+    const opened = await openRecord(session, mailbox, kind, raw, current);
+    void SecureResourceCacheService.write({ ...scope, value: raw, ttlMs: 86400000 });
+    return opened;
   },
 
   async write(session: ReceiptStoreSession, mailbox: PrivateReceiptMailbox, kind: MailStateKind, value: unknown, expected: number) {

@@ -65,7 +65,7 @@ export const evidenceSchema = z.object({
 
 export function mailboxTasks(
   tasks: readonly TodoItem[],
-  mailboxes: readonly FollowupMailbox[],
+  mailboxes: readonly Pick<FollowupMailbox, "account" | "connection">[],
 ) {
   return tasks.flatMap((task) => {
     const item = task.mailFollowup;

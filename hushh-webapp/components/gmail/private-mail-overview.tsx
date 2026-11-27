@@ -16,6 +16,7 @@ import {
 import { PrivateMailStateService } from "@/lib/services/private-mail-state-service";
 import type { PrivateMailAccount } from "@/lib/services/private-google-connections";
 import { TodoListPkmService, type TodoWriteParams } from "@/lib/services/todo-list-pkm-service";
+import { mailboxTasks } from "@/lib/mail/mail-followup-model";
 import { useSettledMailTasks } from "./mail-followups-session-watch";
 import { MailActionButton as Button } from "./mail-action-button";
 
@@ -276,11 +277,18 @@ export function PrivateMailOverview({
   const changes = brief?.values.flatMap(({ mailbox, value }) =>
     value.updates.map((item) => ({ mailbox, ...item })))
     .sort((a, b) => (b.evidence.at(-1)?.on ?? "").localeCompare(a.evidence.at(-1)?.on ?? "")) ?? [];
-  const done = (completed ?? []).flatMap((task) => {
-    const item = task.mailFollowup;
-    if (task.status !== "done" || !item?.received) return [];
-    const mailbox = accounts.find((account) => account.accountId === item.account && account.credentialId === item.connection);
-    return mailbox ? [{ key: task.id, mailbox, source: item.received.source, title: task.title, reason: item.reason }] : [];
+  const scopedTasks = mailboxTasks(completed ?? [], accounts.map(selection));
+  const now = new Date();
+  const today = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-");
+  const due = scopedTasks.flatMap(({ task, item }) => {
+    if (task.status === "done" || !item.due_date || item.due_date > today) return [];
+    const mailbox = accounts.find((box) => box.accountId === item.account && box.credentialId === item.connection)!;
+    return [{ key: task.id, mailbox, source: item.source, title: task.title, reason: item.reason || item.fulfilment, date: item.due_date }];
+  }).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 5);
+  const done = scopedTasks.flatMap(({ task, item }) => {
+    if (task.status !== "done" || !item.received) return [];
+    const mailbox = accounts.find((box) => box.accountId === item.account && box.credentialId === item.connection)!;
+    return [{ key: task.id, mailbox, source: item.received.source, title: task.title, reason: item.reason }];
   }).slice(0, 5);
   const rows = recent?.values.flatMap(({ mailbox, value }) => value.map((row) => ({ mailbox, ...row }))) ?? [];
   if (!submitted) rows.sort((a, b) => (b.received_at ?? "").localeCompare(a.received_at ?? ""));
@@ -289,8 +297,12 @@ export function PrivateMailOverview({
   return (
     <div className="space-y-5" aria-label="Mail overview">
       <BriefSection title="Decisions">
-        {decisions.length ? (
+        {due.length || decisions.length ? (
           <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+            {due.map((item) => (
+              <OverviewCard key={item.key} title={item.title} reason={`Due ${item.date} · ${item.reason}`} mailbox={displayMailbox(item.mailbox)}
+                action="Review email" onOpen={() => setTarget(item)} />
+            ))}
             {decisions.slice(0, 8).map((item) => (
               <OverviewCard key={item.id} title={item.title} reason={item.reason} mailbox={displayMailbox(item.mailbox)}
                 action="Review email" onOpen={() => setTarget({ mailbox: item.mailbox, source: item.evidence[0]!.source_id, title: item.title, evidence: item.evidence })} />
@@ -356,6 +368,15 @@ export function PrivateMailTopics({ accounts, session }: { accounts: Mailbox[]; 
     const current = () => !controller.signal.aborted;
     const access = { userId, vaultKey, vaultOwnerToken, isCurrent: current, signal: controller.signal };
     setBatch(undefined);
+    let refreshed = false;
+    if (!attempt) {
+      void readMailboxes(accounts, async (mailbox) => {
+        const saved = await PrivateMailStateService.readCached(access, mailbox, "topics");
+        return privateTopicsSchema.parse(saved?.value);
+      }, controller.signal).then((cached) => {
+        if (current() && !refreshed && cached.values.length) setBatch({ ...cached, failed: 0 });
+      }).catch(() => {});
+    }
     void readMailboxes(accounts, async (mailbox) => {
       const stored = await PrivateMailStateService.read(access, mailbox, "topics");
       if (stored && !attempt) return privateTopicsSchema.parse(stored.value);
@@ -370,7 +391,7 @@ export function PrivateMailTopics({ accounts, session }: { accounts: Mailbox[]; 
       }
       return brief.topics;
     }, controller.signal)
-      .then((value) => { if (current()) setBatch(value); })
+      .then((value) => { refreshed = true; if (current()) setBatch(value); })
       .catch(() => {});
     return () => controller.abort();
   }, [accounts, attempt, userId, vaultKey, vaultOwnerToken]);

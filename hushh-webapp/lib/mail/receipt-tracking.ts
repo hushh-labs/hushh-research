@@ -303,6 +303,14 @@ async function resourceKey(account: string): Promise<{ key: string; binding: str
   return { key: TRACKING_PREFIX + binding, binding };
 }
 
+export async function readCachedTracking(session: ReceiptStoreSession, account: string, mailbox: PrivateReceiptMailbox) {
+  const { binding } = await resourceKey(account);
+  const saved = await PrivateMailStateService.readCached(session, mailbox, "tracking");
+  if (!saved) return null;
+  const doc = validateTrackingDoc(saved.value);
+  return doc.account_binding === binding ? doc : null;
+}
+
 export async function loadTracking(session: ReceiptStoreSession, account: string, privateMailbox?: PrivateReceiptMailbox): Promise<LoadedTracking> {
   const isCurrent = receiptStoreGuard(session);
   if (!isCurrent()) throw new DurableResourceError("authority_changed", "authority", "Unlock your vault to see tracked bills.");

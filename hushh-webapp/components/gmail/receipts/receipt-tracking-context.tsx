@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import {
-  type Ctx, type LoadedTracking, type ReceiptTrackingDoc, loadTracking, saveTracking,
+  type Ctx, type LoadedTracking, type ReceiptTrackingDoc, readCachedTracking, loadTracking, saveTracking,
 } from "@/lib/mail/receipt-tracking";
 import type { PrivateReceiptMailbox } from "@/lib/services/gmail-receipts-service";
 import { DurableResourceError } from "@/lib/services/durable-resource-error";
@@ -68,18 +68,27 @@ export function ReceiptTrackingProvider({
     if (!ready) { setStatus("idle"); setError(null); return; }
     setStatus("loading");
     setError(null);
+    let refreshed = false;
+    if (privateMailbox) {
+      void readCachedTracking(session(mine), accountKey!, privateMailbox).then((cached) => {
+        if (cached && !refreshed && generation.current === mine) setDoc(cached);
+      }).catch(() => {});
+    }
     void loadTracking(session(mine), accountKey!, privateMailbox)
       .then((result) => {
+        refreshed = true;
         if (generation.current !== mine) return;
         loaded.current = result;
         setDoc(result.doc);
         setStatus("ready");
       })
       .catch((failure: unknown) => {
+        refreshed = true;
         if (generation.current !== mine) return;
         setError(failure instanceof DurableResourceError && failure.code === "storage_unavailable"
           ? "Encrypted storage isn’t available in this browser, so tracked bills can’t be saved."
           : "Your tracked bills couldn’t be opened. Your saved receipts are unchanged.");
+        setDoc(null);
         setStatus("error");
       });
     const stopListening = subscribeDurableOwnerReset((owner) => { if (owner === userId) setAttempt((value) => value + 1); });
