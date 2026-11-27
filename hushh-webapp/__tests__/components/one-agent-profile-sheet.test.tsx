@@ -172,7 +172,7 @@ function onboardingAfter(...chips: ChatOnboardingChipId[]): ChatOnboardingState 
   }
   return state;
 }
-const PICKED = ["name_signin", "focus_email", "tone_casual"] as const;
+const PICKED = ["name_signin", "focus_email", "continue_after_focus", "tone_casual"] as const;
 const saveResult = (ok: boolean) =>
   reduceChatOnboarding(onboardingAfter(...PICKED, "save"), { type: "save_result", ok, anchor: null, today: "2026-10-16" }).state;
 const session = () => useChatOnboardingSession.getState();
