@@ -2388,6 +2388,63 @@ final class AppUITests: XCTestCase {
         print("NATIVE_NAVIGATION_CONTINUITY tabs_overlay_single_webview")
     }
 
+    func testLocalSessionAppearanceSwitchKeepsItsScreenAndUnlockedVault() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Opt-in switch on an existing unlocked iPhone")
+        }
+        let app = XCUIApplication()
+        guard app.state == .runningForeground || app.state == .runningBackground else {
+            XCTFail("An existing unlocked session is required"); return
+        }
+        app.activate()
+        let host = app.webViews.matching(identifier: "native-webview")
+        let web = host.firstMatch
+        let profile = app.buttons["Open Profile"].firstMatch
+        let appearance = app.buttons["native-profile-row-preferences"].firstMatch
+        let menu = app.descendants(matching: .any).matching(identifier: "native-profile-menu-scroll").firstMatch
+        let native = app.switches["native-profile-row-preferences-native-interface"].firstMatch
+        let standard = web.descendants(matching: .any).matching(NSPredicate(
+            format: "label == %@", "Experimental native interface")).firstMatch
+        func reveal(_ control: XCUIElement, in region: XCUIElement) -> Bool {
+            guard control.waitForExistence(timeout: 10) else { return false }
+            for _ in 0..<3 {
+                if control.isHittable && control.isEnabled && app.frame.insetBy(dx: 0, dy: 44).contains(
+                    CGPoint(x: control.frame.midX, y: control.frame.midY)) { return true }
+                region.swipeUp()
+            }
+            return control.exists && control.isHittable && control.isEnabled
+        }
+        guard waitForAdmittedControl(profile) else { XCTFail("Chat did not admit Profile"); return }
+        profile.tap()
+        guard reveal(appearance, in: menu) else { XCTFail("Profile did not admit Appearance"); return }
+        appearance.tap()
+        guard reveal(native, in: menu), native.value as? String == "1" else {
+            XCTFail("Native Appearance did not admit its enabled interface switch"); return
+        }
+        native.tap()
+        guard reveal(standard, in: web) else { XCTFail("Standard Appearance did not return after one switch tap"); return }
+        XCTAssertFalse(native.exists)
+        XCTAssertFalse(web.buttons["Unlock"].exists)
+        XCTAssertEqual(host.count, 1)
+        standard.tap()
+        guard reveal(native, in: menu), native.value as? String == "1" else {
+            XCTFail("Native Appearance did not return after one switch tap"); return
+        }
+        XCTAssertFalse(standard.exists && standard.isHittable)
+        XCTAssertFalse(web.buttons["Unlock"].exists)
+        // UIKit isolates the covered WebView from accessibility while this drawer owns focus.
+        let back = nativeProfileBack(app, parent: "Profile")
+        guard waitForAdmittedControl(back) else { XCTFail("Appearance lost its authored Back"); return }
+        back.tap()
+        guard reveal(appearance, in: menu) else { XCTFail("Back did not restore the Profile menu"); return }
+        let close = app.buttons["native-profile-drawer-close"].firstMatch
+        guard waitForAdmittedControl(close) else { XCTFail("Profile close was unavailable"); return }
+        close.tap()
+        XCTAssertTrue(waitForAdmittedControl(app.buttons["chat-history-toggle"].firstMatch))
+        XCTAssertEqual(host.count, 1, "Dismissing Profile must restore one original WebView")
+        XCTAssertFalse(web.buttons["Unlock"].exists)
+    }
+
     func testLocalSessionNativeBottomChromeFollowsTheSharedScrollOwner() throws {
         guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
             throw XCTSkip("Opt-in warm native scroll regression")

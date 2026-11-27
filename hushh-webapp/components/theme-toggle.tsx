@@ -196,7 +196,7 @@ export function ThemeToggleLean({
         onValueChange={value => selectTheme(value as ThemeOption)}
         selectedButtonRef={selectedRef}
         options={THEME_OPTIONS.map(option => ({ ...option, accessibleLabel: option.label }))}
-        labelClassName={resolvedShowLabels ? "hidden text-xs font-medium leading-none sm:inline" : "sr-only"}
+        labelClassName={resolvedShowLabels ? cn("text-xs font-medium leading-none", showLabels === true ? "inline" : "hidden sm:inline") : "sr-only"}
         className="w-full" />
     </div>
   );

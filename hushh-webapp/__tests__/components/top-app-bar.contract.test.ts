@@ -108,19 +108,18 @@ describe("Top app bar responsive contract", () => {
     expect(source).not.toContain(
       '"pointer-events-none relative flex h-full w-full flex-col justify-end"',
     );
-    expect(providers).toContain("<AppTopShell model={topShellModel} />");
     expect(providers).toContain(
       "Keep persistent top chrome outside the route Suspense",
     );
-    expect(
-      providers.match(/<AppTopShell model=\{topShellModel\} \/>/g),
-    ).toHaveLength(1);
-    const topShellMount = providers.indexOf(
-      "<AppTopShell model={topShellModel} />",
-    );
-    expect(topShellMount).toBeLessThan(
-      providers.indexOf("<Suspense", topShellMount),
-    );
+    const mounts = [...providers.matchAll(/<AppTopShell\b[^>]*\/>/g)];
+    expect(mounts).toHaveLength(1);
+    const [mount] = mounts;
+    expect(mount[0]).toContain("model={topShellModel}");
+    expect(mount[0]).toContain("key={interfaceRevision}");
+    const shellRoot = providers.indexOf('data-app-shell-root="true"');
+    expect(shellRoot).toBeGreaterThan(-1);
+    expect(mount.index).toBeGreaterThan(shellRoot);
+    expect(mount.index).toBeLessThan(providers.indexOf("<Suspense", shellRoot));
     expect(providers).not.toContain("KaiCommandBarGlobal");
     expect(providers).toContain("const topShellScrollResetKey =");
     expect(providers).toContain("topShellModel.tabs.activeValue");

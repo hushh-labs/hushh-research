@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { useNativeWorkspaceEvent } from "@/lib/capacitor/use-native-workspace-handoff";
 
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
@@ -19,6 +20,7 @@ type EmailPresentation = {
 
 /** Presentation only; the existing connector store owns connection status. */
 export function NativeEmailWorkspace(props: EmailPresentation) {
+  useInterfaceRevision();
   if (!customNativePresentationEnabled()) return props.fallback;
   return <EmailPresentationOwner {...props} />;
 }

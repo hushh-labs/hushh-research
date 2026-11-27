@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -60,6 +61,7 @@ export function GoalsWorkspace() {
 }
 
 function OwnerGoalsWorkspace({ credentials }: { credentials: TodoWriteParams }) {
+  useInterfaceRevision();
   const router = useRouter();
   const frame = useRef<HTMLDivElement>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);

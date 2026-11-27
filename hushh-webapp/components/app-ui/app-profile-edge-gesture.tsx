@@ -1,5 +1,6 @@
 "use client";
 
+import { useInterfaceRevision } from "@/lib/capacitor/native-interface-revision";
 import { useEffect } from "react";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { ChevronLeft } from "@/components/icons";
@@ -104,6 +105,7 @@ function consume(event: Event) {
  * a carousel, pager, input, or the app-owned extreme-left back gesture.
  */
 export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
+  const interfaceRevision = useInterfaceRevision();
   const pathname = usePathname() || "/";
 
   useEffect(() => {
@@ -154,7 +156,7 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
         reset();
         return;
       }
-      if (gesture.axis !== "horizontal") return;
+      if (gesture.axis !== "horizontal" || (gesture.link && horizontal < COMMIT_DISTANCE_PX)) return;
 
       consume(event);
       previewProfilePane({ phase: "drag", distance: Math.abs(deltaX) });
@@ -188,9 +190,9 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
         deltaX < 0 &&
         horizontal > vertical * DIRECTION_RATIO &&
         (horizontal >= COMMIT_DISTANCE_PX ||
-          velocity >= COMMIT_VELOCITY_PX_PER_MS);
+          (!current.link && velocity >= COMMIT_VELOCITY_PX_PER_MS));
 
-      if (current.axis === "horizontal") consume(event);
+      if (current.axis === "horizontal" && (!current.link || shouldOpen)) consume(event);
       gesture = null;
       setIndicator(root, { active: false });
       previewProfilePane({ phase: shouldOpen ? "commit" : "cancel", distance: horizontal });
@@ -350,7 +352,7 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
       root.style.removeProperty("--app-profile-edge-y");
       root.style.removeProperty("--app-profile-edge-opacity");
     };
-  }, [enabled, pathname]);
+  }, [enabled, pathname, interfaceRevision]);
 
   return (
     <div
